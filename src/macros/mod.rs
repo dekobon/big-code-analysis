@@ -48,7 +48,7 @@ macro_rules! implement_metric_trait {
     );
     // Internal helper: shared no-op body for traits whose `compute`
     // signature is `<'a>(&Node<'a>, &'a [u8], Ancestors<'a, '_>,
-    // &mut Stats)` (Abc, Cyclomatic). Public arms below delegate here
+    // &mut Stats)` (Abc, Cyclomatic, Exit). Public arms below delegate here
     // so the body is written once. `Npa` and `Npm` share the signature
     // but need `HAS_MEMBERS = false` as well, so they route through
     // `@code_and_chain_taking_memberless` instead — reaching for this
@@ -66,14 +66,8 @@ macro_rules! implement_metric_trait {
            }
         )+
     );
-    // `Exit` is the one metric whose `compute` still takes no ancestor
-    // chain: no language's exit rule asks what encloses the node.
     (Exit, $($code:ident),+) => (
-        $(
-           impl Exit for $code {
-               fn compute<'a>(_node: &Node<'a>, _code: &'a [u8], _stats: &mut Stats) {}
-           }
-        )+
+        implement_metric_trait!(@code_and_chain_taking Exit, $($code),+);
     );
     (Cyclomatic, $($code:ident),+) => (
         implement_metric_trait!(@code_and_chain_taking Cyclomatic, $($code),+);

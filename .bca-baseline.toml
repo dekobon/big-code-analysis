@@ -1179,7 +1179,7 @@ value = 5.0
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 metric = "halstead.effort"
-value = 63645.7536117776
+value = 64334.51855807396
 
 [[entry]]
 path = "src/spaces/compute.rs"

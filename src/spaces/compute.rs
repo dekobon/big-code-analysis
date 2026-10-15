@@ -428,7 +428,7 @@ fn compute_per_node<'a, T: MetricSuite>(
         T::NArgs::compute(node, code, ancestors, &mut last.metrics.nargs);
     }
     if selected.contains(Metric::Nexits) {
-        T::Exit::compute(node, code, &mut last.metrics.nexits);
+        T::Exit::compute(node, code, ancestors, &mut last.metrics.nexits);
     }
     if selected.contains(Metric::Abc) {
         T::Abc::compute(node, code, ancestors, &mut last.metrics.abc);

@@ -20,6 +20,7 @@
 use std::fmt;
 
 use crate::checker::Checker;
+use crate::lang_helpers::perl::perl_bareword_is_key;
 use crate::macros::implement_metric_trait;
 use crate::*;
 
@@ -136,7 +137,16 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
+    ///
+    /// `ancestors` is `node`'s chain as the metric walk recorded it,
+    /// sibling cache included; Perl reads it to tell an auto-quoted
+    /// `die =>` key from the builtin (#1585).
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    );
 }
 
 // Bumps `stats.exit` whenever the current node matches any of the
@@ -145,7 +155,12 @@ where
 macro_rules! impl_exit_match_kinds {
     ($code:ty, $lang:ident, [$($kind:ident),+ $(,)?]) => {
         impl Exit for $code {
-            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            fn compute<'a>(
+                node: &Node<'a>,
+                _code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
                 if matches!(node.kind_id().into(), $($lang::$kind)|+) {
                     stats.exit += 1;
                 }
@@ -229,7 +244,12 @@ impl_exit_match_kinds!(
 );
 
 impl Exit for RustCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Count only explicit `return` and `?` (TryExpression). The
         // implicit final-expression path is NOT an exit — peer-language
         // impls have the same convention. See #243 for the prior bug
@@ -245,7 +265,12 @@ impl Exit for RustCode {
 }
 
 impl Exit for CsharpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if matches!(
             node.kind_id().into(),
             Csharp::ReturnStatement
@@ -267,7 +292,12 @@ impl Exit for GoCode {
     // `selector_expression`) means a package-qualified call like
     // `foo.panic()` — a user function, not the built-in — is not counted,
     // mirroring how Bash matches the bare builtin command name.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if matches!(node.kind_id().into(), Go::ReturnStatement) {
             stats.exit += 1;
         } else if node.kind_id() == Go::CallExpression
@@ -307,19 +337,23 @@ impl Exit for PerlCode {
     //   plain `identifier`, never a bareword, so a user method named
     //   `die` is not counted.
     //
-    // Known artifact: a fat-comma hash key auto-quotes its bareword in
-    // Perl, but the grammar still emits `call_expression_with_bareword`
-    // for it, so `(die => 1)` counts as an exit. Gating on the `=>`
-    // that follows would need a forward sibling lookup from inside the
-    // metric walk, which #1096 took out of these bodies; the same node
-    // already counts as an ABC branch (`src/metrics/abc/perl.rs`), so
-    // the artifact is accepted rather than paid for here.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    // - An auto-quoted key (`(die => 1)`) is a string, though the
+    //   grammar parses it as a bareword call (#1571 upstream). ABC and
+    //   `find --type call` skip it, and so does this (#1585). The text
+    //   test runs first: the key test reads a sibling, which the walk's
+    //   `SiblingCache` keeps linear under a flat `ERROR`.
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         let is_abrupt_exit_builtin = node.kind_id() == Perl::CallExpressionWithBareword
             && matches!(
                 node.utf8_text(code),
                 Some("die" | "exit" | "CORE::die" | "CORE::exit")
-            );
+            )
+            && !perl_bareword_is_key(node, ancestors);
         if node.kind_id() == Perl::ReturnExpression || is_abrupt_exit_builtin {
             stats.exit += 1;
         }
@@ -327,7 +361,12 @@ impl Exit for PerlCode {
 }
 
 impl Exit for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if matches!(
             node.kind_id().into(),
             Kotlin::ReturnExpression | Kotlin::ThrowExpression
@@ -346,7 +385,12 @@ impl Exit for LuaCode {
     // `os.exit`. Count them as exits alongside `return`. Matching the exact
     // callee text means a user call such as `foo()` or `myError()` is not
     // counted, mirroring how Bash/Elixir match the bare builtin name.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if node.kind_id() == Lua::ReturnStatement {
             stats.exit += 1;
         } else if node.kind_id() == Lua::FunctionCall
@@ -359,7 +403,12 @@ impl Exit for LuaCode {
 }
 
 impl Exit for BashCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Bash has no `return_statement` node: `return` and `exit` are
         // ordinary builtins parsed as `Bash::Command` whose `name` field
         // points at a `Bash::CommandName`. Identify them by comparing the
@@ -374,7 +423,12 @@ impl Exit for BashCode {
 }
 
 impl Exit for TclCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Tcl has no return keyword node; `return` is a generic Command whose
         // name field is a simple_word with text "return" — the same
         // leading-word resolution the Cognitive / Cyclomatic `switch` and
@@ -399,7 +453,12 @@ impl Exit for TclCode {
 }
 
 impl Exit for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Like Tcl, iRules has no `return` keyword node — `return` is a
         // generic Command (it is not among the grammar's `_builtin`
         // commands). The bare name word can surface as either `simple_word`
@@ -441,7 +500,12 @@ impl Exit for PhpCode {
     // text — brittle and likely to false-match user-defined `die`
     // functions. Modern PHP idiom favors `throw new Exception()` over
     // `die`, so leaving this asymmetric is acceptable.
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if matches!(
             node.kind_id().into(),
             Php::ReturnStatement | Php::YieldExpression | Php::ThrowExpression | Php::ExitStatement
@@ -492,7 +556,12 @@ impl Exit for RubyCode {
     // The callee is inspected before the receiver: every call has a
     // `method`, and the text test rejects nearly all of them, so the
     // receiver lookup runs only for the handful that spell a builtin.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if matches!(node.kind_id().into(), Ruby::Return | Ruby::Return2) {
             stats.exit += 1;
         } else if Self::is_call(node)
@@ -514,7 +583,12 @@ impl Exit for ElixirCode {
     // `raise`, `reraise`, or `exit`, all of which surface as `Call`
     // nodes whose target is an `Identifier` whose text spells the
     // keyword. Mirrors the Bash/Tcl pattern of comparing target text.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if node.kind_id() == Elixir::Call
             && let Some(target) = node.child_by_field_name("target")
             && target.kind_id() == Elixir::Identifier
@@ -1600,6 +1674,105 @@ mod tests {
                 assert_eq!(metric.nexits.nexits_sum(), 0);
             },
         );
+    }
+
+    /// The root space's `nexits` sum for the Perl file `source`.
+    #[cfg(feature = "perl")]
+    fn perl_nexits(source: &str) -> u64 {
+        let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
+        ast.metrics(MetricsOptions::default())
+            .expect("metrics yields a root space")
+            .metrics
+            .nexits
+            .nexits_sum()
+    }
+
+    /// Each auto-quoted `die` / `exit` key scores exactly as its quoted
+    /// twin does (#1585). tree-sitter-perl reads `die` before `=>` as a
+    /// bareword call (#1571 upstream), so the `=>` rows each counted one
+    /// exit per key before the fix: the first row read 3. The subscript
+    /// and dash rows never parse to a `die` / `exit` bareword at all
+    /// (`$h{die}` is an `identifier`, `-exit` a file test on `xit`); they
+    /// pin that the gate keeps them at the twin's reading. `- die =>`
+    /// negates the quoted string, and a newline before the `=>` does not
+    /// stop it quoting.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_exit_key_scores_like_its_quoted_twin() {
+        let rows: [(&str, u64); 9] = [
+            (
+                "sub f { my %h = ('exit' => 1, 'die' => 2); return 1; }\n",
+                1,
+            ),
+            ("sub f { my %h = (- 'die' => 1); return 1; }\n", 1),
+            ("sub f { my %h = ('exit'\n => 1); return 1; }\n", 1),
+            (
+                "sub f { my $r = { 'die' => 1, 'exit' => 2 }; return $r; }\n",
+                1,
+            ),
+            ("sub f { g('exit' => 1); return; }\n", 1),
+            (
+                "sub f { my %h = ('-die' => 1, '-exit' => 2); return 1; }\n",
+                1,
+            ),
+            ("sub f { my $v = $h{'die'}; return $v; }\n", 1),
+            ("sub f { my $v = $h{'-exit'}; return $v; }\n", 1),
+            ("sub f { my %h = ('exit' => 1); exit 2; }\n", 1),
+        ];
+        for (twin, want) in rows {
+            let key = twin.replace('\'', "");
+            assert_eq!(perl_nexits(twin), want, "`{twin}` moved; re-derive the row");
+            assert_eq!(perl_nexits(&key), want, "`{key}` must score like `{twin}`");
+        }
+    }
+
+    /// A `die` / `exit` that is no auto-quoted key keeps its exit: every
+    /// call spelling, a call inside a subscript, a call before `=>`
+    /// (`die()` takes arguments, so `=>` does not quote it), a value
+    /// after `=>`, and the `CORE::` spelling, which `=>` does not quote
+    /// either since `::` is no word character. Every value is `main`'s,
+    /// measured before #1585.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_exit_outside_a_key_keeps_its_exit() {
+        let rows: [(&str, u64); 9] = [
+            ("sub f { die \"x\"; }\n", 1),
+            ("sub f { exit 1; }\n", 1),
+            ("sub f { exit; }\n", 1),
+            ("sub f { open(my $fh, '<', 'p') or die \"x\"; }\n", 1),
+            ("sub f { my $v = $h{die()}; }\n", 1),
+            ("sub f { my $v = $h{exit()}; }\n", 1),
+            ("sub f { my %h = (die() => 1); }\n", 1),
+            ("sub f { my %h = (x => die); }\n", 1),
+            ("sub f { my %h = (CORE::die => 1); }\n", 1),
+        ];
+        for (source, want) in rows {
+            assert_eq!(perl_nexits(source), want, "`{source}` changed its reading");
+        }
+    }
+
+    /// A file whose tail fails to parse leaves every key and call in it a
+    /// direct child of one flat `ERROR` root. The key test reads the
+    /// token after each `die`, which the metric walk's `SiblingCache`
+    /// answers (#1584); a walk that lent the cache without recording the
+    /// `ERROR` would trip the debug assertion in that lookup. The reading
+    /// is the twelve `exit` calls, as the quoted twin's is.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_exit_key_in_a_flat_error_scores_like_its_twin() {
+        // Past `WIDE_PARENT` in `big-code-analysis-ast/src/node/ancestors.rs`,
+        // the width from which a walk records a node's children.
+        const RECORDED_WIDTH: usize = 64;
+        let key = format!("my @r = ({}", "{\ndie => 1,\nexit,\n".repeat(12));
+        let twin = key.replace("die =>", "'die' =>");
+        let ast = Ast::parse(Source::new(LANG::Perl, key.as_bytes())).expect("perl is enabled");
+        let root = ast.as_tree_sitter().root_node();
+        assert!(
+            root.is_error() && root.child_count() > RECORDED_WIDTH,
+            "the fixture must parse to a wide flat ERROR root"
+        );
+        assert_eq!(perl_nexits(&twin), 12);
+        assert_eq!(perl_nexits(&key), 12);
     }
 
     #[cfg(feature = "typescript")]
