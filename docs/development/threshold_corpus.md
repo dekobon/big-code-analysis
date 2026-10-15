@@ -15,9 +15,13 @@ exclusions, so it is comparable to #1140's, but it is not the same set of reposi
 
 ## Method
 
-- Measured 2026-10-10 with a release `bca` built from `fix/batch-2026-10-10` at `18c28cac`, with
-  every vocabulary change applied. The same corpus was also measured with the `v2.3.0` release, which
-  predates all of them, to separate the metric change from the corpus change.
+- Measured 2026-10-10 with a release `bca` built from `fix/batch-2026-10-10` at `18c28cac`. The C,
+  C++, and Objective-C rows were re-measured on 2026-10-15 at `d361bc32`, the full branch, because
+  three later changes bill more C-family declaration modifiers: #1578 (C, C++, Mozcpp), #1579
+  (Objective-C), and `__volatile__`. No other language's vocabulary changed after `18c28cac`, and the
+  C#, Elixir, Perl, and Ruby rows reproduce exactly at `d361bc32`. The same corpus was also measured
+  with the `v2.3.0` release, which predates all of these changes, to separate the metric change from
+  the corpus change.
 - Each repository was cloned with `git clone --depth 1` at its default branch.
 - `bca metrics --no-config -O json -p <repo>` ran once per repository. The `-I` globs restricted it to
   the language's own extensions: `*.sh` (Bash-it also `*.bash`), `*.c`, `*.cpp *.cc *.h *.hpp`, `*.cs`,
@@ -46,9 +50,9 @@ exclusions, so it is comparable to #1140's, but it is not the same set of reposi
 | Language | Functions | p50 | p90 | p97.5 | % > 50,000 | p97.5 at v2.3.0 | % > 50,000 at v2.3.0 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Bash | 1,803 | 803 | 8,699 | 44,195 | 2.1 | 44,195 | 2.1 |
-| C | 6,361 | 5,582 | 60,359 | 182,534 | 11.8 | 173,763 | 11.3 |
+| C | 6,361 | 6,049 | 63,982 | 190,936 | 12.5 | 173,763 | 11.3 |
 | C# | 6,214 | 375 | 6,914 | 43,715 | 2.3 | 43,957 | 2.3 |
-| C++ | 2,491 | 600 | 12,005 | 49,665 | 2.5 | 49,790 | 2.4 |
+| C++ | 2,491 | 708 | 13,327 | 53,558 | 2.8 | 49,790 | 2.4 |
 | Elixir | 4,535 | 460 | 4,398 | 15,121 | 0.4 | 15,121 | 0.4 |
 | Go | 9,454 | 1,310 | 21,802 | 89,276 | 4.7 | 89,276 | 4.7 |
 | Groovy | 12,529 | 221 | 5,275 | 25,353 | 1.4 | 23,038 | 1.3 |
@@ -56,7 +60,7 @@ exclusions, so it is comparable to #1140's, but it is not the same set of reposi
 | JavaScript | 31,030 | 1,191 | 32,475 | 174,060 | 7.2 | 174,108 | 7.3 |
 | Kotlin | 6,682 | 428 | 4,945 | 18,334 | 0.6 | 17,413 | 0.6 |
 | Lua | 4,562 | 2,673 | 27,416 | 81,544 | 5.1 | 81,544 | 5.1 |
-| Objective-C | 1,209 | 1,215 | 15,441 | 72,897 | 4.1 | 75,726 | 4.1 |
+| Objective-C | 1,209 | 1,351 | 16,764 | 76,893 | 4.4 | 75,726 | 4.1 |
 | Perl | 1,760 | 640 | 12,537 | 41,205 | 2.0 | 43,862 | 2.2 |
 | PHP | 20,296 | 625 | 6,857 | 26,333 | 1.2 | 26,333 | 1.2 |
 | Python | 10,264 | 1,030 | 10,904 | 41,983 | 2.0 | 28,535 | 1.2 |
@@ -68,7 +72,9 @@ exclusions, so it is comparable to #1140's, but it is not the same set of reposi
 
 At the shipped limit of 50,000, the median language flags 2.20% of its functions, inside the 1–3%
 band the sizing rule asks for, so the default stands. Candidate limits for comparison: 40,000 gives
-2.78% and 60,000 gives 1.76%. The `v2.3.0` binary gives 2.23% on the same corpus. The vocabulary
+2.78% and 60,000 gives 1.76%. The C-family re-measure moved none of these three figures,
+because C, C++, and Objective-C rank above the middle pair at every limit before and after it.
+The `v2.3.0` binary gives 2.23% on the same corpus. The vocabulary
 changes therefore barely moved the default's footing. Their largest per-language effect is Python
 (p97.5 28,535 → 41,983), followed by Java (+17%) and Groovy (+10%). Bash, Elixir, Go, Lua, PHP, and
 Ruby did not move at all, and Tcl moved by under 0.1%.

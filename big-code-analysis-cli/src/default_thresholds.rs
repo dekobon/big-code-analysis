@@ -107,7 +107,7 @@ pub(crate) const DEFAULT_THRESHOLDS: &[DefaultThreshold] = &[
             "No published threshold exists for effort, so this one is purely",
             "percentile-derived: it fires on ~2% of functions in the median",
             "language. It is also the most language-dependent limit in the",
-            "table — per-language p90 effort ranges from 3k (Ruby) to 60k",
+            "table — per-language p90 effort ranges from 3k (Ruby) to 64k",
             "(C) — so it is the first one worth overriding per language.",
         ],
     },

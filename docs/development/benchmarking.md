@@ -148,7 +148,6 @@ Read it as follows.
 | `cyclomatic/nested-and` | Python | depth | shape control for the row below | linear |
 | `cyclomatic/nested-ternary` | Python | depth | `Node::parent_grandparent_match` (#1096) | linear |
 | `loc/nested-quote` | Elixir | depth | `loc`'s Elixir catch-all arm (#1096) | linear |
-| `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
 | `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
@@ -161,6 +160,7 @@ Read it as follows.
 | `halstead/kotlin-short-interpolations` | Kotlin | width | the `$name` test's previous-token lookup in one string (#1584) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
+| `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |

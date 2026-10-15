@@ -2116,9 +2116,9 @@ that look interchangeable can put the `;` at different indices, and an
 empty-slot regression test written against the wrong one passes
 vacuously under the old code. The same rule holds upward: a fixed-depth
 parent climb (`up.nth(2)`) is positional addressing of an ancestor.
-Climb by role, stepping over an optional wrapper, and verify the
-identity top-down — that the node reached is the one the construct's
-own accessor returns.
+Climb by role, stepping over at most one optional wrapper, and verify
+the position from the siblings along the chain you climbed rather than
+by re-reading the construct from its front.
 
 Each language's grammar makes a different choice about which slots are
 optional, so the bug is per-language and per-statement-kind, not
@@ -2161,9 +2161,10 @@ between `keywords` and `arguments`, so the climb from a pair landed on
 `with` lost its modified-cyclomatic `else` tier, `for … reduce:` scored
 its accumulator head as a decision, `cond` lost its free `true ->`, and
 keyword-form `if` / `unless` lost ABC's `else` condition. The fix climbs
-by role over the optional `list` and accepts the node only when
-`elixir_trailing_keywords` returns the same pair from the top — which is
-also what rejects a non-trailing or nested list.
+by role over at most one bracketing `list` and decides from the chain's
+siblings: no operand may follow the argument, and in a bracketed list no
+operand may precede `keywords`. That is also what rejects a non-trailing
+or nested list.
 
 ---
 

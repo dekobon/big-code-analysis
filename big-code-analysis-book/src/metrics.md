@@ -737,96 +737,108 @@ tokens involved the same way they spell real operators:
   slice, dict and annotation `:`, and Rust's annotation, field, bound
   and label `:`, which is a separate operator from `::`. Both languages
   left these out until #1486, so their Halstead scores rose with it.
-  Python's `class` keyword followed in #1550: it is now billed like
-  `def`, as Ruby, Kotlin, C# and PHP bill their `class`. Java, Groovy,
-  the JavaScript family, C, C++ and Objective-C followed in #1552 with
-  their type-declaration keywords: `class`, `struct`, `union`, `enum`,
-  `interface`, `record`, `trait`, `@interface`, `@implementation` and
-  `@protocol`. The `class` tail of Java's `C.class` is an operand, not
-  this keyword (#1566, below).
-  Kotlin's `interface` followed in #1556, and since #1558 Kotlin bills
-  every modifier, as C# does: the `enum` of
-  `enum class`, `data`, `sealed`, the visibility keywords, `open`,
-  `override`, `suspend`, `reified`, `out` and the rest each count once,
-  as the keyword and never as its `modifiers` wrapper. The same words
-  used as names bill no operator: where the grammar parses the name
-  (`val open = 1`) it is an operand, and where it cannot (`open = !open`
-  at the start of a statement, `val suspend = 1`, a parameter named
-  `vararg`) the word bills nothing. #1557 added C++'s `namespace`, `template`, `typename`,
-  `typedef` and `using` (C and Objective-C bill `typedef` too), so
-  `template <class T>` and `template <typename T>` each bill their
-  keyword and score alike. It also added TypeScript's `type`,
-  `namespace`, `module`, `declare` and `global`, and made every
-  TypeScript type name an operand (`x: Foo`, `interface I`,
-  `Map<K, V>`), as C#, Rust and the C family already did. Java followed
-  in #1560: `Foo f`, `implements I`, `List<Foo>` and each segment of
-  `java.util.List` bill their names as operands. The inferred type
-  `var` does not, as C# bills nothing for its own. Since #1566 a Java
-  class literal bills its parts rather than one operand spelled by its
-  whole text, since
+- **A declaration keyword is an operator.** Python's `class` is billed
+  like `def` since #1550, as Ruby, Kotlin, C# and PHP bill their
+  `class`. Java, Groovy, the JavaScript family, C, C++ and Objective-C
+  followed in #1552 with their type-declaration keywords: `class`,
+  `struct`, `union`, `enum`, `interface`, `record`, `trait`,
+  `@interface`, `@implementation` and `@protocol`. The `class` tail of
+  Java's `C.class` is an operand, not this keyword (see the class
+  literal below). Kotlin's `interface` followed in #1556. #1557 added
+  C++'s `namespace`, `template`, `typename`, `typedef` and `using` (C
+  and Objective-C bill `typedef` too), so `template <class T>` and
+  `template <typename T>` each bill their keyword and score alike. It
+  also added TypeScript's `type`, `namespace`, `module`, `declare` and
+  `global`. #1561 made TypeScript's type-level operator keywords
+  operators, as their value-level siblings `as`, `typeof` and `extends`
+  already were: `satisfies`, `keyof`, `infer`, and the `is` and
+  `asserts` of a type predicate. #1564 made Kotlin's `typealias`,
+  `init`, `where`, `by`, `get` and `set` operators, as C# bills its
+  `get`, `set`, `init` and `where`. The `@get:` and `@set:` annotation
+  targets bill nothing, like `@field:`. The backing `field` in an
+  accessor is an operand, and the words used as names (`val by = 1`,
+  `x.get(i)`) stay operands.
+- **A declaration modifier is an operator, keyed by its keyword and
+  never its wrapper node.** C#, Kotlin, Java, Groovy, TypeScript and
+  TSX, C, C++, Mozcpp and Objective-C bill every modifier once, as the
+  keyword and never as the node that wraps it: Kotlin's and Java's
+  `modifiers`, TypeScript's `accessibility_modifier` and
+  `override_modifier`, and the C family's `storage_class_specifier`,
+  `type_qualifier` and `virtual_specifier`. So the `const` of
+  `void f() const` and of `int * const p` each bill once. C# already
+  did; the others followed in #1558 (Kotlin), #1563 (TypeScript), #1565
+  (Java and Groovy), #1578 (C, C++ and Mozcpp) and #1579
+  (Objective-C). The exceptions:
+  - The same word used as a name stays an operand (`val open = 1`,
+    `let readonly = 1`, `obj.static`, `var sealed = 1`,
+    `int override = 1;`). Where Kotlin's grammar cannot parse the name
+    (`open = !open` at the start of a statement, `val suspend = 1`, a
+    parameter named `vararg`), the word bills nothing.
+  - The `static` of `import static` and `requires static` bills
+    nothing, as `import` does not.
+  - C++'s `auto` is a placeholder type and stays unbilled. Attributes,
+    the MS calling conventions, the Gecko `MOZ_*` macros and the Apple
+    SDK macros (`NS_INLINE`, `FOUNDATION_EXPORT`, `IBOutlet`) bill
+    nothing.
+
+  The words each language bills:
+
+  - Kotlin: the `enum` of `enum class`, `data`, `sealed`, the
+    visibility keywords, `open`, `override`, `suspend`, `reified`,
+    `out` and the rest.
+  - TypeScript and TSX: the member modifiers `public`, `private`,
+    `protected`, `override`, `readonly`, `abstract`, `accessor` and
+    `static`. JavaScript and Mozjs bill `static` too. Their grammars
+    lex `static get` followed by a newline as one `static get` token,
+    which bills as one operator, so that spelling scores one entry
+    where `static get y()` on one line bills `static` and `get`.
+  - Java and Groovy: the visibility keywords, `static`, `native`,
+    `strictfp`, `volatile`, `sealed` and `non-sealed`, where before
+    #1565 they billed only `abstract`, `final`, `transient`,
+    `synchronized` and `default`; plus the `permits` clause keyword
+    beside `extends` and `implements`.
+  - C, C++ and Mozcpp: every storage class, function specifier and
+    type qualifier: `static`, `extern`, `register`, `inline`,
+    `thread_local`, `const`, `volatile`, `restrict`, `_Atomic`,
+    `constexpr`, `alignas` and their vendor spellings (`__inline`,
+    `__forceinline`, `__restrict__`, `__thread`, `__volatile__`,
+    `__extension__`, …), plus C++'s `virtual`, `mutable`, `constinit`,
+    `consteval`, `explicit`, `friend`, the access labels, `override`,
+    `final` and `noexcept`. C bills its storage class `auto`.
+    `extern "C"` bills `extern` and keeps `"C"` an operand.
+  - Objective-C: C's list, plus the `@public`, `@private`, `@protected`
+    and `@package` ivar labels, the `@optional` and `@required`
+    protocol sections, the ownership qualifiers (`__weak`, `__strong`,
+    `__block`, …), the nullability qualifiers (`nullable`,
+    `_Nullable`, `__nullable`, …), `__kindof`, the `__covariant` and
+    `__contravariant` variance, and the `in`, `out`, `inout`, `bycopy`,
+    `byref` and `oneway` method-type qualifiers. A property attribute
+    (`nonatomic`, `copy`, `getter`) bills as its word; a `getter=` or
+    `setter=` value stays an operand.
+- **A type name is an operand.** #1557 made every TypeScript type name
+  an operand (`x: Foo`, `interface I`, `Map<K, V>`), as C#, Rust and
+  the C family already did. Java followed in #1560: `Foo f`,
+  `implements I`, `List<Foo>` and each segment of `java.util.List`
+  bill their names as operands. The inferred type `var` does not, as
+  C# bills nothing for its own. Java's primitive types are operators
+  everywhere. Groovy, whose grammar parses a primitive type as a name,
+  bills it the same way since #1568: `int`, `boolean`, `void` and the
+  other primitives are operators keyed by their spelling, as a
+  declared type and as a class literal's receiver. Groovy reserves
+  these words, and they bill as operators; in the positions Groovy
+  nonetheless allows them as names (`x.int`, `[int: 1]`), they stay
+  operands. Java's `boolean` is listed as `boolean` rather than its
+  node kind `boolean_type`, so both languages report it alike.
+- **A class literal bills its parts.** Since #1566 a Java class
+  literal bills its parts rather than one operand spelled by its whole
+  text, since
   [JLS §15.8.2](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.8.2)
-  defines it as an expression rather than
-  a literal: in `java.util.List.class` and `Foo[].class` each name and
-  the `class` tail are operands and each `.` and `[]` an operator, as
-  Groovy's `Foo.class` and Kotlin's and PHP's `Foo::class` bill theirs.
-  The `int` of `int.class` and the `void` of `void.class` stay
-  operators, as Java bills them everywhere. Groovy, whose grammar
-  parses a primitive type as a name, bills it the same way since
-  #1568: `int`, `boolean`, `void` and the other primitives are
-  operators keyed by their spelling, as a declared type and as a class
-  literal's receiver. Groovy reserves these words, so as a member name
-  or a label (`x.int`, `[int: 1]`) they stay operands. Java's
-  `boolean` is listed as `boolean` rather than its node kind
-  `boolean_type`, so both languages report it alike. #1561 made
-  TypeScript's type-level operator keywords operators, as their
-  value-level siblings `as`, `typeof` and `extends` already were:
-  `satisfies`, `keyof`, `infer`, and the `is` and `asserts` of a type
-  predicate. #1563 made TypeScript's member modifiers operators, as C#
-  and Kotlin bill theirs: `public`, `private`, `protected`, `override`,
-  `readonly`, `abstract`, `accessor` and `static`, each the keyword and
-  never its `accessibility_modifier` or `override_modifier` wrapper.
-  JavaScript and Mozjs bill `static` too. Their grammars lex
-  `static get` followed by a newline as one `static get` token, which
-  bills as one operator, so that spelling scores one entry where
-  `static get y()` on one line bills `static` and `get`. The same words used as names
-  (`let readonly = 1`, `obj.static`) stay operands. #1564 made Kotlin's
-  `typealias`, `init`, `where`, `by`, `get` and `set` operators, as C#
-  bills its `get`, `set`, `init` and `where`. The `@get:` and `@set:`
-  annotation targets bill nothing, like `@field:`. The backing `field`
-  in an accessor is an operand, and the words used as names
-  (`val by = 1`, `x.get(i)`) stay operands. #1565 made Java and Groovy bill every
-  modifier, where they had billed only `abstract`, `final`, `transient`,
-  `synchronized` and `default`: the visibility keywords, `static`,
-  `native`, `strictfp`, `volatile`, `sealed` and `non-sealed`, plus the
-  `permits` clause keyword beside `extends` and `implements`. Java's are
-  the keywords, never their `modifiers` wrapper. The `static` of
-  `import static` and `requires static` bills nothing, as `import` does not, and
-  the words used as names (`var sealed = 1`) stay operands. #1578 made
-  C, C++ and Mozcpp bill every storage class, function specifier and
-  type qualifier: `static`, `extern`, `register`, `inline`,
-  `thread_local`, `const`, `volatile`, `restrict`, `_Atomic`,
-  `constexpr`, `alignas` and their vendor spellings (`__inline`,
-  `__restrict__`, `__thread`), plus C++'s `virtual`, `mutable`,
-  `constinit`, `consteval`, `explicit`, `friend`, the access labels,
-  `override`, `final` and `noexcept`. Each is the keyword, never its
-  `storage_class_specifier`, `type_qualifier` or `virtual_specifier`
-  wrapper, so the `const` of `void f() const` and of `int * const p`
-  each bill once. C bills its storage class `auto`. C++'s `auto` is a
-  placeholder type and stays unbilled. `extern "C"` bills `extern` and
-  keeps `"C"` an operand. Attributes, the MS calling conventions and
-  the Gecko `MOZ_*` macros bill nothing, and `override` and `final`
-  used as names (`int override = 1;`) stay operands. #1579 extended this
-  to Objective-C, which bills C's list as C does plus its own
-  modifiers: the `@public`, `@private`, `@protected` and `@package`
-  ivar labels, the `@optional` and `@required` protocol sections, the
-  ownership qualifiers (`__weak`, `__strong`, `__block`, …), the
-  nullability qualifiers (`nullable`, `_Nullable`, `__nullable`, …),
-  `__kindof`, the `__covariant` and `__contravariant` variance, and the
-  `in`, `out`, `inout`, `bycopy`, `byref` and `oneway` method-type
-  qualifiers. A property attribute (`nonatomic`, `copy`, `getter`) bills
-  as its word; a `getter=` or `setter=` value stays an operand. The
-  Apple SDK macros (`NS_INLINE`, `FOUNDATION_EXPORT`, `IBOutlet`) bill
-  nothing, as the `MOZ_*` macros do.
+  defines it as an expression rather than a literal: in
+  `java.util.List.class` and `Foo[].class` each name and the `class`
+  tail are operands and each `.` and `[]` an operator, as Groovy's
+  `Foo.class` and Kotlin's and PHP's `Foo::class` bill theirs. The
+  `int` of `int.class` and the `void` of `void.class` stay operators,
+  as Java bills them everywhere.
 - **Angle brackets that enclose types are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts
@@ -903,7 +915,7 @@ tokens involved the same way they spell real operators:
   `operator[]`, `operator()`, `operator""_x` and `operator co_await`.
   The `operator` keyword is an operator in both languages, as is C++'s
   `co_await` in an expression. C++'s `[]` and `()` names are tokens of
-  their own, so `bca ops` lists `operator[]`'s `[]` beside a
+  their own, so `bca ops` lists `operator[]` beside a
   subscript's `[]` as a second operator, as Ruby does for `def [](i)`
   (#1296). C++'s coroutine keywords `co_return` and `co_yield` are
   operators as `return` is (#1547).

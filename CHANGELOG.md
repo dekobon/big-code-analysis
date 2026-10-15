@@ -76,6 +76,29 @@ for historical reference.
 
 ### Fixed
 
+- **Bash cognitive complexity keeps a unary-test prefix in its logical
+  sequence.** `[ -n "$b" -a "$a" = 1 -a "$c" = 2 ]` now scores like
+  separate tests joined with `&&`; the `-o` / `||` spellings agree too.
+- **Perl dash-key recovery preserves package-qualified calls.**
+  `-foo::bar => 1` remains a negated call rather than an auto-quoted key,
+  retaining its ABC branch, `find` / `count` match and Halstead name.
+- **C# generic-name recovery is linear in qualification depth** and
+  preserves real generic qualifiers beside recovered comparisons.
+  **Elixir receive timeout analysis is linear in clause count**, including
+  malformed input with multiple timeout clauses.
+- **Language-test gates preserve call-site conditions** and distinguish
+  local variables from same-named helpers. Module-gate comparison also
+  follows nested `foo.rs` → `foo/bar.rs` declarations. The JSON hook now
+  leaves Pyright's JSONC configuration to the Python type-check gate.
+
+- **ABC no longer counts a predicate twice through value-preserving
+  wrappers.** This covers JavaScript, Mozjs, TypeScript and TSX `await`,
+  C# `checked` / `unchecked` and `await`, Python `await`, Rust unsafe /
+  const blocks, casts and awaited async blocks, Kotlin expression labels
+  and annotations, and GNU C-family statement expressions and C++
+  `co_await`. Wrapped comparisons and logical chains keep their existing
+  condition counts; wrapped bare values still pay for their boolean slot.
+
 - **TypeScript and TSX bill their member modifiers as operators**
   (#1563): `public`, `private`, `protected`, `override`, `readonly`,
   `abstract` and `accessor`, as C# and Kotlin do, counting each keyword
@@ -118,14 +141,13 @@ for historical reference.
   `__volatile__`, `__extension__`, …) and C's storage class `auto`. C++
   and Mozcpp also bill `virtual`, `mutable`, `constinit`, `consteval`,
   `explicit`, `friend`, the access labels, `override`, `final` and the
-  `noexcept`
-  of an exception specification. Each counts once as its keyword, never
-  as the `storage_class_specifier` / `type_qualifier` /
+  `noexcept` of an exception specification. Each counts once as its
+  keyword, never as the `storage_class_specifier` / `type_qualifier` /
   `virtual_specifier` / `access_specifier` wrapper. `override` and
   `final` used as names stay operands, `extern "C"` keeps `"C"` an
   operand, and C++'s placeholder `auto`, attributes, MS calling
-  conventions and the Gecko `MOZ_*` macros are unchanged. Halstead and
-  MI scores of C-family code rise.
+  conventions and the Gecko `MOZ_*` macros are unchanged. Halstead volume
+  rises and MI scores of C-family code fall.
 - **Objective-C bills declaration modifiers as Halstead operators**
   (#1579). C's storage classes, function specifiers and type qualifiers
   bill as in C, so a `.m` scores a C declaration the same as a `.c` or
@@ -194,7 +216,9 @@ for historical reference.
   `case`, already paid by the container (the block form scored 2
   against the keyword form's 1). In `big-code-analysis-ast`,
   `elixir_remote_call_applies` is replaced by
-  `elixir_applying_remote_call`, which returns the applying call.
+  `elixir_applying_remote_call`, which returns the applying call and
+  its ancestor chain; `elixir_kernel_operator_token` is now
+  `elixir_kernel_short_circuit_name`.
 - **Elixir `receive` scores like `case`** (#1581): modified cyclomatic
   counts the construct once and cognitive complexity adds +nesting, in
   the block and keyword forms. A `receive` gets one free arm, as a

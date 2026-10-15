@@ -626,14 +626,11 @@ fn perl_file_test_key_stops_at_a_line_break() {
 /// including a subscript it is only part of;
 /// and a `-` applied to a real `not`. The file test itself is billed as
 /// nothing, since the grammar emits its `-X` as a hidden token. Every
-/// value but the stray-comma row's is `main`'s, measured before the fix;
-/// that row read the key `-foo` on `main`, whose `=>` lookup skipped
-/// the `ERROR` the stray `,` recovers into, and reads as the grammar
-/// does since #1572, as `(name, => 1)` does (see `is_key_position`).
+/// value is `main`'s, measured before the fix.
 #[cfg(feature = "perl")]
 #[test]
 fn perl_file_test_outside_a_key_keeps_its_reading() {
-    let rows: [(&str, [u64; 4], Halstead); 12] = [
+    let rows: [(&str, [u64; 4], Halstead); 11] = [
         ("my $z = -f $x;", [2, 0, 0, 0], [6, 7, 3, 3]),
         (
             "if (-e $x) { return 1; } return 0;",
@@ -648,8 +645,6 @@ fn perl_file_test_outside_a_key_keeps_its_reading() {
         // Inside a subscript, but not the whole key.
         ("my %h; return $h{$a . -foo};", [2, 1, 0, 0], [7, 10, 5, 5]),
         ("f(-foo, 1);", [2, 2, 0, 0], [5, 5, 3, 4]),
-        // A stray `,` before the `=>` ends the key position.
-        ("my @c = (-foo, => 1);", [2, 1, 0, 0], [8, 8, 4, 4]),
         ("return -not $x;", [2, 0, 0, 0], [7, 7, 2, 2]),
         ("return $a - not $x;", [2, 0, 0, 0], [7, 8, 3, 3]),
     ];
@@ -660,6 +655,28 @@ fn perl_file_test_outside_a_key_keeps_its_reading() {
             "`{body}` changed its reading"
         );
     }
+}
+
+/// `(-foo, => 1)` pins the grammar's misparse, not Perl's reading.
+///
+/// Perl reads `-foo` here as the string `-foo`: `perl -e 'my @c =
+/// (-foo, => 1); print "@c"'` prints `-foo 1`. tree-sitter-perl instead
+/// parses `-foo` as a `file_handle_operator` applied to the bareword
+/// `oo`, and the stray `,` ends the key position, so the `4, 4`
+/// operands below come from billing `oo`. `main` read the key `-foo`,
+/// because its `=>` lookup skipped the `ERROR` the stray `,` recovers
+/// into; since #1572 the shape reads as the grammar does, as
+/// `(name, => 1)` does (see `is_key_position`). The value is pinned so
+/// a change to it is seen, not endorsed as correct.
+// FIXME(#1571): bill `-foo` as the one string operand Perl reads.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_dash_key_before_stray_comma_pins_the_grammar_misparse_1571() {
+    assert_eq!(
+        measure_with_branches("my @c = (-foo, => 1);"),
+        ([2, 1, 0, 0], [8, 8, 4, 4]),
+        "the grammar's `oo` reading moved; re-derive against #1571"
+    );
 }
 
 /// `(quoted_twin, bareword_key, [cyclomatic, branches, conditions,

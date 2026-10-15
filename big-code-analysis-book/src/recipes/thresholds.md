@@ -94,8 +94,8 @@ tighten, not evidence that you should.
 | Language | `cognitive` | `cyclomatic` | `abc` | `halstead.effort` | `loc.ploc` |
 | --- | --- | --- | --- | --- | --- |
 | Bash | 35 | 25 | 60 | 44000 | (thin sample) |
-| C | 50 | 30 | 60 | 180000 | 3500 |
-| C++ | 14 | 10 | 25 | 50000 | (thin sample) |
+| C | 50 | 30 | 60 | 190000 | 3500 |
+| C++ | 14 | 10 | 25 | 54000 | (thin sample) |
 | C# | 4 | 4 | 13 | 44000 | 700 |
 | Elixir | 5 | 7 | 20 | 15000 | 1500 |
 | Go | 25 | 17 | 45 | 89000 | 1500 |
@@ -104,7 +104,7 @@ tighten, not evidence that you should.
 | JavaScript | 20 | 15 | 35 | 170000 | (thin sample) |
 | Kotlin | 10 | 8 | 20 | 18000 | 300 |
 | Lua | 35 | 20 | 40 | 82000 | 800 |
-| Objective-C | 18 | 12 | 35 | 73000 | (thin sample) |
+| Objective-C | 18 | 12 | 35 | 77000 | (thin sample) |
 | Perl | 35 | 25 | 45 | 41000 | 1500 |
 | PHP | 10 | 9 | 25 | 26000 | 900 |
 | Python | 20 | 13 | 25 | 42000 | 700 |
@@ -122,7 +122,10 @@ The `halstead.effort` column comes from a different measurement than the rest of
 re-measured on 2026-10-10, after the Halstead vocabulary changes in
 [#1486](https://github.com/dekobon/big-code-analysis/issues/1486) through
 [#1573](https://github.com/dekobon/big-code-analysis/issues/1573), on a rebuilt corpus of 41
-repositories that is comparable to the original but not identical to it. The repository list and
+repositories that is comparable to the original but not identical to it. The C, C++, and
+Objective-C rows were re-measured on 2026-10-15 to include the declaration modifiers of
+[#1578](https://github.com/dekobon/big-code-analysis/issues/1578) and
+[#1579](https://github.com/dekobon/big-code-analysis/issues/1579). The repository list and
 commits are recorded in
 [`docs/development/threshold_corpus.md`](https://github.com/dekobon/big-code-analysis/blob/main/docs/development/threshold_corpus.md).
 Several rows moved by a factor of two to five, and almost all of that movement came from the change
