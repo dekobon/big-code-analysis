@@ -16,12 +16,56 @@ use crate::{LANG, Metric, MetricsOptions};
 
 /// The placeholder a template marks its slot with. Not `@`, which
 /// Objective-C, PHP and Perl predicates spell.
+#[cfg(any(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 const SLOT: &str = "PRED";
 
 /// For each `(predicate, conditions, decisions)` row, replaces the
 /// template's `SLOT` with the predicate and asserts the function named `f`
 /// scores `conditions` ABC conditions and `decisions` cyclomatic
 /// decisions (`cyclomatic - 1`).
+#[cfg(any(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
     assert!(template.contains(SLOT), "template has no predicate slot");

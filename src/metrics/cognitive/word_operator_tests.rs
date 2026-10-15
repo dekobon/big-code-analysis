@@ -24,11 +24,25 @@ use crate::*;
 /// `(twin, mixed, words, expected)`: an unmixed expression, the same
 /// expression with some operators word-spelled, how many word-operator
 /// tokens `mixed` must carry, and the cognitive sum both must score.
+#[cfg(any(
+    feature = "elixir",
+    feature = "irules",
+    feature = "perl",
+    feature = "php",
+    feature = "ruby",
+))]
 type Row = (&'static str, &'static str, usize, u64);
 
 /// Scores every row inside `wrap`, after proving each mixed fixture
 /// carries its word operators — a fixture that silently parsed `and` as
 /// an identifier would otherwise pass while asserting nothing.
+#[cfg(any(
+    feature = "elixir",
+    feature = "irules",
+    feature = "perl",
+    feature = "php",
+    feature = "ruby",
+))]
 fn assert_rows<P: MetricSuite>(
     path: &str,
     wrap: impl Fn(&str) -> String,

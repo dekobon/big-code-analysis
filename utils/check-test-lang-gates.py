@@ -838,6 +838,9 @@ class Item:
     #: the dataclass stays comparable and printable.
     index: int
     in_test_scope: bool
+    #: Exact inner predicates at each call/reference, retained for implication checks.
+    call_guards: tuple[tuple[str, str], ...] = ()
+    reference_guards: tuple[tuple[str, str], ...] = ()
 
     def describe(self) -> str:
         return f"{self.path}:{self.line}  {self.kind} {self.name}"
@@ -860,16 +863,27 @@ def qualified_name(items: list[Item], item: Item) -> str:
 
 
 def membership(
-    per_file: dict[str, list[Item]], probes: dict[str, frozenset[str]]
+    per_file: dict[str, list[Item]],
+    probes: dict[str, frozenset[str]],
+    file_gates: dict[str, str] | None = None,
 ) -> dict[str, frozenset[str]]:
-    """Which probe builds compile each test, keyed by qualified name."""
+    """Which probe builds compile each test, keyed by qualified name.
+
+    ``file_gates`` (see `module_gates`) conjoins the ``cfg`` of the `mod`
+    line that loads each file onto every test in it.
+    """
     languages = frozenset().union(*probes.values()) if probes else frozenset()
     result: dict[str, frozenset[str]] = {}
-    for items in per_file.values():
+    for path, items in per_file.items():
+        file_gate = (file_gates or {}).get(path)
         for item in items:
             if not (item.is_test_fn and item.in_test_scope):
                 continue
             predicate = effective_predicate(items, item)
+            if file_gate is not None:
+                predicate = (
+                    file_gate if predicate is None else f"all({file_gate}, {predicate})"
+                )
             if predicate is None:
                 result[qualified_name(items, item)] = frozenset(probes)
                 continue
@@ -1005,6 +1019,35 @@ def _inner_cfg_extents(
             extents.append((after, end, predicate))
         index = max(after, index + 1)
     return extents
+
+
+def _shadowed_references(body: str) -> set[int]:
+    """Offsets naming simple locals, respecting block scope and initializer use."""
+    tokens = re.compile(
+        r"\blet\s+(?:mut\s+)?([a-z_][A-Za-z0-9_]*)|[{};]|\b[A-Za-z_][A-Za-z0-9_]*\b"
+    )
+    scopes: list[set[str]] = [set()]
+    pending: list[set[str]] = [set()]
+    shadowed: set[int] = set()
+    for token in tokens.finditer(body):
+        name = token.group(1)
+        if name is not None:
+            shadowed.add(token.start(1))
+            pending[-1].add(name)
+        elif token.group() == "{":
+            scopes.append(set())
+            pending.append(set())
+        elif token.group() == "}" and len(scopes) > 1:
+            scopes.pop()
+            pending.pop()
+        elif token.group() == ";":
+            scopes[-1].update(pending[-1])
+            pending[-1].clear()
+        elif body[max(0, token.start() - 2):token.start()] == "::":
+            continue
+        elif any(token.group() in scope for scope in scopes):
+            shadowed.add(token.start())
+    return shadowed
 
 
 def scan_source(
@@ -1355,12 +1398,18 @@ def scan_source(
         unguarded_references: set[str] = set()
         guarded_calls: list[tuple[str, frozenset[str]]] = []
         guarded_references: list[tuple[str, frozenset[str]]] = []
-        for pattern, unguarded_set, guarded_list in (
-            (CALL_RE, unguarded_calls, guarded_calls),
-            (REFERENCE_RE, unguarded_references, guarded_references),
+        call_guards: list[tuple[str, str]] = []
+        reference_guards: list[tuple[str, str]] = []
+        shadowed = _shadowed_references(body)
+        for pattern, unguarded_set, guarded_list, sites in (
+            (CALL_RE, unguarded_calls, guarded_calls, call_guards),
+            (REFERENCE_RE, unguarded_references, guarded_references, reference_guards),
         ):
             for hit in pattern.finditer(body):
+                if hit.start(1) in shadowed:
+                    continue
                 n = index + bisect.bisect_right(line_starts, hit.start()) - 1
+                sites.append((hit.group(1), "all(" + ", ".join(guarded.get(n, ())) + ")"))
                 languages = attribution[innermost[n]] if n in guarded else None
                 if languages is None:
                     unguarded_set.add(hit.group(1))
@@ -1389,15 +1438,17 @@ def scan_source(
             direct=frozenset(direct),
             hardcoded=frozenset(hardcoded),
             hand_written=_hand_written_features(raw, attr_line),
-            calls=frozenset(m.group(1) for m in CALL_RE.finditer(body)),
+            calls=frozenset(name for name, _ in call_guards),
             unguarded_calls=frozenset(unguarded_calls),
             guarded_calls=tuple(guarded_calls),
-            references=frozenset(m.group(1) for m in REFERENCE_RE.finditer(body)),
+            references=frozenset(name for name, _ in reference_guards),
             unguarded_references=frozenset(unguarded_references),
             guarded_references=tuple(guarded_references),
             parent_index=parent_index,
             index=len(items),
             in_test_scope=in_test_scope,
+            call_guards=tuple(call_guards),
+            reference_guards=tuple(reference_guards),
         )
         items.append(item)
         depth += line.count("{") - line.count("}")
@@ -1445,6 +1496,61 @@ MOD_DECL_RE = re.compile(r"^[ \t]*(?:pub\s*(?:\([^)]*\)\s*)?)?mod\s+(\w+)\s*;")
 PATH_ATTR_RE = re.compile(r'#\[\s*path\s*=\s*"([^"]+)"\s*\]')
 
 
+def _module_declarations(
+    root: pathlib.Path, sources: list[pathlib.Path]
+) -> list[tuple[pathlib.Path, list[str], pathlib.Path]]:
+    """Every out-of-line ``mod x;`` as (declaring file, attributes, file).
+
+    Only declarations whose module file exists are returned. The
+    attributes are the outer ones stacked on the declaration; a file's
+    leading ``#![…]`` run is dropped, since it belongs to the file and
+    not to the first `mod` that happens to follow it.
+    """
+    found: list[tuple[pathlib.Path, list[str], pathlib.Path]] = []
+    for relative in sources:
+        text = (root / relative).read_text(encoding="utf-8")
+        lines = mask_dead(text).split("\n")
+        raw = text.split("\n")
+        index = 0
+        while index < len(lines):
+            if lines[index].strip().startswith(("#[", "#![")):
+                attrs, after = _join_attributes(lines, raw, index)
+                attrs = [a for a in attrs if not a.startswith("#![")]
+            else:
+                attrs, after = [], index
+            index = max(after, index + 1)
+            if after >= len(lines):
+                break
+            declared = MOD_DECL_RE.match(lines[after])
+            if declared is None:
+                continue
+            index = after + 1
+            # `#[path = "…"]` renames the file the module comes from:
+            # `src/spaces.rs` declares `#[path = "spaces_tests.rs"] mod
+            # tests;`, so the name says `tests` and the file does not.
+            override = PATH_ATTR_RE.search(" ".join(attrs))
+            name = declared.group(1)
+            module_dir = (
+                relative.parent
+                if relative.name in {"lib.rs", "main.rs", "mod.rs"}
+                else relative.with_suffix("")
+            )
+            candidates = (
+                [relative.parent / override.group(1)]
+                if override
+                else [
+                    module_dir / f"{name}.rs",
+                    module_dir / name / "mod.rs",
+                ]
+            )
+            found.extend(
+                (relative, attrs, candidate)
+                for candidate in candidates
+                if (root / candidate).is_file()
+            )
+    return found
+
+
 def test_scope_files(root: pathlib.Path, sources: list[pathlib.Path]) -> set[str]:
     """Files that are wholly test modules by their declaration.
 
@@ -1455,43 +1561,48 @@ def test_scope_files(root: pathlib.Path, sources: list[pathlib.Path]) -> set[str
     without it they are taken for production code and left ungated,
     which is 79 panics on a single-language leg.
     """
-    scoped: set[str] = set()
-    for relative in sources:
-        text = (root / relative).read_text(encoding="utf-8")
-        lines = mask_dead(text).split("\n")
-        raw = text.split("\n")
-        index = 0
-        while index < len(lines):
-            if not lines[index].strip().startswith(("#[", "#![")):
-                index += 1
-                continue
-            attrs, after = _join_attributes(lines, raw, index)
-            index = max(after, index + 1)
-            if after >= len(lines):
-                break
-            declared = MOD_DECL_RE.match(lines[after])
-            if declared is None:
-                continue
-            predicates = [cfg_predicate(a) for a in attrs]
-            if not any(p and predicate_requires_test(p) for p in predicates):
-                continue
-            # `#[path = "…"]` renames the file the module comes from:
-            # `src/spaces.rs` declares `#[path = "spaces_tests.rs"] mod
-            # tests;`, so the name says `tests` and the file does not.
-            override = PATH_ATTR_RE.search(" ".join(attrs))
-            name = declared.group(1)
-            candidates = (
-                [relative.parent / override.group(1)]
-                if override
-                else [
-                    relative.parent / f"{name}.rs",
-                    relative.parent / name / "mod.rs",
-                ]
+    return {
+        path for path, predicate in module_gates(root, sources).items()
+        if predicate_requires_test(predicate)
+    }
+
+
+def module_gates(root: pathlib.Path, sources: list[pathlib.Path]) -> dict[str, str]:
+    """Each file's ``cfg`` as inherited from the `mod` lines that load it.
+
+    A `#[cfg(any(feature = …))] mod suite;` in `tests/parity/main.rs`
+    gates every test in `tests/parity/suite.rs`, but nothing in that
+    file says so. `--compare` diffs per-test membership, so a narrowed
+    `mod` gate dropped a whole suite from a single-language leg with
+    nothing reporting it -- #1567's `kotlin` drop went unseen that way.
+    Gates conjoin down a chain of declarations; a file no gated `mod`
+    reaches is absent from the result and keeps its own membership.
+    """
+    declared: dict[str, tuple[str, list[str]]] = {}
+    for parent, attrs, module in _module_declarations(root, sources):
+        predicates = [p for p in (cfg_predicate(a) for a in attrs) if p is not None]
+        declared[module.as_posix()] = (parent.as_posix(), predicates)
+
+    resolved: dict[str, list[str]] = {}
+
+    def chain(path: str, seen: frozenset[str]) -> list[str]:
+        if path in resolved:
+            return resolved[path]
+        if path not in declared or path in seen:
+            return []
+        parent, own = declared[path]
+        parts = [*chain(parent, seen | {path}), *own]
+        resolved[path] = parts
+        return parts
+
+    gates: dict[str, str] = {}
+    for path in declared:
+        parts = chain(path, frozenset())
+        if parts:
+            gates[path] = (
+                parts[0] if len(parts) == 1 else "all(" + ", ".join(parts) + ")"
             )
-            for candidate in candidates:
-                if (root / candidate).is_file():
-                    scoped.add(candidate.as_posix())
-    return scoped
+    return gates
 
 
 def scan_tree(root: pathlib.Path, table: dict[str, str]) -> dict[str, list[Item]]:
@@ -1741,6 +1852,9 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
                 if callee_index is None or items[callee_index].is_test_fn:
                     continue
                 if not _uses(item, items[callee_index], strict=False):
+                    continue
+                unguarded = item.unguarded_references
+                if name not in unguarded:
                     continue
                 addition = needs[item.index] - needs[callee_index]
                 if addition:
@@ -2139,17 +2253,13 @@ def stranded_by_callers(
     ``predicate`` is the helper's own effective gate. An ungated helper
     never gets here: the union check has already reported it.
 
-    Only a build enabling something in ``required`` counts. The caller
-    link is the broad one, so a local that merely shares the helper's
-    name links an ungated caller to it, and that caller is in every
-    build; without the intersection the helper reads as stranded in all
-    of them, and the `any(required)` marker `--fix` writes can never
-    clear it. A real caller's languages are in ``required`` already,
-    since needs propagate over the same links, so the `any(…)` marker
-    `--fix` writes clears whatever this reports — when it can replace the
-    helper's gate. A gate `--fix` must stack on instead (an `all(…)`, a
-    `not(…)`, a non-language atom) can still conjoin it away; the fix
-    loop then reports non-convergence rather than looping.
+    Each edge conjoins the caller's gate with the inner predicates on
+    that particular use. A guarded call is absent when its guard is
+    false, even though the containing function still compiles. Only a
+    build enabling something in ``required`` counts, so reports remain
+    expressible by the derived helper marker. A gate `--fix` must stack
+    on instead (an `all(…)`, a `not(…)`, a non-language atom) can still
+    conjoin it away; the fix loop then reports non-convergence.
 
     A helper whose body names no language has an empty ``required`` and
     is never reported, even when its own gate excludes a caller's build
@@ -2158,12 +2268,17 @@ def stranded_by_callers(
     """
     stranded: set[str] = set()
     for index in callers.get(item.index, []):
-        caller_gate = effective_predicate(items, items[index])
-        for disabled in _caller_builds(caller_gate):
-            if (
-                caller_gate is None or evaluate_predicate(caller_gate, disabled)
-            ) and not evaluate_predicate(predicate, disabled):
-                stranded |= (KNOWN_FEATURES - disabled) & required
+        caller = items[index]
+        caller_gate = effective_predicate(items, caller) or "all()"
+        sites = caller.reference_guards
+        guards = {guard for name, guard in sites if name == item.name} or {"all()"}
+        for guard in guards:
+            call_gate = f"all({caller_gate}, {guard})"
+            for disabled in _caller_builds(call_gate):
+                if evaluate_predicate(call_gate, disabled) and not evaluate_predicate(
+                    predicate, disabled
+                ):
+                    stranded |= (KNOWN_FEATURES - disabled) & required
     return frozenset(stranded)
 
 
@@ -2372,7 +2487,9 @@ def apply_fixes(
 # ---------------------------------------------------------------------------
 
 
-def scan_revision(ref: str, root: pathlib.Path) -> dict[str, list[Item]]:
+def scan_revision(
+    ref: str, root: pathlib.Path
+) -> tuple[dict[str, list[Item]], dict[str, str]]:
     """Scan the tree as of ``ref``, extracted to a scratch directory.
 
     `git archive` rather than a worktree: it touches nothing in the
@@ -2398,7 +2515,9 @@ def scan_revision(ref: str, root: pathlib.Path) -> dict[str, list[Item]]:
         table = language_table(
             (checkout / LANGS_RS.relative_to(REPO_ROOT)).read_text(encoding="utf-8")
         )
-        return scan_tree(checkout, table)
+        return scan_tree(checkout, table), module_gates(
+            checkout, rust_sources(checkout)
+        )
     finally:
         shutil.rmtree(checkout, ignore_errors=True)
 
@@ -2413,7 +2532,7 @@ def compare_revisions(
     both wrong, only the previous revision says so.
     """
     probes = probe_builds(table)
-    reference_tree = scan_revision(ref, root)
+    reference_tree, reference_gates = scan_revision(ref, root)
     # The same guard `main` applies to the working tree. A reference with
     # no tests in it makes every name miss the `after` side, so nothing
     # is ever reported and the check prints OK having compared nothing —
@@ -2429,8 +2548,10 @@ def compare_revisions(
             "against. A scan root is missing from that revision, or is "
             "excluded from `git archive` by `.gitattributes`."
         )
-    before = membership(reference_tree, probes)
-    after = membership(scan_tree(root, table), probes)
+    before = membership(reference_tree, probes, reference_gates)
+    after = membership(
+        scan_tree(root, table), probes, module_gates(root, rust_sources(root))
+    )
     lost: list[tuple[str, frozenset[str]]] = []
     for name, was in sorted(before.items()):
         # Only a test that is still here. One that was deleted or renamed

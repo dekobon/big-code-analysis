@@ -796,6 +796,71 @@ mod tests {
             [],
         )
 
+    def test_a_language_bound_local_is_not_a_helper_call(self) -> None:
+        source = self.TWO_HOPS.replace(
+            "        shared();\n    }\n\n    #[cfg(feature = \"python\")]",
+            "        let shared = 1;\n        assert_eq!(shared, 1);\n    }\n\n    #[cfg(feature = \"python\")]",
+            1,
+        )
+        self.assertEqual(_offending(source % 'feature = "python"'), [])
+
+    def test_a_call_inherits_its_inner_guard(self) -> None:
+        source = self.TWO_HOPS.replace(
+            "        shared();\n    }\n\n    #[cfg(feature = \"python\")]",
+            '        #[cfg(feature = "python")]\n        shared();\n    }\n\n    #[cfg(feature = "python")]',
+            1,
+        )
+        self.assertEqual(_offending(source % 'feature = "python"'), [])
+        self.assertEqual(
+            _offending(self.TWO_HOPS % 'feature = "python"'), [("shared", ["rust"])]
+        )
+
+    def test_an_all_guard_keeps_a_matching_helper_gate(self) -> None:
+        source = '''
+#[cfg(test)]
+mod tests {
+    #[cfg(all(feature = "python", feature = "rust"))]
+    fn shared<T, U>() {}
+    #[test]
+    fn guarded_case() {
+        #[cfg(all(feature = "python", feature = "rust"))]
+        shared::<PythonParser, RustParser>();
+    }
+}
+'''
+        self.assertEqual(_offending(source), [])
+
+    def test_function_values_survive_a_local_in_another_scope(self) -> None:
+        source = '''
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "python")]
+    fn shared() {}
+    #[cfg(feature = "python")]
+    #[test]
+    fn py() { check::<PythonParser>(); shared(); }
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rs() {
+        check::<RustParser>();
+        consume(shared);
+        { let shared = 1; consume(shared); }
+    }
+}
+'''
+        self.assertEqual(_offending(source), [("shared", ["rust"])])
+        mixed = source.replace(
+            "consume(shared);\n        {",
+            '#[cfg(feature = "python")]\n        shared();\n        consume(shared);\n        {',
+            1,
+        )
+        self.assertEqual(_offending(mixed), [("shared", ["rust"])])
+        qualified = source.replace(
+            "consume(shared);\n        { let shared = 1; consume(shared); }",
+            "let shared = 1;\n        consume(self::shared);",
+        )
+        self.assertEqual(_offending(qualified), [("shared", ["rust"])])
+
     def test_three_hops_through_a_helper_that_names_nothing(self) -> None:
         """The middle link names no language, so only its gate says python."""
         source = """
@@ -1338,7 +1403,7 @@ fn stray() {
         )
         stray = _named(items, "stray")
         self.assertIsNone(gate.effective_predicate(items, stray))
-        self.assertIn(
+        self.assertNotIn(
             stray.index, gate.callers_by_callee(items)[_named(items, "shared").index]
         )
         self.assertEqual(gate.offenders(items, gate.resolve_needs(items)), [])
@@ -2408,6 +2473,24 @@ mod tests {
         )
         self.assertEqual(probes["--features rust"], frozenset({"rust"}))
 
+    def test_nested_file_modules_inherit_their_declaring_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "src" / "outer").mkdir(parents=True)
+            (root / "src" / "lib.rs").write_text("#[cfg(test)]\nmod outer;\n")
+            (root / "src" / "outer.rs").write_text(
+                '#[cfg(feature = "python")]\nmod suite;\n'
+            )
+            (root / "src" / "outer" / "suite.rs").write_text(
+                "#[test]\nfn a_case() {}\n"
+            )
+            sources = gate.rust_sources(root)
+            self.assertEqual(
+                gate.module_gates(root, sources)["src/outer/suite.rs"],
+                'all(test, feature = "python")',
+            )
+            self.assertIn("src/outer/suite.rs", gate.test_scope_files(root, sources))
+
     def test_membership_follows_the_gate(self) -> None:
         items = _scan(
             """
@@ -2495,6 +2578,68 @@ mod tests {
             # A deletion is a deliberate change, not a narrowed gate.
             target.write_text("#[cfg(test)]\nmod tests {}\n")
             self.assertEqual(gate.compare_revisions("HEAD", root, table), [])
+
+    def test_a_root_mod_gate_that_narrowed_is_reported(self) -> None:
+        # The gate sits on the `mod` line in the crate root and the test
+        # file says nothing of it, so per-item membership alone cannot
+        # see the narrowing -- #1567 dropped `kotlin` from
+        # `tests/parity/main.rs` this way and `--compare` reported OK.
+        wide_root = (
+            '#[cfg(any(feature = "python", feature = "rust"))]\n'
+            "mod suite;\n"
+            "mod ungated;\n"
+        )
+        suite = """#[test]
+fn a_case() {
+    for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
+        let _ = (LANG::Python, LANG::Rust, lang);
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            crate = root / "tests" / "parity"
+            crate.mkdir(parents=True)
+            (root / "big-code-analysis-ast" / "src").mkdir(parents=True)
+            (root / "big-code-analysis-ast" / "src" / "langs.rs").write_text(
+                LANGS_FIXTURE
+            )
+            main_rs = crate / "main.rs"
+            main_rs.write_text(wide_root)
+            (crate / "suite.rs").write_text(suite)
+            (crate / "ungated.rs").write_text(suite)
+
+            env = {
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": str(root),
+            }
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "b"]):
+                subprocess.run(
+                    ["git", *args], cwd=root, check=True, capture_output=True, env=env
+                )
+
+            table = gate.language_table(LANGS_FIXTURE)
+            self.assertEqual(gate.compare_revisions("HEAD", root, table), [])
+
+            # Only the `mod` line narrows. `suite.rs` is byte-identical,
+            # and `ungated.rs`, loaded by an ungated `mod`, is the
+            # control: it must not be reported.
+            main_rs.write_text(
+                wide_root.replace(
+                    'any(feature = "python", feature = "rust")', 'feature = "python"'
+                )
+            )
+            self.assertEqual(
+                [
+                    (name, sorted(lost))
+                    for name, lost in gate.compare_revisions("HEAD", root, table)
+                ],
+                [("tests/parity/suite.rs::a_case", ["--features rust"])],
+            )
 
 
 class RepositoryTest(unittest.TestCase):

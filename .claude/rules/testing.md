@@ -651,6 +651,9 @@ tree at `ref` as well (`git archive` into a scratch directory), computes
 which single-language builds compile each test in each, and fails on a
 test that still exists but stopped being built somewhere. The probe set
 comes from the language table, so a new language extends it for free.
+A test's membership includes the `cfg` on the `mod` line that loads its
+file, so narrowing a root `mod` gate in a `tests/*/main.rs` is reported
+too; before that, #1567's drop of `kotlin` from one went unseen.
 
 CI runs it per pull request against the base branch head — the PR's
 `base.sha`, not `git merge-base`, because the job checks out shallow and
