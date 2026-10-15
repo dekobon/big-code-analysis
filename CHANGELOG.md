@@ -26,14 +26,19 @@ for historical reference.
 
 ### Added
 
-- **Seven Perl and Bash scaling probes in the complexity-class gate**
-  (`make bench-scaling`, #1575): the Perl ABC misparse climb, Perl
-  ABC's `=~` binding check under an `ERROR` root, and the Bash
-  cognitive / ABC comparison-run walks (`abc/perl-or-chain`,
-  `abc/perl-misparsed-comparison`, `abc/perl-and-statements`,
-  `abc/perl-error-tail`, `cognitive/bash-test-connective-run`,
-  `abc/bash-arith-assign-chain`, `abc/bash-eq-and-test`). Each was
-  watched tripping with its pre-fix walk restored.
+- **Twelve Perl, Bash and Kotlin scaling probes in the
+  complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
+  Perl ABC misparse climb, Perl ABC's `=~` binding check under an
+  `ERROR` root, and the Bash cognitive / ABC comparison-run walks
+  (`abc/perl-or-chain`, `abc/perl-misparsed-comparison`,
+  `abc/perl-and-statements`, `abc/perl-error-tail`,
+  `cognitive/bash-test-connective-run`, `abc/bash-arith-assign-chain`,
+  `abc/bash-eq-and-test`). The rest price sibling lookups:
+  `abc/perl-bareword-keys` (#1572), `halstead/perl-error-tail-keys`
+  and `halstead/kotlin-short-interpolations` (#1584),
+  `count/perl-error-tail-calls` (#1580) and
+  `nexits/perl-error-tail-keys` (#1585). Each was watched tripping with
+  its pre-fix walk restored.
 
 ### Changed
 
@@ -178,9 +183,10 @@ for historical reference.
   against the keyword form's 1).
 - **Elixir `receive` scores like `case`** (#1581): modified cyclomatic
   counts the construct once and cognitive complexity adds +nesting, in
-  the block and keyword forms. Its `after` timeout clause is the
-  construct's default arm and no longer scores in standard cyclomatic or
-  ABC, and a `receive` holding only an `after` scores nothing.
+  the block and keyword forms. A `receive` gets one free arm, as a
+  `case` does: its bare `_ ->` if it has one, otherwise its `after`
+  timeout clause, which then no longer scores in standard cyclomatic or
+  ABC. A `receive` holding only an `after` scores nothing.
 - **Elixir `Kernel.and(a, b)` and `Kernel.or(a, b)` count as
   short-circuit decisions** in cyclomatic, ABC conditions and cognitive
   complexity (#1582), matching `a and b` / `a or b` and the `Kernel.&&`

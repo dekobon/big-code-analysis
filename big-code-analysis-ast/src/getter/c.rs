@@ -100,7 +100,14 @@ impl Getter for CCode {
             // where it is the prefix of an `extension_expression`.
             // Attributes (`__attribute__`, `__declspec`, `[[…]]`) and
             // the MS calling conventions stay unbilled: they annotate a
-            // declaration rather than spell part of it.
+            // declaration rather than spell part of it. `cpp.rs` copies
+            // this list, though `restrict` and `noreturn` are no C++
+            // keywords: `int restrict = 0;` is a valid C++ variable, as
+            // `int noreturn = 1;` is in C without `<stdnoreturn.h>`. Both
+            // grammars still parse the name as the qualifier before a
+            // zero-width `identifier`, so the keyword bills and no
+            // operand does — the grammar decides that, not this arm, as
+            // `objc.rs` notes for `nullable`.
             | Static | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline
             | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
             | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension

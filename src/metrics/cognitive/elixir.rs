@@ -146,7 +146,8 @@ impl Cognitive for ElixirCode {
                 // it has message clauses; one holding only an `after`
                 // timeout is a timed wait, the idiomatic sleep, and
                 // branches on nothing. The `after` adds nothing either
-                // way: it is the default arm, which `case` does not pay.
+                // way: like `case`, the container pays and its arms do
+                // not, a timeout beside a bare `_ ->` included.
                 Some("receive") if elixir_receive_dispatches(node, code) => {
                     increase_nesting(stats, &mut nesting);
                 }

@@ -333,14 +333,21 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// `fn`'s first, except the construct's free default clause
 /// ([`elixir_is_default_clause`]).
 ///
-/// A `receive`'s `after` clause is free too, in every spelling: it is
-/// the timeout, the path taken when no message clause matched in time,
-/// which makes it `receive`'s default arm — the role a bare `_ ->` plays
-/// in a `case` (#1581). It is never a dispatch of its own: the compiler
-/// accepts exactly one `after` clause, and its head is a timeout value,
-/// not a pattern that can fail. No other construct puts a clause there,
-/// since `try`'s `after` takes a plain body, so the section is simply
-/// not among those whose clauses count.
+/// A `receive` gets exactly one free arm, in every spelling. Its
+/// `after` clause is the timeout, the path taken when no message clause
+/// matched in time, which makes it `receive`'s default arm — the role a
+/// bare `_ ->` plays in a `case` (#1581). But a bare `_ ->` in the `do`
+/// section is free under `receive` as well, and with one present the
+/// timeout is a path of its own: `receive do {:a, y} -> y; _ -> 0 after
+/// 10 -> :t end` reaches a matched message, any other message, and an
+/// empty mailbox timing out — three paths, the three-clause `case`'s
+/// two decisions. So the `after` clause is free only when the `do`
+/// section has no bare catch-all ([`elixir_receive_after_is_decision`]).
+/// It is never a dispatch in its own right: the compiler accepts
+/// exactly one `after` clause, and its head is a timeout value, not a
+/// pattern that can fail. No other construct puts a clause there, since
+/// `try`'s `after` takes a plain body, so the section is not among
+/// those [`DECISION_SECTION_KEYS`] names.
 ///
 /// An anonymous fn's head clause is the closure's definition, not a
 /// dispatch: the closure opens its own function space whose base path
@@ -382,6 +389,9 @@ pub(super) fn elixir_clause_is_decision<'a>(
 ) -> bool {
     use Elixir as E;
 
+    if let Some(receive) = elixir_after_section_receive(node, code, ancestors) {
+        return elixir_receive_after_is_decision(&receive, code);
+    }
     let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
     let in_section = up.next().is_some_and(|parent| {
         matches!(
@@ -422,9 +432,53 @@ pub(super) fn elixir_clause_is_decision<'a>(
 /// clause by clause with the test below.
 pub(super) fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
     elixir_section_has_clause(call, code, Section::Else, |clause| {
-        !elixir_sole_unguarded_pattern(clause)
-            .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
+        !elixir_is_catch_all(clause, code)
     })
+}
+
+/// Whether `clause` (a `stab_clause`) is a bare, unguarded `_ ->`.
+fn elixir_is_catch_all(clause: &Node, code: &[u8]) -> bool {
+    elixir_sole_unguarded_pattern(clause)
+        .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
+}
+
+/// Whether a `receive`'s `after` clause is a decision: whether its `do`
+/// section already holds the free bare `_ ->`, leaving the timeout as a
+/// path of its own. Without one the timeout is the construct's single
+/// free arm ([`elixir_clause_is_decision`]).
+fn elixir_receive_after_is_decision(receive: &Node, code: &[u8]) -> bool {
+    elixir_section_has_clause(receive, code, Section::Do, |clause| {
+        elixir_is_catch_all(clause, code)
+    })
+}
+
+/// The `receive` Call whose `after` section holds `node` (a
+/// `stab_clause`): the block form's `after_block` inside the Call's
+/// `do_block`, or the keyword form's `after: (…)` block, bare or
+/// bracketed. `None` for a clause anywhere else, and for an `after`
+/// section of any other Call.
+fn elixir_after_section_receive<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
+    use Elixir as E;
+
+    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+    let call = match up.next().map(|parent| parent.kind_id().into()) {
+        Some(E::AfterBlock) => up
+            .next()
+            .filter(|do_block| do_block.kind_id() == E::DoBlock as u16)
+            .and_then(|_| up.next()),
+        Some(E::Block) => {
+            let pair = up.next()?;
+            elixir_pair_section(&pair, code, up)
+                .filter(|(key, _)| *key == "after")
+                .map(|(_, call)| call)
+        }
+        _ => None,
+    }?;
+    (elixir_call_keyword(&call, code) == Some("receive")).then_some(call)
 }
 
 /// Whether a `receive` Call dispatches over the mailbox: whether its

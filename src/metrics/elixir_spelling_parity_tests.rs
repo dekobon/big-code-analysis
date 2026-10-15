@@ -390,7 +390,8 @@ fn elixir_for_reduce_head_is_free_in_every_spelling() {
 /// timeout counted as one more clause. The timeout is the path taken
 /// when no clause matched in time — `receive`'s default arm, which
 /// `case`'s `_ ->` twin shows is free — so with it the `receive` still
-/// scores what the two-clause `case` does.
+/// scores what the two-clause `case` does. A `receive` has one free arm,
+/// though, so beside a bare `_ ->` the timeout counts.
 #[cfg(feature = "elixir")]
 #[test]
 fn elixir_receive_scores_like_case() {
@@ -411,6 +412,22 @@ fn elixir_receive_scores_like_case() {
         &[
             "receive do {:a, y} -> (if y do 1 end) after 10 -> :t end",
             "receive(do: ({:a, y} -> if(y, do: 1)), after: (10 -> :t))",
+        ],
+    );
+    // A `receive` gets one free arm. With a bare `_ ->` in its `do`
+    // section the timeout is a path of its own: a matched `{:a, y}`, any
+    // other message, and an empty mailbox timing out make three paths,
+    // so cyclomatic is 3 (two decisions: `{:a, y}` and `after`, the `_`
+    // free), modified 2 (base + the container), C 2 (one per decision),
+    // cognitive 1 (+nesting on the container, arms free) — exactly the
+    // three-clause `case` beside it, whose `_ ->` is its free arm.
+    assert_group(
+        "case x do {:a, y} -> y; :b -> 0; _ -> 1 end",
+        [3, 2, 2, 1],
+        &[
+            "receive do {:a, y} -> y; _ -> 0 after 10 -> :t end",
+            "receive(do: ({:a, y} -> y; _ -> 0), after: (10 -> :t))",
+            "receive([do: ({:a, y} -> y; _ -> 0), after: (10 -> :t)])",
         ],
     );
     // A lone catch-all is free in standard and still pays the container.

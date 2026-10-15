@@ -1760,15 +1760,14 @@ mod tests {
     #[cfg(feature = "perl")]
     #[test]
     fn perl_exit_key_in_a_flat_error_scores_like_its_twin() {
-        // Past `WIDE_PARENT` in `big-code-analysis-ast/src/node/ancestors.rs`,
-        // the width from which a walk records a node's children.
-        const RECORDED_WIDTH: usize = 64;
+        // The width from which a walk records a node's children.
+        use big_code_analysis_ast::node::WIDE_PARENT;
         let key = format!("my @r = ({}", "{\ndie => 1,\nexit,\n".repeat(12));
         let twin = key.replace("die =>", "'die' =>");
         let ast = Ast::parse(Source::new(LANG::Perl, key.as_bytes())).expect("perl is enabled");
         let root = ast.as_tree_sitter().root_node();
         assert!(
-            root.is_error() && root.child_count() > RECORDED_WIDTH,
+            root.is_error() && root.child_count() > WIDE_PARENT,
             "the fixture must parse to a wide flat ERROR root"
         );
         assert_eq!(perl_nexits(&twin), 12);

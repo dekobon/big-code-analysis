@@ -169,6 +169,7 @@ Read it as follows.
 | `abc/perl-and-statements` | Perl | width | the misparse check's operator lookup in a block (#1273) | linear |
 | `abc/perl-error-tail` | Perl | width | the binding, bareword-key and misparse lookups under a flat `ERROR` root (#1540, #1584) | linear |
 | `halstead/perl-error-tail-keys` | Perl | width | the key and sign lookups under the same `ERROR` (#1584) | linear |
+| `nexits/perl-error-tail-keys` | Perl | width | nexits' `die` / `exit` key lookup under the same `ERROR` (#1585) | linear |
 | `count/perl-error-tail-calls` | Perl | width | the `call` filter's bareword-key lookup under the same `ERROR`, on the `find` / `count` walk (#1580) | linear |
 | `cognitive/bash-test-connective-run` | Bash | depth | the comparison-run end of a `[ … -o … ]` test (#1536) | linear |
 | `abc/bash-arith-assign-chain` | Bash | depth | ABC's `=` comparison test on `(( a = … ))` (#1536) | linear |
@@ -409,14 +410,16 @@ children of every node wider than 64 as they push them, in a
 array instead of seeking. `Ancestors::previous_sibling` reads it too:
 it scanned its parent from the start, which made a valid Kotlin string
 of `$name` interpolations quadratic (11.5 s for 8 000 names). With
-`Ancestors::lookup` patched to ignore the cache, these three probes go
-over bound and nothing else moves:
+`Ancestors::lookup` patched to ignore the cache, these four probes go
+over bound, as does `count/perl-error-tail-calls` below, whose walk
+reads the same cache:
 
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
 | sibling lookups seek in the flat `ERROR` | `abc/perl-error-tail` | 1.08 | 2.10 | 8.8 ms → 326 ms |
 | (same patch) | `halstead/perl-error-tail-keys` | 1.04 | 1.74 | 14.5 ms → 96.0 ms |
 | (same patch) | `halstead/kotlin-short-interpolations` | 0.96 | 2.02 | 1.1 ms → 589 ms |
+| (same patch) | `nexits/perl-error-tail-keys` | 1.11 | 1.87 | 5.5 ms → 127 ms |
 
 The walk `bca find` and `bca count` share, `act_on_node`, keeps the same
 chain and lent no cache until Perl's `call` filter started asking the

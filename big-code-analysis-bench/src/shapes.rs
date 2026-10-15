@@ -651,6 +651,20 @@ pub fn perl_error_tail_calls(width: usize) -> String {
     format!("my @r = ({}", "{\nlast,\nname => 1,\n".repeat(width))
 }
 
+/// Perl: `my @r = (` followed by `width` copies of
+/// `{⏎die => 1,⏎exit => 1,⏎exit,⏎`, never closed.
+///
+/// [`perl_error_tail`]'s flat `ERROR`, holding the `die` / `exit` keys
+/// nexits asks about: whether a `=>` follows each, which makes it a key
+/// rather than an exit. The bare `exit` is the one exit per copy.
+#[must_use]
+pub fn perl_error_tail_exit_keys(width: usize) -> String {
+    format!(
+        "my @r = ({}",
+        "{\ndie => 1,\nexit => 1,\nexit,\n".repeat(width)
+    )
+}
+
 /// Bash: `if [ "$a" = 0 -o "$a" = 0 -a … ]; then :; fi`, the
 /// connectives alternating.
 ///
@@ -1689,6 +1703,25 @@ pub const PROBES: &[Probe] = &[
                     per copy of the body.",
     },
     Probe {
+        name: "nexits/perl-error-tail-keys",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nexits],
+            reading: |m| m.nexits.nexits_sum(),
+        },
+        render: perl_error_tail_exit_keys,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`abc/perl-error-tail`'s flat `ERROR`, holding the \
+                    `die` and `exit` keys nexits must not score: the key \
+                    test asks for the token after each (#1585), which \
+                    the walk's `SiblingCache` answers; read off the \
+                    `ERROR` from its start it would be quadratic in the \
+                    tail. The reading is one `exit` per copy of the body.",
+    },
+    Probe {
         name: "count/perl-error-tail-calls",
         lang: LANG::Perl,
         axis: Axis::Width,
@@ -1927,6 +1960,7 @@ mod tests {
     const RECOVERY_PROBES: &[&str] = &[
         "abc/perl-error-tail",
         "halstead/perl-error-tail-keys",
+        "nexits/perl-error-tail-keys",
         "count/perl-error-tail-calls",
     ];
 

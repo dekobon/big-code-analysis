@@ -277,10 +277,15 @@ enum Lookup<'tree, 'chain> {
     Narrow(Option<Node<'tree>>),
 }
 
-// Children past which a walk records a node's children for sibling
-// lookups. A seek over this many is a short scan however the grammar
-// stores them, so recording a narrower node would copy it for nothing.
-const WIDE_PARENT: usize = 64;
+/// Children past which a walk records a node's children for sibling
+/// lookups. A seek over this many is a short scan however the grammar
+/// stores them, so recording a narrower node would copy it for nothing.
+///
+/// `pub` and `#[doc(hidden)]` only so the wide-parent fixtures in this
+/// crate's and `big-code-analysis`'s tests size themselves from it: a
+/// hand-copied width would silently go narrow if this were raised.
+#[doc(hidden)]
+pub const WIDE_PARENT: usize = 64;
 
 // `node`'s index in `children`, a parent's children in order. Their start
 // bytes never decrease, so a binary search lands on the first child

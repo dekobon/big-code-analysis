@@ -135,8 +135,8 @@ pub fn elixir_applying_operator<'a>(
 /// function or decides nothing, and is not found. Nor is the childless
 /// `..`.
 ///
-/// Matched by rule name: `call`, `dot` and `arguments` are aliased to
-/// several ids each (grammar-dispatch §1).
+/// Matched by rule name: `dot` and `arguments` are aliased to several
+/// ids each (grammar-dispatch §1).
 #[must_use]
 pub fn elixir_kernel_operator_token<'a>(call: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
     if call.kind() != "call" || !call.children().any(|child| child.kind() == "arguments") {

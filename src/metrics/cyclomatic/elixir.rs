@@ -164,8 +164,9 @@ impl Cyclomatic for ElixirCode {
                         // A `receive` is a `case` over the mailbox and
                         // pays as one (#1581), when it has message
                         // clauses to pick between: one holding only an
-                        // `after` timeout is a timed wait. The timeout
-                        // clause is the default arm and free in standard
+                        // `after` timeout is a timed wait. Standard pays
+                        // the timeout clause only when a bare `_ ->`
+                        // already took the one free default arm
                         // (`elixir_clause_is_decision`).
                         "receive" if elixir_receive_dispatches(node, code) => {
                             stats.cyclomatic_modified += 1.;

@@ -15,6 +15,8 @@
 mod ancestors;
 mod parser_cache;
 
+#[doc(hidden)]
+pub use ancestors::WIDE_PARENT;
 pub use ancestors::{AncestorIter, Ancestors, SiblingCache};
 
 use tree_sitter::Node as OtherNode;
@@ -1886,12 +1888,13 @@ mod tests {
     #[cfg(feature = "mozjs")]
     #[test]
     fn act_on_node_records_a_wide_seeded_ancestor() {
-        // Past `WIDE_PARENT` in `node/ancestors.rs`.
-        const RECORDED_WIDTH: usize = 64;
-        let code = "var a = 1;\n".repeat(RECORDED_WIDTH + 6);
+        // Discriminates only through `Ancestors::lookup`'s `debug_assert!`:
+        // meaningful under `make pre-commit`'s debug build, vacuous under
+        // `--release` (lesson #80).
+        let code = "var a = 1;\n".repeat(WIDE_PARENT + 6);
         let tree = Tree::new::<MozjsCode>(code.as_bytes());
         let root = tree.get_root();
-        assert!(root.child_count() > RECORDED_WIDTH, "the root must be wide");
+        assert!(root.child_count() > WIDE_PARENT, "the root must be wide");
         let subtree = root.child(3).expect("fixture has a fourth statement");
 
         let mut after = None;

@@ -11718,9 +11718,8 @@ end
     // clause slot pays for, `catch_two` a multi-pattern clause, `recv` a
     // `receive`'s `after` timeout clause — free since #1581, as the
     // default arm, so `recv` scores what `case2` does — and `with_else`
-    // the `else` of
-    // a `with`, whose clauses pay rather than a Rule 5 `else`. Its `<-`
-    // clause pays one more since #1535, in both metrics.
+    // the `else` of a `with`, whose clauses pay rather than a Rule 5
+    // `else`. Its `<-` clause pays one more since #1535, in both metrics.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_clause_constructs_pay_per_clause() {

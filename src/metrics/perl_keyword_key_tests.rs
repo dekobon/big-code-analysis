@@ -902,15 +902,14 @@ fn perl_bareword_outside_a_key_keeps_its_call() {
 #[cfg(feature = "perl")]
 #[test]
 fn perl_flat_error_reads_siblings_from_the_walk() {
-    // Past `WIDE_PARENT` in `big-code-analysis-ast/src/node/ancestors.rs`,
-    // the width from which a walk records a node's children.
-    const RECORDED_WIDTH: usize = 64;
+    // The width from which a walk records a node's children.
+    use big_code_analysis_ast::node::WIDE_PARENT;
     let body = "{\nlast,\n$a && $b,\n- and,\n-a => 1,\nname => 1,\n$c > $d && $e,\n";
     let source = format!("my @r = ({}", body.repeat(12));
     let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
     let root = ast.as_tree_sitter().root_node();
     assert!(
-        root.is_error() && root.child_count() > RECORDED_WIDTH,
+        root.is_error() && root.child_count() > WIDE_PARENT,
         "the fixture must parse to a wide flat ERROR root"
     );
 
