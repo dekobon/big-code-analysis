@@ -233,7 +233,7 @@ impl MetricsFormat {
 /// Bytes buffered in front of every output destination.
 ///
 /// The incremental serializers (`serde_json::to_writer`,
-/// `serde_yaml::to_writer`, `ciborium::into_writer`) issue one write per
+/// `serde_saphyr::to_io_writer`, `ciborium::into_writer`) issue one write per
 /// structural token, and both a raw `File` and a `StdoutLock` pass each
 /// one straight to the kernel: a 12 MB aggregate document measured
 /// 4.76 million `write(2)` calls, ~2.6 bytes apiece. 64 KiB is large
@@ -339,7 +339,7 @@ pub(crate) fn dump_aggregate<T: Serialize>(
     output: &Path,
     pretty: bool,
 ) -> std::io::Result<()> {
-    write_buffered_file(output, |w| match format {
+    write_buffered_file(output, |mut w| match format {
         GenericFormat::Json => {
             if pretty {
                 serde_json::to_writer_pretty(w, &items).map_err(ser_err)
@@ -362,7 +362,7 @@ pub(crate) fn dump_aggregate<T: Serialize>(
             };
             w.write_all(text.as_bytes())
         }
-        GenericFormat::Yaml => serde_yaml::to_writer(w, &items).map_err(ser_err),
+        GenericFormat::Yaml => serde_saphyr::to_io_writer(&mut w, &items).map_err(ser_err),
         GenericFormat::Cbor => ciborium::into_writer(&items, w).map_err(ser_err),
     })
 }
@@ -645,7 +645,7 @@ struct Yaml;
 
 impl RenderDocument for Yaml {
     fn format<T: Serialize>(content: T) -> std::io::Result<String> {
-        serde_yaml::to_string(&content).map_err(ser_err)
+        serde_saphyr::to_string(&content).map_err(ser_err)
     }
 }
 
@@ -657,8 +657,8 @@ impl WriteFile for Yaml {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        Self::with_file(path, output_path, |w| {
-            serde_yaml::to_writer(w, &content).map_err(ser_err)
+        Self::with_file(path, output_path, |mut w| {
+            serde_saphyr::to_io_writer(&mut w, &content).map_err(ser_err)
         })
     }
 }
@@ -736,7 +736,7 @@ pub(crate) fn write_json<T: Serialize>(
 /// Serialize `value` as YAML and write it through [`write_text`]. See
 /// [`write_json`] for why these live here.
 pub(crate) fn write_yaml<T: Serialize>(value: &T, output: Option<&PathBuf>) -> std::io::Result<()> {
-    let yaml = serde_yaml::to_string(value).map_err(std::io::Error::other)?;
+    let yaml = serde_saphyr::to_string(value).map_err(std::io::Error::other)?;
     write_text(&yaml, output)
 }
 
@@ -1117,8 +1117,34 @@ mod tests {
         let yaml = dir.path().join("agg.yaml");
         dump_aggregate(GenericFormat::Yaml, &expected, &yaml, false).expect("yaml");
         let got: Vec<Item> =
-            serde_yaml::from_str(&std::fs::read_to_string(&yaml).expect("read")).expect("parse");
+            serde_saphyr::from_str(&std::fs::read_to_string(&yaml).expect("read")).expect("parse");
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn yaml_preserves_ambiguous_strings_and_full_precision() {
+        let expected = [
+            "true",
+            "null",
+            "01",
+            "1e3",
+            "a: b",
+            "*alias",
+            "# comment",
+            "",
+            "café\nline\n",
+        ]
+        .map(|name| Item {
+            name: name.to_owned(),
+            value: 0.123_456_789_012_345_68,
+        });
+        let text = Yaml::format(&expected).expect("render YAML");
+        let parsed: Vec<Item> = serde_saphyr::from_str(&text).expect("parse YAML");
+        assert_eq!(parsed, expected);
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("aggregate.yaml");
+        dump_aggregate(GenericFormat::Yaml, &expected, &path, false).expect("write YAML");
+        assert_eq!(std::fs::read_to_string(path).expect("read YAML"), text);
     }
 
     /// The `pretty` flag has to reach the serializer. Both spellings
@@ -1163,7 +1189,7 @@ mod tests {
         let yaml = dir.path().join("out.yaml");
         write_yaml(&value, Some(&yaml)).expect("yaml");
         assert_eq!(
-            serde_yaml::from_str::<Vec<Item>>(&std::fs::read_to_string(&yaml).expect("read"))
+            serde_saphyr::from_str::<Vec<Item>>(&std::fs::read_to_string(&yaml).expect("read"))
                 .expect("parse"),
             value
         );

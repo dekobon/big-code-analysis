@@ -62,6 +62,10 @@ authors = [
 # entries via `.workspace = true`, so any grammar bump here MUST be
 # applied to enums/Cargo.toml in lockstep (see recreate-grammars.sh).
 [workspace.dependencies]
+serde-saphyr = { version = "^2.0", default-features = false, features = [
+  "serialize",
+  "deserialize",
+] }
 tree-sitter = "=0.26.13"
 tree-sitter-bash = "=0.25.1"
 tree-sitter-c-sharp = "=0.23.5"
@@ -378,7 +382,7 @@ globset = "^0.4"
 # three) to pin the uniform null/omit policy across all of them. Versions
 # mirror the `big-code-analysis-cli` pins; these crates already sit in the
 # workspace graph, so listing them here adds no new resolved dependency.
-serde_yaml = "^0.9"
+serde-saphyr.workspace = true
 ciborium = "^0.2"
 toml = "^1.1"
 

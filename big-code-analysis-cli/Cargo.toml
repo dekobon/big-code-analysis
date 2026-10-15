@@ -38,7 +38,7 @@ crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 csv.workspace = true
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-serde_yaml = "^0.9"
+serde-saphyr.workspace = true
 # `bca diff --since` materializes the tree at a git ref into an
 # auto-cleaning TempDir (#492), so tempfile is a runtime dependency, not
 # just a test helper.

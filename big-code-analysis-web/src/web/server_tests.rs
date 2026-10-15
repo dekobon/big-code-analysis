@@ -4237,11 +4237,11 @@ async fn test_web_metrics_yaml_accept_emits_yaml() {
     let body = test::read_body(resp).await;
     // The body must parse as YAML and carry the same fields the JSON body
     // would, proving the response is genuinely YAML and not JSON mislabelled.
-    let parsed: serde_yaml::Value = serde_yaml::from_slice(&body).unwrap();
-    assert_eq!(parsed["id"], serde_yaml::Value::from("neg-657"));
-    assert_eq!(parsed["language"], serde_yaml::Value::from("python"));
+    let parsed: Value = serde_saphyr::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], Value::from("neg-657"));
+    assert_eq!(parsed["language"], Value::from("python"));
     // YAML is a JSON superset, so a successful YAML parse alone does not rule
-    // out a JSON body mislabelled as YAML. serde_yaml emits this nested map
+    // out a JSON body mislabelled as YAML. serde_saphyr emits this nested map
     // in block style (`id: neg-657\n...`), which is not valid JSON — so a
     // failed JSON parse is positive proof the bytes are real YAML.
     assert!(
@@ -4286,10 +4286,8 @@ async fn test_web_metrics_yaml_matches_json_payload() {
     let yaml_resp =
         test::call_service(&app, metrics_request(Some("application/yaml")).to_request()).await;
     let yaml_body = test::read_body(yaml_resp).await;
-    let yaml: serde_yaml::Value = serde_yaml::from_slice(&yaml_body).unwrap();
-    // Re-serialize the YAML value to JSON and compare structurally.
-    let yaml_as_json: Value = serde_json::to_value(&yaml).unwrap();
-    assert_eq!(json, yaml_as_json);
+    let yaml: Value = serde_saphyr::from_slice(&yaml_body).unwrap();
+    assert_eq!(json, yaml);
 }
 
 #[actix_rt::test]
@@ -4353,8 +4351,8 @@ async fn test_web_ast_yaml_accept_emits_yaml() {
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(content_type(&resp), "application/yaml");
     let body = test::read_body(resp).await;
-    let parsed: serde_yaml::Value = serde_yaml::from_slice(&body).unwrap();
-    assert_eq!(parsed["id"], serde_yaml::Value::from("ct-515"));
+    let parsed: Value = serde_saphyr::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], Value::from("ct-515"));
 }
 
 #[actix_rt::test]

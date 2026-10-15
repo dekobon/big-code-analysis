@@ -76,6 +76,13 @@ for historical reference.
 
 ### Fixed
 
+- **Dependency-audit failures in CI:** update the locked `rustls` to
+  0.23.46 for RUSTSEC-2026-0346 through RUSTSEC-2026-0349, and replace
+  `serde_yaml` with `serde-saphyr` in CLI / REST YAML output and the
+  library's round-trip tests. This removes the unmaintained
+  `unsafe-libyaml` dependency (RUSTSEC-2024-0449). YAML keeps its data
+  schema; scalar quoting and layout may differ between serializers.
+
 - **Bash cognitive complexity keeps a unary-test prefix in its logical
   sequence.** `[ -n "$b" -a "$a" = 1 -a "$c" = 2 ]` now scores like
   separate tests joined with `&&`; the `-o` / `||` spellings agree too.

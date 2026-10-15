@@ -461,11 +461,11 @@ fn cli_metrics_yaml_round_trips() {
     let fixture = write_rust_fixture(&dir);
     let out = run_metrics(&dir, "yaml", &fixture);
 
-    let doc: serde_yaml::Value = serde_yaml::from_str(&out).expect("metrics YAML parses");
-    let map = doc.as_mapping().expect("YAML root is a mapping");
+    let doc: serde_json::Value = serde_saphyr::from_str(&out).expect("metrics YAML parses");
+    let map = doc.as_object().expect("YAML root is a mapping");
     for key in STRUCTURAL_KEYS {
         assert!(
-            map.contains_key(serde_yaml::Value::String((*key).to_string())),
+            map.contains_key(*key),
             "YAML output missing top-level key {key:?}; doc was:\n{out}",
         );
     }
@@ -555,7 +555,7 @@ fn cli_metrics_all_formats_agree_on_metric() {
     let json = json_metric(&dir, &fixture, CYCLOMATIC_KEY);
 
     let yaml_out = run_metrics(&dir, "yaml", &fixture);
-    let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_out).expect("YAML parses");
+    let yaml: serde_json::Value = serde_saphyr::from_str(&yaml_out).expect("YAML parses");
     let yaml = yaml["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
         .as_f64()
         .expect("YAML metric is numeric");

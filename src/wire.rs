@@ -208,8 +208,8 @@ mod trend_wire_tests {
         assert!((from_json.ownership_top_share - row.ownership_top_share).abs() < 1e-12);
 
         // YAML round-trip.
-        let yaml = serde_yaml::to_string(&row).expect("serialize Vcs to YAML");
-        let from_yaml: Vcs = serde_yaml::from_str(&yaml).expect("parse Vcs from YAML");
+        let yaml = serde_saphyr::to_string(&row).expect("serialize Vcs to YAML");
+        let from_yaml: Vcs = serde_saphyr::from_str(&yaml).expect("parse Vcs from YAML");
         assert!(from_yaml.risk_score.is_nan() && from_yaml.burst.is_nan());
 
         // CBOR round-trip.
@@ -230,8 +230,9 @@ mod trend_wire_tests {
             vcs: sample_vcs(),
         };
 
-        let yaml = serde_yaml::to_string(&point).expect("serialize VcsTrendPoint to YAML");
-        let from_yaml: VcsTrendPoint = serde_yaml::from_str(&yaml).expect("parse point from YAML");
+        let yaml = serde_saphyr::to_string(&point).expect("serialize VcsTrendPoint to YAML");
+        let from_yaml: VcsTrendPoint =
+            serde_saphyr::from_str(&yaml).expect("parse point from YAML");
         assert_eq!(from_yaml, point);
 
         let mut bytes = Vec::new();
@@ -264,8 +265,8 @@ mod trend_wire_tests {
             deltas: VcsTrendDeltas::default(),
         };
 
-        let yaml = serde_yaml::to_string(&trend).expect("serialize VcsTrend to YAML");
-        let from_yaml: VcsTrend = serde_yaml::from_str(&yaml).expect("parse VcsTrend from YAML");
+        let yaml = serde_saphyr::to_string(&trend).expect("serialize VcsTrend to YAML");
+        let from_yaml: VcsTrend = serde_saphyr::from_str(&yaml).expect("parse VcsTrend from YAML");
         assert_eq!(from_yaml, trend);
 
         let mut bytes = Vec::new();
@@ -773,10 +774,10 @@ fn run() {
     #[test]
     fn yaml_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
-            let yaml = serde_yaml::to_string(&fs).expect("serialize to YAML");
-            let back: FuncSpace = serde_yaml::from_str(&yaml).expect("parse wire from YAML");
+            let yaml = serde_saphyr::to_string(&fs).expect("serialize to YAML");
+            let back: FuncSpace = serde_saphyr::from_str(&yaml).expect("parse wire from YAML");
             assert_eq!(back, fs.to_wire());
-            assert_eq!(serde_yaml::to_string(&back).expect("re-serialize"), yaml);
+            assert_eq!(serde_saphyr::to_string(&back).expect("re-serialize"), yaml);
         });
     }
 
@@ -872,13 +873,13 @@ fn run() {
                 "JSON null must deserialize back to NaN",
             );
 
-            let yaml = serde_yaml::to_string(&mi).expect("YAML");
+            let yaml = serde_saphyr::to_string(&mi).expect("YAML");
             assert!(
                 yaml.contains("original: null"),
                 "non-finite must serialize to YAML null, got {yaml}",
             );
             assert!(
-                serde_yaml::from_str::<Mi>(&yaml)
+                serde_saphyr::from_str::<Mi>(&yaml)
                     .expect("parse")
                     .original
                     .is_nan()
@@ -1118,7 +1119,7 @@ fn run() {
             (
                 [
                     serde_json::to_string(&at_limit).is_ok(),
-                    serde_yaml::to_string(&at_limit).is_ok(),
+                    serde_saphyr::to_string(&at_limit).is_ok(),
                     toml::to_string(&at_limit).is_ok(),
                     {
                         let mut bytes = Vec::new();
@@ -1127,7 +1128,7 @@ fn run() {
                 ],
                 [
                     serde_json::to_string(&past_limit).is_ok(),
-                    serde_yaml::to_string(&past_limit).is_ok(),
+                    serde_saphyr::to_string(&past_limit).is_ok(),
                     toml::to_string(&past_limit).is_ok(),
                     {
                         let mut bytes = Vec::new();

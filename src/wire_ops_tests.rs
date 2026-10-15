@@ -87,8 +87,8 @@ fn borrowed_and_owned_ops_projections_serialize_alike() {
             "{lang:?} JSON must not depend on the projection"
         );
         assert_eq!(
-            serde_yaml::to_string(&ops).expect("borrowed YAML"),
-            serde_yaml::to_string(&owned).expect("owned YAML"),
+            serde_saphyr::to_string(&ops).expect("borrowed YAML"),
+            serde_saphyr::to_string(&owned).expect("owned YAML"),
             "{lang:?} YAML must not depend on the projection"
         );
         assert_eq!(

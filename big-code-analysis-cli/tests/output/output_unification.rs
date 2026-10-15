@@ -529,7 +529,7 @@ fn per_file_documents_survive_spanning_several_output_buffers() {
                 v.to_string()
             }
             "yaml" => {
-                let v: serde_yaml::Value = serde_yaml::from_slice(&bytes)
+                let v: serde_json::Value = serde_saphyr::from_slice(&bytes)
                     .unwrap_or_else(|e| panic!("{format}: truncated or invalid document: {e}"));
                 serde_json::to_string(&v).unwrap()
             }

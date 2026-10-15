@@ -152,17 +152,17 @@ fn yaml_format_emits_valid_document() {
         .output()
         .expect("run bca vcs trend yaml");
     assert!(output.status.success());
-    let doc: serde_yaml::Value =
-        serde_yaml::from_slice(&output.stdout).expect("trend output is valid YAML");
+    let doc: serde_json::Value =
+        serde_saphyr::from_slice(&output.stdout).expect("trend output is valid YAML");
     assert_eq!(doc["trend_schema_version"], 1);
     // Non-vacuous structural checks: the point grid and file map are
     // present with the requested shape.
     assert_eq!(
-        doc["as_of_points"].as_sequence().map(Vec::len),
+        doc["as_of_points"].as_array().map(Vec::len),
         Some(2),
         "two requested points appear in the YAML"
     );
-    assert!(doc["files"].is_mapping(), "files is a path-keyed mapping");
+    assert!(doc["files"].is_object(), "files is a path-keyed mapping");
 }
 
 /// A history-tuning flag (`--as-of`) is accepted in the *subcommand*

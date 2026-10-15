@@ -57,7 +57,7 @@ impl Format {
     pub(super) fn encode<T: serde::Serialize>(self, value: &T) -> Result<Vec<u8>, ()> {
         match self {
             Format::Json => serde_json::to_vec(value).map_err(|_| ()),
-            Format::Yaml => serde_yaml::to_string(value)
+            Format::Yaml => serde_saphyr::to_string(value)
                 .map(String::into_bytes)
                 .map_err(|_| ()),
             Format::Cbor => {
@@ -278,8 +278,8 @@ mod tests {
         assert_eq!(parsed["n"], serde_json::json!(7));
 
         let yaml = Format::Yaml.encode(&value).unwrap();
-        let parsed: serde_yaml::Value = serde_yaml::from_slice(&yaml).unwrap();
-        assert_eq!(parsed["n"], serde_yaml::Value::from(7));
+        let parsed: serde_json::Value = serde_saphyr::from_slice(&yaml).unwrap();
+        assert_eq!(parsed["n"], serde_json::Value::from(7));
 
         let cbor = Format::Cbor.encode(&value).unwrap();
         let parsed: ciborium::Value = ciborium::from_reader(cbor.as_slice()).unwrap();
