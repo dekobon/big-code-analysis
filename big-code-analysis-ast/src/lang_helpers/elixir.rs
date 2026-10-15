@@ -144,6 +144,10 @@ pub fn elixir_applying_operator<'a>(
 /// ids each (grammar-dispatch §1).
 #[must_use]
 pub fn elixir_kernel_short_circuit_name<'a>(call: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
+    kernel_short_circuit_parts(call, code).map(|(name, _)| name)
+}
+
+fn kernel_short_circuit_parts<'a>(call: &Node<'a>, code: &[u8]) -> Option<(Node<'a>, Node<'a>)> {
     if call.kind() != "call" {
         return None;
     }
@@ -162,9 +166,9 @@ pub fn elixir_kernel_short_circuit_name<'a>(call: &Node<'a>, code: &[u8]) -> Opt
     } else {
         name
     };
-    (elixir_short_circuit_name(&name, code).is_some()
-        && call.children().any(|child| child.kind() == "arguments"))
-    .then_some(name)
+    elixir_short_circuit_name(&name, code)
+        .and_then(|_| call.children().find(|child| child.kind() == "arguments"))
+        .map(|arguments| (name, arguments))
 }
 
 /// The short-circuit operation an operator token kind applies, keyed by
@@ -198,9 +202,19 @@ pub fn elixir_short_circuit_name(name: &Node, code: &[u8]) -> Option<Elixir> {
     }
 }
 
+/// A recognized short-circuit `Kernel` call and the context its operands need.
+pub struct ElixirRemoteCall<'tree, 'chain> {
+    /// The call that applies the operator.
+    pub call: Node<'tree>,
+    /// The argument list found while recognizing the call.
+    pub arguments: Node<'tree>,
+    /// The call's own ancestry.
+    pub ancestors: Ancestors<'tree, 'chain>,
+}
+
 /// The `Kernel` remote call that applies `op`, a short-circuit operator's
 /// name — the call [`elixir_kernel_short_circuit_name`] answers `op` for
-/// — paired with that call's own ancestry, or `None` when `op` sits
+/// — with its argument list and ancestry, or `None` when `op` sits
 /// anywhere else. A token's parents are the `operator_identifier`, then
 /// the `dot`, then the call; the `identifier` naming `Kernel.and` sits
 /// on the `dot` directly. Any other node fails on the first one or two
@@ -211,7 +225,7 @@ pub fn elixir_applying_remote_call<'a, 'c>(
     op: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, 'c>,
-) -> Option<(Node<'a>, Ancestors<'a, 'c>)> {
+) -> Option<ElixirRemoteCall<'a, 'c>> {
     let mut up = ancestors.iter(op);
     let (mut dot, _) = up.next()?;
     if dot.kind() == "operator_identifier" {
@@ -221,7 +235,83 @@ pub fn elixir_applying_remote_call<'a, 'c>(
         return None;
     }
     let (call, call_ancestors) = up.next()?;
-    elixir_kernel_short_circuit_name(&call, code)
-        .is_some_and(|name| name.id() == op.id())
-        .then_some((call, call_ancestors))
+    kernel_short_circuit_parts(&call, code)
+        .filter(|(name, _)| name.id() == op.id())
+        .map(|(_, arguments)| ElixirRemoteCall {
+            call,
+            arguments,
+            ancestors: call_ancestors,
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ElixirCode;
+    use crate::node::Tree;
+    use crate::test_support::for_each_node_with_chain;
+
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn short_circuit_name_requires_the_identifiers_source_span() {
+        let source = b"Kernel.and(a, b)";
+        let tree = Tree::new::<ElixirCode>(source);
+        let name = tree
+            .get_root()
+            .preorder()
+            .find(|node| {
+                node.kind_id() == Elixir::Identifier as u16 && node.utf8_text(source) == Some("and")
+            })
+            .expect("fixture contains the operator name");
+        assert_eq!(
+            elixir_short_circuit_name(&name, source),
+            Some(Elixir::AMPAMP)
+        );
+        assert_eq!(
+            elixir_short_circuit_name(&name, &source[..name.end_byte() - 1]),
+            None
+        );
+    }
+
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn remote_call_lookup_rejects_a_root_and_keeps_its_argument_list() {
+        let source = b"Kernel.and(a, b)\nKernel.||(c, d)\n";
+        let mut recognized = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            let known = elixir_applying_remote_call(node, source, Ancestors::known(chain));
+            let unknown = elixir_applying_remote_call(node, source, Ancestors::unknown());
+            assert_eq!(
+                known.as_ref().map(|r| (r.call.id(), r.arguments.id())),
+                unknown.map(|r| (r.call.id(), r.arguments.id()))
+            );
+            if chain.is_empty() {
+                assert!(known.is_none());
+            }
+            if let Some(remote) = known {
+                assert_eq!(remote.arguments.kind(), "arguments");
+                assert_eq!(
+                    remote.ancestors.parent(&remote.call).map(|p| p.kind()),
+                    Some("source")
+                );
+                recognized.push((
+                    node.utf8_text(source)
+                        .expect("operator is UTF-8")
+                        .to_owned(),
+                    remote
+                        .arguments
+                        .utf8_text(source)
+                        .expect("arguments are UTF-8")
+                        .to_owned(),
+                ));
+            }
+        });
+        assert_eq!(
+            recognized,
+            [
+                ("and".to_owned(), "(a, b)".to_owned()),
+                ("||".to_owned(), "(c, d)".to_owned())
+            ]
+        );
+    }
 }

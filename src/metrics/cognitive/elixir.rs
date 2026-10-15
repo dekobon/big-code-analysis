@@ -75,13 +75,14 @@ fn compute_elixir_remote_booleans<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    if let Some((call, _)) = elixir_applying_remote_call(op, code, ancestors)
+    if let Some(remote) = elixir_applying_remote_call(op, code, ancestors)
         && let Some(key) = elixir_short_circuit_name(op, code)
     {
-        stats.structural =
-            stats
-                .boolean_seq
-                .eval_based_on_prev(key as u16, call.end_byte(), stats.structural);
+        stats.structural = stats.boolean_seq.eval_based_on_prev(
+            key as u16,
+            remote.call.end_byte(),
+            stats.structural,
+        );
     }
 }
 

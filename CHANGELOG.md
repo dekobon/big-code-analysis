@@ -46,6 +46,13 @@ for historical reference.
 
 ### Changed
 
+- **Elixir helper cleanup:** remote short-circuit call recognition now
+  returns its argument list with the call and ancestry, avoiding a second
+  lookup in ABC. The obsolete per-clause timeout lookup is removed.
+  `elixir_applying_remote_call` returns `ElixirRemoteCall` in the internal
+  `big-code-analysis-ast` crate, which is outside the public shape contract
+  described in [STABILITY.md](STABILITY.md). Metric values are unchanged.
+
 - **Halstead bills angle brackets that enclose types as one `<>`
   operator**, like a generic list's (#1567). Rust qualified paths
   (`<T as Trait>::f`, `<T>::f`), C# function pointer types

@@ -218,6 +218,7 @@ fn elixir_if_else_scores_alike_in_every_spelling() {
 #[cfg(feature = "elixir")]
 #[test]
 fn elixir_list_that_is_not_a_keyword_list_has_no_sections() {
+    assert_group("[1]", [1, 1, 0, 0], &["[else: 1]", "[do: 1, else: 2]"]);
     assert_group(
         "if(c, x)",
         [2, 2, 1, 1],

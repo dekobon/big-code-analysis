@@ -207,22 +207,21 @@ fn elixir_count_remote_chain<'a>(
     ancestors: Ancestors<'a, '_>,
     conditions: &mut f64,
 ) {
-    let Some((call, call_ancestors)) = elixir_applying_remote_call(op, code, ancestors) else {
+    let Some(remote) = elixir_applying_remote_call(op, code, ancestors) else {
         return;
     };
     let score = |operand: &Node, conditions: &mut f64| {
         elixir_count_condition(operand, code, conditions);
     };
-    if let Some(piped) = call_ancestors
-        .parent(&call)
+    if let Some(piped) = remote
+        .ancestors
+        .parent(&remote.call)
         .filter(|pipe| elixir_binary_operator_is(pipe, |op| op == Elixir::PIPEGT))
         .and_then(|pipe| pipe.child_by_field_name("left"))
     {
         score(&piped, conditions);
     }
-    if let Some(arguments) = call.children().find(|child| child.kind() == "arguments") {
-        count_each_operand(&arguments, score, conditions);
-    }
+    count_each_operand(&remote.arguments, score, conditions);
 }
 
 // What an Elixir `Call` contributes. The classification is by keyword

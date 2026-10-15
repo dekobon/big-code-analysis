@@ -669,40 +669,73 @@ const KEYWORDS: &str = "keywords";
 const ARGUMENTS: &str = "arguments";
 
 /// The `Call` whose `do` section holds `node` (a `stab_clause`), in
-/// either spelling ([`elixir_clause_section`]). The caller asks the
-/// Call's keyword (`cond`, `for`).
+/// either spelling: the block form's `do_block`, or a trailing `do:`
+/// keyword pair. The caller asks the Call's keyword (`cond`, `for`).
 fn elixir_do_section_call<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<Node<'a>> {
-    elixir_clause_section(node, code, ancestors)
-        .filter(|(key, _)| *key == "do")
-        .map(|(_, call)| call)
-}
-
-/// The section holding `node` (a `stab_clause`) and the Call it belongs
-/// to: `("do", call)` under the block form's `do_block`, whose parent is
-/// the Call, `("after", call)` under the `after_block` inside that
-/// `do_block`, and the keyword form's `(key, call)` under a `do: (…)` /
-/// `after: (…)` block, bare or bracketed (`block` → `pair` → the climb
-/// [`elixir_pair_section`] makes). `None` for a clause anywhere else,
-/// the block form's `else` / `rescue` / `catch` sections included, which
-/// no caller asks the owner of.
-fn elixir_clause_section<'a>(
-    node: &Node<'a>,
-    code: &'a [u8],
-    ancestors: Ancestors<'a, '_>,
-) -> Option<(&'a str, Node<'a>)> {
     use Elixir as E;
 
     let mut up = ancestors.iter(node);
     let (holder, _) = up.next()?;
     let (next, next_ancestors) = up.next()?;
     match holder.kind_id().into() {
-        E::DoBlock => Some(("do", next)),
-        E::AfterBlock if next.kind_id() == E::DoBlock as u16 => Some(("after", up.next()?.0)),
-        E::Block => elixir_pair_section(&next, code, next_ancestors),
+        E::DoBlock => Some(next),
+        E::Block => elixir_pair_section(&next, code, next_ancestors)
+            .filter(|(key, _)| *key == "do")
+            .map(|(_, call)| call),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ElixirCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn empty_call_arguments_have_no_trailing_keywords() {
+        let source = b"f()\ng(else: 1)\n";
+        let mut found = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, _| {
+            if node.kind() == ARGUMENTS {
+                found.push(elixir_trailing_keywords(node).map(|keywords| {
+                    keywords
+                        .utf8_text(source)
+                        .expect("keywords are UTF-8")
+                        .to_owned()
+                }));
+            }
+        });
+        assert_eq!(found, [None, Some("else: 1".to_owned())]);
+    }
+
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn standalone_keyword_list_has_no_owning_call() {
+        let source = b"[else: 1]\nf(else: 2)\n";
+        let mut found = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() == Elixir::Pair as u16 {
+                found.push(
+                    elixir_pair_section(node, source, Ancestors::known(chain)).map(
+                        |(key, call)| {
+                            (
+                                key.to_owned(),
+                                call.utf8_text(source).expect("call is UTF-8").to_owned(),
+                            )
+                        },
+                    ),
+                );
+            }
+        });
+        assert_eq!(
+            found,
+            [None, Some(("else".to_owned(), "f(else: 2)".to_owned()))]
+        );
     }
 }
