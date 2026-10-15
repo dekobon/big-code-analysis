@@ -148,6 +148,7 @@ Read it as follows.
 | `cyclomatic/nested-and` | Python | depth | shape control for the row below | linear |
 | `cyclomatic/nested-ternary` | Python | depth | `Node::parent_grandparent_match` (#1096) | linear |
 | `loc/nested-quote` | Elixir | depth | `loc`'s Elixir catch-all arm (#1096) | linear |
+| `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
 | `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
@@ -430,7 +431,7 @@ one now, and `count/perl-error-tail-calls` prices it:
 |---|---|---|---|---|
 | `act_on_node` lends no cache | `count/perl-error-tail-calls` | 0.88 | 1.89 | 2.8 ms → 84.5 ms |
 
-These three are the probes whose shape is meant not to parse:
+These four are the probes whose shape is meant not to parse:
 `RECOVERY_PROBES` in `shapes.rs` exempts them from the parse check and
 asserts that each root is still an `ERROR`.
 

@@ -342,12 +342,14 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// 10 -> :t end` reaches a matched message, any other message, and an
 /// empty mailbox timing out — three paths, the three-clause `case`'s
 /// two decisions. So the `after` clause is free only when the `do`
-/// section has no bare catch-all ([`elixir_receive_after_is_decision`]).
+/// section has no bare catch-all ([`elixir_receive_timeout_clause`]).
 /// It is never a dispatch in its own right: the compiler accepts
 /// exactly one `after` clause, and its head is a timeout value, not a
 /// pattern that can fail. No other construct puts a clause there, since
 /// `try`'s `after` takes a plain body, so the section is not among
 /// those [`DECISION_SECTION_KEYS`] names.
+/// The owning Call scores the timeout once; scoring it per clause would
+/// repeatedly scan the message section on compiler-invalid multi-timeout input.
 ///
 /// An anonymous fn's head clause is the closure's definition, not a
 /// dispatch: the closure opens its own function space whose base path
@@ -389,9 +391,6 @@ pub(super) fn elixir_clause_is_decision<'a>(
 ) -> bool {
     use Elixir as E;
 
-    if let Some(receive) = elixir_after_section_receive(node, code, ancestors) {
-        return elixir_receive_after_is_decision(&receive, code);
-    }
     let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
     let in_section = up.next().is_some_and(|parent| {
         matches!(
@@ -442,43 +441,24 @@ fn elixir_is_catch_all(clause: &Node, code: &[u8]) -> bool {
         .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
 }
 
-/// Whether a `receive`'s `after` clause is a decision: whether its `do`
+/// A `receive`'s `after` clause when it is a decision: when its `do`
 /// section already holds the free bare `_ ->`, leaving the timeout as a
 /// path of its own. Without one the timeout is the construct's single
 /// free arm ([`elixir_clause_is_decision`]).
-fn elixir_receive_after_is_decision(receive: &Node, code: &[u8]) -> bool {
+/// Called once per receive, not once per timeout clause.
+pub(super) fn elixir_receive_timeout_clause<'a>(
+    receive: &Node<'a>,
+    code: &'a [u8],
+) -> Option<Node<'a>> {
+    let timeout = receive.children().find_map(|child| {
+        elixir_section_holder(&child, code, Section::After)?
+            .children()
+            .find(|clause| clause.kind_id() == Elixir::StabClause as u16)
+    })?;
     elixir_section_has_clause(receive, code, Section::Do, |clause| {
         elixir_is_catch_all(clause, code)
     })
-}
-
-/// The `receive` Call whose `after` section holds `node` (a
-/// `stab_clause`): the block form's `after_block` inside the Call's
-/// `do_block`, or the keyword form's `after: (…)` block, bare or
-/// bracketed. `None` for a clause anywhere else, and for an `after`
-/// section of any other Call.
-fn elixir_after_section_receive<'a>(
-    node: &Node<'a>,
-    code: &'a [u8],
-    ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    use Elixir as E;
-
-    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-    let call = match up.next().map(|parent| parent.kind_id().into()) {
-        Some(E::AfterBlock) => up
-            .next()
-            .filter(|do_block| do_block.kind_id() == E::DoBlock as u16)
-            .and_then(|_| up.next()),
-        Some(E::Block) => {
-            let pair = up.next()?;
-            elixir_pair_section(&pair, code, up)
-                .filter(|(key, _)| *key == "after")
-                .map(|(_, call)| call)
-        }
-        _ => None,
-    }?;
-    (elixir_call_keyword(&call, code) == Some("receive")).then_some(call)
+    .then_some(timeout)
 }
 
 /// Whether a `receive` Call dispatches over the mailbox: whether its
@@ -494,45 +474,72 @@ pub(super) fn elixir_receive_dispatches(call: &Node, code: &[u8]) -> bool {
     elixir_section_has_clause(call, code, Section::Do, |_| true)
 }
 
-/// A clause section [`elixir_section_has_clause`] reads.
+/// A section of a Call, as [`elixir_section_holder`] finds it.
 #[derive(Clone, Copy)]
-enum Section {
+pub(super) enum Section {
     Do,
     Else,
+    After,
 }
 
-/// Whether `call`'s `section` holds a `stab_clause` that `accept`s: the
-/// block form's `do_block`, or the `else_block` inside it, or the
-/// keyword form's `do:` / `else:` value, bare or bracketed
-/// ([`elixir_trailing_keywords`]). The block form's `else_block` is the
-/// `do_block`'s child, never the Call's.
+impl Section {
+    /// The section's keyword-form spelling, without its colon.
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Do => "do",
+            Self::Else => "else",
+            Self::After => "after",
+        }
+    }
+}
+
+/// Whether `call`'s `section` holds a `stab_clause` that `accept`s.
 fn elixir_section_has_clause(
     call: &Node,
     code: &[u8],
     section: Section,
     accept: impl Fn(&Node) -> bool,
 ) -> bool {
-    use Elixir as E;
-
-    let key = match section {
-        Section::Do => "do",
-        Section::Else => "else",
-    };
     call.children().any(|child| {
-        let holder = match (child.kind_id().into(), section) {
-            (E::DoBlock, Section::Do) => Some(child),
-            (E::DoBlock, Section::Else) => child
-                .children()
-                .find(|c| c.kind_id() == E::ElseBlock as u16),
-            _ if child.kind() == ARGUMENTS => elixir_keyword_section(&child, code, key),
-            _ => None,
-        };
-        holder.is_some_and(|holder| {
+        elixir_section_holder(&child, code, section).is_some_and(|holder| {
             holder
                 .children()
-                .any(|clause| clause.kind_id() == E::StabClause as u16 && accept(&clause))
+                .any(|clause| clause.kind_id() == Elixir::StabClause as u16 && accept(&clause))
         })
     })
+}
+
+/// Whether `call` has a `section`, in either spelling
+/// ([`elixir_section_holder`]).
+pub(super) fn elixir_call_has_section(call: &Node, code: &[u8], section: Section) -> bool {
+    call.children()
+        .any(|child| elixir_section_holder(&child, code, section).is_some())
+}
+
+/// The node holding the `section` that `child`, a child of a Call,
+/// spells: the block form's `do_block`, or the `else_block` inside it,
+/// or the keyword form's `do:` / `else:` value in the trailing keyword
+/// list of the `arguments` `child` is, bare or bracketed
+/// ([`elixir_trailing_keywords`]). The block form's `else_block` is the
+/// `do_block`'s child, never the Call's.
+fn elixir_section_holder<'a>(
+    child: &Node<'a>,
+    code: &'a [u8],
+    section: Section,
+) -> Option<Node<'a>> {
+    use Elixir as E;
+
+    match (child.kind_id().into(), section) {
+        (E::DoBlock, Section::Do) => Some(*child),
+        (E::DoBlock, Section::Else) => child
+            .children()
+            .find(|c| c.kind_id() == E::ElseBlock as u16),
+        (E::DoBlock, Section::After) => child
+            .children()
+            .find(|c| c.kind_id() == E::AfterBlock as u16),
+        _ if child.kind() == ARGUMENTS => elixir_keyword_section(child, code, section.key()),
+        _ => None,
+    }
 }
 
 /// The keyword spellings of the clause sections whose clauses are
@@ -551,9 +558,10 @@ const DECISION_SECTION_KEYS: &[&str] = &["do", "else", "rescue", "catch"];
 /// The grammar's key is a `keyword` token, which has no named parts, or a
 /// `quoted_keyword` around its `quoted_content` and any interpolations.
 fn elixir_pair_key<'a>(pair: &Node<'a>, code: &'a [u8]) -> Option<&'a str> {
-    let key = Some(pair)
-        .filter(|pair| pair.kind_id() == Elixir::Pair as u16)
-        .and_then(|pair| pair.child_by_field_name("key"))?;
+    if pair.kind_id() != Elixir::Pair as u16 {
+        return None;
+    }
+    let key = pair.child_by_field_name("key")?;
     let mut parts = key.children().filter(Node::is_named);
     match (parts.next(), parts.next()) {
         (None, _) => key
@@ -578,7 +586,7 @@ fn elixir_pair_key<'a>(pair: &Node<'a>, code: &'a [u8]) -> Option<&'a str> {
 ///
 /// Matched by rule name: `keywords` carries two kind ids at this pin
 /// (grammar-dispatch §1). Comments are skipped as the extras they are.
-pub(super) fn elixir_trailing_keywords<'a>(arguments: &Node<'a>) -> Option<Node<'a>> {
+fn elixir_trailing_keywords<'a>(arguments: &Node<'a>) -> Option<Node<'a>> {
     let last = arguments.children().filter(is_operand).last()?;
     if last.kind() == KEYWORDS {
         return Some(last);
@@ -593,11 +601,7 @@ pub(super) fn elixir_trailing_keywords<'a>(arguments: &Node<'a>) -> Option<Node<
 
 /// The value of the `key:` pair in `arguments`' trailing keyword list
 /// ([`elixir_trailing_keywords`]), or `None` when it has no such pair.
-pub(super) fn elixir_keyword_section<'a>(
-    arguments: &Node<'a>,
-    code: &'a [u8],
-    key: &str,
-) -> Option<Node<'a>> {
+fn elixir_keyword_section<'a>(arguments: &Node<'a>, code: &'a [u8], key: &str) -> Option<Node<'a>> {
     elixir_trailing_keywords(arguments)?
         .children()
         .find(|pair| elixir_pair_key(pair, code) == Some(key))?
@@ -607,44 +611,55 @@ pub(super) fn elixir_keyword_section<'a>(
 /// The section key of `pair` and the `Call` whose trailing keyword list
 /// holds it — `("else", if …)` for the `else:` of `if(c, do: 1, else: 2)`
 /// or of `if(c, [do: 1, else: 2])` — or `None` when `pair` is not a
-/// keyword argument of a Call. `up` yields the ancestors above `pair`.
+/// keyword argument of a Call. `ancestors` is `pair`'s chain.
 ///
 /// The climb is `keywords`, an optional bracketing `list`, `arguments`,
-/// then the Call; the keyword list must be the one
-/// [`elixir_trailing_keywords`] finds, so a `[do: x]` in any other
-/// argument position, a map's keyword pairs and a nested list are not
-/// sections. That identity check is also what rejects a list nested in
-/// a list (`f([[do: x]])`), whose inner list the climb steps over.
-fn elixir_pair_section<'a>(
-    pair: &Node<'a>,
-    code: &'a [u8],
-    mut up: impl Iterator<Item = Node<'a>>,
-) -> Option<(&'a str, Node<'a>)> {
-    let key = elixir_pair_key(pair, code)?;
-    let keywords = up.next().filter(|keywords| keywords.kind() == KEYWORDS)?;
-    let arguments = up.find(|node| node.kind_id() != Elixir::List as u16)?;
-    up.next()
-        .filter(|call| {
-            call.kind_id() == Elixir::Call as u16
-                && arguments.kind() == ARGUMENTS
-                && elixir_trailing_keywords(&arguments).map(|found| found.id())
-                    == Some(keywords.id())
-        })
-        .map(|call| (key, call))
-}
-
-/// [`elixir_pair_section`] for a `pair` the walker is visiting, its
-/// ancestors read off the walker's chain.
-pub(super) fn elixir_keyword_pair_section<'a>(
+/// then the Call, and the keyword list must be the trailing one
+/// [`elixir_trailing_keywords`] describes: no operand follows it among
+/// the arguments, and a bracketing list holds nothing before it. So a
+/// `[do: x]` in any other argument position, a map's keyword pairs and a
+/// list nested in a list (`f([[do: x]])`, whose outer list is where the
+/// `arguments` should be) are not sections.
+///
+/// Each step reads one sibling off the chain rather than the argument
+/// list from its front, so the pairs of one call cost it a scan each
+/// only once: every pair asks this in cognitive, and every keyword-form
+/// clause in cyclomatic and ABC, and a call holding thousands of
+/// positional arguments beside thousands of pairs or clauses was
+/// quadratic in them (5.4 s for 16 000 arguments in a release build;
+/// `cognitive/elixir-mixed-arguments` prices the shape).
+pub(super) fn elixir_pair_section<'a>(
     pair: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<(&'a str, Node<'a>)> {
-    elixir_pair_section(
-        pair,
-        code,
-        ancestors.iter(pair).map(|(ancestor, _)| ancestor),
-    )
+    let mut up = ancestors.iter(pair);
+    let (keywords, keywords_ancestors) = up.next().filter(|(node, _)| node.kind() == KEYWORDS)?;
+    // The argument the keyword list is: itself, or the list bracketing it.
+    let (bracketed, (argument, argument_ancestors)) = match up.next()? {
+        (list, list_ancestors) if list.kind_id() == Elixir::List as u16 => {
+            (true, (list, list_ancestors))
+        }
+        _ => (false, (keywords, keywords_ancestors)),
+    };
+    let mut above = argument_ancestors.iter(&argument);
+    let (arguments, _) = above.next()?;
+    let (call, _) = above.next()?;
+    // The grammar ends a list with its `keywords`, so a bracketing list
+    // that holds nothing before them holds nothing else.
+    let is_section = arguments.kind() == ARGUMENTS
+        && call.kind_id() == Elixir::Call as u16
+        && argument_ancestors
+            .siblings_after(&argument)
+            .all(|sibling| !is_operand(&sibling))
+        && (!bracketed
+            || keywords_ancestors
+                .siblings_before(&keywords)
+                .all(|sibling| !is_operand(&sibling)));
+    is_section
+        .then(|| elixir_pair_key(pair, code))
+        .flatten()
+        .map(|key| (key, call))
 }
 
 /// The rule name of a keyword list (two kind ids at this pin).
@@ -653,27 +668,41 @@ const KEYWORDS: &str = "keywords";
 /// The rule name of an argument list (five kind ids at this pin).
 const ARGUMENTS: &str = "arguments";
 
-/// The `Call` whose `do` section holds `node` (a `stab_clause`): the
-/// block form's `do_block` (whose parent is the call) or the keyword
-/// form's `do: (…)` block, bare or bracketed (`block` → `pair` → the
-/// climb [`elixir_pair_section`] makes). The caller asks the Call's
-/// keyword (`cond`, `for`).
+/// The `Call` whose `do` section holds `node` (a `stab_clause`), in
+/// either spelling ([`elixir_clause_section`]). The caller asks the
+/// Call's keyword (`cond`, `for`).
 fn elixir_do_section_call<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<Node<'a>> {
+    elixir_clause_section(node, code, ancestors)
+        .filter(|(key, _)| *key == "do")
+        .map(|(_, call)| call)
+}
+
+/// The section holding `node` (a `stab_clause`) and the Call it belongs
+/// to: `("do", call)` under the block form's `do_block`, whose parent is
+/// the Call, `("after", call)` under the `after_block` inside that
+/// `do_block`, and the keyword form's `(key, call)` under a `do: (…)` /
+/// `after: (…)` block, bare or bracketed (`block` → `pair` → the climb
+/// [`elixir_pair_section`] makes). `None` for a clause anywhere else,
+/// the block form's `else` / `rescue` / `catch` sections included, which
+/// no caller asks the owner of.
+fn elixir_clause_section<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> Option<(&'a str, Node<'a>)> {
     use Elixir as E;
 
-    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-    match up.next().map(|parent| parent.kind_id().into()) {
-        Some(E::DoBlock) => up.next(),
-        Some(E::Block) => {
-            let pair = up.next()?;
-            elixir_pair_section(&pair, code, up)
-                .filter(|(key, _)| *key == "do")
-                .map(|(_, call)| call)
-        }
+    let mut up = ancestors.iter(node);
+    let (holder, _) = up.next()?;
+    let (next, next_ancestors) = up.next()?;
+    match holder.kind_id().into() {
+        E::DoBlock => Some(("do", next)),
+        E::AfterBlock if next.kind_id() == E::DoBlock as u16 => Some(("after", up.next()?.0)),
+        E::Block => elixir_pair_section(&next, code, next_ancestors),
         _ => None,
     }
 }

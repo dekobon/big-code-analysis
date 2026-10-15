@@ -7154,6 +7154,13 @@ end",
         ("alignas", "alignas(8) int a;\n"),
         ("_Alignas", "_Alignas(8) int a;\n"),
         ("__extension__", "__extension__ int a;\n"),
+        // The one place the grammar emits `__volatile__`: as a GNU `asm`
+        // qualifier, where the plain spelling bills too.
+        (
+            "__volatile__",
+            "void f(void) { __asm__ __volatile__(\"nop\"); }\n",
+        ),
+        ("volatile", "void f(void) { asm volatile(\"nop\"); }\n"),
     ];
 
     #[cfg(feature = "c")]

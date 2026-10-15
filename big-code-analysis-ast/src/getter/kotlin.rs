@@ -157,15 +157,12 @@ fn kotlin_modifier_was_written_as_one<'a>(node: &Node<'a>, ancestors: Ancestors<
 // `function_value_parameters`, so the sibling is found without a scan
 // from the list's start: that made a long parameter list quadratic.
 fn kotlin_next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    let (mut current, mut current_ancestors) = (*node, ancestors);
-    ancestors
-        .iter(node)
-        .find_map(|(parent, above)| {
-            let next = current_ancestors
-                .siblings_after(&current)
-                .find(|sibling| !sibling.as_tree_sitter().is_extra());
-            (current, current_ancestors) = (parent, above);
-            next
+    std::iter::once((*node, ancestors))
+        .chain(ancestors.iter(node))
+        .find_map(|(level, level_ancestors)| {
+            level_ancestors
+                .siblings_after(&level)
+                .find(|sibling| !sibling.as_tree_sitter().is_extra())
         })
         .is_some_and(|mut next| {
             while let Some(first) = next.child(0) {

@@ -1765,6 +1765,13 @@ mod tests {
         check_generic_pair(
             LANG::Csharp,
             "foo.cs",
+            "class A { void M() { F(Foo<T>.a < b, c > d); } }\n",
+            &["()", ",", ".", ";", "<", "<>", ">", "class", "void", "{}"],
+            [10, 12],
+        );
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
             "class A { void M() { F(a < b, c > d); } }\n",
             &["()", ",", ";", "<", ">", "class", "void", "{}"],
             [8, 10],

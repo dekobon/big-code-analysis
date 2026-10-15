@@ -74,7 +74,8 @@ changes therefore barely moved the default's footing. Their largest per-language
 Ruby did not move at all, and Tcl moved by under 0.1%.
 
 Ruby's low figures are a property of these two repositories, which hold their own methods short
-with RuboCop's method-length and ABC cops. They are not a measurement gap.
+with [RuboCop](https://docs.rubocop.org/rubocop/cops_metrics.html)'s method-length and ABC cops.
+They are not a measurement gap.
 
 ## Corpus
 

@@ -140,7 +140,7 @@ impl Getter for MozcppCode {
             // twin (#1578). The Gecko `MOZ_*` annotation macros stay
             // unbilled, as attributes do.
             | Static | Extern | Register | Inline | Inline2 | Inline3 | Forceinline
-            | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
+            | ThreadLocal | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2
             | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
             | Virtual | Mutable | Constinit | Consteval | Explicit | Friend | Public | Private
             | Protected | Override | Final | Noexcept2

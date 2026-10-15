@@ -15,10 +15,10 @@ use super::{
 };
 use crate::lang_helpers::elixir::{
     elixir_applying_operator, elixir_applying_remote_call, elixir_call_keyword,
-    elixir_kernel_operator_token, elixir_short_circuit_name,
+    elixir_kernel_short_circuit_name,
 };
 use crate::metrics::elixir_decisions::{
-    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_keyword_section,
+    Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_clause_is_decision,
     elixir_sole_unguarded_pattern, elixir_when_alternative, elixir_when_is_guard,
 };
 use crate::*;
@@ -88,9 +88,7 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 fn elixir_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Elixir as E;
 
-    elixir_kernel_operator_token(expr, code)
-        .and_then(|name| elixir_short_circuit_name(&name, code))
-        .is_some()
+    elixir_kernel_short_circuit_name(expr, code).is_some()
         || elixir_binary_operator_is(expr, |op| {
             matches!(
                 op,
@@ -187,13 +185,7 @@ fn elixir_count_clause(clause: &Node, code: &[u8], conditions: &mut f64) {
 // (`if b do … else … end`), or the keyword form's `else:` pair, bare
 // (`if b, do: …, else: …`) or bracketed (`if(b, [do: …, else: …])`).
 fn elixir_has_else(call: &Node, code: &[u8]) -> bool {
-    use Elixir as E;
-
-    call.children().any(|child| match child.kind_id().into() {
-        E::DoBlock => child.children().any(|c| c.kind_id() == E::ElseBlock as u16),
-        _ if child.kind() == "arguments" => elixir_keyword_section(&child, code, "else").is_some(),
-        _ => false,
-    })
+    elixir_call_has_section(call, code, Section::Else)
 }
 
 // The operands of a short-circuit `Kernel` remote call
@@ -215,19 +207,14 @@ fn elixir_count_remote_chain<'a>(
     ancestors: Ancestors<'a, '_>,
     conditions: &mut f64,
 ) {
-    let Some(call) = elixir_applying_remote_call(op, code, ancestors) else {
+    let Some((call, call_ancestors)) = elixir_applying_remote_call(op, code, ancestors) else {
         return;
     };
-    let mut up = ancestors
-        .iter(op)
-        .map(|(ancestor, _)| ancestor)
-        .skip_while(|ancestor| ancestor.id() != call.id())
-        .skip(1);
     let score = |operand: &Node, conditions: &mut f64| {
         elixir_count_condition(operand, code, conditions);
     };
-    if let Some(piped) = up
-        .next()
+    if let Some(piped) = call_ancestors
+        .parent(&call)
         .filter(|pipe| elixir_binary_operator_is(pipe, |op| op == Elixir::PIPEGT))
         .and_then(|pipe| pipe.child_by_field_name("left"))
     {
@@ -263,6 +250,12 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
     );
     if !is_definition_or_directive {
         stats.branches += 1.;
+    }
+    if keyword == Some("receive")
+        && let Some(timeout) =
+            crate::metrics::elixir_decisions::elixir_receive_timeout_clause(node, code)
+    {
+        elixir_count_clause(&timeout, code, &mut stats.conditions);
     }
     // The predicate is the Call's first argument in both the block
     // (`if p do … end`) and keyword (`if p, do: …`) forms, and is a

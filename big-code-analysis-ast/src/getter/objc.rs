@@ -201,13 +201,13 @@ impl Getter for ObjcCode {
             | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode | Struct
             | Union | Enum | Typedef | ATinterface | ATimplementation | ATprotocol | Static
             | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline | ThreadLocal
-            | Thread | Const | Constexpr | Volatile | Restrict | Restrict2 | Atomic | Noreturn
-            | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension | Const2 | Complex
-            | Complex2 | Nullable | Nullable2 | Nullable3 | NullableResult | NullUnspecified
-            | Nonnull2 | Autoreleasing | Block | Strong | UnsafeUnretained | Weak | Bridge
-            | BridgeRetained | BridgeTransfer | Kindof | Covariant | Contravariant | Out
-            | Inout | Bycopy | Byref | Oneway | ATpublic | ATprivate | ATprotected | ATpackage
-            | AToptional | ATrequired => TokenRole::Operator,
+            | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2 | Atomic
+            | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension | Const2
+            | Complex | Complex2 | Nullable | Nullable2 | Nullable3 | NullableResult
+            | NullUnspecified | Nonnull2 | Autoreleasing | Block | Strong | UnsafeUnretained
+            | Weak | Bridge | BridgeRetained | BridgeTransfer | Kindof | Covariant
+            | Contravariant | Out | Inout | Bycopy | Byref | Oneway | ATpublic | ATprivate
+            | ATprotected | ATpackage | AToptional | ATrequired => TokenRole::Operator,
             Identifier if is_property_attribute_name(node, ancestors) => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

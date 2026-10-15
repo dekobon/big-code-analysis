@@ -93,8 +93,10 @@ impl Getter for CCode {
             // `storage_class_specifier` / `type_qualifier` /
             // `alignas_qualifier`, so it bills once, as `const` does in
             // a pointer declarator (`int * const p`). The vendor
-            // spellings (`__inline`, `__restrict__`, `__thread`, …) are
-            // kinds of their own and bill under their own name. `auto`
+            // spellings (`__inline`, `__restrict__`, `__thread`,
+            // `__volatile__`, …) are kinds of their own and bill under
+            // their own name; `__volatile__` the grammar emits only as a
+            // GNU `asm` qualifier, where `volatile` bills too. `auto`
             // is a storage class in C, the only place this grammar
             // emits it. `__extension__` bills in an expression too,
             // where it is the prefix of an `extension_expression`.
@@ -109,7 +111,7 @@ impl Getter for CCode {
             // operand does — the grammar decides that, not this arm, as
             // `objc.rs` notes for `nullable`.
             | Static | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline
-            | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
+            | ThreadLocal | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2
             | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
                 => TokenRole::Operator,
             // `CharLiteral` joins the operand list here for the whole

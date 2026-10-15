@@ -114,14 +114,14 @@ pub fn elixir_applying_operator<'a>(
         .filter(|parent| parent.kind() == "binary_operator")
 }
 
-/// The operator token a remote call on `Kernel` with arguments applies,
-/// or `None` for any other node: the `||` of `Kernel.||(a, b)`, or of
-/// `x |> Kernel.||(y)`, which the pipe rewrites to it. Such a call
-/// expands the `Kernel` macro exactly as `a || b` does, so it
-/// short-circuits and decides as the operator does, where a capture
-/// (`&Kernel.||/2`, a call with no arguments) only names it. It has no
-/// `binary_operator`, so its operands are the call's arguments, and under
-/// a pipe the piped value, rather than `left` / `right` fields.
+/// The name of the short-circuit operator a remote call on `Kernel` with
+/// arguments applies, or `None` for any other node: the `||` of
+/// `Kernel.||(a, b)`, or of `x |> Kernel.||(y)`, which the pipe rewrites
+/// to it. Such a call expands the `Kernel` macro exactly as `a || b`
+/// does, so it short-circuits and decides as the operator does, where a
+/// capture (`&Kernel.||/2`, a call with no arguments) only names it. It
+/// has no `binary_operator`, so its operands are the call's arguments,
+/// and under a pipe the piped value, rather than `left` / `right` fields.
 ///
 /// The receiver must spell `Kernel` (or `Elixir.Kernel`): a user module
 /// may define `||/2` as an ordinary function, and `Foo.||(a, b)` neither
@@ -131,15 +131,20 @@ pub fn elixir_applying_operator<'a>(
 /// `operator_identifier`, which is what is returned. `Kernel.and(a, b)`
 /// and `Kernel.or(a, b)` spell their names as a plain `identifier`, with
 /// no `And` / `Or` token to find, so that identifier is returned instead
-/// (#1582); every other word name (`Kernel.not`, `Kernel.in`) is a
-/// function or decides nothing, and is not found. Nor is the childless
-/// `..`.
+/// (#1582). Any other name — `Kernel.+`, `Kernel.!`, `Kernel.not`,
+/// `Kernel.in` — is a function or decides nothing, and is not found; nor
+/// is the childless `..`. [`elixir_short_circuit_name`] says which
+/// operation the name applies.
+///
+/// Every identifier a walk meets asks this of its call, so the receiver,
+/// which turns nearly all of them away without a cursor, is read before
+/// the call's children are scanned for its `arguments`.
 ///
 /// Matched by rule name: `dot` and `arguments` are aliased to several
 /// ids each (grammar-dispatch §1).
 #[must_use]
-pub fn elixir_kernel_operator_token<'a>(call: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
-    if call.kind() != "call" || !call.children().any(|child| child.kind() == "arguments") {
+pub fn elixir_kernel_short_circuit_name<'a>(call: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
+    if call.kind() != "call" {
         return None;
     }
     let dot = call.child_by_field_name("target").filter(|target| {
@@ -152,11 +157,13 @@ pub fn elixir_kernel_operator_token<'a>(call: &Node<'a>, code: &[u8]) -> Option<
             })
     })?;
     let name = dot.child_by_field_name("right")?;
-    if name.kind() == "operator_identifier" {
-        return name.child(0);
-    }
-    (name.kind_id() == Elixir::Identifier as u16
-        && elixir_short_circuit_name(&name, code).is_some())
+    let name = if name.kind() == "operator_identifier" {
+        name.child(0)?
+    } else {
+        name
+    };
+    (elixir_short_circuit_name(&name, code).is_some()
+        && call.children().any(|child| child.kind() == "arguments"))
     .then_some(name)
 }
 
@@ -175,7 +182,7 @@ pub fn elixir_short_circuit_kind(kind_id: u16) -> Option<Elixir> {
 }
 
 /// [`elixir_short_circuit_kind`] for an operator's name as
-/// [`elixir_kernel_operator_token`] returns it: a token, or the
+/// [`elixir_kernel_short_circuit_name`] returns it: a token, or the
 /// `identifier` spelling `Kernel.and` / `Kernel.or` (#1582), whose
 /// bytes decide. Ask it only of such a name — an identifier is an `and`
 /// operator nowhere else.
@@ -191,29 +198,30 @@ pub fn elixir_short_circuit_name(name: &Node, code: &[u8]) -> Option<Elixir> {
     }
 }
 
-/// The `Kernel` remote call that applies `op`, an operator's name — the
-/// call [`elixir_kernel_operator_token`] answers `op` for — or `None`
-/// when `op` sits anywhere else. A token's parents are the
-/// `operator_identifier`, then the `dot`, then the call; the
-/// `identifier` naming `Kernel.and` sits on the `dot` directly. Any
-/// other node fails on the first one or two parents' kinds, so the
-/// check is cheap enough to ask of every identifier a walk meets.
+/// The `Kernel` remote call that applies `op`, a short-circuit operator's
+/// name — the call [`elixir_kernel_short_circuit_name`] answers `op` for
+/// — paired with that call's own ancestry, or `None` when `op` sits
+/// anywhere else. A token's parents are the `operator_identifier`, then
+/// the `dot`, then the call; the `identifier` naming `Kernel.and` sits
+/// on the `dot` directly. Any other node fails on the first one or two
+/// parents' kinds, so the check is cheap enough to ask of every
+/// identifier a walk meets.
 #[must_use]
-pub fn elixir_applying_remote_call<'a>(
+pub fn elixir_applying_remote_call<'a, 'c>(
     op: &Node<'a>,
     code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    let mut up = ancestors.iter(op).map(|(ancestor, _)| ancestor);
-    let mut dot = up.next()?;
+    ancestors: Ancestors<'a, 'c>,
+) -> Option<(Node<'a>, Ancestors<'a, 'c>)> {
+    let mut up = ancestors.iter(op);
+    let (mut dot, _) = up.next()?;
     if dot.kind() == "operator_identifier" {
-        dot = up.next()?;
+        dot = up.next()?.0;
     }
     if dot.kind() != "dot" {
         return None;
     }
-    let call = up.next()?;
-    elixir_kernel_operator_token(&call, code)
+    let (call, call_ancestors) = up.next()?;
+    elixir_kernel_short_circuit_name(&call, code)
         .is_some_and(|name| name.id() == op.id())
-        .then_some(call)
+        .then_some((call, call_ancestors))
 }

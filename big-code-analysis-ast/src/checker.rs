@@ -513,7 +513,11 @@ pub trait Checker {
     /// Perl overrides it: the grammar nests a call's name inside the
     /// call as a bareword call of its own, and parses an auto-quoted
     /// hash key as one, so only the position says which words are
-    /// calls (#1580).
+    /// calls (#1580). As with [`is_string_with_code`](Self::is_string_with_code),
+    /// a call site reaching for the byte-less spelling reads as correct
+    /// against every language without an override;
+    /// `perl_bareword_is_a_call_only_to_the_byteless_spelling` pins that
+    /// the two really do disagree.
     #[inline]
     #[must_use]
     fn is_call_with_code<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -3540,6 +3544,70 @@ mod tests {
             ran > 0,
             "neither tcl nor irules is enabled; this test asserted nothing"
         );
+    }
+
+    /// A Perl bareword is a call to [`Checker::is_call`] and, as a
+    /// wrapper's callee or an auto-quoted key, not to
+    /// [`Checker::is_call_with_code`] (#1580). The end-to-end
+    /// `find --type call` tests observe the result, which is equally
+    /// consistent with the override never firing; this asserts the
+    /// disagreement, so a call site reaching for the byte-less spelling
+    /// is wrong rather than indistinguishable (grammar-dispatch §7).
+    ///
+    /// Three structurally independent routes withdraw a bareword — key
+    /// position, the spaced wrapper's callee, the bracketed wrapper's
+    /// callee — and two keep one: a bareword argument and a lone
+    /// bareword (grammar-dispatch §11). The two wrappers are the control
+    /// for the kind gate: both spellings must still call them.
+    #[test]
+    #[cfg(feature = "perl")]
+    fn perl_bareword_is_a_call_only_to_the_byteless_spelling() {
+        let code = b"my %h = (name => 1);\nprint shift;\nfoo(1);\nfoo;\n";
+        let (mut kept, mut withdrawn, mut other) = (Vec::new(), Vec::new(), 0);
+        for_each_node_with_chain::<crate::langs::PerlCode>(code, |node, chain| {
+            let known = PerlCode::is_call_with_code(node, code, Ancestors::known(chain));
+            assert_eq!(
+                known,
+                PerlCode::is_call_with_code(node, code, Ancestors::unknown()),
+                "known chain and parent climb disagree on {} at row {}",
+                node.kind(),
+                node.start_row()
+            );
+            if node.kind_id() != Perl::CallExpressionWithBareword as u16 {
+                assert_eq!(
+                    known,
+                    PerlCode::is_call(node),
+                    "the override moved a {} node at row {}",
+                    node.kind(),
+                    node.start_row()
+                );
+                other += usize::from(known);
+                return;
+            }
+            assert!(
+                PerlCode::is_call(node),
+                "the kind table must still list the bareword kind, or this test is \
+                 measuring its absence rather than the override"
+            );
+            let text =
+                String::from_utf8_lossy(&code[node.start_byte()..node.end_byte()]).into_owned();
+            if known {
+                kept.push(text);
+            } else {
+                withdrawn.push(text);
+            }
+        });
+        assert_eq!(
+            kept,
+            ["shift", "foo"],
+            "a bareword argument and a lone bareword are calls"
+        );
+        assert_eq!(
+            withdrawn,
+            ["name", "print", "foo"],
+            "an auto-quoted key and the callee inside either wrapper are not"
+        );
+        assert_eq!(other, 2, "the two wrappers stay calls to both spellings");
     }
 
     /// The value slots of the three constructs whose argument lists hold

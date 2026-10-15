@@ -131,6 +131,7 @@ pub(crate) fn perl_file_test_is_dash_key<'a>(
                 operand.is_child(Perl::FatComma as u16) && operand.start_row() == test.start_row()
             } else {
                 is_glued_word(&operand, test)
+                    && is_plain_bareword(&operand)
                     && ancestors
                         .iter(test)
                         .next()
@@ -183,7 +184,7 @@ pub fn perl_bareword_is_key<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) -
         return false;
     }
     match ancestors.iter(word).next() {
-        Some((unary, above)) if is_dash_unary(&unary) => is_key_position(&unary, above),
+        Some((unary, above)) if dash_operator(&unary).is_some() => is_key_position(&unary, above),
         _ => is_key_position(word, ancestors),
     }
 }
@@ -222,12 +223,12 @@ pub fn perl_bareword_is_call<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) 
 /// the string, so it is no operator.
 #[must_use]
 pub(crate) fn perl_dash_signs_key<'a>(dash: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.iter(dash).next().is_some_and(|(parent, above)| {
-        perl_dash_signs_keyword_key(dash, ancestors)
-            || (parent.kind_id() == Perl::UnaryExpression as u16
+    perl_dash_signs_keyword_key(dash, ancestors)
+        || ancestors.iter(dash).next().is_some_and(|(parent, above)| {
+            parent.kind_id() == Perl::UnaryExpression as u16
                 && next_non_extra(dash, ancestors).is_some_and(|word| is_plain_bareword(&word))
-                && is_key_position(&parent, above))
-    })
+                && is_key_position(&parent, above)
+        })
 }
 
 /// The `-` that signs the `-bareword` key `identifier` spells, or
@@ -245,9 +246,7 @@ pub(crate) fn perl_bareword_key_sign<'a>(
         .next()
         .filter(|(word, _)| word.kind_id() == Perl::CallExpressionWithBareword as u16)?;
     let (unary, _) = up.next()?;
-    let dash = unary
-        .child_by_field_name("operator")
-        .filter(|op| op.kind_id() == Perl::DASH as u16)?;
+    let dash = dash_operator(&unary)?;
     // `word` and `dash` are siblings, so they share an ancestry.
     perl_dash_signs_key(&dash, word_ancestors).then_some(dash)
 }
@@ -298,10 +297,8 @@ pub fn perl_key_is_signed<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> b
             return perl_dash_signs_keyword_key(&dash, ancestors);
         }
         up.next().is_some_and(|(outer, _)| {
-            outer.child_by_field_name("operator").is_some_and(|dash| {
-                dash.kind_id() == Perl::DASH as u16
-                    && perl_dash_signs_keyword_key(&dash, parent_ancestors)
-            })
+            dash_operator(&outer)
+                .is_some_and(|dash| perl_dash_signs_keyword_key(&dash, parent_ancestors))
         })
     })
 }
@@ -354,7 +351,11 @@ fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         // As in `perl_not_is_key`, only comments are passed over: the
         // grammar wraps a stray `,` (`(name, => 1)`) in an `ERROR` it
         // marks as an extra, and that `,`, not the word, is then the
-        // token the `=>` quotes, which is nothing.
+        // token the `=>` quotes, which is nothing. A `-foo, =>` file-test
+        // key stops here too and reads as the grammar does (a file test
+        // on `oo`), as every `-bareword` outside key position does; Perl
+        // itself reads one as a string or a negated call by whether a sub
+        // of that name is visible, which no single file says.
         if let Some(next) = node_ancestors
             .siblings_after(&node)
             .find(|sibling| sibling.is_error() || !sibling.as_tree_sitter().is_extra())
@@ -371,21 +372,34 @@ fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
 // `identifier`, no package qualifier, no arguments. Only such a word is
 // auto-quoted.
 fn is_plain_bareword(word: &Node) -> bool {
-    word.kind_id() == Perl::CallExpressionWithBareword as u16
-        && word
+    if word.kind_id() != Perl::CallExpressionWithBareword as u16 {
+        return false;
+    }
+    // Every call's name is one of these, so the common shape — one
+    // child, no comment inside the call — is read off two fields rather
+    // than through a cursor over the children.
+    match word.child_count() {
+        1 => word
+            .child(0)
+            .is_some_and(|child| child.kind_id() == Perl::Identifier as u16),
+        _ => word
             .children()
             .filter(|child| !child.as_tree_sitter().is_extra())
             .map(|child| child.kind_id())
-            .eq([Perl::Identifier as u16])
+            .eq([Perl::Identifier as u16]),
+    }
 }
 
-// Whether `node` is a unary minus, the `unary_expression` a `-bareword`
-// key whose letter is no file-test letter parses as.
-fn is_dash_unary(node: &Node) -> bool {
-    node.kind_id() == Perl::UnaryExpression as u16
-        && node
-            .child_by_field_name("operator")
-            .is_some_and(|op| op.kind_id() == Perl::DASH as u16)
+// The `-` of `node` when it is a unary minus — the `unary_expression` a
+// `-bareword` key whose letter is no file-test letter parses as — and
+// `None` for any other node, a subtraction's `binary_expression`
+// included.
+fn dash_operator<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    if node.kind_id() != Perl::UnaryExpression as u16 {
+        return None;
+    }
+    node.child_by_field_name("operator")
+        .filter(|op| op.kind_id() == Perl::DASH as u16)
 }
 
 fn non_extra_count(node: &Node) -> usize {

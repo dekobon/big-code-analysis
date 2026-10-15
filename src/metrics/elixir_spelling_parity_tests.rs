@@ -14,9 +14,7 @@
 //! `with … else` block form's cognitive score, decided in
 //! [`elixir_with_else_scores_like_case`] against `case`.
 
-use std::cell::Cell;
-
-use crate::test_support::check_func_space_only;
+use crate::test_support::metrics_verbatim;
 use crate::*;
 
 /// `[cyclomatic, cyclomatic_modified, abc conditions, cognitive]` sums of
@@ -26,22 +24,17 @@ type Scores = [u64; 4];
 
 #[cfg(feature = "elixir")]
 fn measure(source: &str) -> Scores {
-    let out = Cell::new([0; 4]);
-    check_func_space_only::<ElixirParser, _>(
-        &format!("{source}\n"),
-        "foo.exs",
-        &[Metric::Cyclomatic, Metric::Abc, Metric::Cognitive],
-        |space| {
-            let m = &space.metrics;
-            out.set([
-                m.cyclomatic.cyclomatic_sum(),
-                m.cyclomatic.cyclomatic_modified_sum(),
-                m.abc.conditions_sum(),
-                m.cognitive.cognitive_sum(),
-            ]);
-        },
+    let m = metrics_verbatim(
+        LANG::Elixir,
+        format!("{source}\n").as_bytes(),
+        MetricsOptions::default().with_only(&[Metric::Cyclomatic, Metric::Abc, Metric::Cognitive]),
     );
-    out.get()
+    [
+        m.cyclomatic.cyclomatic_sum(),
+        m.cyclomatic.cyclomatic_modified_sum(),
+        m.abc.conditions_sum(),
+        m.cognitive.cognitive_sum(),
+    ]
 }
 
 /// Asserts `twin` scores `want`, then that every spelling scores the same.

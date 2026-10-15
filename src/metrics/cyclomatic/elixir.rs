@@ -10,7 +10,7 @@ use super::*;
 use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_applying_remote_call};
 use crate::metrics::elixir_decisions::{
     elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_receive_dispatches,
-    elixir_when_is_guard, elixir_with_else_dispatches,
+    elixir_receive_timeout_clause, elixir_when_is_guard, elixir_with_else_dispatches,
 };
 
 impl Cyclomatic for ElixirCode {
@@ -170,6 +170,9 @@ impl Cyclomatic for ElixirCode {
                         // (`elixir_clause_is_decision`).
                         "receive" if elixir_receive_dispatches(node, code) => {
                             stats.cyclomatic_modified += 1.;
+                            if elixir_receive_timeout_clause(node, code).is_some() {
+                                stats.cyclomatic += 1.;
+                            }
                         }
                         // A `with`'s decisions are its `<-` clauses,
                         // counted above in both tiers. What modified

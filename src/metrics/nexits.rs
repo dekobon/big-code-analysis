@@ -616,6 +616,7 @@ impl Exit for ElixirCode {
 mod tests {
     use crate::test_support::{
         check_func_space_only_shim, check_metrics_only_shim, child_space, function_space,
+        metrics_verbatim, parse_named,
     };
 
     use super::*;
@@ -1679,12 +1680,13 @@ mod tests {
     /// The root space's `nexits` sum for the Perl file `source`.
     #[cfg(feature = "perl")]
     fn perl_nexits(source: &str) -> u64 {
-        let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
-        ast.metrics(MetricsOptions::default())
-            .expect("metrics yields a root space")
-            .metrics
-            .nexits
-            .nexits_sum()
+        metrics_verbatim(
+            LANG::Perl,
+            source.as_bytes(),
+            MetricsOptions::default().with_only(&[Metric::Nexits]),
+        )
+        .nexits
+        .nexits_sum()
     }
 
     /// Each auto-quoted `die` / `exit` key scores exactly as its quoted
@@ -1764,7 +1766,7 @@ mod tests {
         use big_code_analysis_ast::node::WIDE_PARENT;
         let key = format!("my @r = ({}", "{\ndie => 1,\nexit,\n".repeat(12));
         let twin = key.replace("die =>", "'die' =>");
-        let ast = Ast::parse(Source::new(LANG::Perl, key.as_bytes())).expect("perl is enabled");
+        let ast = parse_named(LANG::Perl, "foo.pl", &key);
         let root = ast.as_tree_sitter().root_node();
         assert!(
             root.is_error() && root.child_count() > WIDE_PARENT,

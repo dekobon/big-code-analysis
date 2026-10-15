@@ -34,6 +34,23 @@ use big_code_analysis::{Ast, CodeMetrics, LANG, Metric, MetricsError, MetricsOpt
 /// `base + per_unit * n`. See the module docs for why.
 pub type Render = fn(usize) -> String;
 
+/// C#: a qualified type with one generic argument per segment.
+#[must_use]
+pub fn csharp_qualified_generics(depth: usize) -> String {
+    format!("class C {{ {}A<T> field; }}\n", "A<T>.".repeat(depth))
+}
+
+/// Elixir: multiple timeout clauses accepted by the grammar but rejected
+/// by the compiler. An analyzer must still process them in linear time.
+#[must_use]
+pub fn elixir_many_timeouts(width: usize) -> String {
+    format!(
+        "receive(do: ({}x -> :a), after: ({}1 -> :t))\n",
+        "x -> :a; ".repeat(width),
+        "1 -> :t; ".repeat(width)
+    )
+}
+
 /// Rust: `fn f() -> i32 { (((…1…))) }`.
 ///
 /// The paren chain is the shape that first surfaced both the `tokens`
@@ -549,6 +566,24 @@ pub fn kotlin_short_interpolations(width: usize) -> String {
     format!("val s = \"{}\"\n", "$a ".repeat(width))
 }
 
+/// Elixir: `f(x, x, …, k: if(a, do: 1), k: if(a, do: 1), …)` — one call
+/// with `width` positional arguments before `width` keyword pairs.
+///
+/// The width shape for the keyword-section lookup #1574 added, which
+/// asks of every pair whether its keyword list is the call's trailing
+/// argument, and of every keyword-form clause which Call owns it. Its
+/// first form re-read the argument list from its front per pair,
+/// quadratic in a call with many of both: 5.4 s for 16 000 arguments in
+/// a release build. The `if` in each value is the cognitive reading.
+#[must_use]
+pub fn elixir_mixed_arguments(width: usize) -> String {
+    format!(
+        "f({}{})\n",
+        "x, ".repeat(width),
+        vec!["k: if(a, do: 1)"; width].join(", ")
+    )
+}
+
 /// Kotlin: `inline fun f(noinline p0: () -> Unit, …) {}` — one function
 /// with `width` modified parameters.
 ///
@@ -964,6 +999,36 @@ const LINEAR_BOUND: f64 = 1.5;
 /// See `docs/development/benchmarking.md` for the per-probe table.
 pub const PROBES: &[Probe] = &[
     Probe {
+        name: "halstead/csharp-qualified-generics",
+        lang: LANG::Csharp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operators(),
+        },
+        render: csharp_qualified_generics,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Each generic qualifier must be classified without climbing \
+                    the remaining qualified-name ancestry.",
+    },
+    Probe {
+        name: "abc/elixir-many-timeouts",
+        lang: LANG::Elixir,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc, Metric::Cyclomatic],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: elixir_many_timeouts,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Malformed receive timeout clauses must not each rescan every \
+                    message clause. The reading comes from the message clauses.",
+    },
+    Probe {
         name: "tokens/nested-paren",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -1217,6 +1282,29 @@ pub const PROBES: &[Probe] = &[
                     predicate short-circuits on the first `quote` \
                     ancestor, and each step now indexes the walker's \
                     ancestor chain rather than calling `Node::parent`.",
+    },
+    Probe {
+        name: "cognitive/elixir-mixed-arguments",
+        lang: LANG::Elixir,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: elixir_mixed_arguments,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1574's keyword-section lookup asks of every keyword \
+                    pair whether its list is the call's trailing argument \
+                    (cognitive), and of every keyword-form clause which \
+                    Call owns it (cyclomatic, ABC). Its first form found \
+                    the trailing argument by reading the argument list \
+                    from its front, once per pair: 0.10 s, 0.36 s, 1.4 s \
+                    and 5.4 s for 2 000 to 16 000 arguments in a release \
+                    build, exponent 1.94. The lookup now reads the list's \
+                    siblings off the walk's chain. The reading is one \
+                    `if` per pair.",
     },
     Probe {
         name: "nom/nested-fn",

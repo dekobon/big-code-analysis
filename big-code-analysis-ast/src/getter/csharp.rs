@@ -25,18 +25,30 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
 // a call or indexer argument without `out`. `F(out List<int> x)`,
 // `(List<int> p, int q) = …` and `o is List<int> x` keep their pair. A
 // member access before the `<` (`F(x.a < b, c > d)`) wraps the generic
-// name in `qualified_name`s, which the climb passes. The `>=` spelling
+// name in a `qualified_name`, whose final name alone can be the misparse.
+// Generic qualifiers keep their type brackets. The `>=` spelling
 // (`F(a < b, c >= d)`) parses as an assignment instead and is not undone.
 fn csharp_comparison_misparse<'a>(list: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let mut up = ancestors.iter(list).map(|(node, _)| node);
-    if up
+    let Some(name) = up
         .next()
-        .is_none_or(|name| name.kind_id() != Csharp::GenericName as u16)
-    {
+        .filter(|name| name.kind_id() == Csharp::GenericName as u16)
+    else {
         return false;
-    }
-    let mut up = up.skip_while(|node| node.kind_id() == Csharp::QualifiedName as u16);
-    let (Some(declaration), Some(argument), Some(arguments)) = (up.next(), up.next(), up.next())
+    };
+    let declaration = match up.next() {
+        Some(qualified) if qualified.kind_id() == Csharp::QualifiedName as u16 => {
+            if qualified
+                .child_by_field_name("name")
+                .is_none_or(|last| last.id() != name.id())
+            {
+                return false;
+            }
+            up.next()
+        }
+        parent => parent,
+    };
+    let (Some(declaration), Some(argument), Some(arguments)) = (declaration, up.next(), up.next())
     else {
         return false;
     };
@@ -75,9 +87,7 @@ fn is_interpolation_clause_delimiter<'a>(node: &Node<'a>, ancestors: Ancestors<'
         Csharp::COMMA => Csharp::InterpolationAlignmentClause,
         _ => return false,
     };
-    ancestors
-        .parent(node)
-        .is_some_and(|parent| parent.kind_id() == clause as u16)
+    ancestors.parent_has_kind(node, clause as u16)
 }
 
 impl Getter for CsharpCode {

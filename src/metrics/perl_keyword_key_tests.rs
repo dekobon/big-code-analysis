@@ -550,6 +550,12 @@ fn perl_spaced_dash_key_keeps_its_sign() {
             "f('-name' => 1, 'name' => 2);",
             "f(- name => 1, name => 2);",
         ),
+        // The slice from the sign carries the comment, so the key is
+        // still one operand apart from `name`.
+        (
+            "f('-name' => 1, 'name' => 2);",
+            "f(- # c\n name => 1, name => 2);",
+        ),
     ] {
         let want = measure_with_branches(twin);
         assert_eq!(
@@ -620,11 +626,14 @@ fn perl_file_test_key_stops_at_a_line_break() {
 /// including a subscript it is only part of;
 /// and a `-` applied to a real `not`. The file test itself is billed as
 /// nothing, since the grammar emits its `-X` as a hidden token. Every
-/// value is `main`'s, measured before the fix.
+/// value but the stray-comma row's is `main`'s, measured before the fix;
+/// that row read the key `-foo` on `main`, whose `=>` lookup skipped
+/// the `ERROR` the stray `,` recovers into, and reads as the grammar
+/// does since #1572, as `(name, => 1)` does (see `is_key_position`).
 #[cfg(feature = "perl")]
 #[test]
 fn perl_file_test_outside_a_key_keeps_its_reading() {
-    let rows: [(&str, [u64; 4], Halstead); 11] = [
+    let rows: [(&str, [u64; 4], Halstead); 12] = [
         ("my $z = -f $x;", [2, 0, 0, 0], [6, 7, 3, 3]),
         (
             "if (-e $x) { return 1; } return 0;",
@@ -639,6 +648,8 @@ fn perl_file_test_outside_a_key_keeps_its_reading() {
         // Inside a subscript, but not the whole key.
         ("my %h; return $h{$a . -foo};", [2, 1, 0, 0], [7, 10, 5, 5]),
         ("f(-foo, 1);", [2, 2, 0, 0], [5, 5, 3, 4]),
+        // A stray `,` before the `=>` ends the key position.
+        ("my @c = (-foo, => 1);", [2, 1, 0, 0], [8, 8, 4, 4]),
         ("return -not $x;", [2, 0, 0, 0], [7, 7, 2, 2]),
         ("return $a - not $x;", [2, 0, 0, 0], [7, 8, 3, 3]),
     ];
@@ -1071,6 +1082,11 @@ fn perl_bareword_key_is_no_call_1580() {
         ("my %h = (1 - name => 2);", "my %h = (1 - 'name' => 2);", 0),
         ("new(name => $x);", "new('name' => $x);", 1),
         ("my %h = (Foo::Bar => 1);", "my %h = (Foo::Bar() => 1);", 1),
+        (
+            "my %h = (-foo::bar => 1);",
+            "my %h = (-foo::bar() => 1);",
+            1,
+        ),
         ("my %h = (name() => 1);", "my %h = (name(1) => 1);", 1),
         ("my %h = (k => name);", "my %h = ('k' => name());", 1),
     ];
@@ -1081,4 +1097,21 @@ fn perl_bareword_key_is_no_call_1580() {
         assert_eq!(found.len(), twin_found.len(), "`{key}` against `{twin}`");
         assert_eq!(branches, calls, "`{key}`: ABC disagrees");
     }
+}
+
+#[cfg(feature = "perl")]
+#[test]
+fn perl_negated_qualified_calls_keep_their_operand_names() {
+    let source = "my %h = (-foo::bar => 1, -foo::baz => 2);";
+    let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
+    assert_eq!(ast.count(&["call".to_owned()]).0, 2);
+    let metrics = ast
+        .metrics(MetricsOptions::default())
+        .expect("metrics has a root");
+    assert_eq!(metrics.metrics.abc.branches_sum(), 2);
+    assert_eq!(metrics.metrics.halstead.unique_operands(), 6);
+    assert_eq!(
+        ast.ops().expect("ops has a root").operands,
+        ["%h", "1", "2", "bar", "baz", "oo"]
+    );
 }

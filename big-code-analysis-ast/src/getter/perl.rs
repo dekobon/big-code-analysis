@@ -261,8 +261,10 @@ impl Getter for PerlCode {
     ///
     /// Any other `-bareword` key (`(-name => 1)`, `$h{-name}`) bills its
     /// word spelled from the sign (#1572). That is a source slice, so a
-    /// sign spaced off its word (`(- name => 1)`, rare) keeps the space:
-    /// one operand, distinct from `name`, but not merged with `-name`.
+    /// sign spaced off its word (`(- name => 1)`, rare) keeps the space,
+    /// and a comment between the two (`(- # c⏎ name => 1)`) is carried
+    /// along in it: one operand, distinct from `name`, but not merged
+    /// with `-name`, and listed by `bca ops` as written.
     fn get_operand_id<'a>(
         node: &Node<'a>,
         code: &'a [u8],

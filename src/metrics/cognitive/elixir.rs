@@ -15,7 +15,7 @@ use super::*;
 use crate::lang_helpers::elixir::{
     elixir_applying_remote_call, elixir_short_circuit_kind, elixir_short_circuit_name,
 };
-use crate::metrics::elixir_decisions::{elixir_keyword_pair_section, elixir_receive_dispatches};
+use crate::metrics::elixir_decisions::{elixir_pair_section, elixir_receive_dispatches};
 
 /// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
 /// `rescue`, `catch` — in its keyword form: `try` itself, and the
@@ -43,7 +43,7 @@ fn elixir_section<'a>(
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<ElixirSection> {
-    let (key, call) = elixir_keyword_pair_section(pair, code, ancestors)?;
+    let (key, call) = elixir_pair_section(pair, code, ancestors)?;
     let keyword = elixir_call_keyword(&call, code)?;
     match key {
         "else" if matches!(keyword, "if" | "unless") || elixir_takes_try_sections(keyword) => {
@@ -75,7 +75,7 @@ fn compute_elixir_remote_booleans<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    if let Some(call) = elixir_applying_remote_call(op, code, ancestors)
+    if let Some((call, _)) = elixir_applying_remote_call(op, code, ancestors)
         && let Some(key) = elixir_short_circuit_name(op, code)
     {
         stats.structural =
@@ -211,9 +211,11 @@ impl Cognitive for ElixirCode {
             {
                 increment_by_one(stats);
             }
-            // The keyword spellings of the sections above:
-            // `if(c, do: 1, else: 2)`, `try(do: f(), rescue: (…))`, bare
-            // or in brackets.
+            // The keyword spellings of the sections above, for the
+            // owners `elixir_section` names: `if(c, do: 1, else: 2)`,
+            // `try(do: f(), rescue: (…))`, bare or in brackets. A user
+            // macro's `foo(do: 1, else: 2)` scores nothing here while
+            // its `foo do 1 else 2 end` scores the `Else` arm above.
             E::Pair => match elixir_section(node, code, ancestors) {
                 Some(ElixirSection::Else) => increment_by_one(stats),
                 Some(ElixirSection::Handler) => increase_nesting(stats, &mut nesting),

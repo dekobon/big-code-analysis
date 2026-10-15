@@ -26,7 +26,7 @@ for historical reference.
 
 ### Added
 
-- **Twelve Perl, Bash and Kotlin scaling probes in the
+- **Thirteen Perl, Bash, Kotlin and Elixir scaling probes in the
   complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
   Perl ABC misparse climb, Perl ABC's `=~` binding check under an
   `ERROR` root, and the Bash cognitive / ABC comparison-run walks
@@ -38,7 +38,11 @@ for historical reference.
   and `halstead/kotlin-short-interpolations` (#1584),
   `count/perl-error-tail-calls` (#1580) and
   `nexits/perl-error-tail-keys` (#1585). Each was watched tripping with
-  its pre-fix walk restored.
+  its pre-fix walk restored. `cognitive/elixir-mixed-arguments` prices
+  the keyword-section lookup #1574 added, whose first form read a call's
+  whole argument list once per keyword pair and once per keyword-form
+  clause: 5.4 s for a 16 000-argument call in a release build, now
+  linear.
 
 ### Changed
 
@@ -111,9 +115,10 @@ for historical reference.
   `register`, `inline`, `thread_local`, `const`, `volatile`, `restrict`,
   `_Atomic`, `constexpr`, `_Noreturn`, `alignas`, their vendor spellings
   (`__inline`, `__forceinline`, `__restrict__`, `__thread`,
-  `__extension__`, …) and C's storage class `auto`. C++ and Mozcpp also
-  bill `virtual`, `mutable`, `constinit`, `consteval`, `explicit`,
-  `friend`, the access labels, `override`, `final` and the `noexcept`
+  `__volatile__`, `__extension__`, …) and C's storage class `auto`. C++
+  and Mozcpp also bill `virtual`, `mutable`, `constinit`, `consteval`,
+  `explicit`, `friend`, the access labels, `override`, `final` and the
+  `noexcept`
   of an exception specification. Each counts once as its keyword, never
   as the `storage_class_specifier` / `type_qualifier` /
   `virtual_specifier` / `access_specifier` wrapper. `override` and
@@ -143,9 +148,12 @@ for historical reference.
   ends a longer expression before `=>` (`(1 - name => 2)`), since `=>`
   quotes the word right before it. Package-qualified words
   (`Foo::Bar => 1`), words with arguments (`name() => 1`), bareword
-  values (`(a => foo)`) and `$h{+shift}` keep their call. Cyclomatic and
-  cognitive are unchanged. This is a local workaround for upstream
-  #1571.
+  values (`(a => foo)`) and `$h{+shift}` keep their call. So does a
+  `-name` outside those two positions — a value (`(x => -name)`), a
+  comma-separated argument (`f(-text, 'hi')`) or a multi-key slice —
+  since there Perl's own reading depends on whether a sub of that name
+  is visible, which no single file says. Cyclomatic and cognitive are
+  unchanged. This is a local workaround for upstream #1571.
 - **Perl `bca find --type call` and `bca count --type call` report each
   call once and skip auto-quoted keys** (#1580). tree-sitter-perl parses
   a call's name (`foo` in `foo(1)`, `print` in `print "x"`) as a bareword
@@ -177,10 +185,16 @@ for historical reference.
   and a user module's `Foo.||(a, b)` still scores nothing. Cognitive now
   scores the keyword forms' `else:` (+1) and `rescue:` / `catch:`
   (+nesting) for `if`, `unless`, `try` and the `def` family, as their
-  blocks do; the keyword `try` scored 0 before. A `with`'s `else` adds
+  blocks do; the keyword `try` scored 0 before. For any other owner the
+  keyword form still scores nothing — `else:` is an ordinary option to
+  a function — while its `do … end` block scores as before, so
+  `foo(do: 1, else: 2)` and `foo do 1 else 2 end` still differ by one
+  there. A `with`'s `else` adds
   no cognitive cost in either spelling: its clauses are the arms of a
   `case`, already paid by the container (the block form scored 2
-  against the keyword form's 1).
+  against the keyword form's 1). In `big-code-analysis-ast`,
+  `elixir_remote_call_applies` is replaced by
+  `elixir_applying_remote_call`, which returns the applying call.
 - **Elixir `receive` scores like `case`** (#1581): modified cyclomatic
   counts the construct once and cognitive complexity adds +nesting, in
   the block and keyword forms. A `receive` gets one free arm, as a
@@ -201,7 +215,12 @@ for historical reference.
   of seeking from the `ERROR`'s start: 16 000 copies of `{ last,` take
   0.03 s, down from 2.2 s. The same change makes Kotlin Halstead linear
   on a string of many short `$name` interpolations, which was quadratic
-  on valid input (8 000 names: 11.5 s → 0.01 s).
+  on valid input (8 000 names: 11.5 s → 0.01 s). In
+  `big-code-analysis-ast`, which `STABILITY.md` leaves outside the shape
+  contract, `AncestorIter::Chain` carries the lent cache as a second
+  field, `perl_dash_signs_keyword_key` takes the `-`'s ancestor chain in
+  place of its parent node, and `perl_is_dash_key_word` is
+  crate-private.
 
 ## [2.3.1] - 2026-10-10
 
