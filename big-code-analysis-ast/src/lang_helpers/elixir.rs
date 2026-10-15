@@ -156,10 +156,7 @@ pub fn elixir_kernel_operator_token<'a>(call: &Node<'a>, code: &[u8]) -> Option<
         return name.child(0);
     }
     (name.kind_id() == Elixir::Identifier as u16
-        && matches!(
-            code.get(name.start_byte()..name.end_byte()),
-            Some(b"and" | b"or")
-        ))
+        && elixir_short_circuit_name(&name, code).is_some())
     .then_some(name)
 }
 
