@@ -27,11 +27,33 @@ fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Rust::*;
 
     match node.kind_id().into() {
-        ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
-        Block | Block2 => last_operand(node).map(|o| (o, false)),
+        AwaitExpression => {
+            // Only an awaited async block yields its body; a bare one is a future.
+            let mut operand = wrapped_operand(node)?;
+            while let Some(inner) = rust_transparent_operand(&operand) {
+                operand = inner;
+            }
+            if operand.kind_id() == AsyncBlock as u16 {
+                operand = wrapped_operand(&operand)?;
+            }
+            Some((operand, false))
+        }
         UnaryExpression if node.child(0).is_some_and(|c| c.kind_id() == BANG as u16) => {
             wrapped_operand(node).map(|o| (o, true))
         }
+        _ => rust_transparent_operand(node).map(|o| (o, false)),
+    }
+}
+
+fn rust_transparent_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    use Rust::*;
+
+    match node.kind_id().into() {
+        ParenthesizedExpression | UnsafeBlock => wrapped_operand(node),
+        ConstBlock => node.child_by_field_name("body"),
+        TypeCastExpression => node.child_by_field_name("value"),
+        Block | Block2 => last_operand(node),
+        ExpressionStatement if !node.is_child(SEMI as u16) => wrapped_operand(node),
         _ => None,
     }
 }

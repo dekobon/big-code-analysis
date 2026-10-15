@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, is_operand, wrapped_operand,
+    count_negated_operand, is_operand, last_operand, wrapped_operand,
 };
 use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
@@ -51,7 +51,11 @@ fn cpp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
             .is_some_and(|op| accept.contains(&op.kind()))
     };
     let value = match node.kind() {
-        "parenthesized_expression" => wrapped_operand(node),
+        "parenthesized_expression" | "co_await_expression" => wrapped_operand(node),
+        // A GNU statement expression yields only its final expression statement.
+        "compound_statement" => last_operand(node)
+            .filter(|statement| statement.kind() == "expression_statement")
+            .and_then(|statement| wrapped_operand(&statement)),
         "condition_clause" | "cast_expression" | "declaration" => node.child_by_field_name("value"),
         "initializer_list" => sole_operand(node),
         "comma_expression" => node.child_by_field_name("right"),

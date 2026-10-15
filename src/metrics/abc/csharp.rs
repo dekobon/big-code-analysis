@@ -78,8 +78,9 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Csharp::*;
 
     match node.kind_id().into() {
-        // `(expr)` — the inner expression follows the `(` token.
+        // Parentheses, checked/unchecked and await preserve the value's condition.
         csharp_paren_expr_kinds!() => wrapped_operand(node).map(|o| (o, false)),
+        CheckedExpression | AwaitExpression => wrapped_operand(node).map(|o| (o, false)),
         // `!expr` — the operand follows the operator token. Seven other
         // prefix operators (`++ -- + - ~ & ^`) share this kind, as does
         // the `*` of a pointer indirection the grammar aliases onto it;

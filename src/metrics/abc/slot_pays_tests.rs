@@ -185,6 +185,32 @@ fn python_elif_is_an_else_and_a_slot() {
     );
 }
 
+#[test]
+#[cfg(feature = "python")]
+fn python_await_preserves_condition_counts() {
+    let source = r"class AwaitableComparison:
+    def __gt__(self, other):
+        async def result():
+            return True
+        return result()
+
+async def f(a, b):
+    if PRED:
+        pass
+";
+    assert_rows(
+        LANG::Python,
+        source,
+        &[
+            ("await b", 1, 1),
+            ("await (b > 1)", 1, 1),
+            ("await (  # comment\n        b > 1)", 1, 1),
+            ("not await (b > 1)", 1, 1),
+            ("a and await (b > 1)", 2, 2),
+        ],
+    );
+}
+
 /// The rows every JS-family grammar shares: the issue's predicates, each
 /// beside the bare identifier and the comparison it must neither fall
 /// below nor double.
@@ -256,6 +282,28 @@ fn assert_js_family_slots(lang: LANG) {
         lang,
         &function.replace(SLOT, "g(PRED);"),
         &[("b", 0, 0), ("!b", 1, 0), ("!this", 1, 0)],
+    );
+    assert_rows(
+        lang,
+        "async function f(a, b) { if (PRED) {} }",
+        &[
+            ("await b", 1, 1),
+            ("await (b > 1)", 1, 1),
+            ("await /* comment */ (b > 1)", 1, 1),
+            ("await (a && b)", 2, 2),
+            ("a && await (b > 1)", 2, 2),
+            ("!await (b > 1)", 1, 1),
+            ("await await (b > 1)", 1, 1),
+        ],
+    );
+    assert_rows(
+        lang,
+        "async function f(b) { return PRED; }",
+        &[
+            ("await b", 0, 0),
+            ("await !b", 1, 0),
+            ("!await (b > 1)", 1, 0),
+        ],
     );
 }
 
@@ -333,6 +381,13 @@ const C_FAMILY_IF_ROWS: &[(&str, u64, u64)] = &[
     ("(int)(b > 1)", 1, 1),
     ("(int)b", 1, 1),
     ("a, b > 1", 1, 1),
+    ("({ b; })", 1, 1),
+    ("({ b > 1; })", 1, 1),
+    ("({ a; /* before */ b > 1; /* after */ })", 1, 1),
+    ("({ b > 1; a; })", 2, 1),
+    ("({ a > 1 && b > 1; })", 2, 2),
+    ("a && ({ b > 1; })", 2, 2),
+    ("!({ b > 1; })", 1, 1),
     ("!(b > 1)", 1, 1),
     ("b > 1", 1, 1),
     ("!b", 1, 1),
@@ -382,6 +437,8 @@ fn assert_c_family_slots(lang: LANG) {
             ("!*p", 1, 0),
             ("!\"s\"", 1, 0),
             ("!(b > 1)", 1, 0),
+            ("({ !b; })", 1, 0),
+            ("!({ b > 1; })", 1, 0),
         ],
     );
 }
@@ -485,6 +542,31 @@ fn assert_cpp_slots(lang: LANG) {
         "template <class T> bool f(T a) requires PRED { return a && a; }",
         &with_body,
     );
+    assert_rows(
+        lang,
+        r"#include <coroutine>
+struct Task {
+    struct promise_type {
+        Task get_return_object() { return {}; }
+        std::suspend_never initial_suspend() { return {}; }
+        std::suspend_never final_suspend() noexcept { return {}; }
+        void return_void() {}
+        void unhandled_exception() {}
+    };
+};
+struct Awaitable {
+    bool await_ready() const { return true; }
+    void await_suspend(std::coroutine_handle<>) const {}
+    bool await_resume() const { return true; }
+    Awaitable operator>(int) const { return {}; }
+};
+Task f(Awaitable b) { if (PRED) {} co_return; }",
+        &[
+            ("co_await b", 1, 1),
+            ("co_await (b > 1)", 1, 1),
+            ("co_await /* comment */ (b > 1)", 1, 1),
+        ],
+    );
 }
 
 #[test]
@@ -534,6 +616,16 @@ fn rust_slots_pay_for_any_predicate() {
         // A block evaluates to its last expression: the comparison
         // inside pays, the slot does not pay again.
         ("{ x > 1 }", 1, 1),
+        ("unsafe { x > 1 }", 1, 1),
+        ("unsafe { /* comment */ x > 1 }", 1, 1),
+        ("const { 2 > 1 }", 1, 1),
+        ("const { true }", 1, 1),
+        ("b as bool", 1, 1),
+        ("(x > 1) as bool", 1, 1),
+        ("(a && b) as bool", 2, 2),
+        ("unsafe { a && b }", 2, 2),
+        ("a && unsafe { x > 1 }", 2, 2),
+        ("unsafe { x > 1; a }", 2, 1),
         // The match arm is a decision of its own; the slot tests the
         // value the match yields.
         ("match x { 1 => true, _ => false }", 2, 2),
@@ -571,7 +663,36 @@ fn rust_slots_pay_for_any_predicate() {
     assert_rows(
         LANG::Rust,
         &function.replace(SLOT, "g(PRED);"),
-        &[("*p", 0, 0), ("!*p", 1, 0), ("!(a & b)", 1, 0)],
+        &[
+            ("*p", 0, 0),
+            ("!*p", 1, 0),
+            ("!(a & b)", 1, 0),
+            ("unsafe { !b }", 1, 0),
+            ("!unsafe { x > 1 }", 1, 0),
+        ],
+    );
+    assert_rows(
+        LANG::Rust,
+        "async fn f(a: bool, x: i32) { if PRED {} }",
+        &[
+            ("async { a }.await", 1, 1),
+            ("async { x > 1 }.await", 1, 1),
+            ("((async { x > 1 })).await", 1, 1),
+            ("{ async { x > 1 } }.await", 1, 1),
+            ("unsafe { async { x > 1 } }.await", 1, 1),
+            ("async move { x > 1 }.await", 1, 1),
+            ("async { a && x > 1 }.await", 2, 2),
+            ("!async { x > 1 }.await", 1, 1),
+        ],
+    );
+    assert_rows(
+        LANG::Rust,
+        "async fn f(b: bool) { g(PRED); }",
+        &[
+            ("async { !b }", 0, 0),
+            ("async { !b }.await", 1, 0),
+            ("!async { !b }.await", 1, 0),
+        ],
     );
 }
 
@@ -795,6 +916,62 @@ fn csharp_1475_constructs_pay_their_slot() {
             "new Wrapper()",
         ],
     );
+}
+
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_checked_wrappers_preserve_condition_counts() {
+    for wrapper in ["checked", "unchecked"] {
+        let function = format!(
+            "class C {{ bool f(bool a, bool b, int x) {{ if ({wrapper}(PRED)) {{}} return false; }} }}"
+        );
+        assert_rows(
+            LANG::Csharp,
+            &function,
+            &[
+                ("b", 1, 1),
+                ("x > 1", 1, 1),
+                ("/* comment */ x > 1", 1, 1),
+                ("a && b", 2, 2),
+                ("!(x > 1)", 1, 1),
+                ("checked(unchecked(x > 1))", 1, 1),
+            ],
+        );
+        assert_rows(
+            LANG::Csharp,
+            &format!("class C {{ bool f(bool b, int x) {{ return {wrapper}(PRED); }} }}"),
+            &[("b", 0, 0), ("!b", 1, 0), ("!(x > 1)", 1, 0)],
+        );
+    }
+    assert_rows(
+        LANG::Csharp,
+        "class C { async Task<bool> f(bool a, Task<bool> b, Task<bool> c) \
+         { if (PRED) {} return false; } }",
+        &[
+            ("await b", 1, 1),
+            ("await (a ? b : c)", 2, 2),
+            ("await /* comment */ (a ? b : c)", 2, 2),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "kotlin")]
+fn kotlin_labeled_and_annotated_wrappers_preserve_condition_counts() {
+    for wrapper in ["pred@ (PRED)", "@Suppress(\"unused\") (PRED)"] {
+        let template = format!("fun f(a: Boolean, b: Boolean, x: Int) {{ if ({wrapper}) {{}} }}");
+        assert_rows(
+            LANG::Kotlin,
+            &template,
+            &[
+                ("b", 1, 1),
+                ("x > 1", 1, 1),
+                ("/* comment */ x > 1", 1, 1),
+                ("a && b", 2, 2),
+                ("!(x > 1)", 1, 1),
+            ],
+        );
+    }
 }
 
 /// PHP is truthy-valued, so every predicate is a decision. `??` is no

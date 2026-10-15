@@ -94,6 +94,12 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
         // `(expr)` — the inner expression follows the `(` token.
         ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        AnnotatedExpression | LabeledExpression => node
+            .children()
+            .find(|child| {
+                super::is_operand(child) && !matches!(child.kind(), "annotation" | "label")
+            })
+            .map(|o| (o, false)),
         UnaryExpression => {
             let operand = node.child_by_field_name("argument")?;
             match node.child_by_field_name("operator")?.kind_id().into() {

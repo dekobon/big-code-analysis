@@ -21,7 +21,7 @@ use crate::*;
 // (grammar-dispatch §1: TypeScript alone emits two ids for
 // `parenthesized_expression` and for `unary_expression`).
 //
-// One step of the value peel (see `PeelStep`). A parenthesis, a TS type
+// One step of the value peel (see `PeelStep`). A parenthesis, an await, a TS type
 // cast (`x as T`, `x satisfies T`, `<T>x`) and a non-null assertion
 // (`x!`) evaluate to their operand; a comma sequence to its last
 // operand; an assignment to its `right` value, so `if (y = x > 1)` tests
@@ -34,6 +34,7 @@ use crate::*;
 fn js_family_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind() {
         "parenthesized_expression"
+        | "await_expression"
         | "as_expression"
         | "satisfies_expression"
         | "non_null_expression" => wrapped_operand(node).map(|o| (o, false)),

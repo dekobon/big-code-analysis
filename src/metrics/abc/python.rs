@@ -54,7 +54,7 @@ use crate::*;
 // stops on it instead.
 fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
-        Python::ParenthesizedExpression => wrapped_operand(node),
+        Python::ParenthesizedExpression | Python::Await => wrapped_operand(node),
         Python::NamedExpression => node.child_by_field_name("value"),
         _ => None,
     }
