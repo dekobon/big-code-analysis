@@ -7,7 +7,8 @@ repos:
     -   id: check-symlinks
     -   id: check-yaml
     -   id: check-json
-        exclude: enums/templates/json.json
+        # Pyright accepts JSONC comments; py-typecheck validates its configuration.
+        exclude: ^(enums/templates/json\.json|big-code-analysis-py/pyrightconfig\.json)$
 -   repo: https://github.com/marco-c/taskcluster_yml_validator
     rev: v0.0.12
     hooks:
@@ -559,31 +560,17 @@ repos:
       # because pre-commit's isolated venv cannot see the project's
       # `maturin develop`'d `_native` extension or the rest of the
       # dev environment — under that isolation, `--strict`'s whole-
-      # program analysis is silently meaningless. The system hook runs
-      # against the contributor's PATH-resolved `mypy`, same pattern
-      # as the clippy/udeps/test hooks above.
-      #
-      # pyright is intentionally NOT a pre-commit hook: it bundles a
-      # Node runtime that pre-commit cannot hermetically isolate and
-      # suffers the same isolated-venv problem mypy does. The CI
-      # `python-lint` job covers it.
+      # program analysis is silently meaningless. The Makefile resolves
+      # mypy and pyright from the bootstrapped project venv before PATH,
+      # matching the canonical gate without requiring manual activation.
       - id: py-mypy
         name: py-mypy
         language: system
         # Match both `.py` source and `.pyi` stubs — editing
         # `_native.pyi` must also re-run mypy so the stub stays in
         # sync with the Rust-side ABI it describes.
-        files: '^big-code-analysis-py/.*\.pyi?$'
-        # Use --config-file + absolute-ish paths so the invocation is
-        # cross-platform — `bash -c "cd X && ..."` fails on native
-        # Windows pre-commit (no bash on cmd/PowerShell PATH).
-        entry: mypy
-        args:
-          - --strict
-          - --config-file=big-code-analysis-py/pyproject.toml
-          - big-code-analysis-py/python
-          - big-code-analysis-py/tests
-          - big-code-analysis-py/examples
+        files: '^big-code-analysis-py/(.*\.pyi?|pyrightconfig\.json|pyproject\.toml)$'
+        entry: make py-typecheck
         pass_filenames: false
 
 default_language_version:
