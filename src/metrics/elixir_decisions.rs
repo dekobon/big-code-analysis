@@ -357,8 +357,20 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// [`elixir_when_is_guard`] excludes a typespec's `when` (#1531). The
 /// keyword form of a clause construct (`case(x, do: (1 -> :a; …))`)
 /// holds its clauses in the same parenthesised `block`, so a `block`
-/// counts when it is the value of a section pair
-/// ([`elixir_is_section_pair`]).
+/// counts when it is the value of a pair whose key names a clause
+/// section ([`DECISION_SECTION_KEYS`]).
+///
+/// That pair is not asked which Call owns it, so a clause block passed
+/// under a section key to *any* call counts: `f(x, rescue: (e -> e))`
+/// scores one decision (#1583). Only a macro can take such an argument
+/// — the compiler rejects it for a function ("cannot handle clauses with
+/// the -> operator because it is not a macro", Elixir 1.17) — and a
+/// user macro's clauses mean whatever it makes of them, so gating on the
+/// owner would change no valid program's score in a way either answer
+/// could defend. A dispatching DSL is the likelier reading, and is the
+/// one kept. Cognitive gates its keyword sections on the owner for a
+/// different reason: it scores the pair whatever its value holds, and
+/// `else:` is an ordinary option to any function (`f(x, else: 1)`).
 ///
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
 /// both score a clause construct per clause and must agree on which
