@@ -166,6 +166,10 @@ and `cargo run -p big-code-analysis-web --`.
   tree, a test run's trailing summary — put the rows that matter past it.
   Read the persisted file, or aggregate in the command. See
   [`.claude/rules/tool-output.md`](.claude/rules/tool-output.md).
+- **History rewrites**: a scripted rebase that names a superseded hash
+  replays the old commit without an error. Compare tree hashes against a
+  backup ref after any rewrite; see
+  [`.claude/rules/history-rewrite.md`](.claude/rules/history-rewrite.md).
 - **Code search**: `rg` (ripgrep). Never `grep` via Bash.
 - **File search**: `fd` (or `fdfind` on Debian/Ubuntu). Never `find` via
   Bash.
@@ -449,6 +453,18 @@ than splicing two branches' entries together. That is deliberate:
 neither side's recorded values describe the merged tree, so hand
 resolution is always wrong here, not merely tedious. Regenerate with
 `make self-scan-write-baseline-headroom` and stage the result.
+
+The same goes for **a change split into several commits**. The refresh
+measures the working tree, not a commit, so a baseline regenerated once
+and staged into the first of several commits describes the whole tree,
+and that commit fails the self-scan on its own (PR #1609). Regenerate
+after each commit instead — `git rebase --exec 'make
+self-scan-write-baseline-headroom && (git diff --quiet .bca-baseline.toml
+|| git commit -q --amend --no-edit .bca-baseline.toml)' <base>` — so
+each refresh lands in the commit that moved the metric. A later commit
+that edits the baseline itself then stops the rebase with a conflict,
+because the file is `-merge`: regenerate, stage, and `git rebase
+--continue`, as for a merge.
 
 **Price a candidate limit at both tiers before calling it free.**
 Converging a limit onto a cluster of existing values is never free while
