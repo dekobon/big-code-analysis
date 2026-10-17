@@ -1044,10 +1044,148 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "src/metrics/loc/bash.rs"
+qualified = "BashCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/c.rs"
+qualified = "CCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/cpp.rs"
+qualified = "CppCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/csharp.rs"
+qualified = "CsharpCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/elixir.rs"
+qualified = "ElixirCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/go.rs"
+qualified = "GoCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/groovy.rs"
+qualified = "GroovyCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/irules.rs"
+qualified = "IrulesCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/java.rs"
+qualified = "JavaCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/javascript.rs"
+qualified = "JavascriptCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/kotlin.rs"
+qualified = "KotlinCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/lua.rs"
+qualified = "LuaCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/mozcpp.rs"
+qualified = "MozcppCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/mozjs.rs"
+qualified = "MozjsCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/objc.rs"
+qualified = "ObjcCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 51954.26146005158
+value = 58594.20703246724
+
+[[entry]]
+path = "src/metrics/loc/perl.rs"
+qualified = "PerlCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/php.rs"
+qualified = "PhpCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/python.rs"
+qualified = "PythonCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/ruby.rs"
+qualified = "RubyCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/rust.rs"
+qualified = "RustCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/tcl.rs"
+qualified = "TclCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/tsx.rs"
+qualified = "TsxCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/typescript.rs"
+qualified = "TypescriptCode::compute"
+metric = "nargs"
+value = 5.0
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
@@ -1179,7 +1317,7 @@ value = 5.0
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 metric = "halstead.effort"
-value = 64334.51855807396
+value = 65026.971670080056
 
 [[entry]]
 path = "src/spaces/compute.rs"

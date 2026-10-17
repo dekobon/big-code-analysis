@@ -416,7 +416,7 @@ fn compute_per_node<'a, T: MetricSuite>(
         T::Halstead::compute(node, code, ancestors, &mut state.halstead_maps);
     }
     if selected.contains(Metric::Loc) {
-        T::Loc::compute(node, ancestors, &mut last.metrics.loc, func_space);
+        T::Loc::compute(node, code, ancestors, &mut last.metrics.loc, func_space);
     }
     if selected.contains(Metric::Nom) {
         T::Nom::compute(node, code, ancestors, &mut last.metrics.nom);

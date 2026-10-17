@@ -102,9 +102,10 @@ macro_rules! implement_metric_trait {
     (Loc, $($code:ident),+) => (
         $(
            impl Loc for $code {
-               fn compute(
-                   _node: &Node,
-                   _ancestors: crate::Ancestors<'_, '_>,
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &[u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
                    _stats: &mut Stats,
                    _is_func_space: bool,
                ) {}

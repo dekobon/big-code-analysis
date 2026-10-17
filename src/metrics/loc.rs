@@ -1024,10 +1024,19 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    /// `ancestors` is the chain the walker descended through: the
-    /// C-family and JVM-family arms read it to tell a declaration in a
-    /// loop header from one in the loop body (#1084).
-    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool);
+    /// `code` is the source, for the arms that classify a node by its
+    /// bytes — a doc comment is told from a plain one by its opening
+    /// marker in most grammars (#1597). `ancestors` is the chain the
+    /// walker descended through: the C-family and JVM-family arms read
+    /// it to tell a declaration in a loop header from one in the loop
+    /// body (#1084).
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+        is_func_space: bool,
+    );
 }
 
 mod shared;

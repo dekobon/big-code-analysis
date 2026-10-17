@@ -30,7 +30,13 @@ use super::*;
 const QUOTED_CONTENT: &str = "quoted_content";
 
 impl Loc for ElixirCode {
-    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+        is_func_space: bool,
+    ) {
         use Elixir as E;
 
         let (start, end) = init(node, stats, is_func_space);
