@@ -426,6 +426,22 @@ fn unknown_metric_errors_with_did_you_mean() {
         .stderr(predicate::str::contains("cyclomatic"));
 }
 
+/// `bca metrics --metrics loc` selects the whole family, but a diff filters
+/// buckets and the `loc` family has none of its own — only its sub-metrics.
+/// Accepting the family name here would filter every diff to nothing and
+/// exit 0, the #662 silent-empty failure, so it stays an unknown metric.
+#[test]
+fn loc_family_name_is_not_a_diff_bucket() {
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--metric", "loc"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("unknown metric \"loc\""));
+}
+
 /// #662: valid `--metric` spellings — a canonical bucket name, the #514
 /// bare `loc` sub-metric alias, and a dotted `check --threshold` id — all
 /// pass validation, run, AND actually populate their selected bucket.

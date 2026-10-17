@@ -69,13 +69,13 @@ pub(crate) fn resolve_structured_output(
 /// Resolve the `--metrics` selection (#691) into the library `Metric`
 /// families to compute, or `None` (compute all metrics) when the flag is
 /// absent. Every requested name is validated against the catalog via the
-/// shared #662 did-you-mean validator first, so an unrecognized name is a
+/// shared #662 did-you-mean machinery first, so an unrecognized name is a
 /// hard error (exit 1) rather than a silently dropped selection.
 pub(crate) fn resolve_selected_metrics(names: &[String]) -> Option<Vec<big_code_analysis::Metric>> {
     if names.is_empty() {
         return None;
     }
-    crate::metric_alias::validate_diff_metrics(names).unwrap_or_else(|e| die(e));
+    crate::metric_alias::validate_metric_selection(names).unwrap_or_else(|e| die(e));
     let mut selected: Vec<big_code_analysis::Metric> = names
         .iter()
         .filter_map(|name| crate::metric_alias::metric_for_name(name))

@@ -87,6 +87,19 @@ fn comma_and_repeated_forms_union() {
     );
 }
 
+/// The flag's help example, `--metrics loc`, selects the whole `loc`
+/// family: the family name is no `diff` bucket (the family expands to its
+/// sub-metrics there), but a selection names what to compute.
+#[test]
+fn family_name_selects_the_family() {
+    let (_dir, path) = fixture();
+    assert_eq!(
+        metric_keys(&path, &["loc"]),
+        BTreeSet::from(["loc".to_string()]),
+    );
+    assert_eq!(metric_keys(&path, &["loc"]), metric_keys(&path, &["sloc"]));
+}
+
 /// #691: absent `--metrics` computes every metric — parity with the
 /// pre-#691 default. The full set is strictly larger than any single
 /// selection.

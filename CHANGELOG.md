@@ -230,6 +230,11 @@ for historical reference.
   falls and `blank` is unchanged for every such comment; a YARD doc
   comment there also leaves MI's size term now, as `dloc` promises
   (#1597).
+- `bca metrics --metrics loc`, the flag's own help example, was
+  rejected as an unknown metric: the selector shared `bca diff
+  --metric`'s bucket vocabulary, where the `loc` family appears only as
+  its sub-metrics. A family name now selects the whole family; `diff`
+  is unchanged.
 - Three Python bare-string shapes in `loc` (#1597). An implicitly
   concatenated bare string statement (`"""doc""" "more"`) now counts as
   comment rows — and as documentation (`dloc`) in a docstring position —

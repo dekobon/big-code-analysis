@@ -101,7 +101,8 @@ bca metrics --paths /path/to/your/file/or/directory \
   --metrics loc`). Names are the canonical ids `bca list-metrics` prints
   — the same vocabulary `bca check --threshold` and `bca diff --metric`
   use; dotted (`cyclomatic.modified`) and bare `loc` sub-metric (`sloc`)
-  spellings are accepted. Derived metrics pull in their dependencies
+  spellings are accepted, and a family name (`loc`) selects the whole
+  family. Derived metrics pull in their dependencies
   automatically. An unknown name errors with a "did you mean" hint.
   Omit it to compute every metric (#691).
 

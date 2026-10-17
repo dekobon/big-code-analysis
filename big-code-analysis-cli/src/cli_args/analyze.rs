@@ -89,7 +89,8 @@ pub(crate) struct MetricsArgs {
     /// Names are the canonical ids `bca list-metrics` prints — the same
     /// vocabulary `bca check --threshold` and `bca diff --metric` use;
     /// dotted (`cyclomatic.modified`) and bare `loc` sub-metric (`sloc`)
-    /// spellings are accepted too. An unknown name errors (exit 1) with a
+    /// spellings are accepted too, and a family name (`loc`) selects the
+    /// whole family. An unknown name errors (exit 1) with a
     /// "did you mean" hint. Derived metrics auto-pull their dependencies
     /// (selecting `mi` also computes `loc` / `cyclomatic` / `halstead`).
     /// When omitted, every metric is computed.
