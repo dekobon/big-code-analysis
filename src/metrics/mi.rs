@@ -29,10 +29,14 @@ pub struct Stats {
     halstead_vocabulary: f64,
     halstead_volume: f64,
     cyclomatic: f64,
-    sloc: f64,
-    /// Comment lines as a percentage in [0, 100] (not a ratio in [0, 1]).
-    /// Only `sei` consumes this — the SEI MI formula uses `perCM` on
-    /// the percentage scale; see issue #241.
+    /// The size term: `sloc` less the documentation rows (`dloc`) that
+    /// carry no code (#1597). Comment and blank rows stay charged, as
+    /// the published formulas charge them; `compute` has the rule.
+    code_lines: f64,
+    /// Non-documentation comment lines as a percentage of `code_lines`, in
+    /// [0, 100] (not a ratio in [0, 1]). Only `sei` consumes this — the
+    /// SEI MI formula uses `perCM` on the percentage scale; see issue
+    /// #241.
     comments_percentage: f64,
 }
 
@@ -59,7 +63,7 @@ impl Stats {
 
     #[inline]
     fn inputs_are_empty(&self) -> bool {
-        self.halstead_volume <= 0.0 || self.sloc <= 0.0
+        self.halstead_volume <= 0.0 || self.code_lines <= 0.0
     }
 
     /// Returns the `Mi` metric calculated using the original formula.
@@ -72,7 +76,10 @@ impl Stats {
             return 0.0;
         }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
-        171.0 - 5.2 * (self.halstead_volume).ln() - 0.23 * self.cyclomatic - 16.2 * self.sloc.ln()
+        171.0
+            - 5.2 * (self.halstead_volume).ln()
+            - 0.23 * self.cyclomatic
+            - 16.2 * self.code_lines.ln()
     }
 
     /// Returns the `Mi` metric calculated using the derivative formula
@@ -86,7 +93,10 @@ impl Stats {
             return 0.0;
         }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
-        171.0 - 5.2 * self.halstead_volume.log2() - 0.23 * self.cyclomatic - 16.2 * self.sloc.log2()
+        171.0
+            - 5.2 * self.halstead_volume.log2()
+            - 0.23 * self.cyclomatic
+            - 16.2 * self.code_lines.log2()
             + 50.0 * (self.comments_percentage * 2.4).sqrt().sin()
     }
 
@@ -102,7 +112,7 @@ impl Stats {
         let formula = 171.0
             - 5.2 * self.halstead_volume.ln()
             - 0.23 * self.cyclomatic
-            - 16.2 * self.sloc.ln();
+            - 16.2 * self.code_lines.ln();
         (formula * 100.0 / 171.0).max(0.)
     }
 }
@@ -125,12 +135,27 @@ where
         stats.halstead_vocabulary = halstead.vocabulary() as f64;
         stats.halstead_volume = halstead.volume();
         stats.cyclomatic = cyclomatic.cyclomatic_sum() as f64;
-        stats.sloc = loc.sloc() as f64;
+        // Documentation rows (`dloc`: doc comments, docstrings, POD) are
+        // not code: they leave the size term and both sides of the comment
+        // ratio, so a function scores the same with and without its
+        // documentation (#1597). Halstead agrees: it never sees a comment
+        // and drops every bare string's operands (#695).
+        //
+        // A row the documentation shares with code stays in the size term:
+        // `def f(): """doc"""` is one code row, not none.
+        //
+        // The subtractions are exact, since `dloc <= cloc <= sloc` holds
+        // after `loc::Stats::settle_excluded_rows`; `saturating_sub` is
+        // only the release-build guard.
+        let dloc = loc.dloc();
+        let code_lines = loc.sloc().saturating_sub(loc.dloc_without_code());
+        let comment_lines = loc.cloc().saturating_sub(dloc);
+        stats.code_lines = code_lines as f64;
         // The SEI Maintainability Index expects `perCM` as a percentage
         // in [0, 100], not a ratio in [0, 1] — `50·sin(√(2.4·CM))` is
         // nonsensical when CM is two orders of magnitude too small. See
         // issue #241 and Welker/Oman's original MI definition.
-        stats.comments_percentage = if stats.sloc == 0.0 {
+        stats.comments_percentage = if code_lines == 0 {
             0.0
         } else {
             // Clamp to [0, 100]: a comment ratio is a percentage of
@@ -138,7 +163,7 @@ where
             // `50·sin(√(2.4·CM))` has no clamp of its own, so an
             // out-of-range CM (e.g. cloc > sloc) would distort
             // `sei` by tens of points (issue #461).
-            (loc.cloc() as f64 / stats.sloc * 100.0).clamp(0.0, 100.0)
+            (comment_lines as f64 / stats.code_lines * 100.0).clamp(0.0, 100.0)
         };
     }
 }
@@ -191,6 +216,8 @@ implement_metric_trait!(
 )]
 mod tests {
     use crate::test_support::check_metrics_only_shim;
+    #[cfg(any(feature = "python", all(feature = "rust", feature = "java")))]
+    use crate::test_support::metrics_verbatim;
 
     use super::*;
 
@@ -199,6 +226,18 @@ mod tests {
     // directly; without them MI would be computed from zero-valued
     // defaults.
     check_metrics_only_shim!(check_metrics, Mi);
+
+    /// Analyses `source` byte-for-byte with the walk restricted to MI
+    /// and its three inputs (#1127), returning the metrics so two parses
+    /// can be compared.
+    #[cfg(feature = "python")]
+    fn python_mi(source: &[u8]) -> CodeMetrics {
+        metrics_verbatim(
+            crate::LANG::Python,
+            source,
+            MetricsOptions::default().with_only(&[Metric::Mi]),
+        )
+    }
 
     #[cfg(feature = "python")]
     #[test]
@@ -235,6 +274,151 @@ mod tests {
         );
     }
 
+    /// The #1597 reproducer: the same function with and without a
+    /// docstring scores identically on all three variants, because the
+    /// docstring's rows leave the size term and both sides of the
+    /// comment ratio. Before #1597 the documented side scored lower on
+    /// every variant; the CHANGELOG entry records by how much.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_does_not_move_mi() {
+        let undocumented = b"def clamp(value, low, high):\n    if value < low:\n        return low\n    if value > high:\n        return high\n    return value\n";
+        let documented = b"def clamp(value, low, high):\n    \"\"\"Return ``value`` held within ``[low, high]``.\n\n    ``low`` and ``high`` are inclusive bounds; a value outside them is\n    replaced by the nearer bound, and a value inside is returned as it\n    is. The bounds are not checked against each other, so ``low > high``\n    returns ``high`` for every input.\n    \"\"\"\n    if value < low:\n        return low\n    if value > high:\n        return high\n    return value\n";
+        let bare = python_mi(undocumented);
+        let doc = python_mi(documented);
+        // The fixture really carries the docstring the test is about.
+        assert_eq!((doc.loc.dloc(), doc.loc.cloc(), doc.loc.sloc()), (7, 7, 13));
+        assert_eq!((bare.loc.dloc(), bare.loc.sloc()), (0, 6));
+        assert_eq!(
+            (doc.mi.original(), doc.mi.sei(), doc.mi.visual_studio()),
+            (bare.mi.original(), bare.mi.sei(), bare.mi.visual_studio()),
+            "a docstring must not move any MI variant"
+        );
+        // And the values are the undocumented file's known ones, so the
+        // equality above is not two zeros agreeing.
+        assert!((bare.mi.original() - 117.676_252_636_666_53).abs() < 1e-9);
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_additional_docstrings_do_not_move_mi() {
+        for (bare, documented, rows) in [
+            (
+                "def f():\n    return 1\n",
+                "def f():\n    \"\"\"F.\"\"\"\n    \"\"\"More.\"\"\"\n    \"\"\"Still more.\"\"\"\n    return 1\n",
+                3,
+            ),
+            ("x = 1\n", "x = 1\n\"\"\"X.\"\"\"\n\"\"\"More.\"\"\"\n", 2),
+        ] {
+            let bare = python_mi(bare.as_bytes());
+            let documented = python_mi(documented.as_bytes());
+            assert_eq!(documented.loc.dloc(), rows);
+            assert!(bare.mi.original() > 0.0);
+            assert_eq!(
+                (bare.mi.original(), bare.mi.sei(), bare.mi.visual_studio()),
+                (
+                    documented.mi.original(),
+                    documented.mi.sei(),
+                    documented.mi.visual_studio(),
+                )
+            );
+        }
+    }
+
+    /// The comment ratio side of the same rule: with a real comment in
+    /// the body, `sei`'s `50·sin(√(2.4·CM))` term reads
+    /// `(cloc − dloc) / (sloc − dloc)` when no documentation row carries
+    /// code, so adding a docstring changes neither numerator nor
+    /// denominator. Subtracting the docstring from only the size term
+    /// would leave `CM` inflated by the docstring rows and move `sei` on
+    /// its own.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_is_invisible_to_the_sei_comment_term() {
+        let commented =
+            b"def f(n):\n    # a real comment\n    if n:\n        return 1\n    return 0\n";
+        let both = b"def f(n):\n    \"\"\"Doc one.\n    Doc two.\n    \"\"\"\n    # a real comment\n    if n:\n        return 1\n    return 0\n";
+        let a = python_mi(commented);
+        let b = python_mi(both);
+        assert_eq!((a.loc.cloc(), a.loc.dloc()), (1, 0));
+        assert_eq!((b.loc.cloc(), b.loc.dloc()), (4, 3));
+        assert_eq!(
+            a.mi.sei(),
+            b.mi.sei(),
+            "sei must see the one comment row in both"
+        );
+        assert_eq!(a.mi.original(), b.mi.original());
+        // The comment term is live in this fixture: `sei` is not just the
+        // comment-free formula, so the equality above exercises it.
+        let bare = python_mi(b"def f(n):\n    if n:\n        return 1\n    return 0\n");
+        assert_ne!(
+            a.mi.sei(),
+            bare.mi.sei(),
+            "the comment row must move sei on its own"
+        );
+    }
+
+    /// A docstring that shares a row with code keeps that row in the
+    /// size term: `def f(x): """doc"""; return x` is one code row, not
+    /// none, so it scores from `ln(1)` rather than as the `0.0`
+    /// empty-input sentinel, and a docstring whose closing quote is
+    /// followed by a statement gives up only the rows it has to itself.
+    /// Each fixture's `cloc` is all docstring, so the SEI comment term
+    /// is `sin(0)` and both variants reduce to the size formula.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_sharing_a_code_row_keeps_the_row() {
+        // (source, docstring rows, code rows MI must size on)
+        let fixtures: [(&[u8], u64, f64); 3] = [
+            (b"def f(x): \"\"\"Return x.\"\"\"\n", 1, 1.0),
+            (b"def f(x): \"\"\"Return x.\"\"\"; return x\n", 1, 1.0),
+            (
+                b"def f(x):\n    \"\"\"Doc.\n    More.\"\"\"; y = 1\n    return x\n",
+                2,
+                3.0,
+            ),
+        ];
+        for (source, dloc, code_lines) in fixtures {
+            let m = python_mi(source);
+            assert_eq!((m.loc.dloc(), m.loc.cloc()), (dloc, dloc));
+            let volume = m.halstead.volume();
+            let cyclomatic = m.cyclomatic.cyclomatic_sum() as f64;
+            let original = 171.0 - 5.2 * volume.ln() - 0.23 * cyclomatic - 16.2 * code_lines.ln();
+            let sei = 171.0 - 5.2 * volume.log2() - 0.23 * cyclomatic - 16.2 * code_lines.log2();
+            assert!(
+                (m.mi.original() - original).abs() < 1e-9 && (m.mi.sei() - sei).abs() < 1e-9,
+                "{:?}: original {} / sei {} must size on {code_lines} code rows ({original} / {sei})",
+                std::str::from_utf8(source),
+                m.mi.original(),
+                m.mi.sei()
+            );
+            assert!(m.mi.original() > 0.0, "not the empty-input sentinel");
+        }
+    }
+
+    /// Commented-out code in a triple-quoted string mid-function is not
+    /// documentation (#1597): MI charges it exactly as it charges the same
+    /// rows commented out with `#`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_code_commented_out_in_a_string_is_charged_like_a_comment() {
+        let in_string = b"def f(n):\n    if n:\n        return 1\n    \"\"\"\n    old = n * 2\n    return old\n    \"\"\"\n    return 0\n";
+        let with_hash = b"def f(n):\n    if n:\n        return 1\n    #\n    # old = n * 2\n    # return old\n    #\n    return 0\n";
+        let a = python_mi(in_string);
+        let b = python_mi(with_hash);
+        assert_eq!(
+            (a.loc.cloc(), a.loc.dloc()),
+            (4, 0),
+            "the string is comment rows, not docs"
+        );
+        assert_eq!((b.loc.cloc(), b.loc.dloc()), (4, 0));
+        assert_eq!(
+            (a.mi.original(), a.mi.sei(), a.mi.visual_studio()),
+            (b.mi.original(), b.mi.sei(), b.mi.visual_studio()),
+            "a string-wrapped and a #-commented block must cost the same"
+        );
+    }
+
     #[test]
     fn mi_sei_uses_comments_as_percentage() {
         // Regression test for #241. `Stats::comments_percentage` is stored
@@ -248,7 +432,7 @@ mod tests {
             halstead_vocabulary: 3.0,
             halstead_volume: 4.0 * f64::log2(3.0),
             cyclomatic: 1.0,
-            sloc: 10.0,
+            code_lines: 10.0,
             // 50% of lines are comments — drives the sin term hard.
             comments_percentage: 50.0,
         };
@@ -262,7 +446,7 @@ mod tests {
         let expected = 171.0
             - 5.2 * stats.halstead_volume.log2()
             - 0.23 * stats.cyclomatic
-            - 16.2 * stats.sloc.log2()
+            - 16.2 * stats.code_lines.log2()
             + 50.0 * (2.4_f64 * 50.0).sqrt().sin();
         let actual = stats.sei();
         assert!(
@@ -274,7 +458,7 @@ mod tests {
         let buggy = 171.0
             - 5.2 * stats.halstead_volume.log2()
             - 0.23 * stats.cyclomatic
-            - 16.2 * stats.sloc.log2()
+            - 16.2 * stats.code_lines.log2()
             + 50.0 * (2.4_f64 * 0.5).sqrt().sin();
         // The ratio-vs-percentage flip moves the sin term by roughly
         // its full ±50 amplitude; pin the bound at 50.0 so a partial

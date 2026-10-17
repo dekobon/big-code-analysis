@@ -1075,8 +1075,9 @@ DLOC ≤ CLOC                                 # every documentation row is a com
 - **SLOC** is what most people mean colloquially by "lines of code".
   It is the canonical size proxy, but is sensitive to formatting and
   not portable across language conventions.
-- **PLOC** strips away the visual noise. It is the size measure used
-  inside the Maintainability Index formula below.
+- **PLOC** strips away the visual noise. It is the measure to gate
+  file length on (`loc.ploc`); note that the Maintainability Index
+  below sizes a space on SLOC less DLOC, not on PLOC.
 - **LLOC** is the most reliable *statement* count. It is the right
   measure if you are budgeting test cases per statement, or comparing
   the density of a Python file against a Java file.
@@ -1086,9 +1087,10 @@ DLOC ≤ CLOC                                 # every documentation row is a com
 - **BLANK** is mostly diagnostic: a file with very low BLANK
   proportion is often hard to read.
 - **DLOC** is the slice of CLOC that is documentation: Python's
-  docstrings and `#:` comments. `CLOC − DLOC` is the count of working
-  comments, and `SLOC − DLOC` is the file's size with its documentation
-  removed.
+  docstrings and `#:` comments. `CLOC − DLOC` is the count of working comments, and
+  `SLOC − DLOC` is the file's size with its documentation removed,
+  which — keeping any documentation row that also carries code — is
+  the size term the Maintainability Index uses.
 
 The emergent uses of LOC variants go well beyond raw size. They are
 the most common input into cost-estimation models (COCOMO and COCOMO
@@ -1125,8 +1127,11 @@ The three values nest under the `mi` object as the keys `original`,
 `mi.sei`, `mi.visual_studio`):
 
 ```text
-mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(SLOC)
-mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(SLOC) + 50·sin(√(2.4·comment_percentage))
+code_lines       = SLOC − (DLOC rows that carry no code)
+comment_percent  = 100 · (CLOC − DLOC) / code_lines, clamped to [0, 100]
+
+mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(code_lines)
+mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(code_lines) + 50·sin(√(2.4·comment_percent))
 mi.visual_studio = max(0, mi.original · 100 / 171)
 ```
 
@@ -1135,14 +1140,27 @@ mi.visual_studio = max(0, mi.original · 100 / 171)
 - `mi.sei` is the Software Engineering Institute's refinement, which
   adds a comment-density term — the `sin(√(...))` shape was chosen so
   that *some* comments help, but adding more after a point does not.
-  `comment_percentage` is the comment-line share expressed as a
-  percentage in `[0, 100]` (not a ratio in `[0, 1]`); the code feeds
-  this percentage straight into the SEI term (see `src/metrics/mi.rs`
-  and issue #241).
+  `comment_percent` is the share of non-documentation comment rows among
+  the code lines, expressed as a percentage in `[0, 100]` (not a ratio
+  in `[0, 1]`); the code feeds this percentage straight into the SEI
+  term (see `src/metrics/mi.rs` and issue #241).
 - `mi.visual_studio` is the linear rescaling Microsoft chose for
   Visual Studio, where the score is clamped to `[0, 100]` and shown
   to developers traffic-light style: green ≥ 20, yellow ≥ 10, red
   below.
+
+The size term is `SLOC` less the documentation (DLOC) rows that carry
+no code (a docstring sharing its row with code, as in
+`def f(): """doc"""`, keeps that row counted). Documentation
+therefore leaves the size term and both sides of the comment ratio, so
+a function scores the same with and without its docstring (#1597),
+which keeps MI consistent with Halstead, where a docstring's operands
+are already ignored. Every working comment row
+and every blank row is still charged, as the published formulas charge
+them: a `// TODO` or a commented-out block lowers all three variants
+by `16.2·ln` of the growth it adds, with Halstead and cyclomatic
+unchanged. A PLOC or LLOC size term, and a monotonic SEI comment
+term, are open in #1607.
 
 The historical context, and a sharp critique of the metric, is
 collected on Arie van Deursen's blog post [*Think Twice Before Using
@@ -1154,9 +1172,10 @@ Index*](https://avandeursen.com/2014/08/29/think-twice-before-using-the-maintain
 The implementation is purely arithmetic — `src/metrics/mi.rs`
 consumes the already-computed `Halstead`, `Cyclomatic`, and `LOC`
 metrics and applies the three formulas. Because the formulas use the
-natural log of Halstead volume and SLOC, MI is undefined for empty
-files; big-code-analysis returns `0.0` for any file with zero SLOC or
-zero Halstead volume.
+natural log of Halstead volume and of the code-line count, MI is
+undefined for empty files; big-code-analysis returns `0.0` for any
+space with zero code lines (a docstring-only module included) or zero
+Halstead volume.
 
 ### How to read it
 

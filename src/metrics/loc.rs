@@ -663,6 +663,17 @@ impl Stats {
         self.dloc.dloc()
     }
 
+    /// Documentation rows that carry no code: `dloc()` less the rows
+    /// `ploc` also holds. A docstring that opens on its `def` row, or
+    /// whose closing quote is followed by a statement, shares that row
+    /// with code, and MI's size term must keep counting it (#1597).
+    #[inline]
+    #[must_use]
+    pub(crate) fn dloc_without_code(&self) -> u64 {
+        let shared = self.dloc.lines.intersection_len(&self.ploc.lines);
+        self.dloc.lines.len().saturating_sub(shared) as u64
+    }
+
     /// The `Blank` metric.
     ///
     /// Counts the number of blank lines in a scope
@@ -2798,6 +2809,7 @@ line two
                 assert_eq!(metric.loc.ploc(), 2);
                 assert_eq!(metric.loc.cloc(), 1);
                 assert_eq!(metric.loc.dloc(), 1);
+                assert_eq!(metric.loc.dloc_without_code(), 1);
             },
         );
     }
@@ -2868,6 +2880,26 @@ line two
                 assert_eq!(metric.loc.ploc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_sharing_a_code_row_is_not_without_code() {
+        // `dloc_without_code` is what MI subtracts: a def-row
+        // docstring is a docstring row and a code row, so nothing leaves
+        // the size term; a two-row docstring whose closing quote is
+        // followed by a statement gives up only its first row.
+        check_metrics::<PythonParser>("def f(): \"\"\"x\"\"\"", "foo.py", |metric| {
+            assert_eq!((metric.loc.dloc(), metric.loc.dloc_without_code()), (1, 0));
+        });
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"Doc.\n    More.\"\"\"; y = 1\n    return y",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!((metric.loc.dloc(), metric.loc.dloc_without_code()), (2, 1));
             },
         );
     }

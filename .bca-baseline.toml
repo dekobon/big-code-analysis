@@ -1041,13 +1041,13 @@ value = 5.0
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 555.0
+value = 561.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
 metric = "nom"
-value = 30.0
+value = 31.0
 
 [[entry]]
 path = "src/metrics/loc/bash.rs"

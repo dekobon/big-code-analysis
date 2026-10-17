@@ -62,7 +62,8 @@ for historical reference.
   older side's absent field differs from the newer side's value. The
   library accessors are `loc::Stats::dloc()` and its three
   siblings. No existing `loc` value moves except for the three Python
-  shapes under Fixed below.
+  shapes under Fixed below; the `mi.*` drift is its own entry under
+  Changed.
 
 - **Thirteen Perl, Bash, Kotlin and Elixir scaling probes in the
   complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
@@ -83,6 +84,22 @@ for historical reference.
   linear.
 
 ### Changed
+
+- **The maintainability index no longer charges documentation**
+  (#1597). Every `mi.*` variant sizes a space on `sloc` less the
+  documentation (`dloc`) rows that carry no code, and `mi.sei` forms
+  its comment percentage as `cloc − dloc` over that size, so a
+  function scores the same with and without its documentation on all
+  three variants (a doc row sharing its row with code, as in
+  `def f(): """doc"""`, keeps that row counted); before, the documented side of the issue's reproducer read
+  12.5 points lower on `original` and 64.6 lower on `sei` with
+  Halstead and cyclomatic unchanged. This is a
+  metric-value drift for every space that carries documentation rows,
+  in every language with a documentation syntax the `dloc` entry above
+  lists; a space with none keeps its values. Working comment rows and blank rows are still
+  charged everywhere, as the published formulas charge them; #1607
+  carries the PLOC / LLOC size-term and SEI comment-term questions.
+  The book's MI section states the formulas as implemented.
 
 - **Elixir helper cleanup:** remote short-circuit call recognition now
   returns its argument list with the call and ancestry, avoiding a second
@@ -131,6 +148,11 @@ for historical reference.
   containing an escape sequence (`\n`) — a docstring or a triple-quoted
   block of commented-out code alike — no longer has its row credited to
   `ploc` as well, so `blank` rises by the same rows.
+
+- The book's Lines of Code chapter said PLOC "is the size measure used
+  inside the Maintainability Index formula". Every `mi.*` variant has
+  always sized a space on SLOC (`src/metrics/mi.rs`); the sentence now
+  says so (#1597).
 
 - **Dependency-audit failures in CI:** update the locked `rustls` to
   0.23.46 for RUSTSEC-2026-0346 through RUSTSEC-2026-0349, and replace

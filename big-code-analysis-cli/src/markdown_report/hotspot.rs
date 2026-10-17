@@ -105,7 +105,7 @@ pub(crate) struct Column {
 // specs the single source of truth.
 pub(crate) const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
 pub(crate) const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
-pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescale, clamped to 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score.";
+pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescale, clamped to 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC less documentation-only rows; higher is more maintainable. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score.";
 
 /// The trailing note rendered under the MI hotspot table in both formats
 /// (issue #627). States which MI variant the column shows, the rating bands,
@@ -337,7 +337,11 @@ pub(crate) const NEXITS_HOTSPOT_FLOOR: usize = 2;
 /// per-language Summary, before any hotspot table — issue #678).
 pub(crate) const SPECS: &[HotspotSpec] = &[
     // 0 — Maintainability Index (lowest files). `keep` mirrors
-    // `mi::Stats::inputs_are_empty` so a clamped-to-0 worst file still shows.
+    // `mi::Stats::inputs_are_empty` so a clamped-to-0 worst file still
+    // shows. MI sizes on `sloc` less the documentation rows that carry no
+    // code (#1597), which `FunctionSummary` does not carry; that size
+    // reaches 0 only when no row holds a token, i.e. when
+    // `halstead_volume` is 0 too, so `sloc` stands in for it exactly.
     HotspotSpec {
         title: HotspotTitle::new("Maintainability Index", "MI", SortDir::Asc),
         source: Source::Units,

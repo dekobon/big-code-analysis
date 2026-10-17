@@ -63,9 +63,10 @@ METRIC VALUE: 2
 
 Documentation Lines Of Code: the rows the language treats as
 documentation — today Python's docstrings and `#:` comments. Those rows
-are always counted in CLOC too, so DLOC never exceeds it. Every
-language other than Python reports `0`, and an Elixir `@doc` heredoc is
-an assignment that counts as code.
+are always counted in CLOC too, so DLOC never exceeds it, and the
+Maintainability Index sizes a space on SLOC less the DLOC rows that
+carry no code. Every language other than Python reports `0`, and an
+Elixir `@doc` heredoc is an assignment that counts as code.
 
 METRIC VALUE: 0
 

@@ -204,7 +204,7 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ## Legend
 
-- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score.
+- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC less documentation-only rows; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score.
 - **[SLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Source Lines Of Code: total physical lines, including blanks and comments.
 - **[Tokens](https://dekobon.github.io/big-code-analysis/metrics.html#tokens)** — Total lexical tokens (AST leaves excluding comments) of the function or file.
 - **[CC](https://dekobon.github.io/big-code-analysis/metrics.html#cyclomatic-complexity-cc)** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.
