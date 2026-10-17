@@ -32,21 +32,21 @@ const QUOTED_CONTENT: &str = "quoted_content";
 impl Loc for ElixirCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Elixir as E;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // Root of the file — handled by `init` above.
             E::Source => {}
 
             // CLOC: every line a comment spans.
-            E::Comment => add_cloc_lines(stats, start, end),
+            E::Comment => add_comment_lines::<Self>(node, code, ancestors, stats),
 
             // The `stab_clause` itself is a control-flow noise node
             // (case/cond/with arm header). Its `body` child holds the

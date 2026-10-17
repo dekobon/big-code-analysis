@@ -265,9 +265,9 @@ pub struct Loc {
     pub cloc: u64,
     /// Blank lines.
     pub blank: u64,
-    /// Documentation rows (DLOC; today Python docstrings and `#:`
-    /// comments); a subset of `cloc`, `0` for every other language.
-    /// Defaulted so documents written before #1597 still parse.
+    /// Documentation rows (DLOC: doc comments, docstrings, POD); a
+    /// subset of `cloc`. Defaulted so documents written before #1597
+    /// still parse.
     #[serde(default)]
     pub dloc: u64,
     /// Average SLOC per space.

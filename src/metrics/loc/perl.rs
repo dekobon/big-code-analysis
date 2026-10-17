@@ -16,14 +16,14 @@ use super::*;
 impl Loc for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Perl as P;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             P::SourceFile
@@ -59,7 +59,7 @@ impl Loc for PerlCode {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             P::Comments | P::PodStatement => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             P::SingleLineStatement
             | P::IfStatement

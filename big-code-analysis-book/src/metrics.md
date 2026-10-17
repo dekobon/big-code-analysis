@@ -1011,7 +1011,7 @@ readable summary of that physical-versus-logical distinction.
 | **LLOC** | Logical Lines Of Code — statement-bearing lines (definitions, assignments, declarations) |
 | **CLOC** | Comment Lines Of Code — lines that contain a comment (with or without code on the same line) |
 | **BLANK** | Blank lines — whitespace-only lines |
-| **DLOC** | Documentation Lines Of Code — rows the language treats as documentation: a Python docstring or `#:` comment; always a subset of CLOC |
+| **DLOC** | Documentation Lines Of Code — rows the language treats as documentation: a doc comment, a Python docstring, a [POD](https://perldoc.perl.org/perlpod) block; always a subset of CLOC |
 
 ### Algorithm
 
@@ -1029,6 +1029,54 @@ own as DLOC (`loc.dloc`), so CLOC can be read with or without them.
 Which comments are documentation is each language's own tool's
 decision, not one rule for all:
 
+- Where the grammar marks it, the mark decides: a Rust `///`, `//!`,
+  `/** */` or `/*! */` comment (tree-sitter's `doc_comment` child —
+  `////` and `/**/` carry none), a Groovy `groovydoc_comment` (but not
+  the empty `/**/` that grammar also marks), a Perl POD block (but not
+  one that is nothing but `=begin comment` and `=for comment` regions,
+  Perl's idiom for commenting code out — POD after such a region's end
+  documents, and makes the block documentation).
+- Where the grammar emits one comment kind for every form, the
+  opening marker decides, as the language's documentation tool reads
+  it: [Doxygen](https://www.doxygen.nl/manual/docblocks.html)'s `/**`,
+  `/*!`, `///` and `//!` (and their after-member `<` forms) for C, C++
+  and Objective-C; `/**` for
+  [Javadoc](https://docs.oracle.com/en/java/javase/21/docs/specs/javadoc/doc-comment-spec.html),
+  [KDoc](https://kotlinlang.org/docs/kotlin-doc.html),
+  [JSDoc](https://jsdoc.app/) and [PHPDoc](https://docs.phpdoc.org/),
+  plus `///` for Java's Markdown doc comments; `///` and `/**` for
+  [C# XML docs](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/xmldoc/).
+  The tools disagree at the edges and so does DLOC: `/***` is
+  documentation to javac, Kotlin, Groovydoc and tsc (so TypeScript and
+  TSX read it, while plain JavaScript follows JSDoc) but not to
+  Doxygen, JSDoc, Roslyn or PHP; `/**/` is documentation nowhere; PHP needs
+  whitespace after `/**`; and `////` is never documentation, which is
+  stricter than Doxygen's lexer.
+- A doc comment counts only where its tool reads it. A Rust, Java,
+  Kotlin, Groovy, C# or PHP doc comment inside a function or closure
+  body — or inside a Java or Groovy initializer, or
+  a Kotlin accessor or `init` block — is an ordinary comment: rustc
+  [warns](https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#unused-doc-comments)
+  that one on a statement is unused, Roslyn raises CS1587, javadoc and
+  [Dokka](https://kotlinlang.org/docs/dokka-introduction.html) document
+  declarations only, and an in-body PHPDoc `/** @var */` is a type
+  hint. A working note spelled `/// …` inside such a function
+  therefore stays charged by MI. C, C++ and Objective-C keep in-body
+  doc blocks: Doxygen appends them to the function's documentation as
+  its *in-body description*, and
+  [`HIDE_IN_BODY_DOCS`](https://www.doxygen.nl/manual/config.html#cfg_hide_in_body_docs)
+  defaults to NO. Two
+  placements inside a function still document: a Rust inner doc
+  comment (`//!`, `/*! */`) opening a function's body is that
+  function's own documentation, and a doc comment in a signature
+  counts where its tool reads it there — a Doxygen `/**<` parameter
+  block or a block after `[[attributes]]`, a PHPDoc after `#[…]` or on
+  a promoted constructor property, a KDoc after an annotation — but
+  not in Java or C#, which bind a doc comment only before a
+  declaration's first token. JavaScript, TypeScript and TSX keep
+  in-body JSDoc, which documents inner symbols, and Perl keeps POD
+  wherever it sits, as [perldoc](https://perldoc.perl.org/perldoc)
+  does.
 - In Python, every bare string statement — a string whose value is
   discarded — is a comment row, but only one where Python reads
   documentation is DLOC, following
@@ -1086,8 +1134,8 @@ DLOC ≤ CLOC                                 # every documentation row is a com
   documentation versus implementation.
 - **BLANK** is mostly diagnostic: a file with very low BLANK
   proportion is often hard to read.
-- **DLOC** is the slice of CLOC that is documentation: Python's
-  docstrings and `#:` comments. `CLOC − DLOC` is the count of working comments, and
+- **DLOC** is the slice of CLOC that is documentation: doc comments,
+  docstrings, POD. `CLOC − DLOC` is the count of working comments, and
   `SLOC − DLOC` is the file's size with its documentation removed,
   which — keeping any documentation row that also carries code — is
   the size term the Maintainability Index uses.
@@ -1150,12 +1198,13 @@ mi.visual_studio = max(0, mi.original · 100 / 171)
   below.
 
 The size term is `SLOC` less the documentation (DLOC) rows that carry
-no code (a docstring sharing its row with code, as in
-`def f(): """doc"""`, keeps that row counted). Documentation
-therefore leaves the size term and both sides of the comment ratio, so
-a function scores the same with and without its docstring (#1597),
-which keeps MI consistent with Halstead, where a docstring's operands
-are already ignored. Every working comment row
+no code (a doc comment or docstring sharing its row with code, as in
+`def f(): """doc"""` or `int x; /** doc */`, keeps that row counted).
+Documentation therefore leaves the size term and both sides of the
+comment ratio in every language, so a function scores the same with
+and without its Rust `///` block, its Javadoc comment, its POD or its
+docstring (#1597), which keeps MI consistent with Halstead, where a
+docstring's operands are already ignored. Every working comment row
 and every blank row is still charged, as the published formulas charge
 them: a `// TODO` or a commented-out block lowers all three variants
 by `16.2·ln` of the growth it adds, with Halstead and cyclomatic

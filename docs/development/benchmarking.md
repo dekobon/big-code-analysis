@@ -155,6 +155,8 @@ Read it as follows.
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
+| `loc/rust-nested-doc-mods` | Rust | depth | the in-body doc test, memoised per ancestor by `Ancestors::fold_down` (#1597) | linear |
+| `loc/rust-inner-doc-run` | Rust | width | the inner-doc test of each `//!` opening a function body, with no prefix scan | linear |
 | `loc/python-additional-docstrings` | Python | width | additional docstrings classified once per consecutive run | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |

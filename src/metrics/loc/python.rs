@@ -27,7 +27,7 @@ impl Loc for PythonCode {
     ) {
         use Python::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // `block` (both aliased kind_ids — `Block` 135, the dead
@@ -48,7 +48,7 @@ impl Loc for PythonCode {
             StringStart | StringEnd | StringContent | EscapeSequence | EscapeInterpolation
             | Module => {}
             Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
                 add_sphinx_doc_comment(node, code, ancestors, stats);
             }
             // An implicitly concatenated bare string (`"""doc""" "more"`)

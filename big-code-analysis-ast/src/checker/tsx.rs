@@ -10,6 +10,9 @@ impl Checker for TsxCode {
         matches!(node.kind_id().into(), Tsx::Comment | Tsx::HtmlComment)
     }
 
+    // tsc reads `/***` as JSDoc, so TSX follows tsc, not JSDoc.
+    impl_js_family_doc_comment!(Tsx, tsdoc_block);
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

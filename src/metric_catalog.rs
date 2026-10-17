@@ -290,7 +290,7 @@ pub const FAMILIES: &[MetricFamily] = &[
             },
             MetricRow {
                 name: "dloc",
-                summary: "Documentation lines of code: rows the language treats as documentation, a subset of cloc (Python docstrings today).",
+                summary: "Documentation lines of code: doc comments, docstrings and POD, a subset of cloc.",
             },
         ],
     },

@@ -1353,14 +1353,15 @@ fn selected_metrics_dedupes_families_sharing_a_name_prefix() {
 /// `npa`, and `loc.cloc` are zero inside a method body and only become
 /// observable at the class or file space, while `cognitive`, `abc`, and
 /// the branch-driven families are zero at the file space and only
-/// observable inside the method. A Python fixture rides along for the
-/// one extractor Java can never make non-zero, `loc.dloc`.
+/// observable inside the method. The Javadoc on `area` is what makes
+/// `loc.dloc` observable (#1597).
 #[test]
 fn every_extractor_metric_family_suffices_to_compute_its_accessor() {
     use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
 
-    /// Class with public members, branches, arguments, comments, blank
-    /// lines and several exits, so no extractor reads zero everywhere.
+    /// Class with public members, branches, arguments, comments, a
+    /// Javadoc, blank lines and several exits, so no extractor reads
+    /// zero everywhere.
     const JAVA: &str = r#"
 // A class with public members, branches, args and several exits.
 public class Sample {
@@ -1382,6 +1383,7 @@ public class Sample {
         return "other";
     }
 
+    /** The area of the box. */
     public int area() {
         return width * height;
     }
@@ -1406,64 +1408,34 @@ public class Sample {
         }
     }
 
-    /// `loc.dloc` is non-zero only for a Python bare string
-    /// statement (#1597), which no Java fixture can carry, so a second
-    /// fixture gives that one extractor its observable site.
-    const PYTHON: &str = "\"\"\"Module docstring.\"\"\"\n\n\ndef f(n):\n    \"\"\"Doc.\"\"\"\n    if n:\n        return 1\n    return 0\n";
-
-    /// The (fixture, extractor) pairs that are zero at every space by
-    /// construction: Java has no docstrings, and the Python fixture has
-    /// no class for the three container metrics. Every other pair must
-    /// read non-zero somewhere, so the comparison below never
-    /// degenerates to `0 == 0` on the fixture meant to exercise it.
-    const UNOBSERVABLE: &[(LANG, &str)] = &[
-        (LANG::Java, "loc.dloc"),
-        (LANG::Python, "wmc"),
-        (LANG::Python, "npm"),
-        (LANG::Python, "npa"),
-    ];
-
-    let fixtures = [(LANG::Java, JAVA), (LANG::Python, PYTHON)].map(|(lang, src)| {
-        let ast = Ast::parse(Source::new(lang, src.as_bytes())).expect("fixture parses");
-        let full = ast
-            .metrics(MetricsOptions::default())
-            .expect("full metrics");
-        (lang, ast, full)
-    });
+    let ast = Ast::parse(Source::new(LANG::Java, JAVA.as_bytes())).expect("fixture parses");
+    let full = ast
+        .metrics(MetricsOptions::default())
+        .expect("full metrics");
 
     for extractor in EXTRACTORS {
-        for (lang, ast, full) in &fixtures {
-            let narrow = ast
-                .metrics(MetricsOptions::default().with_only(&[extractor.metric]))
-                .expect("narrowed metrics");
+        let narrow = ast
+            .metrics(MetricsOptions::default().with_only(&[extractor.metric]))
+            .expect("narrowed metrics");
 
-            let mut any_non_zero = false;
-            zip_spaces(full, &narrow, &mut |f, n| {
-                let expected = (extractor.extract)(&f.metrics);
-                let actual = (extractor.extract)(&n.metrics);
-                assert_eq!(
-                    actual.to_bits(),
-                    expected.to_bits(),
-                    "`{}` computed with only {:?} disagrees with the full suite at space {:?}",
-                    extractor.name,
-                    extractor.metric,
-                    f.name,
-                );
-                any_non_zero |= expected != 0.0;
-            });
-            if UNOBSERVABLE.contains(&(*lang, extractor.name)) {
-                assert!(
-                    !any_non_zero,
-                    "`{}` is non-zero in the {lang:?} fixture, so its exemption is stale",
-                    extractor.name,
-                );
-            } else {
-                assert!(
-                    any_non_zero,
-                    "`{}` is zero at every space of the {lang:?} fixture, so the comparison above proves nothing",
-                    extractor.name,
-                );
-            }
-        }
+        let mut any_non_zero = false;
+        zip_spaces(&full, &narrow, &mut |f, n| {
+            let expected = (extractor.extract)(&f.metrics);
+            let actual = (extractor.extract)(&n.metrics);
+            assert_eq!(
+                actual.to_bits(),
+                expected.to_bits(),
+                "`{}` computed with only {:?} disagrees with the full suite at space {:?}",
+                extractor.name,
+                extractor.metric,
+                f.name,
+            );
+            any_non_zero |= expected != 0.0;
+        });
+        assert!(
+            any_non_zero,
+            "`{}` is zero at every space in the fixture, so the comparison above proves nothing",
+            extractor.name,
+        );
     }
 }

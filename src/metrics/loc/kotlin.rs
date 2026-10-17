@@ -16,19 +16,19 @@ use super::*;
 impl Loc for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Kotlin::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             SourceFile => {}
             LineComment | BlockComment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A Kotlin raw string (`"""…"""`) is a `multiline_string_literal`
             // spanning several rows; credit every spanned row to PLOC to match

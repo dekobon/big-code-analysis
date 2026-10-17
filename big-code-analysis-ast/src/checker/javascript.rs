@@ -13,6 +13,9 @@ impl Checker for JavascriptCode {
         )
     }
 
+    // JSDoc ignores `/***`; plain JavaScript follows it.
+    impl_js_family_doc_comment!(Javascript, javadoc_block);
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

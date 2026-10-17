@@ -16,12 +16,12 @@ use super::*;
 impl Loc for IrulesCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // Same row-terminator quirk as the Tcl impl this dialect
@@ -32,7 +32,7 @@ impl Loc for IrulesCode {
             Irules::SourceFile | Irules::LF => {}
 
             Irules::Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
 
             // Same multi-row-literal gap as the Tcl impl this dialect forked

@@ -16,12 +16,12 @@ use super::*;
 impl Loc for TclCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // Tcl is the only grammar family here that surfaces the row
@@ -34,7 +34,7 @@ impl Loc for TclCode {
             Tcl::SourceFile | Tcl::LF => {}
 
             Tcl::Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
 
             // A quoted word (`"…"`) is the one Tcl literal that can span

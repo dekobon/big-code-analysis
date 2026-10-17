@@ -68,7 +68,7 @@ use crate::preproc::PreprocResults;
 
 use crate::checker::Checker;
 use crate::error::MetricsError;
-use crate::node::{Ancestors, Cursor, Node, SiblingCache};
+use crate::node::{Ancestors, Cursor, FoldCache, Node, SiblingCache};
 use crate::suppression::{
     Suppression, SuppressionKind, SuppressionScope, parse_marker as parse_suppression_marker,
 };

@@ -12,6 +12,9 @@ impl Checker for MozjsCode {
         matches!(node.kind_id().into(), Mozjs::Comment | Mozjs::HtmlComment)
     }
 
+    // JSDoc ignores `/***`; plain JavaScript follows it.
+    impl_js_family_doc_comment!(Mozjs, javadoc_block);
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

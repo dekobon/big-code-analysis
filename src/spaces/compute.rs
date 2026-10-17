@@ -758,6 +758,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
     // The children of each wide node on `chain`, so a predicate asking
     // for a sibling in a flat `ERROR` does not scan it (#1584).
     let mut siblings = SiblingCache::default();
+    let folds = FoldCache::default();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
     // Per-node cognitive nesting, inherited down the walk. Deliberately
@@ -830,7 +831,9 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // and `chain` is already correct here — the truncate above is
         // the only thing that touches it between the pop and this
         // point (#1100).
-        let ancestors = Ancestors::checked(&chain, &node).with_siblings(&siblings);
+        let ancestors = Ancestors::checked(&chain, &node)
+            .with_siblings(&siblings)
+            .with_folds(&folds);
 
         // Prune test-only subtrees before any per-metric work runs.
         // The hook is gated on `exclude_tests` so the default

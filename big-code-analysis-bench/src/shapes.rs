@@ -378,10 +378,27 @@ pub fn wide_cfg_test_mods(width: usize) -> String {
     "fn p() {}\n#[cfg(test)]\nmod m {}\n".repeat(width)
 }
 
+/// Rust: one opening inner-documentation run in a function body.
+#[must_use]
+pub fn rust_inner_doc_run(width: usize) -> String {
+    format!("fn f() {{\n{}let x = 1;\n}}\n", "//! d\n".repeat(width))
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
     format!("x = 1\n{}", "\"\"\"d\"\"\"\n".repeat(width))
+}
+
+/// Rust: `/// d` above each of `depth` nested `mod m { … }`, so every
+/// level adds a doc comment whose placement test sits one level deeper.
+#[must_use]
+pub fn rust_nested_doc_mods(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "/// d\nmod m {\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
 }
 
 /// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
@@ -1579,6 +1596,43 @@ pub const PROBES: &[Probe] = &[
                     with an `O(len)` splice, so a caller that fed rows \
                     descending would be quadratic in words. This is what \
                     prices that.",
+    },
+    Probe {
+        name: "loc/rust-nested-doc-mods",
+        lang: LANG::Rust,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: rust_nested_doc_mods,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: whether a doc comment sits in a function body is \
+                    a question about every ancestor, and climbing them per \
+                    comment was `O(depth)` each — quadratic once comments \
+                    and depth grow together, as here. `Ancestors::fold_down` \
+                    memoises the answer per ancestor for the walk. The \
+                    reading is the doc rows, one per level, which the fold \
+                    does not change.",
+    },
+    Probe {
+        name: "loc/rust-inner-doc-run",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: rust_inner_doc_run,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: each //! of an opening run is decided by the body \
+                    block that holds it, with no scan of the function's \
+                    prefix; a scan per comment is quadratic in the run. The \
+                    reading is one doc row per member.",
     },
     Probe {
         name: "loc/python-additional-docstrings",

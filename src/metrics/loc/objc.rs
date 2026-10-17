@@ -16,14 +16,14 @@ use super::*;
 impl Loc for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Objc::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // ObjC has no raw string literals. `instance_variables` is
@@ -38,7 +38,7 @@ impl Loc for ObjcCode {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // C's statement set plus the ObjC `@throw` / `@try` /
             // `@synchronized` statements (each a dedicated node). There

@@ -16,19 +16,19 @@ use super::*;
 impl Loc for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Csharp::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
         let kind_id: Csharp = node.kind_id().into();
         match kind_id {
             CompilationUnit => {}
             Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A C# verbatim (`@"…"`) or raw (`"""…"""`) string literal can span
             // several rows; credit every spanned row to PLOC to match Python's

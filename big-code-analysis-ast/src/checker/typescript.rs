@@ -13,6 +13,9 @@ impl Checker for TypescriptCode {
         )
     }
 
+    // tsc reads `/***` as JSDoc, so TypeScript follows tsc, not JSDoc.
+    impl_js_family_doc_comment!(Typescript, tsdoc_block);
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

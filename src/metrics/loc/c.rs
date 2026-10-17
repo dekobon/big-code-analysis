@@ -16,14 +16,14 @@ use super::*;
 impl Loc for CCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use C::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             DeclarationList | FieldDeclarationList | TranslationUnit => {}
@@ -34,7 +34,7 @@ impl Loc for CCode {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // C has no `throw` / `try` statements.
             WhileStatement | SwitchStatement | CaseStatement | IfStatement | ForStatement

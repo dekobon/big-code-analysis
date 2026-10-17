@@ -8,6 +8,8 @@ impl Checker for CppCode {
         node.kind_id() == Cpp::Comment
     }
 
+    impl_doxygen_doc_comment!();
+
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }

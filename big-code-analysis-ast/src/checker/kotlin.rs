@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::{kotlin_doc, node_bytes, spans};
 
 impl Checker for KotlinCode {
     fn is_comment(node: &Node) -> bool {
@@ -9,6 +10,46 @@ impl Checker for KotlinCode {
             node.kind_id().into(),
             Kotlin::LineComment | Kotlin::BlockComment
         )
+    }
+
+    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+        // KDoc has no line form, so only a `BlockComment` can qualify.
+        node.kind_id() == Kotlin::BlockComment && kotlin_doc(node_bytes(node, code))
+    }
+
+    // Kotlin's KDoc lookup reads past a declaration's annotations and
+    // modifiers, so a KDoc after `@Deprecated(…)` documents the function:
+    // only the body is in-body, and a bodiless declaration (an interface
+    // or `abstract` fun, a delegating secondary constructor) holds none.
+    // No Kotlin kind has a `body` field — the body is the `function_body`
+    // or `block` child. A lambda literal has no such child: it is all
+    // body, decided by its kind so that a lambda holding thousands of
+    // statements is not rescanned for every comment in it (#1597).
+    // Accessors and `init` blocks open function spaces without being
+    // `is_func` (#1184), and Dokka reads a KDoc in them no more than one
+    // in a method.
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        below: &Node<'a>,
+        _comment: Option<&Node<'a>>,
+        _code: &[u8],
+    ) -> bool {
+        if ancestor.kind_id() == Kotlin::LambdaLiteral {
+            return true;
+        }
+        (Self::is_func(ancestor, ancestors)
+            || Self::is_closure(ancestor, ancestors)
+            || matches!(
+                ancestor.kind_id().into(),
+                Kotlin::Getter | Kotlin::Setter | Kotlin::AnonymousInitializer
+            ))
+            && ancestor
+                .children()
+                .find(|child| {
+                    matches!(child.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
+                })
+                .is_some_and(|body| spans(&body, below))
     }
 
     fn is_func_space(node: &Node) -> bool {

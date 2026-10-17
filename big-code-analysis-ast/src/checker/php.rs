@@ -2,10 +2,29 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::{holds_in_body_field, node_bytes, phpdoc};
 
 impl Checker for PhpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Php::Comment
+    }
+
+    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_comment(node) && phpdoc(node_bytes(node, code))
+    }
+
+    // PHP's parser binds the last docblock before a function's name to it,
+    // so one written after `#[...]` attributes still documents it, and a
+    // promoted constructor property keeps its parameter's docblock
+    // (`ReflectionProperty::getDocComment`). Only the body is in-body.
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        below: &Node<'a>,
+        _comment: Option<&Node<'a>>,
+        _code: &[u8],
+    ) -> bool {
+        holds_in_body_field::<Self>(ancestor, ancestors, below)
     }
 
     fn is_func_space(node: &Node) -> bool {

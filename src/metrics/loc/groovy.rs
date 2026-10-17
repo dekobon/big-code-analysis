@@ -16,14 +16,14 @@ use super::*;
 impl Loc for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Groovy::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
         let kind_id: Groovy = node.kind_id().into();
         // LLOC counts statements only — same definition as Java.
         // Groovy additions over Java's list:
@@ -40,7 +40,7 @@ impl Loc for GroovyCode {
         match kind_id {
             SourceFile => {}
             LineComment | BlockComment | GroovydocComment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A Groovy triple-quoted string (`"""…"""` / `'''…'''`) is a
             // `string_literal` spanning several rows; credit every spanned row

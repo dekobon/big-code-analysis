@@ -225,6 +225,44 @@ macro_rules! impl_js_family_is_string {
     };
 }
 
+// Generate the documentation rule for a JS-family `Checker` block: a
+// `/**` comment only — an Annex-B `<!-- -->` `HtmlComment` never — read by
+// `$rule`, the block rule of the language's own tool, and kept inside a
+// function body, because JSDoc documents inner symbols (`outer~inner`), so
+// a `/** */` on a function or property declared in a body is documentation
+// (#1597).
+macro_rules! impl_js_family_doc_comment {
+    ($lang:ident, $rule:ident) => {
+        const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = true;
+
+        fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+            node.kind_id() == $lang::Comment
+                && $crate::lang_helpers::doc_comment::$rule(
+                    $crate::lang_helpers::doc_comment::node_bytes(node, code),
+                )
+        }
+    };
+}
+
+// Generate the documentation rule for a C-family `Checker` block: a
+// Doxygen comment block, kept inside a function body. Doxygen appends
+// every doc block in a function body to that function's documentation as
+// its in-body description (`HIDE_IN_BODY_DOCS` defaults to NO), so an
+// in-body `///` or `/** */` is documentation here, as it is in the
+// published output (#1597).
+macro_rules! impl_doxygen_doc_comment {
+    () => {
+        const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = true;
+
+        fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+            Self::is_comment(node)
+                && $crate::lang_helpers::doc_comment::doxygen(
+                    $crate::lang_helpers::doc_comment::node_bytes(node, code),
+                )
+        }
+    };
+}
+
 // Generate an `is_string` impl for languages whose `is_string`
 // predicate is a flat `matches!` against one or more variant
 // kinds. Reduces drift risk for new alias additions and gives a
@@ -421,6 +459,61 @@ pub trait Checker {
     #[must_use]
     fn is_useful_comment<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
         false
+    }
+    /// Whether this comment node is documentation: a doc comment the
+    /// grammar marks (Rust's `doc_comment` child, Groovy's
+    /// `groovydoc_comment`, Perl's `pod_statement`) or one its
+    /// language's own tool recognises by the opening marker in `code`
+    /// (Doxygen, Javadoc, KDoc, JSDoc, PHPDoc, C# XML docs; see
+    /// `lang_helpers::doc_comment`). Implies [`is_comment`]; the LOC
+    /// walk bills such a row as `dloc` as well as `cloc`, unless it sits
+    /// in a function body the language's tool does not read
+    /// ([`DOC_COMMENTS_IN_FUNCTION_BODIES`]) (#1597).
+    ///
+    /// [`is_comment`]: Self::is_comment
+    /// [`DOC_COMMENTS_IN_FUNCTION_BODIES`]: Self::DOC_COMMENTS_IN_FUNCTION_BODIES
+    #[inline]
+    #[must_use]
+    fn is_doc_comment(_: &Node, _code: &[u8]) -> bool {
+        false
+    }
+    /// Whether a doc comment inside a function or closure body is still
+    /// documentation. `false` where it is better read as a working note,
+    /// so a note spelled `/// …` stays a charged comment: rustc lints one
+    /// on a statement as unused (`unused_doc_comments`), Roslyn raises
+    /// CS1587, javadoc and Dokka document declarations only, and an
+    /// in-body PHPDoc `/** @var */` is a type hint. `true` where the tool
+    /// publishes what a body holds: Doxygen's in-body description (C, C++,
+    /// Objective-C — `HIDE_IN_BODY_DOCS` defaults to NO), JSDoc's inner
+    /// symbols, and Perl POD, which perldoc extracts wherever it sits
+    /// (#1597). Which part of a function counts as its body is
+    /// [`holds_doc_comment_in_body`](Self::holds_doc_comment_in_body).
+    const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = false;
+    /// Whether `ancestor`, one of a doc comment's ancestors, holds it in a
+    /// function or closure body, where
+    /// [`DOC_COMMENTS_IN_FUNCTION_BODIES`](Self::DOC_COMMENTS_IN_FUNCTION_BODIES)
+    /// decides whether it is documentation. `ancestors` is `ancestor`'s
+    /// own chain, and `below` is the node directly under `ancestor` on the
+    /// path to the comment, which is what a "does the body hold it" test
+    /// reads. `comment` is the comment itself only for its two nearest
+    /// ancestors; above them the answer is memoised per ancestor for the
+    /// whole walk, so it must not depend on which comment asked (#1597).
+    /// By default the whole function or closure node counts:
+    /// javac binds a doc comment only before a declaration's first token,
+    /// and the C# specification wants one before a member's attributes,
+    /// so a doc comment after an annotation or on a parameter documents
+    /// nothing there. A language whose tool reads doc comments in the
+    /// signature narrows this to the body proper (#1597).
+    #[inline]
+    #[must_use]
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        _below: &Node<'a>,
+        _comment: Option<&Node<'a>>,
+        _code: &[u8],
+    ) -> bool {
+        Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
     }
     /// Whether `node` opens a space: a function, closure, or one of the
     /// containers (class, struct, trait, impl, namespace, interface).

@@ -16,7 +16,7 @@ use super::*;
 impl Loc for GoCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
@@ -25,7 +25,7 @@ impl Loc for GoCode {
         // the bare enum name in pattern position under `use Go::*;`.
         use Go as G;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             G::SourceFile | G::InterpretedStringLiteral => {}
@@ -36,7 +36,7 @@ impl Loc for GoCode {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             G::Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             G::FallthroughStatement
             | G::BreakStatement

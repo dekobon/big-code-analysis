@@ -2,10 +2,59 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::node_bytes;
+
+/// Whether an inner doc comment (`//!`, `/*! */`) that `body` holds as a
+/// direct child opens `function`'s body, and so documents the function:
+/// `body` is a `function_item`'s body block. Inner attributes are valid
+/// in a body only directly after its `{` (Rust Reference, "Functions"),
+/// and an inner doc comment after a statement, an item or an outer doc
+/// comment is a hard error (E0753), so for valid Rust the block alone
+/// decides. Only rustc-rejected input could tell a prefix scan apart, and
+/// that is left undecided (grammar-dispatch rule 6).
+fn rust_inner_doc_opens_body(function: &Node, body: &Node) -> bool {
+    function.kind_id() == Rust::FunctionItem
+        && function
+            .child_by_field_name("body")
+            .is_some_and(|actual| actual.id() == body.id())
+}
 
 impl Checker for RustCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Rust::LineComment || node.kind_id() == Rust::BlockComment
+    }
+
+    fn is_doc_comment(node: &Node, _code: &[u8]) -> bool {
+        // tree-sitter-rust marks every doc form — `///`, `//!`, `/** */`,
+        // `/*! */` — with a `doc_comment` child after its opener and
+        // marker, and leaves `////` and `/**/` without one, so the bytes
+        // are never consulted. A plain comment has at most its two
+        // delimiters as children, so the count spares every one of them
+        // the cursor the child scan allocates.
+        Self::is_comment(node) && node.child_count() > 2 && node.is_child(Rust::DocComment as u16)
+    }
+
+    // rustc lints a doc comment on a statement or expression as unused and
+    // rustdoc renders no item nested in a body, so a body holds its doc
+    // comments — except the inner doc comment opening a function's body,
+    // which is that function's own `#![doc]`.
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        below: &Node<'a>,
+        comment: Option<&Node<'a>>,
+        code: &[u8],
+    ) -> bool {
+        // The inner-doc exception depends on the comment, and only the
+        // function two levels up (comment → body block → `function_item`)
+        // can grant it; `documents_where_it_sits` passes `comment` for
+        // exactly those two levels.
+        (Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors))
+            && !comment.is_some_and(|comment| {
+                let bytes = node_bytes(comment, code);
+                (bytes.starts_with(b"//!") || bytes.starts_with(b"/*!"))
+                    && rust_inner_doc_opens_body(ancestor, below)
+            })
     }
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {

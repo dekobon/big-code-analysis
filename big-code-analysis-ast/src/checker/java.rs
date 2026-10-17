@@ -2,10 +2,36 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 
 impl Checker for JavaCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Java::LineComment || node.kind_id() == Java::BlockComment
+    }
+
+    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_comment(node) && java_doc(node_bytes(node, code))
+    }
+
+    // A `static { … }` initializer opens a function space (#1184) without
+    // being `is_func`, and an instance initializer is a bare `block` in a
+    // class or enum body; javadoc reads a doc comment in either no more
+    // than one in a method body. Every `block` and `switch_block` is
+    // executable code — a field initializer's `switch` expression holds
+    // one outside any method — so the kind alone decides.
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        _below: &Node<'a>,
+        _comment: Option<&Node<'a>>,
+        _code: &[u8],
+    ) -> bool {
+        Self::is_func(ancestor, ancestors)
+            || Self::is_closure(ancestor, ancestors)
+            || matches!(
+                ancestor.kind_id().into(),
+                Java::StaticInitializer | Java::Block | Java::SwitchBlock
+            )
     }
 
     // `EnumDeclaration`, `RecordDeclaration`, and `AnnotationTypeDeclaration`

@@ -41,8 +41,35 @@ for historical reference.
   Sphinx also reads; only a `str`
   literal, never an f-string or bytes; any other bare string stays a
   comment row only) and Sphinx `#:` doc comments on or directly above
-  such an assignment. It is always a subset of `cloc`
-  (`dloc ≤ cloc ≤ sloc`), and `0` for every other language.
+  such an assignment; Perl POD (not a block that is nothing but
+  `=begin comment` / `=for comment` regions); the doc comments
+  the grammar marks (Rust's `///`, `//!`, `/** */` and `/*! */`,
+  Groovydoc); and, where a grammar emits one comment kind for every
+  form, the comments the language's own tool reads as documentation —
+  Doxygen's four markers for C, C++ and Objective-C, Javadoc (and JEP
+  467 `///`), KDoc, JSDoc, PHPDoc, C# XML docs — with each tool's own
+  edges (`/***` is documentation to javac, Kotlin, Groovydoc and tsc —
+  so to TypeScript and TSX, not to plain JavaScript, which follows
+  JSDoc; `/**/` to nobody; PHP wants whitespace after `/**`;
+  `////` is never documentation, stricter than Doxygen). Outside the
+  C family, the JavaScript family (TypeScript, TSX and Mozilla's
+  JavaScript included) and Perl POD, a doc-marker comment inside a function, closure,
+  initializer or accessor body is an ordinary comment, as rustc,
+  Roslyn, javadoc and Dokka treat it
+  (`Checker::DOC_COMMENTS_IN_FUNCTION_BODIES`).
+  C, C++ and Objective-C keep in-body doc blocks, which
+  Doxygen publishes as the function's in-body description
+  (`HIDE_IN_BODY_DOCS` defaults to NO). A Rust inner doc comment opening a
+  function's body documents that function, and a doc comment in a
+  signature counts where its tool reads it there — a Doxygen `/**<`
+  parameter block, a PHPDoc after `#[…]` or on a promoted constructor
+  property, a KDoc after an annotation — but not in Java or C#, whose
+  tools bind one only before a declaration's first token
+  (`Checker::holds_doc_comment_in_body`).
+  The LOC walk now reads
+  the source for that, and a language's `Checker` answers
+  `is_doc_comment` in one place. It is always a subset of `cloc`
+  (`dloc ≤ cloc ≤ sloc`).
   An Elixir `@doc` heredoc stays code (#1260), and Bash, Tcl and
   iRules have no documentation syntax. SemVer-additive, with
   `#[serde(default)]` so older documents still parse;
@@ -91,9 +118,14 @@ for historical reference.
   its comment percentage as `cloc − dloc` over that size, so a
   function scores the same with and without its documentation on all
   three variants (a doc row sharing its row with code, as in
-  `def f(): """doc"""`, keeps that row counted); before, the documented side of the issue's reproducer read
+  `def f(): """doc"""` or `int x; /** doc */`, keeps that row
+  counted); before, the documented side of the issue's reproducer read
   12.5 points lower on `original` and 64.6 lower on `sei` with
-  Halstead and cyclomatic unchanged. This is a
+  Halstead and cyclomatic unchanged. A doc block above a declaration —
+  a Rust `///` block, a Javadoc comment — lies outside the function's
+  own span, so it moves the enclosing file, class or `impl` space, not
+  the function's; a docstring, an in-body Doxygen or JSDoc block or a
+  POD block inside a sub moves the function itself. This is a
   metric-value drift for every space that carries documentation rows,
   in every language with a documentation syntax the `dloc` entry above
   lists; a space with none keeps its values. Working comment rows and blank rows are still

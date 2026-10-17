@@ -12,18 +12,19 @@
 )]
 
 use super::*;
+use crate::lang_helpers::documents_where_it_sits;
 
 impl Loc for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Rust::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             Block
@@ -44,7 +45,7 @@ impl Loc for RustCode {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             BlockComment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             LineComment => {
                 // tree-sitter-rust's `process_line_doc_content` (see
@@ -55,18 +56,26 @@ impl Loc for RustCode {
                 // the node really spans it; discounting unconditionally
                 // underflowed (#1051).
                 //
-                // Cheap operand first: `end > start` is false for every plain
-                // line comment, short-circuiting `is_child`'s child walk.
+                // Only a doc comment carries the newline, so the one
+                // `Checker::is_doc_comment` answer decides both the row span
+                // and, with where the comment sits, the `dloc` billing —
+                // asked once rather than again through `add_comment_lines`.
+                // The row discount follows the spelling alone: an in-body
+                // `///` swallows its newline too.
                 //
-                // `saturating_sub` is exact under that guard — `end > start`
-                // and `start >= 0` give `end >= 1` — and is belt-and-braces
-                // on the one line in this crate known to have underflowed.
-                let end = if end > start && node.is_child(DocComment as u16) {
+                // `saturating_sub` is exact under the `end > start` guard —
+                // `end > start` and `start >= 0` give `end >= 1` — and is
+                // belt-and-braces on the one line in this crate known to
+                // have underflowed.
+                let doc = Self::is_doc_comment(node, code);
+                let end = node.end_row();
+                let end = if doc && end > start {
                     end.saturating_sub(1)
                 } else {
                     end
                 };
-                add_cloc_lines(stats, start, end);
+                let documentation = doc && documents_where_it_sits::<Self>(node, code, ancestors);
+                add_comment_rows(stats, start, end, documentation);
             }
             Statement
             | EmptyStatement

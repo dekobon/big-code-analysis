@@ -16,14 +16,14 @@ use super::*;
 impl Loc for MozjsCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Mozjs::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             String | DQUOTE | Program => {}
@@ -31,7 +31,7 @@ impl Loc for MozjsCode {
             // its rows as CLOC rather than letting them fall to the `_`
             // arm and over-count PLOC (#697).
             Comment | HtmlComment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A `template_string` (`` `…` ``) can span multiple rows; credit
             // every spanned row to PLOC to match Python's #415 decision (#778).

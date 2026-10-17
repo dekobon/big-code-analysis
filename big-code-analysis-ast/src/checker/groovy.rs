@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 
 impl Checker for GroovyCode {
     fn is_comment(node: &Node) -> bool {
@@ -13,6 +14,29 @@ impl Checker for GroovyCode {
             node.kind_id().into(),
             Groovy::LineComment | Groovy::BlockComment | Groovy::GroovydocComment
         )
+    }
+
+    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+        // The grammar marks Groovydoc, but its `groovydoc_comment` also
+        // takes the empty `/**/`, which documents nothing. Groovy's own
+        // `GroovydocManager` reads any other comment opening `/**`, a
+        // `/***` one included, exactly as javac does for Javadoc.
+        node.kind_id() == Groovy::GroovydocComment && java_doc(node_bytes(node, code))
+    }
+
+    // A `static { … }` initializer opens a function space without being
+    // `is_func`, and Groovydoc reads a doc comment in it no more than one
+    // in a method body.
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        _below: &Node<'a>,
+        _comment: Option<&Node<'a>>,
+        _code: &[u8],
+    ) -> bool {
+        Self::is_func(ancestor, ancestors)
+            || Self::is_closure(ancestor, ancestors)
+            || ancestor.kind_id() == Groovy::StaticInitializer
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,

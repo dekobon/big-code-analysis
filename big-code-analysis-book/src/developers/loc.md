@@ -62,13 +62,15 @@ METRIC VALUE: 2
 ### DLOC
 
 Documentation Lines Of Code: the rows the language treats as
-documentation — today Python's docstrings and `#:` comments. Those rows
-are always counted in CLOC too, so DLOC never exceeds it, and the
-Maintainability Index sizes a space on SLOC less the DLOC rows that
-carry no code. Every language other than Python reports `0`, and an
+documentation — a doc comment such as the `/// Factorial` line above,
+a Python docstring, a Perl POD block. Those rows are always counted in
+CLOC too, so DLOC never exceeds it. Which comments are documentation
+is each language's own tool's rule (Doxygen, Javadoc, KDoc, JSDoc,
+PHPDoc, C# XML docs), and the Maintainability
+Index sizes a space on SLOC less the DLOC rows that carry no code. An
 Elixir `@doc` heredoc is an assignment that counts as code.
 
-METRIC VALUE: 0
+METRIC VALUE: 1
 
 ## Whitespace-only files
 

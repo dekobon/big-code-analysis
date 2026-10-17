@@ -16,19 +16,19 @@ use super::*;
 impl Loc for BashCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Bash::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             Program => {}
             Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // Every Bash literal that can span rows, so its interior rows
             // reach PLOC instead of being mislabelled blank by
@@ -145,8 +145,8 @@ impl Loc for BashCode {
             // trade until #1445 closes it: the rows it over-credits belong
             // to files that do not run, and the row it saves belongs to
             // files that do. Distinguishing a `\`-only row from an empty
-            // one needs the source bytes, which `Loc::compute` is not
-            // given.
+            // one needs the source bytes, which `Loc::compute` has carried
+            // since #1597, so #1445 can now be fixed here.
             HeredocRedirect => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);

@@ -16,21 +16,21 @@ use super::*;
 impl Loc for JavaCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Java::*;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
         let kind_id: Java = node.kind_id().into();
         // LLOC in Java is counted for statements only
         // https://docs.oracle.com/javase/tutorial/java/nutsandbolts/expressions.html
         match kind_id {
             Program => {}
             LineComment | BlockComment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A Java text block (`"""…"""`) is a `string_literal` whose body
             // is a `multiline_string_fragment` spanning several rows; credit

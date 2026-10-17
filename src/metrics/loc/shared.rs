@@ -53,11 +53,11 @@
 )]
 
 use super::*;
+use crate::lang_helpers::documents_where_it_sits;
 
 #[inline]
-pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usize, usize) {
-    let (start, _) = node.start_position();
-    let (end, _) = node.end_position();
+pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> usize {
+    let start = node.start_row();
 
     if is_func_space {
         stats.sloc.start = start;
@@ -73,7 +73,7 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
     // func-space without re-widening the `Loc` trait, which #1067 removed
     // for perf. `spaces::compute::anchor_unit_sloc_span` overwrites the
     // unit's span at finalization instead (#1247).
-    (start, end)
+    start
 }
 
 #[inline]
@@ -103,7 +103,7 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
 // + 1, end)` that `LineSet::insert_range` already rejects as inverted —
 // so this buys a truthful classification, not an observable metric
 // change (#1152).
-pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
+fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
     debug_assert!(end >= start, "add_cloc_lines: end {end} < start {start}");
     let comment_diff = end.saturating_sub(start);
     let is_comment_after_code_line = stats.ploc.lines.contains(start);
@@ -136,14 +136,47 @@ pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
 // Records a span of comment rows exactly as `add_cloc_lines` does and,
 // when they are documentation, the same rows in the `dloc` set that
 // `loc.dloc` reports, so `dloc() <= cloc()` holds by construction
-// (#1597). The callers are Python's bare-string arms. The `dloc` set's
-// other writers, Python's documentation-string and Sphinx-comment runs,
-// only re-bill rows already billed here.
+// (#1597). The callers are `add_comment_lines` below, Rust's
+// line-comment arm and Python's bare-string arms. The `dloc` set's other
+// writers, Python's documentation-string and Sphinx-comment runs, only
+// re-bill rows already billed here.
 pub(crate) fn add_comment_rows(stats: &mut Stats, start: usize, end: usize, documentation: bool) {
     add_cloc_lines(stats, start, end);
     if documentation {
         stats.dloc.lines.insert_range(start, end);
     }
+}
+
+#[inline]
+// Bills a comment node's rows, as documentation when `is_documentation`
+// says so. Every language's comment arm routes here — Rust's line-comment
+// arm bills through `add_comment_rows` itself, since its
+// `Checker::is_doc_comment` answer also sizes its row span — so "which
+// comments are documentation" is answered in one place per language, in
+// the `Checker` impl, and never drifts from `is_comment` (#1597).
+//
+// The rows are the comment node's own, exactly as `init` hands them to
+// every comment arm; reading them here keeps each call site to the node
+// and its context.
+pub(crate) fn add_comment_lines<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    let documentation = is_documentation::<T>(node, code, ancestors);
+    add_comment_rows(stats, node.start_row(), node.end_row(), documentation);
+}
+
+// Whether a comment is documentation where it sits: spelled as a doc
+// comment (`Checker::is_doc_comment`) and, per `documents_where_it_sits`,
+// not a working note in a function body (#1597).
+fn is_documentation<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    T::is_doc_comment(node, code) && documents_where_it_sits::<T>(node, code, ancestors)
 }
 
 #[inline]

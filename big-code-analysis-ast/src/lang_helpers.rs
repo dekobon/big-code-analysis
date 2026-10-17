@@ -14,8 +14,9 @@
 //! on the metric layer, the inversion #1376 exists to remove.
 
 pub mod bash;
-// Crate-private: the documentation rules in this crate read node bytes
-// through it.
+// Crate-private: the doc-comment predicates are read by this crate's
+// `Checker` impls; only the run walk the LOC metric drives is
+// re-exported below.
 pub(crate) mod doc_comment;
 pub mod elixir;
 // Crate-private: this dialect's only helper is a kind table the three
@@ -35,3 +36,7 @@ pub(crate) mod tcl_family;
 /// leading word themselves rather than through `tcl::tcl_command_name`,
 /// so they normalise the `::` qualifier at their own call sites.
 pub use tcl_family::strip_global_qualifier;
+
+/// Re-exported because the LOC metric bills Go, Ruby and Lua documentation
+/// runs through it, while the predicates beside it stay crate-private.
+pub use doc_comment::documents_where_it_sits;

@@ -1,5 +1,8 @@
 //! [`Ancestors`], the chain of a node's ancestors a walker threads down
-//! to its predicates, and the [`SiblingCache`] it can lend with it.
+//! to its predicates, and the [`SiblingCache`] and [`FoldCache`] it can
+//! lend with it.
+
+use std::cell::RefCell;
 
 use super::Node;
 
@@ -20,6 +23,7 @@ use super::Node;
 pub struct Ancestors<'tree, 'chain> {
     chain: Option<&'chain [Node<'tree>]>,
     siblings: Option<&'chain SiblingCache<'tree>>,
+    folds: Option<&'chain FoldCache>,
 }
 
 impl<'tree, 'chain> Ancestors<'tree, 'chain> {
@@ -30,6 +34,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self {
             chain: None,
             siblings: None,
+            folds: None,
         }
     }
 
@@ -42,6 +47,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self {
             chain: Some(chain),
             siblings: None,
+            folds: None,
         }
     }
 
@@ -54,6 +60,70 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self {
             siblings: Some(cache),
             ..self
+        }
+    }
+
+    /// This chain, memoising `Ancestors::fold_down` through
+    /// `cache`, which the walker that keeps the chain owns for the whole
+    /// walk.
+    #[inline]
+    #[must_use]
+    pub const fn with_folds(self, cache: &'chain FoldCache) -> Self {
+        Self {
+            folds: Some(cache),
+            ..self
+        }
+    }
+
+    /// The state of a fold of `step` down `node`'s ancestry, leaving out
+    /// the `skip` ancestors nearest `node`.
+    ///
+    /// The fold starts at `init` above the root and, for each ancestor
+    /// `a` from the root down, applies `step(state, a, a's chain, below)`,
+    /// where `below` is the next node on the path to `node` — the ancestor
+    /// under `a`, or `node` itself under its parent. A predicate that
+    /// would otherwise climb every ancestor of every candidate node, and
+    /// so cost `O(candidates × depth)`, asks this instead (#1597).
+    ///
+    /// Under a walk that lent a [`FoldCache`], the state at each ancestor
+    /// is stored per depth, keyed by the ancestor's id, so each one is
+    /// folded once per walk and a query costs amortised `O(1)`. A node
+    /// fixes its own ancestry, so a stored state whose id matches the
+    /// chain is exact; a slot left by a node the walk has moved past holds
+    /// another id and is refolded. `step` must answer the same for every
+    /// call on one `lane` within a walk, and must not fold itself. The
+    /// state at `node` (`skip == 0`) depends on `node`, so it is folded
+    /// fresh. Without a known chain the ancestry is climbed with
+    /// [`Node::parent`] first, which is `O(depth²)` per query; only tests
+    /// and chainless callers reach that path, never the metrics walk.
+    pub(crate) fn fold_down(
+        self,
+        node: &Node<'tree>,
+        skip: usize,
+        lane: FoldLane,
+        init: u8,
+        step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> u8,
+    ) -> u8 {
+        let Some(chain) = self.chain else {
+            return fold_climbed(node, skip, init, step);
+        };
+        let end = chain.len().saturating_sub(skip);
+        let step_at = |state: u8, depth: usize| {
+            let outer = Ancestors {
+                chain: Some(&chain[..depth]),
+                siblings: self.siblings,
+                folds: None,
+            };
+            step(
+                state,
+                &chain[depth],
+                outer,
+                chain.get(depth + 1).unwrap_or(node),
+            )
+        };
+        match self.folds {
+            Some(cache) => cache.fold(lane, chain, end, init, step_at),
+            None => (0..end).fold(init, step_at),
         }
     }
 
@@ -346,6 +416,106 @@ impl<'tree> SiblingCache<'tree> {
     }
 }
 
+// The deepest depth at or above `from` whose slot still holds the state of
+// the ancestor the chain has there, or 0 when none does: a node fixes its
+// ancestry, so a matching id is an exact state.
+fn deepest_stored(slots: &[(usize, u8)], chain: &[Node<'_>], from: usize) -> usize {
+    (1..=from)
+        .rev()
+        .find(|&depth| slots[depth].0 == chain[depth].id())
+        .unwrap_or(0)
+}
+
+// `Ancestors::fold_down` for a caller that holds no chain: the ancestry is
+// climbed first and folded unmemoised.
+fn fold_climbed<'tree, 'chain>(
+    node: &Node<'tree>,
+    skip: usize,
+    init: u8,
+    step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> u8,
+) -> u8
+where
+    'tree: 'chain,
+{
+    let climbed = climbed_chain(node);
+    let end = climbed.len().saturating_sub(skip);
+    (0..end).fold(init, |state, depth| {
+        let below = climbed.get(depth + 1).unwrap_or(node);
+        step(state, &climbed[depth], Ancestors::unknown(), below)
+    })
+}
+
+// `node`'s ancestors, root first, climbed with `Node::parent` for a caller
+// that holds no chain. tree-sitter finds a parent by descending from the
+// root, so the climb is `O(depth²)`.
+fn climbed_chain<'tree>(node: &Node<'tree>) -> Vec<Node<'tree>> {
+    let mut climbed: Vec<_> = std::iter::successors(node.parent(), Node::parent).collect();
+    climbed.reverse();
+    climbed
+}
+
+/// Which memoised fold a [`FoldCache`] slot holds. A language may run
+/// more than one fold over the same walk, and two folds' states must not
+/// share a slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FoldLane {
+    /// Whether an ancestor holds a doc comment in a function body.
+    DocInBody,
+}
+
+impl FoldLane {
+    /// How many lanes a [`FoldCache`] holds; one per variant above.
+    const COUNT: usize = 1;
+}
+
+/// The per-depth states of the walk's memoised folds, for
+/// `Ancestors::fold_down` (#1597).
+///
+/// One slot per depth and lane, keyed by the id of the ancestor at that
+/// depth: the state folded over every ancestor above it. Interior
+/// mutability, because [`Ancestors`] lends it shared, as it lends a
+/// [`SiblingCache`]; a fold never re-enters itself, so the borrow is
+/// never contended.
+#[derive(Debug, Default)]
+pub struct FoldCache {
+    lanes: RefCell<[Vec<(usize, u8)>; FoldLane::COUNT]>,
+}
+
+impl FoldCache {
+    // The state after folding `step(state, depth)` over `chain[..end]`,
+    // reusing and storing the per-depth states on `lane`.
+    fn fold(
+        &self,
+        lane: FoldLane,
+        chain: &[Node<'_>],
+        end: usize,
+        init: u8,
+        step: impl Fn(u8, usize) -> u8,
+    ) -> u8 {
+        let mut lanes = self.lanes.borrow_mut();
+        let slots = &mut lanes[lane as usize];
+        // `slots[d]` is the state at `chain[d]`: folded over `chain[..d]`.
+        // Depth 0 is `init`; the state at `node` itself is never stored.
+        let memo_end = end.min(chain.len().saturating_sub(1));
+        if slots.len() <= memo_end {
+            // Id 0 marks an empty slot: a tree-sitter node id is its
+            // address, never 0.
+            slots.resize(memo_end + 1, (0, 0));
+        }
+        let mut depth = deepest_stored(slots, chain, memo_end);
+        let mut state = if depth == 0 { init } else { slots[depth].1 };
+        while depth < memo_end {
+            state = step(state, depth);
+            depth += 1;
+            slots[depth] = (chain[depth].id(), state);
+        }
+        if end > memo_end {
+            state = step(state, memo_end);
+        }
+        state
+    }
+}
+
 /// Ancestor iterator returned by [`Ancestors::iter`], nearest first.
 pub enum AncestorIter<'tree, 'chain> {
     /// The not-yet-yielded prefix of a known chain, and the walk's
@@ -368,6 +538,7 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
                 let ancestors = Ancestors {
                     chain: Some(above),
                     siblings: *siblings,
+                    folds: None,
                 };
                 Some((nearest, ancestors))
             }
@@ -409,6 +580,72 @@ mod tests {
     fn flat_error() -> Tree {
         let source = format!("my @r = ({}", "{\nlast,\n$a && $b,\n".repeat(20));
         Tree::new::<crate::langs::PerlCode>(source.as_bytes())
+    }
+
+    /// `fold_down` answers the same through all three of its paths: the
+    /// walk's memoised [`FoldCache`], a known chain with no cache, and the
+    /// chainless climb. Queried in walk order, as the metrics walk queries
+    /// it, and twice per node so the second query is answered from the
+    /// stored slots (#1597). The step depends on order, on `below` and on
+    /// the parent its `outer` chain names, so a slot read at the wrong
+    /// depth, a climb in the wrong direction or an `outer` cut at the wrong
+    /// place changes the answer. The climb hands `Ancestors::unknown()`,
+    /// whose `parent` falls back to `Node::parent`, so all three agree only
+    /// when the chains are right.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn fold_down_agrees_across_its_cache_chain_and_climb_paths() {
+        let tree = Tree::new::<crate::langs::RustCode>(
+            b"mod a {\n    mod b {\n        fn f() { let x = (1 + 2) * 3; }\n    }\n    fn g() {}\n}\nfn h() { if true { 4 } else { 5 }; }\n",
+        );
+        let step = |state: u8, ancestor: &Node, outer: Ancestors, below: &Node| {
+            let parent = outer
+                .parent(ancestor)
+                .map_or(0, |parent| parent.kind_id().to_le_bytes()[0]);
+            state
+                .wrapping_mul(31)
+                .wrapping_add(ancestor.kind_id().to_le_bytes()[0])
+                .wrapping_add(below.kind_id().to_le_bytes()[0].rotate_left(3))
+                .wrapping_add(parent.rotate_left(5))
+        };
+        let cache = FoldCache::default();
+        let mut stack = vec![(tree.get_root(), 0_usize)];
+        let mut chain: Vec<Node> = Vec::new();
+        let mut queried = 0_usize;
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            for skip in 0..=3 {
+                let cached = |c: &[Node<'_>]| {
+                    Ancestors::known(c).with_folds(&cache).fold_down(
+                        &node,
+                        skip,
+                        FoldLane::DocInBody,
+                        7,
+                        step,
+                    )
+                };
+                let first = cached(&chain);
+                let again = cached(&chain);
+                let uncached =
+                    Ancestors::known(&chain).fold_down(&node, skip, FoldLane::DocInBody, 7, step);
+                let climbed =
+                    Ancestors::unknown().fold_down(&node, skip, FoldLane::DocInBody, 7, step);
+                assert_eq!(
+                    (first, again, uncached),
+                    (climbed, climbed, climbed),
+                    "{} at depth {depth}, skip {skip}",
+                    node.kind()
+                );
+                queried += 1;
+            }
+            chain.push(node);
+            let children: Vec<_> = node.children().collect();
+            stack.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
+        }
+        assert!(
+            queried > 100,
+            "the fixture must exercise a real walk: {queried}"
+        );
     }
 
     /// A recorded wide parent answers every child's siblings, and its

@@ -222,6 +222,54 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 538.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1317.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
+qualified = "Checker::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/groovy.rs"
+qualified = "GroovyCode::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/java.rs"
+qualified = "JavaCode::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/kotlin.rs"
+qualified = "KotlinCode::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/php.rs"
+qualified = "PhpCode::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/rust.rs"
+qualified = "RustCode::holds_doc_comment_in_body"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
 qualified = "Getter::is_braced_literal_slot"
 metric = "halstead.effort"
@@ -268,6 +316,18 @@ path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
 value = 42.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/node/ancestors.rs"
+qualified = "Ancestors<'tree, 'chain>::fold_down"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/node/ancestors.rs"
+qualified = "FoldCache::fold"
+metric = "nargs"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/parser.rs"
@@ -1143,7 +1203,7 @@ value = 5.0
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 58594.20703246724
+value = 59310.25237096207
 
 [[entry]]
 path = "src/metrics/loc/perl.rs"
@@ -1335,7 +1395,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 141885.98828207294
+value = 144305.98
 
 [[entry]]
 path = "src/spaces/compute.rs"

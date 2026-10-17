@@ -16,18 +16,18 @@ use super::*;
 impl Loc for RubyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
         use Ruby as R;
 
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
         match node.kind_id().into() {
             R::Program => {}
             R::Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
             // A Ruby string literal (`"…"` / `'…'` / `%q{…}`) or a heredoc
             // body can span several rows; credit every spanned row to PLOC to

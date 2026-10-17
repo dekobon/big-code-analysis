@@ -4617,13 +4617,13 @@ line two
                   "lloc": 2,
                   "cloc": 6,
                   "blank": 1,
-                  "dloc": 0,
+                  "dloc": 4,
                   "sloc_average": 4.0,
                   "ploc_average": 2.3333333333333335,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 2.0,
                   "blank_average": 0.3333333333333333,
-                  "dloc_average": 0.0,
+                  "dloc_average": 1.3333333333333333,
                   "sloc_min": 4,
                   "sloc_max": 12,
                   "cloc_min": 2,
@@ -4635,7 +4635,7 @@ line two
                   "blank_min": 0,
                   "blank_max": 1,
                   "dloc_min": 0,
-                  "dloc_max": 0
+                  "dloc_max": 4
                 }
                 "#
                 );
@@ -5388,13 +5388,13 @@ my $y = 2;",
                   "lloc": 2,
                   "cloc": 4,
                   "blank": 0,
-                  "dloc": 0,
+                  "dloc": 4,
                   "sloc_average": 6.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
-                  "dloc_average": 0.0,
+                  "dloc_average": 4.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 4,
@@ -5405,8 +5405,8 @@ my $y = 2;",
                   "lloc_max": 2,
                   "blank_min": 0,
                   "blank_max": 0,
-                  "dloc_min": 0,
-                  "dloc_max": 0
+                  "dloc_min": 4,
+                  "dloc_max": 4
                 }
                 "#);
             },
@@ -13984,6 +13984,43 @@ class A {
         }
     }
 
+    /// The entries of [`comment_spellings`] that are documentation to
+    /// the language's own tool, and so bill a `dloc` row as well as a
+    /// `cloc` one (#1597). Only two of the spellings above are doc
+    /// markers anywhere; the full per-tool table lives in `dloc.rs`.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
+    fn doc_comment_spellings(lang: crate::LANG) -> &'static [&'static str] {
+        use crate::LANG::*;
+        match lang {
+            Php => &["/** c */"],
+            Rust => &["/// c"],
+            _ => &[],
+        }
+    }
+
     /// A comment-only row is never a physical line of code — in any
     /// language, in any comment spelling, on either side of the code.
     ///
@@ -14056,15 +14093,17 @@ class A {
                     );
                     assert_eq!(loc.cloc(), 1, "{lang:?} cloc for {text:?}");
                     assert_eq!(loc.blank(), 0, "{lang:?} blank for {text:?}");
-                    // A plain comment is never a documentation row, in any
-                    // spelling of any language: `loc.dloc` is Python's
-                    // docstrings and `#:` comments (#1597). Every other
-                    // grammar reports 0 here by construction, and this is
-                    // the one sweep that says so for all of them.
+                    // A comment row is a documentation row exactly when its
+                    // spelling is a doc marker to the language's tool
+                    // (#1597). `doc_comment_spellings` says which of the
+                    // spellings above are markers, and this sweep pins both
+                    // answers for every grammar at once; `dloc.rs` has the
+                    // per-tool pitfalls.
+                    let expected = u64::from(doc_comment_spellings(*lang).contains(&comment));
                     assert_eq!(
                         loc.dloc(),
-                        0,
-                        "{lang:?} dloc for {text:?} — a comment row is not documentation"
+                        expected,
+                        "{lang:?} dloc for {text:?} — a doc marker"
                     );
                 }
             }

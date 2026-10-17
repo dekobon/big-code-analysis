@@ -2,10 +2,15 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::doc_comment::{csharp_doc, node_bytes};
 
 impl Checker for CsharpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Csharp::Comment
+    }
+
+    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_comment(node) && csharp_doc(node_bytes(node, code))
     }
 
     // A bodied indexer (`this[int i] { get; set; }`) or property

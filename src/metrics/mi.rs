@@ -419,6 +419,48 @@ mod tests {
         );
     }
 
+    /// The documentation rule is language-agnostic once `dloc` is: a
+    /// Rust `///` block and a Javadoc comment leave every variant
+    /// unmoved, exactly as the Python docstring does above (#1597).
+    #[cfg(all(feature = "rust", feature = "java"))]
+    #[test]
+    fn doc_comments_do_not_move_mi_in_other_languages() {
+        let cases: &[(crate::LANG, &[u8], &[u8], u64)] = &[
+            (
+                crate::LANG::Rust,
+                b"fn f(x: i32) -> i32 {\n    if x > 0 { x } else { 0 }\n}\n",
+                b"/// Clamp `x` at zero.\n///\n/// Negative inputs collapse to zero.\nfn f(x: i32) -> i32 {\n    if x > 0 { x } else { 0 }\n}\n",
+                3,
+            ),
+            (
+                crate::LANG::Java,
+                b"class C {\n    int f(int x) {\n        if (x > 0) { return x; }\n        return 0;\n    }\n}\n",
+                b"class C {\n    /**\n     * Clamp x at zero.\n     */\n    int f(int x) {\n        if (x > 0) { return x; }\n        return 0;\n    }\n}\n",
+                3,
+            ),
+        ];
+        let mi_only = || MetricsOptions::default().with_only(&[Metric::Mi]);
+        for (lang, bare, documented, rows) in cases {
+            let a = metrics_verbatim(*lang, bare, mi_only());
+            let b = metrics_verbatim(*lang, documented, mi_only());
+            assert_eq!(
+                (b.loc.dloc(), b.loc.cloc()),
+                (*rows, *rows),
+                "{lang:?}: the doc rows"
+            );
+            assert_eq!(a.loc.dloc(), 0);
+            assert_eq!(
+                (a.mi.original(), a.mi.sei(), a.mi.visual_studio()),
+                (b.mi.original(), b.mi.sei(), b.mi.visual_studio()),
+                "{lang:?}: a doc comment must not move any MI variant"
+            );
+            assert!(
+                a.mi.original() > 0.0,
+                "{lang:?}: the parity is not two zeros agreeing"
+            );
+        }
+    }
+
     #[test]
     fn mi_sei_uses_comments_as_percentage() {
         // Regression test for #241. `Stats::comments_percentage` is stored

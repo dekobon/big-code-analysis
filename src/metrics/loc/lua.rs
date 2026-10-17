@@ -16,12 +16,12 @@ use super::*;
 impl Loc for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         is_func_space: bool,
     ) {
-        let (start, end) = init(node, stats, is_func_space);
+        let start = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // Skip root.
@@ -46,7 +46,7 @@ impl Loc for LuaCode {
                 if ancestors.parent_has_kind(node, Lua::Comment as u16) => {}
 
             Lua::Comment => {
-                add_cloc_lines(stats, start, end);
+                add_comment_lines::<Self>(node, code, ancestors, stats);
             }
 
             // Standalone assignment (`x = 1`). Skip when nested inside a local variable
