@@ -141,6 +141,7 @@ number and the higher number stays as a redirect.
 | [95](#95-error-recovery-inserts-tokens-that-is_missing-does-not-flag) | Skip invented tokens by width, not `is_missing()` — valid code triggers it too |
 | [96](#96-a-tree-sitter-child-seek-is-olog-n-only-through-a-grammar-repetition) | A tree-sitter child seek is O(log n) only through a grammar repetition — the walk is the O(1) source of siblings |
 | [97](#97-a-beforeafter-on-a-rebuilt-corpus-measures-the-corpus) | A before/after on a rebuilt corpus measures the corpus — run the old binary on it too |
+| [98](#98-an-emulated-tools-specification-is-its-source-not-its-manual) | An emulated tool's specification is its source, not its manual — read the path it runs, then run it |
 
 ---
 
@@ -3169,6 +3170,8 @@ test, because neither produced a failure to catch.
 **type**: the projection that rebuilds it, every derived `Serialize`, and
 the `Drop` glue — and record that `Clone`, `PartialEq`, and `Debug`
 recurse for the same reason whether or not a current path reaches them.
+Audit every helper that re-walks a subtree too: a predicate that unwraps
+nested wrappers is a walk no traversal audit lists.
 Exercise each stage separately on a bounded stack (lesson 47 covers how
 to bound it), because a fixture that clears one stage by 10x may clear
 the next by 0.5x. Where the recursion is inside a generated `Serialize`,
@@ -3214,6 +3217,17 @@ work list — at the cost of an `impl Drop`, which forbids moving fields
 out by value (`E0509`) and is therefore a source-level SemVer break.
 Landing it under a minor bump needed an explicit exception in
 `STABILITY.md`.
+
+**A predicate that unwraps nested wrappers is a walk too** (#1597,
+PR #1609). Every traversal had been de-recursed under #700/#709, but the
+documentation predicates `loc.dloc` added re-walk subtrees of their own:
+`ruby_documented_statement` peeled one `if` / `unless` modifier per
+call, and Python's `binds_name` one tuple level per call. A doc comment
+above `X = 1 if a if a …` — valid Ruby, 20,000 modifiers in a release
+build — or above a 10,000-deep nested tuple target aborted the process,
+and `bca-web` with it, where `main` exited 0. Both now loop, and each
+has a 512 KiB-stack regression test that overflows when the recursion
+is put back.
 
 ---
 
@@ -4060,5 +4074,63 @@ almost all of the movement was the change of repositories. The default
 stayed at 50,000, the book's column was regenerated from the new
 corpus, and the corpus is recorded in
 `docs/development/threshold_corpus.md`.
+
+---
+
+## 98. An emulated tool's specification is its source, not its manual
+
+**Lesson:** When a metric reproduces another tool's reading of the
+source — which comments a documentation generator publishes, which
+blocks it attaches, which statements it descends into — derive the rule
+from that tool's implementation: the source itself, not a summary or an
+excerpt of it, along the path the tool actually runs from its entry
+point. Then confirm the result by running the tool. Use the manual to
+find where to look, not as the rule. Name the tool that
+really reads the language (tsc for TypeScript, not JSDoc), cite the
+function or file the rule came from beside the code, and treat "as
+<tool> does" in a comment or doc as a claim to re-verify whenever the
+rule changes.
+
+A manual documents the common case and the features its authors chose
+to explain, and a summary of the source keeps the same parts. The edges
+a metric has to get right — an empty block, a construct the tool
+silently skips, a file shape it refuses — are stated in another section
+or only in the code. An emulation built from either agrees with the tool
+on every case it was told about, so its tests pass and review reads it
+as faithful, until someone reads the code in full or runs the tool.
+
+**One section of a manual, reversed by another** (#1597, PR #1609).
+C-family `dloc` dropped in-body doc comments on the strength of
+Doxygen's "documentation at other places" section, which excepts the
+body of a function. The same manual defines an *in-body description*
+that Doxygen appends to the function's documentation by default
+(`HIDE_IN_BODY_DOCS = NO`), so the rule was backwards for C, C++,
+Objective-C and MozCpp. TypeScript made the neighbouring mistake: it
+followed JSDoc's "more than 3 stars will be ignored", but tsc reads
+TypeScript's doc comments, and its `isJSDocLikeText` accepts `/***`.
+
+**A summary of the source has the manual's gaps** (#1597, PR #1609).
+Lua's rule was built from excerpts of LDoc's `parse.lua` and `lang.lua`,
+cited both, and passed its tests. Read in full by the next review, it
+diverged five ways. LDoc:
+
+- discards a block with no text;
+- matches tags only at a line's start;
+- reads nothing from a file whose first token is code (without a
+  `module()` call);
+- documents a named table field, which the rewrite had just stopped
+  counting;
+- skips a `#!` line before the module block.
+
+The rule also took `comment_contains_tags` for the tag test: an `@`
+followed by a letter or digit, anywhere. It is a coarse gate on any `@`;
+the tags themselves are parsed line by line with `^%s*@(%w+)`. An
+earlier reading of the shebang case went to the lexer, which tokenizes
+`#!`, but `parse.lua` skips the shebang to the first comment before
+those tokens matter. Ruby's rule had the manual's gap instead. The book
+said YARD reads a `when` body, but YARD's processor descends only into
+constructs a handler names, so nothing in a `case`, `begin` or loop body
+is read. RDoc's metaprogramming marker, meanwhile, is exactly `##`, not
+any `##…` run.
 
 ---
