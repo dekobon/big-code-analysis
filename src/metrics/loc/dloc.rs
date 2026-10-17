@@ -14,8 +14,9 @@ use super::min_or_zero;
 /// docstring are the constructs recorded here, and their rows are
 /// exactly the rows the same arms also record as comment lines, so
 /// `dloc() <= cloc()` holds by construction — `add_comment_rows` inserts
-/// into both, and Python's `add_sphinx_doc_comment` (`#:` comments)
-/// re-bills only rows a comment arm already recorded. A language without a
+/// into both, and `add_leading_doc_run` (Go, Ruby, Lua) and Python's
+/// `add_sphinx_doc_comment` (`#:` comments) re-bill only rows a comment
+/// arm already recorded. A language without a
 /// documentation syntax this crate recognises reports `0`; Elixir's
 /// `@doc` heredoc is an assignment the walk classes as code (#1260).
 #[derive(Debug, Clone, PartialEq)]
@@ -102,16 +103,19 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "go",
         feature = "groovy",
         feature = "java",
         feature = "javascript",
         feature = "kotlin",
+        feature = "lua",
         feature = "mozcpp",
         feature = "mozjs",
         feature = "objc",
         feature = "perl",
         feature = "php",
         feature = "python",
+        feature = "ruby",
         feature = "rust",
         feature = "typescript",
     ))]
@@ -503,15 +507,18 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "go",
         feature = "groovy",
         feature = "java",
         feature = "kotlin",
+        feature = "lua",
         feature = "mozcpp",
         feature = "mozjs",
         feature = "objc",
         feature = "perl",
         feature = "php",
         feature = "python",
+        feature = "ruby",
         feature = "rust",
         feature = "typescript",
     ))]
@@ -520,6 +527,504 @@ mod tests {
             let loc = metrics_verbatim(lang, source, loc_only()).loc;
             assert_eq!((loc.dloc(), loc.cloc()), (*dloc, *cloc), "{lang:?}: {name}");
         }
+    }
+
+    /// go/doc's lead comment: a comment group on its own rows, directly
+    /// above a declaration, with no blank row between. Each fixture
+    /// pins the rows it credits and the rows it must not.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_lead_comments_are_documentation() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            (
+                "block above func",
+                b"package p\n\n/* d */\nfunc f() {}\n",
+                1,
+                1,
+            ),
+            (
+                "two-row group",
+                b"package p\n\n// a\n// b\nfunc f() {}\n",
+                2,
+                2,
+            ),
+            (
+                "package doc",
+                b"// Package p does things.\npackage p\n",
+                1,
+                1,
+            ),
+            (
+                "trailing then doc",
+                b"package p\n\nvar x = 1 // t\n// d\nfunc f() {}\n",
+                1,
+                2,
+            ),
+            (
+                "directive row not counted",
+                b"package p\n\n//go:generate go run x\n// d\nfunc f() {}\n",
+                1,
+                2,
+            ),
+            (
+                "cgo export directive not counted",
+                b"package p\n\n// F doc\n//export F\nfunc F() {}\n",
+                1,
+                2,
+            ),
+            (
+                "struct field",
+                b"package p\n\ntype T struct {\n\t// F doc\n\tF int\n}\n",
+                1,
+                1,
+            ),
+            (
+                "interface method",
+                b"package p\n\ntype I interface {\n\t// M doc\n\tM()\n}\n",
+                1,
+                1,
+            ),
+            (
+                "embedded interface element",
+                b"package p\n\nimport \"io\"\n\ntype I interface {\n\t// R doc\n\tio.Reader\n}\n",
+                1,
+                1,
+            ),
+            (
+                "tilde constraint element",
+                b"package p\n\ntype C interface {\n\t// x\n\t~int | ~string\n}\n",
+                0,
+                1,
+            ),
+            (
+                "method with receiver",
+                b"package p\n\ntype T int\n\n// M doc\nfunc (t T) M() {}\n",
+                1,
+                1,
+            ),
+            (
+                "grouped type spec",
+                b"package p\n\ntype (\n\t// A doc\n\tA int\n\t// B doc\n\tB int\n)\n",
+                2,
+                2,
+            ),
+            (
+                "grouped const spec",
+                b"package p\n\nconst (\n\t// A doc\n\tA = 1\n)\n",
+                1,
+                1,
+            ),
+            (
+                "grouped type alias",
+                b"package p\n\ntype (\n\t// B doc\n\tB = int\n)\n",
+                1,
+                1,
+            ),
+            (
+                // Statements go/doc never reads, whether the comment is
+                // parked outside the body's `statement_list` or not.
+                "local declarations",
+                b"package p\n\nfunc f() int {\n\t// a\n\tvar x = 1\n\t// b\n\tconst y = 2\n\t// c\n\ttype t int\n\treturn x + y\n}\n",
+                0,
+                3,
+            ),
+            (
+                "local grouped spec",
+                b"package p\n\nfunc f() {\n\tvar (\n\t\t// a\n\t\tx = 1\n\t)\n\t_ = x\n}\n",
+                0,
+                1,
+            ),
+            (
+                "field of a local type",
+                b"package p\n\nfunc f() {\n\ttype t struct {\n\t\t// F\n\t\tF int\n\t}\n\t_ = t{}\n}\n",
+                0,
+                1,
+            ),
+            (
+                "blank-separated",
+                b"package p\n\n// not doc\n\nfunc f() {}\n",
+                0,
+                1,
+            ),
+            (
+                "blank inside the group",
+                b"package p\n\n// part 1\n\n// part 2\nfunc f() {}\n",
+                1,
+                2,
+            ),
+            (
+                "trailing field comment",
+                b"package p\n\ntype T struct {\n\tF int // t\n}\n",
+                0,
+                1,
+            ),
+            (
+                "comment in a body",
+                b"package p\n\nfunc f() {\n\t// c\n\treturn\n}\n",
+                0,
+                1,
+            ),
+            (
+                "dangling before a brace",
+                b"package p\n\nfunc f() {\n\treturn\n\t// c\n}\n",
+                0,
+                1,
+            ),
+            (
+                "build constraint then blank",
+                b"//go:build linux\n\npackage p\n",
+                0,
+                1,
+            ),
+            (
+                "import doc",
+                b"package p\n\n// not doc\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n",
+                0,
+                1,
+            ),
+            (
+                "doc and func on one row",
+                b"package p\n\n/* d */ func f() {}\n",
+                0,
+                1,
+            ),
+            (
+                // go/parser groups every comment on the run's rows.
+                "two comments on the run's last row",
+                b"package p\n\n// G does a thing.\n/* Since v2. */ /* Stable. */\nfunc G() {}\n",
+                2,
+                2,
+            ),
+            (
+                "a trailing pair",
+                b"package p\n\nvar x = 1 /* a */ /* b */\nfunc f() {}\n",
+                0,
+                1,
+            ),
+            (
+                // A comment above an instantiation's type argument documents
+                // nothing, though the grammar spells each one `type_elem`.
+                "type arguments of an instantiation",
+                b"package p\n\ntype Pair = Map[\n\t// key type\n\tstring,\n\t// value type\n\tint,\n]\n",
+                0,
+                2,
+            ),
+        ];
+        assert_doc_rows(LANG::Go, cases);
+    }
+
+    /// YARD's convention: the `#` lines directly above a `def`, `class`,
+    /// `module`, attribute or visibility-wrapped `def`. The first
+    /// statement of a body has its comment outside the `body_statement`
+    /// wrapper, which the target test looks through.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_leading_comments_are_documentation() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            ("above def", b"# d\ndef m; end\n", 1, 1),
+            ("two rows above def", b"# a\n# b\ndef m; end\n", 2, 2),
+            ("above def self", b"# d\ndef self.m; end\n", 1, 1),
+            ("above class", b"# d\nclass C; end\n", 1, 1),
+            ("above module", b"# d\nmodule M; end\n", 1, 1),
+            (
+                "first method in a class body",
+                b"class C\n  # d\n  def m; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "second method in a class body",
+                b"class C\n  def a; end\n  # d\n  def b; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "nested class",
+                b"module M\n  # d\n  class C; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "attr_reader",
+                b"class C\n  # d\n  attr_reader :x\nend\n",
+                1,
+                1,
+            ),
+            ("plain attr", b"class C\n  # d\n  attr :x\nend\n", 1, 1),
+            ("top-level constant", b"# Max.\nMAX = 10\n", 1, 1),
+            (
+                "class constant",
+                b"class C\n  # Lim.\n  LIMIT = 3\nend\n",
+                1,
+                1,
+            ),
+            ("scoped constant", b"# Bar.\nFoo::BAR = 1\n", 1, 1),
+            (
+                "alias",
+                b"class C\n  def a; end\n  # Old name.\n  alias b a\nend\n",
+                1,
+                1,
+            ),
+            (
+                "alias_method",
+                b"class C\n  def a; end\n  # Old name.\n  alias_method :b, :a\nend\n",
+                1,
+                1,
+            ),
+            ("local variable is not a target", b"# c\nx = 1\n", 0, 1),
+            (
+                "instance variable is not a target",
+                b"class C\n  def a\n    # c\n    @x = 1\n  end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "alias in a method body",
+                b"class C\n  def a\n    # c\n    alias b a\n  end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "private def",
+                b"class C\n  # d\n  private def m; end\nend\n",
+                1,
+                1,
+            ),
+            ("=begin block", b"=begin\nd\n=end\ndef m; end\n", 3, 3),
+            ("blank-separated", b"# not doc\n\ndef m; end\n", 0, 1),
+            (
+                "bare private between",
+                b"class C\n  # c\n  private\n  def m; end\nend\n",
+                0,
+                1,
+            ),
+            // `foo.()` is a call with no `method` field, so it names
+            // nothing YARD documents.
+            ("call shorthand", b"class C\n  # c\n  foo.()\nend\n", 0, 1),
+            ("trailing", b"x = 1 # c\ndef m; end\n", 0, 1),
+            ("dangling", b"def m\n  # c\nend\n", 0, 1),
+            (
+                "shebang and magic rows above a class",
+                b"#!/usr/bin/env ruby\n# frozen_string_literal: true\n# d\nclass C; end\n",
+                1,
+                3,
+            ),
+            (
+                "a doc row that mentions an encoding",
+                b"class C\n  # Converts.\n  # Encoding: defaults to UTF-8.\n  def m; end\nend\n",
+                2,
+                2,
+            ),
+            (
+                "visibility call on a symbol",
+                b"class C\n  def a; end\n  # c\n  private :a\nend\n",
+                0,
+                1,
+            ),
+            (
+                "visibility call on another object",
+                b"class C\n  x = 1\n  # c\n  @cfg.private def m; end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "public_class_method def",
+                b"class C\n  x = 1\n  # d\n  public_class_method def self.build; end\nend\n",
+                1,
+                1,
+            ),
+            ("comment above a statement", b"# c\nputs 1\n", 0, 1),
+            // YARD's method handler is the one that runs in a method body
+            // too: a nested `def` is documented, while a constant, alias,
+            // attribute, visibility call, singleton class or conditional
+            // there is not read at all.
+            (
+                "def nested in a method body",
+                b"def bar\n  x = 1\n  # c\n  def helper; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "def first in a method body",
+                b"def bar\n  # c\n  def helper; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "def in a conditional in a method body",
+                b"def m\n  if true\n    x = 1\n    # c\n    def helper; end\n  end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "def in a singleton class opened in a method body",
+                b"class Foo\n  def setup\n    class << self\n      # c\n      def m; end\n    end\n  end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "def in a class-level conditional",
+                b"class C\n  if true\n    x = 1\n    # d\n    def m; end\n  end\nend\n",
+                1,
+                1,
+            ),
+            // YARD registers a class for `class << Const` only.
+            (
+                "singleton class of self",
+                b"class C\n  # c\n  class << self\n    def m; end\n  end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "singleton class of a constant",
+                b"# d\nclass << D\n  def m; end\nend\n",
+                1,
+                1,
+            ),
+            (
+                "visibility call on self",
+                b"class C\n  x = 1\n  # c\n  self.private def m; end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "constant guarded by a modifier",
+                b"module M\n  # Version.\n  VERSION = \"1.0\" unless defined?(VERSION)\nend\n",
+                1,
+                1,
+            ),
+            (
+                "def with a modifier",
+                b"class C\n  x = 1\n  # d\n  def m; end if true\nend\n",
+                1,
+                1,
+            ),
+            (
+                "global variable alias",
+                b"class C\n  x = 1\n  # c\n  alias $new $old\nend\n",
+                0,
+                1,
+            ),
+            ("class variable", b"class C\n  # Count.\n  @@count = 0\nend\n", 1, 1),
+        ];
+        assert_doc_rows(LANG::Ruby, cases);
+    }
+
+    /// `BodyStatement2` is tree-sitter-ruby's hidden `_body_statement`:
+    /// `ruby_documented_statement` (behind `is_doc_target`), `Npa` and
+    /// `Npm` keep a defensive arm for it, and
+    /// this pins that the grammar still never emits it, so the arms stay
+    /// defensive rather than silently live (grammar-dispatch rule 2).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_hidden_body_statement_alias_is_not_emitted() {
+        use crate::Ruby;
+        use crate::test_support::ast_has_kind_id;
+        let source = b"class C\n  # d\n  def m; end\nend\nmodule M\n  x = 1\nend\n";
+        let any = AnyParser::parse(LANG::Ruby, source.to_vec(), None, None)
+            .expect("the ruby feature parses");
+        let (visible, hidden) = with_any_parser!(&any, |p| (
+            ast_has_kind_id(p, Ruby::BodyStatement as u16),
+            ast_has_kind_id(p, Ruby::BodyStatement2 as u16)
+        ));
+        assert!(
+            visible,
+            "the fixture no longer produces `body_statement`; the negative claim below is then vacuous"
+        );
+        assert!(
+            !hidden,
+            "tree-sitter-ruby now emits the hidden `_body_statement`; its arms are live"
+        );
+    }
+
+    /// LDoc: a block opens on `---` (a dash-only row too) and runs over
+    /// the `--` rows below it until a blank row; `--- x ---` is an end
+    /// marker, not an opener, and a `--[[` long comment opens only when
+    /// its body starts with a dash — and always ends the block it is in.
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_ldoc_blocks_are_documentation() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            (
+                "opener then continuation",
+                b"--- Summary.\n-- Description.\n-- @param x\nlocal function f(x) end\n",
+                3,
+                3,
+            ),
+            (
+                "dash-only opener",
+                b"-----\n-- Module summary\nlocal x = 1\n",
+                2,
+                2,
+            ),
+            ("single opener row", b"--- d\nlocal x = 1\n", 1, 1),
+            ("long doc comment", b"--[[-- d ]]\nlocal x = 1\n", 1, 1),
+            (
+                "levelled long doc comment",
+                b"--[==[- d ]==]\nlocal x = 1\n",
+                1,
+                1,
+            ),
+            ("plain rows", b"-- a\n-- b\nlocal x = 1\n", 0, 2),
+            (
+                "end marker is not an opener",
+                b"--- x ---\nlocal x = 1\n",
+                0,
+                1,
+            ),
+            ("plain long comment", b"--[[ c ]]\nlocal x = 1\n", 0, 1),
+            (
+                "blank row ends the block",
+                b"--- d\n\n-- c\nlocal x = 1\n",
+                1,
+                2,
+            ),
+            ("trailing opener", b"local y = 1 --- d\n", 0, 1),
+            (
+                "opener after a plain row",
+                b"-- a\n--- b\nlocal x = 1\n",
+                0,
+                2,
+            ),
+            (
+                "a long comment ends the block above it",
+                b"--[[ License: MIT ]]\n--- Module doc.\n-- More.\nlocal M = {}\n",
+                2,
+                3,
+            ),
+            (
+                "a long doc comment stands alone",
+                b"--[[-- Summary. ]]\n-- not part of it\nlocal x = 1\n",
+                1,
+                2,
+            ),
+            (
+                "two comments on one row",
+                b"--- Doc for g.\n--[[ note ]] -- see\nfunction g() end\n",
+                2,
+                2,
+            ),
+        ];
+        assert_doc_rows(LANG::Lua, cases);
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_deep_documented_assignment_uses_a_bounded_stack() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let source = format!("--- Documentation.\n{}x = 1\n", "a.".repeat(8_000));
+                let loc = metrics_verbatim(LANG::Lua, source.as_bytes(), loc_only()).loc;
+                assert_eq!(
+                    (loc.sloc(), loc.ploc(), loc.cloc(), loc.dloc()),
+                    (2, 1, 1, 1)
+                );
+            })
+            .expect("spawn the bounded-stack metric walk")
+            .join()
+            .expect("the documented assignment must not exhaust the stack");
     }
 
     /// A doc-marker comment inside a function or closure body is a working
@@ -1111,6 +1616,439 @@ mod tests {
             ),
         ];
         assert_doc_rows(LANG::Python, cases);
+    }
+
+    /// LDoc documents what a module declares: a `---` block inside a
+    /// function body annotates the code there — LuaLS's `---@type` on a
+    /// local, an LDoc `@fixme` — and stays a comment, as PHP's in-body
+    /// `@var` does (#1597).
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_ldoc_blocks_inside_a_function_body_are_comments() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            ("module level", b"--- Doc.\nlocal function f() end\n", 1, 1),
+            (
+                "annotation in a body",
+                b"local function f()\n  ---@type integer\n  local x = 1\n  return x\nend\n",
+                0,
+                1,
+            ),
+            (
+                "block in a body",
+                b"function f()\n  --- Note,\n  -- more.\n  return 1\nend\n",
+                0,
+                2,
+            ),
+            (
+                "in an anonymous function",
+                b"local g = function()\n  --- Note.\n  return 1\nend\n",
+                0,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Lua, cases);
+    }
+
+    /// LDoc discards a `---` block with no text, keeps one that is the
+    /// first of a file opening with a comment (the module's
+    /// documentation, whatever follows it), that has a line opening with a
+    /// tag, or that an item follows — a `function`, an assignment to one
+    /// name, a named table field, or a `return` of a function or table —
+    /// and drops any other (`parse.lua`, `lang.lua`). Most sources open
+    /// with a module block, which counts one `dloc` and one `cloc` row of
+    /// its own (#1597).
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_ldoc_blocks_follow_ldocs_item_rule() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            (
+                "first block, code after a blank",
+                b"--- Module.\n\nprint(1)\n",
+                1,
+                1,
+            ),
+            // LDoc reads nothing from a file whose first token is code.
+            (
+                "first block after code",
+                b"local M = {}\n--- Module.\nprint(1)\n",
+                0,
+                1,
+            ),
+            (
+                "divider before the module block",
+                b"-----\n\n--- Utilities.\n-- More.\n\nlocal M = {}\n",
+                2,
+                3,
+            ),
+            // A `---` row continuing a plain `--` block opens no block, so
+            // the module block below it is still the first.
+            (
+                "--- continuing a plain block",
+                b"-- Copyright.\n--- Licensed MIT.\n\n--- Module.\n\nlocal M = {}\n",
+                1,
+                3,
+            ),
+            // The first block sits directly under code, and still opens
+            // its run, so the later tagless one is not the first.
+            (
+                "first block directly under code",
+                b"-- Header.\nlocal M = {}\n--- First.\nprint(1)\n--- Second.\nprint(2)\n",
+                1,
+                3,
+            ),
+            // LDoc lexes a line comment with its newline and groups every
+            // consecutive comment token, so a `---` block directly under a
+            // row ending in a trailing `-- note` belongs to that `--`
+            // group: no block, however an item follows it (real LDoc
+            // 1.4.6 documents nothing here). The later block is then the
+            // file's first, and LDoc takes it as the module's.
+            (
+                "block under a trailing comment",
+                b"-- Header.\nlocal M = {} -- module table\n--- Helper.\nlocal function helper() end\n",
+                0,
+                3,
+            ),
+            (
+                "first block after a swallowed one",
+                b"-- Header.\nlocal M = {} -- module table\n--- Helper.\nlocal function helper() end\n\n--- Later note.\n\nprint(2)\n",
+                1,
+                4,
+            ),
+            // LDoc skips a `#!` line to the first comment, so the file
+            // still opens with its module block.
+            (
+                "module block after a shebang",
+                b"#!/usr/bin/env lua\n--- Tool that greets.\n-- Run it from a shell.\n\nlocal x = 1\n",
+                2,
+                2,
+            ),
+            // The grammar parks a comment above the first statement of an
+            // `if` body outside the `block`, which stands for it, so the
+            // first item of the body counts as a later one does.
+            (
+                "first item in a chunk-level if body",
+                b"local M = {}\nif true then\n  --- Doc for f.\n  function M.f() end\n  --- Doc for g.\n  function M.g() end\nend\nreturn M\n",
+                2,
+                2,
+            ),
+            (
+                "in a nested block",
+                b"if x then\n  --- Note.\n  print(1)\nend\n",
+                0,
+                1,
+            ),
+            (
+                "divider above a function",
+                b"--- M.\nlocal M = {}\n-----\nfunction f() end\n",
+                1,
+                2,
+            ),
+            (
+                "address is no tag",
+                b"--- M.\nlocal M = {}\n--- Ask dev@example.com first.\nprint(1)\n",
+                1,
+                2,
+            ),
+            (
+                "LuaLS tag",
+                b"--- M.\nlocal M = {}\n---@class Foo\nprint(1)\n",
+                2,
+                2,
+            ),
+            (
+                "tag after the run",
+                b"--- M.\nlocal M = {}\n--- Note.\nprint(1)\n-- @todo later\n",
+                1,
+                3,
+            ),
+            (
+                "above a dotted name",
+                b"--- M.\nlocal M = {}\n--- B.\nM.a.b = 1\n",
+                2,
+                2,
+            ),
+            (
+                "above two names",
+                b"--- M.\nlocal M = {}\n--- AB.\nlocal a, b = 1, 2\n",
+                1,
+                2,
+            ),
+            (
+                "above an attributed local",
+                b"--- M.\nlocal M = {}\n--- X.\nlocal x <const> = 1\n",
+                1,
+                2,
+            ),
+            (
+                "above a bracket index",
+                b"--- M.\nlocal M = {}\n--- I.\nM[1] = 2\n",
+                1,
+                2,
+            ),
+            // The class-as-table idiom: a named field is an item, a keyed
+            // or positional one is not.
+            (
+                "table fields",
+                b"--- M.\nlocal M = {}\nM.C = {\n  --- New.\n  new = function(self) end,\n  --- Size.\n  size = 1,\n  --- Keyed.\n  [1] = 2,\n  --- Positional.\n  x,\n}\n",
+                3,
+                5,
+            ),
+            (
+                "tagless above a call",
+                b"--- M.\nlocal M = {}\n--- Note.\nprint(1)\n",
+                1,
+                2,
+            ),
+            (
+                "tag above a call",
+                b"--- M.\nlocal M = {}\n--- Note.\n-- @param x\nprint(1)\n",
+                3,
+                3,
+            ),
+            (
+                "above a function",
+                b"--- M.\nlocal M = {}\n--- F.\nfunction f() end\n",
+                2,
+                2,
+            ),
+            (
+                "above a local function",
+                b"--- M.\nlocal M = {}\n--- F.\nlocal function f() end\n",
+                2,
+                2,
+            ),
+            (
+                "above a local assignment",
+                b"--- M.\nlocal M = {}\n--- X.\nlocal x = 1\n",
+                2,
+                2,
+            ),
+            (
+                "above a bare local",
+                b"--- M.\nlocal M = {}\n--- X.\nlocal x\n",
+                1,
+                2,
+            ),
+            (
+                "above a field assignment",
+                b"--- M.\nlocal M = {}\n--- Y.\nM.y = 2\n",
+                2,
+                2,
+            ),
+            (
+                "above return of a table",
+                b"--- M.\nlocal M = {}\n--- R.\nreturn {}\n",
+                2,
+                2,
+            ),
+            (
+                "above return of a function",
+                b"--- M.\nlocal M = {}\n--- R.\nreturn function() end\n",
+                2,
+                2,
+            ),
+            (
+                "above return of a number",
+                b"--- M.\nlocal M = {}\n--- R.\nreturn 1\n",
+                1,
+                2,
+            ),
+            (
+                "blank row before the item",
+                b"--- M.\nlocal M = {}\n--- F.\n\nfunction f() end\n",
+                1,
+                2,
+            ),
+        ];
+        assert_doc_rows(LANG::Lua, cases);
+    }
+
+    /// RDoc's `##` and YARD's `@!` directives document a method that has
+    /// no `def` to sit above, so the block counts whatever follows it — in
+    /// a namespace body, never in a method's (#1597).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_rdoc_and_yard_directive_blocks_are_documentation() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            ("RDoc ## above define_method", b"class C\n  ##\n  # :method: ghost\n  # Does ghost things.\n  define_method(:ghost) {}\nend\n", 3, 3),
+            ("YARD @!method above a DSL call", b"class C\n  # @!method foo(a)\n  #   Does foo.\n  dsl :foo\nend\n", 2, 2),
+            ("YARD @!attribute", b"class C\n  # @!attribute [r] name\n  property :name\nend\n", 1, 1),
+            ("free-standing @!parse at the top level", b"# @!parse\n#   class Foo; end\nx = 1\n", 2, 2),
+            ("## inside a method body", b"class C\n  def m\n    ##\n    # note\n    run\n  end\nend\n", 0, 2),
+            ("plain block above a call", b"class C\n  # just a note\n  dsl :foo\nend\n", 0, 1),
+        ];
+        assert_doc_rows(LANG::Ruby, cases);
+    }
+
+    /// The grammar parks a comment that precedes the first statement of an
+    /// `if`, `elsif` or `unless` body ahead of the `then` wrapper, which
+    /// starts on the comment's own row; the wrapper stands for that
+    /// statement, so its doc comment counts as YARD reads it (#1597).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_doc_comment_above_a_conditionals_first_statement_counts() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            ("if", b"if a\n  # Doc.\n  MAX = 1\nend\n", 1, 1),
+            (
+                "elsif",
+                b"if a\n  x = 1\nelsif b\n  # Doc.\n  E = 1\nend\n",
+                1,
+                1,
+            ),
+            ("unless", b"unless c\n  # Doc.\n  U = 1\nend\n", 1, 1),
+            (
+                "a plain statement is no target",
+                b"if a\n  # c\n  puts 1\nend\n",
+                0,
+                1,
+            ),
+            (
+                "in a method body",
+                b"def m\n  if a\n    # c\n    MAX = 1\n  end\nend\n",
+                0,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Ruby, cases);
+    }
+
+    /// YARD's processor descends only into the namespace bodies, the
+    /// branches of an `if` / `unless` / `elsif` there and method bodies; no
+    /// handler claims a `case`, a `begin` or a loop, so nothing in their
+    /// bodies — nor a module opened in one — is documented. Each of these
+    /// was dloc 1 while the scope fold passed every unlisted kind through
+    /// (#1597); YARD 0.9.45 registers none of them.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_case_begin_and_loop_bodies_are_not_read_by_yard() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            ("when", b"case d\nwhen 1\n  # Doc.\n  W = 1\nend\n", 0, 1),
+            (
+                "case else",
+                b"case d\nwhen 1\n  x = 1\nelse\n  # Doc.\n  W = 1\nend\n",
+                0,
+                1,
+            ),
+            ("case in", b"case d\nin 1\n  # Doc.\n  W = 1\nend\n", 0, 1),
+            (
+                "begin",
+                b"begin\n  # Doc.\n  B = 1\nrescue\n  nil\nend\n",
+                0,
+                1,
+            ),
+            (
+                "rescue",
+                b"begin\n  x = 1\nrescue\n  # Doc.\n  R = 1\nend\n",
+                0,
+                1,
+            ),
+            (
+                "ensure",
+                b"begin\n  x = 1\nensure\n  # Doc.\n  E = 1\nend\n",
+                0,
+                1,
+            ),
+            (
+                "a loop's second statement",
+                b"while a\n  x = 1\n  # Doc.\n  L = 1\nend\n",
+                0,
+                1,
+            ),
+            (
+                "a module opened in a rescue",
+                b"begin\n  require 'json'\nrescue LoadError\n  # Fallback.\n  module JSONShim; end\nend\n",
+                0,
+                1,
+            ),
+            (
+                "a def in a method's case",
+                b"def m\n  case x\n  when 1\n    # Doc.\n    def helper; end\n  end\nend\n",
+                0,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Ruby, cases);
+    }
+
+    /// A brace block parks the comment above its first statement outside
+    /// the `block_body` wrapper, as a class body does outside its
+    /// `body_statement`; the wrapper stands for that statement, so the
+    /// first statement of `included { … }` counts as `included do … end`'s
+    /// does (#1597).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_doc_comment_above_a_brace_blocks_first_statement_counts() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            (
+                "first statement",
+                b"included {\n  # Doc.\n  def x; end\n}\n",
+                1,
+                1,
+            ),
+            (
+                "second statement",
+                b"included {\n  def x; end\n  # Doc.\n  def y; end\n}\n",
+                1,
+                1,
+            ),
+            (
+                "do block, first statement",
+                b"included do\n  # Doc.\n  def x; end\nend\n",
+                1,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Ruby, cases);
+    }
+
+    /// The `then` wrapper of a conditional body and the `do` wrapper of a
+    /// loop body without the keyword start where a comment parked ahead of
+    /// the body's first statement ends. Crediting that start row to PLOC
+    /// made the comment row code, so a YARD doc row there stayed in MI's
+    /// size term and a working comment's row read as code (#1597).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_body_wrappers_leave_a_parked_comment_row_out_of_ploc() {
+        // (source, ploc, dloc): four rows each, one of them the comment.
+        for (source, ploc, dloc) in [
+            (&b"if a\n  # Doc.\n  MAX = 1\nend\n"[..], 3, 1),
+            (b"if a\n  # note\n  puts 1\nend\n", 3, 0),
+            (b"while a\n  # note\n  x = 1\nend\n", 3, 0),
+        ] {
+            let loc = metrics_verbatim(LANG::Ruby, source, loc_only()).loc;
+            assert_eq!(
+                (loc.sloc(), loc.ploc(), loc.cloc(), loc.dloc()),
+                (4, ploc, 1, dloc),
+                "{}",
+                String::from_utf8_lossy(source)
+            );
+        }
+    }
+
+    /// A doc comment above a chain of statement modifiers is decided by
+    /// unwrapping the chain in a loop: a recursive descent overflowed the
+    /// walker's stack and aborted the process on valid Ruby (`ruby -c`
+    /// accepts tens of thousands of chained modifiers). Run on a small
+    /// stack, as the Lua dotted-target test is (#1597).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_long_modifier_chain_uses_a_bounded_stack() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let source = format!("# Documentation.\nX = 1{}\n", " if a".repeat(8_000));
+                let loc = metrics_verbatim(LANG::Ruby, source.as_bytes(), loc_only()).loc;
+                assert_eq!((loc.sloc(), loc.cloc(), loc.dloc()), (2, 1, 1));
+            })
+            .expect("spawn the bounded-stack metric walk")
+            .join()
+            .expect("the documented modifier chain must not exhaust the stack");
     }
 
     /// An attribute docstring's target test walks the assignment target

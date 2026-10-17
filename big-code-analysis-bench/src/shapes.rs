@@ -378,6 +378,12 @@ pub fn wide_cfg_test_mods(width: usize) -> String {
     "fn p() {}\n#[cfg(test)]\nmod m {}\n".repeat(width)
 }
 
+/// Go: one lead comment run of `width` rows above a single `func`.
+#[must_use]
+pub fn go_comment_run(width: usize) -> String {
+    format!("package p\n\n{}func f() {{}}\n", "// d\n".repeat(width))
+}
+
 /// Rust: one opening inner-documentation run in a function body.
 #[must_use]
 pub fn rust_inner_doc_run(width: usize) -> String {
@@ -398,6 +404,38 @@ pub fn rust_nested_doc_mods(depth: usize) -> String {
         "{}{}",
         "/// d\nmod m {\n".repeat(depth),
         "}\n".repeat(depth)
+    )
+}
+
+/// Go: `depth` nested anonymous struct types, each field doc-commented.
+#[must_use]
+pub fn go_nested_doc_fields(depth: usize) -> String {
+    format!(
+        "package p\n\ntype T {}int{}\n",
+        "struct {\n\t// F doc\n\tF ".repeat(depth),
+        "\n}".repeat(depth)
+    )
+}
+
+/// Ruby: `depth` nested `if`s, each holding a documented constant after
+/// a first statement, so the comment sits inside the `then` body.
+#[must_use]
+pub fn ruby_nested_doc_constants(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "if true\nx = 0\n# Doc.\nMAX = 1\n".repeat(depth),
+        "end\n".repeat(depth)
+    )
+}
+
+/// Lua: a module block, then `width` units of a tagless `---` block
+/// directly under a call — no item follows it, so the first-block test
+/// scans back — and a documented function, whose block is the reading.
+#[must_use]
+pub fn lua_tagless_blocks(width: usize) -> String {
+    format!(
+        "--- M.\n\nlocal M = {{}}\n{}",
+        "print(0)\n--- Note.\n\nprint(1)\n--- F.\nfunction f() end\n".repeat(width)
     )
 }
 
@@ -1598,6 +1636,27 @@ pub const PROBES: &[Probe] = &[
                     prices that.",
     },
     Probe {
+        name: "loc/go-comment-run",
+        lang: LANG::Go,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: go_comment_run,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: a Go lead comment run is documentation by \
+                    position, decided once at the run's last member, which \
+                    walks back over the run — `O(k)` per run of `k` rows. \
+                    Deciding at every member instead (a forward walk per \
+                    comment) is `O(k²)`, and a run is exactly the shape \
+                    where that shows: this renders one run of `width` rows. \
+                    The reading is the run's own row count, which the fix \
+                    does not touch, so the probe keeps measuring after it.",
+    },
+    Probe {
         name: "loc/rust-nested-doc-mods",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -1649,6 +1708,60 @@ pub const PROBES: &[Probe] = &[
         rationale: "Additional docstrings inherit the first string's position. \
                     Decide the run once, rather than scanning back to its \
                     assignment at every string. Every string is a doc row.",
+    },
+    Probe {
+        name: "loc/go-nested-doc-fields",
+        lang: LANG::Go,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: go_nested_doc_fields,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: a Go field's lead comment documents only outside \
+                    a function body, and finding the nearest statement list \
+                    climbed every ancestor per field. Nested struct types put \
+                    one candidate at every level; the fold prices it.",
+    },
+    Probe {
+        name: "loc/ruby-nested-doc-constants",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: ruby_nested_doc_constants,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: YARD's scope rule climbs to the nearest namespace \
+                    or method, through every enclosing conditional, for each \
+                    documented statement. Nested `if`s holding a constant put \
+                    one candidate at every level; the fold prices it.",
+    },
+    Probe {
+        name: "loc/lua-tagless-blocks",
+        lang: LANG::Lua,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: lua_tagless_blocks,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1597: a tagless LDoc block with no item is documentation \
+                    only as the file's first, which it learns by scanning \
+                    back to the previous qualifying block. Each block here \
+                    sits directly under a call; a scan that took such a \
+                    block for a run continuation ran on to the top of the \
+                    file, once per block. The reading is the documented \
+                    functions' rows, which the scan does not decide.",
     },
     Probe {
         name: "nom/nested-cfg-predicate",

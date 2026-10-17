@@ -66,7 +66,7 @@ documentation — a doc comment such as the `/// Factorial` line above,
 a Python docstring, a Perl POD block. Those rows are always counted in
 CLOC too, so DLOC never exceeds it. Which comments are documentation
 is each language's own tool's rule (Doxygen, Javadoc, KDoc, JSDoc,
-PHPDoc, C# XML docs), and the Maintainability
+PHPDoc, C# XML docs, LDoc, go/doc, YARD), and the Maintainability
 Index sizes a space on SLOC less the DLOC rows that carry no code. An
 Elixir `@doc` heredoc is an assignment that counts as code.
 

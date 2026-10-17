@@ -47,6 +47,7 @@ impl Loc for LuaCode {
 
             Lua::Comment => {
                 add_comment_lines::<Self>(node, code, ancestors, stats);
+                add_leading_doc_run::<Self>(node, code, ancestors, stats);
             }
 
             // Standalone assignment (`x = 1`). Skip when nested inside a local variable

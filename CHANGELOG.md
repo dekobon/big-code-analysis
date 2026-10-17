@@ -56,7 +56,8 @@ for historical reference.
   JavaScript included) and Perl POD, a doc-marker comment inside a function, closure,
   initializer or accessor body is an ordinary comment, as rustc,
   Roslyn, javadoc and Dokka treat it
-  (`Checker::DOC_COMMENTS_IN_FUNCTION_BODIES`).
+  (`Checker::DOC_COMMENTS_IN_FUNCTION_BODIES`), and so is a Lua LDoc
+  block, whose in-body form annotates code rather than documenting it.
   C, C++ and Objective-C keep in-body doc blocks, which
   Doxygen publishes as the function's in-body description
   (`HIDE_IN_BODY_DOCS` defaults to NO). A Rust inner doc comment opening a
@@ -69,7 +70,28 @@ for historical reference.
   The LOC walk now reads
   the source for that, and a language's `Checker` answers
   `is_doc_comment` in one place. It is always a subset of `cloc`
-  (`dloc ≤ cloc ≤ sloc`).
+  (`dloc ≤ cloc ≤ sloc`). Go, Ruby and Lua have no marker to read, so
+  there a comment is documentation by position, decided once per run
+  of consecutive comment rows: go/doc's lead comment (the run directly
+  above the package clause, a top-level declaration or one of its
+  grouped specs, a struct field or an interface method, with `//go:`
+  directive rows left uncounted), YARD's comment block directly above
+  a `def`, `class`, `module`, `class << Const`, constant or
+  class-variable assignment, `alias` / `alias_method`, `attr`/`attr_*`
+  or `private def`, alone or under an `if` / `unless` modifier — in a
+  method body only a nested `def`, and nothing in a `case`, `begin` or
+  loop body, as YARD reads it (shebang and magic-comment rows dropped;
+  no blank-row tolerance; unlike YARD, a statement in a call's block
+  such as `included do` or `included { }` counts too), RDoc `##` (exactly
+  two `#`, so a `####` banner is no opener) and YARD `@!` directive
+  blocks, which document a metaprogrammed method with no `def` below
+  them, and an LDoc block opened by `---` and continued over the `--`
+  rows below it, when it holds text and is the first block of a file
+  opening with a comment or a shebang, has a line opening with a tag,
+  or sits above a function, an assignment to one name, a named table
+  field or a `return` of a function or table — and is not swallowed, as
+  LDoc's lexer swallows a `---` row directly under a trailing `-- note`,
+  into that note's group.
   An Elixir `@doc` heredoc stays code (#1260), and Bash, Tcl and
   iRules have no documentation syntax. SemVer-additive, with
   `#[serde(default)]` so older documents still parse;
@@ -89,8 +111,8 @@ for historical reference.
   older side's absent field differs from the newer side's value. The
   library accessors are `loc::Stats::dloc()` and its three
   siblings. No existing `loc` value moves except for the three Python
-  shapes under Fixed below; the `mi.*` drift is its own entry under
-  Changed.
+  shapes and the Ruby `ploc` rows under Fixed below; the `mi.*` drift
+  is its own entry under Changed.
 
 - **Thirteen Perl, Bash, Kotlin and Elixir scaling probes in the
   complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
@@ -170,6 +192,14 @@ for historical reference.
 
 ### Fixed
 
+- Ruby `ploc` no longer counts a comment row that opens a body: the
+  grammar starts the `then` wrapper of an `if` / `elsif` / `unless` /
+  `when` / `in` / `rescue` body, and the `do` wrapper of a loop written
+  without `do`, where a comment parked ahead of the body's first
+  statement ends, and the LOC walk credited that row as code. `ploc`
+  falls and `blank` is unchanged for every such comment; a YARD doc
+  comment there also leaves MI's size term now, as `dloc` promises
+  (#1597).
 - Three Python bare-string shapes in `loc` (#1597). An implicitly
   concatenated bare string statement (`"""doc""" "more"`) now counts as
   comment rows — and as documentation (`dloc`) in a docstring position —

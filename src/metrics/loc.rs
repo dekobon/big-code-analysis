@@ -1075,7 +1075,7 @@ impl Stats {
             self.sloc()
         );
         // Every documentation row is a cloc row (#1597) — `add_comment_rows`
-        // bills both, the Python runs re-bill billed comment rows —
+        // bills both, `add_leading_doc_run` re-bills billed comment rows —
         // and MI's subtractions rely on it. Compared as sets, not counts: a
         // stray row would grow the union while leaving `dloc() <= cloc()`.
         #[cfg(debug_assertions)]
@@ -4671,13 +4671,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 1,
-                  "dloc": 0,
+                  "dloc": 1,
                   "sloc_average": 4.5,
                   "ploc_average": 3.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
-                  "dloc_average": 0.0,
+                  "dloc_average": 0.5,
                   "sloc_min": 6,
                   "sloc_max": 9,
                   "cloc_min": 1,
@@ -4689,7 +4689,7 @@ line two
                   "blank_min": 0,
                   "blank_max": 1,
                   "dloc_min": 0,
-                  "dloc_max": 0
+                  "dloc_max": 1
                 }
                 "#
                 );
@@ -4795,13 +4795,13 @@ line two
                   "lloc": 1,
                   "cloc": 3,
                   "blank": 1,
-                  "dloc": 0,
+                  "dloc": 2,
                   "sloc_average": 4.0,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
-                  "dloc_average": 0.0,
+                  "dloc_average": 1.0,
                   "sloc_min": 4,
                   "sloc_max": 8,
                   "cloc_min": 1,
@@ -4813,7 +4813,7 @@ line two
                   "blank_min": 0,
                   "blank_max": 1,
                   "dloc_min": 0,
-                  "dloc_max": 0
+                  "dloc_max": 2
                 }
                 "#
                 );
@@ -4845,13 +4845,13 @@ line two
                   "lloc": 1,
                   "cloc": 3,
                   "blank": 1,
-                  "dloc": 0,
+                  "dloc": 2,
                   "sloc_average": 3.5,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
-                  "dloc_average": 0.0,
+                  "dloc_average": 1.0,
                   "sloc_min": 3,
                   "sloc_max": 7,
                   "cloc_min": 1,
@@ -4863,7 +4863,7 @@ line two
                   "blank_min": 0,
                   "blank_max": 1,
                   "dloc_min": 0,
-                  "dloc_max": 0
+                  "dloc_max": 2
                 }
                 "#
                 );
@@ -14094,16 +14094,24 @@ class A {
                     assert_eq!(loc.cloc(), 1, "{lang:?} cloc for {text:?}");
                     assert_eq!(loc.blank(), 0, "{lang:?} blank for {text:?}");
                     // A comment row is a documentation row exactly when its
-                    // spelling is a doc marker to the language's tool
-                    // (#1597). `doc_comment_spellings` says which of the
-                    // spellings above are markers, and this sweep pins both
-                    // answers for every grammar at once; `dloc.rs` has the
-                    // per-tool pitfalls.
-                    let expected = u64::from(doc_comment_spellings(*lang).contains(&comment));
+                    // spelling is a doc marker to the language's tool, or —
+                    // in Go and Ruby — when it sits directly above a doc
+                    // target (#1597). `doc_comment_spellings` says which of
+                    // the spellings above are markers, and this sweep pins
+                    // both answers for every grammar at once; `dloc.rs` has
+                    // the per-tool pitfalls. Go's `package main` and Ruby's
+                    // `def f; end` are doc targets, so a comment directly
+                    // above either is a lead comment and documentation by
+                    // position; after the code it is a dangling comment and
+                    // is not.
+                    let positional =
+                        comment_first && matches!(lang, crate::LANG::Go | crate::LANG::Ruby);
+                    let expected =
+                        u64::from(doc_comment_spellings(*lang).contains(&comment) || positional);
                     assert_eq!(
                         loc.dloc(),
                         expected,
-                        "{lang:?} dloc for {text:?} — a doc marker"
+                        "{lang:?} dloc for {text:?} — a doc marker, or a Go / Ruby lead comment"
                     );
                 }
             }

@@ -39,4 +39,4 @@ pub use tcl_family::strip_global_qualifier;
 
 /// Re-exported because the LOC metric bills Go, Ruby and Lua documentation
 /// runs through it, while the predicates beside it stay crate-private.
-pub use doc_comment::documents_where_it_sits;
+pub use doc_comment::{documents_where_it_sits, leading_doc_run};

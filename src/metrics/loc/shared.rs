@@ -53,7 +53,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::documents_where_it_sits;
+use crate::lang_helpers::{documents_where_it_sits, leading_doc_run};
 
 #[inline]
 pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> usize {
@@ -137,14 +137,33 @@ fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
 // when they are documentation, the same rows in the `dloc` set that
 // `loc.dloc` reports, so `dloc() <= cloc()` holds by construction
 // (#1597). The callers are `add_comment_lines` below, Rust's
-// line-comment arm and Python's bare-string arms. The `dloc` set's other
-// writers, Python's documentation-string and Sphinx-comment runs, only
-// re-bill rows already billed here.
+// line-comment arm and Python's bare-string arms. The `dloc` set's two
+// other writers, `add_leading_doc_run` and Python's documentation-string
+// and Sphinx-comment runs, only re-bill rows already billed here.
 pub(crate) fn add_comment_rows(stats: &mut Stats, start: usize, end: usize, documentation: bool) {
     add_cloc_lines(stats, start, end);
     if documentation {
         stats.dloc.lines.insert_range(start, end);
     }
+}
+
+#[inline]
+// Documentation by position rather than by marker (Go, Ruby, Lua): bills
+// the comment run `node` ends as `dloc` when it sits directly above a
+// declaration the language documents, or its first member is a language's
+// run opener (LDoc `---`, RDoc `##`, YARD `@!`). Called
+// from the comment arm after `add_comment_lines`, so every row it credits
+// is one a run member's own arm already billed to this space's cloc sets,
+// and `dloc() <= cloc()` still holds (#1597).
+pub(crate) fn add_leading_doc_run<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    leading_doc_run::<T>(node, code, ancestors, |first, last| {
+        stats.dloc.lines.insert_range(first, last);
+    });
 }
 
 #[inline]

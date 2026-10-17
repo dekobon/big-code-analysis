@@ -37,6 +37,7 @@ impl Loc for GoCode {
             }
             G::Comment => {
                 add_comment_lines::<Self>(node, code, ancestors, stats);
+                add_leading_doc_run::<Self>(node, code, ancestors, stats);
             }
             G::FallthroughStatement
             | G::BreakStatement

@@ -1106,6 +1106,70 @@ decision, not one rule for all:
   those attribute assignments or aliases, or a `#:` after the code on its line
   (`MAX = 10  #: in bytes`). A plain `#` line breaks a `#:` block.
 
+Go, Ruby and Lua have no marker to read, so a comment is
+documentation by where it sits, decided once per *run* — the chain of
+comment siblings on consecutive rows that hold nothing but comments (a
+trailing `x := 1 // t` never joins one, and a blank row ends one):
+
+- Go: a run directly above a declaration is
+  [go/doc](https://pkg.go.dev/go/doc)'s lead comment —
+  the package clause, a `func` or method, a top-level `type` / `var` /
+  `const` declaration or one of its grouped specs, a struct field, an
+  interface method; never an import, and never a declaration inside a
+  function body, which go/doc does not read. A directive row such as
+  `//go:generate` belongs to the group but is not documentation, and
+  is not counted.
+- Ruby: a run directly above a `def`, `def self.`, `class`, `module`,
+  `class << Const`, a constant or class-variable assignment
+  (`MAX = 10`, `Foo::BAR = 1`, `@@count = 0`), a method alias
+  (`alias new old`, `alias_method :new, :old`), an `attr` or `attr_*`
+  call or a visibility-wrapped `def` (`private def m`), alone or under
+  an `if` / `unless` modifier, as [YARD](https://yardoc.org/) attaches
+  it, including the first statement of a class body or of an `if`,
+  `elsif` or `unless` body. In a method body
+  YARD reads only a nested `def`, and nothing in a singleton class or
+  conditional opened there; no YARD handler claims a `case`, a `begin`
+  or a loop, so nothing in their bodies counts anywhere. A shebang, an encoding line or a
+  `frozen_string_literal` magic comment is dropped from the run, as
+  YARD drops it. Unlike YARD, one blank row between the run and the
+  `def` is a gap, not a tolerance; a trailing comment on the
+  statement's own row (`MAX = 3 # The maximum.`) documents nothing;
+  and a statement in a call's block (`included do`, an RSpec
+  `describe` block, in either `do … end` or `{ }` form), which YARD
+  never reads, still counts. A block that opens with RDoc's `##` —
+  exactly two `#`, so a `####` banner or a `##### Helpers #####`
+  divider opens nothing — or a YARD `@!` directive (`# @!method`,
+  `# @!attribute`, `# @!parse`) documents a method with no `def` to sit
+  above — `define_method`, a DSL call — so it counts whatever follows
+  it, in a namespace body but never in a method's.
+- Lua: a run that opens with an [LDoc](https://lunarmodules.github.io/ldoc/)
+  `---` row (a row of dashes alone
+  opens too; `--- x ---` is LDoc's end marker and does not) and
+  continues over the `--` rows below it, or a `--[[-` long comment. A
+  long comment ends a run, as LDoc's lexer ends a block there. A block
+  with no text (a row of dashes alone) is a comment, as LDoc discards
+  it. A `---` row directly under a line that ends in a trailing
+  `-- note` is no block at all: LDoc's lexer keeps a line comment's
+  newline and gathers consecutive comments into one group, whose first
+  token — the trailing note — decides it. Otherwise a block counts when
+  it is the first block of a file that opens with a comment or a
+  shebang, which LDoc skips (the module's documentation), when one of its
+  lines opens with an `@` tag (`-- @param x`, LuaLS's `---@class`),
+  or when an item follows it on the next row (the first statement of an
+  `if`, `do` or loop body included): a `function`, an
+  assignment to one name or dotted name (`local x = 1`, `M.a.b = 1`;
+  not a bare `local x`, `local a, b = …`, `local x <const> = …` or
+  `M[1] = …`), a named table field (`new = function … end`), or a
+  `return` of a function or a table. Any other block is a comment, as
+  LDoc drops it with a "definition cannot be parsed" warning. Three
+  deviations from LDoc: a tagged block counts even with no item or
+  name to attach to; a blank row between a block and its item is a
+  gap; and a file that opens with code still has its blocks read,
+  where LDoc reads none of them without a `module()` call. A block
+  inside a function body is a comment: LDoc documents what a module
+  declares, and an in-body `---` annotates the code there instead
+  (LuaLS's `---@type` on a local), as PHP's in-body `@var` does.
+
 Nothing else counts: an Elixir `@doc` heredoc is an assignment the
 compiler stores and is code, and Bash, Tcl and iRules have no
 documentation syntax.

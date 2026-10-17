@@ -3,10 +3,10 @@
 //!
 //! Rust (a `doc_comment` child), Groovy (`groovydoc_comment`) and
 //! Perl (`pod_statement`) mark documentation structurally. Every other
-//! grammar parses `/** … */` or `///` to the same `comment` node
+//! grammar parses `/** … */`, `///` or `---` to the same `comment` node
 //! as a plain comment, so the opening marker is the only evidence, and
 //! each language's own tool decides which markers count: Doxygen, javac,
-//! Kotlin's lexer, JSDoc, PHP's scanner and Roslyn disagree at the
+//! Kotlin's lexer, JSDoc, PHP's scanner, Roslyn and LDoc disagree at the
 //! edges (`/***`, `////`, `/**/`), and the predicates below follow each
 //! tool rather than one rule for all. The slice they inspect is the
 //! comment node's own span, which never reaches `to_string_lossy`
@@ -133,13 +133,25 @@ pub(crate) fn csharp_doc(s: &[u8]) -> bool {
     triple_slash(s) || javadoc_block(s)
 }
 
+// ---------------------------------------------------------------------
+// Documentation by position: Go, Ruby and Lua have no doc marker the
+// grammar or a tool reads per comment. go/doc's lead comment is "a
+// comment group that starts and ends in a line without any other
+// tokens and that is followed by a non-comment token on the line
+// immediately after" (go/parser); YARD attaches the comment lines
+// directly above a `def`, `class` or `module`; LDoc opens a block on
+// `---` and continues it over the `--` rows that follow until a blank
+// line. All three are properties of a *run* of comment siblings, not of
+// one node, so they are decided once per run, at its last member.
+// ---------------------------------------------------------------------
+
 /// The place half of the documentation test, for a comment already
 /// spelled or placed as documentation: it documents unless an ancestor
 /// holds it in a function or closure body
 /// ([`Checker::holds_doc_comment_in_body`]) and the language's tool
 /// ignores in-body doc comments
 /// ([`Checker::DOC_COMMENTS_IN_FUNCTION_BODIES`]). Shared by the marker
-/// languages' comment arms (#1597).
+/// languages' comment arms and by Lua's LDoc opener (#1597).
 #[must_use]
 pub fn documents_where_it_sits<'a, T: Checker>(
     node: &Node<'a>,
@@ -169,6 +181,220 @@ pub fn documents_where_it_sits<'a, T: Checker>(
             u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below, None, code))
         },
     ) == 0
+}
+
+/// Credits the rows of the comment run that `comment` ends, when the
+/// run is documentation: it sits directly above a node the language's
+/// [`Checker::is_doc_target`] accepts, or its first member opens a
+/// block per [`Checker::is_doc_run_opener`]. Called from a language's
+/// LOC comment arm for every comment; only the run's last member does
+/// any work beyond one sibling step, so a run of `k` rows costs `O(k)`
+/// sibling steps in total (#1597).
+///
+/// A run is the maximal chain of comment siblings on consecutive rows
+/// that hold nothing but comments; a trailing comment (`x := 1 // t`)
+/// is never a member and never seeds one, which the previous-sibling
+/// test decides — the `ploc` row set cannot, because code that opened a
+/// child space (`func A() {} // t`) lives in the child's stats. A blank
+/// row ends the run, as does anything that is not a comment; a comment
+/// the language says closes one ([`Checker::ends_doc_run`]) is its last
+/// member. The decision needs the row after the run, so it is made at
+/// the last member, which then walks back to credit the whole run through
+/// `credit(first_row, last_row)` per member, skipping the members
+/// [`Checker::is_doc_run_directive`] names (`//go:generate`, a Ruby
+/// shebang) — part of the group, not of the documentation.
+pub fn leading_doc_run<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    mut credit: impl FnMut(usize, usize),
+) {
+    let next = ancestors.siblings_after(comment).next();
+    if next
+        .as_ref()
+        .is_some_and(|n| run_continues_to::<T>(comment, n, code))
+    {
+        // A later member decides.
+        return;
+    }
+    let Some(first) = run_first_member::<T>(comment, code, ancestors) else {
+        return;
+    };
+    // `next` is `comment`'s sibling, so `ancestors` is its chain too.
+    let below = next.filter(|n| T::doc_target_start_row(n) == comment.end_row().saturating_add(1));
+    let documents = below.is_some_and(|n| T::is_doc_target(&n, code, ancestors))
+        || T::is_doc_run_opener(&first, below.as_ref(), code, ancestors);
+    if !documents {
+        return;
+    }
+    for member in std::iter::once(first).chain(ancestors.siblings_after(&first)) {
+        if member.start_byte() > comment.start_byte() {
+            break;
+        }
+        if !T::is_doc_run_directive(&member, code) {
+            credit(member.start_row(), member.end_row());
+        }
+    }
+}
+
+/// Whether `next`, the sibling after `comment`, is a later member of
+/// the same run: a comment on `comment`'s own row, or on the next row
+/// when `comment` does not end the run ([`Checker::ends_doc_run`]).
+/// Only `next` is tested as a comment, so `comment` must already be
+/// one: asked about a code node, it reports that the comment on the row
+/// below continues the code's run, which once let a backward scan run
+/// to the top of the file for every LDoc block (#1597).
+pub(crate) fn run_continues_to<T: Checker>(comment: &Node, next: &Node, code: &[u8]) -> bool {
+    T::is_comment(next)
+        && (next.start_row() <= comment.end_row()
+            || (next.start_row() == comment.end_row().saturating_add(1)
+                && !T::ends_doc_run(comment, code)))
+}
+
+/// The first member of the run `comment` ends: the comment siblings
+/// before it on consecutive rows that hold nothing but comments, so two
+/// comments sharing a row (`/* a */ /* b */`) are one row of the run.
+/// `None` when code precedes `comment` on its own row: a trailing
+/// comment belongs to no run, and a row where code precedes its
+/// comments ends the run below it. One backward pass over one sibling
+/// iterator.
+fn run_first_member<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
+    // `row_first` is the earliest comment found on the row being scanned;
+    // `first` is the first member of the earliest row known to be clean.
+    // Each step moves `row_first` to the sibling just before it, so one
+    // iterator walks the whole run.
+    let mut before = ancestors.siblings_before(comment);
+    let mut first = None;
+    let mut row_first = *comment;
+    loop {
+        match before.next() {
+            // Another token on this row: a comment extends the row, and
+            // code before it makes every comment on the row a trailing one.
+            Some(prev) if prev.end_row() >= row_first.start_row() => {
+                if !T::is_comment(&prev) {
+                    return first;
+                }
+                row_first = prev;
+            }
+            // A comment ending on the row above: this row is clean, and
+            // the run continues upward unless that comment ends a run.
+            Some(prev)
+                if T::is_comment(&prev)
+                    && prev.end_row().saturating_add(1) == row_first.start_row()
+                    && !T::ends_doc_run(&prev, code) =>
+            {
+                first = Some(row_first);
+                row_first = prev;
+            }
+            _ => return Some(row_first),
+        }
+    }
+}
+
+/// A go/doc directive line, part of a lead comment group but not of
+/// its text (go.dev/doc/comment, "Directives"): `//go:build`,
+/// `//line `, `//extern `, `//export `, and the general
+/// `//[a-z0-9]+:[a-z0-9]` form. A directive has no space after `//`.
+#[must_use]
+pub(crate) fn go_directive(s: &[u8]) -> bool {
+    let Some(rest) = s.strip_prefix(b"//") else {
+        return false;
+    };
+    if rest.starts_with(b"line ") || rest.starts_with(b"extern ") || rest.starts_with(b"export ") {
+        return true;
+    }
+    let word = rest
+        .iter()
+        .take_while(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        .count();
+    word > 0
+        && rest.get(word) == Some(&b':')
+        && rest
+            .get(word.saturating_add(1))
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+}
+
+/// A Ruby comment that opens a documentation block whatever follows it:
+/// RDoc's `##`, which introduces a metaprogrammed method's docs
+/// (`RDoc::Parser::Ruby`), or a YARD `@!` directive (`# @!method`,
+/// `# @!attribute`, `# @!macro`, `# @!parse`), which documents a DSL call
+/// rather than a `def` (#1597). The `##` is exactly two `#`: YARD sets its
+/// hash flag only for a `##` prefix and RDoc reads a lone `##` line, so a
+/// `####…` banner or a `##### Helpers #####` divider opens nothing.
+#[must_use]
+pub(crate) fn ruby_directive_opener(s: &[u8]) -> bool {
+    if s.starts_with(b"##") && s.get(2) != Some(&b'#') {
+        return true;
+    }
+    s.strip_prefix(b"#").is_some_and(|rest| {
+        rest.iter()
+            .position(|b| *b != b' ' && *b != b'\t')
+            .is_some_and(|at| rest[at..].starts_with(b"@!"))
+    })
+}
+
+/// The comment lines YARD drops before documenting: a shebang, an
+/// encoding line and the `frozen_string_literal` magic comment, as
+/// YARD's `SHEBANG_LINE`, `ENCODING_LINE` and `FROZEN_STRING_LINE` name
+/// them, case-insensitively. YARD applies them only before the first
+/// token; here a line is excluded wherever it sits, so the match is on
+/// the whole comment — `# coding: utf-8`, `# -*- coding: utf-8 -*-`,
+/// `# vim: set fileencoding=utf-8 :`, `# frozen_string_literal: true` —
+/// and a documentation row that only mentions an encoding (`# Encoding:
+/// defaults to UTF-8.`) stays documentation. What this loses is a
+/// comment that repeats a magic line mid-file.
+#[must_use]
+pub(crate) fn ruby_magic_comment(s: &[u8]) -> bool {
+    if s.starts_with(b"#!") {
+        return true;
+    }
+    s.strip_prefix(b"#")
+        .map(<[u8]>::trim_ascii)
+        .is_some_and(|body| ruby_modeline(body) || ruby_magic_setting(body))
+}
+
+fn contains_ci(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// An Emacs (`-*- … -*-`) or Vim (`vim: …`) modeline that carries the
+/// magic setting among others: an encoding, or for Emacs the
+/// frozen-string flag. A modeline's key is never a magic one, so
+/// `ruby_magic_setting` cannot also match it.
+fn ruby_modeline(body: &[u8]) -> bool {
+    if body.len() >= 6 && body.starts_with(b"-*-") && body.ends_with(b"-*-") {
+        return contains_ci(body, b"coding") || contains_ci(body, b"frozen");
+    }
+    body.get(..4)
+        .is_some_and(|head| head.eq_ignore_ascii_case(b"vim:"))
+        && contains_ci(body, b"coding")
+}
+
+/// A comment that is one magic setting and nothing else: `key: value`
+/// or `key=value`, the key a magic one and the value a single word.
+fn ruby_magic_setting(body: &[u8]) -> bool {
+    let Some(separator) = body.iter().position(|b| matches!(b, b':' | b'=')) else {
+        return false;
+    };
+    let (key, value) = body.split_at(separator);
+    let value = value.get(1..).unwrap_or_default().trim_ascii_start();
+    [
+        &b"coding"[..],
+        b"encoding",
+        b"frozen_string_literal",
+        b"frozen-string-literal",
+    ]
+    .iter()
+    .any(|known| key.trim_ascii_end().eq_ignore_ascii_case(known))
+        && !value.is_empty()
+        && value
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 /// A POD block that is nothing but `comment` regions — `=begin comment`
@@ -230,9 +456,66 @@ fn is_comment_format(format: &[u8]) -> bool {
         .is_some_and(|after| after.first().is_none_or(u8::is_ascii_whitespace))
 }
 
+/// An LDoc block opener, per `lang.lua`: a line comment starting with
+/// three or more dashes (`start_comment_ = '^%-%-%-+'`, so a line of
+/// dashes alone opens too) unless it ends in a dash run preceded by a
+/// non-dash (`end_comment_ = '[^%-]%-%-+[^-]*\n$'` — `--- x ---` is an
+/// end marker), or a long comment whose body opens with a dash
+/// (`block_comment = '^%-%-%[=*%[%-+'`).
+#[must_use]
+pub(crate) fn ldoc_opener(s: &[u8]) -> bool {
+    if let Some(body) = lua_long_comment_body(s) {
+        return body.first() == Some(&b'-');
+    }
+    s.starts_with(b"---") && !ldoc_end_marker(s)
+}
+
+/// A Lua long comment, `--[[ … ]]` or a levelled `--[==[ … ]==]`, as
+/// opposed to a line comment that merely starts `--[`.
+#[must_use]
+pub(crate) fn lua_long_comment(s: &[u8]) -> bool {
+    lua_long_comment_body(s).is_some()
+}
+
+/// The text after a long comment's opening bracket, or `None` when `s`
+/// is not a long comment.
+fn lua_long_comment_body(s: &[u8]) -> Option<&[u8]> {
+    let rest = s.strip_prefix(b"--[")?;
+    let levels = rest.iter().take_while(|b| **b == b'=').count();
+    rest.get(levels..)?.strip_prefix(b"[")
+}
+
+/// `[^-]--+[^-]*$`: the line's final dash run has two or more dashes and
+/// something other than a dash before it.
+fn ldoc_end_marker(s: &[u8]) -> bool {
+    let trimmed = s.len() - s.iter().rev().take_while(|b| **b != b'-').count();
+    let dashes = s[..trimmed]
+        .iter()
+        .rev()
+        .take_while(|b| **b == b'-')
+        .count();
+    dashes >= 2 && trimmed > dashes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruby_directive_opener_accepts_rdoc_and_yard_forms() {
+        assert!(ruby_directive_opener(b"##"));
+        assert!(ruby_directive_opener(b"## Section"));
+        assert!(ruby_directive_opener(b"# @!method foo"));
+        assert!(ruby_directive_opener(b"#\t@!macro bar"));
+        assert!(!ruby_directive_opener(b"# plain"));
+        assert!(!ruby_directive_opener(b"# @param x"));
+        assert!(!ruby_directive_opener(b"#!/usr/bin/env ruby"));
+        // A banner or divider: three or more `#` are neither RDoc's lone
+        // `##` nor YARD's `##` prefix.
+        assert!(!ruby_directive_opener(b"###"));
+        assert!(!ruby_directive_opener(b"########################"));
+        assert!(!ruby_directive_opener(b"##### Private helpers #####"));
+    }
 
     #[test]
     fn javadoc_block_accepts_the_block_form_only() {
@@ -319,6 +602,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn go_directive_matches_go_ast_is_directive() {
+        for directive in [
+            &b"//go:build linux"[..],
+            b"//go:generate go run x",
+            b"//line foo.go:12",
+            b"//extern f",
+            b"//export F",
+            b"//nolint:errcheck",
+            b"//x:1",
+        ] {
+            assert!(
+                go_directive(directive),
+                "{}",
+                String::from_utf8_lossy(directive)
+            );
+        }
+        for text in [
+            &b"// go:build linux"[..],
+            b"//Note: not a directive",
+            b"//x:",
+            b"//exported F",
+            b"// d",
+        ] {
+            assert!(!go_directive(text), "{}", String::from_utf8_lossy(text));
+        }
+    }
+
     /// A block is a comment only while nothing but `comment` regions fill
     /// it: POD after a region's end (`=head1 NAME` past a `=for comment`
     /// paragraph or an `=end comment`) is documentation pod2text renders.
@@ -351,6 +662,42 @@ mod tests {
             b"=for comment\nnote\n\nPlain text paragraph.\n\n=cut",
         ] {
             assert!(!pod_comment_region(doc), "{}", String::from_utf8_lossy(doc));
+        }
+    }
+
+    /// The match is on the whole comment, because it is applied anywhere
+    /// in the file: a documentation row that mentions an encoding, or
+    /// names `frozen_string_literal` in prose, is not a magic line.
+    #[test]
+    fn ruby_magic_comment_matches_whole_magic_lines_only() {
+        for magic in [
+            &b"#!/usr/bin/env ruby"[..],
+            b"# coding: utf-8",
+            b"# encoding: UTF-8",
+            b"# Encoding: binary",
+            b"#coding=utf-8",
+            b"# -*- coding: utf-8 -*-",
+            b"# -*- mode: ruby; encoding: utf-8 -*-",
+            b"# -*- frozen_string_literal: true -*-",
+            b"# vim: set fileencoding=utf-8 :",
+            b"# frozen_string_literal: true",
+            b"# frozen-string-literal: false",
+        ] {
+            assert!(
+                ruby_magic_comment(magic),
+                "{}",
+                String::from_utf8_lossy(magic)
+            );
+        }
+        for doc in [
+            &b"# Encoding: defaults to UTF-8."[..],
+            b"# Handles transcoding: see below",
+            b"# Pass `frozen_string_literal: true` to opt in.",
+            b"# Sets the encoding= attribute",
+            b"# d",
+            b"#",
+        ] {
+            assert!(!ruby_magic_comment(doc), "{}", String::from_utf8_lossy(doc));
         }
     }
 }

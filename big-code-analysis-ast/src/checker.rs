@@ -515,6 +515,62 @@ pub trait Checker {
     ) -> bool {
         Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
     }
+    /// Whether a comment run ending on the row directly above `node`
+    /// documents it — go/doc's lead comment, YARD's convention — so the
+    /// LOC walk bills that run as `dloc`. `ancestors` is `node`'s chain,
+    /// for a rule that depends on where the declaration sits. Languages
+    /// whose documentation is marked per comment leave this `false`; see
+    /// `lang_helpers::doc_comment::leading_doc_run` (#1597).
+    #[inline]
+    #[must_use]
+    fn is_doc_target<'a>(_: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        false
+    }
+    /// The row a doc target begins on, which a comment run must end
+    /// directly above. Normally `node`'s own start row; Ruby's `then`
+    /// wrapper starts on the row of the comment the grammar parks ahead of
+    /// it, so its first statement's row stands in for it (#1597).
+    #[inline]
+    #[must_use]
+    fn doc_target_start_row(node: &Node) -> usize {
+        node.start_row()
+    }
+    /// Whether the comment run that `first` opens is documentation by its
+    /// own content rather than by a [`is_doc_target`](Self::is_doc_target)
+    /// below it: an LDoc block, opened by `---` and continued over the `--`
+    /// rows below it, read under LDoc's rule for what follows it; or
+    /// RDoc's `##` and YARD's `@!` directive blocks, which document
+    /// metaprogrammed methods with no `def` to sit above. `next` is the
+    /// sibling on the row directly after the run, if any, and `ancestors`
+    /// is the run's chain, for a rule that depends on where the run sits
+    /// (#1597).
+    #[inline]
+    #[must_use]
+    fn is_doc_run_opener<'a>(
+        _first: &Node<'a>,
+        _next: Option<&Node<'a>>,
+        _code: &[u8],
+        _: Ancestors<'a, '_>,
+    ) -> bool {
+        false
+    }
+    /// Whether a comment run cannot continue past `node` onto the next
+    /// row: LDoc ends a block at a long comment (`--[[ … ]]`), because
+    /// the comment's closing newline is not part of it (#1597). A
+    /// comment later on the same row still joins.
+    #[inline]
+    #[must_use]
+    fn ends_doc_run(_: &Node, _code: &[u8]) -> bool {
+        false
+    }
+    /// A member of a documentation run that is not documentation text
+    /// and is not billed as `dloc`: a go/doc directive such as
+    /// `//go:generate`, a Ruby shebang or magic comment (#1597).
+    #[inline]
+    #[must_use]
+    fn is_doc_run_directive(_: &Node, _code: &[u8]) -> bool {
+        false
+    }
     /// Whether `node` opens a space: a function, closure, or one of the
     /// containers (class, struct, trait, impl, namespace, interface).
     #[inline]

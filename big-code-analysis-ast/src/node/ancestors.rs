@@ -461,11 +461,15 @@ fn climbed_chain<'tree>(node: &Node<'tree>) -> Vec<Node<'tree>> {
 pub(crate) enum FoldLane {
     /// Whether an ancestor holds a doc comment in a function body.
     DocInBody,
+    /// A positional language's declaration scope: Go's package level,
+    /// Ruby's YARD namespace. One lane serves both because a walk parses
+    /// one language.
+    DocScope,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 1;
+    const COUNT: usize = 2;
 }
 
 /// The per-depth states of the walk's memoised folds, for

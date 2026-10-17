@@ -28,6 +28,7 @@ impl Loc for RubyCode {
             R::Program => {}
             R::Comment => {
                 add_comment_lines::<Self>(node, code, ancestors, stats);
+                add_leading_doc_run::<Self>(node, code, ancestors, stats);
             }
             // A Ruby string literal (`"…"` / `'…'` / `%q{…}`) or a heredoc
             // body can span several rows; credit every spanned row to PLOC to
@@ -35,6 +36,15 @@ impl Loc for RubyCode {
             R::String | R::HeredocBody => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
+            // The `then` wrapper of an `if` / `elsif` / `unless` / `when` /
+            // `in` / `rescue` body and the `do` wrapper of a loop body without
+            // the keyword start where a comment parked ahead of the body's
+            // first statement ends, so crediting their start row would turn
+            // that comment row into code — a YARD doc row then stayed in MI's
+            // size term (#1597). They spell no token of their own; the
+            // statements and the `then` / `do` keywords inside them credit
+            // their rows.
+            R::Then | R::Do => {}
             // LLOC contributors: control-flow constructs, method/class/module
             // declarations, postfix statement modifiers, and the dedicated
             // jump/redo/retry statement nodes. Assignment expressions and
