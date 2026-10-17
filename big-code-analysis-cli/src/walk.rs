@@ -67,6 +67,7 @@ pub(crate) fn assemble_globals(
         manifest_excludes: None,
         exclude_tests: tuning.exclude_tests,
         count_cyclomatic_try: tuning.resolved_count_cyclomatic_try(),
+        mi_charges_docs: tuning.mi_charges_docs,
         no_config: selection.no_config,
         color: output.color,
     }

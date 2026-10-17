@@ -10,6 +10,7 @@ version = 6
 [provenance]
 tier = "soft"
 headroom = 0.95
+mi_charges_docs = false
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
@@ -397,6 +398,12 @@ value = 54557.29125972433
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 523.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "classify_check_violations"
 metric = "nargs"
 value = 5.0
@@ -417,7 +424,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
-value = 63799.464271979734
+value = 64770.185998137575
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
@@ -765,7 +772,7 @@ value = 8.0
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_batch"
 metric = "nargs"
-value = 8.0
+value = 9.0
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
@@ -777,7 +784,7 @@ value = 6.0
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_paths"
 metric = "nargs"
-value = 11.0
+value = 12.0
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
@@ -807,13 +814,13 @@ value = 35.0
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "analyze"
 metric = "nargs"
-value = 8.0
+value = 9.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "analyze_source"
 metric = "nargs"
-value = 5.0
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
@@ -1250,6 +1257,12 @@ value = 5.0
 [[entry]]
 path = "src/metrics/loc/typescript.rs"
 qualified = "TypescriptCode::compute"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/mi.rs"
+qualified = "Mi::compute"
 metric = "nargs"
 value = 5.0
 

@@ -270,6 +270,7 @@ version = 6
 [provenance]
 tier = "soft"
 headroom = 0.95
+mi_charges_docs = false
 ```
 
 - `tier = "hard"` — written by the hard gate (`bca check
@@ -279,6 +280,12 @@ headroom = 0.95
   --write-baseline …`).
 - `tier = "soft"` with no `headroom` — written by the soft gate driven
   by a `[thresholds.soft]` table (per-metric limits, no single ratio).
+- `mi_charges_docs` — whether the maintainability index charged
+  documentation rows when the file was written (the `--mi-charges-docs`
+  flag or manifest key; see
+  [Charging documentation](../metrics.md#mi-charges-docs)). Absent from
+  a file written before the key existed, which reads as `true`: every
+  earlier `bca` charged documentation.
 
 The provenance is a real TOML table, not a comment, so `bca
 diff-baseline` and external tooling can read it. Baselines written by an
@@ -314,6 +321,33 @@ equal provenance, for pre-v5 baselines (provenance unknown), and when
 either side is a `[thresholds.soft]`-table baseline (no single ratio to
 compare). To clear a genuine warning, refresh the baseline at the
 current tier with the matching `--write-baseline` recipe.
+
+### The MI documentation-mode warning
+
+A second provenance check has no safe direction. The `mi.*` values a
+baseline records depend on whether documentation rows were charged,
+and the SEI comment term is not monotonic in those rows, so a value
+written under one mode can sit on either side of the live one under
+the other: a covered entry can read as a regression on untouched code,
+or a real regression can hide under a looser record. `bca check` warns
+whichever way the modes differ:
+
+```text
+warning: this check computes mi.* leaving documentation out
+(mi_charges_docs = false) but the baseline was written charging
+documentation (mi_charges_docs = true); its mi.* entries describe a
+different formula, …
+```
+
+A baseline that records no mode was written by a `bca` that charged
+documentation, so it reads as `mi_charges_docs = true`. After upgrading,
+the first check that reads an `mi.*` entry against an `mi.*` offender
+therefore warns, and says why: the baseline "predates the
+mi_charges_docs provenance key". The warning stays silent when the modes
+agree and when no `mi.*` value is read against the baseline: a baseline
+holding no `mi.*` entry, or a run with no `mi.*` offender, is unaffected
+by the mode. Clear it by refreshing under the current mode, or by passing the
+`--mi-charges-docs=<bool>` the message names to match the baseline.
 
 ## The stale-entry warning {#the-stale-entry-warning}
 

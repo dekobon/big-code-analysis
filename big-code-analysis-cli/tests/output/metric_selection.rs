@@ -119,3 +119,64 @@ fn unknown_metric_errors_with_suggestion() {
         .stderr(predicate::str::contains("did you mean"))
         .stderr(predicate::str::contains("cyclomatic"));
 }
+
+// -- `--mi-charges-docs` (#1597) ----------------------------------------
+
+/// A documented function: the one shape the MI documentation mode moves.
+const DOCUMENTED: &str = "/// Doubles `x`.\n///\n/// Overflow wraps.\nfn f(x: u32) -> u32 { if x > 0 { x * 2 } else { 0 } }\n";
+
+fn metrics_json(path: &str, extra: &[&str]) -> serde_json::Value {
+    let mut args = vec!["metrics", "--paths", path, "-O", "json"];
+    args.extend_from_slice(extra);
+    let out = common::bca_command()
+        .args(&args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&out).expect("json")
+}
+
+/// `--mi-charges-docs` moves every `mi.*` value of a documented space
+/// and nothing else in the document. The `///` block sits above the
+/// function, outside its span, so the root (which holds it) moves and
+/// the function (which does not) reads the same under both modes; the
+/// bare flag, `=true` and `=false` each parse, and `=false` is the
+/// default.
+#[test]
+fn mi_charges_docs_moves_mi_and_nothing_else() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("doc.rs");
+    std::fs::write(&path, DOCUMENTED).unwrap();
+    let path = path.to_str().unwrap();
+
+    let default = metrics_json(path, &[]);
+    let explicit_off = metrics_json(path, &["--mi-charges-docs=false"]);
+    let bare = metrics_json(path, &["--mi-charges-docs"]);
+    let on = metrics_json(path, &["--mi-charges-docs=true"]);
+    assert_eq!(default, explicit_off, "false is the default");
+    assert_eq!(bare, on, "the bare flag means true");
+
+    assert_eq!(
+        default["metrics"]["loc"]["dloc"], 3,
+        "the fixture is documented"
+    );
+    assert_eq!(
+        default["spaces"][0]["metrics"]["loc"]["dloc"], 0,
+        "the doc block is outside the function's span"
+    );
+    assert_ne!(default["metrics"]["mi"], on["metrics"]["mi"]);
+    let mut a = default["metrics"].clone();
+    let mut b = on["metrics"].clone();
+    a.as_object_mut().unwrap().remove("mi");
+    b.as_object_mut().unwrap().remove("mi");
+    assert_eq!(a, b, "only the root's mi moves");
+    assert_eq!(
+        default["spaces"], on["spaces"],
+        "an undocumented space is unmoved"
+    );
+    // The charged mode sizes on every row, so it scores lower.
+    let (d, o) = (&default["metrics"]["mi"], &on["metrics"]["mi"]);
+    assert!(d["original"].as_f64().unwrap() > o["original"].as_f64().unwrap());
+}

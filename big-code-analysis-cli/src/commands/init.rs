@@ -41,6 +41,15 @@ exclude_from = \".bcaignore\"
 # emits the node). Uncomment to opt in if your project is Rust.
 # cyclomatic_count_try = false
 
+# Have the maintainability index charge documentation rows: the size
+# term becomes `sloc` and the SEI comment ratio `cloc / sloc`, the
+# formula applied before `loc.dloc` existed (#1597). The default leaves
+# documentation out, so a docstring or doc comment moves no `mi.*`
+# variant. Uncomment to compare against scores an older release
+# recorded; a baseline written under one mode warns when read under the
+# other.
+# mi_charges_docs = true
+
 # Gate-only options consumed by `bca check` (#599). The baseline pairs
 # with `.bca-baseline.toml` so existing offenders are absorbed; only
 # regressions and new offenders fail the gate. See the Baselines recipe

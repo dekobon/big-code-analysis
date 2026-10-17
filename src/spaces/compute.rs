@@ -26,7 +26,8 @@ crate::observation::counter!(nesting_slots_retained);
 /// absorbed all of its children is wasted work, not a partial sum. Only
 /// [`finalize_state`] calls it, once per space (#1106).
 #[inline]
-fn compute_halstead_and_mi<T: MetricSuite>(state: &mut State, selected: MetricSet) {
+fn compute_halstead_and_mi<T: MetricSuite>(state: &mut State, options: MetricsOptions) {
+    let selected = options.metrics;
     if selected.contains(Metric::Halstead) {
         state
             .halstead_maps
@@ -43,6 +44,7 @@ fn compute_halstead_and_mi<T: MetricSuite>(state: &mut State, selected: MetricSe
             &state.space.metrics.cyclomatic,
             &state.space.metrics.halstead,
             &mut state.space.metrics.mi,
+            options.mi_charges_docs,
         );
     }
 }
@@ -277,34 +279,40 @@ fn settle_loc_excluded_rows(state: &mut State, selected: MetricSet) {
 /// `mi::Stats` both have no-op `merge`s, so nothing reads a parent's
 /// intermediate Halstead/MI, and this call overwrites them from the final
 /// maps anyway (#1106).
-fn finalize_state<T: MetricSuite>(state: &mut State, selected: MetricSet) {
+fn finalize_state<T: MetricSuite>(state: &mut State, options: MetricsOptions) {
+    let selected = options.metrics;
     anchor_unit_sloc_span(state, selected);
     clamp_loc_line_sets(state, selected);
     settle_loc_excluded_rows(state, selected);
     compute_minmax(state, selected);
     compute_sum(state, selected);
-    compute_halstead_and_mi::<T>(state, selected);
+    compute_halstead_and_mi::<T>(state, options);
     compute_wmc::<T>(state, selected);
     note_member_scope::<T>(state, selected);
     compute_averages(state, selected);
 }
 
-fn finalize<T: MetricSuite>(state_stack: &mut Vec<State>, diff_level: usize, selected: MetricSet) {
+fn finalize<T: MetricSuite>(
+    state_stack: &mut Vec<State>,
+    diff_level: usize,
+    options: MetricsOptions,
+) {
     if state_stack.is_empty() {
         return;
     }
+    let selected = options.metrics;
     for _ in 0..diff_level {
         if state_stack.len() == 1 {
             let last_state = state_stack
                 .last_mut()
                 .expect("invariant: state_stack has exactly one element");
-            finalize_state::<T>(last_state, selected);
+            finalize_state::<T>(last_state, options);
             break;
         }
         let mut state = state_stack
             .pop()
             .expect("invariant: state_stack has more than one element");
-        finalize_state::<T>(&mut state, selected);
+        finalize_state::<T>(&mut state, options);
 
         let last_state = state_stack
             .last_mut()
@@ -822,7 +830,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // node, `state_stack.last_mut()` is the node's true enclosing
         // space (#722) — not a sibling's still-open function/impl space.
         if level < last_level {
-            finalize::<T>(&mut state_stack, last_level - level, selected);
+            finalize::<T>(&mut state_stack, last_level - level, options);
             last_level = level;
         }
 
@@ -949,7 +957,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         nesting_slots_retained::record();
     }
 
-    finalize::<T>(&mut state_stack, usize::MAX, selected);
+    finalize::<T>(&mut state_stack, usize::MAX, options);
 
     // Reserved error path: `MetricsError::EmptyRoot` is unreachable
     // today because the synthetic Unit push above (and every

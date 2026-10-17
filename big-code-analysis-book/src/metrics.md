@@ -1275,6 +1275,38 @@ by `16.2·ln` of the growth it adds, with Halstead and cyclomatic
 unchanged. A PLOC or LLOC size term, and a monotonic SEI comment
 term, are open in #1607.
 
+### Charging documentation {#mi-charges-docs}
+
+The documentation-inclusive formula is one setting away. With
+`mi_charges_docs` on, every variant sizes a space on `SLOC` and `mi.sei`
+takes its comment share as `CLOC / SLOC`, which is how releases without
+`loc.dloc` computed them. Use it to compare against scores such a
+release recorded, or to keep an MI gate on its old numbers. It changes
+no other metric: `loc.dloc` is reported either way.
+
+- Library: `MetricsOptions::default().with_mi_charges_docs(true)`.
+- CLI: `--mi-charges-docs` (or `--mi-charges-docs=false` to say the
+  default out loud), or `mi_charges_docs = true` in `bca.toml`; the CLI
+  value overrides the key in either direction.
+- Python: `mi_charges_docs=True` on `analyze`, `analyze_source`,
+  `analyze_batch`, `analyze_paths` and `Ast.metrics`.
+- The REST server has no request field for it; an embedder sets
+  `WebMetricsCfg::with_mi_charges_docs`.
+
+The setting restores the old *formula*, not every old *number*: the
+LOC inputs it reads are the current ones, so a Python file whose
+docstring is an implicit concatenation (`"""doc""" "more"`) or whose
+bare `"a", "b"` tuple statement was once a comment row scores
+differently from a release that classified those rows the other way.
+
+A baseline records which mode wrote it, and `bca check --baseline`
+warns when it reads `mi.*` entries under the other mode. The mismatch
+has no safe direction (the SEI comment term is not monotonic), so
+switching the mode means reviewing any `mi.*` threshold and
+regenerating the baseline in the same change, as for
+`cyclomatic_count_try`. `bca check --print-effective-config` names the
+mode in force.
+
 The historical context, and a sharp critique of the metric, is
 collected on Arie van Deursen's blog post [*Think Twice Before Using
 the Maintainability

@@ -172,6 +172,7 @@ fn push_walk_args(argv: &mut Vec<String>, globals: &GlobalOpts) {
     push_switch(argv, "--no-config", globals.no_config);
     push_switch(argv, "--exclude-tests", globals.exclude_tests);
     push_equals(argv, "--cyclomatic-count-try", globals.count_cyclomatic_try);
+    push_equals(argv, "--mi-charges-docs", globals.mi_charges_docs);
 }
 
 /// Mirror the gate: which of the walk's violations reach the baseline

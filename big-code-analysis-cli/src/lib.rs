@@ -289,6 +289,11 @@ struct Config {
     /// `--no-cyclomatic-try` alias) or the `cyclomatic_count_try`
     /// manifest key.
     no_cyclomatic_try: bool,
+    /// When true, every `mi.*` variant charges documentation rows.
+    /// Projected onto [`MetricsOptions::with_mi_charges_docs`]. Defaults
+    /// off, matching the library (#1597). Set by `--mi-charges-docs` or
+    /// the `mi_charges_docs` manifest key.
+    mi_charges_docs: bool,
     /// When true (`--baseline-fuzzy-match`), the check walk stamps each
     /// emitted [`Violation`] with a normalised body hash so the baseline
     /// can match a renamed-but-unchanged function. Off by default; the
@@ -372,6 +377,7 @@ impl Config {
             // negated form, so default-true maps to `no_cyclomatic_try =
             // false` and published numbers stay byte-identical (#666).
             no_cyclomatic_try: !globals.count_cyclomatic_try.unwrap_or(true),
+            mi_charges_docs: globals.resolved_mi_charges_docs(),
             // Defaults off; `run_check_walk` flips it on for the check
             // action when `--baseline-fuzzy-match` is set.
             fuzzy_baseline: false,
@@ -398,7 +404,8 @@ impl Config {
     fn metrics_options(&self) -> MetricsOptions {
         let mut opts = MetricsOptions::default()
             .with_exclude_tests(self.exclude_tests)
-            .with_count_cyclomatic_try(!self.no_cyclomatic_try);
+            .with_count_cyclomatic_try(!self.no_cyclomatic_try)
+            .with_mi_charges_docs(self.mi_charges_docs);
         // `--metrics` (issue #691) restricts the computed set to the
         // requested metrics plus their dependencies (resolved by
         // `with_only`). Absent → every metric, matching prior behavior.

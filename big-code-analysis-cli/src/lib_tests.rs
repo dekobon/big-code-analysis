@@ -1665,6 +1665,31 @@ fn cyclomatic_count_try_value_taking_and_alias() {
 }
 
 #[test]
+fn mi_charges_docs_value_taking_flag() {
+    // The same shape as `--cyclomatic-count-try` (#1597): both
+    // directions, bare means true, unset means the manifest decides.
+    assert_eq!(
+        check_args(&["check", "--mi-charges-docs=true"])
+            .tuning
+            .mi_charges_docs,
+        Some(true)
+    );
+    assert_eq!(
+        check_args(&["check", "--mi-charges-docs=false"])
+            .tuning
+            .mi_charges_docs,
+        Some(false)
+    );
+    assert_eq!(
+        check_args(&["check", "--mi-charges-docs"])
+            .tuning
+            .mi_charges_docs,
+        Some(true)
+    );
+    assert_eq!(check_args(&["check"]).tuning.mi_charges_docs, None);
+}
+
+#[test]
 fn no_cyclomatic_try_conflicts_with_value_form() {
     assert!(
         parse(&[

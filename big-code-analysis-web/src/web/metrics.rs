@@ -106,6 +106,12 @@ pub struct WebMetricsCfg {
     /// did before #182. Toggle via
     /// [`WebMetricsCfg::with_exclude_tests`].
     pub exclude_tests: bool,
+    /// When true, every `mi.*` variant charges documentation rows, the
+    /// formula applied before `loc.dloc` existed (#1597). Defaults to
+    /// false at every call site, matching the library; the REST request
+    /// shapes carry no field for it, so it is reachable by an embedder
+    /// through [`WebMetricsCfg::with_mi_charges_docs`] only.
+    pub mi_charges_docs: bool,
 }
 
 impl WebMetricsCfg {
@@ -120,6 +126,7 @@ impl WebMetricsCfg {
             scope,
             language,
             exclude_tests: false,
+            mi_charges_docs: false,
         }
     }
 
@@ -127,6 +134,13 @@ impl WebMetricsCfg {
     #[must_use]
     pub fn with_exclude_tests(mut self, exclude_tests: bool) -> Self {
         self.exclude_tests = exclude_tests;
+        self
+    }
+
+    /// Builder-style setter for [`WebMetricsCfg::mi_charges_docs`].
+    #[must_use]
+    pub fn with_mi_charges_docs(mut self, charges_docs: bool) -> Self {
+        self.mi_charges_docs = charges_docs;
         self
     }
 }
@@ -153,7 +167,11 @@ pub fn compute_metrics(
         Source::from_bytes(language, code).with_name(cfg.path.to_str().map(str::to_owned)),
     )?;
     Ok(ast
-        .metrics(MetricsOptions::default().with_exclude_tests(cfg.exclude_tests))
+        .metrics(
+            MetricsOptions::default()
+                .with_exclude_tests(cfg.exclude_tests)
+                .with_mi_charges_docs(cfg.mi_charges_docs),
+        )
         .ok()
         .map(|mut s| {
             if cfg.scope.is_file_only() {
@@ -165,4 +183,44 @@ pub fn compute_metrics(
                 root: s,
             }
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `with_mi_charges_docs` reaches the walk: a documented Python
+    /// buffer scores differently on `mi.*` under the two modes and on
+    /// nothing else, and the builder default is the library's `false`
+    /// (#1597). Config-only on purpose: neither request shape carries
+    /// the field, so an embedder is the only caller that can set it.
+    #[test]
+    fn mi_charges_docs_builder_reaches_the_walk() {
+        let code = b"def f():\n    \"\"\"Doc.\n    More.\"\"\"\n    return 1\n";
+        let cfg = |charges: bool| {
+            WebMetricsCfg::new("1".into(), "f.py".into(), Scope::Full, "python".into())
+                .with_mi_charges_docs(charges)
+        };
+        let run = |charges: bool| {
+            compute_metrics(LANG::Python, code.to_vec(), cfg(charges))
+                .expect("python is compiled in")
+                .expect("the buffer analyses")
+                .root
+        };
+        let default = compute_metrics(
+            LANG::Python,
+            code.to_vec(),
+            WebMetricsCfg::new("1".into(), "f.py".into(), Scope::Full, "python".into()),
+        )
+        .expect("python is compiled in")
+        .expect("the buffer analyses")
+        .root;
+        let (excluded, charged) = (run(false), run(true));
+        assert_eq!(default.metrics, excluded.metrics, "false is the default");
+        assert_eq!(excluded.metrics.loc.dloc(), 2);
+        assert_ne!(excluded.metrics.mi, charged.metrics.mi);
+        assert_eq!(excluded.metrics.loc, charged.metrics.loc);
+        assert_eq!(excluded.metrics.halstead, charged.metrics.halstead);
+        assert_eq!(excluded.metrics.cyclomatic, charged.metrics.cyclomatic);
+    }
 }

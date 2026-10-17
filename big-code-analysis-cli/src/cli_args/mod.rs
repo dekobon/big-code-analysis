@@ -236,6 +236,29 @@ pub(crate) struct WalkTuningArgs {
         help_heading = "Walker tuning"
     )]
     pub(crate) cyclomatic_count_try: Option<bool>,
+    /// Whether the maintainability index charges documentation rows.
+    /// Defaults to `false`: every `mi.*` variant sizes a space on its
+    /// rows less the documentation rows (`loc.dloc`) that carry no
+    /// code, and `mi.sei`'s comment ratio leaves documentation out of
+    /// both sides, so a docstring, a `///` block or a Javadoc comment
+    /// moves no variant. Pass `--mi-charges-docs` to apply the
+    /// documentation-inclusive formula instead — the size term is
+    /// `sloc` and the ratio `cloc / sloc`, as releases without
+    /// `loc.dloc` computed them — for instance to compare against scores
+    /// such a release recorded. Only `mi.*` moves; `loc.dloc` and every other
+    /// metric read the same either way. Mirrors the `mi_charges_docs`
+    /// manifest key; the CLI value overrides the manifest in either
+    /// direction.
+    #[clap(
+        long = "mi-charges-docs",
+        value_name = "BOOL",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set,
+        help_heading = "Walker tuning"
+    )]
+    pub(crate) mi_charges_docs: Option<bool>,
     /// Deprecated alias for `--cyclomatic-count-try=false`. Retained for
     /// one release cycle; pass `--cyclomatic-count-try false` instead.
     /// Conflicts with the value-taking form.
@@ -328,8 +351,24 @@ pub(crate) struct GlobalOpts {
     /// so the manifest `cyclomatic_count_try` key (or the built-in
     /// `true` default) decides.
     pub(crate) count_cyclomatic_try: Option<bool>,
+    /// Whether the maintainability index charges documentation rows
+    /// (#1597). `None` means the CLI did not pass `--mi-charges-docs`,
+    /// so the manifest `mi_charges_docs` key (or the built-in `false`
+    /// default) decides.
+    pub(crate) mi_charges_docs: Option<bool>,
     pub(crate) no_config: bool,
     pub(crate) color: ColorWhen,
+}
+
+impl GlobalOpts {
+    /// The MI documentation mode this run computes `mi.*` under (#1597):
+    /// the CLI flag, or the manifest key merged into it, else the
+    /// library's default, `false`. The walk, the baseline provenance stamp
+    /// and `--print-effective-config` all read it here, so the mode a
+    /// baseline records is the one its values were computed in.
+    pub(crate) fn resolved_mi_charges_docs(&self) -> bool {
+        self.mi_charges_docs.unwrap_or(false)
+    }
 }
 
 /// Trailing positional `[PATHS]...` shared by the walking subcommands

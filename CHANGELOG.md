@@ -114,6 +114,34 @@ for historical reference.
   shapes and the Ruby `ploc` rows under Fixed below; the `mi.*` drift
   is its own entry under Changed.
 
+- **`mi_charges_docs`: a switch back to the documentation-inclusive
+  MI formula** (#1597). `MetricsOptions::with_mi_charges_docs(true)`,
+  the `--mi-charges-docs[=BOOL]` walker-tuning flag, the
+  `mi_charges_docs` manifest key (merged like `cyclomatic_count_try`:
+  the CLI value wins in either direction), the `mi_charges_docs=`
+  keyword on the Python `analyze`, `analyze_source`, `analyze_batch`,
+  `analyze_paths` and `Ast.metrics`, and
+  `WebMetricsCfg::with_mi_charges_docs` for a server embedder (the REST
+  request shapes carry no field for it) all size every `mi.*` variant
+  on `sloc` and form `mi.sei`'s comment share as `cloc / sloc`, as
+  every release without `loc.dloc` did. Off by default — the Changed
+  entry below is the default — and it moves nothing but `mi.*`. It
+  restores the old formula on the current LOC inputs, not every old
+  number: the three Python bare-string shapes under Fixed still read as
+  this release classifies them. `bca check --print-effective-config`
+  names the mode alongside `cyclomatic_count_try`, which it had not
+  listed before; a `--write-baseline` stamps `mi_charges_docs` into the
+  `[provenance]` table, and a `--baseline` read under the other mode
+  warns in either direction when it classifies an `mi.*` offender
+  against an `mi.*` entry, since the SEI comment term is not monotonic
+  in the rows the mode moves. A baseline written before the key
+  existed reads as charging documentation, the only mode an earlier
+  `bca` computed, so after upgrading, the first check that reads an
+  `mi.*` entry against an `mi.*` offender warns and names both
+  remedies. All additive within `2.x`: `MetricsOptions` is
+  `#[non_exhaustive]` with a builder, the Python keywords default, and
+  `WebMetricsCfg` is `#[non_exhaustive]`.
+
 - **Thirteen Perl, Bash, Kotlin and Elixir scaling probes in the
   complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
   Perl ABC misparse climb, Perl ABC's `=~` binding check under an
@@ -153,7 +181,9 @@ for historical reference.
   lists; a space with none keeps its values. Working comment rows and blank rows are still
   charged everywhere, as the published formulas charge them; #1607
   carries the PLOC / LLOC size-term and SEI comment-term questions.
-  The book's MI section states the formulas as implemented.
+  The book's MI section states the formulas as implemented. The
+  previous formula stays one setting away: `mi_charges_docs`, under
+  Added above.
 
 - **Elixir helper cleanup:** remote short-circuit call recognition now
   returns its argument list with the call and ancestry, avoiding a second

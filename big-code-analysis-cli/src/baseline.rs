@@ -79,6 +79,18 @@ pub(crate) use path_key::{anchor_for, lexical_normalize};
 ///   the "baseline-refresh discipline" guards against (#449). The
 ///   table is omitted from baselines whose provenance is unknown.
 ///
+/// - v6, `[provenance] mi_charges_docs` (#1597): the `[provenance]`
+///   table also records whether the maintainability index charged
+///   documentation rows when the file was written, so `bca check` can
+///   warn when it reads an `mi.*` entry under the other mode — a
+///   mismatch that is not directional, since the SEI comment term is
+///   not monotonic, and so is reported both ways. Absent from a file
+///   written before the key existed, which reads as charging
+///   documentation: every bca that wrote such a file did, so a missing
+///   key is evidence rather than an unknown. A `--write-baseline`
+///   refresh stamps it. No version bump: the field is optional and a v6
+///   reader ignores an unknown key.
+///
 /// - v5 → v6: `start_line` is optional and is written **only** for an
 ///   entry whose `(path, qualified, metric)` identity is shared with
 ///   another entry in the same file — the one case the matcher consults
@@ -156,6 +168,12 @@ pub(crate) struct Provenance {
     /// compact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) headroom: Option<f64>,
+    /// Whether `mi.*` charged documentation rows when the file was
+    /// written (`MetricsOptions::with_mi_charges_docs`, #1597). `None`
+    /// for a file written before the key existed, which the mismatch
+    /// check reads as `true`, the only mode such a file was written in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) mi_charges_docs: Option<bool>,
 }
 
 impl Provenance {
@@ -164,6 +182,7 @@ impl Provenance {
         Self {
             tier: BaselineTier::Hard,
             headroom: None,
+            mi_charges_docs: None,
         }
     }
 
@@ -172,6 +191,7 @@ impl Provenance {
         Self {
             tier: BaselineTier::Soft,
             headroom: Some(headroom),
+            mi_charges_docs: None,
         }
     }
 
@@ -181,7 +201,16 @@ impl Provenance {
         Self {
             tier: BaselineTier::Soft,
             headroom: None,
+            mi_charges_docs: None,
         }
+    }
+
+    /// This provenance, recording the MI documentation mode the run
+    /// computes `mi.*` under (#1597).
+    #[must_use]
+    pub(crate) fn with_mi_charges_docs(mut self, charges_docs: bool) -> Self {
+        self.mi_charges_docs = Some(charges_docs);
+        self
     }
 
     /// Reduce the tier/headroom pair to a single *effective strictness*
@@ -217,6 +246,56 @@ pub(crate) enum ProvenanceCheck {
     /// the gate can fire on untouched files. Carries both strictness
     /// scalars for the warning message.
     StricterThanBaseline { current: f64, baseline: f64 },
+}
+
+/// Compose the stderr warning (#1597) when this run reads `mi.*` values
+/// against a baseline written under the other MI documentation mode, or
+/// `None` when the modes agree, the run's mode is unknown, or nothing
+/// `mi.*` is compared: `compares_mi` is false unless the baseline holds an
+/// `mi.*` entry and the run has an `mi.*` offender to classify against it.
+/// A baseline that records no mode predates the stamp, and every bca that
+/// wrote one charged documentation, so it reads as `true` — which makes
+/// the upgrade, the one guaranteed mismatch, the case that warns. The
+/// mismatch has no safe direction: the SEI comment term is not monotonic
+/// in the rows the mode moves, so a recorded value can sit on either side
+/// of the live one, and a covered entry can read as a regression on
+/// untouched code while a real regression hides under a looser record.
+pub(crate) fn mi_mode_warning(
+    current: Provenance,
+    baseline: Option<Provenance>,
+    compares_mi: bool,
+) -> Option<String> {
+    let live = current.mi_charges_docs?;
+    let stamped = baseline.and_then(|p| p.mi_charges_docs);
+    let recorded = stamped.unwrap_or(true);
+    if !compares_mi || live == recorded {
+        return None;
+    }
+    let describe = |charges: bool| {
+        if charges {
+            "charging documentation (mi_charges_docs = true)"
+        } else {
+            "leaving documentation out (mi_charges_docs = false)"
+        }
+    };
+    let written = if stamped.is_some() {
+        format!("was written {}", describe(recorded))
+    } else {
+        format!(
+            "predates the mi_charges_docs provenance key, so it was written \
+             {}, the only mode earlier bca releases had",
+            describe(recorded)
+        )
+    };
+    Some(format!(
+        "this check computes mi.* {} but the baseline {written}; its \
+         mi.* entries describe a different formula, so the gate can fire on \
+         untouched files or cover a real regression. Refresh it under this \
+         mode with `--write-baseline <file>`, or pass `--mi-charges-docs={}` \
+         to match the baseline.",
+        describe(live),
+        recorded,
+    ))
 }
 
 /// Compare the current run's `current` provenance against the
@@ -554,6 +633,24 @@ impl Baseline {
     /// directional mismatch warning in `bca check`.
     pub(crate) fn provenance(&self) -> Option<Provenance> {
         self.provenance
+    }
+
+    /// The MI documentation-mode warning (#1597) for this run's
+    /// `violations` read against this baseline, or `None`; see
+    /// [`mi_mode_warning`]. A mismatch can misjudge only an `mi.*`
+    /// offender read against an `mi.*` entry, so a baseline holding none,
+    /// or a run with none, is silent.
+    pub(crate) fn mi_mode_warning_for(
+        &self,
+        current: Provenance,
+        violations: &[Violation],
+    ) -> Option<String> {
+        let compares_mi = self
+            .by_symbol
+            .keys()
+            .any(|key| key.metric.starts_with("mi."))
+            && violations.iter().any(|v| v.metric.starts_with("mi."));
+        mi_mode_warning(current, self.provenance, compares_mi)
     }
 
     /// Flatten the loaded records into [`DiffEntry`] values for

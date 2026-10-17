@@ -73,6 +73,7 @@ pub(crate) fn run_explain_thresholds(
     let (resolved, global_merge_mode) = build_candidate_gate(layers, &candidates, ratio);
     let resolved = Arc::new(resolved);
 
+    let mi_charges_docs = globals.resolved_mi_charges_docs();
     let CollectedViolations {
         violations, scope, ..
     } = collect_check_violations(globals, args, preproc, Arc::clone(&resolved));
@@ -85,7 +86,7 @@ pub(crate) fn run_explain_thresholds(
         // and warning that the baseline may under-cover would report an
         // artifact of that implementation choice as a fact about the run
         // being previewed.
-        resolve_provenance(tier, !layers.soft.is_empty()),
+        resolve_provenance(tier, !layers.soft.is_empty(), mi_charges_docs),
         // Keep baseline-covered offenders instead of dropping them: the
         // split between "already baselined" and "new" is the number the
         // report exists to show.

@@ -251,10 +251,13 @@ class Ast:
         *,
         exclude_tests: bool = False,
         metrics: Sequence[str] | None = None,
+        mi_charges_docs: bool = False,
     ) -> FuncSpaceDict:
         """Compute metrics from the held parse (same shape as
         :func:`analyze_source`). ``metrics`` selects which to compute (all
         when omitted); two calls with different selections reuse the parse.
+        ``mi_charges_docs`` mirrors ``bca metrics --mi-charges-docs`` —
+        see :func:`analyze`.
         """
 
     def dump(self, *, span: bool = True, comment: bool = False) -> AstNodeDict | None:
@@ -490,6 +493,7 @@ def analyze(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
+    mi_charges_docs: bool = False,
 ) -> FuncSpaceDict | None:
     """Compute metrics for the file at ``path``.
 
@@ -535,6 +539,16 @@ def analyze(
     ``#![cfg(test)]``) prune the matching subtrees before any
     per-metric ``compute`` runs. Languages without that override
     ignore the flag, matching CLI behaviour.
+
+    Pass ``mi_charges_docs=True`` to mirror the CLI's global
+    ``--mi-charges-docs`` flag: every ``mi.*`` variant then charges
+    documentation rows — the size term is ``loc.sloc`` and the SEI
+    comment ratio ``loc.cloc / loc.sloc``, the formula applied before
+    ``loc.dloc`` existed. The default leaves the ``dloc`` rows that
+    carry no code out of the size term and documentation out of both
+    sides of the ratio, so a docstring or doc comment moves no
+    variant. Only ``mi`` moves; ``loc.dloc`` and every other metric
+    read the same either way.
 
     Pass ``allow_lossy_path=True`` to mirror the CLI's non-UTF-8
     path handling: bytes that are not valid UTF-8 are replaced
@@ -660,6 +674,7 @@ def analyze_source(
     *,
     exclude_tests: bool = False,
     metrics: Sequence[str] | None = None,
+    mi_charges_docs: bool = False,
 ) -> FuncSpaceDict:
     """Compute metrics for an in-memory source buffer.
 
@@ -669,8 +684,9 @@ def analyze_source(
     ``FuncSpace`` shape used by :func:`analyze`, with ``name`` set
     to ``None`` because no path is associated with an in-memory
     buffer. ``exclude_tests`` mirrors ``bca metrics
-    --exclude-tests`` — see :func:`analyze` for the full parity
-    contract and the language-checker semantics it triggers.
+    --exclude-tests`` and ``mi_charges_docs`` mirrors ``bca metrics
+    --mi-charges-docs`` — see :func:`analyze` for the full parity
+    contract and the semantics each triggers.
 
     Raises
     ------
@@ -700,6 +716,7 @@ def analyze_batch(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
+    mi_charges_docs: bool = False,
 ) -> list[FuncSpaceDict | AnalysisFailure | None]:
     """Compute metrics for every path in ``paths``.
 
@@ -762,8 +779,9 @@ def analyze_batch(
     inputs), and the canonical ``"nexits"`` spelling. Unrequested
     metrics are absent from each result dict.
 
-    ``exclude_tests``, ``allow_lossy_path``, and ``skip_generated``
-    mirror the keyword-only kwargs on :func:`analyze` exactly (#542),
+    ``exclude_tests``, ``allow_lossy_path``, ``skip_generated`` and
+    ``mi_charges_docs`` mirror the keyword-only kwargs on
+    :func:`analyze` exactly (#542),
     so migrating ``[bca.analyze(p) for p in paths]`` to
     ``bca.analyze_batch(paths)`` preserves each file's treatment. The
     list *shape* is preserved only under ``skip_generated=False``: with
@@ -811,6 +829,7 @@ def analyze_paths(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
+    mi_charges_docs: bool = False,
 ) -> list[FuncSpaceDict | AnalysisFailure | None]:
     """Walk one or more path seeds and analyse every discovered file (#658).
 
@@ -835,8 +854,8 @@ def analyze_paths(
     narrows it, matched on its basename.
     Pass ``respect_gitignore=False`` to walk ignored files
     too. The remaining kwargs (``exclude_tests`` / ``allow_lossy_path``
-    / ``skip_generated`` / ``metrics`` / ``vcs`` / ``vcs_per_function``)
-    forward to per-file analysis exactly as on :func:`analyze` /
+    / ``skip_generated`` / ``metrics`` / ``vcs`` / ``vcs_per_function``
+    / ``mi_charges_docs``) forward to per-file analysis exactly as on :func:`analyze` /
     :func:`analyze_batch`, including the shared per-repo VCS index (#670).
 
     Returns the :func:`analyze_batch` result shape with the same

@@ -177,19 +177,22 @@ impl PyAst {
     /// `analyze` / `analyze_source` (a `FuncSpaceDict`).
     ///
     /// `exclude_tests` mirrors the CLI `--exclude-tests` flag; `metrics`
-    /// selects which metrics to compute (the full suite when omitted). Two
-    /// calls with different selections reuse the one parse.
-    #[pyo3(signature = (*, exclude_tests = false, metrics = None))]
+    /// selects which metrics to compute (the full suite when omitted);
+    /// `mi_charges_docs` mirrors `--mi-charges-docs` (#1597). Two calls
+    /// with different selections reuse the one parse.
+    #[pyo3(signature = (*, exclude_tests = false, metrics = None, mi_charges_docs = false))]
     fn metrics<'py>(
         &self,
         py: Python<'py>,
         exclude_tests: bool,
         metrics: Option<Vec<String>>,
+        mi_charges_docs: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let metric_set = resolve_metric_set(metrics)?;
         let options = MetricsOptions::default()
             .with_exclude_tests(exclude_tests)
-            .with_metric_set(metric_set);
+            .with_metric_set(metric_set)
+            .with_mi_charges_docs(mi_charges_docs);
         let space = py
             .detach(move || self.inner.metrics(options))
             .map_err(metrics_error_to_py)?;

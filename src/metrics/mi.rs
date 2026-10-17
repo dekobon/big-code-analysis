@@ -29,14 +29,18 @@ pub struct Stats {
     halstead_vocabulary: f64,
     halstead_volume: f64,
     cyclomatic: f64,
-    /// The size term: `sloc` less the documentation rows (`dloc`) that
-    /// carry no code (#1597). Comment and blank rows stay charged, as
-    /// the published formulas charge them; `compute` has the rule.
+    /// The size term: by default `sloc` less the documentation rows
+    /// (`dloc`) that carry no code, or plain `sloc` when
+    /// `MetricsOptions::with_mi_charges_docs(true)` restores the
+    /// documentation-inclusive formula (#1597). Comment and blank rows
+    /// stay charged either way, as the published formulas charge them;
+    /// `compute` has the rule.
     code_lines: f64,
-    /// Non-documentation comment lines as a percentage of `code_lines`, in
-    /// [0, 100] (not a ratio in [0, 1]). Only `sei` consumes this — the
-    /// SEI MI formula uses `perCM` on the percentage scale; see issue
-    /// #241.
+    /// Comment lines as a percentage of `code_lines`, in [0, 100] (not a
+    /// ratio in [0, 1]) — the non-documentation ones by default, every
+    /// `cloc` row when documentation is charged. Only `sei` consumes
+    /// this — the SEI MI formula uses `perCM` on the percentage scale;
+    /// see issue #241.
     comments_percentage: f64,
 }
 
@@ -123,23 +127,29 @@ pub(crate) trait Mi
 where
     Self: Checker,
 {
-    /// Walk `node` and update `stats` with this metric for the language
-    /// implementing the trait.
+    /// Fold the already-computed inputs into `stats`. `charges_docs` is
+    /// `MetricsOptions::mi_charges_docs`: whether documentation rows
+    /// count toward the size term and the comment ratio.
     fn compute(
         loc: &loc::Stats,
         cyclomatic: &cyclomatic::Stats,
         halstead: &halstead::Stats,
         stats: &mut Stats,
+        charges_docs: bool,
     ) {
         stats.halstead_length = halstead.length() as f64;
         stats.halstead_vocabulary = halstead.vocabulary() as f64;
         stats.halstead_volume = halstead.volume();
         stats.cyclomatic = cyclomatic.cyclomatic_sum() as f64;
         // Documentation rows (`dloc`: doc comments, docstrings, POD) are
-        // not code: they leave the size term and both sides of the comment
-        // ratio, so a function scores the same with and without its
-        // documentation (#1597). Halstead agrees: it never sees a comment
-        // and drops every bare string's operands (#695).
+        // not code: by default they leave the size term and both sides
+        // of the comment ratio, so a function scores the same with and
+        // without its documentation (#1597). Halstead agrees: it never
+        // sees a comment and drops every bare string's operands (#695).
+        // With `charges_docs` the published formulas apply as written —
+        // every physical row sizes the space and every comment row feeds
+        // the ratio — which is what every release before #1597 did, on
+        // the rows the current LOC walk classifies.
         //
         // A row the documentation shares with code stays in the size term:
         // `def f(): """doc"""` is one code row, not none.
@@ -147,9 +157,14 @@ where
         // The subtractions are exact, since `dloc <= cloc <= sloc` holds
         // after `loc::Stats::settle_excluded_rows`; `saturating_sub` is
         // only the release-build guard.
-        let dloc = loc.dloc();
-        let code_lines = loc.sloc().saturating_sub(loc.dloc_without_code());
-        let comment_lines = loc.cloc().saturating_sub(dloc);
+        let (code_lines, comment_lines) = if charges_docs {
+            (loc.sloc(), loc.cloc())
+        } else {
+            (
+                loc.sloc().saturating_sub(loc.dloc_without_code()),
+                loc.cloc().saturating_sub(loc.dloc()),
+            )
+        };
         stats.code_lines = code_lines as f64;
         // The SEI Maintainability Index expects `perCM` as a percentage
         // in [0, 100], not a ratio in [0, 1] — `50·sin(√(2.4·CM))` is
@@ -297,6 +312,117 @@ mod tests {
         // And the values are the undocumented file's known ones, so the
         // equality above is not two zeros agreeing.
         assert!((bare.mi.original() - 117.676_252_636_666_53).abs() < 1e-9);
+    }
+
+    /// `with_mi_charges_docs(true)` restores the documentation-inclusive
+    /// formula: the size term is `sloc` and the SEI ratio `cloc / sloc`,
+    /// so the issue's reproducer scores as every release before #1597
+    /// scored it. The three expected values are derived by hand from the
+    /// inputs the assertions above pin — `V` 89.624, `G` 4 (root) / 3
+    /// (`clamp`), `sloc` 13, `cloc` 7 — through the three formulas as
+    /// `Stats::{original, sei, visual_studio}` state them; the issue's
+    /// `105.2 / 29.8 / 61.5` are the root's, rounded. The named child is
+    /// asserted too: the root is finalised on the stack's last element
+    /// and a child on its pop, two paths that must both carry the flag.
+    #[cfg(feature = "python")]
+    #[test]
+    fn charging_docs_restores_the_documentation_inclusive_formula() {
+        let documented = b"def clamp(value, low, high):\n    \"\"\"Return ``value`` held within ``[low, high]``.\n\n    ``low`` and ``high`` are inclusive bounds; a value outside them is\n    replaced by the nearer bound, and a value inside is returned as it\n    is. The bounds are not checked against each other, so ``low > high``\n    returns ``high`` for every input.\n    \"\"\"\n    if value < low:\n        return low\n    if value > high:\n        return high\n    return value\n";
+        let charged = |options: MetricsOptions| {
+            crate::test_support::space_verbatim(
+                crate::LANG::Python,
+                documented,
+                options.with_mi_charges_docs(true),
+            )
+        };
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        for options in [
+            MetricsOptions::default(),
+            MetricsOptions::default().with_only(&[Metric::Mi]),
+        ] {
+            let root = charged(options);
+            let m = &root.metrics;
+            assert_eq!((m.loc.sloc(), m.loc.cloc(), m.loc.dloc()), (13, 7, 7));
+            assert_eq!(m.cyclomatic.cyclomatic_sum(), 4);
+            assert!(close(m.halstead.volume(), 89.624_062_518_028_91));
+            assert!(
+                close(m.mi.original(), 105.150_576_447_284_12)
+                    && close(m.mi.sei(), 29.833_747_268_467_4)
+                    && close(m.mi.visual_studio(), 61.491_565_173_850_37),
+                "root: {} / {} / {}",
+                m.mi.original(),
+                m.mi.sei(),
+                m.mi.visual_studio()
+            );
+            let clamp = root
+                .spaces
+                .iter()
+                .find(|s| s.name.as_deref() == Some("clamp"))
+                .expect("the function space");
+            let m = &clamp.metrics;
+            assert_eq!(m.cyclomatic.cyclomatic_sum(), 3);
+            assert!(
+                close(m.mi.original(), 105.380_576_447_284_11)
+                    && close(m.mi.sei(), 30.063_747_268_467_388)
+                    && close(m.mi.visual_studio(), 61.626_068_097_826_966),
+                "clamp: {} / {} / {}",
+                m.mi.original(),
+                m.mi.sei(),
+                m.mi.visual_studio()
+            );
+        }
+    }
+
+    /// The mode moves `mi.*` and nothing else: an undocumented space, a
+    /// space with only working comments, and every non-MI metric read the
+    /// same under both; the default and an explicit `false` agree.
+    #[cfg(all(feature = "python", feature = "rust"))]
+    #[test]
+    fn charging_docs_moves_only_documented_spaces_mi() {
+        let cases: &[(crate::LANG, &[u8], bool)] = &[
+            // (lang, source, carries documentation)
+            (
+                crate::LANG::Python,
+                b"def f(n):\n    # a real comment\n    if n:\n        return 1\n    return 0\n",
+                false,
+            ),
+            (
+                crate::LANG::Python,
+                b"def f(n):\n    \"\"\"Doc.\"\"\"\n    if n:\n        return 1\n    return 0\n",
+                true,
+            ),
+            (
+                crate::LANG::Rust,
+                b"/// Doc.\nfn f(x: i32) -> i32 {\n    if x > 0 { x } else { 0 }\n}\n",
+                true,
+            ),
+            (crate::LANG::Rust, b"fn f() {}\n", false),
+            (crate::LANG::Python, b"", false),
+        ];
+        for (lang, source, documented) in cases {
+            let excluded = metrics_verbatim(*lang, source, MetricsOptions::default());
+            let explicit = metrics_verbatim(
+                *lang,
+                source,
+                MetricsOptions::default().with_mi_charges_docs(false),
+            );
+            let charged = metrics_verbatim(
+                *lang,
+                source,
+                MetricsOptions::default().with_mi_charges_docs(true),
+            );
+            assert_eq!(excluded, explicit, "{lang:?}: the default is false");
+            assert_eq!((excluded.loc.dloc() > 0), *documented, "{lang:?}: fixture");
+            let mi = |m: &CodeMetrics| (m.mi.original(), m.mi.sei(), m.mi.visual_studio());
+            assert_eq!(
+                mi(&excluded) != mi(&charged),
+                *documented,
+                "{lang:?}: only documentation rows move mi"
+            );
+            let mut without_mi = charged.clone();
+            without_mi.mi = excluded.mi.clone();
+            assert_eq!(without_mi, excluded, "{lang:?}: nothing but mi moves");
+        }
     }
 
     #[cfg(feature = "python")]
@@ -643,7 +769,9 @@ mod tests {
         let cyclomatic = cyclomatic::Stats::default();
         let halstead = halstead::Stats::default();
         let mut mi = Stats::default();
-        PythonCode::compute(&loc, &cyclomatic, &halstead, &mut mi);
+        // The clamp is on the shared tail, so one mode exercises it; the
+        // fixture has no `dloc`, so the two modes read the same inputs.
+        PythonCode::compute(&loc, &cyclomatic, &halstead, &mut mi, false);
 
         assert!(
             (mi.comments_percentage - 100.0).abs() < f64::EPSILON,

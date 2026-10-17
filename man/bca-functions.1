@@ -4,7 +4,7 @@
 .SH NAME
 bca\-functions \- List functions/methods and their spans
 .SH SYNOPSIS
-\fBbca\-functions\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-\-report\-skipped\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
+\fBbca\-functions\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-\-report\-skipped\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-mi\-charges\-docs\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 List functions/methods and their spans
 .SH OPTIONS
@@ -66,6 +66,19 @@ Exclude inline test code from metric computation. Currently applies to Rust only
 .TP
 \fB\-\-cyclomatic\-count\-try\fR[=\fI<BOOL>\fR]
 Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key; the CLI value overrides the manifest in either direction
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+true
+.IP \(bu 2
+false
+.RE
+.TP
+\fB\-\-mi\-charges\-docs\fR[=\fI<BOOL>\fR]
+Whether the maintainability index charges documentation rows. Defaults to `false`: every `mi.*` variant sizes a space on its rows less the documentation rows (`loc.dloc`) that carry no code, and `mi.sei`\*(Aqs comment ratio leaves documentation out of both sides, so a docstring, a `///` block or a Javadoc comment moves no variant. Pass `\-\-mi\-charges\-docs` to apply the documentation\-inclusive formula instead — the size term is `sloc` and the ratio `cloc / sloc`, as releases without `loc.dloc` computed them — for instance to compare against scores such a release recorded. Only `mi.*` moves; `loc.dloc` and every other metric read the same either way. Mirrors the `mi_charges_docs` manifest key; the CLI value overrides the manifest in either direction
 .br
 
 .br

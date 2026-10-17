@@ -528,6 +528,10 @@ fn refresh_baseline_argv_round_trips_through_the_parser() {
         no_ignore: true,
         exclude_tests: true,
         count_cyclomatic_try: Some(false),
+        // `Some(false)` for the same reason `baseline_fuzzy_match` is
+        // below: only an explicit `false` tells the `require_equals`
+        // spelling from a bare flag plus a swallowed positional.
+        mi_charges_docs: Some(false),
         no_config: true,
         ..GlobalOpts::default()
     };
@@ -583,6 +587,7 @@ fn refresh_baseline_argv_round_trips_through_the_parser() {
     );
     assert!(back.tuning.exclude_tests);
     assert_eq!(back.tuning.cyclomatic_count_try, Some(false));
+    assert_eq!(back.tuning.mi_charges_docs, Some(false));
     assert_eq!(back.thresholds, args.thresholds);
     assert_eq!(
         back.config.as_deref(),
@@ -752,6 +757,48 @@ fn refresh_baseline_argv_pairs_each_switch_with_its_own_flag() {
             .iter()
             .map(String::as_str)
             .filter(|a| every_switch.contains(a))
+            .collect();
+        assert_eq!(
+            emitted,
+            vec![*flag],
+            "setting only {flag} must emit only {flag}, got: {argv:?}"
+        );
+    }
+}
+
+#[test]
+fn refresh_baseline_argv_pairs_each_value_bool_with_its_own_flag() {
+    // The `push_equals` twin of the switch test above: the two
+    // value-taking bools (`--cyclomatic-count-try`, `--mi-charges-docs`)
+    // each render as `--flag=<bool>`, so a transposed field argument
+    // would emit the other flag's value under this flag's name. Setting
+    // exactly one, to the value opposite its default, isolates each.
+    let base = globals_for_remediation(&["."], &[], None);
+    let args = check_args_for_remediation(None, None, false);
+    let cases = [
+        (
+            "--cyclomatic-count-try=false",
+            GlobalOpts {
+                count_cyclomatic_try: Some(false),
+                ..base.clone()
+            },
+        ),
+        (
+            "--mi-charges-docs=true",
+            GlobalOpts {
+                mi_charges_docs: Some(true),
+                ..base
+            },
+        ),
+    ];
+    for (flag, globals) in &cases {
+        let argv = refresh_baseline_argv(globals, &args, crate::TierSpec::Hard);
+        let emitted: Vec<&str> = argv
+            .iter()
+            .map(String::as_str)
+            .filter(|a| {
+                a.starts_with("--cyclomatic-count-try") || a.starts_with("--mi-charges-docs")
+            })
             .collect();
         assert_eq!(
             emitted,
@@ -1041,6 +1088,8 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             no_skip_generated: false,
             strict: false,
             exclude_tests: true,
+            cyclomatic_count_try: true,
+            mi_charges_docs: false,
             changed_only: false,
             since: None,
             headroom: None,
@@ -1100,6 +1149,8 @@ fn effective_config_json_serializes_threshold_overrides() {
             no_skip_generated: false,
             strict: false,
             exclude_tests: false,
+            cyclomatic_count_try: true,
+            mi_charges_docs: false,
             changed_only: false,
             since: None,
             headroom: None,
@@ -1598,27 +1649,107 @@ fn provenance_warning_silent_when_baseline_absent() {
     );
 }
 
+// -- MI documentation-mode warning (#1597) ------------------------------
+
+#[test]
+fn mi_mode_warning_fires_in_both_directions() {
+    // The mismatch is not directional — the SEI comment term is not
+    // monotonic — so both orders warn, and each names the two modes and
+    // the flag that would match the baseline.
+    let excluded = baseline::Provenance::hard().with_mi_charges_docs(false);
+    let charged = baseline::Provenance::hard().with_mi_charges_docs(true);
+    let msg = baseline::mi_mode_warning(excluded, Some(charged), true)
+        .expect("charged baseline under excluded run");
+    assert!(msg.contains("leaving documentation out"), "{msg}");
+    assert!(msg.contains("written charging documentation"), "{msg}");
+    assert!(msg.contains("--mi-charges-docs=true"), "{msg}");
+    let msg = baseline::mi_mode_warning(charged, Some(excluded), true)
+        .expect("excluded baseline under charged run");
+    assert!(msg.contains("--mi-charges-docs=false"), "{msg}");
+    assert!(msg.contains("--write-baseline"), "{msg}");
+}
+
+#[test]
+fn mi_mode_warning_reads_an_unstamped_baseline_as_charging_docs() {
+    // Every bca that wrote a baseline without the key charged
+    // documentation, so the upgrade — the one guaranteed mismatch — warns,
+    // naming the flag that keeps the old formula. Both shapes of an
+    // unstamped file: a `[provenance]` table without the key (2.x hard
+    // tier, as `Provenance::hard()` builds one) and no table at all (v2–v4).
+    let excluded = baseline::Provenance::hard().with_mi_charges_docs(false);
+    let charged = baseline::Provenance::hard().with_mi_charges_docs(true);
+    for unstamped in [Some(baseline::Provenance::hard()), None] {
+        let msg = baseline::mi_mode_warning(excluded, unstamped, true)
+            .expect("an unstamped baseline under the new default warns");
+        assert!(
+            msg.contains("predates the mi_charges_docs provenance key"),
+            "{msg}"
+        );
+        assert!(msg.contains("--mi-charges-docs=true"), "{msg}");
+        // A run that kept the old formula matches it.
+        assert_eq!(baseline::mi_mode_warning(charged, unstamped, true), None);
+    }
+}
+
+#[test]
+fn mi_mode_warning_silent_when_modes_agree_or_mi_is_not_compared() {
+    let excluded = baseline::Provenance::hard().with_mi_charges_docs(false);
+    let charged = baseline::Provenance::hard().with_mi_charges_docs(true);
+    assert_eq!(
+        baseline::mi_mode_warning(excluded, Some(excluded), true),
+        None
+    );
+    // A run whose own mode is unknown has nothing to compare; `bca check`
+    // always resolves one, so this guards the function's contract only.
+    // Both baseline modes, so no default for the run's mode can pass.
+    for recorded in [excluded, charged] {
+        assert_eq!(
+            baseline::mi_mode_warning(baseline::Provenance::hard(), Some(recorded), true),
+            None
+        );
+    }
+    // The modes differ, but no `mi.*` value is read against the baseline:
+    // a cyclomatic-only baseline, or a run gating no `mi.*` metric.
+    assert_eq!(
+        baseline::mi_mode_warning(excluded, Some(charged), false),
+        None
+    );
+    // The tier/headroom check is untouched by the mode.
+    assert_eq!(
+        provenance_warning(
+            baseline::Provenance::hard().with_mi_charges_docs(true),
+            Some(baseline::Provenance::soft_headroom(0.95).with_mi_charges_docs(false)),
+        ),
+        None
+    );
+}
+
 #[test]
 fn resolve_provenance_maps_each_tier_branch() {
     // Hard tier: no scaling.
     assert_eq!(
-        resolve_provenance(TierSpec::Hard, false),
-        baseline::Provenance::hard()
+        resolve_provenance(TierSpec::Hard, false, false),
+        baseline::Provenance::hard().with_mi_charges_docs(false)
     );
     // Soft with a `[thresholds.soft]` table: per-metric, no single ratio.
     assert_eq!(
-        resolve_provenance(TierSpec::Soft(Some(0.5)), true),
-        baseline::Provenance::soft_table()
+        resolve_provenance(TierSpec::Soft(Some(0.5)), true, false),
+        baseline::Provenance::soft_table().with_mi_charges_docs(false)
     );
     // Soft without a table: scaled by the spec's ratio.
     assert_eq!(
-        resolve_provenance(TierSpec::Soft(Some(0.90)), false),
-        baseline::Provenance::soft_headroom(0.90)
+        resolve_provenance(TierSpec::Soft(Some(0.90)), false, false),
+        baseline::Provenance::soft_headroom(0.90).with_mi_charges_docs(false)
     );
     // Soft without a table or a pinned ratio: the default soft headroom.
     assert_eq!(
-        resolve_provenance(TierSpec::Soft(None), false),
-        baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM)
+        resolve_provenance(TierSpec::Soft(None), false, false),
+        baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM).with_mi_charges_docs(false)
+    );
+    // The MI mode rides along on every branch (#1597).
+    assert_eq!(
+        resolve_provenance(TierSpec::Hard, false, true).mi_charges_docs,
+        Some(true)
     );
 }
 

@@ -1468,3 +1468,206 @@ fn stricter_check_reading_looser_baseline_warns() {
         .success()
         .stderr(predicate::str::contains("stricter than the baseline"));
 }
+
+// -- MI documentation mode provenance (#1597) --------------------------
+
+/// A documented Rust function whose `mi.visual_studio` is well under 100
+/// in either mode, so an `mi.visual_studio=100` threshold flags it
+/// whichever formula ran and the baseline carries an `mi.*` entry.
+const DOCUMENTED_RUST: &str = r"
+/// Clamp `n` into `[lo, hi]`.
+///
+/// The bounds are inclusive; `lo > hi` is not checked and returns
+/// `hi` for every input, which callers may rely on.
+pub fn clamp(n: i32, lo: i32, hi: i32) -> i32 {
+    if n < lo {
+        lo
+    } else if n > hi {
+        hi
+    } else {
+        n
+    }
+}
+";
+
+fn write_mi_baseline(dir: &TempDir, src: &str, baseline: &Path, mode: &str) {
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            src,
+            mode,
+            "--threshold",
+            "mi.visual_studio=100",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn write_baseline_records_the_mi_documentation_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    write_mi_baseline(&dir, &src, &baseline, "--mi-charges-docs=false");
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(
+        content.contains("mi_charges_docs = false"),
+        "content:\n{content}"
+    );
+
+    write_mi_baseline(&dir, &src, &baseline, "--mi-charges-docs");
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(
+        content.contains("mi_charges_docs = true"),
+        "content:\n{content}"
+    );
+}
+
+#[test]
+fn reading_a_baseline_under_the_other_mi_mode_warns_both_ways() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    for (written, read, hint) in [
+        (
+            "--mi-charges-docs=false",
+            "--mi-charges-docs",
+            "--mi-charges-docs=false",
+        ),
+        (
+            "--mi-charges-docs",
+            "--mi-charges-docs=false",
+            "--mi-charges-docs=true",
+        ),
+    ] {
+        write_mi_baseline(&dir, &src, &baseline, written);
+        cli(dir.path())
+            .args([
+                "check",
+                "--paths",
+                &src,
+                read,
+                "--threshold",
+                "mi.visual_studio=100",
+                "--baseline",
+                baseline.to_str().unwrap(),
+            ])
+            .assert()
+            .stderr(predicate::str::contains("different formula"))
+            .stderr(predicate::str::contains(hint));
+    }
+}
+
+#[test]
+fn reading_a_baseline_under_the_same_mi_mode_is_silent() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    write_mi_baseline(&dir, &src, &baseline, "--mi-charges-docs");
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--mi-charges-docs",
+            "--threshold",
+            "mi.visual_studio=100",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("different formula").not());
+}
+
+#[test]
+fn a_baseline_without_an_mi_mode_reads_as_charging_docs() {
+    // A file written before the key existed carries no mode, and every
+    // bca that wrote one charged documentation: a run under the new
+    // default warns that the baseline predates the stamp, and a run that
+    // kept the old formula matches it.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+    write_mi_baseline(&dir, &src, &baseline, "--mi-charges-docs");
+    let content = fs::read_to_string(&baseline).unwrap();
+    let stripped = content
+        .lines()
+        .filter(|line| !line.starts_with("mi_charges_docs"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&baseline, stripped).unwrap();
+
+    let run = |mode: &str| {
+        cli(dir.path())
+            .args([
+                "check",
+                "--paths",
+                &src,
+                mode,
+                "--threshold",
+                "mi.visual_studio=100",
+                "--baseline",
+                baseline.to_str().unwrap(),
+            ])
+            .assert()
+    };
+    run("--mi-charges-docs=false")
+        .stderr(predicate::str::contains(
+            "predates the mi_charges_docs provenance key",
+        ))
+        .stderr(predicate::str::contains("--mi-charges-docs=true"));
+    run("--mi-charges-docs").stderr(predicate::str::contains("different formula").not());
+}
+
+#[test]
+fn the_mi_mode_warning_needs_an_mi_value_read_against_the_baseline() {
+    // The mode moves only `mi.*`, so a mismatch is worth a warning only
+    // when an `mi.*` offender is classified against an `mi.*` entry: a
+    // baseline holding none, or a run gating no `mi.*` metric, stays
+    // silent although both record the other mode.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let cyclomatic_only = dir.path().join("cyclomatic.toml");
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            cyclomatic_only.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let content = fs::read_to_string(&cyclomatic_only).unwrap();
+    assert!(
+        content.contains("mi_charges_docs = false") && !content.contains("metric = \"mi."),
+        "content:\n{content}"
+    );
+    let with_mi = dir.path().join("with-mi.toml");
+    write_mi_baseline(&dir, &src, &with_mi, "--mi-charges-docs=false");
+
+    for baseline in [&cyclomatic_only, &with_mi] {
+        cli(dir.path())
+            .args([
+                "check",
+                "--paths",
+                &src,
+                "--mi-charges-docs",
+                "--threshold",
+                "cyclomatic=1",
+                "--baseline",
+                baseline.to_str().unwrap(),
+            ])
+            .assert()
+            .stderr(predicate::str::contains("different formula").not());
+    }
+}

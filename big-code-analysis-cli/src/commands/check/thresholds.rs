@@ -35,7 +35,14 @@ pub(crate) struct ResolvedThresholds {
 /// [`resolve_tier`]: hard → no scaling; soft with a `[thresholds.soft]`
 /// table → per-metric limits (no single ratio); soft without a table →
 /// scaled by the spec's ratio (defaulting to [`DEFAULT_SOFT_HEADROOM`]).
-pub(crate) fn resolve_provenance(tier: TierSpec, soft_table_present: bool) -> baseline::Provenance {
+///
+/// `mi_charges_docs` is the resolved MI documentation mode (#1597),
+/// stamped alongside so a read under the other mode can be named.
+pub(crate) fn resolve_provenance(
+    tier: TierSpec,
+    soft_table_present: bool,
+    mi_charges_docs: bool,
+) -> baseline::Provenance {
     match tier {
         TierSpec::Hard => baseline::Provenance::hard(),
         TierSpec::Soft(_) if soft_table_present => baseline::Provenance::soft_table(),
@@ -43,6 +50,7 @@ pub(crate) fn resolve_provenance(tier: TierSpec, soft_table_present: bool) -> ba
             baseline::Provenance::soft_headroom(r.unwrap_or(DEFAULT_SOFT_HEADROOM))
         }
     }
+    .with_mi_charges_docs(mi_charges_docs)
 }
 
 /// Resolve the effective `--format` for `check` and eagerly validate the
@@ -143,6 +151,7 @@ pub(crate) fn validate_and_build_thresholds(
     args: &mut CheckArgs,
     merged: ParsedThresholds,
     tier: TierSpec,
+    mi_charges_docs: bool,
 ) -> ResolvedThresholds {
     // Resolve the `--output` / `--format` pairing before the walk so a
     // misconfigured invocation fails fast instead of after a full parse.
@@ -180,7 +189,7 @@ pub(crate) fn validate_and_build_thresholds(
     }
     ResolvedThresholds {
         thresholds: Arc::new(thresholds),
-        provenance: resolve_provenance(tier, soft_table_present),
+        provenance: resolve_provenance(tier, soft_table_present, mi_charges_docs),
     }
 }
 

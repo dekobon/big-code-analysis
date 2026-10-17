@@ -272,7 +272,7 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// metrics still emit) when the file is outside a repository or
 /// otherwise unblameable.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false, mi_charges_docs = false))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::fn_params_excessive_bools,
@@ -294,6 +294,7 @@ fn analyze(
     metrics: Option<Vec<String>>,
     vcs: bool,
     vcs_per_function: bool,
+    mi_charges_docs: bool,
 ) -> PyResult<Option<Bound<'_, PyAny>>> {
     // Resolve `metrics=` *before* `py.detach` so a bad name aborts
     // before any file I/O (issue #268 requires the validation to
@@ -305,6 +306,7 @@ fn analyze(
         allow_lossy_path,
         skip_generated,
         metrics: metric_set,
+        mi_charges_docs,
     };
     // Release the GIL across the file read + tree-sitter parse so
     // other Python threads (e.g. `concurrent.futures.ThreadPoolExecutor.map`
@@ -370,13 +372,14 @@ fn analyze(
 /// `metrics=` selects which metrics to compute (#268); see
 /// [`analyze`] for the full contract.
 #[pyfunction]
-#[pyo3(signature = (code, language, /, *, exclude_tests = false, metrics = None))]
+#[pyo3(signature = (code, language, /, *, exclude_tests = false, metrics = None, mi_charges_docs = false))]
 fn analyze_source<'py>(
     py: Python<'py>,
     code: &Bound<'py, PyAny>,
     language: &str,
     exclude_tests: bool,
     metrics: Option<Vec<String>>,
+    mi_charges_docs: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let bytes = extract_source_bytes(code)?;
     // Same GIL-release pattern as `analyze`: parsing is the heavy
@@ -399,6 +402,7 @@ fn analyze_source<'py>(
         allow_lossy_path: false,
         skip_generated: false,
         metrics: metric_set,
+        mi_charges_docs,
     };
     let json = py
         .detach(|| analysis::analyze_source(&language, &bytes, None, opts))

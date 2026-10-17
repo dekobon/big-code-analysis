@@ -498,6 +498,17 @@ pub struct MetricsOptions {
     /// elsewhere. Defaulting to `true` keeps every published metric
     /// value unchanged (#409).
     pub(crate) count_cyclomatic_try: bool,
+    /// When true, every `mi.*` variant charges documentation rows: the
+    /// size term is `sloc` and `mi.sei`'s comment ratio is
+    /// `cloc / sloc`, the formula every release before #1597 applied —
+    /// on the current LOC inputs; see
+    /// [`MetricsOptions::with_mi_charges_docs`] for what that leaves
+    /// out. The default, `false`, leaves the `dloc` rows that carry no code
+    /// out of the size term and the documentation rows out of both
+    /// sides of the ratio, so a space scores the same with and without
+    /// its documentation. Set via
+    /// [`MetricsOptions::with_mi_charges_docs`].
+    pub(crate) mi_charges_docs: bool,
 }
 
 #[cfg(test)]

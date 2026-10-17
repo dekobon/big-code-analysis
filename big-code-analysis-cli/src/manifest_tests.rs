@@ -393,6 +393,61 @@ fn merge_globals_respects_explicit_cli_num_jobs() {
     );
 }
 
+#[test]
+fn merge_globals_mi_charges_docs_follows_the_count_try_rule() {
+    // `mi_charges_docs` (#1597) merges exactly as `cyclomatic_count_try`
+    // does: the manifest fills in only when the CLI left it unset, and
+    // an explicit CLI value wins in either direction.
+    let mut g = GlobalOpts::default();
+    manifest(RawManifest::default()).merge_globals(&mut g, false);
+    assert_eq!(g.mi_charges_docs, None, "absent key leaves the default");
+
+    let m_true = manifest(RawManifest {
+        mi_charges_docs: Some(true),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts::default();
+    m_true.merge_globals(&mut g, false);
+    assert_eq!(g.mi_charges_docs, Some(true));
+
+    let mut g_off = GlobalOpts {
+        mi_charges_docs: Some(false),
+        ..Default::default()
+    };
+    m_true.merge_globals(&mut g_off, false);
+    assert_eq!(
+        g_off.mi_charges_docs,
+        Some(false),
+        "CLI false over manifest true"
+    );
+
+    let mut g_on = GlobalOpts {
+        mi_charges_docs: Some(true),
+        ..Default::default()
+    };
+    manifest(RawManifest {
+        mi_charges_docs: Some(false),
+        ..Default::default()
+    })
+    .merge_globals(&mut g_on, false);
+    assert_eq!(
+        g_on.mi_charges_docs,
+        Some(true),
+        "CLI true over manifest false"
+    );
+}
+
+#[test]
+fn known_keys_covers_mi_charges_docs() {
+    let text = "mi_charges_docs = true\n";
+    let raw: RawManifest = toml::from_str(text).expect("typed parse");
+    assert_eq!(raw.mi_charges_docs, Some(true));
+    assert!(
+        unknown_top_level_keys(text).is_empty(),
+        "mi_charges_docs is consumed but flagged as unknown"
+    );
+}
+
 /// Every key `RawManifest` consumes must appear in `KNOWN_KEYS`;
 /// otherwise the typed parse honors it while `warn_unknown_keys`
 /// prints a misleading "ignoring unrecognized key" warning. This

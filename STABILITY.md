@@ -708,7 +708,8 @@ As of `2.0`, flags are **scoped to the subcommand that consumes them**
 accepted in any position; every walk-, tuning-, preprocessor-, and
 output-specific flag (`--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
 `--language`/`-l`, `--jobs`/`-j`, `--no-ignore`, `--exclude-tests`,
-`--cyclomatic-count-try`, `--no-config`, `--preproc-data`, `--color`,
+`--cyclomatic-count-try`, `--mi-charges-docs`, `--no-config`,
+`--preproc-data`, `--color`,
 `--no-skip-generated`, `--paths-from`, `--exclude-from`) must follow the
 subcommand (`bca metrics --paths src`, never `bca --paths src metrics`).
 A flag passed to a subcommand that never consumed it is a hard usage

@@ -115,6 +115,10 @@ pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, ParseMet
 /// when overriding a single field — rather than relying on positional
 /// bool order.
 #[derive(Debug, Clone, Copy)]
+// Four bools, each a distinct documented Python kwarg projected onto one
+// `MetricsOptions` setter; a flags enum would only obscure the FFI
+// signature CPython binds against, as the `#[pyfunction]`s already note.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct AnalyzeOptions {
     /// Mirror `bca metrics --exclude-tests`: prune Rust `#[test]` /
     /// `#[cfg(test)]` subtrees before any per-metric `compute` runs
@@ -137,6 +141,11 @@ pub(crate) struct AnalyzeOptions {
     /// it (or pass `MetricSet::all()`) when the caller did not request
     /// a subset (#268).
     pub metrics: MetricSet,
+    /// Mirror `bca metrics --mi-charges-docs`: have every `mi.*`
+    /// variant charge documentation rows, the formula applied before
+    /// `loc.dloc` existed. Default `false` matches the CLI and the
+    /// library (#1597).
+    pub mi_charges_docs: bool,
 }
 
 // Manual `Default` impl — a `#[derive(Default)]` would set every bool
@@ -158,6 +167,7 @@ impl Default for AnalyzeOptions {
             // `MetricSet::default` would silently shift this baseline
             // — pin the literal.
             metrics: MetricSet::all(),
+            mi_charges_docs: false,
         }
     }
 }
@@ -437,7 +447,8 @@ fn analyze_bytes(
     // closed-over set, so re-resolving here would duplicate that work).
     let options = MetricsOptions::default()
         .with_exclude_tests(opts.exclude_tests)
-        .with_metric_set(opts.metrics);
+        .with_metric_set(opts.metrics)
+        .with_mi_charges_docs(opts.mi_charges_docs);
     let space = analyze(source, options)?;
     Ok(serde_json::to_string(&space)?)
 }

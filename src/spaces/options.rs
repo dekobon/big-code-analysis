@@ -16,6 +16,7 @@ impl Default for MetricsOptions {
             exclude_tests: false,
             metrics: MetricSet::default(),
             count_cyclomatic_try: true,
+            mi_charges_docs: false,
         }
     }
 }
@@ -45,6 +46,27 @@ impl MetricsOptions {
     #[must_use]
     pub fn with_count_cyclomatic_try(mut self, count: bool) -> Self {
         self.count_cyclomatic_try = count;
+        self
+    }
+
+    /// Builder-style setter for `MetricsOptions::mi_charges_docs`.
+    ///
+    /// Pass `true` to have every `mi.*` variant charge documentation
+    /// rows — the size term is `sloc` and `mi.sei`'s comment ratio is
+    /// `cloc / sloc`, the documentation-inclusive formula applied before
+    /// #1597. It restores that formula on the *current* LOC inputs, not
+    /// every earlier number: where #1597 also reclassified a row (an
+    /// implicitly concatenated Python docstring, a bare `"a", "b"`
+    /// tuple statement), a pre-#1597 release scored it differently.
+    /// The default, `false`, sizes a space on `sloc` less the
+    /// `dloc` rows that carry no code and forms the ratio on
+    /// `cloc − dloc`, so a docstring, a `///` block or a Javadoc comment
+    /// moves no variant. Only `mi.*` reads this: `loc.dloc` and every
+    /// other metric are the same in both modes.
+    #[inline]
+    #[must_use]
+    pub fn with_mi_charges_docs(mut self, charges_docs: bool) -> Self {
+        self.mi_charges_docs = charges_docs;
         self
     }
 

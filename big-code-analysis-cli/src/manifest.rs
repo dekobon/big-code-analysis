@@ -72,6 +72,8 @@ const KNOWN_KEYS: &[&str] = &[
     "baseline_line_tolerance",
     "baseline_fuzzy_match",
     "cyclomatic_count_try",
+    // Walker-tuning bool mirroring `--mi-charges-docs` (#1597).
+    "mi_charges_docs",
     // Walker-tuning bool mirroring `--exclude-tests` (#717). Listed here
     // so it draws no "unrecognized key" warning; `RawManifest` consumes
     // it (the dual-update rule).
@@ -167,6 +169,13 @@ struct RawManifest {
     /// `--cyclomatic-count-try <bool>` flag (#666); the CLI value
     /// overrides this key in either direction.
     cyclomatic_count_try: Option<bool>,
+    /// When `true`, every `mi.*` variant charges documentation rows —
+    /// the size term is `sloc` and the SEI comment ratio `cloc / sloc`,
+    /// the formula applied before `loc.dloc` existed (#1597). Defaults
+    /// to leaving documentation out (the key absent is equivalent to
+    /// `false`). Mirrors the value-taking `--mi-charges-docs <bool>`
+    /// flag; the CLI value overrides this key in either direction.
+    mi_charges_docs: Option<bool>,
     /// When `true`, Rust inline-test subtrees (`#[test]`, `#[cfg(test)]`,
     /// `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]`) are pruned before
     /// metric computation (#182/#717). Mirrors the `--exclude-tests`
@@ -568,6 +577,8 @@ impl Manifest {
         // unset. The positive sense is carried end-to-end, so the
         // downstream default (`?` counts) applies when both are absent.
         g.count_cyclomatic_try = g.count_cyclomatic_try.or(self.raw.cyclomatic_count_try);
+        // `--mi-charges-docs <bool>` follows the same rule (#1597).
+        g.mi_charges_docs = g.mi_charges_docs.or(self.raw.mi_charges_docs);
         // `--exclude-tests` is a presence-only flag (issue #717): it can
         // only turn pruning on, never off, so the manifest `exclude_tests`
         // key ORs in — a CLI `--exclude-tests` already set

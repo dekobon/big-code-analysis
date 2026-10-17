@@ -362,7 +362,7 @@ const _: fn() = || {
 /// `skip_generated=false` to restore the legacy "one result per input,
 /// always" behaviour, with the slot vocabulary described above.
 #[pyfunction]
-#[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
+#[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false, mi_charges_docs = false))]
 // `metrics: Option<Vec<String>>` is taken by value to match the PyO3
 // keyword-argument FFI shape (the macro materialises an owned `Vec`
 // out of the Python list); clippy's `needless_pass_by_value` lint
@@ -383,6 +383,7 @@ pub(crate) fn analyze_batch<'py>(
     metrics: Option<Vec<String>>,
     vcs: bool,
     vcs_per_function: bool,
+    mi_charges_docs: bool,
 ) -> PyResult<Vec<Py<PyAny>>> {
     // Resolve `metrics=` *before* `paths.try_iter()` so a bad name
     // (empty list, unknown metric) aborts before any iteration side
@@ -396,6 +397,7 @@ pub(crate) fn analyze_batch<'py>(
         allow_lossy_path,
         skip_generated,
         metrics: metric_set,
+        mi_charges_docs,
     };
 
     // Use `__len__` (Python's `len()` builtin, which is what PyO3's
@@ -645,7 +647,7 @@ fn attach_or_keep(json: String, inject: impl FnOnce(String) -> PyResult<String>)
 /// `vcs` / `vcs_per_function`), so a directory walk threads VCS attachment
 /// through the same shared-per-repo index (#670).
 #[pyfunction]
-#[pyo3(signature = (*paths, include = None, exclude = None, respect_gitignore = true, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
+#[pyo3(signature = (*paths, include = None, exclude = None, respect_gitignore = true, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false, mi_charges_docs = false))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::fn_params_excessive_bools,
@@ -663,6 +665,7 @@ pub(crate) fn analyze_paths<'py>(
     metrics: Option<Vec<String>>,
     vcs: bool,
     vcs_per_function: bool,
+    mi_charges_docs: bool,
 ) -> PyResult<Vec<Py<PyAny>>> {
     // Resolve `metrics=` first (matching `analyze_batch`'s #268 ordering)
     // so a bad selection aborts before any filesystem walk.
@@ -684,6 +687,7 @@ pub(crate) fn analyze_paths<'py>(
         allow_lossy_path,
         skip_generated,
         metrics: metric_set,
+        mi_charges_docs,
     };
     let mut vcs_repos = VcsRepoCache::new(vcs, vcs_per_function);
     // Under `skip_generated=false` every discovered file yields exactly

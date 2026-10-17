@@ -174,7 +174,7 @@ in any position. Every input-selection flag (`-p` / `--paths`, `-I` /
 `--include`, `-X` / `--exclude`, `-l` / `--language`, `--paths-from`,
 `--exclude-from`, `--no-ignore`, `--no-skip-generated`, `--no-config`),
 walker-tuning flag (`-j` / `--jobs`, `--exclude-tests`,
-`--cyclomatic-count-try`), the preprocessor flag (`--preproc-data`), and the
+`--cyclomatic-count-try`, `--mi-charges-docs`), the preprocessor flag (`--preproc-data`), and the
 output flag (`--color`) lives in a help-grouped section
 (*Input selection* / *Walker tuning* / *Preprocessor* / *Output*) on the
 subcommands that read it. A flag passed to a subcommand that never

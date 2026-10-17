@@ -69,7 +69,7 @@ pub(crate) fn run_check(
     let ResolvedThresholds {
         thresholds,
         provenance,
-    } = validate_and_build_thresholds(&mut args, layers, tier);
+    } = validate_and_build_thresholds(&mut args, layers, tier, globals.resolved_mi_charges_docs());
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
@@ -610,6 +610,9 @@ pub(crate) fn filter_by_baseline(
     // the gate can fire on untouched files). Silent in the safe
     // directions (hard reading soft, equal, absent provenance).
     if let Some(msg) = provenance_warning(provenance, baseline.provenance()) {
+        warn(msg);
+    }
+    if let Some(msg) = baseline.mi_mode_warning_for(provenance, &violations) {
         warn(msg);
     }
     let before = violations.len();

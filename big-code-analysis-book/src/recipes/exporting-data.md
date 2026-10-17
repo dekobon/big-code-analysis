@@ -89,6 +89,15 @@ Useful flags:
   least `N` (the default `0` reports any change).
 - `--metric <name>` (repeatable) restricts the diff to specific metrics.
 
+A saved document carries no record of the walker settings that
+produced it, so `bca diff` cannot tell two captures made under
+different ones apart from a real change: compare captures taken by the
+same version with the same `exclude_tests`, `cyclomatic_count_try` and
+`mi_charges_docs` (a different [MI documentation
+mode](../metrics.md#mi-charges-docs) moves every `mi.*` value of every
+documented space). `--since` runs both sides itself with one set of
+flags, so it cannot mix modes.
+
 ### Diff against a git ref with `--since`
 
 For the interactive "what did my uncommitted change do to the metrics?"

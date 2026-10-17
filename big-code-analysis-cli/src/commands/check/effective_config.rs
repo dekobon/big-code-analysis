@@ -218,6 +218,12 @@ pub(crate) struct EffectiveCheck {
     /// individual flags — is what set them.
     pub(crate) strict: bool,
     pub(crate) exclude_tests: bool,
+    /// The two metric-definition switches, resolved (#1597). Two runs
+    /// that differ only in one of these print identical thresholds and
+    /// paths yet gate `cyclomatic` or `mi.*` on different numbers, so
+    /// the resolved view names them.
+    pub(crate) cyclomatic_count_try: bool,
+    pub(crate) mi_charges_docs: bool,
     pub(crate) changed_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) since: Option<String>,
@@ -314,6 +320,8 @@ impl EffectiveCheck {
             no_skip_generated: globals.no_skip_generated,
             strict: args.strict,
             exclude_tests: globals.exclude_tests,
+            cyclomatic_count_try: globals.count_cyclomatic_try.unwrap_or(true),
+            mi_charges_docs: globals.resolved_mi_charges_docs(),
             changed_only: args.changed_only,
             since: args.since.clone(),
             headroom: tier.ratio(),
