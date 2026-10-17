@@ -29,7 +29,7 @@
 //! sourced from the library's canonical
 //! [`big_code_analysis::metric_catalog::FAMILIES`]. Every family yields
 //! one bucket named after the family, except `loc`, which expands to its
-//! sub-metric rows (`sloc`, `ploc`, `lloc`, `cloc`, `blank`) — matching
+//! sub-metric rows (`sloc`, `ploc`, `lloc`, `cloc`, `blank`, `dloc`) — matching
 //! `list-metrics` exactly. A file lands in a bucket when any scalar leaf
 //! under that metric's JSON subtree changed by at least the configured
 //! threshold.

@@ -265,6 +265,11 @@ pub struct Loc {
     pub cloc: u64,
     /// Blank lines.
     pub blank: u64,
+    /// Documentation rows (DLOC; today Python docstrings and `#:`
+    /// comments); a subset of `cloc`, `0` for every other language.
+    /// Defaulted so documents written before #1597 still parse.
+    #[serde(default)]
+    pub dloc: u64,
     /// Average SLOC per space.
     #[serde(default = "nan_default", with = "non_finite")]
     pub sloc_average: f64,
@@ -280,6 +285,9 @@ pub struct Loc {
     /// Average blank lines per space.
     #[serde(default = "nan_default", with = "non_finite")]
     pub blank_average: f64,
+    /// Average documentation rows per space.
+    #[serde(default = "nan_default", with = "non_finite")]
+    pub dloc_average: f64,
     /// Minimum SLOC in a single space.
     pub sloc_min: u64,
     /// Maximum SLOC in a single space.
@@ -300,6 +308,12 @@ pub struct Loc {
     pub blank_min: u64,
     /// Maximum blank lines in a single space.
     pub blank_max: u64,
+    /// Minimum documentation rows in a single space.
+    #[serde(default)]
+    pub dloc_min: u64,
+    /// Maximum documentation rows in a single space.
+    #[serde(default)]
+    pub dloc_max: u64,
 }
 
 impl From<&loc::Stats> for Loc {
@@ -310,11 +324,13 @@ impl From<&loc::Stats> for Loc {
             lloc: s.lloc(),
             cloc: s.cloc(),
             blank: s.blank(),
+            dloc: s.dloc(),
             sloc_average: s.sloc_average(),
             ploc_average: s.ploc_average(),
             lloc_average: s.lloc_average(),
             cloc_average: s.cloc_average(),
             blank_average: s.blank_average(),
+            dloc_average: s.dloc_average(),
             sloc_min: s.sloc_min(),
             sloc_max: s.sloc_max(),
             cloc_min: s.cloc_min(),
@@ -325,6 +341,8 @@ impl From<&loc::Stats> for Loc {
             lloc_max: s.lloc_max(),
             blank_min: s.blank_min(),
             blank_max: s.blank_max(),
+            dloc_min: s.dloc_min(),
+            dloc_max: s.dloc_max(),
         }
     }
 }

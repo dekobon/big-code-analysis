@@ -25,7 +25,7 @@ pub(crate) const IDENTITY_COLUMNS: usize = 5;
 /// Number of metric columns produced by [`metric_values`]. The
 /// per-section breakdown matches the comment dividers in the function
 /// body.
-pub(crate) const METRIC_COUNT: usize = 111;
+pub(crate) const METRIC_COUNT: usize = 115;
 
 /// Flatten a single FuncSpace's metrics into the flat column order
 /// used by CSV output. The order is the public contract exposed via
@@ -172,5 +172,10 @@ pub(crate) fn metric_values(space: &FuncSpace) -> [f64; METRIC_COUNT] {
         mi_.original(),
         mi_.sei(),
         mi_.visual_studio(),
+        // loc, continued — appended at the end of the row (#1597)
+        l.dloc() as f64,
+        l.dloc_average(),
+        l.dloc_min() as f64,
+        l.dloc_max() as f64,
     ]
 }

@@ -223,6 +223,7 @@ pub const METRICS: &[MetricInfo] = &[
     MetricInfo { id: "loc.lloc",            family: "loc",        long_description: "Logical lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
     MetricInfo { id: "loc.cloc",            family: "loc",        long_description: "Comment lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
     MetricInfo { id: "loc.blank",           family: "loc",        long_description: "Blank lines of code exceed the configured threshold.",             direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "loc.dloc",            family: "loc",        long_description: "Documentation lines of code exceed the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
     MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
     MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
     MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
@@ -286,6 +287,10 @@ pub const FAMILIES: &[MetricFamily] = &[
             MetricRow {
                 name: "blank",
                 summary: "Blank lines.",
+            },
+            MetricRow {
+                name: "dloc",
+                summary: "Documentation lines of code: rows the language treats as documentation, a subset of cloc (Python docstrings today).",
             },
         ],
     },
@@ -556,7 +561,14 @@ mod tests {
         };
         assert_eq!(
             by_scope(MetricScope::File),
-            ["loc.blank", "loc.cloc", "loc.lloc", "loc.ploc", "loc.sloc"],
+            [
+                "loc.blank",
+                "loc.cloc",
+                "loc.dloc",
+                "loc.lloc",
+                "loc.ploc",
+                "loc.sloc"
+            ],
             "only the loc.* size family is File-scoped",
         );
         assert_eq!(

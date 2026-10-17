@@ -258,12 +258,6 @@ metric = "halstead.effort"
 value = 92711.94569253008
 
 [[entry]]
-path = "big-code-analysis-ast/src/getter/python.rs"
-qualified = "PythonCode::get_op_type"
-metric = "halstead.effort"
-value = 61900.01893104293
-
-[[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
@@ -639,7 +633,7 @@ value = 70177.90308128356
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 549.0
+value = 554.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -831,7 +825,7 @@ value = 6.0
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 747.0
+value = 751.0
 
 [[entry]]
 path = "big-code-analysis-py/src/vcs.rs"
@@ -1042,6 +1036,18 @@ path = "src/metrics/cyclomatic/rust.rs"
 qualified = "RustCode::compute_with_options"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 555.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "Stats"
+metric = "nom"
+value = 30.0
 
 [[entry]]
 path = "src/metrics/loc/bash.rs"
@@ -1281,13 +1287,13 @@ value = 9.0
 path = "src/output/funcspace_row.rs"
 qualified = "metric_values"
 metric = "abc"
-value = 111.87939935484101
+value = 115.84903970253703
 
 [[entry]]
 path = "src/output/funcspace_row.rs"
 qualified = "metric_values"
 metric = "halstead.effort"
-value = 86304.11475310498
+value = 89579.4980762016
 
 [[entry]]
 path = "src/spaces.rs"

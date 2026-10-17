@@ -3,6 +3,8 @@
 
 use super::*;
 
+use crate::lang_helpers::python::python_is_bare_string;
+
 /// The role of a `{`, `:` or `=`, which Python spells both as syntax
 /// and inside an f-string's replacement field.
 ///
@@ -98,28 +100,14 @@ impl Getter for PythonCode {
             }
             Identifier | Integer | Float | True | False | None => TokenRole::Operand,
             String => {
-                // Docstring / module-level string statement: an `ExpressionStatement`
-                // whose only child is the string. Skip those.
-                let mut climb = ancestors.iter(node);
-                let Some((parent, _)) = climb.next() else {
-                    return TokenRole::Unknown;
-                };
-                if parent.kind_id() == ExpressionStatement && parent.child_count() == 1 {
-                    return TokenRole::Unknown;
-                }
-                // Implicit-concatenation docstring (`"""doc""" "more"`): the
-                // adjacent literals are wrapped in a `concatenated_string`,
-                // which is itself the sole child of the docstring
-                // `ExpressionStatement`. Without this arm each fragment would
-                // count as a separate operand, making the docstring's N2
-                // contribution depend on how many literals it was split into
-                // (#695). Suppress every fragment of such a docstring.
-                if parent.kind_id() == ConcatenatedString
-                    && climb.next().is_some_and(|(grandparent, _)| {
-                        grandparent.kind_id() == ExpressionStatement
-                            && grandparent.child_count() == 1
-                    })
-                {
+                // A bare string statement's string — its sole value, or a
+                // fragment of an implicitly concatenated one — is discarded,
+                // so it is not an operand (#695). The LOC walk bills the same
+                // strings as comment rows through this predicate, so the two
+                // agree on which strings are discarded; whether one is also
+                // documentation is `python_is_documentation_string`, which
+                // Halstead deliberately does not read (#1597).
+                if python_is_bare_string(node, ancestors) {
                     return TokenRole::Unknown;
                 }
                 // Regression #191: an f-string wraps `Interpolation` children

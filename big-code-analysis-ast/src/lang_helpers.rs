@@ -14,6 +14,9 @@
 //! on the metric layer, the inversion #1376 exists to remove.
 
 pub mod bash;
+// Crate-private: the documentation rules in this crate read node bytes
+// through it.
+pub(crate) mod doc_comment;
 pub mod elixir;
 // Crate-private: this dialect's only helper is a kind table the three
 // classifiers in this crate share, and nothing outside names it.

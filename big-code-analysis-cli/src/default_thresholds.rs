@@ -172,7 +172,7 @@ const THRESHOLDS_HEADER: &str = "\
 #         cognitive, cyclomatic, cyclomatic.modified,
 #         halstead.volume, halstead.difficulty, halstead.effort,
 #         halstead.time, halstead.bugs,
-#         loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank,
+#         loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank, loc.dloc,
 #         nom, tokens, nexits, nargs,
 #         mi.original, mi.sei, mi.visual_studio,
 #         abc, wmc, npm, npa
@@ -189,10 +189,11 @@ const THRESHOLDS_HEADER: &str = "\
 #         cyclomatic.modified,
 #         halstead.volume, halstead.difficulty, halstead.time,
 #         halstead.bugs,
-#         loc.lloc, loc.cloc, loc.blank,
+#         loc.lloc, loc.cloc, loc.blank, loc.dloc,
 #         mi.original, mi.sei, mi.visual_studio,
 #         npm, npa, tokens
-# They are still computed and visible in `bca report markdown|html`.
+# They are still computed and present in every `bca metrics` output
+# format; `bca report markdown|html` shows only a subset of them.
 # halstead.volume is the notable omission: the widely-cited \"function
 # volume under 1000\" guideline fires on ~7% of functions in the median
 # language and 20% in the worst, which is advisory-grade, not

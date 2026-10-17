@@ -166,11 +166,13 @@ class LocDict(TypedDict):
     lloc: int
     cloc: int
     blank: int
+    dloc: int
     sloc_average: float | None
     ploc_average: float | None
     lloc_average: float | None
     cloc_average: float | None
     blank_average: float | None
+    dloc_average: float | None
     sloc_min: int
     sloc_max: int
     cloc_min: int
@@ -181,6 +183,8 @@ class LocDict(TypedDict):
     lloc_max: int
     blank_min: int
     blank_max: int
+    dloc_min: int
+    dloc_max: int
 
 
 class MiDict(TypedDict):

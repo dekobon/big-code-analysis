@@ -86,7 +86,10 @@ fn span_rows(start_row: usize, end_line: usize) -> usize {
     end_line.saturating_sub(start_row)
 }
 
+mod dloc;
 mod line_set;
+
+use dloc::Dloc;
 use line_set::LineSet;
 
 /// The `SLoc` metric suite.
@@ -497,6 +500,7 @@ pub struct Stats {
     ploc: Ploc,
     cloc: Cloc,
     lloc: Lloc,
+    dloc: Dloc,
     space_count: usize,
     blank_min: usize,
     blank_max: usize,
@@ -509,6 +513,7 @@ impl Default for Stats {
             ploc: Ploc::default(),
             cloc: Cloc::default(),
             lloc: Lloc::default(),
+            dloc: Dloc::default(),
             space_count: 1,
             blank_min: usize::MAX,
             blank_max: 0,
@@ -520,17 +525,19 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "sloc: {}, ploc: {}, lloc: {}, cloc: {}, blank: {}, sloc_average: {}, ploc_average: {}, lloc_average: {}, cloc_average: {}, blank_average: {}, sloc_min: {}, sloc_max: {}, cloc_min: {}, cloc_max: {}, ploc_min: {}, ploc_max: {}, lloc_min: {}, lloc_max: {}, blank_min: {}, blank_max: {}",
+            "sloc: {}, ploc: {}, lloc: {}, cloc: {}, blank: {}, dloc: {}, sloc_average: {}, ploc_average: {}, lloc_average: {}, cloc_average: {}, blank_average: {}, dloc_average: {}, sloc_min: {}, sloc_max: {}, cloc_min: {}, cloc_max: {}, ploc_min: {}, ploc_max: {}, lloc_min: {}, lloc_max: {}, blank_min: {}, blank_max: {}, dloc_min: {}, dloc_max: {}",
             self.sloc(),
             self.ploc(),
             self.lloc(),
             self.cloc(),
             self.blank(),
+            self.dloc(),
             self.sloc_average(),
             self.ploc_average(),
             self.lloc_average(),
             self.cloc_average(),
             self.blank_average(),
+            self.dloc_average(),
             self.sloc_min(),
             self.sloc_max(),
             self.cloc_min(),
@@ -541,6 +548,8 @@ impl fmt::Display for Stats {
             self.lloc_max(),
             self.blank_min(),
             self.blank_max(),
+            self.dloc_min(),
+            self.dloc_max(),
         )
     }
 }
@@ -585,6 +594,7 @@ impl Stats {
         self.ploc.merge(&other.ploc);
         self.cloc.merge(&other.cloc);
         self.lloc.merge(&other.lloc);
+        self.dloc.merge(&other.dloc);
 
         // Count spaces
         self.space_count = self.space_count.saturating_add(other.space_count);
@@ -640,6 +650,19 @@ impl Stats {
         self.cloc.cloc()
     }
 
+    /// The `Dloc` metric: Documentation Lines Of Code.
+    ///
+    /// Counts the rows a language treats as documentation — a doc
+    /// comment its own tool recognises (`Checker::is_doc_comment`), a
+    /// Python docstring, a Perl POD block. Those rows are also comment
+    /// lines, so `dloc() <= cloc()`; a language without a documentation
+    /// syntax reports `0` (#1597).
+    #[inline]
+    #[must_use]
+    pub fn dloc(&self) -> u64 {
+        self.dloc.dloc()
+    }
+
     /// The `Blank` metric.
     ///
     /// Counts the number of blank lines in a scope
@@ -692,6 +715,15 @@ impl Stats {
         crate::metrics::average(self.cloc() as f64, self.space_count)
     }
 
+    /// The `Dloc` metric average value.
+    ///
+    /// This value is computed dividing the `Dloc` value for the number of spaces
+    #[inline]
+    #[must_use]
+    pub fn dloc_average(&self) -> f64 {
+        crate::metrics::average(self.dloc() as f64, self.space_count)
+    }
+
     /// The `Blank` metric average value.
     ///
     /// This value is computed dividing the `Blank` value for the number of spaces
@@ -727,6 +759,20 @@ impl Stats {
     #[must_use]
     pub fn cloc_max(&self) -> u64 {
         self.cloc.cloc_max()
+    }
+
+    /// The `Dloc` metric minimum value.
+    #[inline]
+    #[must_use]
+    pub fn dloc_min(&self) -> u64 {
+        self.dloc.dloc_min()
+    }
+
+    /// The `Dloc` metric maximum value.
+    #[inline]
+    #[must_use]
+    pub fn dloc_max(&self) -> u64 {
+        self.dloc.dloc_max()
     }
 
     /// The `Ploc` metric minimum value.
@@ -778,6 +824,7 @@ impl Stats {
         self.ploc.compute_minmax();
         self.cloc.compute_minmax();
         self.lloc.compute_minmax();
+        self.dloc.compute_minmax();
 
         // Fold this space's own blank value unconditionally so containers
         // participate, matching the sibling metrics' convention (#437).
@@ -902,8 +949,10 @@ impl Stats {
         self.ploc.lines.retain_range(first, last);
         self.cloc.only_comment_line_starts.retain_range(first, last);
         self.cloc.code_comment_line_starts.retain_range(first, last);
-        // The fourth set is the `exclude_tests`-pruned rows, and it is
-        // clamped for the same reason as the other three rather than
+        // Retained with the two cloc sets it is a subset of.
+        self.dloc.lines.retain_range(first, last);
+        // The last set is the `exclude_tests`-pruned rows, and it is
+        // clamped for the same reason as the other four rather than
         // because anything is known to put a row outside the span
         // there: a pruned node lies inside the space that recorded it,
         // so this is expected to be a no-op. What it buys is the
@@ -1007,12 +1056,29 @@ impl Stats {
             self.ploc(),
             self.sloc()
         );
+        let cloc = self.cloc();
         debug_assert!(
-            self.cloc() <= self.sloc(),
+            cloc <= self.sloc(),
             "cloc {} exceeds sloc {} after settling",
-            self.cloc(),
+            cloc,
             self.sloc()
         );
+        // Every documentation row is a cloc row (#1597) — `add_comment_rows`
+        // bills both, the Python runs re-bill billed comment rows —
+        // and MI's subtractions rely on it. Compared as sets, not counts: a
+        // stray row would grow the union while leaving `dloc() <= cloc()`.
+        #[cfg(debug_assertions)]
+        {
+            let mut comment_rows = self.cloc.only_comment_line_starts.clone();
+            comment_rows.union_with(&self.cloc.code_comment_line_starts);
+            debug_assert_eq!(
+                comment_rows.union_len(&self.dloc.lines),
+                comment_rows.len(),
+                "a dloc row outside the cloc sets after settling (dloc {}, cloc {})",
+                self.dloc(),
+                cloc
+            );
+        }
     }
 }
 
@@ -1091,7 +1157,8 @@ mod tests {
 
     /// A `Stats::default()` that never sees an observation must not leak
     /// the `usize::MAX` sentinel for any of the LOC `_min` accumulators
-    /// (`sloc_min`, `ploc_min`, `lloc_min`, `cloc_min`, `blank_min`).
+    /// (`sloc_min`, `ploc_min`, `lloc_min`, `cloc_min`, `blank_min`,
+    /// `dloc_min`).
     /// The getters collapse the sentinel to `0.0` so JSON never emits
     /// `1.8446744e19`.
     #[test]
@@ -1102,6 +1169,7 @@ mod tests {
         assert_eq!(stats.lloc_min(), 0);
         assert_eq!(stats.cloc_min(), 0);
         assert_eq!(stats.blank_min(), 0);
+        assert_eq!(stats.dloc_min(), 0);
     }
 
     /// Parses `source` with `PerlParser` and asserts the resulting tree has
@@ -1147,11 +1215,13 @@ mod tests {
                   "lloc": 1,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 1.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 1,
                   "cloc_min": 0,
@@ -1161,7 +1231,9 @@ mod tests {
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1191,11 +1263,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -1205,7 +1279,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1236,11 +1312,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -1250,7 +1328,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1268,11 +1348,13 @@ mod tests {
               "lloc": 0,
               "cloc": 1,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 0.5,
               "ploc_average": 0.5,
               "lloc_average": 0.0,
               "cloc_average": 0.5,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 1,
@@ -1282,7 +1364,9 @@ mod tests {
               "lloc_min": 0,
               "lloc_max": 0,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -1312,11 +1396,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -1326,7 +1412,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1362,11 +1450,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 3.5,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 10,
                   "sloc_max": 10,
                   "cloc_min": 4,
@@ -1376,7 +1466,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1411,11 +1503,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.5,
                   "ploc_average": 3.5,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 9,
                   "sloc_max": 9,
                   "cloc_min": 4,
@@ -1425,7 +1519,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1461,11 +1557,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 5,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 3.5,
                   "lloc_average": 3.0,
                   "cloc_average": 2.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 10,
                   "sloc_max": 10,
                   "cloc_min": 5,
@@ -1475,7 +1573,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1512,11 +1612,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 4,
@@ -1526,7 +1628,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1563,11 +1667,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 4,
@@ -1577,7 +1683,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1614,11 +1722,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 4,
@@ -1628,7 +1738,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1666,11 +1778,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 5,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 12,
                   "sloc_max": 12,
                   "cloc_min": 5,
@@ -1680,7 +1794,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1719,11 +1835,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 5,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 6.5,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 13,
                   "sloc_max": 13,
                   "cloc_min": 5,
@@ -1733,7 +1851,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1769,11 +1889,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 10,
                   "sloc_max": 10,
                   "cloc_min": 3,
@@ -1783,7 +1905,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1821,11 +1945,13 @@ mod tests {
                   "lloc": 6,
                   "cloc": 5,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 12,
                   "sloc_max": 12,
                   "cloc_min": 5,
@@ -1835,7 +1961,9 @@ mod tests {
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1864,11 +1992,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 5,
                   "blank": 0,
+                  "dloc": 3,
                   "sloc_average": 5.0,
                   "ploc_average": 1.0,
                   "lloc_average": 2.0,
                   "cloc_average": 5.0,
                   "blank_average": 0.0,
+                  "dloc_average": 3.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 5,
@@ -1878,7 +2008,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 3,
+                  "dloc_max": 3
                 }
                 "#
                 );
@@ -1913,11 +2045,13 @@ mod tests {
                   "lloc": 1,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 4,
@@ -1927,7 +2061,9 @@ mod tests {
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -1959,11 +2095,13 @@ mod tests {
                   "lloc": 1,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 4,
@@ -1973,7 +2111,9 @@ mod tests {
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2000,11 +2140,13 @@ mod tests {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -2014,7 +2156,9 @@ mod tests {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2043,11 +2187,13 @@ mod tests {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 5.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 0,
@@ -2057,7 +2203,9 @@ mod tests {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2084,11 +2232,13 @@ mod tests {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 6.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -2098,7 +2248,9 @@ mod tests {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2124,11 +2276,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 2,
                   "sloc_max": 2,
                   "cloc_min": 0,
@@ -2138,7 +2292,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2167,11 +2323,13 @@ mod tests {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 0,
@@ -2181,7 +2339,9 @@ mod tests {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2208,11 +2368,13 @@ mod tests {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 2,
                   "sloc_max": 2,
                   "cloc_min": 0,
@@ -2222,7 +2384,9 @@ mod tests {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2251,11 +2415,13 @@ mod tests {
                   "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 4.0,
                   "lloc_average": 4.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 0,
@@ -2265,7 +2431,9 @@ mod tests {
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2294,11 +2462,13 @@ mod tests {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 0,
@@ -2308,7 +2478,9 @@ mod tests {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2335,11 +2507,13 @@ mod tests {
                   "lloc": 1,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.0,
                   "ploc_average": 2.0,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 2,
                   "sloc_max": 2,
                   "cloc_min": 0,
@@ -2349,7 +2523,9 @@ mod tests {
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2371,10 +2547,13 @@ ORDER BY name
 \"\"\"",
             "foo.py",
             |metric| {
-                // Spaces: 1. Six physical lines, all code, no blanks.
+                // Spaces: 1. Six physical lines, all code, no blanks. An
+                // assigned literal is not a docstring, so its rows reach
+                // neither `cloc` nor `dloc`.
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
                 assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.dloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(
                     metric.loc,
@@ -2385,11 +2564,13 @@ ORDER BY name
                   "lloc": 1,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 6.0,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -2399,7 +2580,9 @@ ORDER BY name
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2456,9 +2639,261 @@ line two
             "foo.py",
             |metric| {
                 // Spaces: 2 (module + function). The three docstring rows are
-                // comment lines, not code or blank lines.
+                // comment lines, not code or blank lines — and since #1597
+                // they are also reported as `dloc`, so a consumer can
+                // read CLOC either way.
                 assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.dloc(), 3);
                 assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_single_line_docstring_is_one_docstring_row() {
+        // expected: 3 rows — `def`, the docstring, `return`. The docstring
+        // row is a comment row and a docstring row; neither code nor blank.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"One line.\"\"\"\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.dloc(), 1);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_sharing_the_def_row_counts_that_row() {
+        // A docstring on the `def` row is a code-and-comment row for CLOC
+        // (`add_cloc_lines`'s first branch), and the `dloc` set records
+        // the same row: `dloc <= cloc` must hold on this shape too.
+        // expected: 1 row that is code, comment and docstring at once.
+        check_metrics::<PythonParser>("def f(): \"\"\"x\"\"\"", "foo.py", |metric| {
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.dloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_is_a_subset_of_cloc() {
+        // Anchors the subset on a second axis (`.claude/rules/testing.md`):
+        // the comment row is in `cloc` and not in `dloc`, so trimming
+        // either construct out of the fixture fails a different assertion.
+        // expected: 5 rows — `def`, two docstring rows, `# a comment`,
+        // `return`; cloc 3 = 2 docstring + 1 comment.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"Doc one.\n    Doc two.\"\"\"\n    # a comment\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.dloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_string_out_of_docstring_position_is_a_comment_not_documentation() {
+        // Any bare string statement is a comment row (#415), but only one in
+        // a PEP 257 docstring or attribute-docstring position is
+        // documentation (#1597). A string after `x = 1` inside a function is
+        // neither: only a class's `__init__` has attribute docstrings, and
+        // only after an assignment to `self.<name>`.
+        // expected: 4 rows — `def`, `x = 1`, the bare string, `return`.
+        check_metrics::<PythonParser>(
+            "def f():\n    x = 1\n    \"\"\"Not first, still bare.\"\"\"\n    return x",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.dloc(), 0);
+            },
+        );
+    }
+
+    /// Each position the PEP 257 rule accepts or rejects (#1597). Every
+    /// fixture's bare string is one row, so `cloc` counts the bare strings
+    /// and `dloc` the ones in a documentation position.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_documentation_positions_follow_pep_257() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, cloc, dloc)
+            ("module docstring", b"\"\"\"M.\"\"\"\nx = 1\n", 1, 1),
+            ("module docstring after a comment", b"# c\n\"\"\"M.\"\"\"\nx = 1\n", 2, 1),
+            ("class docstring", b"class C:\n    \"\"\"C.\"\"\"\n    x = 1\n", 1, 1),
+            ("function docstring", b"def f():\n    \"\"\"F.\"\"\"\n    return 1\n", 1, 1),
+            ("additional docstring", b"def f():\n    \"\"\"F.\"\"\"\n    \"\"\"More.\"\"\"\n    return 1\n", 2, 2),
+            ("successive additional docstrings", b"def f():\n    \"\"\"F.\"\"\"\n    \"\"\"More.\"\"\"\n    \"\"\"Still more.\"\"\"\n    return 1\n", 3, 3),
+            ("additional attribute docstring", b"x = 1\n\"\"\"X.\"\"\"\n\"\"\"More.\"\"\"\n", 2, 2),
+            ("additional class attribute docstring", b"class C:\n    x = 1\n    \"\"\"X.\"\"\"\n    # comment\n    \"\"\"More.\"\"\"\n", 3, 2),
+            ("successive strings after a call", b"print(1)\n\"\"\"No.\"\"\"\n\"\"\"Still no.\"\"\"\n", 2, 0),
+            ("module attribute docstring", b"x = 1\n\"\"\"X.\"\"\"\n", 1, 1),
+            ("annotated attribute docstring", b"x: int = 1\n\"\"\"X.\"\"\"\n", 1, 1),
+            ("class attribute docstring", b"class C:\n    x = 1\n    \"\"\"X.\"\"\"\n", 1, 1),
+            ("after an assignment in a function", b"def f():\n    x = 1\n    \"\"\"No.\"\"\"\n", 1, 0),
+            ("after a call at module level", b"print(1)\n\"\"\"No.\"\"\"\n", 1, 0),
+            ("after the imports", b"import os\n\"\"\"No.\"\"\"\n", 1, 0),
+            ("inside an if body", b"if True:\n    \"\"\"No.\"\"\"\n", 1, 0),
+            ("concatenated docstring", b"def f():\n    \"\"\"F.\"\"\" \"more\"\n    return 1\n", 1, 1),
+            // PEP 257's third place for attribute docstrings, PEP 258's
+            // instance attribute: `self.<name>` at the top level of a class's
+            // `__init__`, as Sphinx records it.
+            ("attribute docstring in __init__", b"class C:\n    def __init__(self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
+            ("additional attribute docstring in __init__", b"class C:\n    def __init__(self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n        \"\"\"More.\"\"\"\n", 2, 2),
+            ("annotated attribute in __init__", b"class C:\n    def __init__(self):\n        self.x: int = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
+            ("decorated __init__", b"class C:\n    @wraps\n    def __init__(self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
+            ("receiver named otherwise", b"class C:\n    def __init__(this):\n        this.x = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
+            ("local in __init__", b"class C:\n    def __init__(self):\n        x = 1\n        \"\"\"No.\"\"\"\n", 1, 0),
+            ("other object in __init__", b"class C:\n    def __init__(self, o):\n        o.x = 1\n        \"\"\"No.\"\"\"\n", 1, 0),
+            ("self attribute in another method", b"class C:\n    def m(self):\n        self.x = 1\n        \"\"\"No.\"\"\"\n", 1, 0),
+            ("__init__ outside a class", b"def __init__(self):\n    self.x = 1\n    \"\"\"No.\"\"\"\n", 1, 0),
+            // A module or class attribute docstring follows a name, or a
+            // tuple holding one; Sphinx records none after a subscript or
+            // another object's attribute.
+            ("tuple target", b"a, b = 1, 2\n\"\"\"Pair.\"\"\"\n", 1, 1),
+            ("subscript target", b"x = {}\nx[\"k\"] = 1\n\"\"\"No.\"\"\"\n", 1, 0),
+            ("attribute target", b"import os\nos.sep = \"/\"\n\"\"\"No.\"\"\"\n", 1, 0),
+            ("class-level attribute target", b"class C:\n    Foo.x = 1\n    \"\"\"No.\"\"\"\n", 1, 0),
+            // Only a `str` literal is stored as `__doc__`.
+            ("f-string docstring", b"def f():\n    f\"\"\"F.\"\"\"\n    return 1\n", 1, 0),
+            ("bytes docstring", b"def f():\n    b\"\"\"B.\"\"\"\n    return 1\n", 1, 0),
+            ("raw docstring", b"def f():\n    r\"\"\"R.\"\"\"\n    return 1\n", 1, 1),
+            ("f-string fragment", b"def f():\n    \"\"\"a\"\"\" f\"b\"\n    return 1\n", 1, 0),
+            ("string after an f-string", b"def f():\n    f\"\"\"x\"\"\"\n    \"\"\"No.\"\"\"\n    return 1\n", 2, 0),
+        ];
+        for (name, source, cloc, dloc) in cases {
+            let loc = metrics_verbatim(crate::LANG::Python, source, MetricsOptions::default()).loc;
+            assert_eq!((loc.cloc(), loc.dloc()), (*cloc, *dloc), "Python: {name}");
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_with_an_escape_sequence_is_not_a_code_row() {
+        // `escape_sequence` is a leaf under `string_content`; left to the
+        // catch-all it credited the docstring's row to PLOC, so the row
+        // read as both code and docstring (#1597). expected: 3 rows —
+        // `def`, the docstring, `return`; the docstring row is a comment
+        // row only.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"Has a \\n escape.\"\"\"\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.dloc(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_concatenated_docstring_counts_its_rows() {
+        // `"""Doc.""" "more"` is one docstring to CPython (adjacent
+        // literals join at compile time) and to Halstead (#695); the LOC
+        // walk shares that predicate, so the whole `concatenated_string`
+        // is billed as docstring rows and its fragments add no code row.
+        // expected: 4 rows — `def`, two docstring rows, `return`.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"Doc one.\n    Two.\"\"\" \"and more.\"\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.dloc(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_concatenated_string_value_stays_code() {
+        // The other branch of the `ConcatenatedString` arm: a concatenated
+        // value keeps the catch-all's PLOC credit for its opening row.
+        // expected: 3 rows, all code.
+        check_metrics::<PythonParser>(
+            "def f():\n    x = \"a\" \"b\"\n    return x",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.dloc(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_tuple_of_strings_is_not_a_docstring() {
+        // A bare `"a", "b"` statement has two expression children, so it
+        // is a discarded tuple, not a docstring — the `child_count == 1`
+        // gate Halstead has applied since #695 and the LOC walk now
+        // shares. expected: 3 rows, all code.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"a\", \"b\"\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.dloc(), 0);
+            },
+        );
+        // A multi-row leading element: its opening row has no other token,
+        // so the literal must credit it — no row of the statement is blank.
+        // expected: 4 rows, all code.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"first\n    second\"\"\", None\n    return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// Docstring sibling of `python_nested_min_max_propagates` (#437): the
+    /// per-space minimum, maximum and average fold through unit -> class
+    /// -> method exactly as the other five loc fields do.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_min_max_propagate_through_nested_spaces() {
+        // expected: Spaces are unit, `C`, `small`, `big`. Own docstring
+        // rows: unit 2 (module docstring), `C` 1, `small` 0, `big` 3.
+        // Merging unions upward, so the unit reports 6 and `C` reports 4;
+        // `small` holds the minimum 0 and the unit's merged total is the
+        // maximum, as `sloc_max == sloc()` in the sibling test. Average is
+        // 6 / 4 spaces.
+        check_metrics::<PythonParser>(
+            "\"\"\"Module doc.\nMore.\"\"\"\nclass C:\n    \"\"\"Class doc.\"\"\"\n    def small(self):\n        x = 1\n    def big(self):\n        \"\"\"Big doc.\n        Second.\n        Third.\"\"\"\n        return 1\n",
+            "c.py",
+            |metric| {
+                let loc = &metric.loc;
+                assert_eq!(loc.dloc(), 6);
+                assert_eq!(loc.cloc(), 6);
+                assert_eq!(loc.dloc_min(), 0, "smallest leaf method has no docstring");
+                assert_eq!(loc.dloc_max(), 6, "the unit's merged total is the maximum");
+                assert_eq!(loc.dloc_average(), 1.5);
             },
         );
     }
@@ -2484,11 +2919,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 5.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 0,
@@ -2498,7 +2935,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2520,11 +2959,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -2534,7 +2975,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -2555,11 +2998,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -2569,7 +3014,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -2590,11 +3037,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -2604,7 +3053,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -2625,11 +3076,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -2639,7 +3092,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -2665,11 +3120,13 @@ line two
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 3.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 3,
@@ -2679,7 +3136,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2706,11 +3165,13 @@ line two
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 3.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 3,
@@ -2720,7 +3181,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2747,11 +3210,13 @@ line two
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 3.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 3,
@@ -2761,7 +3226,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2787,11 +3254,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 2,
                   "sloc_max": 2,
                   "cloc_min": 2,
@@ -2801,7 +3270,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2827,11 +3298,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 2,
                   "sloc_max": 2,
                   "cloc_min": 0,
@@ -2841,7 +3314,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2868,11 +3343,13 @@ line two
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 1.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -2882,7 +3359,9 @@ line two
                   "lloc_min": 0,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2912,11 +3391,13 @@ line two
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 1.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -2926,7 +3407,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -2966,11 +3449,13 @@ line two
                   "lloc": 8,
                   "cloc": 7,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 8.0,
                   "ploc_average": 4.5,
                   "lloc_average": 4.0,
                   "cloc_average": 3.5,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 16,
                   "sloc_max": 16,
                   "cloc_min": 7,
@@ -2980,7 +3465,9 @@ line two
                   "lloc_min": 8,
                   "lloc_max": 8,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3009,11 +3496,13 @@ line two
                   "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 0,
@@ -3023,7 +3512,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3052,11 +3543,13 @@ line two
                   "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 0,
@@ -3066,7 +3559,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3095,11 +3590,13 @@ line two
                   "lloc": 1,
                   "cloc": 1,
                   "blank": 2,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 1.5,
                   "lloc_average": 0.5,
                   "cloc_average": 0.5,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -3109,7 +3606,9 @@ line two
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 2,
-                  "blank_max": 2
+                  "blank_max": 2,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3134,11 +3633,13 @@ line two
                   "lloc": 0,
                   "cloc": 1,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 0.5,
                   "ploc_average": 0.5,
                   "lloc_average": 0.0,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 1,
                   "cloc_min": 0,
@@ -3148,7 +3649,9 @@ line two
                   "lloc_min": 0,
                   "lloc_max": 0,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3178,11 +3681,13 @@ line two
                   "lloc": 3,
                   "cloc": 2,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 2,
@@ -3192,7 +3697,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3220,11 +3727,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 2,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 2.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 0,
@@ -3234,7 +3743,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 2,
-                  "blank_max": 2
+                  "blank_max": 2,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3261,11 +3772,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -3275,7 +3788,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3302,11 +3817,13 @@ line two
                   "lloc": 0,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 0.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -3316,7 +3833,9 @@ line two
                   "lloc_min": 0,
                   "lloc_max": 0,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3338,11 +3857,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -3352,7 +3873,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -3378,11 +3901,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -3392,7 +3917,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3420,11 +3947,13 @@ line two
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 0,
@@ -3434,7 +3963,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3456,11 +3987,13 @@ line two
               "lloc": 1,
               "cloc": 0,
               "blank": 0,
+              "dloc": 0,
               "sloc_average": 1.0,
               "ploc_average": 1.0,
               "lloc_average": 1.0,
               "cloc_average": 0.0,
               "blank_average": 0.0,
+              "dloc_average": 0.0,
               "sloc_min": 1,
               "sloc_max": 1,
               "cloc_min": 0,
@@ -3470,7 +4003,9 @@ line two
               "lloc_min": 1,
               "lloc_max": 1,
               "blank_min": 0,
-              "blank_max": 0
+              "blank_max": 0,
+              "dloc_min": 0,
+              "dloc_max": 0
             }
             "#
             );
@@ -3496,11 +4031,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 2.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 2,
@@ -3510,7 +4047,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3539,11 +4078,13 @@ line two
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 3.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 3,
@@ -3553,7 +4094,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3583,11 +4126,13 @@ line two
                   "lloc": 4,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 5.0,
                   "lloc_average": 4.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 4,
@@ -3597,7 +4142,9 @@ line two
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3627,11 +4174,13 @@ line two
                   "lloc": 4,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 5.0,
                   "ploc_average": 5.0,
                   "lloc_average": 4.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 4,
@@ -3641,7 +4190,9 @@ line two
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3681,11 +4232,13 @@ line two
                   "lloc": 9,
                   "cloc": 9,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 16.0,
                   "ploc_average": 16.0,
                   "lloc_average": 9.0,
                   "cloc_average": 9.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 16,
                   "sloc_max": 16,
                   "cloc_min": 9,
@@ -3695,7 +4248,9 @@ line two
                   "lloc_min": 9,
                   "lloc_max": 9,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3725,11 +4280,13 @@ line two
                   "lloc": 5,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 5.0,
                   "lloc_average": 5.0,
                   "cloc_average": 3.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 3,
@@ -3739,7 +4296,9 @@ line two
                   "lloc_min": 5,
                   "lloc_max": 5,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3770,11 +4329,13 @@ line two
                   "lloc": 5,
                   "cloc": 5,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 7.0,
                   "ploc_average": 7.0,
                   "lloc_average": 5.0,
                   "cloc_average": 5.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 7,
                   "sloc_max": 7,
                   "cloc_min": 5,
@@ -3784,7 +4345,9 @@ line two
                   "lloc_min": 5,
                   "lloc_max": 5,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3818,11 +4381,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.25,
                   "ploc_average": 2.25,
                   "lloc_average": 0.5,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 9,
                   "cloc_min": 1,
@@ -3832,7 +4397,9 @@ line two
                   "lloc_min": 1,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3868,11 +4435,13 @@ line two
                   "lloc": 12,
                   "cloc": 11,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 11.0,
                   "ploc_average": 11.0,
                   "lloc_average": 12.0,
                   "cloc_average": 11.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 11,
@@ -3882,7 +4451,9 @@ line two
                   "lloc_min": 12,
                   "lloc_max": 12,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3907,11 +4478,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 1.0,
                   "ploc_average": 1.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 1,
                   "cloc_min": 0,
@@ -3921,7 +4494,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -3956,11 +4531,13 @@ line two
                   "lloc": 3,
                   "cloc": 6,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 11.0,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 6.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 6,
@@ -3970,7 +4547,9 @@ line two
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4006,11 +4585,13 @@ line two
                   "lloc": 2,
                   "cloc": 6,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 2.3333333333333335,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 2.0,
                   "blank_average": 0.3333333333333333,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 12,
                   "cloc_min": 2,
@@ -4020,7 +4601,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4056,11 +4639,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.5,
                   "ploc_average": 3.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 9,
                   "cloc_min": 1,
@@ -4070,7 +4655,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4125,11 +4712,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 2,
+                  "dloc": 0,
                   "sloc_average": 3.5,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 7,
                   "cloc_min": 0,
@@ -4139,7 +4728,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 2
+                  "blank_max": 2,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4172,11 +4763,13 @@ line two
                   "lloc": 1,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 8,
                   "cloc_min": 1,
@@ -4186,7 +4779,9 @@ line two
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4218,11 +4813,13 @@ line two
                   "lloc": 1,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.5,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 7,
                   "cloc_min": 1,
@@ -4232,7 +4829,9 @@ line two
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4268,11 +4867,13 @@ line two
                   "lloc": 4,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.5,
                   "ploc_average": 5.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 9,
                   "sloc_max": 11,
                   "cloc_min": 0,
@@ -4282,7 +4883,9 @@ line two
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4313,11 +4916,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -4327,7 +4932,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4362,11 +4969,13 @@ line two
                   "lloc": 5,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.5,
                   "ploc_average": 4.0,
                   "lloc_average": 2.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 7,
                   "sloc_max": 9,
                   "cloc_min": 0,
@@ -4376,7 +4985,9 @@ line two
                   "lloc_min": 5,
                   "lloc_max": 5,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4411,11 +5022,13 @@ line two
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 8,
                   "cloc_min": 0,
@@ -4425,7 +5038,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4458,11 +5073,13 @@ line two
                   "lloc": 1,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 0.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 8,
                   "cloc_min": 0,
@@ -4472,7 +5089,9 @@ line two
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4505,11 +5124,13 @@ line two
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 6,
                   "cloc_min": 2,
@@ -4519,7 +5140,9 @@ line two
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -4601,11 +5224,13 @@ my $b = 43;
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -4615,7 +5240,9 @@ my $b = 43;
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -4685,11 +5312,13 @@ my $b = 2;",
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 2,
@@ -4699,7 +5328,9 @@ my $b = 2;",
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -4725,11 +5356,13 @@ my $y = 2;",
                   "lloc": 2,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 4,
@@ -4739,7 +5372,9 @@ my $y = 2;",
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -4762,11 +5397,13 @@ my $c = 3;",
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -4776,7 +5413,9 @@ my $c = 3;",
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -4802,11 +5441,13 @@ while ($n > 0) {
                   "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 6.0,
                   "lloc_average": 4.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 6,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -4816,7 +5457,9 @@ while ($n > 0) {
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -4856,11 +5499,13 @@ my $x = 1;",
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -4870,7 +5515,9 @@ my $x = 1;",
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -5280,11 +5927,13 @@ my $x = 1;",
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -5294,7 +5943,9 @@ my $x = 1;",
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -5684,11 +6335,13 @@ y, z = 2, 3",
                   "lloc": 3,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.3333333333333335,
                   "ploc_average": 2.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 10,
                   "cloc_min": 0,
@@ -5698,7 +6351,9 @@ y, z = 2, 3",
                   "lloc_min": 1,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -5729,11 +6384,13 @@ y, z = 2, 3",
                   "lloc": 2,
                   "cloc": 3,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 2.6666666666666665,
                   "ploc_average": 1.3333333333333333,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 8,
                   "cloc_min": 0,
@@ -5743,7 +6400,9 @@ y, z = 2, 3",
                   "lloc_min": 0,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -6179,11 +6838,13 @@ y, z = 2, 3",
                   "lloc": 4,
                   "cloc": 1,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 2.0,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 7,
                   "sloc_max": 8,
                   "cloc_min": 0,
@@ -6193,7 +6854,9 @@ y, z = 2, 3",
                   "lloc_min": 4,
                   "lloc_max": 4,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -6224,11 +6887,13 @@ y, z = 2, 3",
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 1.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 5,
                   "cloc_min": 0,
@@ -6238,7 +6903,9 @@ y, z = 2, 3",
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -7237,29 +7904,33 @@ function f() {
             insta::assert_json_snapshot!(
                 metric.loc,
                 @r#"
-                {
-                  "sloc": 5,
-                  "ploc": 4,
-                  "lloc": 3,
-                  "cloc": 1,
-                  "blank": 1,
-                  "sloc_average": 5.0,
-                  "ploc_average": 4.0,
-                  "lloc_average": 3.0,
-                  "cloc_average": 1.0,
-                  "blank_average": 1.0,
-                  "sloc_min": 5,
-                  "sloc_max": 5,
-                  "cloc_min": 1,
-                  "cloc_max": 1,
-                  "ploc_min": 4,
-                  "ploc_max": 4,
-                  "lloc_min": 3,
-                  "lloc_max": 3,
-                  "blank_min": 1,
-                  "blank_max": 1
-                }
-                "#
+            {
+              "sloc": 5,
+              "ploc": 4,
+              "lloc": 3,
+              "cloc": 1,
+              "blank": 1,
+              "dloc": 0,
+              "sloc_average": 5.0,
+              "ploc_average": 4.0,
+              "lloc_average": 3.0,
+              "cloc_average": 1.0,
+              "blank_average": 1.0,
+              "dloc_average": 0.0,
+              "sloc_min": 5,
+              "sloc_max": 5,
+              "cloc_min": 1,
+              "cloc_max": 1,
+              "ploc_min": 4,
+              "ploc_max": 4,
+              "lloc_min": 3,
+              "lloc_max": 3,
+              "blank_min": 1,
+              "blank_max": 1,
+              "dloc_min": 0,
+              "dloc_max": 0
+            }
+            "#
             );
         });
     }
@@ -7905,11 +8576,13 @@ EOF
                   "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
                   "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 11,
                   "sloc_max": 11,
                   "cloc_min": 4,
@@ -7919,7 +8592,9 @@ EOF
                   "lloc_min": 6,
                   "lloc_max": 6,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -9629,11 +10304,13 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 2,
+                  "dloc": 0,
                   "sloc_average": 1.5,
                   "ploc_average": 1.0,
                   "lloc_average": 0.75,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
+                  "dloc_average": 0.0,
                   "sloc_min": 1,
                   "sloc_max": 6,
                   "cloc_min": 0,
@@ -9643,7 +10320,9 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                   "lloc_min": 1,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 2
+                  "blank_max": 2,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#
                 );
@@ -9888,6 +10567,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 assert_eq!(metric.loc.ploc(), 7);
                 assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
+                // The same decision keeps `@doc` out of `loc.dloc`:
+                // that field reports doc comments, docstrings and POD,
+                // and an `@doc` assignment is none of those shapes
+                // (#1597).
+                assert_eq!(metric.loc.dloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
             },
         );
@@ -11666,11 +12350,13 @@ class A {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 1,
+                  "dloc": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 3,
                   "sloc_max": 3,
                   "cloc_min": 0,
@@ -11680,7 +12366,9 @@ class A {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 1,
-                  "blank_max": 1
+                  "blank_max": 1,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -11706,11 +12394,13 @@ class A {
                   "lloc": 1,
                   "cloc": 4,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 4,
                   "sloc_max": 4,
                   "cloc_min": 4,
@@ -11720,7 +12410,9 @@ class A {
                   "lloc_min": 1,
                   "lloc_max": 1,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -11754,11 +12446,13 @@ class A {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.3333333333333335,
                   "ploc_average": 2.3333333333333335,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 7,
                   "cloc_min": 0,
@@ -11768,7 +12462,9 @@ class A {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -11805,11 +12501,13 @@ class A {
                   "lloc": 2,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 2.3333333333333335,
                   "ploc_average": 2.3333333333333335,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 5,
                   "sloc_max": 7,
                   "cloc_min": 0,
@@ -11819,7 +12517,9 @@ class A {
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -11860,11 +12560,13 @@ class A {
                   "lloc": 3,
                   "cloc": 0,
                   "blank": 0,
+                  "dloc": 0,
                   "sloc_average": 3.3333333333333335,
                   "ploc_average": 3.3333333333333335,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
+                  "dloc_average": 0.0,
                   "sloc_min": 8,
                   "sloc_max": 10,
                   "cloc_min": 0,
@@ -11874,7 +12576,9 @@ class A {
                   "lloc_min": 3,
                   "lloc_max": 3,
                   "blank_min": 0,
-                  "blank_max": 0
+                  "blank_max": 0,
+                  "dloc_min": 0,
+                  "dloc_max": 0
                 }
                 "#);
             },
@@ -12364,7 +13068,7 @@ class A {
                 "{lang:?} blank {text:?}"
             );
             // The MI knock-on: `mi::inputs_are_empty` short-circuits to
-            // 0.0 on `sloc <= 0`, so before the fix every unterminated
+            // 0.0 on an empty size term, so before the fix every unterminated
             // one-liner reported MI 0 while its newline-terminated twin
             // reported a real score. Inputs are now identical, so the
             // three formulas agree bit-for-bit.
@@ -13320,6 +14024,16 @@ class A {
                     );
                     assert_eq!(loc.cloc(), 1, "{lang:?} cloc for {text:?}");
                     assert_eq!(loc.blank(), 0, "{lang:?} blank for {text:?}");
+                    // A plain comment is never a documentation row, in any
+                    // spelling of any language: `loc.dloc` is Python's
+                    // docstrings and `#:` comments (#1597). Every other
+                    // grammar reports 0 here by construction, and this is
+                    // the one sweep that says so for all of them.
+                    assert_eq!(
+                        loc.dloc(),
+                        0,
+                        "{lang:?} dloc for {text:?} — a comment row is not documentation"
+                    );
                 }
             }
         }

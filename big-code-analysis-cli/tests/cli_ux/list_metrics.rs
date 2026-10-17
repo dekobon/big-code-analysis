@@ -26,6 +26,7 @@ fn list_metrics_prints_names() {
         "lloc",
         "cloc",
         "blank",
+        "dloc",
         "nom",
         "tokens",
         "nexits",

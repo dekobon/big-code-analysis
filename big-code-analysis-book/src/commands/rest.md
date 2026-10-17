@@ -496,7 +496,7 @@ to `full`; an unrecognised value is rejected with `400`.
         "spaces": [],
         "metrics": {
           "cyclomatic": { "sum": 2, "average": 2.0, "min": 2, "max": 2 },
-          "loc": { "sloc": 7, "ploc": 7, "lloc": 1, "cloc": 0, "blank": 0 },
+          "loc": { "sloc": 7, "ploc": 7, "lloc": 1, "cloc": 0, "blank": 0, "dloc": 0 },
           "nom": { "functions": 1, "closures": 0, "total": 1 }
         }
       }

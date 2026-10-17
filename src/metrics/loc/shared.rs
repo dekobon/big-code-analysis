@@ -133,6 +133,20 @@ pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
 }
 
 #[inline]
+// Records a span of comment rows exactly as `add_cloc_lines` does and,
+// when they are documentation, the same rows in the `dloc` set that
+// `loc.dloc` reports, so `dloc() <= cloc()` holds by construction
+// (#1597). The callers are Python's bare-string arms. The `dloc` set's
+// other writers, Python's documentation-string and Sphinx-comment runs,
+// only re-bill rows already billed here.
+pub(crate) fn add_comment_rows(stats: &mut Stats, start: usize, end: usize, documentation: bool) {
+    add_cloc_lines(stats, start, end);
+    if documentation {
+        stats.dloc.lines.insert_range(start, end);
+    }
+}
+
+#[inline]
 // Detects the comments that are on a code line but *before* the code part.
 // This difference is necessary in order to avoid having
 // a wrong count for the blank metric.

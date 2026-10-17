@@ -123,7 +123,7 @@
 # carried a 252-character match arm.
 
 big-code-analysis-ast/src/getter/bash.rs 3
-big-code-analysis-ast/src/getter/c.rs 3
+big-code-analysis-ast/src/getter/c.rs 2
 big-code-analysis-ast/src/getter/cpp.rs 4
 big-code-analysis-ast/src/getter/csharp.rs 9
 big-code-analysis-ast/src/getter/elixir.rs 3
@@ -149,6 +149,5 @@ src/metrics/cyclomatic/perl.rs 2
 src/metrics/cyclomatic/php.rs 4
 src/metrics/cyclomatic/ruby.rs 5
 src/metrics/loc/perl.rs 6
-src/metrics/loc/python.rs 6
 src/vcs/error.rs 12
 tests/common/mod.rs 2

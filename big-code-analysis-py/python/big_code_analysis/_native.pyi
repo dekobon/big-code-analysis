@@ -976,6 +976,7 @@ def to_sarif(
     ``"cyclomatic.modified"``, ``"halstead.volume"``,
     ``"halstead.difficulty"``, ``"halstead.effort"``, ``"loc.sloc"``,
     ``"loc.ploc"``, ``"loc.lloc"``, ``"loc.cloc"``, ``"loc.blank"``,
+    ``"loc.dloc"``,
     ``"nom"``, ``"tokens"``, ``"nexits"``, ``"nargs"``,
     ``"mi.original"``, ``"mi.sei"``, ``"mi.visual_studio"``,
     ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. An unknown name

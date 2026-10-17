@@ -119,7 +119,10 @@ mod tests {
         // the default JSON because they're disabled — both belong in the
         // catalog. `HashSet::insert` is idempotent so no dedup needed.
         expected.extend(
-            ["sloc", "ploc", "lloc", "cloc", "blank", "wmc", "npm", "npa"].map(String::from),
+            [
+                "sloc", "ploc", "lloc", "cloc", "blank", "dloc", "wmc", "npm", "npa",
+            ]
+            .map(String::from),
         );
         let catalog: HashSet<&str> = rows().map(|(name, _)| name).collect();
         for name in &expected {

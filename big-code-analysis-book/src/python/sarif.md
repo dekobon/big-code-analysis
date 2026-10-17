@@ -59,7 +59,8 @@ Accepted threshold names mirror the CLI's `EXTRACTORS` table in
 * `cognitive`, `cyclomatic`, `cyclomatic.modified`
 * `halstead.volume`, `halstead.difficulty`, `halstead.effort`,
   `halstead.time`, `halstead.bugs`
-* `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank`
+* `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank`,
+  `loc.dloc`
 * `nom`, `tokens`, `nexits`, `nargs`
 * `mi.original`, `mi.sei`, `mi.visual_studio`
 * `abc`, `wmc`, `npm`, `npa`

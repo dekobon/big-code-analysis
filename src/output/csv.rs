@@ -170,6 +170,14 @@ pub const CSV_HEADER: &[&str] = &[
     "mi.original",
     "mi.sei",
     "mi.visual_studio",
+    // loc, continued: appended at the end of the row, as a column added
+    // within 2.x must be — the header is positional, so a column placed
+    // among the other `loc.*` ones would move every column after it
+    // (STABILITY.md, "CSV columns"; #1597).
+    "loc.dloc",
+    "loc.dloc_average",
+    "loc.dloc_min",
+    "loc.dloc_max",
 ];
 
 /// Write a CSV document for the metric tree rooted at `space`. The
@@ -524,6 +532,10 @@ mod tests {
             "mi.original",
             "mi.sei",
             "mi.visual_studio",
+            "loc.dloc",
+            "loc.dloc_average",
+            "loc.dloc_min",
+            "loc.dloc_max",
         ];
         assert_eq!(CSV_HEADER, documented);
     }

@@ -36,7 +36,7 @@ A few framing notes before we start:
 | [Cognitive Complexity](#cognitive-complexity) | How hard a function is to *read* | Campbell / SonarSource, 2017 |
 | [Cyclomatic Complexity (CC)](#cyclomatic-complexity-cc) | Independent paths through a function | McCabe, 1976 |
 | [Halstead](#halstead) | Vocabulary-based size, difficulty, effort, bugs | Halstead, 1977 |
-| [Lines of Code (SLOC, PLOC, LLOC, CLOC, BLANK)](#lines-of-code) | Raw, physical, logical, comment, and blank line counts | Conte, Dunsmore & Shen, 1986 |
+| [Lines of Code (SLOC, PLOC, LLOC, CLOC, BLANK, DLOC)](#lines-of-code) | Raw, physical, logical, comment, blank, and documentation line counts | Conte, Dunsmore & Shen, 1986 |
 | [Maintainability Index (MI)](#maintainability-index-mi) | Composite maintainability score | Oman & Hagemeister, 1992; Coleman *et al.*, 1994 |
 | [NArgs](#nargs) | Number of arguments per function | folk metric |
 | [NExits](#nexits) | Number of exit points per function | structured-programming literature |
@@ -992,10 +992,10 @@ In modern practice the Halstead numbers are used for three things:
 
 ## Lines of Code {#lines-of-code}
 
-This section covers the five LOC variants — SLOC, PLOC, LLOC, CLOC,
-and BLANK. "Counting lines" sounds trivial until you have to define exactly
-what counts. The five variants below are the de-facto standard
-breakdown, going back to Samuel Conte, Hubert Dunsmore and Vincent
+This section covers the LOC variants — SLOC, PLOC, LLOC, CLOC,
+BLANK, and DLOC. "Counting lines" sounds trivial until you have to
+define exactly what counts. SLOC through BLANK are the de-facto
+standard breakdown, going back to Samuel Conte, Hubert Dunsmore and Vincent
 Shen's 1986 textbook [*Software Engineering Metrics and
 Models*](https://books.google.com/books/about/Software_Engineering_Metrics_and_Models.html?id=PKlQAAAAMAAJ)
 (Benjamin/Cummings, ISBN 0-8053-2162-4), which codified the
@@ -1011,10 +1011,11 @@ readable summary of that physical-versus-logical distinction.
 | **LLOC** | Logical Lines Of Code — statement-bearing lines (definitions, assignments, declarations) |
 | **CLOC** | Comment Lines Of Code — lines that contain a comment (with or without code on the same line) |
 | **BLANK** | Blank lines — whitespace-only lines |
+| **DLOC** | Documentation Lines Of Code — rows the language treats as documentation: a Python docstring or `#:` comment; always a subset of CLOC |
 
 ### Algorithm
 
-big-code-analysis derives all five counts from a single pass over the
+big-code-analysis derives every count from a single pass over the
 tree-sitter syntax tree (see `src/metrics/loc.rs`). Comments and
 strings are identified by their AST node type rather than by lexical
 scanning, so multi-line strings, raw strings, doc comments, and
@@ -1023,11 +1024,50 @@ string interpolations are all handled correctly. The per-language
 LLOC; this is the subtle one, because what counts as a statement is
 language-defined.
 
-The five counts satisfy a couple of useful identities:
+Documentation rows are comment rows that are also reported on their
+own as DLOC (`loc.dloc`), so CLOC can be read with or without them.
+Which comments are documentation is each language's own tool's
+decision, not one rule for all:
+
+- In Python, every bare string statement — a string whose value is
+  discarded — is a comment row, but only one where Python reads
+  documentation is DLOC, following
+  [PEP 257](https://peps.python.org/pep-0257/): the first statement of
+  a module, class or function (the string stored as `__doc__`, which
+  must be a `str` literal, never an f-string or bytes), successive strings
+  after any docstring, and an *attribute docstring* directly after
+  an assignment to a name or a `type` alias at module or class level,
+  or after an assignment to `self.<name>` at the top of a class's
+  `__init__` — alone or in a tuple of targets — which
+  [Sphinx autodoc](https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html)
+  reads. Sphinx also reads such an assignment inside an `if`, `with`,
+  loop or `try` suite; PEP 257 names the top level only, and DLOC
+  follows the PEP there. [PEP 258](https://peps.python.org/pep-0258/#additional-docstrings)
+  also includes successive strings after attribute docstrings. Comments
+  between them do not count as statements. Any other
+  bare string, such as a triple-quoted string wrapping commented-out
+  code in the middle of a function, stays a comment row and is charged
+  by MI like a `#` comment. This is narrower than
+  [radon](https://radon.readthedocs.io/)'s `multi`, which takes every
+  bare multi-line string. A docstring row that also holds
+  code (`def f(): """doc"""`) is code too. An implicitly concatenated
+  literal (`"""doc""" "more"`) is one string and a bare tuple of
+  strings is none, the same test Halstead applies when it drops a bare
+  string's operands. A comment is documentation in Python only in
+  Sphinx's `#:` form: consecutive `#:` lines directly above one of
+  those attribute assignments or aliases, or a `#:` after the code on its line
+  (`MAX = 10  #: in bytes`). A plain `#` line breaks a `#:` block.
+
+Nothing else counts: an Elixir `@doc` heredoc is an assignment the
+compiler stores and is code, and Bash, Tcl and iRules have no
+documentation syntax.
+
+The counts satisfy a few useful identities:
 
 ```text
 SLOC = PLOC + BLANK + (lines that are comment-only)
 CLOC ≥ (lines that are comment-only)        # CLOC also counts mixed code+comment lines
+DLOC ≤ CLOC                                 # every documentation row is a comment row
 ```
 
 ### How to read it
@@ -1045,6 +1085,10 @@ CLOC ≥ (lines that are comment-only)        # CLOC also counts mixed code+comm
   documentation versus implementation.
 - **BLANK** is mostly diagnostic: a file with very low BLANK
   proportion is often hard to read.
+- **DLOC** is the slice of CLOC that is documentation: Python's
+  docstrings and `#:` comments. `CLOC − DLOC` is the count of working
+  comments, and `SLOC − DLOC` is the file's size with its documentation
+  removed.
 
 The emergent uses of LOC variants go well beyond raw size. They are
 the most common input into cost-estimation models (COCOMO and COCOMO

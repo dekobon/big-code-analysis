@@ -348,8 +348,8 @@ so treat it as a compliance setting rather than a general recommendation.
 
 ## Metrics not gated by default {#not-gated}
 
-These are computed and visible in `bca report markdown|html`. They are left out of the default
-table on purpose.
+These are computed and present in every `bca metrics` output format; `bca report markdown|html`
+shows only a subset of them. They are left out of the default table on purpose.
 
 `halstead.volume` has the most widely-cited threshold of any Halstead measure, the guideline that a
 function's volume should stay under 1000. Measured against the corpus it flags about 7% of functions

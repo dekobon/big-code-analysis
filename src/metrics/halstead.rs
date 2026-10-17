@@ -5905,6 +5905,25 @@ end",
 
     #[cfg(feature = "python")]
     #[test]
+    fn python_bare_tuple_of_strings_is_not_a_docstring() {
+        // `"a", "b"` as a statement is a discarded tuple with two
+        // expression children, so the docstring predicate's
+        // `child_count == 1` gate keeps both literals as operands.
+        //
+        // Source: `def f():\n    "a", "b"\n    return 1\n`
+        // Operands: `f`, `"a"`, `"b"`, `1` → u_operands = 4, N2 = 4.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"a\", \"b\"\n    return 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
+            },
+        );
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let h = &metric.halstead;

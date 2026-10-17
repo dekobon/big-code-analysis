@@ -171,6 +171,11 @@ const EXTRACTORS: &[MetricExtractor] = &[
         metric: Metric::Loc,
     },
     MetricExtractor {
+        name: "loc.dloc",
+        extract: |m| m.loc.dloc() as f64,
+        metric: Metric::Loc,
+    },
+    MetricExtractor {
         name: "nom",
         extract: |m| m.nom.total() as f64,
         metric: Metric::Nom,

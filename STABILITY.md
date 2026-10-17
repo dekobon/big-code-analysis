@@ -851,8 +851,14 @@ npm.{class_npm_sum,interface_npm_sum,class_methods,interface_methods,
      class_coa,interface_coa,total,total_methods,coa},
 npa.{class_npa_sum,interface_npa_sum,class_attributes,interface_attributes,
      class_cda,interface_cda,total,total_attributes,cda},
-mi.{original,sei,visual_studio}
+mi.{original,sei,visual_studio},
+loc.{dloc,dloc_average,dloc_min,dloc_max}
 ```
+
+The trailing `loc.dloc*` group sits after `mi.*` rather than with
+the other `loc.*` columns because it was appended in `2.x` (#1597): a
+family's columns need not be contiguous, and an appended column never
+moves an existing index.
 
 The exact list is pinned in code by `CSV_HEADER` and asserted against
 the rendered header row by `output::csv::tests::header_constant_matches_first_row`;

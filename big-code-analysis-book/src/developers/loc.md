@@ -49,13 +49,25 @@ METRIC VALUE: 1
 
 ### CLOC
 
-A count of the comments in the code. The type of comment does not matter ie single line, block, or doc.  
+A count of the comments in the code. The type of comment does not matter ie single line, block, or doc.
+A Python docstring counts here as well, and is also reported on its own as DLOC below.
+
 METRIC VALUE: 6
 
 ### BLANK
 
-Last but not least, this metric counts the blank lines present in a code.
+This metric counts the blank lines present in a code.
 METRIC VALUE: 2
+
+### DLOC
+
+Documentation Lines Of Code: the rows the language treats as
+documentation — today Python's docstrings and `#:` comments. Those rows
+are always counted in CLOC too, so DLOC never exceeds it. Every
+language other than Python reports `0`, and an Elixir `@doc` heredoc is
+an assignment that counts as code.
+
+METRIC VALUE: 0
 
 ## Whitespace-only files
 

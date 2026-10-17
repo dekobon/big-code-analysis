@@ -26,6 +26,44 @@ for historical reference.
 
 ### Added
 
+- **`loc.dloc`: documentation rows reported beside `cloc`** (#1597).
+  A Python docstring — a bare string statement — has counted as comment
+  lines since #415, so `cloc` could not be read as "comments" the way a
+  C or Rust reader expects, and nothing said how many of a file's rows
+  were documentation. The new per-space field, DLOC (Documentation
+  Lines Of Code), reports the rows a language treats as documentation,
+  with `dloc_average`, `dloc_min` and `dloc_max` beside it like the
+  five sibling fields: Python docstrings in a PEP 257 position (the
+  first statement of a module, class or function, successive strings after
+  any docstring, or an attribute docstring after an assignment to a name or a `type`
+  alias at module or class level or to `self.<name>` at the top of a
+  class's `__init__`, not in an `if`, `with`, loop or `try` suite, which
+  Sphinx also reads; only a `str`
+  literal, never an f-string or bytes; any other bare string stays a
+  comment row only) and Sphinx `#:` doc comments on or directly above
+  such an assignment. It is always a subset of `cloc`
+  (`dloc ≤ cloc ≤ sloc`), and `0` for every other language.
+  An Elixir `@doc` heredoc stays code (#1260), and Bash, Tcl and
+  iRules have no documentation syntax. SemVer-additive, with
+  `#[serde(default)]` so older documents still parse;
+  it appears in every output format (JSON / YAML / TOML / CBOR), in
+  `bca metrics`' text tree, in `flatten_spaces` records and the Python
+  `LocDict` TypedDict, as a `list-metrics` row (so `bca diff` buckets
+  its deltas under `dloc`), as the threshold name `loc.dloc`
+  in `bca check`, the manifest and `to_sarif`, and as four columns
+  appended at the end of the `bca metrics -O csv` row, after
+  `mi.visual_studio` (`CSV_HEADER` is positional, so every existing
+  column keeps its index). `wire::Loc` carries public
+  fields without `#[non_exhaustive]`, so downstream code that builds
+  one with struct-literal syntax must name the four new fields; read
+  fields by name and construct by deserializing, as STABILITY.md asks.
+  `bca diff` walks the raw document, so diffing a pre-#1597 file
+  against a current one reports the new keys as changes wherever the
+  older side's absent field differs from the newer side's value. The
+  library accessors are `loc::Stats::dloc()` and its three
+  siblings. No existing `loc` value moves except for the three Python
+  shapes under Fixed below.
+
 - **Thirteen Perl, Bash, Kotlin and Elixir scaling probes in the
   complexity-class gate** (`make bench-scaling`). #1575 adds seven: the
   Perl ABC misparse climb, Perl ABC's `=~` binding check under an
@@ -82,6 +120,17 @@ for historical reference.
   `docs/development/threshold_corpus.md` so it can be reproduced.
 
 ### Fixed
+
+- Three Python bare-string shapes in `loc` (#1597). An implicitly
+  concatenated bare string statement (`"""doc""" "more"`) now counts as
+  comment rows — and as documentation (`dloc`) in a docstring position —
+  as Halstead has treated it since #695: the LOC walk and the Halstead
+  getter share one predicate,
+  `lang_helpers::python::python_is_bare_string`. A bare `"a", "b"` tuple
+  statement is code, not a docstring. And a bare string statement
+  containing an escape sequence (`\n`) — a docstring or a triple-quoted
+  block of commented-out code alike — no longer has its row credited to
+  `ploc` as well, so `blank` rises by the same rows.
 
 - **Dependency-audit failures in CI:** update the locked `rustls` to
   0.23.46 for RUSTSEC-2026-0346 through RUSTSEC-2026-0349, and replace

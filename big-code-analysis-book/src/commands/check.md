@@ -122,7 +122,7 @@ form:
 |---------------------|---------------------------|
 | Cyclomatic          | `cyclomatic`, `cyclomatic.modified` |
 | Halstead            | `halstead.volume`, `halstead.difficulty`, `halstead.effort`, `halstead.time`, `halstead.bugs` |
-| Lines of code       | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank` |
+| Lines of code       | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank`, `loc.dloc` |
 | Maintainability Index | `mi.original`, `mi.sei`, `mi.visual_studio` |
 
 An unknown threshold name is a tool error (exit `1`), not silently
@@ -137,7 +137,7 @@ is nothing to configure.
 
 | Scope | Gated spaces | Metrics |
 |-------|--------------|---------|
-| File | the whole-file root only | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank` |
+| File | the whole-file root only | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank`, `loc.dloc` |
 | Function | individual functions, methods, and closures | `cognitive`, `cyclomatic`, `cyclomatic.modified`, `halstead.*`, `mi.*`, `abc`, `nargs`, `nexits`, `tokens` |
 | Container | classes, structs, traits, impls, namespaces, interfaces | `nom`, `wmc`, `npm`, `npa` |
 
@@ -153,7 +153,7 @@ used to mask.
 
 The bare `bca diff --metric` spelling of a `loc` sub-metric is accepted
 as an alias for its dotted form (`sloc` is equivalent to `loc.sloc`, and
-so on for `ploc`/`lloc`/`cloc`/`blank`), so a name copied from a `diff`
+so on for `ploc`/`lloc`/`cloc`/`blank`/`dloc`), so a name copied from a `diff`
 run gates correctly. A bare family head with no single threshold scalar
 (`halstead`, `mi`) is ambiguous and rejected with a "did you mean" hint
 listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).

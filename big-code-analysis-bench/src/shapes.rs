@@ -378,6 +378,12 @@ pub fn wide_cfg_test_mods(width: usize) -> String {
     "fn p() {}\n#[cfg(test)]\nmod m {}\n".repeat(width)
 }
 
+/// Python: an attribute docstring followed by additional docstrings.
+#[must_use]
+pub fn python_additional_docstrings(width: usize) -> String {
+    format!("x = 1\n{}", "\"\"\"d\"\"\"\n".repeat(width))
+}
+
 /// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
 /// all at file scope.
 ///
@@ -1573,6 +1579,22 @@ pub const PROBES: &[Probe] = &[
                     with an `O(len)` splice, so a caller that fed rows \
                     descending would be quadratic in words. This is what \
                     prices that.",
+    },
+    Probe {
+        name: "loc/python-additional-docstrings",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: python_additional_docstrings,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Additional docstrings inherit the first string's position. \
+                    Decide the run once, rather than scanning back to its \
+                    assignment at every string. Every string is a doc row.",
     },
     Probe {
         name: "nom/nested-cfg-predicate",

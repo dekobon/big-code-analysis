@@ -329,7 +329,7 @@ impl LineSet {
     }
 
     /// Number of rows in `self ∩ other`.
-    fn intersection_len(&self, other: &Self) -> usize {
+    pub(super) fn intersection_len(&self, other: &Self) -> usize {
         self.overlapping_words(other)
             .map(|word| {
                 (self.words[word - self.first_word] & other.words[word - other.first_word])

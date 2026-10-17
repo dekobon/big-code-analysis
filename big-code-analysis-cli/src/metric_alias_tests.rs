@@ -96,7 +96,7 @@ fn diff_passes_through_bare_bucket_names() {
 /// bucket name a delta would land in.
 #[test]
 fn loc_submetrics_round_trip_both_directions() {
-    for leaf in ["sloc", "ploc", "lloc", "cloc", "blank"] {
+    for leaf in ["sloc", "ploc", "lloc", "cloc", "blank", "dloc"] {
         let dotted = format!("loc.{leaf}");
         assert_eq!(normalize_for_check(leaf).expect("bare ok"), dotted);
         assert_eq!(normalize_for_diff(&dotted), leaf);

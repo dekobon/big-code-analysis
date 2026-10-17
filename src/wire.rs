@@ -770,6 +770,31 @@ fn run() {
         });
     }
 
+    /// A `loc` block written before #1597 carries no `dloc*` keys.
+    /// It must still parse, with the four defaulting to zero / NaN, so a
+    /// stored report from an older `bca` can be read by this version.
+    #[test]
+    fn loc_document_without_dloc_fields_still_parses() {
+        let json = r#"{"sloc": 4, "ploc": 2, "lloc": 1, "cloc": 1, "blank": 1,
+            "sloc_average": 2.0, "ploc_average": 1.0, "lloc_average": 0.5,
+            "cloc_average": 0.5, "blank_average": 0.5,
+            "sloc_min": 2, "sloc_max": 4, "cloc_min": 0, "cloc_max": 1,
+            "ploc_min": 2, "ploc_max": 2, "lloc_min": 1, "lloc_max": 1,
+            "blank_min": 0, "blank_max": 1}"#;
+        let loc: Loc = serde_json::from_str(json).expect("pre-#1597 loc block parses");
+        assert_eq!(
+            (loc.dloc, loc.dloc_min, loc.dloc_max),
+            (0, 0, 0),
+            "absent integer dloc fields default to 0"
+        );
+        assert!(
+            loc.dloc_average.is_nan(),
+            "an absent average defaults to NaN, as the sibling averages do"
+        );
+        // The values that were present are untouched by the defaults.
+        assert_eq!((loc.sloc, loc.cloc, loc.blank_max), (4, 1, 1));
+    }
+
     #[cfg(feature = "rust")]
     #[test]
     fn yaml_round_trips() {

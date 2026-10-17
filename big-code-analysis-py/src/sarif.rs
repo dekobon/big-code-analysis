@@ -257,6 +257,10 @@ const METRIC_FIELDS: &[MetricField] = &[
         path: &["loc", "blank"],
     },
     MetricField {
+        name: "loc.dloc",
+        path: &["loc", "dloc"],
+    },
+    MetricField {
         name: "nom",
         path: &["nom", "total"],
     },
@@ -919,6 +923,7 @@ mod tests {
             ("loc.lloc", &["loc", "lloc"]),
             ("loc.cloc", &["loc", "cloc"]),
             ("loc.blank", &["loc", "blank"]),
+            ("loc.dloc", &["loc", "dloc"]),
             ("nom", &["nom", "total"]),
             ("tokens", &["tokens", "tokens"]),
             ("nexits", &["nexits", "sum"]),
