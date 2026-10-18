@@ -129,7 +129,7 @@ Which threshold tier to gate against. Accepts `hard`, `soft`, or `soft=<RATIO>`:
 Resolution order: `[thresholds]` (manifest + `\-\-config`) → `[thresholds.soft]` or the soft ratio → absolute `\-\-threshold name=value` overrides (applied last, never scaled). Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
 .TP
 \fB\-\-exit\-codes\fR[=\fI<default|tiered>\fR]
-Exit\-code style: `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr +N%]` row tags:
+Exit\-code style: `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr …]` row tags:
 
 \- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier=soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
 

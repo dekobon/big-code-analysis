@@ -1671,3 +1671,102 @@ fn the_mi_mode_warning_needs_an_mi_value_read_against_the_baseline() {
             .stderr(predicate::str::contains("different formula").not());
     }
 }
+
+/// One Python function of `lines` ternary assignments. Each line adds a
+/// decision and a dozen Halstead tokens, so `mi.original` and `mi.sei`
+/// fall below zero far sooner than the plain arithmetic of the issue's
+/// 3,000-line reproducer: at 200 lines they read about −15 and −77, at
+/// 300 about −47 and −112 (#1611).
+fn negative_mi_python(lines: usize) -> String {
+    use std::fmt::Write as _;
+    let mut src = String::from("def big(a, b, c):\n");
+    for i in 0..lines {
+        writeln!(src, "    x{i} = a * {i} + b if c > {i} else b - c * {i}").unwrap();
+    }
+    src.push_str("    return a\n");
+    src
+}
+
+#[test]
+fn negative_mi_values_are_baselined_and_ratchet() {
+    // Before #1611 `--write-baseline` skipped every negative value with
+    // a warning, so a large function's `mi.original` and `mi.sei`
+    // reported `[new]` after every refresh and the gate could never be
+    // quieted. Both must now be written, cover the unchanged function,
+    // and still catch it getting worse.
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "big.py", &negative_mi_python(200));
+    let src = src_path.to_str().unwrap();
+    let baseline = dir.path().join("baseline.toml");
+    let gate = ["--threshold", "mi.original=20", "--threshold", "mi.sei=20"];
+
+    cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .args(["--write-baseline", baseline.to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("wrote 2 baseline entries"))
+        .stderr(predicate::str::contains("skipping").not());
+    let content = fs::read_to_string(&baseline).unwrap();
+    for metric in ["mi.original", "mi.sei"] {
+        assert!(
+            content.contains(&format!("metric = \"{metric}\"")),
+            "{metric} missing:\n{content}"
+        );
+    }
+    assert_eq!(
+        content.matches("value = -").count(),
+        2,
+        "both values must be recorded negative:\n{content}"
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .args(["--baseline", baseline.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[new]").not());
+
+    // Growing the function drives both values further below their
+    // negative records: a regression, tagged in MI points (#1621) rather
+    // than the double-signed `+-N%` a signed percentage produced.
+    fs::write(&src_path, negative_mi_python(300)).unwrap();
+    let out = cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .args(["--baseline", baseline.to_str().unwrap()])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    let tags: Vec<(&str, &str)> = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("[regr +"))
+        .filter_map(|rest| rest.split_once(" pts] "))
+        .collect();
+    assert_eq!(tags.len(), 2, "two regressed rows expected:\n{stdout}");
+    let mut metrics = Vec::new();
+    for (pts, row) in tags {
+        let well_formed = pts.split_once('.').is_some_and(|(whole, frac)| {
+            !whole.is_empty()
+                && whole.bytes().all(|b| b.is_ascii_digit())
+                && frac.len() == 1
+                && frac.bytes().all(|b| b.is_ascii_digit())
+        });
+        assert!(well_formed, "malformed regression tag `{pts}`:\n{stdout}");
+        // 200 → 300 lines moves both values by roughly 30 points.
+        let amount: f64 = pts.parse().unwrap();
+        assert!(amount >= 10.0, "implausible drop `{pts}`:\n{stdout}");
+        metrics.extend(
+            ["mi.original", "mi.sei"]
+                .into_iter()
+                .filter(|m| row.contains(&format!(": {m} = "))),
+        );
+    }
+    metrics.sort_unstable();
+    assert_eq!(metrics, ["mi.original", "mi.sei"], "{stdout}");
+}

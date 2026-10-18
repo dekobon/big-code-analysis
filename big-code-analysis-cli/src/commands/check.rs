@@ -585,7 +585,7 @@ pub(crate) fn provenance_warning(
 
 /// Classify each violation against the optional `--baseline` file.
 /// The kept list carries `(Violation, Option<Coverage>)` so the
-/// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
+/// stderr renderer can attach a `[new]` / `[regr …]` tag. Without
 /// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
 /// the exact pre-tag line format byte-identically.
 ///

@@ -106,32 +106,74 @@ fn parse_round_trip_preserves_entries() {
 }
 
 #[test]
-fn parse_drops_negative_zero_values() {
-    // `-0.0 < 0.0` is false under IEEE 754, so a `< 0.0` filter
-    // would miss `-0.0` and store `recorded == -0.0` — then the
-    // regression renderer divides by zero producing an `inf`-shaped
-    // tag. `is_sign_negative()` correctly catches `-0.0`.
-    let toml = "version = 3\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-0.0\n";
+fn parse_reads_negative_zero_as_zero() {
+    // The writer never spells `-0.0`, but a hand-edited file can. It
+    // loads as an ordinary zero record rather than dropping out, so the
+    // offender it names is still covered at zero and regressed below it.
+    // The sign is normalised on read too, so `diff-baseline` and
+    // `exemptions` render `0`, not `-0`.
+    let toml = "version = 3\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"mi.original\"\nvalue=-0.0\n";
     let b = parse(toml).expect("parse");
-    assert_eq!(b.by_symbol.len(), 0);
+    let loaded = b.diff_entries();
+    assert_eq!(loaded.len(), 1, "{loaded:?}");
+    assert_eq!(loaded[0].value.to_bits(), 0.0_f64.to_bits(), "{loaded:?}");
+    assert!(matches!(
+        b.classify(&v_low("a", "f", 1, "mi.original", 0.0)),
+        Coverage::Covered { .. }
+    ));
+    assert_eq!(
+        b.classify(&v_low("a", "f", 1, "mi.original", -3.0)),
+        Coverage::Regressed { recorded: 0.0 }
+    );
 }
 
 #[test]
-fn parse_drops_negative_values() {
-    // Hand-edited baselines with negative `value` entries are
-    // silently dropped, matching the non-finite defence above.
-    // The `from_str` filter prevents `format_regressed_tag` from
-    // emitting a double-signed `[regr +-N%]` tag for a corrupted
-    // baseline.
-    let toml = "version = 2\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-10.0\n";
+fn parse_keeps_negative_mi_values() {
+    // `mi.original` and `mi.sei` are unclamped and go negative on large
+    // functions (#1611). Before the fix the loader dropped every negative
+    // record, so the offender read as `[new]` however often the baseline
+    // was refreshed. The record must load and ratchet in the `mi.*`
+    // direction: at or above −10 is covered, below it is a regression.
+    let toml =
+        "version = 6\n[[entry]]\npath=\"a\"\nqualified=\"f\"\nmetric=\"mi.sei\"\nvalue=-10.0\n";
     let b = parse(toml).expect("parse");
-    assert_eq!(b.by_symbol.len(), 0);
-    // The corresponding violation classifies as `New`, not Covered
-    // or Regressed, because the entry was dropped at parse time.
+    assert_eq!(b.by_symbol.len(), 1);
     assert!(matches!(
-        b.classify(&v("a", "f", 1, "cyclomatic", 5.0)),
-        Coverage::New
+        b.classify(&v_low("a", "f", 1, "mi.sei", -10.0)),
+        Coverage::Covered { recorded } if recorded == -10.0
     ));
+    assert_eq!(
+        b.classify(&v_low("a", "f", 1, "mi.sei", -5.0)),
+        Coverage::Covered { recorded: -10.0 }
+    );
+    assert_eq!(
+        b.classify(&v_low("a", "f", 1, "mi.sei", -20.0)),
+        Coverage::Regressed { recorded: -10.0 }
+    );
+}
+
+#[test]
+fn parse_drops_non_finite_values() {
+    // TOML spells NaN and infinity, so a hand-edited file can carry
+    // them. Neither can ratchet: every comparison against a NaN record
+    // is false, which `classify` would read as covered, and an infinite
+    // record covers everything. They drop at load, and the offender
+    // reads as `New`. The finite entry beside them proves the file
+    // itself loaded.
+    let toml = "version = 6\n\
+                [[entry]]\npath=\"a\"\nqualified=\"nan\"\nmetric=\"cyclomatic\"\nvalue=nan\n\
+                [[entry]]\npath=\"a\"\nqualified=\"inf\"\nmetric=\"cyclomatic\"\nvalue=inf\n\
+                [[entry]]\npath=\"a\"\nqualified=\"ok\"\nmetric=\"cyclomatic\"\nvalue=5.0\n";
+    let b = parse(toml).expect("parse");
+    assert_eq!(b.by_symbol.len(), 1);
+    assert_eq!(
+        b.classify(&v("a", "nan", 1, "cyclomatic", 5.0)),
+        Coverage::New
+    );
+    assert_eq!(
+        b.classify(&v("a", "inf", 1, "cyclomatic", 5.0)),
+        Coverage::New
+    );
 }
 
 #[test]
@@ -227,23 +269,74 @@ fn parse_silently_ignores_unknown_fields() {
 // -- from_violations ---------------------------------------------------
 
 #[test]
-fn from_violations_skips_negative_values() {
-    // Round-trip symmetry with `from_str`: writer drops the same
-    // entries reader would silently filter, so a synthetic
-    // `Violation { value: -1.0 }` round-trip is consistent rather
-    // than producing a TOML entry the reader then deletes.
-    // `is_sign_negative()` also catches `-0.0`.
+fn from_violations_keeps_negative_values() {
+    // The writer accepts every finite value, as the reader does (#1611).
+    // A negative zero is written as `0.0`: the two compare equal, so
+    // nothing classifies differently, and the file never spells `-0.0`.
     let file = from_violations(
         vec![
-            v("a", "neg", 1, "cyclomatic", -1.0),
-            v("a", "nzero", 2, "cyclomatic", -0.0),
-            v("a", "ok", 3, "cyclomatic", 5.0),
+            v_low("a", "neg", 1, "mi.sei", -1.0),
+            v_low("a", "nzero", 2, "mi.sei", -0.0),
+            v_low("a", "ok", 3, "mi.sei", 5.0),
         ],
         test_anchor(),
         Provenance::hard(),
     );
-    assert_eq!(file.entries.len(), 1);
-    assert_eq!(file.entries[0].qualified, "ok");
+    let written: Vec<(&str, u64)> = file
+        .entries
+        .iter()
+        .map(|e| (e.qualified.as_str(), e.value.to_bits()))
+        .collect();
+    assert_eq!(
+        written,
+        [
+            ("neg", (-1.0_f64).to_bits()),
+            ("nzero", 0.0_f64.to_bits()),
+            ("ok", 5.0_f64.to_bits()),
+        ]
+    );
+    let rendered = render(&file).expect("render");
+    assert!(!rendered.contains("-0.0"), "{rendered}");
+}
+
+#[test]
+fn negative_mi_entries_round_trip_through_write_and_read() {
+    // The issue's acceptance case: a negative `mi.original` and `mi.sei`
+    // pair, written and read back, covers the same offender at the same
+    // value instead of dropping on the way out. The values are what the
+    // 200-line fixture in `check_baseline.rs` measured when this was
+    // written, kept bit-exact so the ratchet compares the very value the
+    // writer saw.
+    let original = -14.774_235_313_308_083_f64;
+    let sei = -76.549_776_271_152_14_f64;
+    let file = from_violations(
+        vec![
+            v_low("big.py", "big", 1, "mi.original", original),
+            v_low("big.py", "big", 1, "mi.sei", sei),
+        ],
+        test_anchor(),
+        Provenance::hard(),
+    );
+    let rendered = render(&file).expect("render");
+    assert!(
+        rendered.contains("value = -14.774235313308083"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("value = -76.54977627115214"),
+        "{rendered}"
+    );
+    let reloaded = parse(&rendered).expect("reload");
+    for (metric, value) in [("mi.original", original), ("mi.sei", sei)] {
+        match reloaded.classify(&v_low("big.py", "big", 1, metric, value)) {
+            Coverage::Covered { recorded } => assert_eq!(recorded.to_bits(), value.to_bits()),
+            other => panic!("{metric}: expected Covered, got {other:?}"),
+        }
+        assert_eq!(
+            reloaded.classify(&v_low("big.py", "big", 1, metric, value - 1.0)),
+            Coverage::Regressed { recorded: value }
+        );
+    }
 }
 
 #[test]
@@ -632,14 +725,13 @@ fn stale_tally_worst_is_order_independent() {
 
 #[test]
 fn stale_tally_ranks_a_zero_record_worst() {
-    // A zero record is reachable: `mi.original` bottoms out at 0 for bad
-    // enough code, and the baseline loader drops only *negative* values.
-    // Such an entry gives away every point of headroom there is — the
-    // gate could never fire below zero — so it must rank above the
-    // cyclomatic entry's 0.75 rather than fall out of the ranking. That
-    // the key stays finite is a property of the denominator, which no
-    // assertion on the rendered message can observe; it is argued at
-    // `relative_drift` instead.
+    // A zero record is reachable: `mi.original` and `mi.sei` pass through
+    // zero on their way negative, and any metric can measure zero. A zero
+    // record's drift is 1.0 whatever the live value, so it must rank
+    // above the cyclomatic entry's 0.75 rather than fall out of the
+    // ranking. That the key stays finite is a property of the
+    // denominator, which no assertion on the rendered message can
+    // observe; it is argued at `relative_drift` instead.
     let msg = tally(&[
         (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0)),
         (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 4.0)),
@@ -648,6 +740,41 @@ fn stale_tally_ranks_a_zero_record_worst() {
     assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
     assert!(
         msg.contains("src/a.rs::floor mi.original 0 \u{2192} 4"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn a_negative_mi_record_that_improved_is_covered_and_stale() {
+    // A negative `mi.*` record ratchets like any other (#1611): a rise
+    // from −20 to −10 is an improvement, so `classify` covers it and the
+    // tally reports the headroom it left behind.
+    let b = baseline_with(vec![entry("src/a.rs", "S::f", 1, "mi.sei", -20.0)]);
+    let live = v_low("src/a.rs", "S::f", 1, "mi.sei", -10.0);
+    assert_eq!(b.classify(&live), Coverage::Covered { recorded: -20.0 });
+    let msg = tally(&[(-20.0, live)]).expect("a rise above an mi.* record is stale");
+    assert!(
+        msg.contains("src/a.rs::S::f mi.sei -20 \u{2192} -10"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn stale_tally_ranks_a_zero_crossing_above_a_zero_record() {
+    // A record that crosses zero drifts by more than its own magnitude:
+    // −5 → +5 measures 10 / 5 = 2.0, the one case above `relative_drift`'s
+    // same-sign bound of 1.0. Ranking it above the zero record (1.0) is
+    // what the larger headroom deserves. A key clamped to 1.0 would tie,
+    // and the tie keeps whichever entry arrived first, so the crossing
+    // goes second to make a clamp visible.
+    let msg = tally(&[
+        (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 4.0)),
+        (-5.0, v_low("src/b.rs", "cross", 1, "mi.original", 5.0)),
+    ])
+    .expect("two stale entries");
+    assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
+    assert!(
+        msg.contains("src/b.rs::cross mi.original -5 \u{2192} 5"),
         "{msg}"
     );
 }

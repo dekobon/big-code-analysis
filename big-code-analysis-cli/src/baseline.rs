@@ -363,8 +363,8 @@ struct Record {
 /// the recorded `value` and, where the file recorded one, the
 /// human-review `start_line`. Produced by
 /// [`Baseline::diff_entries`] *after* version validation, legacy path
-/// re-canonicalisation, and the non-finite/negative filter have run, so
-/// a diff observes exactly the records the matcher would.
+/// re-canonicalisation, and the non-finite filter have run, so a diff
+/// observes exactly the records the matcher would.
 #[derive(Debug, Clone)]
 pub(crate) struct DiffEntry {
     pub(crate) path: String,
@@ -394,12 +394,10 @@ pub(crate) struct BaselineEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     start_line: Option<usize>,
     metric: String,
-    /// Metric value at baseline time. `current > value` still fails
-    /// (ratchet-down). Both non-finite and negative values (the latter
-    /// via `is_sign_negative()`, so `-0.0` is caught too) are skipped at
-    /// construction by the read (`from_str`) and write (`from_violations`)
-    /// filters; see those sites for why the negative filter is
-    /// load-bearing for round-trip symmetry and the regressed-tag path.
+    /// Metric value at baseline time. A value worse than this in the
+    /// metric's own direction still fails (ratchet-down). Any finite
+    /// value is valid, negative `mi.*` values included; [`recordable`]
+    /// decides that for the reader and the writer alike.
     value: f64,
     /// Lowercase-hex `u64` digest of the normalised function body,
     /// written only when `--baseline-fuzzy-match` is active. Omitted
@@ -464,9 +462,9 @@ pub(crate) struct BaselineFile {
 }
 
 /// In-memory lookup. Construction validates the schema version and
-/// drops entries with non-finite values (defense in depth — `toml`
-/// rejects nan/inf at the parser level, but a malicious or hand-edited
-/// file could still try).
+/// drops entries with non-finite values: TOML spells `nan` and `inf`,
+/// so a hand-edited file can carry them, and neither can ratchet (see
+/// [`recordable`]).
 ///
 /// `anchor` is the lexically-absolute directory the baseline lives in
 /// (see [`anchor_for`]). Every classify call canonicalises the
@@ -564,33 +562,11 @@ impl Baseline {
         let mut by_symbol: HashMap<SymbolKey, Vec<Record>> = HashMap::new();
         let mut by_hash = HashMap::new();
         for e in file.entries {
-            // Skip non-finite and negative values. Non-finite is the
-            // pre-existing defense against hand-edited files (TOML's
-            // parser also rejects nan/inf). Negative is the same idea
-            // for the rendered-tag path: `format_regressed_tag` divides
-            // by `recorded` to compute `+N%`, and a negative `recorded`
-            // flips the quotient's sign, producing a double-signed
-            // `[regr +-N%]` tag. Metric extractors never emit negative
-            // values, so the only way an entry can be negative is
-            // hand-editing — silently drop and treat the entry as if
-            // missing (the violation will surface as `New`). This filter
-            // was never the only route to that malformed tag, though:
-            // until #1242 an ordinary `mi.*` regression produced it from
-            // a perfectly well-formed baseline, because the numerator
-            // was computed in the higher-is-worse direction.
-            //
-            // `is_sign_negative()` catches `-0.0` too (which `< 0.0`
-            // misses under IEEE 754: `-0.0 < 0.0` is false). `-0.0`
-            // itself is benign for the renderer (`recorded == 0.0`
-            // hits the `[regr from 0]` early-return in
-            // `format_regressed_tag`), but dropping it here keeps the
-            // write-side and read-side filters bit-symmetric: a
-            // round-trip through `from_violations` -> `from_str` of
-            // any caller-constructed value preserves the same set of
-            // surviving entries.
-            if !e.value.is_finite() || e.value.is_sign_negative() {
+            // A non-finite value can only come from a hand-edited file;
+            // it drops silently and the violation surfaces as `New`.
+            let Some(value) = recordable(e.value) else {
                 continue;
-            }
+            };
             let path = if recanonicalize_path {
                 normalize_path(&anchor, Path::new(&e.path))
             } else {
@@ -602,7 +578,7 @@ impl Baseline {
             // without `--baseline-fuzzy-match`.
             let body_hash = e.body_hash.as_deref().and_then(decode_body_hash);
             if let Some(h) = body_hash {
-                by_hash.insert((path.clone(), e.metric.clone(), h), e.value);
+                by_hash.insert((path.clone(), e.metric.clone(), h), value);
             }
             by_symbol
                 .entry(SymbolKey {
@@ -613,7 +589,7 @@ impl Baseline {
                 .or_default()
                 .push(Record {
                     start_line: e.start_line,
-                    value: e.value,
+                    value,
                     body_hash,
                 });
         }
@@ -682,7 +658,7 @@ impl Baseline {
     /// drive both the filter (`Covered` drops, `Regressed` / `New`
     /// keep) and the stderr tag prefix in `run_check`. Keeping the
     /// recorded value on the kept variant means the renderer can
-    /// compute the `+N%` regression magnitude without re-keying.
+    /// compute the regression amount without re-keying.
     ///
     /// Matching (issue #377) resolves a *recorded value* in priority
     /// order: (1) the `(path, qualified, metric)` symbol group, with the
@@ -795,7 +771,7 @@ impl Baseline {
 /// not worsened past its recorded value, and we're explicitly tolerating
 /// it as ratchet-down tech debt). `Regressed` and `New` keep the
 /// violation and carry enough information for the stderr renderer to
-/// prefix a `[regr +N%]` / `[new]` tag at emit time.
+/// prefix a `[regr …]` / `[new]` tag at emit time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Coverage {
     /// Baseline entry exists and current value has not worsened.
@@ -896,14 +872,38 @@ impl StaleTally {
 /// automatically outrank a `cyclomatic` one that halved.
 ///
 /// Dividing by the larger magnitude rather than by `recorded` keeps the
-/// result in `[0, 1]`, so the key stays comparable across metrics of
-/// wildly different scale and needs no special case for a zero record —
-/// `mi.original` does bottom out there, and a record of zero gives away
-/// all the headroom there is, which this ranks at `1.0`. Callers reach
-/// this only once `breaches_limit` has confirmed the two values differ,
-/// so the denominator is never zero.
+/// key comparable across metrics of wildly different scale and needs no
+/// special case for a zero record, which this ranks at `1.0`. Two values
+/// of the same sign stay within `[0, 1]`. Only the unclamped `mi.*`
+/// metrics measure on both sides of zero, and a crossing ranks above
+/// `1.0`, up to `2.0`: an entry recorded at −5 that now reads +5 has
+/// drifted further than its whole recorded magnitude. The tally only
+/// compares keys, so nothing depends on the bound. Callers reach this
+/// only once `breaches_limit` has confirmed the two values differ, so the
+/// denominator is never zero.
 fn relative_drift(recorded: f64, value: f64) -> f64 {
     (recorded - value).abs() / recorded.abs().max(value.abs())
+}
+
+/// The value a baseline records for `value`, or `None` when it cannot be
+/// recorded. The reader ([`Baseline::from_str`]) and the writer
+/// ([`from_violations`]) both go through here, so a file the writer
+/// produces always reads back whole.
+///
+/// Every finite value is accepted, negative ones included: `mi.original`
+/// and `mi.sei` are unclamped and fall below zero on large functions, and
+/// refusing them left those offenders reporting `[new]` after every
+/// refresh (#1611). A non-finite value is refused because it cannot
+/// ratchet: every comparison against a NaN record is false, which reads
+/// as covered, and an infinite record covers every value in one
+/// direction.
+///
+/// `-0.0` is rewritten to `0.0` so a baseline never spells a negative
+/// zero. The two compare equal, so no classification changes.
+fn recordable(value: f64) -> Option<f64> {
+    value
+        .is_finite()
+        .then_some(if value == 0.0 { 0.0 } else { value })
 }
 
 pub(crate) fn from_violations(
@@ -918,7 +918,7 @@ pub(crate) fn from_violations(
     let mut entries: Vec<BaselineEntry> = violations
         .into_iter()
         .filter_map(|v| {
-            if !v.value.is_finite() {
+            let Some(value) = recordable(v.value) else {
                 crate::warn(format_args!(
                     "skipping non-finite value for {}:{}-{}: {} = {}",
                     v.path.display(),
@@ -928,34 +928,13 @@ pub(crate) fn from_violations(
                     v.value,
                 ));
                 return None;
-            }
-            // Drop negative values (including `-0.0`, which `< 0.0`
-            // would miss under IEEE 754) so write and read sides stay
-            // round-trip-symmetric — `from_str` filters the same set.
-            // A genuinely-negative `recorded` (e.g. `-1.0` from a
-            // hand-edited TOML) would also produce a double-signed
-            // `[regr +-N%]` tag downstream; `-0.0` is benign for the
-            // renderer but dropped here to keep both filters identical.
-            // Production metric extractors never emit negative values,
-            // so this only matters for hand-crafted Violations and
-            // adversarial TOML inputs.
-            if v.value.is_sign_negative() {
-                crate::warn(format_args!(
-                    "skipping negative value for {}:{}-{}: {} = {}",
-                    v.path.display(),
-                    v.start_line,
-                    v.end_line,
-                    v.metric,
-                    v.value,
-                ));
-                return None;
-            }
+            };
             Some(BaselineEntry {
                 path: normalize_path(&anchor, &v.path),
                 qualified: v.function,
                 start_line: Some(v.start_line),
                 metric: v.metric.to_string(),
-                value: v.value,
+                value,
                 body_hash: v.body_hash.map(encode_body_hash),
             })
         })

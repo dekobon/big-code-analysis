@@ -733,17 +733,18 @@ fn render_regressed_lower_is_worse_tag_is_well_formed() {
     // the opposite direction and prefixed a literal `+` to what was then
     // a negative percentage, rendering `[regr +-29%]` — a shape no log
     // parser anchored on `[regr +N%]` can read. The magnitude is now
-    // measured in the metric's own direction, so it stays "worse by N%".
+    // measured in the metric's own direction, so it stays "worse by".
     // Values are the issue's reproducer: `mi.original` recorded at
-    // 142.75 dropping to 101.03 is (142.75 - 101.03) / 142.75 ≈ 29%.
+    // 142.75 dropping to 101.03 is worse by 41.72 points (#1621 made the
+    // `mi.*` tag points rather than a percentage).
     let mut v = sample_violation();
     v.metric = "mi.original";
     v.lower_is_worse = true;
     v.value = 101.03;
     v.limit = 160.0;
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 142.75 }));
-    assert!(out.starts_with("[regr +29%] "), "got: {out}");
-    assert!(!out.contains("+-"), "double-signed percentage: {out}");
+    assert!(out.starts_with("[regr +41.7 pts] "), "got: {out}");
+    assert!(!out.contains("+-"), "double-signed amount: {out}");
 }
 
 #[test]
@@ -757,6 +758,160 @@ fn render_regressed_direction_is_not_a_blanket_sign_flip() {
     assert!(!v.lower_is_worse, "the fixture must be higher-is-worse");
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 20.0 }));
     assert!(out.starts_with("[regr +50%] "), "got: {out}");
+}
+
+/// An `mi.*` violation at `value`, the shape a negative MI record is
+/// classified against (#1611).
+fn negative_mi_violation(value: f64) -> Violation {
+    Violation {
+        metric: "mi.sei",
+        lower_is_worse: true,
+        value,
+        limit: 20.0,
+        ..sample_violation()
+    }
+}
+
+#[test]
+fn render_regressed_from_a_negative_record_reads_in_points() {
+    // `mi.original` and `mi.sei` are unclamped, so a baseline can record
+    // them below zero (#1611). A drop from −10 to −20 is worse by 10
+    // points. Dividing by the signed record printed the double-signed
+    // `[regr +-100%]`, and any percentage of an arbitrary zero misleads.
+    let v = negative_mi_violation(-20.0);
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: -10.0 }));
+    assert!(out.starts_with("[regr +10.0 pts] "), "got: {out}");
+}
+
+#[test]
+fn render_regressed_mi_points_are_not_capped() {
+    // −1 → −1000 is worse by 999 points. The `>9999` cap belongs to the
+    // percentage of a count; a points amount is printed as measured.
+    let v = negative_mi_violation(-1000.0);
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: -1.0 }));
+    assert!(out.starts_with("[regr +999.0 pts] "), "got: {out}");
+}
+
+#[test]
+fn render_regressed_mi_tiny_drop_from_near_zero_reads_in_points() {
+    // #1621's reproducer R1: `mi.sei` recorded at 0.001 dropping to
+    // −0.0097 is a 0.0107-point move, which a percentage of the record
+    // rendered as `[regr +1069%]`.
+    let v = negative_mi_violation(-0.009_693_594_449_785_792);
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 0.001 }));
+    assert!(out.starts_with("[regr +0.0 pts] "), "got: {out}");
+}
+
+/// The tag `format_regressed_tag` renders for `metric` moving from
+/// `recorded` to `value`.
+fn regressed_tag(metric: &'static str, recorded: f64, value: f64) -> String {
+    let v = Violation {
+        metric,
+        lower_is_worse: metric.starts_with("mi."),
+        value,
+        limit: 0.0,
+        ..sample_violation()
+    };
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded }));
+    let (tag, _) = out.split_once("] ").expect("a tagged line");
+    format!("{tag}]")
+}
+
+#[test]
+fn regressed_tag_is_points_for_mi_and_percent_for_counts() {
+    // expected: mi.* moves are the plain point difference in the bad
+    // direction (−10 → −20 and 0 → −12 are worse by 10 and 12); a zero
+    // MI record is an ordinary point on an interval scale, so it never
+    // reads `from 0`. Counts keep the percentage of the record: 10 → 20
+    // is +100%, a zero record is `from 0`, and 1 → 1e6 caps.
+    for (metric, recorded, value, want) in [
+        ("mi.original", -10.0, -20.0, "[regr +10.0 pts]"),
+        ("mi.original", 0.0, -12.0, "[regr +12.0 pts]"),
+        ("mi.sei", 40.0, 27.66, "[regr +12.3 pts]"),
+        ("cyclomatic", 10.0, 20.0, "[regr +100%]"),
+        ("cyclomatic", 0.0, 5.0, "[regr from 0]"),
+        ("halstead.effort", 1.0, 1_000_000.0, "[regr +>9999%]"),
+    ] {
+        assert_eq!(
+            regressed_tag(metric, recorded, value),
+            want,
+            "{metric}: {recorded} -> {value}"
+        );
+    }
+}
+
+#[test]
+fn regressed_tag_falls_back_to_percent_without_a_threshold() {
+    // A violation whose metric and limit cannot form a `Threshold` (an
+    // unknown id, a negative count limit) still renders a tag rather
+    // than dropping the row, using the pre-#1621 percentage of the
+    // record's magnitude in the violation's own direction.
+    for (metric, limit, lower_is_worse, recorded, value, want) in [
+        ("not.a.metric", 10.0, false, 20.0, 30.0, "[regr +50%]"),
+        ("cyclomatic", -1.0, false, 20.0, 30.0, "[regr +50%]"),
+        ("not.a.metric", 10.0, true, -10.0, -20.0, "[regr +100%]"),
+        ("not.a.metric", 10.0, false, 0.0, 5.0, "[regr from 0]"),
+        ("not.a.metric", 10.0, false, 5.0, f64::NAN, "[regr NaN]"),
+    ] {
+        let v = Violation {
+            metric,
+            value,
+            limit,
+            lower_is_worse,
+            ..sample_violation()
+        };
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded }));
+        assert!(out.starts_with(&format!("{want} ")), "{metric}: got {out}");
+    }
+}
+
+/// The `[regr ...]` tag exactly as it rendered before #1621, for a
+/// higher-is-worse count.
+fn pre_1621_count_tag(recorded: f64, value: f64) -> String {
+    if value.is_nan() {
+        return "[regr NaN]".to_string();
+    }
+    if recorded == 0.0 {
+        return "[regr from 0]".to_string();
+    }
+    let pct = ((value - recorded) / recorded * 100.0).round();
+    if pct > 9999.0 {
+        return "[regr +>9999%]".to_string();
+    }
+    format!("[regr +{pct:.0}%]")
+}
+
+#[test]
+fn regressed_tag_for_counts_is_byte_identical_to_pre_1621() {
+    // Moving the tag onto `Threshold::change` must not move a single
+    // byte for a ratio-scale metric: only `mi.*` changed unit.
+    let pairs = [
+        (20.0, 30.0),
+        (100.0, 100.5),
+        (100.0, 10_099.0),
+        (100.0, 10_100.0),
+        (3.0, 4.0),
+        (7.0, 7.000_001),
+        (0.0, 1.0),
+        (1.0, 1_000_000.0),
+        (5.0, f64::NAN),
+        (49_999.5, 61_984.213_363_755_734),
+    ];
+    for metric in [
+        "cyclomatic",
+        "cognitive",
+        "halstead.effort",
+        "loc.sloc",
+        "nom",
+    ] {
+        for (recorded, value) in pairs {
+            assert_eq!(
+                regressed_tag(metric, recorded, value),
+                pre_1621_count_tag(recorded, value),
+                "{metric}: {recorded} -> {value}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -112,7 +112,7 @@ impl SectionFilter {
 impl BaselineDiff {
     /// Pair `old` against `new` on `(path, qualified, metric)` and bucket
     /// the result. Both slices come from [`DiffEntry`], whose values are
-    /// already finite (the non-finite/negative filter runs at load), so
+    /// already finite (the non-finite filter runs at load), so
     /// the `partial_cmp` fallbacks below are never exercised in practice.
     pub(crate) fn compute(old: &[DiffEntry], new: &[DiffEntry]) -> Self {
         // Borrow into a BTreeMap keyed by the identity triple so the

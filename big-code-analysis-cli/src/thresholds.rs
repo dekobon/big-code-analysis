@@ -18,7 +18,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use big_code_analysis::metric_catalog::MetricScope;
+use big_code_analysis::metric_catalog::{Change, MetricScope, Threshold};
 use big_code_analysis::{
     CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, SuppressionScope,
     threshold_metric_for_name,
@@ -683,7 +683,7 @@ impl fmt::Display for Violation {
 }
 
 /// Render a stderr line for one violation, optionally prefixed with a
-/// `[new]` / `[regr +N%]` tag derived from baseline classification.
+/// `[new]` / `[regr …]` tag derived from baseline classification.
 ///
 /// When `tag` is `None` the output is byte-identical to
 /// `format!("{v}")` — this is the load-bearing backward-compat invariant
@@ -703,31 +703,59 @@ pub(crate) fn render_violation_line(v: &Violation, tag: Option<&Coverage>) -> St
         None | Some(Coverage::Covered { .. }) => format!("{v}"),
         Some(Coverage::New) => format!("[new] {v}"),
         Some(Coverage::Regressed { recorded }) => {
-            format!(
-                "{} {v}",
-                format_regressed_tag(*recorded, v.value, v.lower_is_worse)
-            )
+            format!("{} {v}", format_regressed_tag(v, *recorded))
         }
     }
 }
 
-/// Format the `[regr ...]` tag for a regression. Cases:
-/// - `value.is_nan()` → `[regr NaN]` (degenerate Halstead metrics).
-/// - `recorded == 0.0` → `[regr from 0]` (avoid divide-by-zero;
-///   percent is undefined).
-/// - `pct > 9999` → `[regr +>9999%]` (cap; 100× the baseline is
-///   already screaming-loud, exact number adds nothing).
-/// - else → `[regr +N%]` with N rounded to nearest integer.
+/// Format the `[regr ...]` tag for a regression of `v` past its baseline
+/// `recorded` value. The amount is measured in the metric's own
+/// direction, so it always reads "worse by", and in the unit
+/// [`Threshold::change`] picks for the metric's scale:
 ///
-/// The magnitude is measured in the metric's own direction, so the tag
-/// always reads "worse by N%" and log parsers see one shape across every
-/// metric. For the lower-is-worse `mi.*` family that means inverting the
-/// difference, matching how [`Violation::ratio`] already inverts. Before
-/// #1242 this function assumed the higher-is-worse direction and printed
-/// a literal `+` in front of what was then a negative percentage, so an
-/// ordinary `mi.original` regression rendered the double-signed
-/// `[regr +-29%]`.
-fn format_regressed_tag(recorded: f64, value: f64, lower_is_worse: bool) -> String {
+/// - a count: `[regr +N%]`, `N` a share of the record rounded to the
+///   nearest integer, capped as `[regr +>9999%]` (100× the record is
+///   already screaming-loud), or `[regr from 0]` for a zero record;
+/// - an `mi.*` metric: `[regr +N.N pts]`. MI has an arbitrary zero and
+///   goes negative, so a percentage of its record means nothing — a
+///   0.01-point drop from a record of 0.001 read `+1069%` (#1611);
+/// - a NaN value (degenerate Halstead metrics): `[regr NaN]`.
+///
+/// Every shape starts `[regr `, which is what log greps anchor on.
+///
+/// [`Threshold::change`]: big_code_analysis::metric_catalog::Threshold::change
+fn format_regressed_tag(v: &Violation, recorded: f64) -> String {
+    let Ok(checked) = Threshold::check(v.metric, v.limit) else {
+        // Unreachable for a violation built from a validated threshold;
+        // keeps the renderer total rather than dropping the row.
+        return legacy_regressed_tag(recorded, v.value, v.lower_is_worse);
+    };
+    match checked.threshold.change(recorded, v.value) {
+        Change::Percent(pct) => percent_tag(pct),
+        Change::Points(pts) => format!("[regr +{pts:.1} pts]"),
+        Change::FromZero => "[regr from 0]".to_string(),
+        Change::NaN => "[regr NaN]".to_string(),
+        _ => "[regr]".to_string(),
+    }
+}
+
+/// The ratio-scale `[regr +N%]` tag. `{:.0}` formats the rounded float
+/// with zero decimal digits, avoiding an f64-to-int cast that clippy
+/// flags as possibly truncating. `pct` is non-negative because the
+/// classifier only emits Regressed when the value is worse than the
+/// record in the metric's direction. A regression too small to round to
+/// one percent renders `[regr +0%]`.
+fn percent_tag(pct: f64) -> String {
+    let pct = pct.round();
+    if pct > 9999.0 {
+        return "[regr +>9999%]".to_string();
+    }
+    format!("[regr +{pct:.0}%]")
+}
+
+/// The pre-#1621 percentage arithmetic, for a violation whose metric
+/// and limit do not form a [`Threshold`].
+fn legacy_regressed_tag(recorded: f64, value: f64, lower_is_worse: bool) -> String {
     if value.is_nan() {
         return "[regr NaN]".to_string();
     }
@@ -739,19 +767,7 @@ fn format_regressed_tag(recorded: f64, value: f64, lower_is_worse: bool) -> Stri
     } else {
         value - recorded
     };
-    let pct = (worse_by / recorded * 100.0).round();
-    if pct > 9999.0 {
-        return "[regr +>9999%]".to_string();
-    }
-    // `{:.0}` formats the rounded float with zero decimal digits, so
-    // we avoid an f64-to-int cast that clippy flags as possibly
-    // truncating. `pct` is finite (caller filtered NaN and zero
-    // `recorded`), bounded above by 9999 here, and non-negative because
-    // the classifier only emits Regressed when the value is worse than
-    // `recorded` *in the metric's direction* — which is the direction
-    // `worse_by` is now measured in. A regression too small to round to
-    // one percent renders `[regr +0%]`, as it always has.
-    format!("[regr +{pct:.0}%]")
+    percent_tag(worse_by / recorded.abs() * 100.0)
 }
 
 /// One resolved threshold: the registry extractor, the configured limit,

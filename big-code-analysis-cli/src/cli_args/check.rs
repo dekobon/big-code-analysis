@@ -310,7 +310,7 @@ CLI `--threshold` flags override values read from this file."
     pub(crate) headroom: Option<f64>,
     /// Exit-code style: `default` keeps the stable
     /// 0/1/2 contract; `tiered` splits exit `2` by severity so CI can
-    /// branch without parsing the `[new]` / `[regr +N%]` row tags:
+    /// branch without parsing the `[new]` / `[regr …]` row tags:
     ///
     /// - `0` — clean.
     /// - `1` — tool error (bad config, unknown metric, unreadable path).

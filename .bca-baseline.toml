@@ -364,7 +364,7 @@ value = 7.0
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
 metric = "halstead.effort"
-value = 61984.213363755734
+value = 56959.04904936
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline_diff.rs"
@@ -688,7 +688,7 @@ value = 7.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 554.0
+value = 566.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"

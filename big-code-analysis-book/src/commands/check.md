@@ -40,7 +40,7 @@ threshold failures, not broken input, so none of them lets
 
 `--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`) splits the single violation code `2` by severity so CI can
-branch on it without parsing the `[new]` / `[regr +N%]` row tags:
+branch on it without parsing the `[new]` / `[regr …]` row tags:
 
 | Code | Meaning (tiered mode) |
 |------|-----------------------|

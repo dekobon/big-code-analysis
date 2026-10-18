@@ -184,7 +184,7 @@ diff to other tooling. The command exits 0 by default — it informs
 review, it does not gate (the gate is `bca check` itself) — though
 the opt-in `--exit-code` flag exits 2 on a non-empty filtered diff.
 
-### Reading the gate output
+### Reading the gate output {#reading-the-gate-output}
 
 A failing `bca check --baseline` run prefixes each surviving violation
 with a tag and follows the list with a per-file rollup:
@@ -207,16 +207,28 @@ Tag prefixes:
   is set, by body hash. The violation is new since the baseline was
   written. See [Matching](#how-matching-works) for the resolution
   order.
-- `[regr +N%]` — the baseline contains a recorded value and the
-  current value is `N%` worse. "Worse" is measured in the metric's own
-  direction, so for the lower-is-worse `mi.*` family a *drop* of `N%`
-  below the recorded value reads `+N%` like any other regression; the
-  tag has one shape across every metric, which is what makes it safe to
-  grep for. Cases:
-  - `[regr from 0]` when the recorded value is `0.0` and a non-zero
-    percentage would divide by zero.
-  - `[regr +>9999%]` caps once the regression exceeds 100× the
-    baseline value.
+- `[regr …]` — the baseline contains a recorded value and the current
+  value is worse than it. "Worse" is measured in the metric's own
+  direction, so for the lower-is-worse `mi.*` family a *drop* below the
+  recorded value reads `+` like any other regression. The amount takes
+  one of two shapes, both starting `[regr `, so `rg '\[regr '` matches
+  every regressed row:
+  - `[regr +N%]` for a count (every metric outside `mi.*`): `N` is the
+    rise as a percentage of the recorded value, rounded to an integer.
+  - `[regr +N.N pts]` for `mi.original`, `mi.sei`, and
+    `mi.visual_studio`: `N.N` is the drop in index points, to one
+    decimal. The Maintainability Index has an arbitrary zero and
+    `mi.original` and `mi.sei` go negative on large functions, so a
+    percentage of the record means nothing: a drop from −10 to −20
+    reads `[regr +10.0 pts]`, and a 0.01-point drop from a record of
+    0.001 reads `[regr +0.0 pts]` rather than `+1069%`.
+
+  Special forms:
+  - `[regr from 0]` when a count's recorded value is `0.0` and a
+    percentage would divide by zero. An `mi.*` record of zero is an
+    ordinary point and reads in points.
+  - `[regr +>9999%]` caps once a count's regression exceeds 100× the
+    baseline value. Points are not capped.
   - `[regr NaN]` when the current metric value is NaN (degenerate
     Halstead inputs on trivial functions).
 
