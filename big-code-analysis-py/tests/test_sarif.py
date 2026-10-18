@@ -261,6 +261,22 @@ def test_to_sarif_mi_is_lower_is_worse() -> None:
     assert below["runs"][0]["results"] == [], "MI at/above the limit must not fire"
 
 
+def test_to_sarif_mi_floor_skips_a_space_with_no_code() -> None:
+    """A bodiless Ruby block is a function space with zero Halstead volume,
+    so its MI is the ``0.0`` placeholder rather than a score. ``bca check``
+    skips such a space and so does the binding: only the measured ``def``
+    on line 3 breaches the floor."""
+    code = "x = lambda {}\n[1, 2].each { }\ndef f(a)\n  a + 1\nend\n"
+    result = bca.analyze_source(code, "ruby")
+    for metric, floor in (("mi.original", 171), ("mi.visual_studio", 100)):
+        parsed = _parse(bca.to_sarif(result, thresholds={metric: floor}))
+        lines = [
+            r["locations"][0]["physicalLocation"]["region"]["startLine"]
+            for r in parsed["runs"][0]["results"]
+        ]
+        assert lines == [3], f"{metric}={floor}: {lines}"
+
+
 def test_to_sarif_metric_absent_from_dict_emits_no_finding() -> None:
     """When ``metrics=`` was used to skip a family, ``to_sarif`` must
     not synthesise a finding — the dict simply has no value to

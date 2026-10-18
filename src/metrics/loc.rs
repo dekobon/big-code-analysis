@@ -13099,7 +13099,7 @@ class A {
                 terminated.loc.blank(),
                 "{lang:?} blank {text:?}"
             );
-            // The MI knock-on: `mi::inputs_are_empty` short-circuits to
+            // The MI knock-on: `mi::Stats::is_empty` short-circuits to
             // 0.0 on an empty size term, so before the fix every unterminated
             // one-liner reported MI 0 while its newline-terminated twin
             // reported a real score. Inputs are now identical, so the

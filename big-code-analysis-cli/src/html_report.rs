@@ -38,8 +38,7 @@ use big_code_analysis::{SpaceKind, SuppressionPolicy};
 use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
 use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS};
 use crate::markdown_report::{
-    FunctionSummary, is_class_like, language_display_name, mi_rating, mi_weight_numerator,
-    sloc_weighted_avg_mi, thousands,
+    FunctionSummary, MiAverage, is_class_like, language_display_name, rated_avg_mi, thousands,
 };
 
 mod sections;
@@ -394,6 +393,7 @@ mod tests {
             mi_original: 85.5,
             mi_sei: 85.0,
             mi_visual_studio: 50.0,
+            mi_is_empty: false,
             nargs: 2,
             nexits: 1,
             nom: 1,
@@ -1240,6 +1240,69 @@ mod tests {
         assert!(
             note.contains("-192.7 (LOW)"),
             "headline must render the SLOC-weighted -192.7 (LOW):\n{note}"
+        );
+    }
+
+    /// #1621 (HTML side): both the per-language summary note and the
+    /// overview row skip an empty-MI unit, while SLOC and the file count
+    /// still include it.
+    #[test]
+    fn avg_mi_headline_ignores_empty_units() {
+        let mut good = make_summary("good.rs", "src/good.rs", SpaceKind::Unit, LANG::Rust);
+        good.sloc = 10;
+        good.mi_original = 171.0; // unclamped VS = 100.0
+        let mut empty = make_summary("empty.rs", "src/empty.rs", SpaceKind::Unit, LANG::Rust);
+        empty.sloc = 990;
+        empty.mi_original = 0.0;
+        empty.mi_visual_studio = 0.0;
+        empty.mi_is_empty = true;
+
+        let out = generate_html_report(&[good, empty], 20, SuppressionPolicy::Honor);
+        let note = out
+            .lines()
+            .find(|l| l.contains("class=\"note\"") && l.contains("Average MI (SLOC-weighted)"))
+            .expect("headline note present");
+        assert!(note.contains("100.0 (GOOD)"), "{note}");
+        assert!(
+            out.contains("Files: 2 | SLOC: 1,000"),
+            "the empty unit still counts toward files and SLOC:\n{out}"
+        );
+        // Language | Files | SLOC | Functions | Avg MI | Avg CC | Avg Cognitive.
+        assert!(
+            out.contains(
+                "<tr><td>Rust</td><td class=\"numeric\">2</td>\
+                 <td class=\"numeric\">1,000</td><td class=\"numeric\">0</td>\
+                 <td class=\"numeric\">100.0</td>"
+            ),
+            "overview row:\n{out}"
+        );
+    }
+
+    #[test]
+    fn avg_mi_headline_of_an_all_empty_language_is_na() {
+        // With every unit empty there is no average to rate: the note
+        // says `n/a`, not a LOW-rated `0.0`, and the sortable overview
+        // cell is empty, which its sorter reads as "no value" (#1621).
+        let mut empty = make_summary("empty.rs", "src/empty.rs", SpaceKind::Unit, LANG::Rust);
+        empty.sloc = 990;
+        empty.mi_is_empty = true;
+
+        let out = generate_html_report(&[empty], 20, SuppressionPolicy::Honor);
+        let note = out
+            .lines()
+            .find(|l| l.contains("class=\"note\"") && l.contains("Average MI (SLOC-weighted)"))
+            .expect("headline note present");
+        assert!(
+            note.contains("Average MI (SLOC-weighted): n/a</p>"),
+            "{note}"
+        );
+        assert!(
+            out.contains(
+                "<tr><td>Rust</td><td class=\"numeric\">1</td>\
+                 <td class=\"numeric\">990</td><td class=\"numeric\">0</td>\
+                 <td class=\"numeric\"></td>"
+            ),
+            "overview row:\n{out}"
         );
     }
 

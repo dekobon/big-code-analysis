@@ -31,6 +31,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::rc::Rc;
 
+use big_code_analysis::metric_catalog::{self, Scale};
 use big_code_analysis::{FuncSpace, LANG, Metric, SpaceKind, SuppressionPolicy, SuppressionScope};
 
 use crate::format_util::strip_path_prefix;
@@ -73,6 +74,11 @@ pub(crate) struct FunctionSummary {
     #[expect(dead_code)]
     pub mi_sei: f64,
     pub mi_visual_studio: f64,
+    /// [`big_code_analysis::mi::Stats::is_empty`]: the space holds no code,
+    /// so the three `mi_*` fields are the in-band `0.0` sentinel rather
+    /// than a measurement. The MI hotspot table and every SLOC-weighted MI
+    /// average skip such a unit (#1621).
+    pub mi_is_empty: bool,
     pub nargs: usize,
     pub nexits: usize,
     pub nom: usize,
@@ -196,6 +202,7 @@ fn extract_summaries_inner(
             mi_original: m.mi.original(),
             mi_sei: m.mi.sei(),
             mi_visual_studio: m.mi.visual_studio(),
+            mi_is_empty: m.mi.is_empty(),
             // The space's OWN parameters, matching what
             // `bca check --threshold nargs=N` gates on (#1196). Both
             // surfaces read the same `[thresholds] nargs` key — the
@@ -406,10 +413,24 @@ pub(super) fn is_class_like(kind: SpaceKind) -> bool {
     )
 }
 
+/// One Visual Studio maintainability band: the catalog `unit` of
+/// `mi.visual_studio`, so the report's rating edges and the gate's MI
+/// severity scale are one number (#1621). Visual Studio rates 20–100
+/// green, 10–19 yellow and 0–9 red.
+fn mi_band() -> f64 {
+    match metric_catalog::scale("mi.visual_studio") {
+        Some(Scale::Interval { unit, .. }) => unit,
+        // Unreachable: the catalog declares `mi.visual_studio` an
+        // interval metric, and `mi_band_is_the_catalog_unit` pins it.
+        _ => 10.0,
+    }
+}
+
 pub(super) fn mi_rating(mi: f64) -> &'static str {
-    if mi >= 20.0 {
+    let band = mi_band();
+    if mi >= 2.0 * band {
         "GOOD"
-    } else if mi >= 10.0 {
+    } else if mi >= band {
         "MODERATE"
     } else {
         "LOW"
@@ -447,19 +468,56 @@ const MI_VS_SCALE: f64 = 100.0 / 171.0;
 /// contributed 0 and were indistinguishable. SLOC weighting additionally
 /// lets a large file dominate the codebase-health reading instead of
 /// counting equally with a five-line file.
-pub(super) fn mi_weight_numerator(s: &FunctionSummary) -> f64 {
+fn mi_weight_numerator(s: &FunctionSummary) -> f64 {
     s.mi_original * MI_VS_SCALE * s.sloc as f64
 }
 
 /// Divide a [`mi_weight_numerator`] sum by the units' total SLOC to get the
-/// SLOC-weighted average MI. Returns 0.0 when the units carry no SLOC, so
-/// an all-empty input yields a neutral headline rather than a division by
-/// zero.
-pub(super) fn sloc_weighted_avg_mi(mi_numerator: f64, total_sloc: usize) -> f64 {
-    if total_sloc > 0 {
-        mi_numerator / total_sloc as f64
-    } else {
-        0.0
+/// SLOC-weighted average MI, or `None` when the units carry no SLOC: there
+/// is nothing to average, and a `0.0` stand-in would read as the worst
+/// rating.
+fn sloc_weighted_avg_mi(mi_numerator: f64, total_sloc: usize) -> Option<f64> {
+    (total_sloc > 0).then(|| mi_numerator / total_sloc as f64)
+}
+
+/// The headline cell for a [`MiAverage::average`]: the value and its
+/// [`mi_rating`], or `n/a` when no unit had code to measure. Shared by the
+/// Markdown and HTML summaries so the two cannot word it differently.
+pub(super) fn rated_avg_mi(avg_mi: Option<f64>) -> String {
+    avg_mi.map_or_else(
+        || "n/a".to_string(),
+        |mi| format!("{mi:.1} ({})", mi_rating(mi)),
+    )
+}
+
+/// Running SLOC-weighted MI average over file units — the one rule every
+/// report headline (Markdown and HTML, summary and overview) folds with.
+///
+/// A unit whose MI is empty ([`FunctionSummary::mi_is_empty`]) holds no
+/// code, so its `0.0` is a sentinel, not a measurement: it is left out of
+/// both the numerator and this average's own SLOC. Without that, an
+/// `#include`-only header pulled the average toward 0 by its row count
+/// (#1621). The caller's displayed SLOC and file counts are separate
+/// accumulators and still count the unit.
+#[derive(Debug, Default)]
+pub(crate) struct MiAverage {
+    numerator: f64,
+    sloc: usize,
+}
+
+impl MiAverage {
+    pub(super) fn add(&mut self, s: &FunctionSummary) {
+        if s.mi_is_empty {
+            return;
+        }
+        self.numerator += mi_weight_numerator(s);
+        self.sloc += s.sloc;
+    }
+
+    /// `None` when every unit added was empty (or none was), since its own
+    /// SLOC then stays zero.
+    pub(super) fn average(&self) -> Option<f64> {
+        sloc_weighted_avg_mi(self.numerator, self.sloc)
     }
 }
 
@@ -614,6 +672,7 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
             mi_original: 80.0,
             mi_sei: 85.0,
             mi_visual_studio: 50.0,
+            mi_is_empty: false,
             nargs: 0,
             nexits: 0,
             nom: 1,
@@ -647,7 +706,7 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
 
     let mut v = Vec::new();
 
-    // Rust units (Summary + MI table; MI keeps halstead_volume>0 && sloc>0).
+    // Rust units (Summary + MI table; MI keeps `!mi_is_empty`).
     let mut u_lib = base("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust, 1);
     u_lib.sloc = 200;
     u_lib.ploc = 240;
@@ -959,23 +1018,25 @@ fn lang_overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Ve
         thousands(unit_count),
         thousands(lang_sloc),
         thousands(func_count),
-        format!("{avg_mi:.1}"),
+        // An empty cell, not `n/a`, when no file had code to measure: the
+        // HTML table sorter reads an empty cell as "no value" and sorts it
+        // last, where any other text would parse as NaN.
+        avg_mi.map_or_else(String::new, |mi| format!("{mi:.1}")),
         format!("{avg_cc:.1}"),
         format!("{avg_cog:.1}"),
     ]
 }
 
-fn unit_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, usize, f64) {
+fn unit_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, usize, Option<f64>) {
     let mut count = 0usize;
     let mut sloc = 0usize;
-    let mut mi_numerator = 0.0f64;
+    let mut mi = MiAverage::default();
     for s in lang_summaries.iter().filter(|s| s.kind == SpaceKind::Unit) {
         count += 1;
         sloc += s.sloc;
-        mi_numerator += mi_weight_numerator(s);
+        mi.add(s);
     }
-    let avg_mi = sloc_weighted_avg_mi(mi_numerator, sloc);
-    (count, sloc, avg_mi)
+    (count, sloc, mi.average())
 }
 
 fn function_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, f64, f64) {
@@ -1112,6 +1173,7 @@ mod tests {
             mi_original: 80.0,
             mi_sei: 85.0,
             mi_visual_studio: 50.0,
+            mi_is_empty: false,
             nargs: 2,
             nexits: 1,
             nom: 1,
@@ -1148,7 +1210,7 @@ mod tests {
             (numerator - (-79_000.0)).abs() < 1e-6,
             "weighted numerator should be -79000, got {numerator}"
         );
-        let avg = sloc_weighted_avg_mi(numerator, 410);
+        let avg = sloc_weighted_avg_mi(numerator, 410).expect("410 SLOC to average over");
         assert!(
             (avg - (-192.683)).abs() < 1e-3,
             "SLOC-weighted unclamped average should be ≈ -192.7, got {avg}"
@@ -1175,13 +1237,155 @@ mod tests {
         );
     }
 
-    /// A unit set carrying no SLOC must not divide by zero; the headline
-    /// falls back to a neutral 0.0 (issue #725). The numerator is arbitrary
-    /// and non-zero on purpose: the guard depends only on `total_sloc == 0`,
-    /// so any numerator must still yield 0.0.
+    /// A unit set carrying no SLOC must not divide by zero (issue #725), and
+    /// has no average to report: a `0.0` stand-in would rate LOW (#1621).
+    /// The numerator is arbitrary and non-zero on purpose: the guard
+    /// depends only on `total_sloc == 0`.
     #[test]
-    fn sloc_weighted_avg_mi_zero_sloc_is_neutral() {
-        assert_eq!(sloc_weighted_avg_mi(1_234.5, 0), 0.0);
+    fn sloc_weighted_avg_mi_over_no_sloc_is_none() {
+        assert_eq!(sloc_weighted_avg_mi(1_234.5, 0), None);
+        assert_eq!(rated_avg_mi(None), "n/a");
+        assert_eq!(rated_avg_mi(Some(-192.68)), "-192.7 (LOW)");
+    }
+
+    /// #1621: an empty-MI unit leaves both the numerator and the MI SLOC,
+    /// so it neither drags the average toward its `0.0` sentinel nor
+    /// dilutes it by its row count. A genuine non-empty MI of exactly 0
+    /// is a measurement and still counts.
+    #[test]
+    fn mi_average_skips_empty_units_but_keeps_a_genuine_zero() {
+        let unit = |sloc, mi_original, mi_is_empty| {
+            let mut s = make_summary("u", "src/u.rs", SpaceKind::Unit, LANG::Rust);
+            s.sloc = sloc;
+            s.mi_original = mi_original;
+            s.mi_is_empty = mi_is_empty;
+            s
+        };
+        let valid = unit(100, 171.0, false); // unclamped VS = 100
+        let empty = unit(300, 0.0, true);
+        let zero = unit(100, 0.0, false); // a measured 0
+
+        let mut avg = MiAverage::default();
+        avg.add(&valid);
+        avg.add(&empty);
+        let measured = avg.average().expect("one measured unit");
+        assert!((measured - 100.0).abs() < 1e-9, "{measured}");
+        avg.add(&zero);
+        // (100·100 + 0·100) / 200: the zero counts, the empty unit not.
+        let measured = avg.average().expect("two measured units");
+        assert!((measured - 50.0).abs() < 1e-9, "{measured}");
+
+        let mut all_empty = MiAverage::default();
+        all_empty.add(&empty);
+        all_empty.add(&unit(40, 171.0, true));
+        assert_eq!(all_empty.average(), None);
+    }
+
+    /// #1621 through the rendered Markdown: the summary row and the
+    /// language overview both read the non-empty unit's MI alone, while
+    /// SLOC and the file count still include the empty unit.
+    #[test]
+    fn report_mi_averages_ignore_empty_units() {
+        let mut good = make_summary("good.rs", "src/good.rs", SpaceKind::Unit, LANG::Rust);
+        good.sloc = 10;
+        good.mi_original = 171.0; // unclamped VS = 100.0
+        let mut empty = make_summary("empty.rs", "src/empty.rs", SpaceKind::Unit, LANG::Rust);
+        empty.sloc = 990;
+        empty.mi_original = 0.0;
+        empty.mi_visual_studio = 0.0;
+        empty.mi_is_empty = true;
+
+        let report = generate_report(&[good, empty], 20, SuppressionPolicy::Honor);
+        // Cells of the row whose first cell is exactly `label`: a substring
+        // match on `| Files ` would hit the project summary's
+        // `Files analyzed` row instead of this section's `Files`.
+        let row = |label: &str| -> Vec<String> {
+            report
+                .lines()
+                .map(|l| {
+                    l.split('|')
+                        .map(|c| c.trim().to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .find(|cells| cells.get(1).is_some_and(|c| c == label))
+                .unwrap_or_else(|| panic!("no `{label}` row:\n{report}"))
+        };
+        assert_eq!(row("Average MI (SLOC-weighted)")[2], "100.0 (GOOD)");
+        assert_eq!(row("SLOC")[2], "1,000");
+        assert_eq!(row("Files")[2], "2");
+        // Language | Files | SLOC | Functions | Avg MI.
+        assert_eq!(row("Rust")[2..=5], ["2", "1,000", "0", "100.0"]);
+        // The MI hotspot table lists only the measured file: select the
+        // table first, so a report that dropped it fails here.
+        let mi_table = report
+            .split("### Maintainability Index hotspots")
+            .nth(1)
+            .and_then(|rest| rest.split("\n### ").next())
+            .unwrap_or_else(|| panic!("no MI hotspot table:\n{report}"));
+        assert!(mi_table.contains("src/good.rs"), "{mi_table}");
+        assert!(!report.contains("src/empty.rs"), "{report}");
+    }
+
+    /// #1621: a language whose every unit is MI-empty has no average at
+    /// all. The summary says `n/a` rather than rating a `0.0` placeholder
+    /// LOW, and the overview leaves the cell empty, the value the HTML
+    /// table sorter reads as "none".
+    #[test]
+    fn a_language_with_only_empty_units_has_no_mi_average() {
+        let mut header = make_summary("a.h", "src/a.h", SpaceKind::Unit, LANG::Cpp);
+        header.sloc = 2;
+        header.mi_is_empty = true;
+        let mut good = make_summary("good.rs", "src/good.rs", SpaceKind::Unit, LANG::Rust);
+        good.sloc = 10;
+        good.mi_original = 171.0;
+
+        let report = generate_report(&[header, good], 20, SuppressionPolicy::Honor);
+        let cells =
+            |line: &str| -> Vec<String> { line.split('|').map(|c| c.trim().to_owned()).collect() };
+        let summaries: Vec<Vec<String>> = report
+            .lines()
+            .filter(|l| l.contains("Average MI (SLOC-weighted)"))
+            .map(cells)
+            .collect();
+        assert_eq!(summaries.len(), 2, "one summary per language:\n{report}");
+        assert!(
+            summaries.iter().any(|row| row[2] == "n/a"),
+            "the C++ summary reads n/a:\n{report}"
+        );
+        assert!(
+            summaries.iter().any(|row| row[2] == "100.0 (GOOD)"),
+            "the Rust summary keeps its rating:\n{report}"
+        );
+        let cpp = report
+            .lines()
+            .map(cells)
+            .find(|row| row.get(1).is_some_and(|c| c == "C++"))
+            .unwrap_or_else(|| panic!("no C++ overview row:\n{report}"));
+        // Language | Files | SLOC | Functions | Avg MI.
+        assert_eq!(cpp[2..=5], ["1", "2", "0", ""]);
+    }
+
+    /// Decision 13 of #1621: the rating edges are the catalog's one MI
+    /// band, not literals — Visual Studio's 10 / 20. The same function
+    /// rates the HTML headline (`html_report/sections.rs`).
+    #[test]
+    fn mi_band_is_the_catalog_unit() {
+        // Read the catalog itself, so `mi_band`'s non-interval fallback
+        // (also 10.0) cannot stand in for a catalog that stopped
+        // declaring `mi.visual_studio` an interval metric.
+        assert!(
+            matches!(
+                metric_catalog::scale("mi.visual_studio"),
+                Some(Scale::Interval { unit, .. }) if unit == mi_band()
+            ),
+            "{:?}",
+            metric_catalog::scale("mi.visual_studio")
+        );
+        assert_eq!(mi_band(), 10.0);
+        assert_eq!(mi_rating(20.0), "GOOD");
+        assert_eq!(mi_rating(19.99), "MODERATE");
+        assert_eq!(mi_rating(10.0), "MODERATE");
+        assert_eq!(mi_rating(9.99), "LOW");
     }
 
     /// Byte baseline for the whole Markdown report over the rich,

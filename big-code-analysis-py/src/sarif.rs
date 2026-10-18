@@ -546,6 +546,15 @@ fn qualified_symbol(fields: &SpaceFields, parent_prefix: &str) -> String {
     }
 }
 
+/// `mi::Stats::is_empty` read off a metrics dict: the space has no code to
+/// measure when its Halstead volume or its `ploc` is zero. A dict missing
+/// either input is not empty, so a hand-built dict carrying only `mi`
+/// gates as it always did.
+fn mi_is_empty(metrics: &Bound<'_, PyAny>) -> bool {
+    let is_zero = |path: &[&str]| extract_metric(metrics, path).is_some_and(|v| v <= 0.0);
+    is_zero(&["halstead", "volume"]) || is_zero(&["loc", "ploc"])
+}
+
 /// Evaluate one space's `metrics` against every threshold, pushing an
 /// [`OffenderRecord`] for each breach. Factored out of [`collect_offenders`]
 /// so the tree walk reads as "evaluate this space, then descend" rather than
@@ -564,6 +573,12 @@ fn record_threshold_breaches(
         // a container), matching the CLI gate via the shared catalog so the
         // two front-ends emit the same offenders.
         if !gated.threshold.info().scope.admits(fields.kind) {
+            continue;
+        }
+        // A space with no code to measure carries the in-band `0.0` MI
+        // sentinel, which the CLI gate skips (#1621); read the same two
+        // inputs from the dict so both front-ends emit the same offenders.
+        if gated.threshold.info().family == "mi" && mi_is_empty(metrics) {
             continue;
         }
         let Some(value) = extract_metric(metrics, gated.path) else {

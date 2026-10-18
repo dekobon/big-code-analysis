@@ -1355,7 +1355,7 @@ impl Foo {
     // at the foot of a production file cost that file one phantom row.
     //
     // `mi` is asserted to 0.0 on all three formulas because `sloc 0` is
-    // where `Mi::inputs_are_empty` takes over, and the issue raised that
+    // where `mi::Stats::is_empty` takes over, and the issue raised that
     // as a hazard: it is not one — a file with nothing in it scores
     // zero, deliberately and for every formula.
     #[test]
@@ -1617,7 +1617,7 @@ fn prod(x: i32) -> i32 {
         assert!(!sel.contains(Metric::Tokens));
         // The dependencies must actually be populated — not just
         // selected. Otherwise the MI formula receives zero inputs
-        // and `mi_original`'s `inputs_are_empty` short-circuit
+        // and `mi_original`'s `is_empty` short-circuit
         // returns 0.0, which would also be `is_finite`. We anchor
         // on the dependency values themselves (Loc ploc > 0,
         // Cyclomatic sum > 0) so the test would fail if the
@@ -1633,7 +1633,7 @@ fn prod(x: i32) -> i32 {
         // With non-zero inputs feeding the MI formula, the result
         // is a finite non-zero number (the MI for this snippet is
         // around 150 — a positive value well above the 0.0 that
-        // `inputs_are_empty` would short-circuit to).
+        // `is_empty` would short-circuit to).
         let mi_value = pruned.metrics.mi.original();
         assert!(
             mi_value.is_finite() && mi_value != 0.0,

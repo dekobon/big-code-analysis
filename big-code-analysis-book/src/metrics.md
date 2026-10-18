@@ -1320,7 +1320,11 @@ metrics and applies the three formulas. Because the formulas use the
 natural log of Halstead volume and of the code-line count, MI is
 undefined for empty files; big-code-analysis returns `0.0` for any
 space with zero code lines (a docstring-only module included) or zero
-Halstead volume.
+Halstead volume. That `0.0` is a sentinel, not a score, and it cannot be
+told apart from a measured 0 or from `mi.visual_studio`'s clamp:
+`mi::Stats::is_empty()` identifies such a space in the library, and
+`bca report`'s averages skip it. The JSON value stays `0.0` until 3.0,
+which is planned to emit `null` instead (#1621).
 
 ### How to read it
 

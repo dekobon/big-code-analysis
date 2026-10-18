@@ -307,3 +307,61 @@ fn report_strip_prefix_removes_path_prefix() {
         "full path should be stripped from the report body, but found: {fp}"
     );
 }
+
+/// Runs `bca report` over `files` (written into one temp dir) and returns
+/// stdout.
+fn report_over(files: &[(&str, &str)], format: &str) -> String {
+    let dir = TempDir::new().expect("tempdir");
+    let mut cmd = cli();
+    cmd.args(["report", "--no-config"]);
+    for (name, body) in files {
+        let path = dir.path().join(name);
+        std::fs::write(&path, body).expect("write fixture");
+        cmd.arg("-p").arg(path);
+    }
+    let output = cmd
+        .args(["--format", format])
+        .output()
+        .expect("run bca report");
+    assert!(output.status.success(), "report should succeed");
+    String::from_utf8(output.stdout).expect("utf-8 stdout")
+}
+
+/// #1621: a file with no code (`#include` lines only) has an empty MI,
+/// whose `0.0` is a sentinel. Adding it must leave the SLOC-weighted
+/// average where the real file alone puts it, while the SLOC total still
+/// counts its two rows. Before the fix the average fell from 66.6 to 51.8.
+#[test]
+fn report_mi_average_skips_a_file_with_no_code() {
+    const REAL: (&str, &str) = (
+        "clamp.h",
+        "int clamp(int x, int lo, int hi) {\n    if (x < lo)\n        return lo;\n    if (x > hi)\n        return hi;\n    return x;\n}\n",
+    );
+    const EMPTY: (&str, &str) = ("all.h", "#include <vector>\n#include \"clamp.h\"\n");
+    let row = |report: &str, label: &str| {
+        report
+            .lines()
+            .map(|l| l.split('|').map(str::trim).collect::<Vec<_>>())
+            // Exact first cell: a `| Files ` prefix would also match the
+            // project summary's `Files analyzed` row.
+            .find(|cells| cells.get(1) == Some(&label))
+            .and_then(|cells| cells.get(2).map(|v| (*v).to_owned()))
+            .unwrap_or_else(|| panic!("no `{label}` row:\n{report}"))
+    };
+
+    let alone = report_over(&[REAL], "markdown");
+    let both = report_over(&[REAL, EMPTY], "markdown");
+    let avg = row(&alone, "Average MI (SLOC-weighted)");
+    assert_eq!(avg, "66.6 (GOOD)");
+    assert_eq!(row(&both, "Average MI (SLOC-weighted)"), avg);
+    assert_eq!(row(&alone, "SLOC"), "7");
+    assert_eq!(row(&both, "SLOC"), "9");
+    assert_eq!(row(&both, "Files"), "2");
+
+    let html = report_over(&[REAL, EMPTY], "html");
+    assert!(
+        html.contains("Average MI (SLOC-weighted): 66.6 (GOOD)"),
+        "HTML headline agrees:\n{html}"
+    );
+    assert!(html.contains("SLOC: 9 "), "HTML SLOC counts both:\n{html}");
+}

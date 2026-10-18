@@ -123,7 +123,11 @@ alongside `SLOC` so two complementary size proxies are visible per row.
      The headline is the SLOC-weighted mean of the *unclamped* Visual
      Studio MI: large files dominate, and a file whose displayed MI
      clamps to 0 still contributes its true (often negative)
-     maintainability rather than a misleading 0.
+     maintainability rather than a misleading 0. A file with no code to
+     measure (an `#include`-only header, an empty module) is left out of
+     every MI average and of the MI hotspot table, because its MI of 0.0
+     is a placeholder, not a score; it still counts toward Files and
+     SLOC. A language with no file to measure reads `n/a`.
    - *Actionable Summary* — counts of functions exceeding common
      thresholds (by default CC > 10, cognitive > 15, SLOC > 100,
      args > 3, Halstead bugs > 1; a manifest `[thresholds]` table

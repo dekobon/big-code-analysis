@@ -2437,3 +2437,68 @@ fn nargs_omits_the_split_for_a_plain_parameter_list() {
         .stdout(predicate::str::contains("wide: nargs = 6 (limit 5)"))
         .stdout(predicate::str::contains("own +").not());
 }
+
+/// A space with no code to measure never breaches an `mi.*` floor, in
+/// the text rows and in the aggregated report alike (#1621). A bodiless
+/// Ruby block has zero Halstead volume, so its MI is the `0.0`
+/// placeholder; before the skip, `bca check` ranked both blocks as the
+/// file's worst MI and Code Climate rated them `critical`. The one
+/// measured function, on row 3, is the only offender either output
+/// carries.
+#[test]
+fn check_mi_floor_skips_a_space_with_no_code_in_every_output() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "e.rb",
+        "x = lambda {}\n[1, 2].each { }\ndef f(a)\n  a + 1\nend\n",
+    );
+    let text = cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "mi.original=171",
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(text).expect("utf8 stdout");
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("mi.original ="))
+        .collect();
+    assert_eq!(rows.len(), 1, "one offender row, got:\n{text}");
+    assert!(
+        rows[0].contains("e.rb:3-5: f: mi.original = "),
+        "the measured function is the offender, got:\n{text}"
+    );
+
+    let climate = cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "mi.original=171",
+            "--report-format",
+            "code-climate",
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let issues: serde_json::Value = serde_json::from_slice(&climate).expect("code climate json");
+    let issues = issues.as_array().expect("an array of issues");
+    assert_eq!(issues.len(), 1, "one issue, got:\n{issues:?}");
+    assert_eq!(
+        issues[0]["location"]["lines"]["begin"], 3,
+        "the measured function is the issue, got:\n{issues:?}"
+    );
+}

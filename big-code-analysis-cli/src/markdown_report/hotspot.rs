@@ -336,16 +336,14 @@ pub(crate) const NEXITS_HOTSPOT_FLOOR: usize = 2;
 /// this; the Actionable Summary leads each language section (after the
 /// per-language Summary, before any hotspot table — issue #678).
 pub(crate) const SPECS: &[HotspotSpec] = &[
-    // 0 — Maintainability Index (lowest files). `keep` mirrors
-    // `mi::Stats::inputs_are_empty` so a clamped-to-0 worst file still
-    // shows. MI sizes on `sloc` less the documentation rows that carry no
-    // code (#1597), which `FunctionSummary` does not carry; that size
-    // reaches 0 only when no row holds a token, i.e. when
-    // `halstead_volume` is 0 too, so `sloc` stands in for it exactly.
+    // 0 — Maintainability Index (lowest files). `keep` drops only a file
+    // whose MI is empty (`mi::Stats::is_empty`, #1621), so a clamped-to-0
+    // worst file still shows while a code-less file's `0.0` sentinel does
+    // not rank as the least maintainable.
     HotspotSpec {
         title: HotspotTitle::new("Maintainability Index", "MI", SortDir::Asc),
         source: Source::Units,
-        keep: |s| s.halstead_volume > 0.0 && s.sloc > 0,
+        keep: |s| !s.mi_is_empty,
         metric: |s| s.mi_visual_studio,
         dir: SortDir::Asc,
         metric_kind: Metric::Mi,
@@ -1100,6 +1098,7 @@ mod tests {
             mi_original: 80.0,
             mi_sei: 85.0,
             mi_visual_studio: 50.0,
+            mi_is_empty: false,
             nargs: metric as usize,
             nexits: metric as usize,
             nom: 1,
@@ -1122,7 +1121,7 @@ mod tests {
     fn mi_unit(file: &str, visual_studio: f64, original: f64) -> FunctionSummary {
         let mut u = summary("unit", file, 1, 1.0);
         u.kind = SpaceKind::Unit;
-        // The MI `keep` is `halstead_volume > 0 && sloc > 0`, already true.
+        // The MI `keep` is `!mi_is_empty`, already true.
         u.mi_visual_studio = visual_studio;
         u.mi_original = original;
         u
@@ -1440,28 +1439,22 @@ mod tests {
 
     #[test]
     fn mi_select_keeps_clamped_zero_but_drops_empty() {
-        // SPECS[0] is the MI table; its keep mirrors `mi::Stats::inputs_are_empty`
-        // (`halstead_volume > 0 && sloc > 0`). A clamped-to-0 worst file
-        // (volume>0, sloc>0) is kept; every file failing EITHER half of the
-        // conjunction is dropped — including the asymmetric volume-only and
-        // sloc-only cases, which pins the `&&` against a future `||` flip.
+        // SPECS[0] is the MI table; its keep reads `mi_is_empty`, the
+        // projection of `mi::Stats::is_empty` (#1621). A clamped-to-0
+        // worst file is kept; an empty one is dropped even though both
+        // display MI 0.0. The flag alone decides: `empty` carries a
+        // non-zero volume and SLOC, so a keep that went back to
+        // re-deriving the predicate from those fields would keep it.
         let mut worst = summary("big", "src/big.rs", 1, 10.0);
+        worst.kind = SpaceKind::Unit;
         worst.mi_visual_studio = 0.0;
-        worst.halstead_volume = 5_000.0;
-        worst.sloc = 2_000;
-        let mut empty = summary("empty", "src/empty.rs", 1, 0.0);
+        worst.mi_original = -40.0;
+        let mut empty = summary("empty", "src/empty.rs", 1, 10.0);
+        empty.kind = SpaceKind::Unit;
         empty.mi_visual_studio = 0.0;
-        empty.halstead_volume = 0.0;
-        empty.sloc = 0;
-        let mut vol_only = summary("vol_only", "src/vol.rs", 1, 0.0);
-        vol_only.mi_visual_studio = 0.0;
-        vol_only.halstead_volume = 1_000.0;
-        vol_only.sloc = 0;
-        let mut sloc_only = summary("sloc_only", "src/sloc.rs", 1, 0.0);
-        sloc_only.mi_visual_studio = 0.0;
-        sloc_only.halstead_volume = 0.0;
-        sloc_only.sloc = 50;
-        let refs = vec![&worst, &empty, &vol_only, &sloc_only];
+        empty.mi_original = 0.0;
+        empty.mi_is_empty = true;
+        let refs = vec![&worst, &empty];
         let rows = select(
             &SPECS[0],
             &refs,
@@ -1470,11 +1463,7 @@ mod tests {
             AdvisoryThresholds::DEFAULT,
         );
         let kept: Vec<&str> = rows.iter().map(|s| s.file.as_str()).collect();
-        assert_eq!(
-            kept,
-            ["src/big.rs"],
-            "only the volume>0 && sloc>0 file is kept (mirrors inputs_are_empty)"
-        );
+        assert_eq!(kept, ["src/big.rs"], "only the non-empty file is kept");
     }
 
     #[test]

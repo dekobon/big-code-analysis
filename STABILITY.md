@@ -300,6 +300,20 @@ section.
   code path, identical `f64` bits); do not rely on cross-input float
   equality. Adding `PartialEq` is additive: it only widens the
   derived-trait set.
+
+  **An empty Maintainability Index is an in-band `0.0` in 2.x.** A
+  space with no code to measure (zero Halstead volume or a zero size
+  term — an `#include`-only header, an empty module) has no defined
+  MI, yet `mi::Stats::{original, sei, visual_studio}` all return
+  `0.0`, which cannot be told apart from a measured 0 or from
+  `mi.visual_studio`'s clamp at its floor. `mi::Stats::is_empty()`
+  (added #1621, additive) answers the question on the compute side;
+  consumers that average or rank MI should skip spaces for which it
+  returns `true`, as `bca report` does. The serialized value stays
+  `0.0` throughout 2.x, so `wire::Mi` readers cannot recover the
+  distinction from JSON / YAML / TOML / CBOR alone. Emitting `null`
+  for such a space (an omitted key in TOML, per the non-finite rule
+  below) is a wire-shape break reserved for `3.0`.
 - **Prelude**: `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
   `MetricsOptions`, `MetricsError`, `LANG`, `FuncSpace`,

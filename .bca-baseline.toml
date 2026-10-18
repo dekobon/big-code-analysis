@@ -610,7 +610,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/html_report/sections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 529.0
+value = 528.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report/sections.rs"
@@ -634,7 +634,7 @@ value = 49443.19551903411
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 575.0
+value = 603.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -646,7 +646,7 @@ value = 5.0
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "extract_summaries_inner"
 metric = "abc"
-value = 39.153543900903784
+value = 40.124805295477756
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -688,7 +688,7 @@ value = 7.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 554.0
+value = 557.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"

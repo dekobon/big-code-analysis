@@ -65,8 +65,17 @@ impl Stats {
     // parent's recompute. (Same rationale as `halstead::Stats::merge`.)
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
+    /// Returns `true` when the space holds no code to measure: its
+    /// Halstead volume or its size term is zero.
+    ///
+    /// Every variant then returns the in-band sentinel `0.0`, which
+    /// cannot be told from a genuine 0 or from `mi.visual_studio`'s
+    /// clamp. Consumers that aggregate MI must skip these spaces. The
+    /// wire/JSON value stays `0.0` in 2.x; serialising `null` is
+    /// deferred to 3.0 (#1621).
     #[inline]
-    fn inputs_are_empty(&self) -> bool {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
         self.halstead_volume <= 0.0 || self.code_lines <= 0.0
     }
 
@@ -76,7 +85,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn original(&self) -> f64 {
-        if self.inputs_are_empty() {
+        if self.is_empty() {
             return 0.0;
         }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
@@ -93,7 +102,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn sei(&self) -> f64 {
-        if self.inputs_are_empty() {
+        if self.is_empty() {
             return 0.0;
         }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
@@ -109,7 +118,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn visual_studio(&self) -> f64 {
-        if self.inputs_are_empty() {
+        if self.is_empty() {
             return 0.0;
         }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
@@ -263,6 +272,48 @@ mod tests {
             assert_eq!(mi.sei(), 0.0);
             assert_eq!(mi.visual_studio(), 0.0);
         });
+    }
+
+    #[test]
+    fn empty_inputs_are_empty_and_every_variant_is_the_sentinel() {
+        let mut mi = Stats::default();
+        assert!(mi.is_empty());
+        assert_eq!([mi.original(), mi.sei(), mi.visual_studio()], [0.0; 3]);
+        // Either input alone being zero is enough.
+        mi.halstead_volume = 10.0;
+        assert!(mi.is_empty(), "zero size term");
+        mi.halstead_volume = 0.0;
+        mi.code_lines = 3.0;
+        assert!(mi.is_empty(), "zero Halstead volume");
+        mi.halstead_volume = 10.0;
+        assert!(!mi.is_empty());
+        assert!(mi.original() > 0.0);
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn a_trivial_function_is_not_empty() {
+        check_metrics::<PythonParser>("def f():\n    pass\n", "foo.py", |metric| {
+            assert!(!metric.mi.is_empty());
+            assert!(metric.mi.original() > 0.0);
+        });
+    }
+
+    /// An `#include`-only header has rows but no Halstead tokens, so it
+    /// is empty end to end through the parser: the R3 reproducer of
+    /// #1621, where `fstlib.h` dragged `bca report`'s average down.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn an_include_only_file_is_empty() {
+        check_metrics::<CppParser>(
+            "#include <vector>\n#include \"fst.h\"\n",
+            "fstlib.h",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 2);
+                assert!(metric.mi.is_empty());
+                assert_eq!(metric.mi.original(), 0.0);
+            },
+        );
     }
 
     #[cfg(feature = "python")]

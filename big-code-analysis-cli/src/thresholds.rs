@@ -816,12 +816,20 @@ impl ResolvedThreshold {
         if !self.threshold.info().scope.admits(space.kind) {
             return None;
         }
+        // A space with no code to measure (`mi::Stats::is_empty`: zero
+        // Halstead volume or no code row, such as a bodiless Ruby block,
+        // `lambda {}`) reports the in-band `0.0` sentinel for every `mi.*`
+        // variant. That is not a measurement, and gating it would rank the
+        // emptiest space as the least maintainable one, so it is skipped
+        // here as `bca report` skips it (#1621).
+        if self.extractor.metric == Metric::Mi && space.metrics.mi.is_empty() {
+            return None;
+        }
         let value = (self.extractor.extract)(&space.metrics);
         // Direction-aware gate (#698): for the lower-is-worse `mi.*` family a
         // value *below* the limit is the violation; every other metric
-        // breaches by going *above* it. A NaN value (degenerate
-        // Halstead-derived MI on a trivial space) fails both comparisons and
-        // is never flagged, matching the prior `value <= limit`
+        // breaches by going *above* it. A NaN value fails both comparisons
+        // and is never flagged, matching the prior `value <= limit`
         // higher-is-worse behavior.
         if !self.threshold.breaches(value) {
             return None;

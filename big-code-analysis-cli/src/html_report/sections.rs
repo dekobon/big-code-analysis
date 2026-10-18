@@ -251,7 +251,7 @@ pub(crate) fn write_global_summary(
 fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
     let mut unit_count = 0usize;
     let mut sloc = 0usize;
-    let mut mi_numerator = 0.0f64;
+    let mut mi = MiAverage::default();
     let mut func_count = 0usize;
     let mut cc_sum = 0.0f64;
     let mut cog_sum = 0.0f64;
@@ -260,7 +260,7 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
             SpaceKind::Unit => {
                 unit_count += 1;
                 sloc += s.sloc;
-                mi_numerator += mi_weight_numerator(s);
+                mi.add(s);
             }
             SpaceKind::Function => {
                 func_count += 1;
@@ -270,7 +270,7 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
             _ => {}
         }
     }
-    let avg_mi = sloc_weighted_avg_mi(mi_numerator, sloc);
+    let avg_mi = mi.average();
     let (avg_cc, avg_cog) = if func_count > 0 {
         (cc_sum / func_count as f64, cog_sum / func_count as f64)
     } else {
@@ -281,7 +281,10 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
         thousands(unit_count),
         thousands(sloc),
         thousands(func_count),
-        format!("{avg_mi:.1}"),
+        // An empty cell, not `n/a`, when no file had code to measure: the
+        // table sorter reads an empty cell as "no value" and sorts it
+        // last, where any other text would parse as NaN.
+        avg_mi.map_or_else(String::new, |mi| format!("{mi:.1}")),
         format!("{avg_cc:.1}"),
         format!("{avg_cog:.1}"),
     ]
@@ -396,10 +399,9 @@ struct LanguageTotals {
     sloc: usize,
     ploc: usize,
     cloc: usize,
-    /// SLOC-weighted numerator of the unclamped Visual Studio MI: the sum
-    /// of [`mi_weight_numerator`] over the units. Divided by `sloc` (not
-    /// `files`) to form the headline average (issue #725).
-    mi_numerator: f64,
+    /// SLOC-weighted unclamped Visual Studio MI (issue #725), over the
+    /// units whose MI is not empty (#1621).
+    mi: MiAverage,
 }
 
 impl LanguageTotals {
@@ -409,14 +411,14 @@ impl LanguageTotals {
             sloc: 0,
             ploc: 0,
             cloc: 0,
-            mi_numerator: 0.0,
+            mi: MiAverage::default(),
         };
         for s in units {
             t.files += 1;
             t.sloc += s.sloc;
             t.ploc += s.ploc;
             t.cloc += s.cloc;
-            t.mi_numerator += mi_weight_numerator(s);
+            t.mi.add(s);
         }
         t
     }
@@ -425,8 +427,8 @@ impl LanguageTotals {
         comment_ratio_percent(self.sloc, self.cloc)
     }
 
-    fn avg_mi(&self) -> f64 {
-        sloc_weighted_avg_mi(self.mi_numerator, self.sloc)
+    fn avg_mi(&self) -> Option<f64> {
+        self.mi.average()
     }
 }
 
@@ -465,8 +467,6 @@ struct HtmlSection<'a> {
 fn write_language_summary(section: &mut HtmlSection<'_>, units: &[&FunctionSummary]) {
     let totals = LanguageTotals::from_units(units);
     let cr = totals.comment_ratio();
-    let avg_mi = totals.avg_mi();
-    let rating = mi_rating(avg_mi);
 
     section.headings.emit_h3(
         section.out,
@@ -482,8 +482,9 @@ fn write_language_summary(section: &mut HtmlSection<'_>, units: &[&FunctionSumma
     );
     let _ = writeln!(
         section.out,
-        "<p class=\"note\">{}: {avg_mi:.1} ({rating})</p>",
-        crate::markdown_report::AVG_MI_LABEL
+        "<p class=\"note\">{}: {}</p>",
+        crate::markdown_report::AVG_MI_LABEL,
+        escape_html(&rated_avg_mi(totals.avg_mi()))
     );
 }
 

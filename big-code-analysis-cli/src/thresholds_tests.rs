@@ -1099,6 +1099,44 @@ fn mi_low_value_is_flagged_high_value_is_not() {
 }
 
 #[test]
+fn an_mi_floor_skips_a_space_with_no_code_to_measure() {
+    // A bodiless Ruby block is a function space with zero Halstead
+    // volume, so every `mi.*` variant reads the `0.0` sentinel
+    // (`mi::Stats::is_empty`) and must not breach a floor that the
+    // file's one measured function, on row 3, does breach (#1621).
+    let root = big_code_analysis::analyze(
+        big_code_analysis::Source::new(
+            big_code_analysis::LANG::Ruby,
+            b"x = lambda {}\n[1, 2].each { }\ndef f(a)\n  a + 1\nend\n",
+        ),
+        big_code_analysis::MetricsOptions::default(),
+    )
+    .expect("snippet has a top-level FuncSpace");
+    let empties = root
+        .spaces
+        .iter()
+        .filter(|s| s.kind == SpaceKind::Function && s.metrics.mi.is_empty())
+        .count();
+    assert_eq!(empties, 2, "both blocks must be MI-empty: {root:?}");
+    for (metric, floor) in [
+        ("mi.original", 171.0),
+        ("mi.sei", 171.0),
+        ("mi.visual_studio", 100.0),
+    ] {
+        let mut out = Vec::new();
+        threshold_set(metric, floor).evaluate_with_policy(
+            Path::new("fixture.rb"),
+            &root,
+            SuppressionPolicy::Honor,
+            false,
+            &mut out,
+        );
+        let rows: Vec<usize> = out.iter().map(|v| v.start_line).collect();
+        assert_eq!(rows, [3], "{metric}={floor}: {out:?}");
+    }
+}
+
+#[test]
 fn higher_is_worse_metric_keeps_above_limit_gate() {
     // The direction-aware gate must not disturb higher-is-worse metrics:
     // cyclomatic still fires only when the value EXCEEDS the limit.

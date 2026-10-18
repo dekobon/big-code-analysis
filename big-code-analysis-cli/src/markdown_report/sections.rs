@@ -13,28 +13,23 @@ use big_code_analysis::SuppressionPolicy;
 
 use super::advisory::AdvisoryThresholds;
 use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
-use super::{Align, FunctionSummary, escape_cell, escape_name, mi_rating, thousands, write_table};
+use super::{Align, FunctionSummary, escape_cell, escape_name, thousands, write_table};
 
 pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
-    let (files, sloc, ploc, cloc, mi_numerator) = units.iter().fold(
-        (0usize, 0usize, 0usize, 0usize, 0.0f64),
-        |(f, sl, pl, cl, mi), s| {
-            (
-                f + 1,
-                sl + s.sloc,
-                pl + s.ploc,
-                cl + s.cloc,
-                mi + super::mi_weight_numerator(s),
-            )
-        },
-    );
+    let (mut sloc, mut ploc, mut cloc) = (0usize, 0usize, 0usize);
+    let mut mi = super::MiAverage::default();
+    for s in units {
+        sloc += s.sloc;
+        ploc += s.ploc;
+        cloc += s.cloc;
+        mi.add(s);
+    }
+    let files = units.len();
     let cr = if sloc > 0 {
         (cloc as f64 / sloc as f64) * 100.0
     } else {
         0.0
     };
-    let avg_mi = super::sloc_weighted_avg_mi(mi_numerator, sloc);
-    let rating = mi_rating(avg_mi);
 
     // A two-column (metric | value) table renders identically in every GFM
     // dialect; the earlier `|`-joined single-newline lines collapsed to a
@@ -46,7 +41,7 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
         vec!["Comment ratio".to_string(), format!("{cr:.1}%")],
         vec![
             super::AVG_MI_LABEL.to_string(),
-            format!("{avg_mi:.1} ({rating})"),
+            super::rated_avg_mi(mi.average()),
         ],
     ];
 
