@@ -23,12 +23,15 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 # The gate under test is a sibling in `utils/`; every path it reads
 # or writes is anchored at the repository root one level above.
@@ -125,17 +128,71 @@ class InternalVendoredPinTest(unittest.TestCase):
         self.assertEqual(old.findall(self.VENDORED), [])
 
     def test_real_manifests_expose_all_vendored_pins(self) -> None:
-        # Across the real INTERNAL_PIN_MANIFESTS the scan must find the
+        # Across every owned manifest the scan must find the
         # 10 vendored grammar pins, the 2 `big-code-analysis` consumer
         # pins, and the 2 `big-code-analysis-ast` pins the root carries
         # in `[dependencies]` and `[dev-dependencies]` since #1376
         # (14 total), all at the canonical workspace version.
         canonical = cv.workspace_version(REPO_ROOT)
         pins: list[tuple[str, str]] = []
-        for manifest_path in cv.INTERNAL_PIN_MANIFESTS:
+        for manifest_path in cv.internal_pin_manifests(REPO_ROOT):
             pins += _scan_internal_pins(cv.read(REPO_ROOT / manifest_path))
         self.assertEqual(len(pins), 14, pins)
         self.assertTrue(all(ver == canonical for _, ver in pins), pins)
+
+    def test_pin_manifests_follow_workspace_members_and_excludes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["consumer"]\n'
+                'exclude = ["helper", ".claude/worktrees"]\n',
+                encoding="utf-8",
+            )
+            for crate in ("consumer", "helper"):
+                (root / crate).mkdir()
+                (root / crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "{crate}"\nversion = "1.0.0"\n',
+                    encoding="utf-8",
+                )
+            self.assertEqual(
+                cv.internal_pin_manifests(root),
+                ["Cargo.toml", "consumer/Cargo.toml", "helper/Cargo.toml"],
+            )
+
+    def test_stale_pin_in_a_previously_unlisted_manifest_fails(self) -> None:
+        original_read = cv.read
+        canonical = cv.workspace_version(REPO_ROOT)
+        for relative in ("big-code-analysis-py/Cargo.toml", "fuzz/Cargo.toml"):
+            manifest = REPO_ROOT / relative
+            for version in (canonical, "0.0.1"):
+                with self.subTest(manifest=relative, version=version):
+
+                    def read(
+                        path: pathlib.Path,
+                        manifest: pathlib.Path = manifest,
+                        version: str = version,
+                    ) -> str:
+                        text = original_read(path)
+                        if path == manifest:
+                            text += (
+                                "\n[target.'cfg(unix)'.dependencies]\n"
+                                'big-code-analysis-ast = { path = "../big-code-analysis-ast", '
+                                f'version = "={version}" }}\n'
+                            )
+                        return text
+
+                    with (
+                        patch.object(cv, "read", side_effect=read),
+                        contextlib.redirect_stdout(io.StringIO()),
+                        contextlib.redirect_stderr(io.StringIO()) as stderr,
+                    ):
+                        result = cv.main()
+                    if version == canonical:
+                        self.assertEqual(result, 0, stderr.getvalue())
+                    else:
+                        self.assertEqual(result, 1)
+                        self.assertIn(relative, stderr.getvalue())
+                        self.assertIn("internal-dep pin", stderr.getvalue())
 
 
 class CiRecipePinTest(unittest.TestCase):

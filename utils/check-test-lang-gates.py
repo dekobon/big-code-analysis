@@ -102,6 +102,9 @@ SCAN_ROOTS = (
 )
 EXCLUDED = (pathlib.Path("tests") / "repositories",)
 
+# Cargo compiles each crate's `tests/` tree without an explicit `cfg(test)`.
+INTEGRATION_TEST_ROOTS = tuple(root for root in SCAN_ROOTS if root.name == "tests")
+
 # rustfmt's default `max_width`, so a generated marker that fits on one
 # line is already the line rustfmt would have produced.
 MAX_WIDTH = 100
@@ -1050,6 +1053,12 @@ def _shadowed_references(body: str) -> set[int]:
     return shadowed
 
 
+def is_integration_path(path: str) -> bool:
+    """Whether repo-relative POSIX ``path`` sits under an integration-test root."""
+    posix = pathlib.PurePosixPath(path)
+    return any(posix.is_relative_to(root.as_posix()) for root in INTEGRATION_TEST_ROOTS)
+
+
 def scan_source(
     source: str,
     path: str,
@@ -1071,7 +1080,7 @@ def scan_source(
     # inside `roundtrip_tests!` is a template, and its `$lang`
     # metavariable names no language at all.
     macro_depth: int | None = None
-    is_integration_test = path.startswith("tests/") or whole_file_is_test
+    is_integration_test = is_integration_path(path) or whole_file_is_test
 
     while index < len(lines):
         line = lines[index]
