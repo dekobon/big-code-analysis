@@ -26,6 +26,27 @@ for historical reference.
 
 ### Added
 
+- **`metric_catalog::Scale` and `metric_catalog::Threshold`: one model
+  of what a metric value means** (#1621). `MetricInfo` gains a `scale`
+  field (and `metric_catalog::scale(id)`): `Scale::Ratio` for every
+  count, `Scale::Interval { min, max, unit }` for the `mi.*` family,
+  whose zero is arbitrary and whose values go negative. The `unit` is
+  one Visual Studio maintainability band — 10 points for
+  `mi.visual_studio`, 17.1 for `mi.original` / `mi.sei` — and is what
+  every ratio-shaped rule uses in place of the limit. `Threshold::check`
+  validates a limit against the scale and returns `Checked { threshold,
+  warning }` or a `LimitError`; an out-of-domain or unfireable `mi.*`
+  limit is accepted with a `LimitWarning`. `Threshold` answers
+  `breaches`, `excess`, `severity`, `cmp_severity`, `cmp_breach`,
+  `soft_limit`, `change` (`Change::Percent` for counts, `Change::Points`
+  for `mi.*`) and `drift`; `warning` re-asks a threshold in hand for
+  the advisory `check` returned, and `is_soft_ratio` is the band rule
+  `soft_limit` applies. `MetricInfo::cmp_worse` orders two values by
+  badness with NaN worst. The CLI gate, the baseline, Code
+  Climate and the Python `to_sarif` all read these rather than
+  re-deriving them. Additive within `2.x`: `MetricInfo` was already
+  `#[non_exhaustive]`, `Threshold` has private fields, and the new
+  enums and `Checked` are `#[non_exhaustive]`.
 - `metric_catalog::resolve_selector`, `selector_names` and
   `UnknownSelectorError`: the library's metric-selection resolver, now
   shared by the CLI and the Python bindings. `UnknownSelectorError`
@@ -41,6 +62,10 @@ for historical reference.
   full `loc` block. Before this, only the 13 family names in
   `METRIC_NAMES` were accepted; `METRIC_NAMES` remains the canonical
   family list. (#1614)
+- `mi::Stats::is_empty()` returns `true` when a space has no code to
+  measure (zero Halstead volume or zero size term). In that case its
+  three MI values are the placeholder `0.0`, not a measured score.
+  (#1621)
 - **`loc.dloc`: documentation rows reported beside `cloc`** (#1597).
   A Python docstring — a bare string statement — has counted as comment
   lines since #415, so `cloc` could not be read as "comments" the way a
@@ -177,11 +202,51 @@ for historical reference.
 
 ### Changed
 
+- `mi.original` and `mi.sei` limits may be negative
+  (`--threshold mi.original=-50`); a negative limit on any metric was
+  rejected before. A `mi.visual_studio` limit of `0` or above `100`
+  still parses, and a negative one now does, but each prints a
+  `warning:` naming the limit that cannot fire or fires on everything;
+  rejecting them is reserved for the next major. (#1621)
+- The soft tier raises an `mi.*` floor by `(1 − ratio)` of one
+  maintainability band (17.1 points, or 10 for `mi.visual_studio`)
+  instead of dividing it by the ratio: `mi.original = 20` at 0.95 now
+  warns at 20.855, not 21.0527, and a negative floor is tightened rather
+  than loosened. `--explain-threshold` shows the step as
+  `+0.855 (0.05 × 17.1)`. A soft limit the ratio leaves where it was —
+  any limit under `--tier=soft=1.0`, `--headroom 1.0` or `"1x"` — is
+  now used as written rather than rounded to six significant figures,
+  so a limit with more figures no longer gates the soft tier tighter
+  than the hard one. (#1621)
+- A regressed `mi.*` baseline row is tagged in index points,
+  `[regr +N.N pts]`, rather than as a percentage of the record; every
+  other metric keeps `[regr +N%]`, and `rg '\[regr '` matches both.
+  (#1611, #1621)
+- The step-summary heading reads "Top N offenders (by severity)".
+  `bca check --help` says a function is flagged when it "breaches" its
+  limit, not when it is "at or over" it. `bca diff --min-change`
+  rejects a non-finite value (`inf` hid every delta; `NaN` and `-inf`
+  reported every delta, as `0` does) and reads a negative one as `0`
+  with a warning. (#1621)
+- `to_sarif(thresholds=)` in the Python bindings validates limits with
+  `metric_catalog::Threshold`, the same rules as `bca check`. A
+  negative `mi.original` / `mi.sei` floor is accepted instead of
+  raising `ValueError`; a limit that cannot fire or fires on every
+  value (`{"mi.visual_studio": 0}`) emits a `UserWarning`. Rejection
+  messages begin `limit for "<metric>"` rather than
+  `threshold for "<metric>"`. (#1621)
 - Python's unknown-metric `ValueError` gains a did-you-mean hint. The
   `unknown metric: <name>` prefix is unchanged; the trailing
   `; valid: <family names>` is now
   `[; did you mean `x`?]; known metrics: <family and row names>`,
   matching `bca metrics --metrics`. (#1614)
+- **(breaking), deferred to the next major (3.0):** the MI of a space
+  with no code will serialize as `null` (an omitted key in TOML)
+  instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
+  use `mi::Stats::is_empty()` to tell it apart. The change retires the
+  dict-side copy of that predicate in the Python bindings
+  (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
+  only because the wire cannot yet say "empty". (#1621)
 - **The maintainability index no longer charges documentation**
   (#1597). Every `mi.*` variant sizes a space on `sloc` less the
   documentation (`dloc`) rows that carry no code, and `mi.sei` forms
@@ -240,9 +305,67 @@ for historical reference.
   the corpus is recorded with commit SHAs in
   `docs/development/threshold_corpus.md` so it can be reproduced.
 
+### Deprecated
+
+- `metric_catalog::lower_is_worse`: read `MetricInfo::direction` via
+  `lookup`, or build a `metric_catalog::Threshold`. It keeps working
+  through `2.x`; removal is reserved for `3.0`. A workspace
+  `clippy.toml` `disallowed-methods` entry blocks new in-tree callers.
+  (#1621)
+
 ### Fixed
 
 - Excluded source-tree bytecode caches from locally built Python wheels.
+- `bca check --write-baseline` now records negative `mi.original` and
+  `mi.sei` values instead of skipping them with a warning, and
+  `--baseline` loads them. Both metrics are unclamped and fall below
+  zero on large functions, so those offenders used to report `[new]`
+  after every refresh. The index has an arbitrary zero, so a
+  percentage of the record meant nothing: a drop from −10 to −20 read
+  `[regr +-100%]`, and a 0.01-point drop from a record of 0.001 read
+  `[regr +1069%]`. They now read `[regr +10.0 pts]` and
+  `[regr +0.0 pts]`. A negative zero is written as `0.0`. (#1611,
+  #1621)
+- `bca check` now ranks negative Maintainability Index breaches by how
+  far below the floor they fall. The summary footer, step-summary
+  rollup and top-offenders table named the mildest as worst, because
+  every MI ≤ 0 tied on a saturated breach ratio and the tie kept the
+  larger value. Ranking across metrics uses one key,
+  `Threshold::severity`: a count's `value / limit`, an MI's distance
+  below the floor in bands of 17.1 points (10 for `mi.visual_studio`).
+  (#1617, #1621)
+- When two baseline records for an `mi.*` function sit equally far
+  from it, the tie now goes to the more lenient (lower) record, as it
+  already did for the higher record of every other metric; it picked
+  the stricter one and reported a spurious regression. (#1616)
+- Code Climate severity now uses the same key as `bca check`. A
+  negative MI, or any breach of a zero limit, used to be `minor`; an
+  MI of 0 against a floor of 20 is now `critical`, −40 is `blocker`,
+  and a zero-limit breach is `blocker`. A record that does not breach
+  its limit keeps the severity it declares. (#1620)
+- The stale-baseline warning measures `mi.*` drift in index bands, so
+  a hundredth-of-a-point move near zero no longer outranks a halved
+  complexity. `--explain-threshold` warns about a
+  `[thresholds.lang.<slug>]` or absolute `[thresholds.soft]` limit the
+  predicted gate still applies; a hard-tier `bca check` no longer warns
+  about a soft limit it never applies. (#1621)
+- `bca report`'s `Average MI (SLOC-weighted)` (Markdown summary and
+  per-language overview, HTML summary and overview) no longer counts
+  files with no code to measure, such as an `#include`-only header or
+  an empty module. Their MI of `0.0` is a placeholder, not a score,
+  and it pulled the average toward zero in proportion to the file's
+  line count: adding a 130-SLOC `#include`-only header moved one
+  average from 11.9 (MODERATE) to 8.4 (LOW). These files still count
+  toward Files and SLOC, and stay out of the MI hotspot table as
+  before. A language whose every file has no code to measure reads
+  `n/a` rather than `0.0 (LOW)`. (#1621)
+- An `mi.*` threshold no longer flags a function with no code to
+  measure. A bodiless Ruby block (`lambda {}`, `proc {}`,
+  `[1, 2].each { }`) is a function space with zero Halstead volume, so
+  its MI is the `0.0` placeholder, and `bca check` reported it as the
+  worst MI in the file (Code Climate: `critical`). `bca check` and the
+  Python `to_sarif(thresholds=)` now skip such a space, as `bca report`
+  does. (#1621)
 - Ruby `ploc` no longer counts a comment row that opens a body: the
   grammar starts the `then` wrapper of an `if` / `elsif` / `unless` /
   `when` / `in` / `rescue` body, and the `do` wrapper of a loop written
