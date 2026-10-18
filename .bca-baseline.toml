@@ -1235,7 +1235,7 @@ value = 6.0
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"
-value = 84452.11438842113
+value = 86380.09140562497
 
 [[entry]]
 path = "src/output/checkstyle.rs"

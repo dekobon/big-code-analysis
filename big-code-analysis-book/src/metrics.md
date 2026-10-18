@@ -1101,7 +1101,9 @@ decision, not one rule for all:
   code (`def f(): """doc"""`) is code too. An implicitly concatenated
   literal (`"""doc""" "more"`) is one string and a bare tuple of
   strings is none, the same test Halstead applies when it drops a bare
-  string's operands. A comment is documentation in Python only in
+  string's operands. A parenthesized string (`("""doc""")`) is the same
+  string, because CPython drops the parentheses, and its `(` and `)` rows
+  are its rows. A comment is documentation in Python only in
   Sphinx's `#:` form: consecutive `#:` lines directly above one of
   those attribute assignments or aliases, or a `#:` after the code on its line
   (`MAX = 10  #: in bytes`). A plain `#` line breaks a `#:` block.

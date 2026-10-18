@@ -14,7 +14,7 @@
 use super::*;
 use crate::lang_helpers::python::{
     python_documentation_string_run, python_is_bare_statement_value, python_is_bare_string,
-    python_sphinx_doc_comment,
+    python_is_bare_string_parenthesis, python_sphinx_doc_comment,
 };
 
 impl Loc for PythonCode {
@@ -25,6 +25,7 @@ impl Loc for PythonCode {
         stats: &mut Stats,
         is_func_space: bool,
     ) {
+        // bca: suppress(cyclomatic, halstead) — per-kind LOC dispatch for Python, one arm per node kind
         use Python::*;
 
         let start = init(node, stats, is_func_space);
@@ -58,6 +59,14 @@ impl Loc for PythonCode {
             ConcatenatedString if python_is_bare_statement_value(node, ancestors) => {
                 add_bare_string_lines(node, code, ancestors, stats);
             }
+            // CPython drops the parentheses around a bare string, so they
+            // are part of it (#1610): their rows are its comment rows, and
+            // documentation rows when it is, which the string's arm credits.
+            // The `parenthesized_expression` itself bills nothing.
+            LPAREN | RPAREN if python_is_bare_string_parenthesis(node, ancestors) => {
+                add_comment_rows(stats, node.start_row(), node.end_row(), false);
+            }
+            ParenthesizedExpression if python_is_bare_string_parenthesis(node, ancestors) => {}
             String => {
                 if python_is_bare_string(node, ancestors) {
                     // A bare string statement is counted as comment lines

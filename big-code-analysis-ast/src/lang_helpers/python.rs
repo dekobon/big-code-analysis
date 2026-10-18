@@ -3,7 +3,7 @@
 
 use crate::Python;
 use crate::lang_helpers::doc_comment::node_bytes;
-use crate::node::{AncestorIter, Ancestors, Node};
+use crate::node::{AncestorIter, Ancestors, Cursor, FoldLane, Node};
 
 /// Whether `node` is a Python `lambda` expression, under either of the
 /// grammar's two aliased kind_ids: `Lambda` (196, the concrete
@@ -42,15 +42,136 @@ pub fn python_is_block(node: &Node) -> bool {
     matches!(node.kind_id().into(), Python::Block | Python::Block2)
 }
 
-/// Whether `node` is the sole child of an `expression_statement`: the
-/// discarded-value shape a docstring takes. `"a", "b"` has two, so it
-/// is a discarded tuple, not documentation.
+/// How many parentheses CPython lets one expression nest in: its
+/// tokenizer's `MAXLEVEL` (`Parser/lexer/state.h`). A docstring wrapped
+/// deeper than this is a syntax error, so the climb and the descent
+/// through `parenthesized_expression` stop here, which also keeps each
+/// one constant-time on a file nesting thousands of them. A `u8`, so the
+/// memoised climb ([`bare_string_climb`]) saturates against it.
+const MAX_PARENTHESES: u8 = 200;
+
+/// Whether `node`, past any parentheses around it, is the sole child of
+/// an `expression_statement`: the discarded-value shape a docstring
+/// takes. CPython drops the parentheses, so `("""doc""")` is a docstring
+/// (#1610). `"a", "b"` has two children, so it is a discarded tuple, not
+/// documentation.
 #[inline]
 #[must_use]
 pub fn python_is_bare_statement_value(node: &Node, ancestors: Ancestors<'_, '_>) -> bool {
-    ancestors
-        .parent(node)
-        .is_some_and(|parent| is_bare_statement(&parent))
+    enclosing_statement(node, ancestors)
+        .is_some_and(|((statement, _), _)| is_bare_statement(&statement))
+}
+
+/// Whether `node` is a `parenthesized_expression` around a bare string
+/// statement's string, or one of its `(` and `)`. The parentheses belong
+/// to the docstring they wrap (#1610): neither code rows nor operators.
+///
+/// Decided from the statement down, as the string's own climb is, so a
+/// string nested past CPython's 200-parenthesis cap keeps every one of
+/// its parentheses as code rather than only the outermost. Every
+/// parenthesis of a chain asks, and a climb and a descent per parenthesis
+/// made a statement `d` deep cost `O(d²)`: a walk that lent a `FoldCache`
+/// reads the answer off a memoised fold of the ancestry instead, which
+/// unwraps each statement's value once. Any other caller climbs, which
+/// the cap bounds where a fold without its memo would run from the root.
+#[must_use]
+pub fn python_is_bare_string_parenthesis(node: &Node, ancestors: Ancestors<'_, '_>) -> bool {
+    let token = matches!(node.kind_id().into(), Python::LPAREN | Python::RPAREN);
+    let Some((paren, paren_ancestors)) = (if token {
+        ancestors.iter(node).next()
+    } else {
+        Some((*node, ancestors))
+    }) else {
+        return false;
+    };
+    if paren.kind_id() != Python::ParenthesizedExpression {
+        return false;
+    }
+    if ancestors.memoises_folds() {
+        // A token's fold stops at its parenthesis, whose state it reads.
+        let climb = ancestors.fold_down(
+            node,
+            usize::from(token),
+            FoldLane::BareStringClimb,
+            0,
+            |climb, ancestor, _, _| bare_string_climb(climb, ancestor),
+        );
+        return (1..=MAX_PARENTHESES + 1).contains(&climb);
+    }
+    enclosing_statement(&paren, paren_ancestors)
+        .is_some_and(|((statement, _), _)| statement_string(&statement).is_some())
+}
+
+/// One step of the fold [`python_is_bare_string_parenthesis`] memoises:
+/// the climb from a node through the parentheses above it to the
+/// statement holding them, or 0 when that is no bare string statement. A
+/// parenthesis lengthens the climb, saturating one past the longest climb
+/// [`enclosing_statement`] takes; any other ancestor starts one. A climb
+/// past the cap ends at a statement whose string lies past it too, so the
+/// length decides nothing there, and no recovery the grammar performs
+/// gives a parenthesis holding the string a deeper parenthesis beside it
+/// (searched, #1610): the saturation point is kept for the fold to answer
+/// as the climb does should one appear, and nothing can pin it.
+fn bare_string_climb(climb: u8, ancestor: &Node) -> u8 {
+    if ancestor.kind_id() != Python::ParenthesizedExpression {
+        u8::from(statement_string(ancestor).is_some())
+    } else if climb == 0 {
+        0
+    } else {
+        climb.saturating_add(1).min(MAX_PARENTHESES + 2)
+    }
+}
+
+/// The nearest ancestor of `node` that is not a parenthesis around it,
+/// paired with its ancestry, and the iterator continuing above it.
+fn enclosing_statement<'a, 'c>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, 'c>,
+) -> Option<((Node<'a>, Ancestors<'a, 'c>), AncestorIter<'a, 'c>)> {
+    let mut up = ancestors.iter(node);
+    let statement = up
+        .by_ref()
+        .take(usize::from(MAX_PARENTHESES) + 1)
+        .find(|(ancestor, _)| ancestor.kind_id() != Python::ParenthesizedExpression)?;
+    Some((statement, up))
+}
+
+/// `node` with at most [`MAX_PARENTHESES`] parentheses around it removed:
+/// the expression inside, skipping the comments a parenthesized
+/// expression may hold. One cursor serves every layer.
+fn unparenthesized(node: Node) -> Node {
+    let mut cursor = node.cursor();
+    let mut value = node;
+    for _ in 0..MAX_PARENTHESES {
+        let Some(inner) = unparenthesized_once(&value, &mut cursor) else {
+            break;
+        };
+        value = inner;
+    }
+    value
+}
+
+/// The expression one `parenthesized_expression` holds, or `None` when
+/// `node` is not one, read with `cursor`.
+fn unparenthesized_once<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<Node<'a>> {
+    if node.kind_id() != Python::ParenthesizedExpression {
+        return None;
+    }
+    node.children_with(cursor)
+        .find(|child| child.is_named() && child.kind_id() != Python::Comment)
+}
+
+/// The string a bare string statement holds, past any parentheses.
+fn statement_string<'a>(statement: &Node<'a>) -> Option<Node<'a>> {
+    if !is_bare_statement(statement) {
+        return None;
+    }
+    statement.child(0).map(unparenthesized).filter(|value| {
+        matches!(
+            value.kind_id().into(),
+            Python::String | Python::ConcatenatedString
+        )
+    })
 }
 
 /// Whether `node` is a bare string statement's `string`: the statement's
@@ -112,8 +233,7 @@ fn documentation_run_start<'a>(
     if !is_str_literal(value, code) {
         return None;
     }
-    let mut up = ancestors.iter(value);
-    let (statement, statement_ancestors) = up.next()?;
+    let ((statement, statement_ancestors), up) = enclosing_statement(value, ancestors)?;
     let attributes = body_attributes(up, code)?;
     let mut first = statement;
     for sibling in statement_ancestors
@@ -137,7 +257,7 @@ pub fn python_documentation_string_run(
     ancestors: Ancestors<'_, '_>,
     mut credit: impl FnMut(usize, usize),
 ) {
-    let Some((statement, outer)) = ancestors.iter(value).next() else {
+    let Some(((statement, outer), _)) = enclosing_statement(value, ancestors) else {
         return;
     };
     if outer
@@ -155,10 +275,31 @@ pub fn python_documentation_string_run(
         .take_while(|member| member.start_byte() <= statement.start_byte())
         .filter(|member| is_string_statement(member, code))
     {
-        if let Some(value) = member.child(0) {
-            credit(value.start_row(), value.end_row());
-        }
+        credit_documentation_rows(member, &mut credit);
     }
+}
+
+/// Credits the rows of a string statement's value and of the `(` and `)`
+/// around it, which are part of the docstring (#1610); a comment inside
+/// the parentheses stays a comment.
+fn credit_documentation_rows(statement: Node, credit: &mut impl FnMut(usize, usize)) {
+    let Some(mut value) = statement.child(0) else {
+        return;
+    };
+    let mut cursor = value.cursor();
+    for _ in 0..MAX_PARENTHESES {
+        let Some(inner) = unparenthesized_once(&value, &mut cursor) else {
+            break;
+        };
+        for paren in value
+            .children_with(&mut cursor)
+            .filter(|child| !child.is_named())
+        {
+            credit(paren.start_row(), paren.end_row());
+        }
+        value = inner;
+    }
+    credit(value.start_row(), value.end_row());
 }
 
 /// The assignments a body reads an attribute docstring after: PEP 258's
@@ -302,13 +443,7 @@ fn is_bare_statement(statement: &Node) -> bool {
 /// A bare statement whose value is a `str` literal: a docstring, when it
 /// opens its body.
 fn is_string_statement(statement: &Node, code: &[u8]) -> bool {
-    is_bare_statement(statement)
-        && statement.child(0).is_some_and(|value| {
-            matches!(
-                value.kind_id().into(),
-                Python::String | Python::ConcatenatedString
-            ) && is_str_literal(&value, code)
-        })
+    statement_string(statement).is_some_and(|value| is_str_literal(&value, code))
 }
 
 /// Whether an assignment target binds what Sphinx records an attribute
@@ -435,4 +570,91 @@ fn credit_block(
 /// A comment whose text opens with Sphinx's doc-comment marker, `#:`.
 fn is_sphinx_doc_comment(node: &Node, code: &[u8]) -> bool {
     node.kind_id() == Python::Comment && node_bytes(node, code).starts_with(b"#:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `parenthesized_expression`, `(` and `)` of `source`, each
+    /// asked through a memoised walk and through its chain alone, which
+    /// takes the climb. A chainless caller climbs the same way, by
+    /// `Node::parent`, at a cost that would make this test quadratic.
+    #[cfg(feature = "python")]
+    fn bare_string_parenthesis_answers(source: &str) -> Vec<[bool; 2]> {
+        use crate::langs::PythonCode;
+        use crate::node::{FoldCache, Tree};
+        let tree = Tree::new::<PythonCode>(source.as_bytes());
+        let cache = FoldCache::default();
+        let mut answers = Vec::new();
+        // Pre-order with the chain the metric walk keeps, so the fold's
+        // per-depth slots are reused as they are there.
+        let mut stack = vec![(tree.get_root(), 0_usize)];
+        let mut chain: Vec<Node> = Vec::new();
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            if matches!(
+                node.kind_id().into(),
+                Python::ParenthesizedExpression | Python::LPAREN | Python::RPAREN
+            ) {
+                answers.push([
+                    python_is_bare_string_parenthesis(
+                        &node,
+                        Ancestors::known(&chain).with_folds(&cache),
+                    ),
+                    python_is_bare_string_parenthesis(&node, Ancestors::known(&chain)),
+                ]);
+            }
+            chain.push(node);
+            let children: Vec<_> = node.children().collect();
+            stack.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
+        }
+        answers
+    }
+
+    /// The memoised fold answers as the climb it replaced does (#1610),
+    /// on both sides of CPython's cap: a bare string under 200
+    /// parentheses keeps all of them as its own, one under 201 none — a
+    /// discarded f-string is a bare string too, if no docstring — and a
+    /// parenthesized value, a tuple and an assignment none.
+    /// The climb's answers are the oracle, so a fold that lost its reset
+    /// (`climb == 0`) fails here before any metric. The saturation point
+    /// and the window's upper edge are not observable: on every tree the
+    /// grammar produces, a parenthesis chain either ends at its string
+    /// within the cap or climbs past it, and both sides agree on each. A
+    /// perturbation of either edge fails nothing (measured), so the
+    /// arithmetic in [`bare_string_climb`] is argued in its doc, not
+    /// pinned here.
+    #[cfg(feature = "python")]
+    #[test]
+    fn memoised_climb_answers_as_the_climb_does() {
+        let nest = |depth: usize, inner: &str| {
+            format!("{}{inner}{}", "(".repeat(depth), ")".repeat(depth))
+        };
+        let cases = [
+            (nest(199, "\"s\""), 199 * 3),
+            (nest(200, "\"s\""), 200 * 3),
+            (nest(201, "\"s\""), 0),
+            (
+                format!("def f():\n    {}\n", nest(3, "\"\"\"d\"\"\"")),
+                3 * 3,
+            ),
+            ("(  # c\n    \"s\"\n)\n".to_owned(), 3),
+            ("(\"a\" \"b\")\n".to_owned(), 3),
+            (nest(3, "x"), 0),
+            ("(\"a\", \"b\")\n".to_owned(), 0),
+            (nest(3, "f\"x\""), 3 * 3),
+            (format!("x = {}\n", nest(1_000, "\"s\"")), 0),
+            (format!("{}\n(\"s\"\n", nest(2, "\"s\"")), 2 * 3),
+        ];
+        for (source, documenting) in cases {
+            let answers = bare_string_parenthesis_answers(&source);
+            assert!(!answers.is_empty(), "{source:.40}");
+            for [memoised, climbed] in &answers {
+                assert_eq!(memoised, climbed, "{source:.40}");
+            }
+            let found = answers.iter().filter(|[memoised, ..]| *memoised).count();
+            assert_eq!(found, documenting, "{source:.40}");
+        }
+    }
 }

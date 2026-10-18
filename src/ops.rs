@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
-use crate::node::{Ancestors, Node, SiblingCache};
+use crate::node::{Ancestors, FoldCache, Node, SiblingCache};
 use crate::spaces::{SpaceKind, line_span, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
@@ -302,6 +302,9 @@ pub(crate) fn ops_inner<T: MetricSuite>(
     parser: &T,
     name: Option<String>,
 ) -> Result<Ops, MetricsError> {
+    // bca: suppress(abc) — the twin of `metrics_inner`'s single walk loop,
+    // which carries the same marker: each local and call it sets up keeps
+    // one walk invariant the two walks must share (chain, siblings, folds).
     let code = parser.code();
     let node = parser.root();
     let mut cursor = node.cursor();
@@ -310,8 +313,12 @@ pub(crate) fn ops_inner<T: MetricSuite>(
     // maintained by the same truncate/push rule as
     // `spaces::compute::metrics_inner` (#1084).
     let mut chain: Vec<Node<'_>> = Vec::new();
-    // As in `metrics_inner`: the children of each wide node on `chain`.
+    // As in `metrics_inner`: the children of each wide node on `chain`,
+    // and the memoised ancestry folds, without which the Python
+    // parenthesised-docstring test climbs and re-descends a paren nest
+    // once per layer, quadratically in its depth.
     let mut siblings = SiblingCache::default();
+    let folds = FoldCache::default();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
 
@@ -332,7 +339,9 @@ pub(crate) fn ops_inner<T: MetricSuite>(
             last_level = level;
         }
 
-        let ancestors = Ancestors::checked(&chain, &node).with_siblings(&siblings);
+        let ancestors = Ancestors::checked(&chain, &node)
+            .with_siblings(&siblings)
+            .with_folds(&folds);
 
         // Same predicate `spaces::compute::metrics_inner` opens on, so
         // the two walks agree on which nodes become spaces. The

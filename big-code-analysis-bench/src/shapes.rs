@@ -396,6 +396,26 @@ pub fn python_additional_docstrings(width: usize) -> String {
     format!("x = 1\n{}", "\"\"\"d\"\"\"\n".repeat(width))
 }
 
+/// Python: `x = (((…a…)))`, every `(` of which asks whether its
+/// parentheses wrap a bare string statement.
+#[must_use]
+pub fn python_nested_parens(depth: usize) -> String {
+    format!("x = {}a{}\n", "(".repeat(depth), ")".repeat(depth))
+}
+
+/// How many statements [`python_paren_bare_strings`] renders: enough that
+/// the walk outweighs the fixed per-analysis cost at the shallowest depth.
+const PAREN_BARE_STRING_STATEMENTS: usize = 100;
+
+/// Python: bare string statements, `(((…"s"…)))`, each `depth`
+/// parentheses deep, every parenthesis of which asks whether it wraps a
+/// bare string — and here each does.
+#[must_use]
+pub fn python_paren_bare_strings(depth: usize) -> String {
+    format!("{}\"s\"{}\n", "(".repeat(depth), ")".repeat(depth))
+        .repeat(PAREN_BARE_STRING_STATEMENTS)
+}
+
 /// Rust: `/// d` above each of `depth` nested `mod m { … }`, so every
 /// level adds a doc comment whose placement test sits one level deeper.
 #[must_use]
@@ -1020,6 +1040,13 @@ const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// headroom on a shared runner, and the ladder below fits 1.0-1.1
 /// instead.
 const ATTRIBUTE_RUN_DEPTHS: [usize; 3] = [500, 1_000, 2_000];
+
+/// Depths for `loc/python-paren-bare-strings`, held under the 200 levels
+/// Python's tokenizer lets parentheses nest. Past them a parenthesis's
+/// climb to its statement stops at the cap, so the per-statement
+/// quadratic the probe guards cannot show on [`LINEAR_DEPTHS`]; under it,
+/// it did — 3.9 s for 80 KB of 200-deep statements (#1610).
+const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 
 /// Bound for a probe expected to be linear in its size parameter.
 ///
@@ -1708,6 +1735,67 @@ pub const PROBES: &[Probe] = &[
         rationale: "Additional docstrings inherit the first string's position. \
                     Decide the run once, rather than scanning back to its \
                     assignment at every string. Every string is a doc row.",
+    },
+    Probe {
+        name: "halstead/python-nested-paren",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead, Metric::Loc],
+            reading: |m| m.halstead.length(),
+        },
+        render: python_nested_parens,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1610: Halstead's `(` and LOC's `(`, `)` and \
+                    parenthesized-expression arms each ask whether the \
+                    parentheses wrap a bare string. These wrap none and \
+                    nest past CPython's 200-level cap, which bounds an \
+                    unmemoised climb to the statement; without the cap \
+                    the walk is quadratic in depth. The quadratic under \
+                    the cap is `loc/python-paren-bare-strings`'.",
+    },
+    Probe {
+        name: "loc/python-paren-bare-strings",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc, Metric::Halstead],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_paren_bare_strings,
+        sizes: PAREN_CAP_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1610: every parenthesis of a bare string statement \
+                    asks whether it wraps the string, which climbed to \
+                    the statement and unwrapped its value again per \
+                    parenthesis: O(depth²) per statement, under the cap \
+                    that bounds `halstead/python-nested-paren`. The \
+                    walk's FoldCache now memoises the climb, so each \
+                    statement is unwrapped once. Each statement is one \
+                    comment row.",
+    },
+    Probe {
+        name: "ops/python-paren-bare-strings",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Ops {
+            // The bare strings and their parentheses contribute nothing
+            // to `Ops`, so the trailing assignment's `=` is the whole
+            // vocabulary: constant, and here only to prove the walk ran.
+            reading: |ops| ops.operators.len() as u64,
+        },
+        render: |depth| format!("{}x = 1\n", python_paren_bare_strings(depth)),
+        sizes: PAREN_CAP_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1610: `loc/python-paren-bare-strings` on `ops_inner`, \
+                    which lends the walk its own FoldCache. Without it \
+                    each parenthesis's Halstead `(` test climbs to the \
+                    statement and unwraps its value again, quadratic in \
+                    depth under the cap, and the metric probe cannot see \
+                    a walk it does not run.",
     },
     Probe {
         name: "loc/go-nested-doc-fields",

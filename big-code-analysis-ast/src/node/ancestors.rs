@@ -127,6 +127,14 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
+    /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
+    /// one a walk lent a [`FoldCache`] with. Otherwise every fold runs
+    /// from the root, so a predicate whose own climb is bounded takes that
+    /// instead.
+    pub(crate) fn memoises_folds(self) -> bool {
+        self.folds.is_some() && self.chain.is_some()
+    }
+
     /// [`Ancestors::known`], but first checks that `chain` really is
     /// `node`'s ancestry.
     ///
@@ -465,11 +473,14 @@ pub(crate) enum FoldLane {
     /// Ruby's YARD namespace. One lane serves both because a walk parses
     /// one language.
     DocScope,
+    /// Python: the climb from a node through the parentheses above it to
+    /// a bare string statement (#1610).
+    BareStringClimb,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 2;
+    const COUNT: usize = 3;
 }
 
 /// The per-depth states of the walk's memoised folds, for

@@ -5924,6 +5924,58 @@ end",
 
     #[cfg(feature = "python")]
     #[test]
+    fn python_parenthesized_docstring_suppressed() {
+        // CPython drops the parentheses around a docstring (#1610), so
+        // `("""doc""")` must bill what `"""doc"""` bills: neither the
+        // string nor its `(`. Operators: `def`, `(` of the parameter list,
+        // `:`, `return`; operands: `f`, `1`.
+        let sources: [&[u8]; 4] = [
+            b"def f():\n    \"\"\"doc\"\"\"\n    return 1\n",
+            b"def f():\n    (\"\"\"doc\"\"\")\n    return 1\n",
+            b"def f():\n    ((\"doc\"))\n    return 1\n",
+            b"def f():\n    (\n        # c\n        \"doc\" \"more\"\n    )\n    return 1\n",
+        ];
+        for source in sources {
+            let h = crate::test_support::metrics_verbatim(
+                crate::LANG::Python,
+                source,
+                crate::MetricsOptions::default(),
+            )
+            .halstead;
+            assert_eq!(
+                [
+                    h.unique_operators(),
+                    h.total_operators(),
+                    h.unique_operands(),
+                    h.total_operands()
+                ],
+                [4, 4, 2, 2],
+                "{}",
+                String::from_utf8_lossy(source)
+            );
+        }
+        // A parenthesized value keeps its `(` and its operand, and so does
+        // a parenthesized name statement. Operators: `=`, `(`; operands:
+        // `x`, `"a"`.
+        check_metrics::<PythonParser>("x = (\"a\")\n", "foo.py", |metric| {
+            let h = &metric.halstead;
+            assert_eq!([h.total_operators(), h.total_operands()], [2, 2]);
+        });
+        // Operators: `(`; operands: `x`.
+        check_metrics::<PythonParser>("(x)\n", "foo.py", |metric| {
+            let h = &metric.halstead;
+            assert_eq!([h.total_operators(), h.total_operands()], [1, 1]);
+        });
+        // A tuple led by a parenthesized string is a value, not a bare
+        // string. Operators: `(`, `,`; operands: `"a"`, `"b"`.
+        check_metrics::<PythonParser>("(\"a\"), \"b\"\n", "foo.py", |metric| {
+            let h = &metric.halstead;
+            assert_eq!([h.total_operators(), h.total_operands()], [2, 2]);
+        });
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let h = &metric.halstead;

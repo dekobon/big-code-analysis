@@ -2889,6 +2889,120 @@ line two
         );
     }
 
+    /// CPython drops the parentheses around an expression, so a
+    /// parenthesized string statement is the same docstring, or the same
+    /// discarded string, as the bare one (#1610): the parentheses' rows
+    /// are its rows, and a comment inside them stays a comment row only.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_parenthesized_docstring_counts_as_the_bare_one() {
+        let cases: &[(&str, &[u8], [u64; 5])] = &[
+            // (name, source, [sloc, ploc, cloc, dloc, blank])
+            (
+                "function docstring",
+                b"def f():\n    (\"\"\"F doc.\"\"\")\n    return 1\n",
+                [3, 2, 1, 1, 0],
+            ),
+            (
+                "module docstring",
+                b"(\"\"\"Module doc.\"\"\")\nx = 1\n",
+                [2, 1, 1, 1, 0],
+            ),
+            (
+                "nested parentheses",
+                b"def f():\n    ((\"doc\"))\n    return 1\n",
+                [3, 2, 1, 1, 0],
+            ),
+            (
+                "concatenation",
+                b"def f():\n    (\"a\" \"b\")\n    return 1\n",
+                [3, 2, 1, 1, 0],
+            ),
+            // A tuple, not a parenthesized string: code.
+            (
+                "tuple of strings",
+                b"def f():\n    (\"a\", \"b\")\n    return 1\n",
+                [3, 3, 0, 0, 0],
+            ),
+            // A tuple whose first element is a parenthesized string: code.
+            (
+                "tuple led by a parenthesized string",
+                b"def f():\n    (\n        \"a\"\n    ), \"b\"\n    return 1\n",
+                [5, 5, 0, 0, 0],
+            ),
+            // expected: the same rows as the plain two-row docstring,
+            // `def f():\n    """doc\n    more"""\n    return 1`.
+            (
+                "two-row docstring",
+                b"def f():\n    (\"\"\"doc\n    more\"\"\")\n    return 1\n",
+                [4, 2, 2, 2, 0],
+            ),
+            // expected: `(` and `)` rows are docstring rows beside the
+            // string's; nothing in the statement is code.
+            (
+                "parentheses on their own rows",
+                b"def f():\n    (\n        \"\"\"doc\n        more\"\"\"\n    )\n    return 1\n",
+                [6, 2, 4, 4, 0],
+            ),
+            // expected: the comment row is a comment, not documentation.
+            (
+                "comment inside the parentheses",
+                b"def f():\n    (\n        # c\n        \"\"\"doc\"\"\"\n    )\n    return 1\n",
+                [6, 2, 4, 3, 0],
+            ),
+            // An f-string is no docstring, parenthesized or not; bare, it
+            // is a comment row (#415), as `f"x"` alone is.
+            (
+                "parenthesized f-string",
+                b"def f():\n    (f\"x\")\n    return 1\n",
+                [3, 2, 1, 0, 0],
+            ),
+            (
+                "parenthesized additional docstring",
+                b"def f():\n    \"\"\"F.\"\"\"\n    (\"\"\"More.\"\"\")\n    return 1\n",
+                [4, 2, 2, 2, 0],
+            ),
+            (
+                "attribute docstring",
+                b"x = 1\n(\"\"\"X.\"\"\")\n",
+                [2, 1, 1, 1, 0],
+            ),
+            // A parenthesized name is code, parentheses and all.
+            (
+                "parenthesized name",
+                b"def f(x):\n    (\n        x\n    )\n    return 1\n",
+                [5, 5, 0, 0, 0],
+            ),
+            // A parenthesized value is still a value.
+            (
+                "parenthesized assigned string",
+                b"x = (\"\"\"a\nb\"\"\")\n",
+                [2, 2, 0, 0, 0],
+            ),
+        ];
+        let row = |source: &[u8]| {
+            let loc = metrics_verbatim(crate::LANG::Python, source, MetricsOptions::default()).loc;
+            [loc.sloc(), loc.ploc(), loc.cloc(), loc.dloc(), loc.blank()]
+        };
+        for (name, source, expected) in cases {
+            assert_eq!(row(source), *expected, "Python: {name}");
+        }
+        // CPython rejects a 201st nested parenthesis, so the string at 200
+        // is a docstring and the one at 201 is code, every parenthesis of it.
+        for (depth, expected) in [(200, [3, 2, 1, 1, 0]), (201, [3, 3, 0, 0, 0])] {
+            let source = format!(
+                "def f():\n    {}\"doc\"{}\n    return 1\n",
+                "(".repeat(depth),
+                ")".repeat(depth)
+            );
+            assert_eq!(
+                row(source.as_bytes()),
+                expected,
+                "Python: {depth} parentheses"
+            );
+        }
+    }
+
     #[cfg(feature = "python")]
     #[test]
     fn python_docstring_sharing_a_code_row_is_not_without_code() {

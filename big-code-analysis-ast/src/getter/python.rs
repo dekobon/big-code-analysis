@@ -3,7 +3,7 @@
 
 use super::*;
 
-use crate::lang_helpers::python::python_is_bare_string;
+use crate::lang_helpers::python::{python_is_bare_string, python_is_bare_string_parenthesis};
 
 /// The role of a `{`, `:` or `=`, which Python spells both as syntax
 /// and inside an f-string's replacement field.
@@ -51,6 +51,11 @@ impl Getter for PythonCode {
         if matches!(kind, LBRACE | COLON | EQ) {
             let parent = ancestors.parent(node).map(|p| p.kind_id().into());
             return replacement_field_role(kind, parent);
+        }
+        // The parentheses around a bare string are discarded with it,
+        // as CPython drops them (#1610).
+        if kind == LPAREN && python_is_bare_string_parenthesis(node, ancestors) {
+            return TokenRole::Unknown;
         }
 
         match kind {
