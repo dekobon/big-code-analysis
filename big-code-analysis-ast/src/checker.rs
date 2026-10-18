@@ -495,9 +495,10 @@ pub trait Checker {
     /// decides whether it is documentation. `ancestors` is `ancestor`'s
     /// own chain, and `below` is the node directly under `ancestor` on the
     /// path to the comment, which is what a "does the body hold it" test
-    /// reads. `comment` is the comment itself only for its two nearest
-    /// ancestors; above them the answer is memoised per ancestor for the
-    /// whole walk, so it must not depend on which comment asked (#1597).
+    /// reads. The answer is memoised per ancestor for the whole walk, so
+    /// it must not depend on which comment asked; a comment-specific
+    /// exception is
+    /// [`doc_comment_opens_body`](Self::doc_comment_opens_body) (#1597).
     /// By default the whole function or closure node counts:
     /// javac binds a doc comment only before a declaration's first token,
     /// and the C# specification wants one before a member's attributes,
@@ -510,10 +511,23 @@ pub trait Checker {
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
-        _comment: Option<&Node<'a>>,
-        _code: &[u8],
     ) -> bool {
         Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
+    }
+    /// Whether `comment`, held in a body by `ancestor` (one of its two
+    /// nearest ancestors, with `below` the node between them), is that
+    /// body's own documentation rather than a note in it, so `ancestor`
+    /// does not count as holding it. `false` by default; Rust's inner doc
+    /// comment opening a function body is its `#![doc]` (#1597, #1615).
+    #[inline]
+    #[must_use]
+    fn doc_comment_opens_body(
+        _comment: &Node,
+        _ancestor: &Node,
+        _below: &Node,
+        _code: &[u8],
+    ) -> bool {
+        false
     }
     /// Whether a comment run ending on the row directly above `node`
     /// documents it — go/doc's lead comment, YARD's convention — so the

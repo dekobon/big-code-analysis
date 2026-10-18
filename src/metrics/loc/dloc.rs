@@ -1282,6 +1282,15 @@ mod tests {
                     0,
                     1,
                 ),
+                // A closure body has a `body` field too; only a
+                // `function_item` takes an inner doc comment. Outside any
+                // function, so no enclosing body holds it regardless.
+                (
+                    "closure body",
+                    b"const G: fn() = || {\n    //! Docs.\n};\n",
+                    0,
+                    1,
+                ),
             ],
         );
     }

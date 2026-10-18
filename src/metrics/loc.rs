@@ -2754,6 +2754,10 @@ line two
             ("additional attribute docstring", b"x = 1\n\"\"\"X.\"\"\"\n\"\"\"More.\"\"\"\n", 2, 2),
             ("additional class attribute docstring", b"class C:\n    x = 1\n    \"\"\"X.\"\"\"\n    # comment\n    \"\"\"More.\"\"\"\n", 3, 2),
             ("successive strings after a call", b"print(1)\n\"\"\"No.\"\"\"\n\"\"\"Still no.\"\"\"\n", 2, 0),
+            // The statement a run follows is found past the comments
+            // before the run's first string, not just inside the run.
+            ("attribute docstring run after comments", b"x = 1\n# a\n\"\"\"X.\"\"\"\n# b\n\"\"\"More.\"\"\"\n", 4, 2),
+            ("string run after comments after a call", b"print(1)\n# a\n\"\"\"No.\"\"\"\n# b\n\"\"\"Still no.\"\"\"\n", 4, 0),
             ("module attribute docstring", b"x = 1\n\"\"\"X.\"\"\"\n", 1, 1),
             ("annotated attribute docstring", b"x: int = 1\n\"\"\"X.\"\"\"\n", 1, 1),
             ("class attribute docstring", b"class C:\n    x = 1\n    \"\"\"X.\"\"\"\n", 1, 1),

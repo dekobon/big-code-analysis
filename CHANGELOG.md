@@ -101,7 +101,8 @@ for historical reference.
   C, C++ and Objective-C keep in-body doc blocks, which
   Doxygen publishes as the function's in-body description
   (`HIDE_IN_BODY_DOCS` defaults to NO). A Rust inner doc comment opening a
-  function's body documents that function, and a doc comment in a
+  function's body documents that function
+  (`Checker::doc_comment_opens_body`), and a doc comment in a
   signature counts where its tool reads it there — a Doxygen `/**<`
   parameter block, a PHPDoc after `#[…]` or on a promoted constructor
   property, a KDoc after an annotation — but not in Java or C#, whose

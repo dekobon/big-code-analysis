@@ -227,49 +227,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 568.0
+value = 576.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1373.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker.rs"
-qualified = "Checker::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker/groovy.rs"
-qualified = "GroovyCode::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker/java.rs"
-qualified = "JavaCode::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker/kotlin.rs"
-qualified = "KotlinCode::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker/php.rs"
-qualified = "PhpCode::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker/rust.rs"
-qualified = "RustCode::holds_doc_comment_in_body"
-metric = "nargs"
-value = 5.0
+value = 1387.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"

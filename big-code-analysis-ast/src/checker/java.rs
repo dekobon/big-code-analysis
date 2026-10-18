@@ -23,8 +23,6 @@ impl Checker for JavaCode {
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
-        _comment: Option<&Node<'a>>,
-        _code: &[u8],
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)

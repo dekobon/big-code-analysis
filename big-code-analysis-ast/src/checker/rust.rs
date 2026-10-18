@@ -36,25 +36,15 @@ impl Checker for RustCode {
 
     // rustc lints a doc comment on a statement or expression as unused and
     // rustdoc renders no item nested in a body, so a body holds its doc
-    // comments — except the inner doc comment opening a function's body,
-    // which is that function's own `#![doc]`.
-    fn holds_doc_comment_in_body<'a>(
-        ancestor: &Node<'a>,
-        ancestors: Ancestors<'a, '_>,
-        below: &Node<'a>,
-        comment: Option<&Node<'a>>,
-        code: &[u8],
-    ) -> bool {
-        // The inner-doc exception depends on the comment, and only the
-        // function two levels up (comment → body block → `function_item`)
-        // can grant it; `documents_where_it_sits` passes `comment` for
-        // exactly those two levels.
-        (Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors))
-            && !comment.is_some_and(|comment| {
-                let bytes = node_bytes(comment, code);
-                (bytes.starts_with(b"//!") || bytes.starts_with(b"/*!"))
-                    && rust_inner_doc_opens_body(ancestor, below)
-            })
+    // comments (the default `holds_doc_comment_in_body`) — except the
+    // inner doc comment opening a function's body, which is that
+    // function's own `#![doc]`. Only the function two levels up
+    // (comment → body block → `function_item`) can grant it, and
+    // `documents_where_it_sits` asks exactly those two levels.
+    fn doc_comment_opens_body(comment: &Node, ancestor: &Node, below: &Node, code: &[u8]) -> bool {
+        let bytes = node_bytes(comment, code);
+        (bytes.starts_with(b"//!") || bytes.starts_with(b"/*!"))
+            && rust_inner_doc_opens_body(ancestor, below)
     }
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {

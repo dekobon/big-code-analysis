@@ -62,7 +62,7 @@ pub fn python_is_bare_statement_value(node: &Node, ancestors: Ancestors<'_, '_>)
 /// walks that care: the Halstead getter drops its operands (#695) and
 /// the LOC walk bills its rows as comment rows (#415). Whether those rows
 /// are also *documentation* is narrower and positional — see
-/// [`python_is_documentation_string`] (#1597).
+/// [`python_documentation_string_run`] (#1597).
 #[inline]
 #[must_use]
 pub fn python_is_bare_string(node: &Node, ancestors: Ancestors<'_, '_>) -> bool {
@@ -75,9 +75,11 @@ pub fn python_is_bare_string(node: &Node, ancestors: Ancestors<'_, '_>) -> bool 
     python_is_bare_statement_value(node, ancestors)
 }
 
-/// Whether the bare string statement whose value is `value` (a `string`
-/// or `concatenated_string`, per [`python_is_bare_statement_value`]) sits
-/// where Python tooling reads documentation (#1597):
+/// The first statement of the documentation-string run that the bare
+/// string statement holding `value` belongs to, or `None` when that
+/// statement is not documentation. `value` is a `string` or
+/// `concatenated_string`, per [`python_is_bare_statement_value`], and the
+/// statement documents where Python tooling reads documentation (#1597):
 ///
 /// - **a docstring** (PEP 257): the first statement of a module, class or
 ///   function body — the string Python stores as `__doc__`, and the one
@@ -96,29 +98,34 @@ pub fn python_is_bare_string(node: &Node, ancestors: Ancestors<'_, '_>) -> bool 
 /// imports — is still a comment row (#415) but is not documentation, so
 /// the maintainability index charges it as it charges a `#` comment.
 /// `code` is read for a literal's prefix and for `__init__`'s names.
-#[must_use]
-pub fn python_is_documentation_string(
-    value: &Node,
+///
+/// One backward scan answers both: the string statements before it,
+/// skipping comments, are the run, and the first other statement ends
+/// the run and is the one an attribute docstring is documented by.
+fn documentation_run_start<'a>(
+    value: &Node<'a>,
     code: &[u8],
-    ancestors: Ancestors<'_, '_>,
-) -> bool {
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
     // The literal test is the cheap one; `body_attributes` may read the
     // enclosing `__init__`'s name and parameters.
     if !is_str_literal(value, code) {
-        return false;
+        return None;
     }
     let mut up = ancestors.iter(value);
-    let Some((statement, statement_ancestors)) = up.next() else {
-        return false;
-    };
-    let Some(attributes) = body_attributes(up, code) else {
-        return false;
-    };
-    let previous = statement_ancestors
+    let (statement, statement_ancestors) = up.next()?;
+    let attributes = body_attributes(up, code)?;
+    let mut first = statement;
+    for sibling in statement_ancestors
         .siblings_before(&statement)
         .filter(|sibling| sibling.is_named() && sibling.kind_id() != Python::Comment)
-        .find(|sibling| !is_string_statement(sibling, code));
-    previous.is_none_or(|previous| attributes.documented_by(&previous, code))
+    {
+        if !is_string_statement(&sibling, code) {
+            return attributes.documented_by(&sibling, code).then_some(first);
+        }
+        first = sibling;
+    }
+    Some(first)
 }
 
 /// Credits a consecutive run of documentation strings at its last string.
@@ -137,16 +144,12 @@ pub fn python_documentation_string_run(
         .siblings_after(&statement)
         .find(|sibling| sibling.is_named() && sibling.kind_id() != Python::Comment)
         .is_some_and(|next| is_string_statement(&next, code))
-        || !python_is_documentation_string(value, code, ancestors)
     {
         return;
     }
-    let first = outer
-        .siblings_before(&statement)
-        .filter(|sibling| sibling.is_named() && sibling.kind_id() != Python::Comment)
-        .take_while(|sibling| is_string_statement(sibling, code))
-        .last()
-        .unwrap_or(statement);
+    let Some(first) = documentation_run_start(value, code, ancestors) else {
+        return;
+    };
     for member in std::iter::once(first)
         .chain(outer.siblings_after(&first))
         .take_while(|member| member.start_byte() <= statement.start_byte())

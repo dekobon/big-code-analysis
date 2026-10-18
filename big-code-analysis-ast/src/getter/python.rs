@@ -105,8 +105,8 @@ impl Getter for PythonCode {
                 // so it is not an operand (#695). The LOC walk bills the same
                 // strings as comment rows through this predicate, so the two
                 // agree on which strings are discarded; whether one is also
-                // documentation is `python_is_documentation_string`, which
-                // Halstead deliberately does not read (#1597).
+                // documentation is `python_documentation_string_run`'s
+                // question, which Halstead deliberately does not ask (#1597).
                 if python_is_bare_string(node, ancestors) {
                     return TokenRole::Unknown;
                 }

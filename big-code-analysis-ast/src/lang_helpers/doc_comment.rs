@@ -148,7 +148,9 @@ pub(crate) fn csharp_doc(s: &[u8]) -> bool {
 /// The place half of the documentation test, for a comment already
 /// spelled or placed as documentation: it documents unless an ancestor
 /// holds it in a function or closure body
-/// ([`Checker::holds_doc_comment_in_body`]) and the language's tool
+/// ([`Checker::holds_doc_comment_in_body`]) without the comment opening
+/// that body as its documentation ([`Checker::doc_comment_opens_body`],
+/// asked of the two nearest ancestors only) and the language's tool
 /// ignores in-body doc comments
 /// ([`Checker::DOC_COMMENTS_IN_FUNCTION_BODIES`]). Shared by the marker
 /// languages' comment arms and by Lua's LDoc opener (#1597).
@@ -161,13 +163,15 @@ pub fn documents_where_it_sits<'a, T: Checker>(
     if T::DOC_COMMENTS_IN_FUNCTION_BODIES {
         return true;
     }
-    // The two nearest ancestors are asked with the comment itself (Rust's
-    // inner doc heading a body is decided there); every ancestor above
-    // them answers by the path alone, folded once per walk rather than
-    // climbed once per comment.
+    // The two nearest ancestors may excuse the comment itself
+    // (`Checker::doc_comment_opens_body`: Rust's inner doc heading a
+    // body); every ancestor above them answers by the path alone, folded
+    // once per walk rather than climbed once per comment.
     let mut below = *node;
     for (ancestor, outer) in ancestors.iter(node).take(2) {
-        if T::holds_doc_comment_in_body(&ancestor, outer, &below, Some(node), code) {
+        if T::holds_doc_comment_in_body(&ancestor, outer, &below)
+            && !T::doc_comment_opens_body(node, &ancestor, &below, code)
+        {
             return false;
         }
         below = ancestor;
@@ -178,7 +182,7 @@ pub fn documents_where_it_sits<'a, T: Checker>(
         FoldLane::DocInBody,
         0,
         |held, ancestor, outer, below| {
-            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below, None, code))
+            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
         },
     ) == 0
 }

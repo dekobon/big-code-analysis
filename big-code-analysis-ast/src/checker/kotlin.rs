@@ -32,8 +32,6 @@ impl Checker for KotlinCode {
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
-        _comment: Option<&Node<'a>>,
-        _code: &[u8],
     ) -> bool {
         if ancestor.kind_id() == Kotlin::LambdaLiteral {
             return true;

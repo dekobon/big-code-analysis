@@ -21,8 +21,6 @@ impl Checker for PhpCode {
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
-        _comment: Option<&Node<'a>>,
-        _code: &[u8],
     ) -> bool {
         holds_in_body_field::<Self>(ancestor, ancestors, below)
     }
