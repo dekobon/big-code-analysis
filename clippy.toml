@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "big_code_analysis::metric_catalog::lower_is_worse", reason = "a ninth direction encoding: read `MetricInfo::direction` or build a `metric_catalog::Threshold` (#1621)" },
+]

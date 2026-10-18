@@ -507,11 +507,19 @@ pub fn lookup(id: &str) -> Option<&'static MetricInfo> {
 }
 
 /// Whether a lower value of the metric `id` is the unhealthy direction
-/// (the `mi.*` Maintainability Index family). The threshold gate, the
-/// Code Climate severity-ratio inversion, and the SARIF/offender wording
-/// all consult this so they never drift from one another. An id the
-/// catalog does not know defaults to higher-is-worse — the same fallback
-/// every offender formatter already uses (#698).
+/// (the `mi.*` Maintainability Index family). An id the catalog does not
+/// know defaults to higher-is-worse (#698).
+///
+/// Deprecated since 2.4.0 (#1621): a bare direction bool cannot say how
+/// far past a limit a value is, and every consumer that took one
+/// re-derived that arithmetic itself. No caller in this workspace uses
+/// it any more, and the root `clippy.toml` keeps it that way. Read
+/// [`MetricInfo::direction`] via [`lookup`], or build a [`Threshold`]
+/// and ask it. Removal is reserved for 3.0.
+#[deprecated(
+    since = "2.4.0",
+    note = "read `MetricInfo::direction` via `lookup`, or build a `Threshold`"
+)]
 #[must_use]
 pub fn lower_is_worse(id: &str) -> bool {
     lookup(id).is_some_and(|m| matches!(m.direction, Direction::LowerIsWorse))
@@ -715,6 +723,8 @@ mod tests {
         }
     }
 
+    // Pins the deprecated helper's contract until 3.0 removes it.
+    #[allow(deprecated, clippy::disallowed_methods)]
     #[test]
     fn lower_is_worse_helper_matches_catalog_and_defaults_false() {
         assert!(lower_is_worse("mi.original"), "mi.* is lower-is-worse");

@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::thresholds::test_threshold;
+use big_code_analysis::metric_catalog::Direction;
 use std::path::PathBuf;
 
 fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value: f64) -> Violation {
@@ -38,7 +39,11 @@ fn v_low(
     value: f64,
 ) -> Violation {
     let low = v(path, function, start_line, metric, value);
-    assert!(low.lower_is_worse(), "{metric} is not lower-is-worse");
+    assert_eq!(
+        low.threshold.info().direction,
+        Direction::LowerIsWorse,
+        "{metric} is not lower-is-worse"
+    );
     low
 }
 

@@ -31,7 +31,12 @@
 //! # Threshold semantics
 //!
 //! Each entry in the `thresholds` dict maps a CLI-style metric name to
-//! a finite, non-negative limit. The mapping table below pins which
+//! a limit validated by
+//! [`metric_catalog::Threshold`](big_code_analysis::metric_catalog::Threshold),
+//! the type `bca check` gates on: finite, non-negative for a count, any
+//! finite value for the `mi.*` floors (whose scale goes negative), with
+//! a `UserWarning` for a limit that can never fire or fires on every
+//! value. The mapping table below pins which
 //! JSON field is compared against the limit — mirroring the CLI's
 //! `EXTRACTORS` table in `big-code-analysis-cli/src/thresholds.rs`.
 //!
@@ -121,17 +126,18 @@
 //!
 //! [`analyze_source`]: crate::analysis
 
+use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 use pyo3::Bound;
 use pyo3::PyResult;
 use pyo3::Python;
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyUserWarning, PyValueError};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyBool, PyDict, PyDictMethods, PyMapping, PyString};
 
-use big_code_analysis::metric_catalog::MetricScope;
+use big_code_analysis::metric_catalog::Threshold;
 use big_code_analysis::{OffenderRecord, Severity, SpaceKind, write_sarif};
 
 use crate::batch::PyAnalysisError;
@@ -298,30 +304,17 @@ const METRIC_FIELDS: &[MetricField] = &[
     },
 ];
 
-/// Pre-validated `(JSON-path, limit)` triple.
-struct Threshold {
-    /// CLI-style metric name (e.g. `"cyclomatic"`, `"loc.lloc"`); used
-    /// as the SARIF `ruleId` so the rule descriptions the upstream
-    /// writer attaches resolve correctly.
-    name: &'static str,
+/// A validated limit paired with the JSON path that reaches its value.
+struct GatedField {
+    /// The catalog-validated limit. Its id is the CLI-style metric name
+    /// used as the SARIF `ruleId`, and it answers the breach question in
+    /// the metric's own direction (`mi.*` breaches by falling *below* its
+    /// floor), so this binding and `bca check` share one rule (#698,
+    /// #1621).
+    threshold: Threshold,
     /// Sequence of dict keys to walk to reach the per-space scalar value
     /// on a space's `metrics` sub-dict.
     path: &'static [&'static str],
-    /// Threshold the metric value is compared against to emit a finding.
-    /// The comparison direction depends on `lower_is_worse`; in both
-    /// directions the exact-limit value is acceptable (strict `<`/`>`,
-    /// not `<=`/`>=`), mirroring the CLI.
-    limit: f64,
-    /// True for lower-is-worse metrics (`mi.*`): a value strictly BELOW
-    /// the limit is the violation, not above it. Sourced from the
-    /// library metric catalog so it stays in lockstep with the CLI gate
-    /// (#698).
-    lower_is_worse: bool,
-    /// The space kind this metric gates (issue #969), sourced from the
-    /// same library catalog as the CLI gate so the binding skips the file
-    /// root / containers / leaf functions a metric does not measure
-    /// exactly as `bca check` does.
-    scope: MetricScope,
 }
 
 /// Builds the "unknown threshold metric" error for `name`, listing the
@@ -338,7 +331,7 @@ fn unknown_threshold_metric_err(name: &str) -> PyErr {
     ))
 }
 
-fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Threshold>> {
+fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<GatedField>> {
     let Some(dict) = thresholds else {
         return Ok(Vec::new());
     };
@@ -358,31 +351,36 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
         let limit: f64 = value.extract().map_err(|_| {
             PyTypeError::new_err(format!("threshold for {name:?} must be a number"))
         })?;
-        if !limit.is_finite() || limit < 0.0 {
-            return Err(PyValueError::new_err(format!(
-                "threshold for {name:?} must be a finite non-negative number; got {limit}"
-            )));
-        }
         let entry = METRIC_FIELDS
             .iter()
             .copied()
             .find(|m| m.name == name)
             .ok_or_else(|| unknown_threshold_metric_err(&name))?;
-        let lower_is_worse = big_code_analysis::metric_catalog::lower_is_worse(entry.name);
-        // Resolved from the catalog (infallible for a known entry); an
-        // unknown id defaults to the narrowest scope rather than gating an
-        // aggregate, mirroring the CLI's `metric_scope`.
-        let scope =
-            big_code_analysis::metric_catalog::scope(entry.name).unwrap_or(MetricScope::Function);
-        out.push(Threshold {
-            name: entry.name,
+        let checked = Threshold::check(entry.name, limit)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if let Some(warning) = checked.warning {
+            warn_user(dict.py(), &warning.to_string())?;
+        }
+        out.push(GatedField {
+            threshold: checked.threshold,
             path: entry.path,
-            limit,
-            lower_is_worse,
-            scope,
         });
     }
     Ok(out)
+}
+
+/// Raise `message` as a Python `UserWarning` attributed to the caller's
+/// line. A limit that parses but cannot do what its author meant
+/// (`mi.visual_studio=0`) warns rather than fails, as it does in
+/// `bca check` (#1621). Under `filterwarnings("error")` the warning is
+/// raised as an exception, which `?` propagates.
+fn warn_user(py: Python<'_>, message: &str) -> PyResult<()> {
+    PyErr::warn(
+        py,
+        &py.get_type::<PyUserWarning>(),
+        &CString::new(message)?,
+        1,
+    )
 }
 
 /// Walk one `metrics.<…>` JSON path and return the final scalar, if
@@ -557,29 +555,21 @@ fn record_threshold_breaches(
     fields: &SpaceFields,
     qualified: &str,
     path: &Path,
-    thresholds: &[Threshold],
+    thresholds: &[GatedField],
     out: &mut Vec<OffenderRecord>,
 ) {
-    for threshold in thresholds {
+    for gated in thresholds {
         // Per-metric threshold scope (#969): skip a space whose kind this
         // metric does not measure (e.g. `wmc` on the file root, `nargs` on
         // a container), matching the CLI gate via the shared catalog so the
         // two front-ends emit the same offenders.
-        if !threshold.scope.admits(fields.kind) {
+        if !gated.threshold.info().scope.admits(fields.kind) {
             continue;
         }
-        let Some(value) = extract_metric(metrics, threshold.path) else {
+        let Some(value) = extract_metric(metrics, gated.path) else {
             continue;
         };
-        // `mi.*` is lower-is-worse: a value below the limit is the violation.
-        // Every other metric flags above the limit. The exact-limit value is
-        // acceptable either way (#698).
-        let breaches = if threshold.lower_is_worse {
-            value < threshold.limit
-        } else {
-            value > threshold.limit
-        };
-        if !breaches {
+        if !gated.threshold.breaches(value) {
             continue;
         }
         out.push(OffenderRecord {
@@ -588,9 +578,9 @@ fn record_threshold_breaches(
             start_line: fields.start_line,
             end_line: fields.end_line,
             start_col: None,
-            metric: threshold.name.to_string(),
+            metric: gated.threshold.id().to_string(),
             value,
-            limit: threshold.limit,
+            limit: gated.threshold.limit(),
             severity: Severity::default(),
         });
     }
@@ -635,7 +625,7 @@ fn push_child_spaces<'py>(
 
 fn collect_offenders(
     result: &Bound<'_, PyDict>,
-    thresholds: &[Threshold],
+    thresholds: &[GatedField],
     out: &mut Vec<OffenderRecord>,
 ) -> PyResult<()> {
     if thresholds.is_empty() {
@@ -696,7 +686,12 @@ fn collect_offenders(
 /// Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to drive
 /// finding emission. ``thresholds=None`` (the default) is equivalent
 /// to an empty dict and produces a well-formed SARIF run with no
-/// results, matching the CLI's no-threshold posture.
+/// results, matching the CLI's no-threshold posture. Limits follow
+/// ``bca check``'s rules (#1621): a count limit must be finite and
+/// non-negative, an ``mi.original`` / ``mi.sei`` floor may be negative,
+/// and a limit that cannot fire or fires on every value
+/// (``mi.visual_studio`` at ``0`` or ``101``) is accepted with a
+/// ``UserWarning``. A rejected limit raises ``ValueError``.
 ///
 /// Returns a ``str`` containing SARIF 2.1.0 JSON; the bytes are UTF-8
 /// because Python ``str`` is the documented return type. Generated by
@@ -735,7 +730,7 @@ fn collect_offenders_for_input(
 
 fn dispatch_by_input_kind(
     result: &Bound<'_, PyAny>,
-    thresholds: &[Threshold],
+    thresholds: &[GatedField],
     offenders: &mut Vec<OffenderRecord>,
 ) -> PyResult<()> {
     // Scalar `None` — symmetric with the iterable arm's silent-skip
@@ -785,7 +780,7 @@ fn mapping_or_str_error(result: &Bound<'_, PyAny>) -> Option<PyErr> {
 
 fn collect_offenders_from_iter(
     result: &Bound<'_, PyAny>,
-    thresholds: &[Threshold],
+    thresholds: &[GatedField],
     offenders: &mut Vec<OffenderRecord>,
 ) -> PyResult<()> {
     // `try_iter()` errors if the value is not iterable — let that

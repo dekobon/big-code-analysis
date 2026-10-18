@@ -644,14 +644,6 @@ impl Violation {
         self.threshold.limit()
     }
 
-    /// Whether this metric is lower-is-worse (the `mi.*` Maintainability
-    /// Index family): the value breached by falling *below* the limit.
-    #[cfg(test)]
-    pub(crate) fn lower_is_worse(&self) -> bool {
-        self.threshold.info().direction
-            == big_code_analysis::metric_catalog::Direction::LowerIsWorse
-    }
-
     /// Order two violations by severity; `Greater` means `self` is the
     /// worse one. The catalog's [`Threshold::cmp_breach`]: the breach
     /// severity (`value / limit` for a count, saturating at a zero limit;

@@ -1015,6 +1015,16 @@ def to_sarif(
     raises :class:`ValueError` listing the accepted set, so a
     typo fails fast instead of silently producing an empty run.
 
+    Limits follow ``bca check``'s rules. A count's limit is a ceiling
+    and must be finite and non-negative. An ``mi.*`` limit is a floor
+    (a value strictly below it is the finding), and since
+    ``mi.original`` and ``mi.sei`` go negative on large functions, a
+    negative floor such as ``{"mi.original": -50}`` is accepted. A
+    limit that can never fire, or fires on every value (for example
+    ``{"mi.visual_studio": 0}``, the floor of a metric clamped to
+    ``[0, 100]``), is accepted with a :class:`UserWarning`. A NaN or
+    infinite limit raises :class:`ValueError`.
+
     Returns a ``str`` (UTF-8 SARIF JSON). The output is produced by
     the upstream ``big_code_analysis::write_sarif`` writer — the
     same one driving ``bca check -O sarif`` — so the schema URL,
@@ -1065,6 +1075,7 @@ def to_sarif(
         threshold value is not a number, or a threshold key is not
         a string.
     ValueError
-        If a threshold limit is negative or non-finite, or names a
-        metric outside the accepted set.
+        If a threshold limit is negative on a count metric (an ``mi.*``
+        floor may be negative), is non-finite, or names a metric
+        outside the accepted set.
     """

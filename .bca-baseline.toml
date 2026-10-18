@@ -880,7 +880,7 @@ value = 6.0
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "resolve_thresholds"
 metric = "nexits"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"

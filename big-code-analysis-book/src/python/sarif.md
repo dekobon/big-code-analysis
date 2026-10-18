@@ -53,8 +53,10 @@ the CLI binary.
 
 ## Thresholds
 
-Accepted threshold names mirror the CLI's `EXTRACTORS` table in
-[`big-code-analysis-cli/src/thresholds.rs`](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-cli/src/thresholds.rs):
+Accepted threshold names are the library's `metric_catalog::METRICS`
+table in
+[`src/metric_catalog.rs`](https://github.com/dekobon/big-code-analysis/blob/main/src/metric_catalog.rs),
+the same table the CLI's `--threshold` reads:
 
 * `cognitive`, `cyclomatic`, `cyclomatic.modified`
 * `halstead.volume`, `halstead.difficulty`, `halstead.effort`,
@@ -68,6 +70,21 @@ Accepted threshold names mirror the CLI's `EXTRACTORS` table in
 An unknown name raises `ValueError` listing the accepted set, so
 a typo fails fast instead of silently producing an empty SARIF
 run.
+
+Limits are validated by the same rules `bca check` applies, so a
+dict that the binding accepts is one the CLI accepts too. Most metrics
+are counts: the limit is a ceiling, a value strictly above it is a
+finding, and the limit must be a finite, non-negative number. The
+`mi.*` Maintainability Index family is the other way round. Its limit
+is a floor, and a value strictly below it is the finding. `mi.original`
+and `mi.sei` have no true zero and go negative on large functions, so
+`{"mi.original": -50}` is a legal floor. A limit that parses but can
+never do what you meant raises a `UserWarning` instead of a
+`ValueError`. `mi.visual_studio` is clamped to `[0, 100]`, so
+`{"mi.visual_studio": 0}` warns `limit mi.visual_studio=0 cannot fire:
+0 is the metric's floor; gate mi.original instead`. A NaN or infinite
+limit raises `ValueError`. The CLI side of these rules is described
+under [`bca check`](../commands/check.md).
 
 `thresholds=None` (the default) and `thresholds={}` both produce
 a well-formed SARIF document with empty `results` and `rules`

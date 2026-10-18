@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -265,24 +266,20 @@ def test_to_sarif_metric_absent_from_dict_emits_no_finding() -> None:
     not synthesise a finding — the dict simply has no value to
     compare.
 
-    Caveat on coverage: this assertion catches the regression where
-    ``extract_metric`` would return some *positive* default (e.g.
-    ``Some(1.0)``) for a missing key. It does NOT catch a regression
-    to ``Some(0.0)`` (e.g. via ``unwrap_or_default``), because the
-    threshold contract rejects negative limits and ``0.0 > 0.0`` is
-    false — every legal threshold value would still suppress the
-    finding in that scenario. Capturing the ``Some(0.0)`` case would
-    require either a negative-threshold path (rejected upstream) or
-    distinguishing ``None`` from ``Some(0.0)`` at an observable
-    boundary, which the contract does not expose.
+    The ``cyclomatic=0`` ceiling catches a missing key read as any
+    *positive* default (e.g. ``Some(1.0)``); the ``mi.original=50``
+    floor catches one read as ``Some(0.0)`` (``unwrap_or_default``),
+    which no count ceiling can see since ``0.0 > 0.0`` is false.
     """
     code = "def f(x):\n    return x + 1\n"
-    # Compute only LoC — the result dict has no `cyclomatic` family.
+    # Compute only LoC — the result dict has no `cyclomatic` or `mi` family.
     result = bca.analyze_source(code, "python", metrics=["loc"])
-    parsed = _parse(bca.to_sarif(result, thresholds={"cyclomatic": 0}))
-    assert parsed["runs"][0]["results"] == [], (
-        "missing cyclomatic in dict must not synthesise a finding"
-    )
+    cases: list[dict[str, float]] = [{"cyclomatic": 0}, {"mi.original": 50}]
+    for thresholds in cases:
+        parsed = _parse(bca.to_sarif(result, thresholds=thresholds))
+        assert parsed["runs"][0]["results"] == [], (
+            f"a metric missing from the dict must not synthesise a finding: {thresholds}"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -423,18 +420,72 @@ def test_to_sarif_rejects_unknown_threshold_metric() -> None:
 
 
 def test_to_sarif_rejects_negative_threshold() -> None:
-    """The CLI's ``parse_cli_threshold`` rejects negative limits; the
-    bindings adopt the same contract."""
+    """A count cannot be negative, so ``bca check`` rejects a negative
+    limit on one; the bindings validate through the same library type."""
     result = bca.analyze_source("def f(): pass\n", "python")
     with pytest.raises(ValueError, match=r"finite non-negative number"):
         bca.to_sarif(result, thresholds={"cyclomatic": -1.0})
 
 
-def test_to_sarif_rejects_nan_threshold() -> None:
-    """NaN limits are not finite — same rejection path as negative."""
+@pytest.mark.parametrize("metric", ["cyclomatic", "mi.original"])
+def test_to_sarif_rejects_nan_threshold(metric: str) -> None:
+    """NaN limits are not finite, on a count and on an ``mi.*`` floor
+    alike — a NaN limit would silently disable the strict comparison."""
     result = bca.analyze_source("def f(): pass\n", "python")
-    with pytest.raises(ValueError, match=r"finite non-negative number"):
-        bca.to_sarif(result, thresholds={"cyclomatic": float("nan")})
+    with pytest.raises(ValueError, match=r"must be a finite"):
+        bca.to_sarif(result, thresholds={metric: float("nan")})
+
+
+def _negative_mi_source(lines: int = 200) -> str:
+    """A function long enough that its ``mi.original`` falls below zero
+    (about -15 at 200 lines), ported from the CLI's
+    ``negative_mi_python`` baseline fixture."""
+    body = "".join(f"    x{i} = a * {i} + b if c > {i} else b - c * {i}\n" for i in range(lines))
+    return f"def big(a, b, c):\n{body}    return a\n"
+
+
+def test_to_sarif_accepts_negative_mi_floor() -> None:
+    """``mi.original`` is interval-scale and routinely negative, so a
+    negative floor is a legal limit (#1621). Before, the binding rejected
+    every limit below zero, so no floor could sit under a large
+    function's value."""
+    result = bca.analyze_source(_negative_mi_source(), "python")
+    mi_original = result["spaces"][0]["metrics"]["mi"]["original"]
+    assert mi_original is not None, "mi.original must be present"
+    mi = float(mi_original)
+    assert -20.0 < mi < -10.0, f"fixture must score mi.original near -15, got {mi}"
+
+    at_zero = _parse(bca.to_sarif(result, thresholds={"mi.original": 0}))
+    results = at_zero["runs"][0]["results"]
+    assert [r["ruleId"] for r in results] == ["mi.original"], results
+    assert results[0]["message"]["text"].endswith("falls below limit 0")
+
+    below_floor = _parse(bca.to_sarif(result, thresholds={"mi.original": -50}))
+    assert below_floor["runs"][0]["results"] == [], "a value above a -50 floor must not fire"
+
+
+def test_to_sarif_warns_on_unfireable_limit() -> None:
+    """``mi.visual_studio`` is clamped at 0, so a floor of 0 can never be
+    strictly undercut. The limit is accepted — rejecting it would be a
+    2.x grammar break — but warns, matching ``bca check``."""
+    result = bca.analyze_source(_negative_mi_source(), "python")
+    with pytest.warns(UserWarning, match="cannot fire") as record:
+        parsed = _parse(bca.to_sarif(result, thresholds={"mi.visual_studio": 0}))
+    assert str(record[0].message) == (
+        "limit mi.visual_studio=0 cannot fire: 0 is the metric's floor; gate mi.original instead"
+    )
+    assert parsed["runs"][0]["results"] == []
+    assert record[0].filename == __file__, "the warning must name the caller's line"
+
+
+def test_to_sarif_limit_warning_raises_under_error_filter() -> None:
+    """A caller running with warnings as errors gets the advisory raised
+    out of ``to_sarif`` rather than swallowed after a successful return."""
+    result = bca.analyze_source("def f(): pass\n", "python")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="cannot fire"):
+            bca.to_sarif(result, thresholds={"mi.visual_studio": 0})
 
 
 def test_to_sarif_rejects_non_dict_non_iterable_input() -> None:
@@ -524,6 +575,38 @@ def test_to_sarif_matches_cli_check_for_single_function(bca_binary: str, tmp_pat
             py_loc["physicalLocation"]["artifactLocation"]["uri"]
             == cli_loc["physicalLocation"]["artifactLocation"]["uri"]
         )
+
+
+@pytest.mark.parametrize("mi_floor", [20, -10])
+def test_to_sarif_matches_cli_check_for_mi_floor(
+    bca_binary: str, tmp_path: Path, mi_floor: int
+) -> None:
+    """CLI parity for a lower-is-worse ``mi.*`` floor alongside a count,
+    including a negative floor neither front-end accepted before #1621.
+    Both sides gate on the library's ``Threshold``, so they must agree on
+    every ``(ruleId, startLine)`` and on the message wording."""
+    src = tmp_path / "big.py"
+    src.write_text(_negative_mi_source())
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+    py_doc = json.loads(
+        bca.to_sarif(analyzed, thresholds={"cyclomatic": 1, "mi.original": mi_floor})
+    )
+    cli_doc = _cli_check_sarif(
+        bca_binary, src, threshold=["cyclomatic=1", f"mi.original={mi_floor}"]
+    )
+
+    def findings(doc: dict[str, Any]) -> list[tuple[str, int]]:
+        return [
+            (r["ruleId"], r["locations"][0]["physicalLocation"]["region"]["startLine"])
+            for r in doc["runs"][0]["results"]
+        ]
+
+    # The function's MI (about -15) is under both floors; the file unit is
+    # outside both metrics' function scope.
+    assert findings(py_doc) == findings(cli_doc) == [("cyclomatic", 1), ("mi.original", 1)]
+    _assert_sarif_results_match(py_doc["runs"][0]["results"], cli_doc["runs"][0]["results"])
 
 
 def _sarif_sort_key(r: dict[str, Any]) -> tuple[int, str]:

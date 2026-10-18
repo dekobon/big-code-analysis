@@ -267,6 +267,11 @@ section.
     `LimitWarning`, `Change` and each struct-like variant are
     `#[non_exhaustive]`. The `Display` wording of `LimitError` and
     `LimitWarning` is not part of the contract.
+  - `metric_catalog::lower_is_worse` is `#[deprecated]` since 2.4.0
+    (#1621) and stays functional through 2.x; its removal is reserved
+    for 3.0. Read `MetricInfo::direction` through `lookup`, or build a
+    `Threshold` and call `breaches` (and `excess` for how far past the
+    limit a value is).
 - **Per-metric `Stats`**: one `Stats` struct under each
   `src/metrics/<metric>.rs` (`abc`, `cognitive`, `cyclomatic`,
   `halstead`, `loc`, `mi`, `nargs`, `nexits`, `nom`, `npa`, `npm`,
@@ -1203,6 +1208,15 @@ named subclasses:
 may catch the specific class or the `VcsError` / `ValueError` base.
 The client-input vs environment split mirrors the web crate's
 `400`/`500` mapping (`vcs::Error::is_client_input`).
+
+`to_sarif(thresholds=…)` validates each limit with the library's
+`metric_catalog::Threshold`, as `bca check` does (#1621). A rejected
+limit raises `ValueError`; that class is the contract, and its message
+text is not. A limit that is accepted but can never fire, or fires on
+every value, emits a `UserWarning` rather than raising, so a caller
+that runs with warnings as errors sees it raised. Since 2.4.0 a
+negative `mi.original` / `mi.sei` floor is accepted where it used to
+raise.
 
 ### Typing
 

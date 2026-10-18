@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::threshold_soft::is_valid_scale_ratio;
+use big_code_analysis::metric_catalog::Direction;
 
 /// Locks the threshold-engine extractor vocabulary against
 /// `threshold_metric_for_name` so the two stay in sync.
@@ -813,7 +814,11 @@ fn render_regressed_direction_is_not_a_blanket_sign_flip() {
     // in the wrong branch would satisfy the test above on its own
     // (#1242).
     let v = sample_violation();
-    assert!(!v.lower_is_worse(), "the fixture must be higher-is-worse");
+    assert_eq!(
+        v.threshold.info().direction,
+        Direction::HigherIsWorse,
+        "the fixture must be higher-is-worse"
+    );
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 20.0 }));
     assert!(out.starts_with("[regr +50%] "), "got: {out}");
 }
@@ -1054,9 +1059,10 @@ fn mi_low_value_is_flagged_high_value_is_not() {
         "MI {mi} below limit {high_limit} must be flagged, got {flagged:?}"
     );
     assert_eq!(flagged[0].metric, "mi.original");
-    assert!(
-        flagged[0].lower_is_worse(),
-        "mi offender must carry the flag"
+    assert_eq!(
+        flagged[0].threshold.info().direction,
+        Direction::LowerIsWorse,
+        "mi offender must carry the lower-is-worse direction"
     );
 
     // Limit at/below the value (clamped to a valid non-negative limit)
@@ -1109,7 +1115,10 @@ fn higher_is_worse_metric_keeps_above_limit_gate() {
         &mut flagged,
     );
     assert_eq!(flagged.len(), 1, "cyclomatic above limit must flag");
-    assert!(!flagged[0].lower_is_worse());
+    assert_eq!(
+        flagged[0].threshold.info().direction,
+        Direction::HigherIsWorse
+    );
 
     // Limit above the value -> within budget -> not flagged.
     let mut clean = Vec::new();
