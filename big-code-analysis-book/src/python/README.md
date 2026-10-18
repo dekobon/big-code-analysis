@@ -48,7 +48,7 @@ option.
 * [Flat-record iteration](flat-records.md) — `flatten_spaces`
   feeding sqlite / pandas.
 * [Metric selection](metrics.md) — `metrics=` kwarg,
-  `bca.METRIC_NAMES`, dependency-pull semantics.
+  `bca.METRIC_NAMES` and the CLI aliases, dependency-pull semantics.
 * [AST traversal](traversal.md) — `Ast`, `Node`, `walk()`, and
   `find()` over the held parse.
 * [SARIF output](sarif.md) — `to_sarif` + GitHub Code Scanning

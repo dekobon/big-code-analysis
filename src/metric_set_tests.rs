@@ -371,8 +371,7 @@ fn names_table_parses_to_every_variant() {
     }
 }
 
-// The error-message `valid: <list>` and the public
-// `bca.METRIC_NAMES` tuple both surface this slice verbatim;
+// The public `bca.METRIC_NAMES` tuple surfaces this slice verbatim;
 // pinning the alphabetised invariant catches accidental
 // re-orderings on `cargo test`.
 #[test]

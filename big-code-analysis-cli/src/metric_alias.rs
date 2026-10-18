@@ -115,13 +115,13 @@ fn leaf_of(id: &str) -> &str {
     id.rsplit_once('.').map_or(id, |(_, leaf)| leaf)
 }
 
-/// The bare bucket names a `diff --metric` filter (and, with the family
-/// names added, the `bca metrics --metrics` selector) legitimately
-/// accepts: the `list-metrics` names —
-/// every family's row names, which expand the `loc` family to its
-/// sub-metrics and collapse every other family to its single bucket.
-/// Sorted, deduplicated, for the unknown-name error and "did you mean"
-/// suggestion. Derived from the library catalog so it cannot drift.
+/// The bare bucket names a `diff --metric` filter legitimately accepts:
+/// the `list-metrics` names — every family's row names, which expand the
+/// `loc` family to its sub-metrics and collapse every other family to
+/// its single bucket. Sorted, deduplicated, for the unknown-name error
+/// and "did you mean" suggestion. Derived from the library catalog so it
+/// cannot drift. (`bca metrics --metrics` also takes the family names;
+/// its list is the library's `metric_catalog::selector_names`.)
 pub(crate) fn known_diff_metric_names() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = big_code_analysis::metric_catalog::FAMILIES
         .iter()
@@ -132,7 +132,7 @@ pub(crate) fn known_diff_metric_names() -> Vec<&'static str> {
     names
 }
 
-/// Validate one `diff --metric` / `metrics --metrics` name against the
+/// Validate one `diff --metric` name against the
 /// catalog at parse time, reusing the `check --threshold` did-you-mean
 /// machinery (#381). Accepts every spelling the diff filter handles:
 /// canonical bucket names, the dotted `check --threshold` ids
@@ -149,17 +149,24 @@ fn validate_one_diff_metric(name: &str, known: &[&'static str]) -> Result<(), St
     if known.contains(&resolved.as_ref()) {
         return Ok(());
     }
-    Err(format!(
+    Err(unknown_metric_message(name, known))
+}
+
+/// The unknown-name error `diff --metric` and `metrics --metrics` share:
+/// the input, a "did you mean" hint drawn from `known`, and `known`
+/// itself. The two flags differ only in the vocabulary they pass.
+fn unknown_metric_message(name: &str, known: &[&str]) -> String {
+    format!(
         "unknown metric {name:?}{}; known metrics: {}",
         crate::threshold_suggestion::format_suggestion(name, known),
         known.join(", ")
-    ))
+    )
 }
 
-/// Validate every name in a `--metric` / `--metrics` list, returning the
-/// first error. Shared by `diff` and `diff-baseline` (#662); `metrics
-/// --metrics` (#691) goes through [`validate_metric_selection`], which
-/// also takes a family name.
+/// Validate every name in a `--metric` list, returning the first error.
+/// Shared by `diff` and `diff-baseline` (#662); `metrics --metrics`
+/// (#691) resolves through [`metric_for_name`] instead, which also takes
+/// a family name.
 pub(crate) fn validate_diff_metrics(names: &[String]) -> Result<(), String> {
     let known = known_diff_metric_names();
     names
@@ -167,53 +174,21 @@ pub(crate) fn validate_diff_metrics(names: &[String]) -> Result<(), String> {
         .try_for_each(|n| validate_one_diff_metric(n, &known))
 }
 
-/// Validate a `bca metrics --metrics` selection. A selection names what
-/// to *compute*, so beyond every spelling [`validate_diff_metrics`] takes
-/// it accepts a family name: `loc`, which no `diff` bucket carries
-/// because that family expands to its sub-metrics, selects the whole
-/// family, as the flag's own help example (`--metrics loc`) says.
-pub(crate) fn validate_metric_selection(names: &[String]) -> Result<(), String> {
-    let mut known = known_diff_metric_names();
-    known.extend(
-        big_code_analysis::metric_catalog::FAMILIES
-            .iter()
-            .map(|family| family.name),
-    );
-    known.sort_unstable();
-    known.dedup();
-    // A family name is not a catalog id, so `normalize_for_diff` passes it
-    // through unchanged and the extended `known` list accepts it — and
-    // names it in the "did you mean" hint.
-    names
-        .iter()
-        .try_for_each(|name| validate_one_diff_metric(name, &known))
-}
-
-/// Whether `name` is a catalog family's own name (`loc`, `halstead`, …).
-fn is_family_name(name: &str) -> bool {
-    big_code_analysis::metric_catalog::FAMILIES
-        .iter()
-        .any(|family| family.name == name)
-}
-
-/// Resolve a validated `--metrics` name (a family name, a bucket name, a
-/// dotted id, or a bare `loc` sub-metric) to the library [`big_code_analysis::Metric`]
-/// family it computes. A `loc` sub-metric (`sloc`, `lloc`, …) resolves to
-/// [`Metric::Loc`](big_code_analysis::Metric::Loc); every other bucket
-/// name is itself a family name. Returns `None` for a name with no
-/// catalog family — callers validate first via [`validate_metric_selection`],
-/// so `None` should not occur for accepted names. Used by `bca metrics
-/// --metrics` (#691) to build the `MetricsOptions::with_only` selection.
-pub(crate) fn metric_for_name(name: &str) -> Option<big_code_analysis::Metric> {
-    if is_family_name(name) {
-        return name.parse().ok();
-    }
-    let bucket = normalize_for_diff(name);
-    let family = big_code_analysis::metric_catalog::FAMILIES
-        .iter()
-        .find(|f| f.rows.iter().any(|r| r.name == bucket.as_ref()))
-        .map(|f| f.name)?;
-    family.parse().ok()
+/// Resolve one `bca metrics --metrics` name to the library
+/// [`Metric`](big_code_analysis::Metric) family it computes, for the
+/// `MetricsOptions::with_only` selection (#691).
+///
+/// The rules are the library's
+/// [`resolve_selector`](big_code_analysis::metric_catalog::resolve_selector),
+/// which the Python bindings' `metrics=` also uses, so a name works in
+/// both or in neither (#1614). Only the error wording is the CLI's: it
+/// quotes the input the way `diff --metric` does, so the hint is
+/// recomputed here over the same vocabulary rather than taken from the
+/// library error's `Display`.
+pub(crate) fn metric_for_name(name: &str) -> Result<big_code_analysis::Metric, String> {
+    big_code_analysis::metric_catalog::resolve_selector(name).map_err(|_| {
+        unknown_metric_message(name, big_code_analysis::metric_catalog::selector_names())
+    })
 }
 
 /// Static assertion at first use that the catalog still contains the

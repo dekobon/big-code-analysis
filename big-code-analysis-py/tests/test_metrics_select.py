@@ -12,6 +12,9 @@ The contract under test:
   failures.
 * Derived metrics (``"mi"``, ``"wmc"``) implicitly pull their
   dependencies into the result.
+* Names resolve as ``bca metrics --metrics`` resolves them (#1614): a
+  family name, a ``bca list-metrics`` row name or a dotted id, each
+  selecting its whole family.
 * The selection is keyword-only, strict-lowercase, applied
   uniformly across :func:`analyze`, :func:`analyze_source`, and
   :func:`analyze_batch`.
@@ -194,11 +197,18 @@ def test_unknown_metric_raises_with_valid_list_in_message() -> None:
     with pytest.raises(ValueError, match=r"unknown metric: nope") as exc_info:
         bca.analyze(FIXTURES / "hello.py", metrics=["nope"])
     msg = str(exc_info.value)
-    assert "unknown metric: nope" in msg
+    # Since #1614 the list is the one `bca metrics --metrics` prints,
+    # after the input; `nope` is close to no name, so no hint between.
+    assert msg.startswith("unknown metric: nope; known metrics: "), msg
     # The valid list must be listed in full so users don't need to
-    # consult METRIC_NAMES separately when they hit this.
+    # consult METRIC_NAMES separately when they hit this. Compare list
+    # entries, not substrings: `loc` is a substring of `dloc` and `sloc`,
+    # so a substring test passes with `loc` missing from the list.
+    known = msg.split("; known metrics: ", 1)[1].split(", ")
     for name in bca.METRIC_NAMES:
-        assert name in msg, f"valid-list message must include {name!r}"
+        assert name in known, f"valid-list message must include {name!r}: {known}"
+    # ... and it names the CLI's row-name aliases too.
+    assert {"dloc", "sloc"} <= set(known), known
 
 
 def test_case_sensitivity_strict() -> None:
@@ -209,6 +219,19 @@ def test_case_sensitivity_strict() -> None:
         bca.analyze(FIXTURES / "hello.py", metrics=["CYCLOMATIC"])
 
 
+def test_unknown_metric_suggests_the_closest_name() -> None:
+    """**Load-bearing.** A near-miss names the spelling that works (#1614).
+
+    The hint and the list are the ones ``bca metrics --metrics dlocc``
+    prints; only the ``unknown metric: <name>`` prefix differs, kept for
+    callers matching the pre-#1614 message.
+    """
+    with pytest.raises(ValueError, match=r"^unknown metric: dlocc; ") as exc_info:
+        bca.analyze(FIXTURES / "hello.py", metrics=["dlocc"])
+    msg = str(exc_info.value)
+    assert msg.startswith("unknown metric: dlocc; did you mean `dloc`?; known metrics: "), msg
+
+
 def test_duplicates_are_silently_accepted() -> None:
     """``["loc", "loc", "loc"]`` is equivalent to ``["loc"]``."""
     single = bca.analyze(FIXTURES / "hello.py", metrics=["loc"])
@@ -217,8 +240,51 @@ def test_duplicates_are_silently_accepted() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+# The CLI's `--metrics` vocabulary (#1614)
+# ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("alias", ["sloc", "dloc", "loc.dloc"])
+def test_loc_submetric_selects_the_whole_loc_family(alias: str) -> None:
+    """**Load-bearing.** A ``bca list-metrics`` row name or dotted id selects its family.
+
+    ``bca metrics --metrics dloc`` computes the ``loc`` family, and
+    ``metrics=`` resolves through the same library rules, so the result
+    is identical to ``metrics=["loc"]``: the whole block, not just the
+    named field.
+    """
+    by_alias = bca.analyze(FIXTURES / "hello.py", metrics=[alias])
+    by_family = bca.analyze(FIXTURES / "hello.py", metrics=["loc"])
+    assert by_alias is not None
+    assert _metrics_keys(by_alias) == {"loc"}
+    assert by_alias == by_family
+
+
+def test_dotted_id_selects_its_family() -> None:
+    """**Load-bearing.** A ``bca check --threshold`` id selects its family.
+
+    ``cyclomatic.modified`` is neither a family name nor a
+    ``list-metrics`` row, so only the dotted-id rule accepts it.
+    """
+    result = bca.analyze_source("def f(): pass\n", "python", metrics=["cyclomatic.modified"])
+    assert result is not None
+    assert _metrics_keys(result) == {"cyclomatic"}
+
+
+# ─────────────────────────────────────────────────────────────────
 # Transitive dependency resolution
 # ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("name", ["cognitive", "nargs", "nexits"])
+def test_per_function_averages_pull_nom(name: str) -> None:
+    """``cognitive``, ``nargs`` and ``nexits`` average over ``nom``'s count.
+
+    So each pulls ``nom`` in, as the book's dependency table says.
+    """
+    result = bca.analyze(FIXTURES / "hello.py", metrics=[name])
+    assert result is not None
+    assert _metrics_keys(result) == {name, "nom"}
 
 
 def test_mi_transitively_pulls_dependencies() -> None:

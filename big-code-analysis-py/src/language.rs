@@ -161,7 +161,7 @@ pub(crate) fn parse_language_name(name: &str) -> Option<LANG> {
 /// Builds the user-facing message for an unknown language name.
 ///
 /// Mirrors the `metrics=` validation style (`unknown metric: …;
-/// valid: …`) so a bad language argument names both the offending
+/// known metrics: …`) so a bad language argument names both the offending
 /// input and the full set of accepted values, drawn from the same
 /// [`supported_languages`] table the public listing uses.
 pub(crate) fn unknown_language_message(input: &str) -> String {

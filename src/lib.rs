@@ -255,11 +255,20 @@ pub use crate::suppression::{
 
 /// Canonical metric catalog: offender sub-metric ids with their
 /// long-form sentences and [`metric_catalog::Direction`], plus the
-/// family view rendered by `bca list-metrics`. Single source of truth
-/// shared by the library's offender formatters and the CLI's threshold
-/// engine, which pins its extractor ids to [`metric_catalog::METRICS`]
-/// via a parity test.
+/// family view rendered by `bca list-metrics` and the metric-selector
+/// resolver ([`metric_catalog::resolve_selector`]). Single source of
+/// truth shared by the library's offender formatters, the CLI's
+/// threshold engine (which pins its extractor ids to
+/// [`metric_catalog::METRICS`] via a parity test), and the metric
+/// selections of `bca metrics --metrics` and the Python `metrics=`.
 pub mod metric_catalog;
+
+// "Did you mean?" suggestions. The resolver's error uses it in-crate;
+// the hidden re-export exists only so the CLI's unknown-name errors
+// share the one algorithm (#1614).
+mod suggestion;
+#[doc(hidden)]
+pub use crate::suggestion::format_suggestion;
 
 /// Output formatters: CSV, SARIF, Checkstyle, clang/MSVC warning
 /// lines, and AST/metric pretty-dumps used by `bca` and the offender

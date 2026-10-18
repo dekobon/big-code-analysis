@@ -20,12 +20,24 @@
 //! a parity test pins the two id-sets together, so a new metric cannot
 //! ship with a half-updated catalog.
 //!
+//! [`resolve_selector`](crate::metric_catalog::resolve_selector) reads
+//! both tables to turn a *selector* — a name saying what to compute — into
+//! the [`Metric`] family that computes it. `bca metrics --metrics` and the
+//! Python bindings' `metrics=` both resolve through it, so a name copied
+//! from `bca list-metrics` or `bca check --threshold` works in either or
+//! neither (#1614).
+//!
 //! [`output::sarif`]: crate::output
 //! [`output::code_climate`]: crate::output
 
 #![allow(clippy::doc_markdown)]
 
+use std::fmt;
+use std::sync::LazyLock;
+
+use crate::Metric;
 use crate::spaces::SpaceKind;
+use crate::suggestion::{closest_names, render_suggestion};
 
 /// The space kind a metric's threshold is meaningful on (issue #969).
 ///
@@ -392,6 +404,116 @@ pub fn scope(id: &str) -> Option<MetricScope> {
     lookup(id).map(|m| m.scope)
 }
 
+/// The names [`resolve_selector`] advertises: every family name (`loc`,
+/// `halstead`, …) and every `bca list-metrics` row name (`sloc`, `dloc`,
+/// …), sorted and deduplicated.
+///
+/// The dotted [`METRICS`] ids (`cyclomatic.modified`, `mi.original`)
+/// resolve too but are not listed: each names a field inside a family
+/// these names already cover, and listing all of them would bury the
+/// families in an error message.
+#[must_use]
+pub fn selector_names() -> &'static [&'static str] {
+    // Built once: `UnknownSelectorError`'s `Display` and its suggestion
+    // search both read the list, and it is fixed at compile time.
+    static NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+        let mut names: Vec<&'static str> = FAMILIES
+            .iter()
+            .flat_map(|family| {
+                std::iter::once(family.name).chain(family.rows.iter().map(|row| row.name))
+            })
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    });
+    &NAMES
+}
+
+/// Resolve a metric selector to the [`Metric`] family that computes it.
+///
+/// A selector is any name `bca metrics --metrics` accepts:
+///
+/// - a family name (`loc`, `cyclomatic`), the [`Metric`] `Display`
+///   spelling;
+/// - a `bca list-metrics` row name (`sloc`, `dloc`, …), which selects
+///   the family that owns the row;
+/// - a dotted [`METRICS`] id (`cyclomatic.modified`, `loc.sloc`,
+///   `mi.original`), which selects its family.
+///
+/// Selection is family-granular, as the walk computes whole families:
+/// `"dloc"` and `"loc"` both select [`Metric::Loc`], and nothing narrows
+/// the output to the named field. Matching is strict lowercase, like
+/// [`Metric`]'s `FromStr`.
+///
+/// # Errors
+///
+/// [`UnknownSelectorError`] when `name` is none of the above. It carries
+/// the closest [`selector_names`] as a did-you-mean hint.
+pub fn resolve_selector(name: &str) -> Result<Metric, UnknownSelectorError> {
+    FAMILIES
+        .iter()
+        .find(|family| family.name == name || family.rows.iter().any(|row| row.name == name))
+        .map(|family| family.name)
+        .or_else(|| lookup(name).map(|info| info.family))
+        // Every family name is a `Metric` spelling
+        // (`every_selector_name_resolves` pins it), so this drops nothing.
+        .and_then(|family| family.parse::<Metric>().ok())
+        .ok_or_else(|| UnknownSelectorError::new(name))
+}
+
+/// Error returned by [`resolve_selector`] for a name that is no metric
+/// selector.
+///
+/// Carries the rejected input and the did-you-mean candidates, drawn
+/// from [`selector_names`]. `Display` renders
+/// `unknown metric: <input>[; did you mean …]; known metrics: <names>`,
+/// the message the Python bindings raise; its exact wording is not
+/// SemVer-protected. A front end that wants its own wording composes it
+/// from [`input`](Self::input), [`suggestions`](Self::suggestions) and
+/// [`selector_names`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownSelectorError {
+    input: String,
+    suggestions: Vec<&'static str>,
+}
+
+impl UnknownSelectorError {
+    fn new(input: &str) -> Self {
+        Self {
+            input: input.to_owned(),
+            suggestions: closest_names(input, selector_names()),
+        }
+    }
+
+    /// The rejected input, verbatim.
+    #[must_use]
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+
+    /// The [`selector_names`] closest to the input, best first; empty
+    /// when nothing is close. At most three, all tied on closeness.
+    #[must_use]
+    pub fn suggestions(&self) -> &[&'static str] {
+        &self.suggestions
+    }
+}
+
+impl fmt::Display for UnknownSelectorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "unknown metric: {}{}; known metrics: {}",
+            self.input,
+            render_suggestion(&self.suggestions),
+            selector_names().join(", ")
+        )
+    }
+}
+
+impl std::error::Error for UnknownSelectorError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +764,134 @@ mod tests {
                 "{scope:?} must not admit Unknown"
             );
         }
+    }
+
+    /// The advertised vocabulary, pinned whole: the thirteen family names
+    /// plus the six `loc` row names, which is also the list the CLI's
+    /// `--metrics` error has printed since #1597 added `dloc`.
+    #[test]
+    fn selector_names_are_families_plus_rows() {
+        assert_eq!(
+            selector_names(),
+            [
+                "abc",
+                "blank",
+                "cloc",
+                "cognitive",
+                "cyclomatic",
+                "dloc",
+                "halstead",
+                "lloc",
+                "loc",
+                "mi",
+                "nargs",
+                "nexits",
+                "nom",
+                "npa",
+                "npm",
+                "ploc",
+                "sloc",
+                "tokens",
+                "wmc",
+            ]
+        );
+    }
+
+    /// No advertised name is rejected: the resolver's `parse` step would
+    /// drop a catalog family with no `Metric` variant, and this is what
+    /// says so.
+    #[test]
+    fn every_selector_name_resolves() {
+        for name in selector_names() {
+            assert!(resolve_selector(name).is_ok(), "{name} must resolve");
+        }
+    }
+
+    #[test]
+    fn resolve_selector_takes_family_names() {
+        assert_eq!(resolve_selector("loc"), Ok(Metric::Loc));
+        assert_eq!(resolve_selector("cyclomatic"), Ok(Metric::Cyclomatic));
+        for name in Metric::NAMES {
+            assert_eq!(
+                resolve_selector(name).map(|m| m.to_string()),
+                Ok((*name).to_owned())
+            );
+        }
+    }
+
+    /// A `list-metrics` row name selects the family that owns the row,
+    /// so every `loc` sub-measurement selects the whole `loc` family.
+    #[test]
+    fn resolve_selector_maps_row_names_to_their_family() {
+        for row in ["sloc", "ploc", "lloc", "cloc", "blank", "dloc"] {
+            assert_eq!(resolve_selector(row), Ok(Metric::Loc), "{row}");
+        }
+    }
+
+    /// A dotted threshold id selects its family. None of these is a
+    /// family or row name, so only the `lookup` fallback can answer.
+    #[test]
+    fn resolve_selector_maps_dotted_ids_to_their_family() {
+        assert_eq!(
+            resolve_selector("cyclomatic.modified"),
+            Ok(Metric::Cyclomatic)
+        );
+        assert_eq!(resolve_selector("halstead.volume"), Ok(Metric::Halstead));
+        assert_eq!(resolve_selector("mi.original"), Ok(Metric::Mi));
+        assert_eq!(resolve_selector("loc.dloc"), Ok(Metric::Loc));
+        for info in METRICS {
+            assert_eq!(
+                resolve_selector(info.id).map(|m| m.to_string()),
+                Ok(info.family.to_owned()),
+                "{}",
+                info.id
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_selector_suggests_the_closest_name() {
+        let err = resolve_selector("dlocc").expect_err("not a selector");
+        assert_eq!(err.input(), "dlocc");
+        assert_eq!(err.suggestions(), ["dloc"]);
+        assert_eq!(
+            err.to_string(),
+            "unknown metric: dlocc; did you mean `dloc`?; known metrics: abc, blank, cloc, \
+             cognitive, cyclomatic, dloc, halstead, lloc, loc, mi, nargs, nexits, nom, npa, \
+             npm, ploc, sloc, tokens, wmc"
+        );
+    }
+
+    /// Two names tied on closeness are both offered.
+    #[test]
+    fn unknown_selector_lists_tied_suggestions() {
+        let err = resolve_selector("npz").expect_err("not a selector");
+        assert_eq!(err.suggestions(), ["npa", "npm"]);
+        assert!(
+            err.to_string()
+                .starts_with("unknown metric: npz; did you mean one of `npa`, `npm`?; known"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn unknown_selector_without_a_close_name_omits_the_hint() {
+        let err = resolve_selector("xyzq").expect_err("not a selector");
+        assert_eq!(err.suggestions(), [] as [&str; 0]);
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "unknown metric: xyzq; known metrics: {}",
+                selector_names().join(", ")
+            )
+        );
+    }
+
+    /// Strict lowercase, as `Metric::from_str` is: a capitalised family
+    /// name is rejected, and the hint names the spelling that works.
+    #[test]
+    fn resolve_selector_is_case_sensitive() {
+        let err = resolve_selector("Loc").expect_err("case-sensitive");
+        assert_eq!(err.suggestions(), ["loc"]);
     }
 }

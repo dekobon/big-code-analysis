@@ -26,6 +26,21 @@ for historical reference.
 
 ### Added
 
+- `metric_catalog::resolve_selector`, `selector_names` and
+  `UnknownSelectorError`: the library's metric-selection resolver, now
+  shared by the CLI and the Python bindings. `UnknownSelectorError`
+  carries the rejected input and the closest accepted names. The
+  did-you-mean suggester moved from the CLI into the library with it.
+  (#1614)
+- Python `metrics=` takes the CLI's `--metrics` names. `analyze`,
+  `analyze_source`, `analyze_batch`, `analyze_paths` and `Ast.metrics`
+  now resolve each name the way `bca metrics --metrics` does: a family
+  name, a `bca list-metrics` row name (`sloc`, `dloc`, …) or a dotted
+  `bca check --threshold` id (`cyclomatic.modified`, `mi.original`, …).
+  Each name selects its whole family, so `metrics=["dloc"]` returns the
+  full `loc` block. Before this, only the 13 family names in
+  `METRIC_NAMES` were accepted; `METRIC_NAMES` remains the canonical
+  family list. (#1614)
 - **`loc.dloc`: documentation rows reported beside `cloc`** (#1597).
   A Python docstring — a bare string statement — has counted as comment
   lines since #415, so `cloc` could not be read as "comments" the way a
@@ -162,6 +177,11 @@ for historical reference.
 
 ### Changed
 
+- Python's unknown-metric `ValueError` gains a did-you-mean hint. The
+  `unknown metric: <name>` prefix is unchanged; the trailing
+  `; valid: <family names>` is now
+  `[; did you mean `x`?]; known metrics: <family and row names>`,
+  matching `bca metrics --metrics`. (#1614)
 - **The maintainability index no longer charges documentation**
   (#1597). Every `mi.*` variant sizes a space on `sloc` less the
   documentation (`dloc`) rows that carry no code, and `mi.sei` forms

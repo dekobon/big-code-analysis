@@ -107,9 +107,11 @@ impl Metric {
 
     /// Canonical user-facing name for each metric — the single
     /// source of truth shared by the Python bindings'
-    /// `bca.METRIC_NAMES` constant, the `unknown metric: <bad>;
-    /// valid: …` error message, and any downstream Rust consumer
-    /// that parses user input into a [`MetricSet`].
+    /// `bca.METRIC_NAMES` constant, the JSON output keys, and any
+    /// downstream Rust consumer that parses user input into a
+    /// [`MetricSet`]. A selection may also be spelled with a
+    /// `bca list-metrics` row name or a dotted id; see
+    /// [`crate::metric_catalog::resolve_selector`].
     ///
     /// Each entry round-trips through [`Metric::from_str`]. Every
     /// metric uses one canonical spelling end-to-end:
@@ -205,13 +207,13 @@ impl fmt::Display for Metric {
 /// Error returned by [`Metric::from_str`] when the input
 /// is not a recognised metric name.
 ///
-/// Holds the offending input verbatim. Downstream consumers that own
-/// the canonical name table (e.g. the `bca` Python bindings'
-/// `METRIC_NAMES` constant) typically compose this with a
-/// `valid: <list>` suffix from their own source of truth; this type
-/// deliberately stays out of that policy and only carries the
-/// rejected input so the wrapper layer can format the user-facing
-/// message however it wants.
+/// Holds the offending input verbatim. This type deliberately stays
+/// out of message policy and only carries the rejected input, so the
+/// wrapper layer can format the user-facing message however it wants.
+/// A front end parsing a user's metric *selection* wants
+/// [`crate::metric_catalog::resolve_selector`] instead, which takes
+/// the wider CLI vocabulary and whose error carries a did-you-mean
+/// hint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseMetricError(String);
 

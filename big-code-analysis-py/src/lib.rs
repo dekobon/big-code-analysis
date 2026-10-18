@@ -256,13 +256,17 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// CLI-walker behaviours.
 ///
 /// Pass `metrics=[<names>]` (keyword-only) to compute only a subset
-/// of the metric suite (#268). Each name is a canonical entry in
-/// `bca.METRIC_NAMES` (strict lowercase); the empty list raises
-/// `ValueError`, an unknown name raises `ValueError` with the valid
-/// list in the message. Validation runs *before* the file read, so
-/// a bad selection raises without paying I/O cost. Unrequested
-/// metrics are absent (not `None`) from the result dict; derived
-/// metrics (`mi`, `wmc`) pull their dependencies in automatically.
+/// of the metric suite (#268). Each name is resolved the way
+/// `bca metrics --metrics` resolves it (#1614): a family name from
+/// `bca.METRIC_NAMES`, a `bca list-metrics` row name (`sloc`,
+/// `dloc`, …) or a dotted `bca check --threshold` id
+/// (`cyclomatic.modified`, `mi.original`, …), each selecting its whole
+/// family. The empty list raises `ValueError`; an unknown name raises
+/// `ValueError` with a did-you-mean hint and the known names.
+/// Validation runs *before* the file read, so a bad selection raises
+/// without paying I/O cost. Unrequested metrics are absent (not
+/// `None`) from the result dict; derived metrics (`mi`, `wmc`) pull
+/// their dependencies in automatically.
 ///
 /// Pass `vcs=True` to attach a file-level `vcs` block (#328), or
 /// `vcs_per_function=True` to attach a `vcs` block to every nested

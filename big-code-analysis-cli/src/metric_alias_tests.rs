@@ -102,3 +102,36 @@ fn loc_submetrics_round_trip_both_directions() {
         assert_eq!(normalize_for_diff(&dotted), leaf);
     }
 }
+
+/// `--metrics` takes a family name, a `list-metrics` row name and a
+/// dotted id, each selecting a whole family (#691, #1614).
+#[test]
+fn metric_for_name_resolves_every_selector_spelling() {
+    use big_code_analysis::Metric;
+    assert_eq!(metric_for_name("loc"), Ok(Metric::Loc));
+    assert_eq!(metric_for_name("dloc"), Ok(Metric::Loc));
+    assert_eq!(
+        metric_for_name("cyclomatic.modified"),
+        Ok(Metric::Cyclomatic)
+    );
+    assert_eq!(metric_for_name("halstead"), Ok(Metric::Halstead));
+}
+
+/// The `--metrics` error text, byte for byte as it read before #1614
+/// moved the resolution into the library: quoted input, the hint, then
+/// the family and row names.
+#[test]
+fn metric_for_name_error_text_is_pinned() {
+    const KNOWN: &str = "abc, blank, cloc, cognitive, cyclomatic, dloc, halstead, lloc, loc, \
+                         mi, nargs, nexits, nom, npa, npm, ploc, sloc, tokens, wmc";
+    assert_eq!(
+        metric_for_name("dlocc"),
+        Err(format!(
+            "unknown metric \"dlocc\"; did you mean `dloc`?; known metrics: {KNOWN}"
+        ))
+    );
+    assert_eq!(
+        metric_for_name("xyzq"),
+        Err(format!("unknown metric \"xyzq\"; known metrics: {KNOWN}"))
+    );
+}

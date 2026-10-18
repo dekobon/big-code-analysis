@@ -685,18 +685,6 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/threshold_suggestion.rs"
-qualified = "closest_names"
-metric = "halstead.effort"
-value = 59984.93899693509
-
-[[entry]]
-path = "big-code-analysis-cli/src/threshold_suggestion.rs"
-qualified = "edit_distance_with_cutoff"
-metric = "halstead.effort"
-value = 70177.90308128356
-
-[[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -1415,6 +1403,18 @@ path = "src/spaces/compute.rs"
 qualified = "open_func_space"
 metric = "nargs"
 value = 6.0
+
+[[entry]]
+path = "src/suggestion.rs"
+qualified = "closest_names"
+metric = "halstead.effort"
+value = 59984.93899693509
+
+[[entry]]
+path = "src/suggestion.rs"
+qualified = "edit_distance_with_cutoff"
+metric = "halstead.effort"
+value = 67009.44460326429
 
 [[entry]]
 path = "src/suppression.rs"

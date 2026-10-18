@@ -122,6 +122,18 @@ section.
     the `MetricKind: FromStr<Err = ()>` gap (#554): suppression now
     parses via `Metric::from_str`, which returns the descriptive
     `ParseMetricError` naming the offending input.
+  - `metric_catalog::resolve_selector`, `metric_catalog::selector_names`
+    and `metric_catalog::UnknownSelectorError` (added #1614):
+    the metric-selection vocabulary `bca metrics --metrics` and the
+    Python `metrics=` share. `resolve_selector` maps a family name, a
+    `bca list-metrics` row name or a dotted `METRICS` id to its
+    `Metric` family. `selector_names` may gain entries as metrics are
+    added, which is additive. `UnknownSelectorError` follows
+    `ParseMetricError`: private fields read through `input()` and
+    `suggestions()`, `Display + Error`. Its `Display` wording and the
+    suggestion set are not SemVer-protected. The `#[doc(hidden)]`
+    `format_suggestion` re-export that backs the suggestions exists for
+    the CLI and is outside this contract.
   - The per-file function-listing, finding, counting, and
     comment-stripping operations are reached through the [`Ast`]
     seam (`Ast::functions`, `Ast::find`, `Ast::count`,

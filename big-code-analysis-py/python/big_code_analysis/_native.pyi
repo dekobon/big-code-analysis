@@ -29,16 +29,23 @@ from ._types import (
 
 __version__: str
 
-#: Canonical metric names accepted by the ``metrics=`` kwarg on
+#: Canonical metric family names accepted by the ``metrics=`` kwarg on
 #: :func:`analyze`, :func:`analyze_source`, and :func:`analyze_batch`.
 #:
 #: Each entry corresponds to one variant of the upstream
 #: ``big_code_analysis::Metric`` enum and to the metric's JSON output
-#: key (``"nexits"`` for the exit-point metric, etc.). The legacy
-#: ``"exit"`` parse alias was retired at 2.0, so ``METRIC_NAMES``
-#: now lists the only accepted spelling for each metric. The tuple is
-#: immutable and alphabetically sorted; callers can ``assert name in
-#: bca.METRIC_NAMES`` to validate user input client-side.
+#: key (``"nexits"`` for the exit-point metric, etc.). The tuple is
+#: immutable and alphabetically sorted.
+#:
+#: ``metrics=`` also takes the aliases ``bca metrics --metrics`` takes
+#: (#1614), each selecting its whole family: the ``bca list-metrics``
+#: row names ``"sloc"``, ``"ploc"``, ``"lloc"``, ``"cloc"``,
+#: ``"blank"`` and ``"dloc"`` (all ``"loc"``), and the dotted
+#: ``bca check --threshold`` ids such as ``"cyclomatic.modified"``,
+#: ``"halstead.volume"`` or ``"mi.original"``. So ``name in
+#: METRIC_NAMES`` tests for a family name, not for an accepted
+#: spelling; to validate user input, pass it to ``metrics=`` and catch
+#: the ``ValueError``, whose message carries a did-you-mean hint.
 METRIC_NAMES: tuple[str, ...]
 
 class UnsupportedLanguageError(ValueError):
@@ -572,18 +579,24 @@ def analyze(
 
     Pass ``metrics=`` to compute only a subset of the metric suite
     (#268). ``None`` (the default) computes everything. Each
-    element is a canonical metric name from :data:`METRIC_NAMES`
-    (strict lowercase). The empty list raises ``ValueError``; an
-    unknown name raises ``ValueError`` with the valid list in the
-    message. Validation runs **before** the file is read, so a bad
+    element is a canonical metric name from :data:`METRIC_NAMES` or
+    one of the aliases listed there — any name ``bca metrics
+    --metrics`` accepts, such as ``"dloc"`` or ``"cyclomatic.modified"``
+    (strict lowercase). An alias selects its whole family:
+    ``metrics=["dloc"]`` returns the full ``"loc"`` block. The empty
+    list raises ``ValueError``; an unknown name raises ``ValueError``
+    naming the closest accepted names and listing every one.
+    Validation runs **before** the file is read, so a bad
     selection raises without paying I/O cost. Unrequested metrics
     are **absent** from the result dict (not present with ``None``
-    placeholders); selecting a derived metric (``"mi"``, ``"wmc"``)
-    pulls in its dependencies automatically:
+    placeholders); selecting a metric that reads another pulls in
+    that dependency automatically:
 
     * ``"mi"`` → also computes ``"loc"``, ``"cyclomatic"``,
       ``"halstead"``.
     * ``"wmc"`` → also computes ``"cyclomatic"``, ``"nom"``.
+    * ``"cognitive"``, ``"nargs"``, ``"nexits"`` → also compute
+      ``"nom"``, whose function count their averages divide by.
 
     The number-of-exit-points metric is spelled ``"nexits"`` (its
     canonical JSON key); the legacy ``"exit"`` alias was retired at
@@ -754,7 +767,7 @@ def analyze_batch(
       element are discarded (the function does not return a
       partial list).
     * ``ValueError`` if ``metrics`` is an explicitly empty
-      sequence, or contains a name not in :data:`METRIC_NAMES`.
+      sequence, or contains an unknown metric name.
       ``None`` (the default) means "compute the full suite".
       Validation runs **before** ``iter(paths)`` — a generator's
       ``__iter__`` is never invoked when ``metrics=`` is invalid,
@@ -774,7 +787,7 @@ def analyze_batch(
     ``paths`` is consumed lazily, so generators work — only the
     yielded paths are materialised on the Rust side. ``metrics=``
     selects which metrics to compute for every file in the batch
-    (#268); see :func:`analyze` for the full contract on canonical
+    (#268); see :func:`analyze` for the full contract on accepted
     names, dependency closure (``"mi"`` / ``"wmc"`` auto-pull
     inputs), and the canonical ``"nexits"`` spelling. Unrequested
     metrics are absent from each result dict.

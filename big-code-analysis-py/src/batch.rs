@@ -342,8 +342,9 @@ const _: fn() = || {
 /// `metrics=` selects which metrics to compute (#268). `None` (the
 /// default) preserves the full suite; an empty list raises
 /// `ValueError("provide at least one metric, or omit the argument")`
-/// and an unknown name raises `ValueError("unknown metric: <bad>;
-/// valid: …")` listing every entry in `bca.METRIC_NAMES`. The
+/// and an unknown name raises `ValueError("unknown metric: <bad>[; did
+/// you mean …]; known metrics: …")`, the vocabulary of `bca metrics
+/// --metrics` (#1614). The
 /// validation runs **before** `paths.try_iter()`, so a bad selection
 /// aborts without inspecting any input path — a generator's stateful
 /// `__iter__` is never invoked. Metrics outside the selected set are

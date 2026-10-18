@@ -31,6 +31,7 @@
 use std::fmt;
 use std::path::Path;
 
+use big_code_analysis::metric_catalog::{UnknownSelectorError, resolve_selector};
 use big_code_analysis::{
     LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
     normalize_eol, read_file_with_eol,
@@ -53,21 +54,17 @@ pub(crate) enum ParseMetricNamesError {
     /// explicit empty list would silently compute nothing and is
     /// therefore rejected.
     Empty,
-    /// `metrics=["bogus"]` — the wrapped string is the offending
-    /// input verbatim, so the user-facing message can name the
-    /// exact spelling that failed.
-    Unknown(String),
+    /// `metrics=["bogus"]` — the library's rejection, whose `Display`
+    /// names the offending input verbatim and adds the did-you-mean
+    /// hint and known-name list `bca metrics --metrics` prints (#1614).
+    Unknown(UnknownSelectorError),
 }
 
 impl fmt::Display for ParseMetricNamesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Empty => f.write_str("provide at least one metric, or omit the argument"),
-            Self::Unknown(bad) => write!(
-                f,
-                "unknown metric: {bad}; valid: {valid}",
-                valid = Metric::NAMES.join(", "),
-            ),
+            Self::Unknown(err) => err.fmt(f),
         }
     }
 }
@@ -76,8 +73,11 @@ impl std::error::Error for ParseMetricNamesError {}
 
 /// Resolve a Python-side `metrics=` list into a [`MetricSet`].
 ///
-/// Returns `Ok` for any non-empty list of recognised names;
-/// duplicates are silently collapsed because
+/// Each name resolves through the library's
+/// [`resolve_selector`], the rules `bca metrics --metrics` uses: a
+/// family name, a `bca list-metrics` row name (`dloc`) or a dotted id
+/// (`cyclomatic.modified`), each selecting its whole family (#1614).
+/// Duplicates are silently collapsed because
 /// [`MetricSet::from_slice_with_deps`]'s bitfield insert is
 /// idempotent. The resolved set carries each requested metric's
 /// transitive dependencies — `["mi"]` produces a set that also
@@ -87,17 +87,11 @@ pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, ParseMet
     if names.is_empty() {
         return Err(ParseMetricNamesError::Empty);
     }
-    // Pre-allocate against the input length: the worst case is
-    // one `Metric` per name (no duplicates); duplicates collapse
-    // later in the bitfield closure and the extra capacity is
-    // harmless.
-    let mut parsed: Vec<Metric> = Vec::with_capacity(names.len());
-    for name in names {
-        match name.parse::<Metric>() {
-            Ok(m) => parsed.push(m),
-            Err(_) => return Err(ParseMetricNamesError::Unknown(name.clone())),
-        }
-    }
+    let parsed: Vec<Metric> = names
+        .iter()
+        .map(|name| resolve_selector(name))
+        .collect::<Result<_, _>>()
+        .map_err(ParseMetricNamesError::Unknown)?;
     Ok(MetricSet::from_slice_with_deps(&parsed))
 }
 

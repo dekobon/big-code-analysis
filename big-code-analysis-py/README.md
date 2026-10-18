@@ -193,11 +193,17 @@ results = bca.analyze_batch(
 )
 ```
 
+`metrics=` takes every name `bca metrics --metrics` takes: besides
+the family names in `METRIC_NAMES`, the `bca list-metrics` row names
+(`"sloc"`, `"dloc"`, …) and the dotted `bca check --threshold` ids
+(`"cyclomatic.modified"`, `"mi.original"`, …). Each alias selects its
+whole family, so `metrics=["dloc"]` returns the full `"loc"` block.
+
 Names are case-sensitive lowercase; passing an unknown name raises
-`ValueError` with the canonical list in the error message. The
-number-of-exit-points metric is spelled `"nexits"` (matching its
-JSON-key spelling); the legacy `"exit"` alias was retired at 2.0.
-Duplicates are silently collapsed.
+`ValueError` with a did-you-mean hint and the accepted names in the
+error message. The number-of-exit-points metric is spelled `"nexits"`
+(matching its JSON-key spelling); the legacy `"exit"` alias was
+retired at 2.0. Duplicates are silently collapsed.
 
 ## SARIF 2.1.0 output
 
