@@ -157,11 +157,12 @@ alias in the root `Cargo.toml` (and `enums/Cargo.toml`) uses Cargo's
 under `src/`, `enums/`, and feature flags did not change.
 
 **Publish order is leaf-first.** The `publish-crates` job in
-`release.yml` publishes the five `bca-tree-sitter-*` crates ahead of
-`big-code-analysis`, because the parent's `=<leaf-version>` pin can
-only resolve once each leaf is on crates.io. The sparse-index
-existence check in each step makes the job idempotent across re-runs
-of the same tag.
+`release.yml` publishes the five `bca-tree-sitter-*` crates first,
+then `big-code-analysis-ast`, then `big-code-analysis`, then
+`big-code-analysis-cli` and `big-code-analysis-web`, because a
+`=<version>` pin can only resolve once the crate it names is on
+crates.io. The sparse-index existence check in each step makes the
+job idempotent across re-runs of the same tag.
 
 **The four top-level crates cannot be dry-run before the tag.**
 `big-code-analysis-ast` pins each leaf at `bca-tree-sitter-<lang> =
@@ -450,9 +451,9 @@ registered, so the very first publish has to be a hand-rolled
      until cargo publish --locked --manifest-path "$d/Cargo.toml"; do sleep 60; done
    done
 
-   # Parent + binaries. These will hit the new-crate rate limit on
-   # the first try; the until-loop retries every 60s until cargo
-   # exits 0.
+   # Parse layer, library, binaries. These will hit the new-crate
+   # rate limit on the first try; the until-loop retries every 60s
+   # until cargo exits 0.
    until cargo publish -p big-code-analysis-ast --locked; do sleep 60; done
    until cargo publish -p big-code-analysis --locked;     do sleep 60; done
    until cargo publish -p big-code-analysis-cli --locked; do sleep 60; done
@@ -501,11 +502,11 @@ one-time setup steps are required on top of the
    - Environment: `release`.
 
    Every publishable crate needs its own trusted-publisher entry: a
-   TP registered on `big-code-analysis` does not cover the CLI, the
-   web crate, or any of the leaves. The workflow still performs a
-   single `auth` exchange for all publishes because crates.io
-   issues one token covering every crate whose TP config matches
-   the JWT claims.
+   TP registered on `big-code-analysis` does not cover the parse layer,
+   the CLI, the web crate, or any of the leaves. The workflow still
+   performs a single `auth` exchange for all publishes because crates.io
+   issues one token covering every crate whose TP config matches the JWT
+   claims.
 
 3. **First stable release after cutover validates the path.** The
    prerelease gate (`if: needs.preflight.outputs.prerelease != 'true'`)
@@ -546,11 +547,14 @@ Before tagging:
   for one (`rg -n 'big-code-analysis-ast' RELEASING.md`), add the new
   crate beside each hit, and correct any crate count you pass.
 - Add the crate to the fixed lists in `utils/check-versions.py` that
-  apply to it: `INTERNAL_PIN_MANIFESTS` if its manifest pins internal
-  crates at `=X.Y.Z`, `EXCLUDED_LEAF_DIRS` if it is a vendored grammar
-  crate excluded from the workspace, and `DOC_VERSION_FILES` if its
-  README carries an install snippet. The rest of that check, and all of
-  `make check-publish-metadata`, find workspace members on their own.
+  apply to it: `EXCLUDED_LEAF_DIRS` if it is a vendored grammar crate
+  excluded from the workspace, and `DOC_VERSION_FILES` if its README
+  carries an install snippet. The internal-pin scan derives its manifest
+  roster from the workspace members and excluded crates. Update the pin
+  total in `test_real_manifests_expose_all_vendored_pins` in
+  `utils/check-versions-test.py` when a crate adds pins. The rest of that
+  check, and all of `make check-publish-metadata`, find workspace members
+  on their own.
 
 On release day:
 

@@ -142,6 +142,8 @@ source = ["python/big_code_analysis", "*/site-packages/big_code_analysis"]
 # from it without colliding with the package name.
 module-name = "big_code_analysis._native"
 python-source = "python"
+# Local imports leave interpreter-specific bytecode in the source tree.
+exclude = ["python/big_code_analysis/__pycache__/**"]
 # `extension-module` is gated behind a Cargo feature so a plain
 # `cargo test` from inside the workspace can use `pyo3/auto-initialize`
 # instead. maturin builds always need the wheel-side variant.

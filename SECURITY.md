@@ -82,7 +82,7 @@ that release, `main` carries a different key and verification fails.
 ## Scope
 
 This policy covers vulnerabilities in the code of this workspace
-(`big-code-analysis`, `big-code-analysis-cli`,
+(`big-code-analysis`, `big-code-analysis-ast`, `big-code-analysis-cli`,
 `big-code-analysis-web`, and the vendored
 `tree-sitter-{ccomment,mozcpp,mozjs,preproc,tcl}` grammar crates).
 Vulnerabilities in upstream tree-sitter grammars or other dependencies
