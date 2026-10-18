@@ -17,7 +17,7 @@
 //! | `description` | [`metric_catalog`](crate::metric_catalog) long-form + [`OffenderRecord::default_message`]; bare `default_message` for unknown metrics |
 //! | `check_name` | `"big-code-analysis/<metric>"` (namespaced so multi-tool pipelines do not collide) |
 //! | `fingerprint` | SHA-256 of `path \0 function.unwrap_or("") \0 metric`, truncated to 32 hex chars. Deliberately excludes line / value so re-runs after upstream-line edits still dedup in the MR widget. |
-//! | `severity` | Ratio-band mapping over `value / limit` (inverted for the `mi.*` family — lower is worse there). Falls back to a per-record `Severity` lookup when the ratio is ill-defined. |
+//! | `severity` | Band mapping over [`Threshold::severity`](crate::metric_catalog::Threshold::severity) — `value / limit` for a count, one step per index unit past the floor for the `mi.*` family — floored at the record's declared `Severity`. Falls back to that floor when the record does not form a valid threshold (unknown metric, non-finite value or limit). |
 //! | `location.path` | UTF-8 relative path, forward slashes, leading `./` stripped. Non-UTF-8 paths emit a stderr warning and the offender is skipped. |
 //! | `location.lines.begin`, `lines.end` | `start_line` (clamped ≥ 1) and `end_line` (only when `> start_line`). |
 //! | `location.positions.begin` | `{line, column}` emitted only when `start_col` is `Some(c)` with `c > 0`. |
@@ -45,7 +45,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::diag::warn;
-use crate::metric_catalog::lookup;
+use crate::metric_catalog::{Threshold, lookup};
 use crate::output::offenders::{OffenderRecord, Severity, TOOL_ID, warn_non_utf8_path};
 
 /// Number of leading SHA-256 bytes retained in each fingerprint
@@ -164,16 +164,22 @@ struct Position {
     column: u32,
 }
 
-/// Map a metric value/limit ratio onto GitLab's five-level severity
-/// enum.
+/// Map a breach onto GitLab's five-level severity enum.
 ///
 /// GitLab accepts `info`, `minor`, `major`, `critical`, `blocker`.
 /// We never emit `info`; the lowest band starts at `minor` so a
 /// threshold violation always shows in the MR widget (per the
-/// issue spec). The `mi.*` family inverts the ratio direction —
-/// for Maintainability Index, lower values mean *worse*, so the
-/// "how many times the threshold did we breach by" is `limit /
-/// value`, not `value / limit`.
+/// issue spec).
+///
+/// The band reads [`Threshold::severity`], the key `bca check` ranks
+/// its own offenders by, so the CLI and this report cannot disagree on
+/// which breach is worse (#1620). For a count that key is `value /
+/// limit`, saturating at a zero limit; for the interval-scale `mi.*`
+/// family it is `1 + excess / unit`, finite through zero and below it.
+/// A ratio of an MI value read a negative MI — the deepest breach the
+/// family has — as the mildest.
+///
+/// [`Threshold::severity`]: crate::metric_catalog::Threshold::severity
 fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'static str {
     // The declared `Severity` is a floor, not just a fallback: an
     // offender the threshold engine marked `Error` must never render as
@@ -186,24 +192,28 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
         Severity::Warning => "minor",
         Severity::Error => "major",
     };
-    // Filter ill-defined inputs BEFORE choosing the ratio direction:
-    // a future refactor that moves the metric-family check above this
-    // guard would let `mi.*` reach the inverted ratio with `value <=
-    // 0.0` and divide-by-zero. Keep the guards here.
-    if !value.is_finite() || !limit.is_finite() || limit <= 0.0 || value <= 0.0 {
+    // `OffenderRecord`'s fields are public, so a record need not have
+    // come from a validated gate: an unknown metric id, a non-finite
+    // value, or a limit the catalog rejects has no meaningful severity
+    // and renders at the declared floor.
+    if !value.is_finite() {
         return floor;
     }
-    let lower_is_worse = crate::metric_catalog::lower_is_worse(metric);
-    let ratio = if lower_is_worse {
-        limit / value
-    } else {
-        value / limit
+    let Ok(checked) = Threshold::check(metric, limit) else {
+        return floor;
     };
-    let band = if ratio <= 1.5 {
+    // `severity` is defined for a breaching value; a hand-built record
+    // that does not breach (`value == limit == 0`) has no band to raise
+    // to and keeps the floor it declared.
+    if !checked.threshold.breaches(value) {
+        return floor;
+    }
+    let severity = checked.threshold.severity(value);
+    let band = if severity <= 1.5 {
         "minor"
-    } else if ratio <= 2.0 {
+    } else if severity <= 2.0 {
         "major"
-    } else if ratio <= 4.0 {
+    } else if severity <= 4.0 {
         "critical"
     } else {
         "blocker"
@@ -453,6 +463,15 @@ mod tests {
             severity_band("cyclomatic", 30.0, 10.0, Severity::Warning),
             "critical"
         );
+        // The band edges are inclusive on the milder side.
+        assert_eq!(
+            severity_band("cyclomatic", 20.0, 10.0, Severity::Warning),
+            "major"
+        );
+        assert_eq!(
+            severity_band("cyclomatic", 40.0, 10.0, Severity::Warning),
+            "critical"
+        );
         assert_eq!(
             severity_band("cyclomatic", 100.0, 10.0, Severity::Warning),
             "blocker"
@@ -460,31 +479,39 @@ mod tests {
     }
 
     #[test]
-    fn severity_band_table_mi_family_inverts() {
-        // `mi.original` is the real offender id (the threshold-engine
-        // EXTRACTOR key). `severity_band` only ever sees offender ids,
-        // and inversion is now driven by `metric_catalog`'s per-row
-        // `Direction` rather than a `starts_with("mi.")` prefix — so the
-        // id must match the catalog exactly, not just the `mi.` prefix.
-        // limit=100 (MI threshold), lower value = worse violation.
+    fn severity_band_table_mi_family_reads_index_units() {
+        // `mi.original` is the real offender id; the band is the
+        // catalog's `Threshold::severity`, `1 + (limit - value) / 17.1`
+        // (one Visual Studio band on the 171-point scale). A ratio of an
+        // interval-scale value read a negative MI — the deepest breach —
+        // as the mildest (#1620).
+        let band = |value| severity_band("mi.original", value, 20.0, Severity::Warning);
+        // 1 + 8.55 / 17.1 = 1.5 → minor (inclusive edge).
+        assert_eq!(band(11.45), "minor");
+        // 1 + 8.56 / 17.1 ≈ 1.50 → major.
+        assert_eq!(band(11.44), "major");
+        // 1 + 20.1 / 17.1 ≈ 2.18 → critical, at either side of zero:
+        // 0.1 and −0.1 are a fifth of a point apart and band alike.
+        assert_eq!(band(-0.1), "critical");
+        assert_eq!(band(0.1), "critical");
+        // 1 + 20 / 17.1 ≈ 2.17 → critical.
+        assert_eq!(band(0.0), "critical");
+        // 1 + 60 / 17.1 ≈ 4.5 → blocker.
+        assert_eq!(band(-40.0), "blocker");
+        // A negative floor gates too: −50 breached by −80 is 1 + 30/17.1.
         assert_eq!(
-            severity_band("mi.original", 100.0, 100.0, Severity::Warning),
-            "minor"
-        );
-        // 100/50 = 2.0 → major.
-        assert_eq!(
-            severity_band("mi.original", 50.0, 100.0, Severity::Warning),
-            "major"
-        );
-        // 100/40 = 2.5 → critical.
-        assert_eq!(
-            severity_band("mi.original", 40.0, 100.0, Severity::Warning),
+            severity_band("mi.original", -80.0, -50.0, Severity::Warning),
             "critical"
         );
-        // 100/10 = 10.0 → blocker.
+        // `mi.visual_studio`'s unit is 10: 1 + 5 / 10 = 1.5 → minor,
+        // 1 + 15 / 10 = 2.5 → critical.
         assert_eq!(
-            severity_band("mi.original", 10.0, 100.0, Severity::Warning),
-            "blocker"
+            severity_band("mi.visual_studio", 15.0, 20.0, Severity::Warning),
+            "minor"
+        );
+        assert_eq!(
+            severity_band("mi.visual_studio", 5.0, 20.0, Severity::Warning),
+            "critical"
         );
     }
 
@@ -531,15 +558,60 @@ mod tests {
     }
 
     #[test]
-    fn severity_band_falls_back_when_limit_zero() {
+    fn severity_band_zero_limit_breach_is_the_top_band() {
+        // A zero count limit has no ratio: every breach of it saturates,
+        // and the CLI ranks it above any finite breach. Code Climate
+        // agrees rather than flooring it at `minor` (#1620).
         assert_eq!(
             severity_band("cyclomatic", 5.0, 0.0, Severity::Warning),
-            "minor"
+            "blocker"
         );
         assert_eq!(
             severity_band("cyclomatic", 5.0, 0.0, Severity::Error),
-            "major"
+            "blocker"
         );
+    }
+
+    /// A record with no band to raise to renders at its declared floor:
+    /// `minor` for `Warning`, `major` for `Error`.
+    #[track_caller]
+    fn assert_keeps_floor(metric: &str, value: f64, limit: f64) {
+        for (severity, floor) in [(Severity::Warning, "minor"), (Severity::Error, "major")] {
+            assert_eq!(
+                severity_band(metric, value, limit, severity),
+                floor,
+                "{metric}: {value} vs {limit}"
+            );
+        }
+    }
+
+    #[test]
+    fn severity_band_non_breaching_record_keeps_its_floor() {
+        // `OffenderRecord`'s fields are public, so a hand-built record
+        // can sit on (or inside) its limit. A zero against a zero limit
+        // would otherwise read as a saturated breach and jump to
+        // `blocker`; a value that does not breach has no band to raise
+        // to, whichever severity it declares.
+        for (value, limit) in [(0.0, 0.0), (10.0, 10.0), (3.0, 10.0), (-2.0, 0.0)] {
+            assert_keeps_floor("cyclomatic", value, limit);
+        }
+        // An MI sitting exactly on its floor does not breach either.
+        assert_keeps_floor("mi.original", 20.0, 20.0);
+    }
+
+    #[test]
+    fn severity_band_falls_back_when_the_record_is_not_a_threshold() {
+        // `OffenderRecord`'s fields are public, so a record may name a
+        // metric the catalog does not know or carry a limit it rejects;
+        // either renders at the declared floor.
+        for (metric, limit) in [
+            ("not.a.metric", 10.0),
+            ("cyclomatic", -1.0),
+            ("cyclomatic", f64::NAN),
+            ("mi.original", f64::INFINITY),
+        ] {
+            assert_keeps_floor(metric, 50.0, limit);
+        }
     }
 
     #[test]

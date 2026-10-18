@@ -18,7 +18,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use big_code_analysis::metric_catalog::{Change, MetricScope, Threshold};
+use big_code_analysis::metric_catalog::{Change, Threshold};
 use big_code_analysis::{
     CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, SuppressionScope,
     threshold_metric_for_name,
@@ -32,14 +32,16 @@ use crate::threshold_soft::{SOFT_SUBTABLE_KEY, SoftLimit, parse_soft_value};
 
 /// The space kind each metric's threshold gates (issue #969) — owned by
 /// the library catalog so the CLI gate and the Python `to_sarif` binding
-/// cannot drift on which kinds a metric measures, exactly as they share
-/// the lower-is-worse direction.
-pub(crate) fn metric_scope(name: &str) -> MetricScope {
+/// cannot drift on which kinds a metric measures. The gate itself reads
+/// the scope off its [`Threshold`]; this is for the doc-table tests.
+#[cfg(test)]
+pub(crate) fn metric_scope(name: &str) -> big_code_analysis::metric_catalog::MetricScope {
     // Every name reaching here has resolved to a catalog entry (pinned by
     // `extractor_ids_match_library_catalog`), so the lookup is infallible;
     // an unknown id defaults to the narrowest scope rather than ever
     // gating a file/container aggregate.
-    big_code_analysis::metric_catalog::scope(name).unwrap_or(MetricScope::Function)
+    big_code_analysis::metric_catalog::scope(name)
+        .unwrap_or(big_code_analysis::metric_catalog::MetricScope::Function)
 }
 
 /// Static registry entry: stable threshold name -> scalar extractor.
@@ -268,41 +270,76 @@ fn lookup_extractor(name: &str) -> Option<&'static MetricExtractor> {
     EXTRACTORS.iter().find(|e| e.name == name)
 }
 
-/// Reject a metric-gate threshold that is not a finite, non-negative
-/// `f64`. NaN and infinities silently disable an `x > threshold` gate
-/// (`x > NaN`/`x > inf` is always `false`), and a negative limit trips
-/// on every non-negative score; both are user errors, not gates.
-pub(crate) fn validate_threshold_value(value: f64, name: &str) -> Result<(), String> {
-    if !value.is_finite() || value < 0.0 {
-        return Err(format!(
-            "limit for {name:?} must be a finite non-negative number; got {value}"
-        ));
-    }
-    Ok(())
+/// Validate `limit` for the metric `name` through the catalog's
+/// [`Threshold::check`], the one rule every threshold layer shares: finite,
+/// and non-negative for a count. An `mi.*` floor may be negative, since
+/// `mi.original` and `mi.sei` are (#1621).
+///
+/// `name` must be canonical. The advisory a legal-but-suspect limit
+/// raises is not reported here; see `warn_limit_advisories`.
+fn checked_threshold(name: &str, limit: f64) -> Result<Threshold, String> {
+    Threshold::check(name, limit)
+        .map(|checked| checked.threshold)
+        .map_err(|e| e.to_string())
+}
+
+/// A validated [`Threshold`] for a test fixture, so a hand-built
+/// [`Violation`] takes its direction and scale from the catalog and
+/// cannot mislabel either.
+#[cfg(test)]
+pub(crate) fn test_threshold(metric: &str, limit: f64) -> Threshold {
+    checked_threshold(metric, limit)
+        .unwrap_or_else(|e| panic!("fixture limit {metric}={limit}: {e}"))
 }
 
 /// clap `value_parser` for the `vcs commit --fail-above` CI gate. A
 /// non-finite or negative threshold would silently disable (or always
-/// trip) the gate, so reject it at parse time, mirroring the `check`
-/// threshold parser (issue #850).
+/// trip) the gate, so reject it at parse time (issue #850). The VCS risk
+/// score is not a catalog metric, so it keeps its own rule rather than
+/// going through [`Threshold::check`].
 pub(crate) fn parse_fail_above(s: &str) -> Result<f64, String> {
     let value: f64 = s
         .trim()
         .parse()
         .map_err(|e| format!("invalid fail-above threshold {s:?}: {e}"))?;
-    validate_threshold_value(value, "fail-above")?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!(
+            "limit for \"fail-above\" must be a finite non-negative number; got {value}"
+        ));
+    }
+    Ok(value)
+}
+
+/// clap `value_parser` for `bca diff --min-change`. A non-finite floor
+/// is rejected: `inf` hides every finite delta, and `NaN` or `-inf`
+/// report every delta (no comparison against them skips one), neither of
+/// which a caller can mean. A negative floor is accepted: it reports
+/// every delta, exactly as `0` does, and releases before 2.4 took it, so
+/// refusing it now would be a CLI-grammar break reserved for a major
+/// (STABILITY.md); `run_command_diff` warns that it reads as `0` instead.
+pub(crate) fn parse_min_change(s: &str) -> Result<f64, String> {
+    let value: f64 = s
+        .trim()
+        .parse()
+        .map_err(|e| format!("invalid min-change {s:?}: {e}"))?;
+    if !value.is_finite() {
+        return Err(format!("min-change must be a finite number; got {value}"));
+    }
     Ok(value)
 }
 
 /// Parse a single `--threshold metric=limit` token. Only one `=` is
 /// allowed, both sides must be non-empty, and `limit` must parse as a
-/// finite, non-negative `f64`.
+/// finite `f64` — non-negative too, when the name resolves to a count
+/// metric.
 ///
-/// Syntax only: the metric name is passed through verbatim, and is
-/// resolved against the registry — canonicalised, then checked for
-/// existence — one layer down, where the manifest and `--config` names
-/// are resolved too. See `canonical_cli_thresholds` for why the two
-/// halves are not split across the clap boundary (#1165).
+/// The metric name is passed through verbatim, and is resolved against
+/// the registry — canonicalised, then checked for existence — one layer
+/// down, where the manifest and `--config` names are resolved too. See
+/// `canonical_cli_thresholds` for why the two halves are not split
+/// across the clap boundary (#1165). The limit check only *peeks* at the
+/// canonical name: a name that does not resolve is left for that layer
+/// to report, with its did-you-mean list.
 pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let (name, limit) = s
         .split_once('=')
@@ -315,7 +352,17 @@ pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let value: f64 = limit
         .parse()
         .map_err(|e| format!("invalid limit {limit:?} for {name:?}: {e}"))?;
-    validate_threshold_value(value, name)?;
+    match crate::metric_alias::normalize_for_check(name) {
+        Ok(canonical) if big_code_analysis::metric_catalog::lookup(&canonical).is_some() => {
+            checked_threshold(&canonical, value)?;
+        }
+        _ if !value.is_finite() => {
+            return Err(format!(
+                "limit for {name:?} must be a finite number; got {value}"
+            ));
+        }
+        _ => {}
+    }
     Ok((name.to_string(), value))
 }
 
@@ -517,12 +564,16 @@ pub(crate) struct Violation {
     /// it. The field name stays `function` for source-compatibility with
     /// the many call sites built before the qualified form existed.
     pub(crate) function: String,
-    /// Metric that exceeded its threshold.
+    /// Metric that breached its threshold. Always `threshold.id()`;
+    /// kept as a field because every emitter reads it.
     pub(crate) metric: &'static str,
     /// Observed metric value.
     pub(crate) value: f64,
-    /// Configured limit for the tier the gate ran at.
-    pub(crate) limit: f64,
+    /// The validated limit for the tier the gate ran at. Carries the
+    /// metric's direction and scale, so every question about how badly
+    /// this violation breaches is answered by the catalog rather than
+    /// re-derived here (#1621).
+    pub(crate) threshold: Threshold,
     /// The hard-tier ceiling for this metric *under the table that
     /// gated this file's language* — equal to [`Self::limit`] at the
     /// hard tier, the un-scaled ceiling at the soft tier, and `None`
@@ -537,13 +588,7 @@ pub(crate) struct Violation {
     /// `classify_check_outcome`.
     ///
     /// [`CheckOutcome::HardBreach`]: crate::CheckOutcome::HardBreach
-    pub(crate) hard_limit: Option<f64>,
-    /// `true` when this metric is lower-is-worse (the `mi.*`
-    /// Maintainability Index family): the value breached by falling
-    /// *below* the limit, and [`Violation::ratio`] inverts to
-    /// `limit / value` so severity ranking still reads "bigger ratio =
-    /// worse" (#698).
-    pub(crate) lower_is_worse: bool,
+    pub(crate) hard_limit: Option<Threshold>,
     /// Normalized hash of the function body, populated only when
     /// `--baseline-fuzzy-match` is active (see [`crate::baseline`]).
     /// `None` otherwise. Used as the last-resort baseline matcher when
@@ -590,42 +635,45 @@ impl Violation {
             self.metric,
             MetricScalar(self.value),
             split,
-            MetricScalar(self.limit),
+            MetricScalar(self.limit()),
         )
     }
 
-    /// The breach ratio used to rank violation severity, normalized so a
-    /// larger ratio is always a worse violation regardless of metric
-    /// direction.
-    ///
-    /// For higher-is-worse metrics this is `value / limit`. For the
-    /// lower-is-worse `mi.*` family it inverts to `limit / value` (#698)
-    /// — a Maintainability Index of 5 against a limit of 50 is a 10x
-    /// breach, far worse than 45-against-50, and must sort above it.
-    ///
-    /// Saturates to `f64::INFINITY` for the degenerate denominators
-    /// (`limit == 0` in the higher-is-worse case, `value <= 0` in the
-    /// lower-is-worse case) so a NaN never escapes into downstream
-    /// `total_cmp` sorts — the violation then ranks above all
-    /// finite-ratio ones, matching the intuition that the strictest
-    /// possible breach is the worst.
-    pub(crate) fn ratio(&self) -> f64 {
-        if self.lower_is_worse {
-            if self.value > 0.0 {
-                self.limit / self.value
-            } else {
-                f64::INFINITY
-            }
-        } else if self.limit > 0.0 {
-            self.value / self.limit
-        } else {
-            f64::INFINITY
-        }
+    /// The configured limit for the tier the gate ran at.
+    pub(crate) fn limit(&self) -> f64 {
+        self.threshold.limit()
     }
 
-    /// Pick the worst violation in a slice by `value / limit` ratio.
-    /// Ties break by larger absolute value, then by metric name
-    /// ascending. Returns `None` only if the slice is empty.
+    /// Whether this metric is lower-is-worse (the `mi.*` Maintainability
+    /// Index family): the value breached by falling *below* the limit.
+    #[cfg(test)]
+    pub(crate) fn lower_is_worse(&self) -> bool {
+        self.threshold.info().direction
+            == big_code_analysis::metric_catalog::Direction::LowerIsWorse
+    }
+
+    /// Order two violations by severity; `Greater` means `self` is the
+    /// worse one. The catalog's [`Threshold::cmp_breach`]: the breach
+    /// severity (`value / limit` for a count, saturating at a zero limit;
+    /// one step per [`Scale::Interval`] unit past the limit for `mi.*`),
+    /// then the excess past the limit. One key across metrics, so an MI
+    /// at or below zero ranks by how far below its floor it falls rather
+    /// than tying at infinity (#1617).
+    ///
+    /// Every ranking of violations goes through this one comparator —
+    /// [`Self::pick_worst`] and the step summary's top-offenders table —
+    /// so the surfaces cannot disagree about which violation is worse.
+    /// Callers append their own deterministic tie-breaks.
+    ///
+    /// [`Scale::Interval`]: big_code_analysis::metric_catalog::Scale::Interval
+    pub(crate) fn cmp_severity(&self, other: &Self) -> std::cmp::Ordering {
+        self.threshold
+            .cmp_breach(self.value, &other.threshold, other.value)
+    }
+
+    /// Pick the worst violation in a slice by [`Self::cmp_severity`].
+    /// Violations equal on severity break by metric name ascending.
+    /// Returns `None` only if the slice is empty.
     ///
     /// Shared between the `commands::write_summary_footer` rollup
     /// (stderr) and `check_format::write_per_file_rollup`
@@ -633,12 +681,9 @@ impl Violation {
     /// the two emitters would let the two surfaces disagree about
     /// which violation is "worst" for the same file.
     pub(crate) fn pick_worst<'a>(vs: &[&'a Self]) -> Option<&'a Self> {
-        vs.iter().copied().max_by(|a, b| {
-            a.ratio()
-                .total_cmp(&b.ratio())
-                .then_with(|| a.value.total_cmp(&b.value))
-                .then_with(|| b.metric.cmp(a.metric))
-        })
+        vs.iter()
+            .copied()
+            .max_by(|a, b| a.cmp_severity(b).then_with(|| b.metric.cmp(a.metric)))
     }
 
     pub(crate) fn group_pairs_by_path(
@@ -725,13 +770,15 @@ pub(crate) fn render_violation_line(v: &Violation, tag: Option<&Coverage>) -> St
 ///
 /// [`Threshold::change`]: big_code_analysis::metric_catalog::Threshold::change
 fn format_regressed_tag(v: &Violation, recorded: f64) -> String {
-    let Ok(checked) = Threshold::check(v.metric, v.limit) else {
-        // Unreachable for a violation built from a validated threshold;
-        // keeps the renderer total rather than dropping the row.
-        return legacy_regressed_tag(recorded, v.value, v.lower_is_worse);
-    };
-    match checked.threshold.change(recorded, v.value) {
-        Change::Percent(pct) => percent_tag(pct),
+    match v.threshold.change(recorded, v.value) {
+        // `{:.0}` formats the rounded float with zero decimal digits,
+        // avoiding an f64-to-int cast that clippy flags as possibly
+        // truncating. `pct` is non-negative because the classifier only
+        // emits Regressed when the value is worse than the record in the
+        // metric's direction; a regression too small to round to one
+        // percent renders `[regr +0%]`.
+        Change::Percent(pct) if pct.round() > 9999.0 => "[regr +>9999%]".to_string(),
+        Change::Percent(pct) => format!("[regr +{:.0}%]", pct.round()),
         Change::Points(pts) => format!("[regr +{pts:.1} pts]"),
         Change::FromZero => "[regr from 0]".to_string(),
         Change::NaN => "[regr NaN]".to_string(),
@@ -739,59 +786,19 @@ fn format_regressed_tag(v: &Violation, recorded: f64) -> String {
     }
 }
 
-/// The ratio-scale `[regr +N%]` tag. `{:.0}` formats the rounded float
-/// with zero decimal digits, avoiding an f64-to-int cast that clippy
-/// flags as possibly truncating. `pct` is non-negative because the
-/// classifier only emits Regressed when the value is worse than the
-/// record in the metric's direction. A regression too small to round to
-/// one percent renders `[regr +0%]`.
-fn percent_tag(pct: f64) -> String {
-    let pct = pct.round();
-    if pct > 9999.0 {
-        return "[regr +>9999%]".to_string();
-    }
-    format!("[regr +{pct:.0}%]")
-}
-
-/// The pre-#1621 percentage arithmetic, for a violation whose metric
-/// and limit do not form a [`Threshold`].
-fn legacy_regressed_tag(recorded: f64, value: f64, lower_is_worse: bool) -> String {
-    if value.is_nan() {
-        return "[regr NaN]".to_string();
-    }
-    if recorded == 0.0 {
-        return "[regr from 0]".to_string();
-    }
-    let worse_by = if lower_is_worse {
-        recorded - value
-    } else {
-        value - recorded
-    };
-    percent_tag(worse_by / recorded.abs() * 100.0)
-}
-
-/// One resolved threshold: the registry extractor, the configured limit,
-/// and whether the metric is lower-is-worse (the `mi.*` family). The
-/// direction is resolved once at [`ThresholdSet::build`] time from
-/// [`big_code_analysis::metric_catalog`] so the per-function evaluation
-/// loop never re-derives it (#698).
+/// One resolved threshold: the registry extractor and the validated
+/// limit. The limit is a catalog [`Threshold`], resolved once at
+/// [`ThresholdSet::build`] time, so the per-function evaluation loop
+/// never re-derives the metric's direction or scale (#698, #1621).
 #[derive(Debug, Clone)]
 struct ResolvedThreshold {
     extractor: &'static MetricExtractor,
-    limit: f64,
+    threshold: Threshold,
     /// The hard-tier ceiling for this metric, carried alongside the
-    /// tier-resolved `limit` so each emitted [`Violation`] can be
+    /// tier-resolved `threshold` so each emitted [`Violation`] can be
     /// stamped with the ceiling that applies to *its* language (#1141).
     /// `None` when the metric has a soft limit but no hard one.
-    hard_limit: Option<f64>,
-    /// `true` for the lower-is-worse `mi.*` family: a value *below* the
-    /// limit is the violation, and the breach ratio inverts to
-    /// `limit / value`.
-    lower_is_worse: bool,
-    /// Which space kind this threshold gates (issue #969), resolved once
-    /// from the library catalog at build time so the evaluation loop reads
-    /// it without a per-space lookup.
-    scope: MetricScope,
+    hard_limit: Option<Threshold>,
 }
 
 impl ResolvedThreshold {
@@ -814,7 +821,7 @@ impl ResolvedThreshold {
         // excludes this space kind. Runs before the breach/suppression logic,
         // so an out-of-scope pair never produces a `Violation` and composes
         // trivially with suppression and the baseline.
-        if !self.scope.admits(space.kind) {
+        if !self.threshold.info().scope.admits(space.kind) {
             return None;
         }
         let value = (self.extractor.extract)(&space.metrics);
@@ -824,7 +831,7 @@ impl ResolvedThreshold {
         // Halstead-derived MI on a trivial space) fails both comparisons and
         // is never flagged, matching the prior `value <= limit`
         // higher-is-worse behavior.
-        if !breaches_limit(value, self.limit, self.lower_is_worse) {
+        if !self.threshold.breaches(value) {
             return None;
         }
         // A metric is suppressed when policy honors markers and an applicable
@@ -876,10 +883,9 @@ impl ResolvedThreshold {
             function: qualified.to_owned(),
             metric: self.extractor.name,
             value,
-            limit: self.limit,
+            threshold: self.threshold,
             nargs_split,
             hard_limit: self.hard_limit,
-            lower_is_worse: self.lower_is_worse,
             body_hash: None,
             suppressed,
         })
@@ -903,33 +909,14 @@ struct SuppressionContext<'a> {
     file_scope: &'a SuppressionScope,
 }
 
-/// Whether the metric named `name` is lower-is-worse (the `mi.*`
-/// Maintainability Index family). Thin alias for the library catalog's
-/// [`big_code_analysis::metric_catalog::lower_is_worse`] — the single
-/// source of truth shared with the offender wording and Code Climate
-/// severity inversion, the soft-tier scaling direction (#1166), and the
-/// per-function gate.
-///
-/// `name` must be canonical — every layer that can introduce a threshold
-/// key resolves the bare `diff --metric` alias spelling at its own parse
-/// boundary (#1165), so an alias never reaches this lookup.
-pub(crate) fn metric_is_lower_is_worse(name: &str) -> bool {
-    big_code_analysis::metric_catalog::lower_is_worse(name)
-}
-
-/// Direction-aware breach test (#698, #837): for the lower-is-worse
-/// `mi.*` family a value *below* `limit` is the breach; every other
-/// metric breaches by going *above* it. A NaN value fails both
-/// comparisons and is never flagged, matching the pre-#698
-/// higher-is-worse `value <= limit` non-breach behavior. Shared between
-/// the per-function gate and the soft-tier hard-breach escalation in
-/// `classify_check_outcome` so the two cannot drift on metric direction.
-pub(crate) fn breaches_limit(value: f64, limit: f64, lower_is_worse: bool) -> bool {
-    if lower_is_worse {
-        value < limit
-    } else {
-        value > limit
-    }
+/// Whether [`ThresholdSet::gated_thresholds`] yields the hard ceilings
+/// alongside the tier-resolved limits.
+#[derive(Clone, Copy)]
+pub(crate) enum Ceilings {
+    /// Both tiers' limits: the `--explain-threshold` preview reports both.
+    Include,
+    /// The tier-resolved limits only: what a gate run flags against.
+    Exclude,
 }
 
 /// Pre-resolved set of thresholds: every name has been validated against
@@ -978,9 +965,11 @@ impl ThresholdSet {
                     known.join(", ")
                 )
             })?;
-            validate_threshold_value(*limit, name)?;
-            let lower_is_worse = metric_is_lower_is_worse(extractor.name);
-            let hard_limit = hard.get(name).copied();
+            let threshold = checked_threshold(extractor.name, *limit)?;
+            let hard_limit = hard
+                .get(name)
+                .map(|hard| checked_threshold(extractor.name, *hard))
+                .transpose()?;
             // A soft limit looser than its own hard ceiling inverts the
             // tier: the early-warning gate stays quiet while the hard
             // gate fires, and any offender that *does* trip the soft band
@@ -992,23 +981,21 @@ impl ThresholdSet {
             //
             // Both directions, since #1166: a lower-is-worse `mi.*`
             // limit is a floor, so "looser" means *below* the hard floor
-            // — which is exactly what `breaches_limit` tests for it.
+            // — which is exactly what `breaches` tests for it.
             if let Some(hard) = hard_limit
-                && breaches_limit(*limit, hard, lower_is_worse)
+                && hard.breaches(*limit)
             {
                 return Err(format!(
                     "[thresholds.soft] {name:?}: soft limit {} is looser than the hard \
                      limit {}; the soft tier must fire before the hard gate, not after it",
                     MetricScalar(*limit),
-                    MetricScalar(hard),
+                    MetricScalar(hard.limit()),
                 ));
             }
             entries.push(ResolvedThreshold {
                 extractor,
-                limit: *limit,
+                threshold,
                 hard_limit,
-                lower_is_worse,
-                scope: metric_scope(extractor.name),
             });
         }
         Ok(Self { entries })
@@ -1069,7 +1056,28 @@ impl ThresholdSet {
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&'static str, f64)> + '_ {
         self.entries
             .iter()
-            .map(|entry| (entry.extractor.name, entry.limit))
+            .map(|entry| (entry.extractor.name, entry.threshold.limit()))
+    }
+
+    /// The limits this set flags offenders against: each entry's
+    /// tier-resolved limit and, with [`Ceilings::Include`], the hard
+    /// ceiling a soft-tier offender escalates against.
+    /// `warn_limit_advisories` reads these so an advisory describes a
+    /// limit the run applies — under `--tier=soft` the raised floor, not
+    /// the configured one. A gate run leaves the ceilings out, since a
+    /// ceiling nothing can pass is silent there; the
+    /// `--explain-threshold` preview reports both tiers, so it asks for
+    /// them.
+    pub(crate) fn gated_thresholds(
+        &self,
+        ceilings: Ceilings,
+    ) -> impl Iterator<Item = Threshold> + '_ {
+        self.entries.iter().flat_map(move |entry| {
+            let ceiling = entry
+                .hard_limit
+                .filter(|_| matches!(ceilings, Ceilings::Include));
+            std::iter::once(entry.threshold).chain(ceiling)
+        })
     }
 
     /// Walk `space`, comparing each function's metrics against every

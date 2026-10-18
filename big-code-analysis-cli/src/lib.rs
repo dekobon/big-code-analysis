@@ -104,7 +104,7 @@ use metric_diff::DiffSide;
 use threshold_lang::LanguageThresholds;
 use thresholds::{
     ParsedThresholds, ThresholdConfig, Violation, parse_cli_threshold, parse_fail_above,
-    split_thresholds_table,
+    parse_min_change, split_thresholds_table,
 };
 
 use big_code_analysis::LANG;

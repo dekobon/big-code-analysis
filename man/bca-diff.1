@@ -36,7 +36,7 @@ json
 .RE
 .TP
 \fB\-\-min\-change\fR \fI<MIN_CHANGE>\fR [default: 0]
-Minimum absolute change for a per\-file metric delta to be reported. `0` (the default) reports any change of any size; raise it to suppress small deltas and surface only the larger metric movements (e.g. on a grammar bump)
+Minimum absolute change for a per\-file metric delta to be reported. `0` (the default) reports any change of any size; raise it to suppress small deltas and surface only the larger metric movements (e.g. on a grammar bump). Must be finite; a negative value reads as `0`, with a warning
 .TP
 \fB\-\-metric\fR \fI<METRIC>\fR
 Restrict the diff to one or more metrics (repeatable). Names are those printed by `bca list\-metrics` (e.g. `cyclomatic`, `sloc`). The dotted `bca check \-\-threshold` spelling is accepted as an alias (`loc.sloc` == `sloc`, `halstead.volume` == `halstead`). When omitted, every metric is reported

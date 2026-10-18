@@ -238,11 +238,25 @@ pins the ratio to `0.90`; `soft=1.0` disables the blanket scale.
 `RATIO` scales the *band*, not the number. For most metrics a limit is
 a ceiling, so tightening it means multiplying: `cognitive = 15` with
 `soft=0.9` warns at `13.5`. For the lower-is-worse `mi.*` family a
-limit is a **floor** — a value below it is the violation — so the same
-`0.9` *divides*: `"mi.original" = 20` warns at `20 / 0.9 = 22.2223`,
-rounded up so the band never resolves below the exact quotient.
-Multiplying a floor would move the warning to `18`, *under* the hard
-gate, where nothing could reach it first.
+limit is a **floor**, a value below it is the violation, and the index
+has no true zero: `mi.original` and `mi.sei` go negative on large
+functions. So the floor is *raised* by `1 − RATIO` of one
+maintainability band rather than scaled. One band is 10 points of
+`mi.visual_studio`, whose 20/10 cut-offs Visual Studio and radon use,
+and the same 17.1 points on the 171-point `mi.original` / `mi.sei`
+scale. `"mi.original" = 20` with `soft=0.9` warns at `20 + 0.1 × 17.1 =
+21.71`, and a floor of `-50` at `-48.29`. Multiplying a floor would
+move the warning to `18`, *under* the hard gate, and dividing a
+negative one would do the same (`-50 / 0.9 = -55.6`). Either way
+nothing could reach the soft band first.
+
+Limits must be finite. A count limit must also be non-negative; an
+`mi.original` or `mi.sei` floor may be negative. A limit that cannot
+fire, or fires on every value, still parses but prints a warning:
+`mi.visual_studio` is clamped to `[0, 100]`, so `= 0` reads
+`warning: limit mi.visual_studio=0 cannot fire: 0 is the metric's
+floor; gate mi.original instead`, and `= 101` warns that it fires on
+every value.
 
 A `[thresholds.soft]` table sets per-metric soft limits, each either an
 absolute number or a `"<ratio>x"` string that scales the metric's hard
@@ -336,7 +350,9 @@ would derive it: a `[thresholds.soft]` entry for the metric wins, then
 the `--tier=soft=RATIO` ratio if one was given, then `0.95`. A
 `[thresholds.lang.<slug>]` table that overrides the metric keeps its own
 limit — a candidate *global* limit does not reach it — and the report
-says so on its own line.
+says so on its own line. A ratio-derived soft limit names its
+arithmetic: `5.7, 0.95x` for a count, and for an `mi.*` floor the
+additive step, as in `mi.original=20` → `20.855, +0.855 (0.05 × 17.1)`.
 
 Everything else matches the run being predicted: `exclude_tests`,
 `[check] exclude`, in-source suppression markers, `--changed-only`, and
@@ -887,10 +903,15 @@ newline (empty input renders as `[]\n`). Each issue carries a
 namespaced `check_name` (`big-code-analysis/<metric>`), a stable
 SHA-256 `fingerprint` over `path \0 function \0 metric` (line- and
 value-insensitive so cosmetic edits still dedup in the MR widget),
-and a `severity` mapped from the value/threshold ratio onto
-GitLab's five-level enum: `≤ 1.5×` → `minor`, `≤ 2×` → `major`,
-`≤ 4×` → `critical`, `> 4×` → `blocker` (inverted for the `mi.*`
-family where lower is worse). The full enum is
+and a `severity` mapped onto GitLab's five-level enum from the same
+severity key `bca check` ranks its own offenders by: `≤ 1.5` →
+`minor`, `≤ 2` → `major`, `≤ 4` → `critical`, `> 4` → `blocker`. For a
+count the key is `value / limit`, and a breach of a zero limit is
+always `blocker`. For the `mi.*` family, where lower is worse and the
+index has no true zero, it is `1 + (limit − value) / unit`: one step
+per maintainability band (17.1 points of `mi.original` / `mi.sei`, 10
+of `mi.visual_studio`) below the floor. An `mi.original` of 0 against
+a floor of 20 is `critical`; one of −40 is `blocker`. The full enum is
 `info`/`minor`/`major`/`critical`/`blocker`; `bca` never emits
 `info` — a threshold violation always lands at `minor` or higher.
 

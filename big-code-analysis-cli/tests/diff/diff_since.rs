@@ -659,3 +659,36 @@ fn cyclomatic_sum_delta(doc: &serde_json::Value) -> Option<(f64, f64)> {
     }
     None
 }
+
+/// `--min-change` is a magnitude floor. A non-finite one is a usage
+/// error (#1621), rejected before any tree is read: `inf` hides every
+/// delta, and `NaN` reports every delta as `0` does.
+#[test]
+fn min_change_rejects_nan_and_warns_on_negative() {
+    // A non-finite floor is refused; a negative one reports every delta
+    // as `0` does, was accepted before 2.4 and still is, read as `0`
+    // with a warning rather than refused (a CLI-grammar break).
+    for bad in ["NaN", "inf"] {
+        cli()
+            .args(["diff", &format!("--min-change={bad}"), "a", "b"])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains(
+                "min-change must be a finite number",
+            ));
+    }
+    let dir = TempDir::new().unwrap();
+    let old = dir.path().join("old.json");
+    let new = dir.path().join("new.json");
+    fs::write(&old, "[]").unwrap();
+    fs::write(&new, "[]").unwrap();
+    cli()
+        .args(["diff", "--min-change=-1"])
+        .arg(&old)
+        .arg(&new)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "warning: --min-change -1 is negative; reporting every delta, as 0 does",
+        ));
+}

@@ -124,7 +124,7 @@ fn write_footer_row(
         "{display}: {count} {noun} (worst: {} = {} vs limit {} at L{})",
         worst.metric,
         MetricScalar(worst.value),
-        MetricScalar(worst.limit),
+        MetricScalar(worst.limit()),
         worst.start_line,
     )
 }

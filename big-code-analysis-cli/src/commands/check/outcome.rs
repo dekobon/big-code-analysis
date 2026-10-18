@@ -81,13 +81,13 @@ pub(crate) fn classify_check_outcome(
         // gate's breach test so the lower-is-worse `mi.*` family escalates
         // on a value *below* the hard floor, not above it. A NaN value
         // (degenerate Halstead on a trivial function) fails both
-        // comparisons in `breaches_limit`, so it never escalates to a hard
+        // comparisons in `Threshold::breaches`, so it never escalates to a hard
         // breach; it falls to the new/regr split below, mirroring how
         // `Baseline::classify` treats a NaN as `Regressed` rather than a
         // magnitude. A NaN has no meaningful distance from the ceiling.
         if tier == Tier::Soft
             && let Some(hard) = v.hard_limit
-            && breaches_limit(v.value, hard, v.lower_is_worse)
+            && hard.breaches(v.value)
         {
             has_hard_breach = true;
         }

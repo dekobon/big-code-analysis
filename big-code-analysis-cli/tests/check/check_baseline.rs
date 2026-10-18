@@ -1770,3 +1770,301 @@ fn negative_mi_values_are_baselined_and_ratchet() {
     metrics.sort_unstable();
     assert_eq!(metrics, ["mi.original", "mi.sei"], "{stdout}");
 }
+
+#[test]
+fn summaries_name_the_deepest_negative_mi_breach_as_worst() {
+    // #1617: both functions' `mi.original` sit below zero (`big` ≈ −15,
+    // `bigger` ≈ −47), where the old breach ratio saturated and tied. The
+    // tie kept the larger raw value, the milder breach, so the footer, the
+    // step-summary rollup and the top-offenders table all led with `big`.
+    // One metric is gated so the result cannot rest on how two MI
+    // formulas compare, only on which function falls further; `big` also
+    // comes first by line, so no positional tie-break can stand in for
+    // severity.
+    let dir = TempDir::new().unwrap();
+    let source = format!(
+        "{}{}",
+        negative_mi_python(200),
+        negative_mi_python(300).replace("def big(", "def bigger(")
+    );
+    let src_path = write_file(&dir, "big.py", &source);
+    let summary = dir.path().join("step-summary.md");
+    let out = cli(dir.path())
+        .args(["check", "--paths", src_path.to_str().unwrap()])
+        .args(["--threshold", "mi.original=20"])
+        .env("GITHUB_STEP_SUMMARY", &summary)
+        .assert()
+        .code(2);
+    let stderr = std::str::from_utf8(&out.get_output().stderr).unwrap();
+    let digest = fs::read_to_string(&summary).unwrap();
+
+    assert!(
+        digest.contains("### Top 10 offenders (by severity)"),
+        "{digest}"
+    );
+    let top: Vec<&str> = digest
+        .lines()
+        .skip_while(|line| !line.starts_with("### Top"))
+        .filter(|line| line.contains("| mi.original |"))
+        .collect();
+    assert_eq!(top.len(), 2, "two top-offender rows expected:\n{digest}");
+    assert!(top[0].contains("| bigger |"), "deepest first:\n{digest}");
+    assert!(top[1].contains("| big |"), "got:\n{digest}");
+    // The Value column of the deepest row is what the footer and the
+    // rollup must cite.
+    let deepest = top[0].split('|').map(str::trim).nth(5).unwrap();
+    let shallow = top[1].split('|').map(str::trim).nth(5).unwrap();
+    assert!(
+        deepest.parse::<f64>().unwrap() < shallow.parse::<f64>().unwrap(),
+        "fixture must put `bigger` below `big`: {deepest} vs {shallow}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "2 violations (worst: mi.original = {deepest} vs limit"
+        )),
+        "footer must name the deeper breach {deepest}:\n{stderr}"
+    );
+    assert!(
+        digest.contains(&format!("| 2 | mi.original | {deepest} |")),
+        "rollup must name the deeper breach {deepest}:\n{digest}"
+    );
+}
+
+#[test]
+fn cli_and_code_climate_agree_on_cross_metric_severity() {
+    // #1620 and #1621's decided ordering. The 200-line function has
+    // cognitive 200 against 15 (13.3x) and mi.original ≈ −14.8 against a
+    // floor of 20 — 34.8 points, about two Visual Studio bands
+    // (1 + 34.8 / 17.1 ≈ 3.03). The CLI's footer and Code Climate read the
+    // same severity key, so the CLI names cognitive worst, Code Climate
+    // bands it `blocker` (> 4) and the MI `critical` (2–4). Before #1621
+    // the CLI named the MI worst (an infinite ratio) and Code Climate
+    // banded it `minor` (a non-positive value fell back to the floor).
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "big.py", &negative_mi_python(200));
+    let src = src_path.to_str().unwrap();
+    let gate = [
+        "--threshold",
+        "mi.original=20",
+        "--threshold",
+        "cognitive=15",
+    ];
+    cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "2 violations (worst: cognitive = 200 vs limit 15",
+        ));
+
+    let out = cli(dir.path())
+        .args(["check", "--paths", src, "--format", "code-climate"])
+        .args(gate)
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let issues: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let band = |metric: &str| {
+        issues
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["check_name"] == format!("big-code-analysis/{metric}"))
+            .map(|i| i["severity"].as_str().unwrap().to_owned())
+    };
+    assert_eq!(band("cognitive").as_deref(), Some("blocker"), "{issues}");
+    assert_eq!(band("mi.original").as_deref(), Some("critical"), "{issues}");
+}
+
+#[test]
+fn equidistant_mi_records_tie_toward_the_covering_one() {
+    // #1616: two `mi.sei` records for one function, equally far from it,
+    // one stricter than the live value and one more lenient. The
+    // tie-break kept the higher record whatever the direction; for the
+    // lower-is-worse `mi.*` family that is the stricter one, so the
+    // function read `[regr …]` against a baseline that also held a record
+    // covering it. The records are placed relative to a real write so they
+    // bracket whatever the MI formula gives the fixture, and sit one line
+    // either side of the function.
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "big.py", &format!("\n\n{}", negative_mi_python(200)));
+    let src = src_path.to_str().unwrap();
+    let baseline = dir.path().join("baseline.toml");
+    let gate = ["--threshold", "mi.sei=20"];
+
+    cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .args(["--write-baseline", baseline.to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("wrote 1 baseline entries"));
+    let written = fs::read_to_string(&baseline).unwrap();
+    let live: f64 = written
+        .lines()
+        .find_map(|line| line.strip_prefix("value = "))
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| panic!("no recorded value in:\n{written}"));
+    // Keep the written header so the version and provenance stay
+    // whatever this bca writes; only the entry is replaced. The stricter
+    // record comes first so a tie-break that kept the first of two equal
+    // candidates would fail too.
+    let (header, _) = written.split_once("[[entry]]").unwrap();
+    let entry = |line: usize, value: f64| {
+        format!(
+            "[[entry]]\npath = \"big.py\"\nqualified = \"big\"\n\
+             start_line = {line}\nmetric = \"mi.sei\"\nvalue = {value:?}\n\n"
+        )
+    };
+    fs::write(
+        &baseline,
+        format!("{header}{}{}", entry(2, live + 0.5), entry(4, live - 0.5)),
+    )
+    .unwrap();
+
+    cli(dir.path())
+        .args(["check", "--paths", src])
+        .args(gate)
+        .args(["--baseline", baseline.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[regr").not())
+        .stderr(predicate::str::contains(
+            "filtered 1 violations via baseline",
+        ));
+}
+
+#[test]
+fn a_negative_mi_floor_parses_and_gates() {
+    // `mi.original` is unbounded below, so a floor under zero is a real
+    // gate (#1621); before it, every negative limit was a parse error.
+    // The 200-line function measures ≈ −15, above a floor of −50; the
+    // 500-line one ≈ −104, below it.
+    let dir = TempDir::new().unwrap();
+    let mild = write_file(&dir, "mild.py", &negative_mi_python(200));
+    let deep = write_file(&dir, "deep.py", &negative_mi_python(500));
+    let gate = ["--threshold", "mi.original=-50"];
+    cli(dir.path())
+        .args(["check", "--paths", mild.to_str().unwrap()])
+        .args(gate)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not());
+    cli(dir.path())
+        .args(["check", "--paths", deep.to_str().unwrap()])
+        .args(gate)
+        .assert()
+        .code(2)
+        .stdout(predicate::str::is_match(r"big: mi\.original = -\d+\.\d+ \(limit -50\)").unwrap());
+    // A count still rejects a negative limit, with the long-standing
+    // message.
+    cli(dir.path())
+        .args(["check", "--paths", mild.to_str().unwrap()])
+        .args(["--threshold", "cyclomatic=-1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "limit for \"cyclomatic\" must be a finite non-negative number; got -1",
+        ));
+}
+
+#[test]
+fn an_mi_visual_studio_limit_that_cannot_fire_warns() {
+    // `mi.visual_studio` is clamped to [0, 100], so a floor of 0 can
+    // never be breached: the run passes on a function whose MI is 0. It
+    // still parses (rejecting it is a CLI-grammar break reserved for
+    // 3.0), but says so once, naming the metric that can gate there.
+    let dir = TempDir::new().unwrap();
+    let src = write_file(&dir, "big.py", &negative_mi_python(200));
+    let out = cli(dir.path())
+        .args(["check", "--paths", src.to_str().unwrap()])
+        .args(["--threshold", "mi.visual_studio=0"])
+        .assert()
+        .success();
+    let stderr = std::str::from_utf8(&out.get_output().stderr).unwrap();
+    let line = "warning: limit mi.visual_studio=0 cannot fire: 0 is the metric's floor; \
+                gate mi.original instead";
+    assert_eq!(stderr.matches(line).count(), 1, "{stderr}");
+}
+
+#[test]
+fn an_out_of_domain_mi_visual_studio_limit_warns_and_still_gates() {
+    // 101 sits above every value the metric can take, so it flags every
+    // function. Repeating the flag is last-wins, and a `--threshold`
+    // overrides the config's limit; only the limit that reaches the gate
+    // is reported, and only once.
+    let dir = TempDir::new().unwrap();
+    let src = write_file(&dir, "big.py", &negative_mi_python(200));
+    let config = write_file(&dir, "t.toml", "[thresholds]\n\"mi.visual_studio\" = -1\n");
+    let out = cli(dir.path())
+        .args(["check", "--paths", src.to_str().unwrap()])
+        .args(["--config", config.to_str().unwrap()])
+        .args(["--threshold", "mi.visual_studio=0"])
+        .args(["--threshold", "mi.visual_studio=101"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("mi.visual_studio = 0 (limit 101)"));
+    let stderr = std::str::from_utf8(&out.get_output().stderr).unwrap();
+    let line = "warning: limit mi.visual_studio=101 is outside the metric's range [0, 100]; \
+                it fires on every value";
+    assert_eq!(stderr.matches(line).count(), 1, "{stderr}");
+    assert!(
+        !stderr.contains("mi.visual_studio=0 cannot fire"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("mi.visual_studio=-1"), "{stderr}");
+}
+
+#[test]
+fn a_soft_table_limit_warns_only_on_a_run_that_applies_it() {
+    // A hard-tier run never reads `[thresholds.soft]`, so an absolute
+    // soft limit of 101 is not a limit it gates on and must not be
+    // reported; a soft-tier run applies it and warns.
+    let dir = TempDir::new().unwrap();
+    let src = write_file(&dir, "big.py", &negative_mi_python(200));
+    let config = write_file(
+        &dir,
+        "t.toml",
+        "[thresholds]\n\"mi.visual_studio\" = 20\n\
+         [thresholds.soft]\n\"mi.visual_studio\" = 101\n",
+    );
+    let line = "warning: limit mi.visual_studio=101 is outside the metric's range [0, 100]; \
+                it fires on every value";
+    for (tier, warnings) in [("--tier=hard", 0), ("--tier=soft", 1)] {
+        let out = cli(dir.path())
+            .args(["check", "--paths", src.to_str().unwrap()])
+            .args(["--config", config.to_str().unwrap(), tier])
+            .assert()
+            .code(2);
+        let stderr = std::str::from_utf8(&out.get_output().stderr).unwrap();
+        assert_eq!(stderr.matches(line).count(), warnings, "{tier}:\n{stderr}");
+        assert!(
+            !stderr.contains("mi.visual_studio=20 "),
+            "{tier}:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn a_soft_tier_advisory_describes_the_raised_floor_not_the_configured_one() {
+    // Under `--tier=soft` the gate runs on the floor raised by
+    // `(1 - ratio) · unit`, so a configured `mi.visual_studio = 0`
+    // gates at 0.5 and does fire. The hard tier applies the floor as
+    // written and cannot fire, so only it warns.
+    let dir = TempDir::new().unwrap();
+    let src = write_file(&dir, "big.py", &negative_mi_python(3000));
+    let config = write_file(&dir, "t.toml", "[thresholds]\n\"mi.visual_studio\" = 0\n");
+    let line = "warning: limit mi.visual_studio=0 cannot fire";
+    for (tier, warnings, code) in [("--tier=hard", 1, 0), ("--tier=soft", 0, 2)] {
+        let out = cli(dir.path())
+            .args(["check", "--paths", src.to_str().unwrap()])
+            .args(["--config", config.to_str().unwrap(), tier])
+            .assert()
+            .code(code);
+        let stderr = std::str::from_utf8(&out.get_output().stderr).unwrap();
+        assert_eq!(stderr.matches(line).count(), warnings, "{tier}:\n{stderr}");
+    }
+}

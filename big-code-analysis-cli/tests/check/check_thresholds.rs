@@ -1690,17 +1690,17 @@ fn check_soft_ratio_raises_an_mi_floor_and_lowers_a_cognitive_ceiling() {
             Some(13.5),
             "{label}: a higher-is-worse ceiling must come down"
         );
-        // 20 / 0.9 repeats, so the resolved floor is the quotient rounded
-        // *up* at 6 significant figures. The epsilon is 1e-9 rather than
-        // anything looser on purpose: the two wrong answers this test
-        // exists to reject — multiplying (18) and rounding to nearest
-        // (22.2222) — miss by 4.2 and 1e-4 respectively.
+        // An MI floor moves up by (1 - 0.9) of its 17.1-point unit:
+        // 20 + 1.71 (#1621). The epsilon is 1e-9 rather than anything
+        // looser on purpose: the wrong answers this test exists to reject
+        // — multiplying (18) and dividing (22.2223, the pre-#1621 ratio
+        // arithmetic) — miss by 3.7 and 0.5.
         let floor = thresholds["mi.original"]
             .as_float()
             .expect("mi.original is a float");
         assert!(
-            (floor - 22.2223).abs() < 1e-9,
-            "{label}: expected an mi.original floor of 22.2223, got {floor}"
+            (floor - 21.71).abs() < 1e-9,
+            "{label}: expected an mi.original floor of 21.71, got {floor}"
         );
         assert!(
             floor > 20.0,

@@ -171,6 +171,7 @@ pub(crate) fn validate_and_build_thresholds(
     let cli = canonical_cli_thresholds("--threshold", &args.thresholds);
     let layers = SharedLayers::new(&cli, tier, &soft, &lang, &hard);
     let thresholds = layers.resolve_all(&hard, &lang);
+    warn_limit_advisories(&thresholds, Ceilings::Exclude);
     if thresholds.is_empty() {
         die(
             "no thresholds configured; pass --threshold, --config, or a bca.toml [thresholds] table",
@@ -232,6 +233,31 @@ pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec
         .collect()
 }
 
+/// Print the advisory a legal limit raises when it cannot do what its
+/// author presumably meant — `mi.visual_studio = 0`, a floor no value can
+/// fall below, or `= 101`, above every value the metric can take
+/// (#1621). Both still parse, because rejecting them is a CLI-grammar
+/// break reserved for a major release (STABILITY.md); a warning is the
+/// most 2.x can do.
+///
+/// Reads the limits the resolved gate applies — every table's
+/// tier-resolved limit, plus its hard ceiling under
+/// [`Ceilings::Include`] — so an advisory describes a limit the run
+/// gates on: under `--tier=soft` the raised floor, not the configured
+/// one, and never a `[thresholds.soft]` entry a hard-tier run ignores.
+/// Each distinct `(metric, limit)` warns once.
+pub(crate) fn warn_limit_advisories(gate: &LanguageThresholds, ceilings: Ceilings) {
+    let mut seen: BTreeSet<(&str, u64)> = BTreeSet::new();
+    let sets = std::iter::once(gate.global()).chain(gate.languages().map(|(_, set)| set));
+    for threshold in sets.flat_map(|set| set.gated_thresholds(ceilings)) {
+        if seen.insert((threshold.id(), threshold.limit().to_bits()))
+            && let Some(advisory) = threshold.warning()
+        {
+            warn(advisory);
+        }
+    }
+}
+
 /// The per-metric override tables, keyed by canonical language slug.
 type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 
@@ -258,8 +284,8 @@ type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 /// permissive of the two (it fires *before* the hard gate), so one walk
 /// against it collects a superset already containing every hard-tier
 /// offender, and each emitted [`Violation`] carries both numbers:
-/// `limit` is that language's resolved soft limit and `hard_limit` its
-/// candidate ceiling. Counting the hard tier is then a `breaches_limit`
+/// `threshold` is that language's resolved soft limit and `hard_limit` its
+/// candidate ceiling. Counting the hard tier is then a `breaches`
 /// filter over the records in hand rather than a second parse of the
 /// tree.
 ///
@@ -481,10 +507,10 @@ pub(crate) fn resolve_tier(
     let mut out = hard;
     for (name, limit) in &mut out {
         // Keys arrive canonical (#1165), which is what makes this
-        // direction lookup correct by construction rather than by luck:
+        // catalog lookup correct by construction rather than by luck:
         // scaling a lower-is-worse floor the higher-is-worse way inverts
         // the whole tier (#1166).
-        *limit = scale_threshold(*limit, ratio, metric_is_lower_is_worse(name));
+        *limit = scale_named_limit(name, *limit, ratio).unwrap_or_else(|e| die(e));
     }
     out
 }

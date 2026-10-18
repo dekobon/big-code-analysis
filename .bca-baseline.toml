@@ -370,7 +370,7 @@ value = 56959.04904936
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "BaselineDiff::compute"
 metric = "halstead.effort"
-value = 118241.28751025953
+value = 96116.62210735636
 
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
@@ -688,12 +688,18 @@ value = 7.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 566.0
+value = 554.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
 metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
+qualified = "parse_cli_threshold"
+metric = "nexits"
 value = 5.0
 
 [[entry]]

@@ -490,7 +490,8 @@ fn a_regressed_offender_counts_as_baselined_without_a_recorded_line() {
 }
 
 /// The soft tier is derived direction-aware (#1166): a lower-is-worse
-/// `mi.*` limit is a floor, so tightening it raises it.
+/// `mi.*` limit is a floor, so tightening it raises it — additively, since
+/// MI is interval-scale, and the report names that arithmetic (#1621).
 #[test]
 fn soft_limit_is_derived_by_metric_direction() {
     let dir = candidate_tree();
@@ -508,8 +509,9 @@ fn soft_limit_is_derived_by_metric_direction() {
     let ceiling = parse_preview(&stdout, "nargs");
     assert_eq!(floor.hard.limit, "20");
     assert_eq!(
-        floor.soft.limit, "21.0527, 0.95x",
-        "a lower-is-worse floor is tightened by raising it"
+        floor.soft.limit, "20.855, +0.855 (0.05 \u{d7} 17.1)",
+        "a lower-is-worse floor is tightened by raising it, by 5 % of one \
+         17.1-point MI unit rather than by a factor (#1621)"
     );
     assert_eq!(ceiling.hard.limit, "4");
     assert_eq!(
@@ -520,7 +522,7 @@ fn soft_limit_is_derived_by_metric_direction() {
 
 /// Direction decides which *offenders* land in the hard tier, not only
 /// how the soft limit is derived — and that is a second production
-/// expression, `breaches_limit(v.value, ceiling, v.lower_is_worse)`.
+/// expression, `ceiling.breaches(v.value)`.
 ///
 /// The test above cannot reach it: `mi.original=20` is a floor that every
 /// one-line fixture function (all measure ≈145-148) clears, so its
@@ -530,17 +532,18 @@ fn soft_limit_is_derived_by_metric_direction() {
 ///
 /// A floor of `146` splits the fixture's three measured values
 /// (145.7045 ×3, 146.5454 ×6, 147.5134 ×20): three sit below it and
-/// breach, all 29 sit below the derived `153.684` soft floor. Read with
-/// the direction inverted the hard tier would instead collect the 26
-/// *above* 146, so the two readings share no count.
+/// breach, and nine sit below the derived `146.855` soft floor (146 plus
+/// 5 % of one 17.1-point MI unit, #1621). Read with the direction
+/// inverted the hard tier would instead collect the 26 *above* 146, so
+/// the two readings share no count.
 ///
 /// Both metrics are explained in one run, and both carry a *non-empty*
 /// population — which is the second thing this pins. Every other
 /// multi-metric test here pairs a real population with an empty one, so
 /// `explain`'s per-metric filter (`v.metric == outcome.metric`) could be
 /// deleted outright without failing any of the suite's 5054 tests. With
-/// two live populations each metric would then tally the union: 12 and
-/// 58 everywhere, against the four distinct counts below.
+/// two live populations each metric would then tally the union — 12 hard
+/// and 38 soft for both — against the counts below.
 #[test]
 fn a_lower_is_worse_metric_partitions_offenders_by_direction() {
     let dir = candidate_tree();
@@ -563,8 +566,9 @@ fn a_lower_is_worse_metric_partitions_offenders_by_direction() {
     );
     assert_eq!(floor.hard.new, 3, "none of them is baselined");
     assert_eq!(
-        floor.soft.total, 29,
-        "the whole population sits under the raised soft floor; stdout:\n{stdout}"
+        floor.soft.total, 9,
+        "the 146.5454 functions join the three under the raised soft floor; \
+         stdout:\n{stdout}"
     );
 
     // The higher-is-worse metric keeps its own counts in the same run.
@@ -1142,4 +1146,31 @@ fn an_unusable_candidate_metric_is_rejected_naming_this_flag() {
         .stderr(predicate::str::contains(
             "unknown threshold metric \"not_a_metric\"",
         ));
+}
+
+/// A candidate that cannot fire warns exactly as the gate run would
+/// (#1621). The candidate replaces only the global hard limit, so a
+/// per-language override of the same metric still reaches the predicted
+/// gate and is checked too; the global limit it replaces is not.
+#[test]
+fn explain_warns_on_every_limit_the_predicted_gate_would_use() {
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\n[thresholds]\n\"mi.visual_studio\" = -1\n\
+         [thresholds.lang.c]\n\"mi.visual_studio\" = 101\n",
+    )
+    .expect("write manifest");
+    let out = cli(dir.path())
+        .args(["check", "--explain-threshold", "mi.visual_studio=0"])
+        .assert()
+        .success();
+    let stderr = std::str::from_utf8(&out.get_output().stderr).expect("utf8 stderr");
+    for line in [
+        "warning: limit mi.visual_studio=0 cannot fire",
+        "warning: limit mi.visual_studio=101 is outside the metric's range",
+    ] {
+        assert_eq!(stderr.matches(line).count(), 1, "{line}:\n{stderr}");
+    }
+    assert!(!stderr.contains("mi.visual_studio=-1"), "{stderr}");
 }

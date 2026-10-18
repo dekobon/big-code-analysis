@@ -301,7 +301,7 @@ fn strict_soft_encroachment_exits_two_not_five() {
 /// not a hard breach (exit 5) — the same tier split the higher-is-worse
 /// tests above pin, in the opposite direction (#1166).
 ///
-/// Before the fix the ratio *lowered* the floor (60 * 0.5 = 30), which
+/// Before #1166 the ratio *lowered* the floor (100 * 0.5 = 50), which
 /// this fixture clears easily, so the soft tier reported nothing at all
 /// and the run exited 0. The hard-tier control run is what makes the
 /// exit 2 meaningful: it proves the fixture is inside the hard floor and
@@ -309,14 +309,15 @@ fn strict_soft_encroachment_exits_two_not_five() {
 #[test]
 fn strict_mi_between_the_two_floors_is_an_encroachment_not_a_hard_breach() {
     let dir = TempDir::new().unwrap();
-    // `classify` scores mi.original ≈ 105, comfortably inside the band
-    // between the hard floor (60) and the soft one (60 / 0.5 = 120).
+    // `classify` scores mi.original ≈ 108.4, inside the band between the
+    // hard floor (100) and the soft one: 100 plus half of one 17.1-point
+    // MI unit, 108.55 (#1621).
     let src = write_branchy(&dir, 6);
     let config = dir.path().join("thresholds.toml");
-    fs::write(&config, "[thresholds]\n\"mi.original\" = 60\n").unwrap();
+    fs::write(&config, "[thresholds]\n\"mi.original\" = 100\n").unwrap();
     let config = config.to_str().unwrap();
 
-    // Hard tier: the floor is 60 and nothing is under it.
+    // Hard tier: the floor is 100 and nothing is under it.
     cli(dir.path())
         .args([
             "check",
@@ -342,7 +343,8 @@ fn strict_mi_between_the_two_floors_is_an_encroachment_not_a_hard_breach() {
         .assert()
         .code(2)
         .stdout(
-            predicate::str::is_match(r"classify: mi\.original = \d+\.\d+ \(limit 120\)").unwrap(),
+            predicate::str::is_match(r"classify: mi\.original = \d+\.\d+ \(limit 108\.55\)")
+                .unwrap(),
         );
 }
 
@@ -355,7 +357,7 @@ fn strict_mi_between_the_two_floors_is_an_encroachment_not_a_hard_breach() {
 #[test]
 fn strict_mi_under_the_hard_floor_exits_five() {
     let dir = TempDir::new().unwrap();
-    // mi.original ≈ 105, under a hard floor of 110.
+    // mi.original ≈ 108.4, under a hard floor of 110.
     let src = write_branchy(&dir, 6);
     let config = dir.path().join("thresholds.toml");
     fs::write(&config, "[thresholds]\n\"mi.original\" = 110\n").unwrap();

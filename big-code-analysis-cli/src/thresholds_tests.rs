@@ -96,6 +96,94 @@ fn parse_cli_threshold_rejects_nan_limit() {
 }
 
 #[test]
+fn parse_cli_threshold_accepts_a_negative_mi_floor() {
+    // `mi.original` and `mi.sei` are interval-scale and routinely
+    // negative, so a floor below zero is a real gate (#1621).
+    for metric in ["mi.original", "mi.sei"] {
+        let (name, limit) =
+            parse_cli_threshold(&format!("{metric}=-50")).expect("negative MI floor parses");
+        assert_eq!((name.as_str(), limit), (metric, -50.0));
+    }
+}
+
+#[test]
+fn parse_cli_threshold_canonicalises_before_checking_the_limit() {
+    // `sloc` is an alias for `loc.sloc`, a count: the limit check must
+    // see the canonical id, or the alias would slip past the catalog.
+    let err = parse_cli_threshold("sloc=-1").expect_err("negative count limit");
+    assert!(err.contains("non-negative"), "{err}");
+}
+
+#[test]
+fn parse_cli_threshold_leaves_an_unknown_name_to_the_resolver() {
+    // An unknown name is reported one layer down, with its did-you-mean
+    // list; the parser checks only that the number is finite.
+    assert_eq!(
+        parse_cli_threshold("not_a_metric=-1"),
+        Ok(("not_a_metric".to_owned(), -1.0))
+    );
+    let err = parse_cli_threshold("not_a_metric=inf").expect_err("infinite limit");
+    assert!(err.contains("finite"), "{err}");
+}
+
+#[test]
+fn parse_cli_threshold_accepts_out_of_domain_mi_visual_studio() {
+    // `mi.visual_studio` is clamped to [0, 100]. A limit of 0 can never
+    // fire and 101 fires on everything; both are advisories, not errors,
+    // because they parse in 2.x (STABILITY.md "CLI argument grammar").
+    for (raw, limit) in [
+        ("mi.visual_studio=0", 0.0),
+        ("mi.visual_studio=101", 101.0),
+        ("mi.visual_studio=-1", -1.0),
+    ] {
+        assert_eq!(
+            parse_cli_threshold(raw),
+            Ok(("mi.visual_studio".to_owned(), limit)),
+            "{raw} must still parse"
+        );
+    }
+}
+
+#[test]
+fn parse_min_change_rejects_non_finite_and_keeps_negative() {
+    assert_eq!(parse_min_change("0"), Ok(0.0));
+    assert_eq!(parse_min_change(" 2.5 "), Ok(2.5));
+    // A negative floor parses — releases before 2.4 took it — and
+    // `run_command_diff` warns that it reads as `0`.
+    assert_eq!(parse_min_change("-1"), Ok(-1.0));
+    for raw in ["nan", "inf", "-inf"] {
+        let err = parse_min_change(raw).expect_err(raw);
+        assert!(err.contains("finite number"), "{raw}: {err}");
+    }
+    assert!(
+        parse_min_change("x")
+            .unwrap_err()
+            .contains("invalid min-change")
+    );
+}
+
+#[test]
+fn build_accepts_a_negative_mi_floor_but_not_a_negative_count() {
+    // A floor of −50 builds and passes an MI above it. A function deep
+    // enough to fall below it is too large for a unit fixture; the
+    // breaching side is `a_negative_mi_floor_parses_and_gates` in
+    // `tests/check/check_baseline.rs`.
+    let (space, mi, _) = analyzed_leaf();
+    let mut out = Vec::new();
+    threshold_set("mi.original", -50.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert!(out.is_empty(), "MI {mi} is above a floor of -50: {out:?}");
+    let err = ThresholdSet::build(&BTreeMap::from([("cyclomatic".to_string(), -1.0)]))
+        .expect_err("a negative count limit is still rejected");
+    assert!(err.contains("non-negative"), "{err}");
+}
+
+#[test]
 fn build_rejects_unknown_metric() {
     let mut raw = BTreeMap::new();
     raw.insert("not_a_metric".to_string(), 1.0);
@@ -348,9 +436,8 @@ fn violation_display_is_stable() {
         function: "do_stuff".into(),
         metric: "cyclomatic",
         value: 17.0,
-        limit: 15.0,
-        hard_limit: Some(15.0),
-        lower_is_worse: false,
+        threshold: test_threshold("cyclomatic", 15.0),
+        hard_limit: Some(test_threshold("cyclomatic", 15.0)),
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -363,20 +450,7 @@ fn violation_display_is_stable() {
 
 #[test]
 fn violation_display_keeps_fractional_precision() {
-    let v = Violation {
-        path: "x".into(),
-        start_line: 1,
-        end_line: 1,
-        function: String::new(),
-        metric: "halstead.volume",
-        value: 12.5,
-        limit: 10.0,
-        hard_limit: Some(10.0),
-        lower_is_worse: false,
-        body_hash: None,
-        suppressed: false,
-        nargs_split: None,
-    };
+    let v = ranked("halstead.volume", 12.5, 10.0);
     assert!(v.to_string().contains("= 12.5"), "{v}");
     assert!(v.to_string().contains("limit 10)"), "{v}");
 }
@@ -402,17 +476,7 @@ fn violation_path_preserves_non_utf8_bytes() {
 
     let v = Violation {
         path: path.clone(),
-        start_line: 1,
-        end_line: 1,
-        function: "f".to_string(),
-        metric: "cyclomatic",
-        value: 5.0,
-        limit: 1.0,
-        hard_limit: Some(1.0),
-        lower_is_worse: false,
-        body_hash: None,
-        suppressed: false,
-        nargs_split: None,
+        ..sample_violation()
     };
 
     // Raw bytes round-trip identically — no lossy substitution.
@@ -584,27 +648,23 @@ fn tokens_threshold_never_suppressed() {
     // resource cap (not a maintainability heuristic), and we
     // don't want markers turning it off.
     //
-    // We construct ThresholdSet manually with limit `-0.5` so
-    // tokens_sum default of 0.0 still exceeds it, since
-    // `ThresholdSet::build` rejects negative limits.
+    // A real parsed function carries a non-zero token count, so a `tokens`
+    // limit of 0 breaches it; the function is then marked fully
+    // suppressed.
     assert_eq!(threshold_metric_for_name("tokens"), None);
 
-    let extractor = EXTRACTORS
-        .iter()
-        .find(|e| e.name == "tokens")
-        .expect("tokens extractor exists");
-    let set = ThresholdSet {
-        entries: vec![ResolvedThreshold {
-            extractor,
-            limit: -0.5,
-            hard_limit: Some(-0.5),
-            lower_is_worse: false,
-            scope: metric_scope(extractor.name),
-        }],
-    };
+    let mut s = analyzed_tree()
+        .spaces
+        .pop()
+        .expect("the snippet has a function space");
+    s.suppressed = SuppressionScope::All;
+    assert!(
+        s.metrics.tokens.tokens_sum() > 0,
+        "fixture must have tokens"
+    );
+    let set = threshold_set("tokens", 0.0);
 
     let mut out = Vec::new();
-    let s = space("noisy", SpaceKind::Function, SuppressionScope::All);
     set.evaluate_with_policy(
         Path::new("fixture.rs"),
         &s,
@@ -690,9 +750,8 @@ fn sample_violation() -> Violation {
         function: "do_thing".to_string(),
         metric: "cyclomatic",
         value: 30.0,
-        limit: 10.0,
-        hard_limit: Some(10.0),
-        lower_is_worse: false,
+        threshold: test_threshold("cyclomatic", 10.0),
+        hard_limit: Some(test_threshold("cyclomatic", 10.0)),
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -739,9 +798,8 @@ fn render_regressed_lower_is_worse_tag_is_well_formed() {
     // `mi.*` tag points rather than a percentage).
     let mut v = sample_violation();
     v.metric = "mi.original";
-    v.lower_is_worse = true;
+    v.threshold = test_threshold("mi.original", 160.0);
     v.value = 101.03;
-    v.limit = 160.0;
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 142.75 }));
     assert!(out.starts_with("[regr +41.7 pts] "), "got: {out}");
     assert!(!out.contains("+-"), "double-signed amount: {out}");
@@ -755,51 +813,9 @@ fn render_regressed_direction_is_not_a_blanket_sign_flip() {
     // in the wrong branch would satisfy the test above on its own
     // (#1242).
     let v = sample_violation();
-    assert!(!v.lower_is_worse, "the fixture must be higher-is-worse");
+    assert!(!v.lower_is_worse(), "the fixture must be higher-is-worse");
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 20.0 }));
     assert!(out.starts_with("[regr +50%] "), "got: {out}");
-}
-
-/// An `mi.*` violation at `value`, the shape a negative MI record is
-/// classified against (#1611).
-fn negative_mi_violation(value: f64) -> Violation {
-    Violation {
-        metric: "mi.sei",
-        lower_is_worse: true,
-        value,
-        limit: 20.0,
-        ..sample_violation()
-    }
-}
-
-#[test]
-fn render_regressed_from_a_negative_record_reads_in_points() {
-    // `mi.original` and `mi.sei` are unclamped, so a baseline can record
-    // them below zero (#1611). A drop from −10 to −20 is worse by 10
-    // points. Dividing by the signed record printed the double-signed
-    // `[regr +-100%]`, and any percentage of an arbitrary zero misleads.
-    let v = negative_mi_violation(-20.0);
-    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: -10.0 }));
-    assert!(out.starts_with("[regr +10.0 pts] "), "got: {out}");
-}
-
-#[test]
-fn render_regressed_mi_points_are_not_capped() {
-    // −1 → −1000 is worse by 999 points. The `>9999` cap belongs to the
-    // percentage of a count; a points amount is printed as measured.
-    let v = negative_mi_violation(-1000.0);
-    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: -1.0 }));
-    assert!(out.starts_with("[regr +999.0 pts] "), "got: {out}");
-}
-
-#[test]
-fn render_regressed_mi_tiny_drop_from_near_zero_reads_in_points() {
-    // #1621's reproducer R1: `mi.sei` recorded at 0.001 dropping to
-    // −0.0097 is a 0.0107-point move, which a percentage of the record
-    // rendered as `[regr +1069%]`.
-    let v = negative_mi_violation(-0.009_693_594_449_785_792);
-    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 0.001 }));
-    assert!(out.starts_with("[regr +0.0 pts] "), "got: {out}");
 }
 
 /// The tag `format_regressed_tag` renders for `metric` moving from
@@ -807,9 +823,8 @@ fn render_regressed_mi_tiny_drop_from_near_zero_reads_in_points() {
 fn regressed_tag(metric: &'static str, recorded: f64, value: f64) -> String {
     let v = Violation {
         metric,
-        lower_is_worse: metric.starts_with("mi."),
         value,
-        limit: 0.0,
+        threshold: test_threshold(metric, 0.0),
         ..sample_violation()
     };
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded }));
@@ -825,9 +840,23 @@ fn regressed_tag_is_points_for_mi_and_percent_for_counts() {
     // reads `from 0`. Counts keep the percentage of the record: 10 → 20
     // is +100%, a zero record is `from 0`, and 1 → 1e6 caps.
     for (metric, recorded, value, want) in [
+        // `mi.original` and `mi.sei` are unclamped, so a baseline can
+        // record them below zero (#1611). Dividing by the signed record
+        // printed the double-signed `[regr +-100%]` for this row.
         ("mi.original", -10.0, -20.0, "[regr +10.0 pts]"),
         ("mi.original", 0.0, -12.0, "[regr +12.0 pts]"),
         ("mi.sei", 40.0, 27.66, "[regr +12.3 pts]"),
+        // The `>9999` cap belongs to the percentage of a count; a points
+        // amount is printed as measured.
+        ("mi.sei", -1.0, -1000.0, "[regr +999.0 pts]"),
+        // #1621's reproducer R1: a 0.0107-point move, which a percentage
+        // of the record rendered as `[regr +1069%]`.
+        (
+            "mi.sei",
+            0.001,
+            -0.009_693_594_449_785_792,
+            "[regr +0.0 pts]",
+        ),
         ("cyclomatic", 10.0, 20.0, "[regr +100%]"),
         ("cyclomatic", 0.0, 5.0, "[regr from 0]"),
         ("halstead.effort", 1.0, 1_000_000.0, "[regr +>9999%]"),
@@ -837,31 +866,6 @@ fn regressed_tag_is_points_for_mi_and_percent_for_counts() {
             want,
             "{metric}: {recorded} -> {value}"
         );
-    }
-}
-
-#[test]
-fn regressed_tag_falls_back_to_percent_without_a_threshold() {
-    // A violation whose metric and limit cannot form a `Threshold` (an
-    // unknown id, a negative count limit) still renders a tag rather
-    // than dropping the row, using the pre-#1621 percentage of the
-    // record's magnitude in the violation's own direction.
-    for (metric, limit, lower_is_worse, recorded, value, want) in [
-        ("not.a.metric", 10.0, false, 20.0, 30.0, "[regr +50%]"),
-        ("cyclomatic", -1.0, false, 20.0, 30.0, "[regr +50%]"),
-        ("not.a.metric", 10.0, true, -10.0, -20.0, "[regr +100%]"),
-        ("not.a.metric", 10.0, false, 0.0, 5.0, "[regr from 0]"),
-        ("not.a.metric", 10.0, false, 5.0, f64::NAN, "[regr NaN]"),
-    ] {
-        let v = Violation {
-            metric,
-            value,
-            limit,
-            lower_is_worse,
-            ..sample_violation()
-        };
-        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded }));
-        assert!(out.starts_with(&format!("{want} ")), "{metric}: got {out}");
     }
 }
 
@@ -1050,7 +1054,10 @@ fn mi_low_value_is_flagged_high_value_is_not() {
         "MI {mi} below limit {high_limit} must be flagged, got {flagged:?}"
     );
     assert_eq!(flagged[0].metric, "mi.original");
-    assert!(flagged[0].lower_is_worse, "mi offender must carry the flag");
+    assert!(
+        flagged[0].lower_is_worse(),
+        "mi offender must carry the flag"
+    );
 
     // Limit at/below the value (clamped to a valid non-negative limit)
     // -> value is healthy -> not flagged.
@@ -1102,7 +1109,7 @@ fn higher_is_worse_metric_keeps_above_limit_gate() {
         &mut flagged,
     );
     assert_eq!(flagged.len(), 1, "cyclomatic above limit must flag");
-    assert!(!flagged[0].lower_is_worse);
+    assert!(!flagged[0].lower_is_worse());
 
     // Limit above the value -> within budget -> not flagged.
     let mut clean = Vec::new();
@@ -1116,40 +1123,152 @@ fn higher_is_worse_metric_keeps_above_limit_gate() {
     assert!(clean.is_empty(), "cyclomatic below limit must not flag");
 }
 
+// -- Severity ranking (#1617, #1621) -------------------------------------
+//
+// Before #1621 the key was a ratio, `limit / value` for `mi.*`, which
+// saturates to infinity for every MI at or below zero; the tie then broke
+// on the raw value and kept the *larger* one — for a lower-is-worse
+// metric, the milder breach. The key is now the catalog's
+// `Threshold::cmp_breach`.
+
+/// A violation of `metric` at `value` against `limit`, its direction and
+/// scale taken from the catalog so a fixture cannot mislabel either.
+fn ranked(metric: &'static str, value: f64, limit: f64) -> Violation {
+    Violation {
+        metric,
+        value,
+        threshold: test_threshold(metric, limit),
+        hard_limit: Some(test_threshold(metric, limit)),
+        ..sample_violation()
+    }
+}
+
+/// Asserts that `a` is a strictly worse breach than `b`.
+#[track_caller]
+fn assert_worse(a: &Violation, b: &Violation) {
+    assert_eq!(
+        a.cmp_severity(b),
+        std::cmp::Ordering::Greater,
+        "{a:?} vs {b:?}"
+    );
+}
+
 #[test]
-fn mi_ratio_inverts_so_lower_value_ranks_worse() {
-    // `Violation::ratio` normalizes so a bigger ratio is always worse.
-    // For MI (lower-is-worse) that means `limit / value`: MI 5 against
-    // limit 50 (10x) must outrank MI 45 against limit 50 (~1.1x).
-    let severe = Violation {
-        path: PathBuf::from("a.rs"),
-        start_line: 1,
-        end_line: 2,
-        function: "f".into(),
-        metric: "mi.original",
-        value: 5.0,
-        limit: 50.0,
-        hard_limit: Some(50.0),
-        lower_is_worse: true,
-        body_hash: None,
-        suppressed: false,
-        nargs_split: None,
-    };
-    let mild = Violation {
-        value: 45.0,
-        ..severe.clone()
-    };
-    assert!(
-        severe.ratio() > mild.ratio(),
-        "a lower MI must produce a larger breach ratio: {} vs {}",
-        severe.ratio(),
-        mild.ratio()
+fn mi_lower_value_ranks_worse() {
+    // MI 5 against a floor of 50 must outrank MI 45 against the same
+    // floor, whichever order `pick_worst` meets them in.
+    let severe = ranked("mi.original", 5.0, 50.0);
+    let mild = ranked("mi.original", 45.0, 50.0);
+    for vs in [[&mild, &severe], [&severe, &mild]] {
+        assert_eq!(Violation::pick_worst(&vs).map(|w| w.value), Some(5.0));
+    }
+}
+
+#[test]
+fn pick_worst_names_the_more_negative_mi_breach() {
+    // #1617's reproducer: one function's `mi.original` and `mi.sei`,
+    // both gated at 20. −76.55 sits 96.55 below the limit and −14.77
+    // only 34.77, so `mi.sei` is the worse breach — and the one the
+    // metric-name tie-break would *not* pick. The second pair shares a
+    // metric, so no later key can rescue a tie; both input orders run
+    // because `max_by` returns the later of two equal elements.
+    let pairs = [
+        (
+            ranked("mi.original", -14.77, 20.0),
+            ranked("mi.sei", -76.55, 20.0),
+        ),
+        (
+            ranked("mi.sei", -14.77, 20.0),
+            ranked("mi.sei", -76.55, 20.0),
+        ),
+    ];
+    for (mild, deep) in &pairs {
+        for vs in [[mild, deep], [deep, mild]] {
+            let worst = Violation::pick_worst(&vs).map(|w| (w.metric, w.value));
+            assert_eq!(worst, Some((deep.metric, deep.value)), "from {vs:?}");
+        }
+    }
+}
+
+#[test]
+fn mi_severity_grows_monotonically_through_zero() {
+    // For one limit, each step down is a strictly worse breach, on both
+    // sides of zero and across it; a ratio saturated at zero.
+    let descending = [19.0, 10.0, 1.0, 0.001, 0.0, -0.001, -14.77, -76.55];
+    for metric in ["mi.original", "mi.sei"] {
+        for &[milder, worse] in descending.array_windows() {
+            let (milder, worse) = (ranked(metric, milder, 20.0), ranked(metric, worse, 20.0));
+            assert_worse(&worse, &milder);
+            assert_eq!(milder.cmp_severity(&worse), std::cmp::Ordering::Less);
+        }
+    }
+}
+
+#[test]
+fn cross_metric_ranking_reads_mi_in_index_units() {
+    // #1621's decided ordering: cognitive 200 against 15 is a 13.3x
+    // breach; mi.original −14.77 against 20 is 34.77 points, about two
+    // Visual Studio bands (1 + 34.77 / 17.1 ≈ 3.03). The ratio key ranked
+    // the MI infinitely bad, and named it worst.
+    let cognitive = ranked("cognitive", 200.0, 15.0);
+    let mi = ranked("mi.original", -14.77, 20.0);
+    for vs in [[&cognitive, &mi], [&mi, &cognitive]] {
+        assert_eq!(
+            Violation::pick_worst(&vs).map(|w| w.metric),
+            Some("cognitive")
+        );
+    }
+    // A deep enough MI does outrank it: −250 is 270 points, 16.8 bands.
+    let deep = ranked("mi.original", -250.0, 20.0);
+    assert_worse(&deep, &cognitive);
+}
+
+#[test]
+fn a_zero_limit_breach_saturates_and_breaks_ties_on_excess() {
+    // A zero count limit has no ratio; it ranks above every finite
+    // severity, and two such breaches order by how far past zero each
+    // sits.
+    let shallow = ranked("cyclomatic", 3.0, 0.0);
+    let deep = ranked("cyclomatic", 50.0, 0.0);
+    let finite = ranked("cyclomatic", 1000.0, 10.0);
+    let mi = ranked("mi.original", -1000.0, 20.0);
+    assert_worse(&shallow, &finite);
+    assert_worse(&shallow, &mi);
+    assert_worse(&deep, &shallow);
+}
+
+#[test]
+fn equal_ratio_ties_still_favour_the_larger_value() {
+    // Regression guard for every count tie the raw value broke before
+    // #1617. At a fixed ratio both the excess and the value grow with
+    // the limit, so these orders must not move.
+    assert_worse(
+        &ranked("cyclomatic", 30.0, 10.0),
+        &ranked("cyclomatic", 11.0, 10.0),
     );
-    assert!(
-        Violation::pick_worst(&[&mild, &severe])
-            .is_some_and(|w| (w.value - 5.0).abs() < f64::EPSILON),
-        "pick_worst must rank the lower MI as worse"
+    // Both 2x: 30 sits 15 over its limit, 20 only 10.
+    assert_worse(
+        &ranked("cyclomatic", 30.0, 15.0),
+        &ranked("cyclomatic", 20.0, 10.0),
     );
+    assert_worse(
+        &ranked("cyclomatic", 5.0, 0.0),
+        &ranked("cyclomatic", 3.0, 0.0),
+    );
+}
+
+#[test]
+fn equal_severity_breaks_on_metric_name_ascending() {
+    // Same value and limit: severity and excess tie exactly, so only the
+    // documented metric-name key can decide, in either input order.
+    let a = ranked("cognitive", 30.0, 15.0);
+    let b = ranked("cyclomatic", 30.0, 15.0);
+    for vs in [[&a, &b], [&b, &a]] {
+        assert_eq!(
+            Violation::pick_worst(&vs).map(|w| w.metric),
+            Some("cognitive")
+        );
+    }
 }
 
 // --- Per-metric threshold scope (#969) ---------------------------------

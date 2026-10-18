@@ -472,7 +472,7 @@ fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>
             count,
             worst.metric,
             MetricScalar(worst.value),
-            MetricScalar(worst.limit),
+            MetricScalar(worst.limit()),
         );
     }
 }
@@ -495,24 +495,23 @@ fn write_metric_breakdown(out: &mut String, pairs: &[(Violation, Option<Coverage
     }
 }
 
-/// "Top offenders" GFM table: up to `top_n` violations ranked by
-/// `value / limit` ratio (saturating to infinity for zero-limit
-/// thresholds, mirroring `pick_worst`).
+/// "Top offenders" GFM table: up to `top_n` violations ranked worst
+/// first by [`Violation::cmp_severity`], the comparator `pick_worst`
+/// uses, so a file's rollup row and its first row here agree.
 fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)], top_n: usize) {
     use std::fmt::Write as _;
-    let _ = writeln!(out, "### Top {top_n} offenders (by value / limit)\n");
+    let _ = writeln!(out, "### Top {top_n} offenders (by severity)\n");
     out.push_str("| File | Line | Function | Metric | Value | Limit |\n");
     out.push_str("|------|-----:|----------|--------|------:|------:|\n");
     let mut sorted: Vec<&Violation> = pairs.iter().map(|(v, _)| v).collect();
-    // Primary key: ratio desc (worst first). Secondary keys are
-    // deterministic tiebreaks — without them, two violations with
-    // the same ratio (common: same metric and limit, integer values)
+    // Primary key: severity desc (worst first). Secondary keys are
+    // deterministic tiebreaks — without them, two equally severe
+    // violations (common: same metric and limit, integer values)
     // would surface in iterator-order, which depends on upstream
     // collection types and would let the digest reorder between
     // refactors.
     sorted.sort_by(|a, b| {
-        b.ratio()
-            .total_cmp(&a.ratio())
+        b.cmp_severity(a)
             .then_with(|| a.path.cmp(&b.path))
             .then_with(|| a.start_line.cmp(&b.start_line))
             .then_with(|| a.metric.cmp(b.metric))
@@ -526,7 +525,7 @@ fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)]
             escape_gfm_cell(&v.function),
             v.metric,
             MetricScalar(v.value),
-            MetricScalar(v.limit),
+            MetricScalar(v.limit()),
         );
     }
 }
@@ -566,16 +565,12 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         end_line,
         metric,
         value,
-        limit,
+        threshold,
         // The hard-tier ceiling exists to drive the soft-tier
         // hard-breach escalation in `classify_check_outcome`, which runs
         // before this conversion; the serialized offender record reports
         // the limit that was actually gated against.
         hard_limit: _,
-        // Metric direction is re-derived from the catalog by the
-        // offender formatters (`OffenderRecord::default_message`,
-        // Code Climate severity), so it is not carried on the record.
-        lower_is_worse: _,
         // A presentation detail of the human row (`summary_tail`), not
         // part of the machine record — the serialized offender already
         // carries the value, and consumers that want the split can read
@@ -597,7 +592,10 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         start_col: None,
         metric: metric.to_string(),
         value,
-        limit,
+        // Metric direction and scale are re-derived from the catalog by
+        // the offender formatters (`OffenderRecord::default_message`,
+        // Code Climate severity), so only the number is carried.
+        limit: threshold.limit(),
         severity: big_code_analysis::Severity::default(),
     }
 }
@@ -605,6 +603,7 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::thresholds::test_threshold;
 
     fn violation(function: &str) -> Violation {
         Violation {
@@ -614,9 +613,8 @@ mod tests {
             function: function.to_string(),
             metric: "cyclomatic",
             value: 5.0,
-            limit: 1.0,
-            hard_limit: Some(1.0),
-            lower_is_worse: false,
+            threshold: test_threshold("cyclomatic", 1.0),
+            hard_limit: Some(test_threshold("cyclomatic", 1.0)),
             body_hash: None,
             suppressed: false,
             nargs_split: None,
@@ -657,17 +655,7 @@ mod tests {
         let path = PathBuf::from(OsString::from_vec(raw_bytes.to_vec()));
         let v = Violation {
             path: path.clone(),
-            start_line: 1,
-            end_line: 2,
-            function: "f".to_string(),
-            metric: "cyclomatic",
-            value: 5.0,
-            limit: 1.0,
-            hard_limit: Some(1.0),
-            lower_is_worse: false,
-            body_hash: None,
-            suppressed: false,
-            nargs_split: None,
+            ..violation("f")
         };
         let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
@@ -684,9 +672,8 @@ mod tests {
             function: function.to_string(),
             metric,
             value: 17.0,
-            limit: 5.0,
-            hard_limit: Some(5.0),
-            lower_is_worse: false,
+            threshold: test_threshold(metric, 5.0),
+            hard_limit: Some(test_threshold(metric, 5.0)),
             body_hash: None,
             suppressed: false,
             nargs_split: None,
@@ -757,16 +744,16 @@ mod tests {
         let metrics: [&'static str; 12] = [
             "cyclomatic",
             "cognitive",
-            "halstead",
+            "halstead.effort",
             "nargs",
             "nom",
             "npa",
             "npm",
             "wmc",
             "abc",
-            "exit",
-            "loc",
-            "mi",
+            "nexits",
+            "loc.sloc",
+            "mi.original",
         ];
         let cap = DEFAULT_GITHUB_ANNOTATION_CAP;
         let per_metric = cap + 1;
@@ -807,7 +794,7 @@ mod tests {
             "notice must report the total hidden count; got:\n{out}"
         );
         assert!(
-            out.contains("cyclomatic: 1") && out.contains("mi: 1"),
+            out.contains("cyclomatic: 1") && out.contains("mi.original: 1"),
             "notice must carry the per-metric breakdown; got:\n{out}"
         );
     }
@@ -822,18 +809,9 @@ mod tests {
         // wired into the message slot). The message body keeps `:`
         // literal (GHA's message-side contract).
         let v = Violation {
-            path: std::path::PathBuf::from("C:\\src/100%/file.rs"),
             start_line: 1,
             end_line: 1,
-            function: "f%encoded".to_string(),
-            metric: "cyclomatic",
-            value: 17.0,
-            limit: 5.0,
-            hard_limit: Some(5.0),
-            lower_is_worse: false,
-            body_hash: None,
-            suppressed: false,
-            nargs_split: None,
+            ..violation_for("C:\\src/100%/file.rs", "f%encoded", "cyclomatic")
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
@@ -896,15 +874,7 @@ mod tests {
             path,
             start_line: 1,
             end_line: 1,
-            function: "f".to_string(),
-            metric: "cyclomatic",
-            value: 17.0,
-            limit: 5.0,
-            hard_limit: Some(5.0),
-            lower_is_worse: false,
-            body_hash: None,
-            suppressed: false,
-            nargs_split: None,
+            ..violation_for("", "f", "cyclomatic")
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
@@ -1016,6 +986,39 @@ mod tests {
             out.contains("| src/a.rs | 1 | cyclomatic |"),
             "missing per-file row, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn step_summary_ranks_the_more_negative_mi_breach_first() {
+        // #1617: both `mi.*` values sit below zero, where the old ratio
+        // key saturated and tied. The rollup's worst metric and the first
+        // top-offender row must both name the deeper breach, `mi.sei`,
+        // which the path/line/metric tie-breaks would list second.
+        let mi = |metric, value| Violation {
+            metric,
+            value,
+            threshold: test_threshold(metric, 20.0),
+            hard_limit: Some(test_threshold(metric, 20.0)),
+            ..violation("big")
+        };
+        let pairs = vec![
+            coverage_pair(mi("mi.original", -14.77)),
+            coverage_pair(mi("mi.sei", -76.55)),
+        ];
+        let out = compose_step_summary_block(&pairs, None);
+        assert!(
+            out.contains("| fixture.rs | 2 | mi.sei | -76.55 | 20 |"),
+            "rollup must name mi.sei as worst, got:\n{out}"
+        );
+        assert!(out.contains("### Top 10 offenders (by severity)"), "{out}");
+        let top: Vec<&str> = out
+            .lines()
+            .skip_while(|line| !line.starts_with("### Top"))
+            .filter(|line| line.starts_with("| fixture.rs |"))
+            .collect();
+        assert_eq!(top.len(), 2, "two top-offender rows expected:\n{out}");
+        assert!(top[0].contains("| mi.sei |"), "got:\n{out}");
+        assert!(top[1].contains("| mi.original |"), "got:\n{out}");
     }
 
     #[test]

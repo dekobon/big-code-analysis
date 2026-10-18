@@ -28,13 +28,16 @@
 //! `bca check --paths "$PWD"` byte-for-byte at the key level. See
 //! [`normalize_path`] for the encoding pipeline.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use big_code_analysis::metric_catalog::lookup;
+
 use crate::format_util::{MetricScalar, counted, identity};
-use crate::thresholds::{Violation, breaches_limit};
+use crate::thresholds::Violation;
 
 mod body_hash;
 mod path_key;
@@ -214,9 +217,9 @@ impl Provenance {
     }
 
     /// Reduce the tier/headroom pair to a single *effective strictness*
-    /// scalar in `(0, 1]` where smaller means stricter (the gate trips on
-    /// lower metric values): hard → `1.0`; soft scaled by ratio `h` →
-    /// `h`.
+    /// scalar in `(0, 1]` where smaller means stricter (the gate trips
+    /// earlier: on lower values of a ceiling metric, on higher values of
+    /// an `mi.*` floor): hard → `1.0`; soft scaled by ratio `h` → `h`.
     ///
     /// Returns `None` for a soft `[thresholds.soft]`-table baseline,
     /// whose per-metric limits do not collapse to one ratio. The
@@ -621,11 +624,9 @@ impl Baseline {
         current: Provenance,
         violations: &[Violation],
     ) -> Option<String> {
-        let compares_mi = self
-            .by_symbol
-            .keys()
-            .any(|key| key.metric.starts_with("mi."))
-            && violations.iter().any(|v| v.metric.starts_with("mi."));
+        let is_mi = |id: &str| lookup(id).is_some_and(|m| m.family == "mi");
+        let compares_mi = self.by_symbol.keys().any(|key| is_mi(&key.metric))
+            && violations.iter().any(|v| is_mi(v.metric));
         mi_mode_warning(current, self.provenance, compares_mi)
     }
 
@@ -697,19 +698,18 @@ impl Baseline {
         let recorded = self
             .match_in_group(&key, v)
             .or_else(|| self.match_by_hash(&key, v));
-        // Covered = the metric has not worsened relative to the baseline,
-        // i.e. it does not breach the recorded value as a limit. Reuse the
-        // gate's direction-aware `breaches_limit` so the ratchet and the
-        // gate provably agree on metric direction. The NaN arm below runs
-        // first, so the negation never sees NaN (for which `breaches_limit`
-        // returns `false`, which would otherwise read as covered).
+        // Covered = the metric has not worsened relative to the baseline.
+        // "Worse" is the catalog's `cmp_worse`, the order the gate's own
+        // `Threshold` is built on, so the ratchet and the gate provably
+        // agree on metric direction. It ranks a NaN as the worst value, so
+        // a NaN measurement reads as `Regressed`.
+        let info = v.threshold.info();
         match recorded {
             None => Coverage::New,
-            Some(recorded) if v.value.is_nan() => Coverage::Regressed { recorded },
-            Some(recorded) if !breaches_limit(v.value, recorded, v.lower_is_worse) => {
-                Coverage::Covered { recorded }
+            Some(recorded) if info.cmp_worse(v.value, recorded) == Ordering::Greater => {
+                Coverage::Regressed { recorded }
             }
-            Some(recorded) => Coverage::Regressed { recorded },
+            Some(recorded) => Coverage::Covered { recorded },
         }
     }
 
@@ -717,7 +717,9 @@ impl Baseline {
     /// A lone record matches unconditionally (line-drift tolerant — the
     /// whole point of #377). An ambiguous group prefers an exact
     /// body-hash match (when fuzzy), then the record whose `start_line`
-    /// is closest to the violation and within `tolerance`.
+    /// is closest to the violation and within `tolerance`, breaking a
+    /// distance tie toward the record more lenient in the metric's
+    /// direction.
     fn match_in_group(&self, key: &SymbolKey, v: &Violation) -> Option<f64> {
         let records = self.by_symbol.get(key)?;
         if let [only] = records.as_slice() {
@@ -743,10 +745,18 @@ impl Baseline {
             })
             // Closest recorded line wins. On an exact distance tie — two
             // equidistant records for a genuinely ambiguous symbol —
-            // prefer the higher recorded value so an unplaceable
-            // violation errs toward `Covered` rather than a spurious
-            // regression. Deterministic regardless of entry order.
-            .min_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.total_cmp(&a.1)))
+            // prefer the more lenient record, the *worse* value in the
+            // metric's own direction, so an unplaceable violation errs
+            // toward `Covered` rather than a spurious regression: the
+            // higher value when higher is worse, the lower one for the
+            // `mi.*` family, where the higher record is the stricter
+            // (#1616). Keyed on the same `cmp_worse` the ratchet in
+            // `classify` reads, so the two cannot disagree on direction.
+            // Deterministic regardless of entry order.
+            .min_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then_with(|| v.threshold.info().cmp_worse(b.1, a.1))
+            })
             .map(|(_, value)| value)
     }
 
@@ -798,10 +808,13 @@ pub(crate) enum Coverage {
 /// longer produces, and nothing reddens the gate until someone
 /// regenerates the file for an unrelated reason.
 ///
-/// The tally keeps a count and the single worst entry by relative drift
-/// rather than every stale one: this repository's own baseline carries
-/// over two hundred entries, and the response to any number of them is
-/// the same wholesale refresh.
+/// The tally keeps a count and the single worst entry by normalised
+/// drift rather than every stale one: this repository's own baseline
+/// carries over two hundred entries, and the response to any number of
+/// them is the same wholesale refresh. The drift is
+/// [`Threshold::drift`](big_code_analysis::metric_catalog::Threshold::drift):
+/// relative for a count, in index units for `mi.*`, so a hundredth of an
+/// MI point near zero cannot outrank a halved complexity.
 ///
 /// **It cannot see the other half of the class.** An entry whose metric
 /// stopped breaching its limit altogether produces no [`Violation`], so
@@ -811,7 +824,7 @@ pub(crate) enum Coverage {
 #[derive(Debug, Default)]
 pub(crate) struct StaleTally {
     count: usize,
-    /// Relative drift and rendered identity of the worst entry so far.
+    /// Normalised drift and rendered identity of the worst entry so far.
     /// Formatting only on a new maximum keeps the common all-covered run
     /// allocation-free rather than building a string per violation.
     worst: Option<(f64, String)>,
@@ -822,20 +835,19 @@ impl StaleTally {
     /// still at — or worse-ward of — its recorded value is not stale and
     /// is ignored.
     pub(crate) fn observe(&mut self, v: &Violation, recorded: f64) {
-        // "Improved past the record" is the recorded value breaching the
-        // live one as a limit: below for a higher-is-worse metric, above
-        // for the lower-is-worse `mi.*` family. Calling `breaches_limit`
-        // with the arguments swapped keeps this and the ratchet in
-        // `classify` on one direction rule rather than two that can
-        // drift apart. Equality breaches in neither direction, so an
-        // entry sitting exactly on its record stays silent; NaN compares
-        // false both ways and is likewise ignored, though `classify`
-        // routes it to `Regressed` before it can arrive here at all.
-        if !breaches_limit(recorded, v.value, v.lower_is_worse) {
+        // "Improved past the record" is the recorded value being worse
+        // than the live one: above it for a higher-is-worse metric, below
+        // it for the lower-is-worse `mi.*` family. The same `cmp_worse`
+        // as the ratchet in `classify`, with the arguments swapped, keeps
+        // the two on one direction rule. An entry sitting exactly on its
+        // record stays silent; a NaN live value ranks worst and is
+        // likewise ignored, though `classify` routes it to `Regressed`
+        // before it can arrive here at all.
+        if v.threshold.info().cmp_worse(recorded, v.value) != Ordering::Greater {
             return;
         }
         self.count += 1;
-        let drift = relative_drift(recorded, v.value);
+        let drift = v.threshold.drift(recorded, v.value);
         if self.worst.as_ref().is_none_or(|(seen, _)| drift > *seen) {
             let id = identity(v.path.display(), &v.function);
             self.worst = Some((
@@ -864,25 +876,6 @@ impl StaleTally {
             counted(self.count, "baseline entry", "baseline entries"),
         ))
     }
-}
-
-/// How far an entry has drifted, as a fraction of the larger of the two
-/// values, for picking the worst one to name. Relative rather than
-/// absolute so a `halstead.effort` entry that moved by 2,000 does not
-/// automatically outrank a `cyclomatic` one that halved.
-///
-/// Dividing by the larger magnitude rather than by `recorded` keeps the
-/// key comparable across metrics of wildly different scale and needs no
-/// special case for a zero record, which this ranks at `1.0`. Two values
-/// of the same sign stay within `[0, 1]`. Only the unclamped `mi.*`
-/// metrics measure on both sides of zero, and a crossing ranks above
-/// `1.0`, up to `2.0`: an entry recorded at −5 that now reads +5 has
-/// drifted further than its whole recorded magnitude. The tally only
-/// compares keys, so nothing depends on the bound. Callers reach this
-/// only once `breaches_limit` has confirmed the two values differ, so the
-/// denominator is never zero.
-fn relative_drift(recorded: f64, value: f64) -> f64 {
-    (recorded - value).abs() / recorded.abs().max(value.abs())
 }
 
 /// The value a baseline records for `value`, or `None` when it cannot be

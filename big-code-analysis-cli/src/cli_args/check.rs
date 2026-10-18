@@ -20,8 +20,11 @@ pub(crate) struct CheckArgs {
     /// spelling of a `loc` sub-metric is accepted as an alias (`sloc` ==
     /// `loc.sloc`); a bare family head with no single scalar (`halstead`,
     /// `mi`) is rejected with a "did you mean" hint. CLI flags override
-    /// values from `--config`. Limits must be finite and non-negative;
-    /// `0` is allowed and means "no value permitted".
+    /// values from `--config`. Limits must be finite, and non-negative
+    /// for every metric except the `mi.*` floors (`mi.original` and
+    /// `mi.sei` go below zero); a count ceiling of `0` is allowed and
+    /// means "no value permitted". A limit that can never fire, or fires on every value
+    /// (`mi.visual_studio=0` or `=101`), is accepted with a warning.
     #[clap(long = "threshold", value_parser = parse_cli_threshold)]
     pub(crate) thresholds: Vec<(String, f64)>,
     /// Preview what a candidate `<metric>=<limit>` would cost, at both
@@ -183,7 +186,7 @@ CLI `--threshold` flags override values read from this file."
     #[allow(clippy::option_option)]
     pub(crate) write_baseline: Option<Option<PathBuf>>,
     /// Skip the trailing per-file rollup footer. The footer groups
-    /// violations by file and cites the single worst-ratio metric per
+    /// violations by file and cites the single most severe metric per
     /// file. It is written to stderr, so a plain `bca check | ...`
     /// pipeline never sees it; pass this when a tool reads the *merged*
     /// streams and would be confused by the trailing summary block.
@@ -231,7 +234,7 @@ CLI `--threshold` flags override values read from this file."
     pub(crate) github_annotations: CiDetect,
     /// Where to append a markdown digest of the violations — per-file
     /// rollup table, per-metric breakdown, and top-N offenders by
-    /// `value / limit` ratio. Mirrors the format `bca report markdown`
+    /// severity. Mirrors the format `bca report markdown`
     /// produces so a reader skimming the GHA step-summary panel sees a
     /// familiar table layout. Accepts a file path, or the keywords
     /// `auto` / `never`: `auto` (the default when the flag
@@ -271,8 +274,9 @@ CLI `--threshold` flags override values read from this file."
     /// Which threshold tier to gate against. Accepts
     /// `hard`, `soft`, or `soft=<RATIO>`:
     ///
-    /// - `hard` (default) — flag a function only when a metric is at or
-    ///   over its `[thresholds]` limit.
+    /// - `hard` (default) — flag a function only when a metric breaches
+    ///   its `[thresholds]` limit: strictly above a ceiling, or strictly
+    ///   below an `mi.*` floor.
     /// - `soft` — early-warning tier: tighten every limit by `RATIO`
     ///   (default 0.95) so a function is flagged before the hard gate
     ///   trips. With a `[thresholds.soft]` table present, the
@@ -282,9 +286,11 @@ CLI `--threshold` flags override values read from this file."
     ///   `soft=1.0` disables the blanket scale (a soft tier driven only
     ///   by an explicit `[thresholds.soft]` table).
     ///
-    /// `RATIO` scales the band, not the number: a ceiling comes down
-    /// (`cognitive = 15` warns at 13.5), while a lower-is-worse `mi.*`
-    /// floor goes up (`mi.original = 20` warns at 22.2223).
+    /// `RATIO` scales the band, not the number: at the default 0.95 a
+    /// ceiling comes down (`cognitive = 15` warns at 14.25), while a
+    /// lower-is-worse `mi.*` floor goes up by `1 - RATIO` of one
+    /// maintainability band — 17.1 points for `mi.original` / `mi.sei`,
+    /// 10 for `mi.visual_studio` — so `mi.original = 20` warns at 20.855.
     ///
     /// Resolution order: `[thresholds]` (manifest + `--config`) →
     /// `[thresholds.soft]` or the soft ratio → absolute
@@ -660,8 +666,9 @@ pub(crate) struct DiffArgs {
     /// Minimum absolute change for a per-file metric delta to be
     /// reported. `0` (the default) reports any change of any size;
     /// raise it to suppress small deltas and surface only the larger
-    /// metric movements (e.g. on a grammar bump).
-    #[clap(long = "min-change", default_value_t = 0.0)]
+    /// metric movements (e.g. on a grammar bump). Must be finite; a
+    /// negative value reads as `0`, with a warning.
+    #[clap(long = "min-change", default_value_t = 0.0, value_parser = parse_min_change)]
     pub(crate) min_change: f64,
     /// Restrict the diff to one or more metrics (repeatable). Names are
     /// those printed by `bca list-metrics` (e.g. `cyclomatic`, `sloc`).

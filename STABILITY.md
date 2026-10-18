@@ -1061,14 +1061,15 @@ alias for `--exit-codes=tiered` (warns; removed at the next major, `3.0`).
 value-taking `--tier <hard|soft|soft=RATIO>`
 ([#688](https://github.com/dekobon/big-code-analysis/issues/688)):
 
-- `hard` (default): flag a function only at/over its `[thresholds]`
-  limit.
-- `soft`: early-warning tier flagging a function at `RATIO` of any
-  limit (default `0.95`), before the hard gate trips. With a
-  `[thresholds.soft]` table present, its per-metric limits take
-  precedence over the blanket ratio.
-- `soft=0.90`: soft tier scaling every limit by `0.90`; `soft=1.0`
-  disables the blanket scale.
+- `hard` (default): flag a function only when a metric breaches its
+  `[thresholds]` limit (strictly past it; a value on the limit passes).
+- `soft`: early-warning tier flagging a function before the hard gate
+  trips: a count ceiling scaled to `RATIO` of the limit (default
+  `0.95`), a lower-is-worse `mi.*` floor raised by `1 − RATIO` of one
+  maintainability band. With a `[thresholds.soft]` table present, its
+  per-metric limits take precedence over the blanket ratio.
+- `soft=0.90`: soft tier at `RATIO = 0.90`; `soft=1.0` disables the
+  blanket band.
 
 A bare `--tier` means `soft`. The manifest `[check] headroom` key
 supplies the soft ratio for a bare `--tier=soft`. The retired

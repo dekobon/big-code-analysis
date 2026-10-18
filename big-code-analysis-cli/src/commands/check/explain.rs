@@ -38,6 +38,8 @@
 //! coverage tags that are correct for both tiers.
 
 use super::*;
+use crate::threshold_soft::{Rounding, round_sig_figs};
+use big_code_analysis::metric_catalog::Scale;
 
 /// Minimum number of soft-band offenders before a shared value is called
 /// a cluster. Below ten, "they all sit at N" describes a handful rather
@@ -71,6 +73,11 @@ pub(crate) fn run_explain_thresholds(
     // use.
     let ratio = tier.ratio();
     let (resolved, global_merge_mode) = build_candidate_gate(layers, &candidates, ratio);
+    // The predicted gate is already narrowed to the explained metrics, so
+    // only their limits — a candidate, a per-language override of it, or
+    // an absolute soft entry for it — are checked. The report shows both
+    // tiers, so the hard ceilings are checked as well as the soft limits.
+    warn_limit_advisories(&resolved, Ceilings::Include);
     let resolved = Arc::new(resolved);
 
     let mi_charges_docs = globals.resolved_mi_charges_docs();
@@ -148,7 +155,7 @@ impl CandidateGate<'_> {
             candidate,
             hard: TierTally::new(candidate),
             soft: TierTally::new(global_soft),
-            soft_derivation: self.soft_derivation(metric),
+            soft_derivation: self.soft_derivation(metric, candidate, global_soft),
             band_values: Vec::new(),
             language_overrides: self.language_overrides(metric, candidate, global_soft),
         };
@@ -169,7 +176,7 @@ impl CandidateGate<'_> {
             outcome.soft.record(coverage.as_ref());
             let hard_breach = v
                 .hard_limit
-                .is_some_and(|ceiling| breaches_limit(v.value, ceiling, v.lower_is_worse));
+                .is_some_and(|ceiling| ceiling.breaches(v.value));
             if hard_breach {
                 outcome.hard.record(coverage.as_ref());
             } else {
@@ -183,13 +190,21 @@ impl CandidateGate<'_> {
     /// entry overrides the proportional ratio, so the two are exclusive
     /// — and a soft table naming *some other* explained metric suppresses
     /// the ratio for this one without giving it a band of its own.
-    fn soft_derivation(&self, metric: &str) -> SoftDerivation {
+    fn soft_derivation(&self, metric: &str, candidate: f64, soft: f64) -> SoftDerivation {
         if self.layers.soft.contains_key(metric) {
             SoftDerivation::Table
         } else if self.global_merge_mode {
             SoftDerivation::Inherited
         } else {
-            SoftDerivation::Ratio(self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM))
+            let ratio = self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM);
+            match big_code_analysis::metric_catalog::scale(metric) {
+                Some(Scale::Interval { unit, .. }) => SoftDerivation::Shift {
+                    ratio,
+                    unit,
+                    delta: soft - candidate,
+                },
+                _ => SoftDerivation::Ratio(ratio),
+            }
         }
     }
 
@@ -316,6 +331,15 @@ enum SoftDerivation {
     /// No soft table applies, so the soft limit is the candidate scaled
     /// by the proportional ratio in effect.
     Ratio(f64),
+    /// No soft table applies and the metric is interval-scale (`mi.*`),
+    /// so the soft limit is the candidate moved `(1 - ratio) · unit`
+    /// toward the healthy side — up for a floor, down for a ceiling
+    /// (#1621). `delta` is the move the resolver actually made, read
+    /// back from the resolved limit, so a step the domain edge clamped
+    /// (`mi.visual_studio = 99.8` stops at 100) reports the clamped
+    /// amount beside the nominal product. Rendering it as `0.95x` would
+    /// name a multiplication that never ran.
+    Shift { ratio: f64, unit: f64, delta: f64 },
 }
 
 impl std::fmt::Display for SoftDerivation {
@@ -326,6 +350,28 @@ impl std::fmt::Display for SoftDerivation {
                 "no soft band; [thresholds.soft] names other metrics, so the hard limit stands",
             ),
             Self::Ratio(ratio) => write!(f, "{}x", MetricScalar(*ratio)),
+            Self::Shift { ratio, unit, delta } => {
+                // Rounded like the soft limit itself, so `1 - 0.95`
+                // reads `0.05` rather than `0.050000000000000044`.
+                let step = round_sig_figs(1.0 - ratio, Rounding::Nearest);
+                let moved = round_sig_figs(*delta, Rounding::Nearest);
+                write!(
+                    f,
+                    "{}{} ({} \u{d7} {}",
+                    if moved.is_sign_negative() { '-' } else { '+' },
+                    MetricScalar(moved.abs()),
+                    MetricScalar(step),
+                    MetricScalar(*unit),
+                )?;
+                // A clamp at the domain edge made the move smaller than
+                // the product; say so rather than print a sum that does
+                // not add up.
+                let nominal = round_sig_figs(step * unit, Rounding::Nearest);
+                if moved.abs() < nominal {
+                    write!(f, ", clamped")?;
+                }
+                f.write_str(")")
+            }
         }
     }
 }
@@ -494,4 +540,35 @@ fn write_cluster(
         MetricScalar(outcome.candidate),
         MetricScalar(outcome.soft.limit),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SoftDerivation;
+
+    fn shift(ratio: f64, unit: f64, delta: f64) -> String {
+        SoftDerivation::Shift { ratio, unit, delta }.to_string()
+    }
+
+    #[test]
+    fn an_interval_soft_derivation_names_the_additive_step() {
+        // #1621: a floor moves up by `(1 - ratio) · unit`, and the label
+        // reports the move the resolver made. No catalog metric is an
+        // interval-scale ceiling today, so the `-` form is reachable
+        // only here.
+        assert_eq!(shift(0.95, 17.1, 0.855), "+0.855 (0.05 \u{d7} 17.1)");
+        assert_eq!(shift(0.9, 10.0, 1.0), "+1 (0.1 \u{d7} 10)");
+        assert_eq!(shift(0.95, 10.0, -0.5), "-0.5 (0.05 \u{d7} 10)");
+        assert_eq!(SoftDerivation::Ratio(0.95).to_string(), "0.95x");
+    }
+
+    #[test]
+    fn a_clamped_step_says_so() {
+        // `mi.visual_studio = 99.8` at 0.95 nominally moves +0.5 but the
+        // domain stops it at 100, so the resolver moved +0.2; the label
+        // must not print a sum that does not add up. A step the clamp
+        // reduced to nothing (an out-of-domain 101) reads as +0, clamped.
+        assert_eq!(shift(0.95, 10.0, 0.2), "+0.2 (0.05 \u{d7} 10, clamped)");
+        assert_eq!(shift(0.95, 10.0, 0.0), "+0 (0.05 \u{d7} 10, clamped)");
+    }
 }

@@ -238,7 +238,8 @@ reads the merged streams can suppress the trailing summary with
 `--no-summary`.
 
 The summary footer groups violations by file, cites the single worst
-metric per file (max `value / limit` ratio), and sorts rows by
+metric per file (by severity: `value / limit` for a count, one step
+per maintainability band below the floor for `mi.*`), and sorts rows by
 violation count descending then path ascending. It is the fastest way
 to read a long offender list and spot which file to start with.
 

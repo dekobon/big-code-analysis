@@ -134,8 +134,10 @@ band that fires *before* the hard gate, never looser than it.
 That "tighter, never looser" rule is what fixes the *direction* of the
 scaling, and it is not always a multiplication. A `mi.*` limit is a
 floor rather than a ceiling — a value **below** it is the violation —
-so `RATIO` divides instead: `"mi.original" = 20` under `--tier=soft=0.9`
-resolves to `22.2223`, not `18`. The intuition that a soft band is
+and the index has no true zero, so `RATIO` raises it by `1 − RATIO` of
+one maintainability band (17.1 points of `mi.original`) instead:
+`"mi.original" = 20` under `--tier=soft=0.9` resolves to `21.71`, not
+`18`. The intuition that a soft band is
 "90% of the limit" is right for every other metric and exactly
 backwards here.
 
@@ -371,10 +373,11 @@ self-scan-write-baseline-headroom:
 
 <!-- rumdl-enable MD010 -->
 
-`bca check --tier=soft=<ratio>` scales every limit from `--config`
-by the ratio (default `0.95` for a bare `--tier=soft`) before the
-offender comparison, then filters against the same
-`.bca-baseline.toml` the hard tier writes.
+`bca check --tier=soft=<ratio>` tightens every limit from `--config`
+before the offender comparison — a count ceiling scaled by the ratio
+(default `0.95` for a bare `--tier=soft`), an `mi.*` floor raised by
+`1 − ratio` of one band, as described above — then filters against the
+same `.bca-baseline.toml` the hard tier writes.
 Explicit `--threshold name=value` overrides are absolute and are
 not rescaled. There is no separate helper script or second TOML
 file to maintain — the soft tier is the hard-tier invocation plus
@@ -435,10 +438,13 @@ is narrow:
 
 | `BCA_HEADROOM` | Fires when a function reaches… | Use case                                            |
 | -------------- | ------------------------------ | --------------------------------------------------- |
-| `0.99`         | 99% of any limit               | Tightest possible warning, fires on the last commit before the hard gate would. |
-| `0.95`         | 95% of any limit (default)     | One-or-two-commit lead time. Good default.          |
-| `0.90`         | 90% of any limit               | Wider band — useful immediately after raising a limit, while the new ceiling settles. |
+| `0.99`         | 99% of a count ceiling         | Tightest possible warning, fires on the last commit before the hard gate would. |
+| `0.95`         | 95% of a count ceiling (default) | One-or-two-commit lead time. Good default.        |
+| `0.90`         | 90% of a count ceiling         | Wider band — useful immediately after raising a limit, while the new ceiling settles. |
 | `1.00`         | 100% (parity with hard gate)   | Sanity check that the two tiers agree.              |
+
+An `mi.*` floor is raised by `1 − BCA_HEADROOM` of one band instead
+of scaled, as [Two-tier thresholds](#two-tier-thresholds) explains.
 
 Values below ~0.80 turn the soft tier into a second hard tier with
 arbitrary numbers and stop being useful: every threshold has *some*

@@ -8,7 +8,8 @@
 //! `worsened` and a fall `improved`, but for the lower-is-worse `mi.*`
 //! family (Maintainability Index) the mapping inverts — an MI drop is a
 //! regression (`worsened`) and an MI gain an improvement (`improved`),
-//! matching `big_code_analysis::metric_catalog::lower_is_worse` (#825).
+//! ordered by `big_code_analysis::metric_catalog::MetricInfo::cmp_worse`
+//! (#825, #1621).
 //!
 //! The identity deliberately omits `start_line` (mirroring the on-disk
 //! matcher from issue #377): a function that drifts up or down the file
@@ -25,10 +26,29 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use big_code_analysis::metric_catalog::lookup;
 use serde::Serialize;
 
 use crate::baseline::{BaselineIdentity, DiffEntry, cmp_identity};
 use crate::format_util::{ID_SEP, MetricScalar, identity, strip_path_prefix};
+
+/// Whether `new` is worse (`Greater`) or better (`Less`) than `old` for
+/// `metric`. Direction-aware: for the lower-is-worse `mi.*` family a
+/// *drop* is the regression. The catalog's `cmp_worse` is the order the
+/// threshold gate's `Threshold` is built on, so the two cannot disagree;
+/// an id the catalog does not know (a hand-edited file) reads as
+/// higher-is-worse. `None` for a NaN, which `cmp_worse` would rank worst
+/// but which is incomparable here, and which the load filter should
+/// already have dropped.
+fn worse_order(metric: &str, new: f64, old: f64) -> Option<Ordering> {
+    if new.is_nan() || old.is_nan() {
+        return None;
+    }
+    match lookup(metric) {
+        Some(info) => Some(info.cmp_worse(new, old)),
+        None => new.partial_cmp(&old),
+    }
+}
 
 /// An entry present in exactly one of the two baselines (`added` /
 /// `removed`).
@@ -146,22 +166,9 @@ impl BaselineDiff {
             for i in 0..paired {
                 let o = olds[i];
                 let n = news[i];
-                // Direction-aware bucketing: for the lower-is-worse
-                // `mi.*` family a value *drop* is the regression and a
-                // *rise* the improvement, so the Greater/Less mapping
-                // inverts. Reuse the central catalog predicate
-                // (`metric_catalog::lower_is_worse`, the same one the
-                // threshold gate consults via `thresholds::breaches_limit`)
-                // rather than hard-coding the `mi.*` list here.
-                let (worse, better) =
-                    if big_code_analysis::metric_catalog::lower_is_worse(&n.metric) {
-                        (Ordering::Less, Ordering::Greater)
-                    } else {
-                        (Ordering::Greater, Ordering::Less)
-                    };
-                match n.value.partial_cmp(&o.value) {
-                    Some(ord) if ord == worse => worsened.push(value_delta(n, o.value, n.value)),
-                    Some(ord) if ord == better => improved.push(value_delta(n, o.value, n.value)),
+                match worse_order(&n.metric, n.value, o.value) {
+                    Some(Ordering::Greater) => worsened.push(value_delta(n, o.value, n.value)),
+                    Some(Ordering::Less) => improved.push(value_delta(n, o.value, n.value)),
                     // Equal (byte-identical re-baseline of unchanged
                     // code) — or, defensively, an incomparable NaN that
                     // the load filter should already have dropped —

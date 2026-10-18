@@ -118,9 +118,9 @@ impl MetricScope {
 /// Which direction of a metric's value is unhealthy.
 ///
 /// Most metrics grow worse as they grow larger; the Maintainability
-/// Index family is the inverse — a *lower* value is worse. Code Climate
-/// uses this to invert the threshold-breach ratio, and the rule
-/// sentences use it to pick "exceeds" vs "falls below" phrasing.
+/// Index family is the inverse — a *lower* value is worse. [`Threshold`]
+/// reads it for every breach, severity and soft-tier question, and the
+/// rule sentences use it to pick "exceeds" vs "falls below" phrasing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     /// A higher value is worse (cyclomatic, halstead.*, loc.*, …).

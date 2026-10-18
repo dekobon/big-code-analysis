@@ -61,6 +61,15 @@ pub(crate) fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
     // the `check --threshold` known-names + suggestion machinery and
     // accepts the #514 dotted/alias spellings the diff filter handles.
     crate::metric_alias::validate_diff_metrics(&args.metric).unwrap_or_else(|e| die(e));
+    // The filter is `delta < min_change` over a non-negative delta, so a
+    // negative floor already reports every delta exactly as `0` does; the
+    // warning is the whole effect.
+    if args.min_change < 0.0 {
+        warn(format_args!(
+            "--min-change {} is negative; reporting every delta, as 0 does",
+            args.min_change
+        ));
+    }
     // Validate `--output` before the (potentially slow) `--since` analysis
     // walk so a bad path fails fast, mirroring `report` / `exemptions`.
     if let Some(ref output) = args.output {

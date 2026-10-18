@@ -67,8 +67,8 @@ fn higher_value_is_worsened_lower_is_improved() {
 fn mi_family_direction_is_inverted() {
     // mi.* is lower-is-worse: a drop is a regression (worsened) and a
     // rise is an improvement (improved) — the opposite of the
-    // higher-is-worse default above (#825). Verified against the catalog
-    // predicate `metric_catalog::lower_is_worse("mi.original")`.
+    // higher-is-worse default above (#825). Ordered by the catalog's
+    // `MetricInfo::cmp_worse`, as the threshold gate is.
     let old = vec![
         entry("src/bar.rs", "act", "mi.original", 5, 70.0),
         entry("src/baz.rs", "resolve", "mi.original", 8, 50.0),

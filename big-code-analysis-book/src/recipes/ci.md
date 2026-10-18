@@ -437,7 +437,8 @@ GitHub Actions exposes `$GITHUB_STEP_SUMMARY` — a path to a markdown
 file that, when populated, renders as the step's summary view in the
 job UI. `bca check` appends a digest containing the per-file rollup
 table, a per-metric count breakdown, and the top-10 offenders by
-`value / limit` ratio whenever that env var is set, or when
+severity (ranked the same way as the footer's worst metric) whenever
+that env var is set, or when
 `--summary-file <path>` is passed explicitly. `--summary-file never`
 suppresses the digest even when `$GITHUB_STEP_SUMMARY` is set.
 
@@ -541,7 +542,7 @@ What this gives you on a failing PR:
 3. **Inline GHA annotations** on the file-diff view, capped at 10
    per metric with an overflow rollup.
 4. **Step-summary panel** with a rendered markdown digest (per-file
-   rollup, per-metric breakdown, top-10 offenders by ratio).
+   rollup, per-metric breakdown, top-10 offenders by severity).
 5. **Trailing remediation block** naming the artifact, printing the
    exact `--write-baseline` refresh invocation, and linking to the
    Baselines recipe.
@@ -787,11 +788,12 @@ code_quality:
       - gl-code-quality-report.json
 ```
 
-Severity bands are derived from how far each metric exceeds its
-configured threshold (`value / limit` ratio, inverted for the
-maintainability-index family where lower is worse): `≤ 1.5×` →
-`minor`, `≤ 2×` → `major`, `≤ 4×` → `critical`, `> 4×` →
-`blocker`. The widget deduplicates findings by `fingerprint`; `bca`
+Severity bands are derived from how far each metric breaches its
+configured threshold: `value / limit` for a count, and for the
+maintainability-index family, where lower is worse and the index goes
+negative, one step per maintainability band below the floor. `≤ 1.5`
+→ `minor`, `≤ 2` → `major`, `≤ 4` → `critical`, `> 4` → `blocker`;
+`bca check`'s summary ranks offenders by the same key. The widget deduplicates findings by `fingerprint`; `bca`
 hashes `path \0 function \0 metric` (no line, no value) so a
 violation surviving an upstream line-drift edit still collapses
 into the same widget entry across pipeline runs.

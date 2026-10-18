@@ -43,10 +43,9 @@ use crate::markdown_report::{FunctionSummary, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::metric_diff::DiffSide;
 use crate::threshold_lang::LanguageThresholds;
-use crate::threshold_soft::{SoftLimit, scale_threshold};
+use crate::threshold_soft::{SoftLimit, scale_named_limit};
 use crate::thresholds::{
-    ParsedThresholds, ThresholdSet, Violation, breaches_limit, metric_is_lower_is_worse,
-    render_violation_line,
+    Ceilings, ParsedThresholds, ThresholdSet, Violation, render_violation_line,
 };
 use big_code_analysis::{FuncSpace, Ops};
 

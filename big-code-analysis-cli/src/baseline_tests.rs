@@ -6,6 +6,7 @@
 // it skips `./tests/`.
 
 use super::*;
+use crate::thresholds::test_threshold;
 use std::path::PathBuf;
 
 fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value: f64) -> Violation {
@@ -16,18 +17,19 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
         function: function.to_string(),
         metric,
         value,
-        limit: 1.0,
-        hard_limit: Some(1.0),
-        lower_is_worse: false,
+        threshold: test_threshold(metric, 1.0),
+        hard_limit: Some(test_threshold(metric, 1.0)),
         body_hash: None,
         suppressed: false,
         nargs_split: None,
     }
 }
 
-/// Like [`v`] but flagged lower-is-worse (the `mi.*` family), so the
+/// Like [`v`], for a lower-is-worse (`mi.*`) metric, so the
 /// direction-aware `classify` ratchet (#827) treats a value *below* the
-/// recorded baseline as the regression rather than as coverage.
+/// recorded baseline as the regression rather than as coverage. The
+/// direction comes from the catalog through the violation's threshold;
+/// the assertion keeps a call site from naming a metric that is not.
 fn v_low(
     path: &str,
     function: &str,
@@ -35,10 +37,9 @@ fn v_low(
     metric: &'static str,
     value: f64,
 ) -> Violation {
-    Violation {
-        lower_is_worse: true,
-        ..v(path, function, start_line, metric, value)
-    }
+    let low = v(path, function, start_line, metric, value);
+    assert!(low.lower_is_worse(), "{metric} is not lower-is-worse");
+    low
 }
 
 /// Like [`v`] but with an explicit body hash, for the fuzzy-match tests.
@@ -645,8 +646,8 @@ fn stale_tally_is_silent_when_the_value_worsened() {
 #[test]
 fn stale_tally_is_silent_on_nan() {
     // `classify` routes NaN to `Regressed` before `observe` sees it, but
-    // every `breaches_limit` comparison against NaN is false either way,
-    // so a NaN arriving here must not be counted as an improvement.
+    // `cmp_worse` ranks a NaN live value as the worst, never an
+    // improvement, so a NaN arriving here must not be counted.
     assert_eq!(
         tally(&[(9.0, v("a", "f", 1, "cyclomatic", f64::NAN))]),
         None
@@ -724,22 +725,39 @@ fn stale_tally_worst_is_order_independent() {
 }
 
 #[test]
-fn stale_tally_ranks_a_zero_record_worst() {
-    // A zero record is reachable: `mi.original` and `mi.sei` pass through
-    // zero on their way negative, and any metric can measure zero. A zero
-    // record's drift is 1.0 whatever the live value, so it must rank
-    // above the cyclomatic entry's 0.75 rather than fall out of the
-    // ranking. That the key stays finite is a property of the
-    // denominator, which no assertion on the rendered message can
-    // observe; it is argued at `relative_drift` instead.
+fn stale_tally_reads_mi_drift_in_index_units() {
+    // #1621: an `mi.*` entry's drift is measured in index units (one
+    // Visual Studio band, 17.1 points), not relative to an arbitrary
+    // zero. `mi.sei` recorded at −0.0097 and now reading 0.001 moved a
+    // hundredth of a point, which the relative key — dividing by the
+    // larger magnitude, 0.0097 — ranked at 1.1, above the cyclomatic
+    // entry that halved (0.5). In units it is 0.0006.
     let msg = tally(&[
-        (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0)),
-        (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 4.0)),
+        (20.0, v("src/b.rs", "small", 1, "cyclomatic", 10.0)),
+        (-0.0097, v_low("src/a.rs", "near_zero", 1, "mi.sei", 0.001)),
     ])
     .expect("two stale entries");
     assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
     assert!(
-        msg.contains("src/a.rs::floor mi.original 0 \u{2192} 4"),
+        msg.contains("src/b.rs::small cyclomatic 20 \u{2192} 10"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn stale_tally_ranks_a_zero_mi_record_by_its_distance() {
+    // A zero record is reachable: `mi.original` and `mi.sei` pass through
+    // zero on their way negative. Zero is an ordinary point on an
+    // interval scale, so its drift is the distance moved in units:
+    // 0 → 40 is 40 / 17.1 ≈ 2.3, above the cyclomatic entry's 0.75.
+    let msg = tally(&[
+        (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0)),
+        (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 40.0)),
+    ])
+    .expect("two stale entries");
+    assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
+    assert!(
+        msg.contains("src/a.rs::floor mi.original 0 \u{2192} 40"),
         "{msg}"
     );
 }
@@ -760,13 +778,11 @@ fn a_negative_mi_record_that_improved_is_covered_and_stale() {
 }
 
 #[test]
-fn stale_tally_ranks_a_zero_crossing_above_a_zero_record() {
-    // A record that crosses zero drifts by more than its own magnitude:
-    // −5 → +5 measures 10 / 5 = 2.0, the one case above `relative_drift`'s
-    // same-sign bound of 1.0. Ranking it above the zero record (1.0) is
-    // what the larger headroom deserves. A key clamped to 1.0 would tie,
-    // and the tie keeps whichever entry arrived first, so the crossing
-    // goes second to make a clamp visible.
+fn stale_tally_ranks_mi_entries_by_points_moved_across_zero() {
+    // Crossing zero is not special on an interval scale: −5 → +5 moved
+    // 10 points and 0 → 4 moved 4, so the crossing is the larger drift.
+    // The crossing goes second, so a key that tied them (the tie keeps
+    // the first arrival) would name the wrong entry.
     let msg = tally(&[
         (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 4.0)),
         (-5.0, v_low("src/b.rs", "cross", 1, "mi.original", 5.0)),
@@ -864,21 +880,78 @@ fn classify_ambiguous_symbol_picks_closest_within_tolerance() {
     ));
 }
 
+/// Classify `live` against two equidistant records for `f`, once in each
+/// entry order. Both orders matter: `min_by` keeps the first of two
+/// equal elements, so with one order a tie-break that compared no values
+/// at all would still pass whenever the expected record came first.
+fn classify_equidistant_tie(
+    metric: &str,
+    (stricter, lenient): (f64, f64),
+    live: &Violation,
+) -> [Coverage; 2] {
+    [(stricter, lenient), (lenient, stricter)].map(|(first, second)| {
+        baseline_with(vec![
+            entry("a", "f", live.start_line - 1, metric, first),
+            entry("a", "f", live.start_line + 1, metric, second),
+        ])
+        .classify(live)
+    })
+}
+
 #[test]
 fn classify_ambiguous_symbol_equidistant_tie_prefers_higher_value() {
-    // Two equidistant ambiguous records (lines 10 and 20, violation at
-    // 15). The tie breaks toward the higher recorded value (8.0), so an
-    // unplaceable violation of 7.0 is Covered rather than a spurious
-    // regression against the lower record (5.0). Deterministic
-    // regardless of entry order.
-    let b = baseline_with(vec![
-        entry("a", "f", 10, "cyclomatic", 5.0),
-        entry("a", "f", 20, "cyclomatic", 8.0),
-    ]);
-    assert!(matches!(
-        b.classify(&v("a", "f", 15, "cyclomatic", 7.0)),
-        Coverage::Covered { recorded } if recorded == 8.0
-    ));
+    // Two equidistant ambiguous records, one line either side of the
+    // violation. The tie breaks toward the higher recorded value (8.0),
+    // so an unplaceable violation of 7.0 is Covered rather than a
+    // spurious regression against the lower record (5.0).
+    let live = v("a", "f", 15, "cyclomatic", 7.0);
+    assert_eq!(
+        classify_equidistant_tie("cyclomatic", (5.0, 8.0), &live),
+        [Coverage::Covered { recorded: 8.0 }; 2],
+    );
+}
+
+#[test]
+fn classify_ambiguous_symbol_equidistant_tie_prefers_lower_value_for_mi() {
+    // #1616's reproducer. For the lower-is-worse `mi.*` family the
+    // *lower* record is the lenient one: a live 50.1 is Covered by 40
+    // and Regressed by 60. The tie used to keep the higher record
+    // whatever the direction, which printed `[regr …]` here.
+    let live = v_low("a", "f", 2, "mi.original", 50.1);
+    assert_eq!(
+        classify_equidistant_tie("mi.original", (60.0, 40.0), &live),
+        [Coverage::Covered { recorded: 40.0 }; 2],
+    );
+}
+
+#[test]
+fn classify_equidistant_tie_on_one_side_reports_the_more_lenient_record() {
+    // With both records on the same side of the live value the tie no
+    // longer decides Covered against Regressed, only which record is
+    // reported: the value the stale tally and the `[regr …]` tag read.
+    // The rule is the same either side, so a regression reports the
+    // smaller of its two possible magnitudes.
+    let mi = v_low("a", "f", 2, "mi.original", 50.1);
+    let cyclomatic = v("a", "f", 15, "cyclomatic", 7.0);
+    let cases = [
+        (&mi, (45.0, 30.0), Coverage::Covered { recorded: 30.0 }),
+        (&mi, (60.0, 55.0), Coverage::Regressed { recorded: 55.0 }),
+        (&cyclomatic, (8.0, 9.0), Coverage::Covered { recorded: 9.0 }),
+        (
+            &cyclomatic,
+            (5.0, 6.0),
+            Coverage::Regressed { recorded: 6.0 },
+        ),
+    ];
+    for (live, records, expected) in cases {
+        assert_eq!(
+            classify_equidistant_tie(live.metric, records, live),
+            [expected; 2],
+            "{} {records:?} against {}",
+            live.metric,
+            live.value,
+        );
+    }
 }
 
 #[test]
@@ -1006,10 +1079,10 @@ fn classify_normalizes_filter_path() {
 #[test]
 fn classify_nan_value_with_entry_is_regressed() {
     // NaN current values can occur on degenerate Halstead inputs.
-    // Without the explicit NaN guard in classify(), `NaN <= recorded`
-    // is false → the violation would fall to the trailing
-    // Regressed arm anyway, but the guard makes the intent loud
-    // and lets the renderer key off is_nan() to emit `[regr NaN]`.
+    // `MetricInfo::cmp_worse` ranks NaN as the worst value, so a NaN
+    // measurement is `Regressed`, and the renderer keys off `is_nan()`
+    // to emit `[regr NaN]`. Pinned here so a comparator that let NaN
+    // compare `Equal` could not quietly turn it into `Covered`.
     let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
     assert!(matches!(
         b.classify(&v("a", "f", 1, "cyclomatic", f64::NAN)),
@@ -1212,23 +1285,10 @@ fn from_str_defensive_anchor_normalization() {
     let toml = "version = 3\n[[entry]]\npath=\"src/foo.rs\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n";
     let b = Baseline::from_str(toml, Path::new("/repo/."), DEFAULT_LINE_TOLERANCE, false)
         .expect("parse");
-    assert!(matches!(
-        b.classify(&Violation {
-            path: PathBuf::from("/repo/src/foo.rs"),
-            start_line: 1,
-            end_line: 2,
-            function: "f".to_string(),
-            metric: "cyclomatic",
-            value: 5.0,
-            limit: 1.0,
-            hard_limit: Some(1.0),
-            lower_is_worse: false,
-            body_hash: None,
-            suppressed: false,
-            nargs_split: None,
-        }),
-        Coverage::Covered { recorded } if recorded == 5.0
-    ));
+    assert_eq!(
+        b.classify(&v("/repo/src/foo.rs", "f", 1, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded: 5.0 }
+    );
 }
 
 #[cfg(unix)]
@@ -1245,31 +1305,11 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
 
     let violation_a = Violation {
         path: path_a.clone(),
-        start_line: 1,
-        end_line: 2,
-        function: "f".to_string(),
-        metric: "cyclomatic",
-        value: 5.0,
-        limit: 1.0,
-        hard_limit: Some(1.0),
-        lower_is_worse: false,
-        body_hash: None,
-        suppressed: false,
-        nargs_split: None,
+        ..v("", "f", 1, "cyclomatic", 5.0)
     };
     let violation_b = Violation {
         path: path_b,
-        start_line: 1,
-        end_line: 2,
-        function: "f".to_string(),
-        metric: "cyclomatic",
-        value: 5.0,
-        limit: 1.0,
-        hard_limit: Some(1.0),
-        lower_is_worse: false,
-        body_hash: None,
-        suppressed: false,
-        nargs_split: None,
+        ..v("", "f", 1, "cyclomatic", 5.0)
     };
 
     // Baseline contains only `path_a`. classify(violation_b) would
