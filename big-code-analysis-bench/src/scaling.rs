@@ -617,6 +617,7 @@ mod tests {
         let probes = smoke_probes(PROBES);
         let report = run_with_budget(&probes, 3, Duration::ZERO)
             .expect("every probe language is compiled in");
+        assert_eq!(report.probes.len(), probes.len());
         for probe in &report.probes {
             assert!(
                 probe.cells.is_empty(),

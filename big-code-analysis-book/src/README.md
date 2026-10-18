@@ -48,6 +48,7 @@ patterns — see the [Python Bindings](python/index.html) section.
 
 - Mozilla-defined grammars are released under the MIT license.
 
-- **big-code-analysis**, **big-code-analysis-cli** and **big-code-analysis-web**
+- **big-code-analysis**, **big-code-analysis-ast**, **big-code-analysis-cli**,
+**big-code-analysis-web**, and **big-code-analysis-py**
 are released under the
 <a href="https://www.mozilla.org/MPL/2.0/" target="_blank">Mozilla Public License v2.0</a>.

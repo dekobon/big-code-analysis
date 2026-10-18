@@ -140,8 +140,9 @@ jobs:
 
       # The four top-level crates get no dry-run, because none is
       # possible here. Each pins an internal dependency at
-      # `=<version>` — the parent on the five leaves, the CLI and web
-      # crates on the parent — and the Lockstep version policy
+      # `=<version>` — the parse layer on the vendored grammar leaves,
+      # the library on the parse layer, and the CLI and web crates on
+      # the library — and the Lockstep version policy
       # (RELEASING.md, enforced by ./utils/check-versions.py) makes
       # that the version this tag is releasing. Packaging resolves the
       # registry requirement, so it cannot succeed against a version
@@ -1355,9 +1356,10 @@ jobs:
   # ─── Stage 5b — crates.io publish ────────────────────────────────────
   # Publish order, leaf-first:
   #   1-5. bca-tree-sitter-{ccomment,mozcpp,mozjs,preproc,tcl}
-  #   6.   big-code-analysis
-  #   7.   big-code-analysis-cli
-  #   8.   big-code-analysis-web
+  #   6.   big-code-analysis-ast
+  #   7.   big-code-analysis
+  #   8.   big-code-analysis-cli
+  #   9.   big-code-analysis-web
   #
   # The pinned toolchain's `cargo publish` waits for the new version to
   # appear in the sparse index before returning, so each later publish
@@ -1406,9 +1408,10 @@ jobs:
       # Trusted Publishing: exchange the runner's OIDC ID token for a
       # short-lived (30-minute) crates.io token authorizing every
       # crate whose TP config matches `(owner, repo, workflow,
-      # environment)` in the JWT — so a single exchange covers all
-      # three: big-code-analysis, big-code-analysis-cli,
-      # big-code-analysis-web. The action's post-hook revokes the
+      # environment)` in the JWT — so a single exchange covers every
+      # crate this job publishes: the five bca-tree-sitter-* leaves,
+      # big-code-analysis-ast, big-code-analysis, big-code-analysis-cli
+      # and big-code-analysis-web. The action's post-hook revokes the
       # token when the job ends.
       - name: Authenticate to crates.io via Trusted Publishing
         id: auth

@@ -96,15 +96,9 @@ NO_VERSION = "<no version>"
 
 # Lines of the form
 #     <key> = { ..., version = "=X.Y.Z", ... }
-# in the listed manifests. Every `=X.Y.Z` pin in one of these blocks
-# is an internal-crate pin that must equal the canonical version.
-INTERNAL_PIN_MANIFESTS = (
-    "Cargo.toml",
-    "enums/Cargo.toml",
-    "big-code-analysis-ast/Cargo.toml",
-    "big-code-analysis-cli/Cargo.toml",
-    "big-code-analysis-web/Cargo.toml",
-)
+# in every owned manifest (see `internal_pin_manifests`). Every `=X.Y.Z`
+# pin in one of these blocks is an internal-crate pin that must equal
+# the canonical version.
 
 # Doc files that hard-code a version in install snippets or
 # stability prose. Every plain `X.Y.Z` or `= X.Y.Z` match in these
@@ -376,6 +370,18 @@ def owned_crate_dirs(root: pathlib.Path) -> list[str]:
     return dirs
 
 
+def internal_pin_manifests(root: pathlib.Path) -> list[str]:
+    """Every owned manifest, relative to the root, for the pin scan.
+
+    Derive the roster from the workspace so newly added member and
+    excluded crates are scanned without another list to maintain.
+    """
+    return [
+        "Cargo.toml" if crate == "." else f"{crate}/Cargo.toml"
+        for crate in owned_crate_dirs(root)
+    ]
+
+
 def owned_package_versions(
     root: pathlib.Path, canonical: str
 ) -> dict[str, tuple[str, str]]:
@@ -528,7 +534,7 @@ def main() -> int:
                 f"{ver!r}, expected {canonical!r}"
             )
 
-    for manifest_path in INTERNAL_PIN_MANIFESTS:
+    for manifest_path in internal_pin_manifests(root):
         manifest = root / manifest_path
         text = read(manifest)
         for table in INTERNAL_TABLE_RE.finditer(text):

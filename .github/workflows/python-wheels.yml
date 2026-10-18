@@ -131,6 +131,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION_HOST }}
 
+      # A clean checkout cannot expose accidentally packaged bytecode.
+      - name: Populate source bytecode caches
+        run: python -m compileall -q big-code-analysis-py/python/big_code_analysis
+
       # maturin-action pulls the manylinux_2_28 container that matches
       # ${{ matrix.target }} and prepends `--manylinux 2_28` to the
       # maturin invocation (maturin's `--manylinux` is an alias of
@@ -186,6 +190,20 @@ jobs:
             ls dist/
             exit 1
           fi
+          python - "${matches[@]}" <<'PY'
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          for path in sys.argv[1:]:
+              with zipfile.ZipFile(path) as wheel:
+                  cached = [
+                      name for name in wheel.namelist()
+                      if "__pycache__" in PurePosixPath(name).parts or name.endswith(".pyc")
+                  ]
+              if cached:
+                  raise SystemExit(f"{path} contains bytecode caches: {cached}")
+          PY
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

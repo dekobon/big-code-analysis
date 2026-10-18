@@ -329,7 +329,7 @@ see "One ruff version" below), the publish-metadata gate
 carries the `description` / `readme` / `repository` / `license` fields
 crates.io needs, that a crate rooted at the workspace root has a
 non-empty `[package].include`, and that the files `cargo package
---list` reports total under 32 MiB — the three top-level
+--list` reports total under 32 MiB — the four top-level
 crates pin internal deps at `=<version>` and so cannot be
 `cargo publish --dry-run`-ed before the tag, see `RELEASING.md`), and the
 Python `ruff` lint /

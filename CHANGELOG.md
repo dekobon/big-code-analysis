@@ -222,6 +222,7 @@ for historical reference.
 
 ### Fixed
 
+- Excluded source-tree bytecode caches from locally built Python wheels.
 - Ruby `ploc` no longer counts a comment row that opens a body: the
   grammar starts the `then` wrapper of an `if` / `elsif` / `unless` /
   `when` / `in` / `rescue` body, and the `do` wrapper of a loop written

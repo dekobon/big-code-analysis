@@ -31,6 +31,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 
 SCRIPT_SRC = pathlib.Path(__file__).resolve().parent / "check-test-lang-gates.py"
 REPO_ROOT = SCRIPT_SRC.parent.parent
@@ -630,6 +631,45 @@ fn integration() {
             [i.name for i, _ in gate.offenders(items, gate.resolve_needs(items))],
             ["integration"],
         )
+
+    def test_every_configured_tests_root_is_an_integration_scope(self) -> None:
+        source = """
+#[test]
+fn integration() {
+    check::<PythonParser>("a = 1", "f.py");
+}
+"""
+        roots = (pathlib.Path("tests"), pathlib.Path("consumer/tests"))
+        probes = {"python": frozenset({"python"}), "rust": frozenset({"rust"})}
+        with patch.object(gate, "INTEGRATION_TEST_ROOTS", roots):
+            for root in roots:
+                path = (root / "thing.rs").as_posix()
+                with self.subTest(path=path):
+                    items = _scan(source, path=path)
+                    self.assertTrue(_named(items, "integration").in_test_scope)
+                    self.assertEqual(
+                        [
+                            i.name
+                            for i, _ in gate.offenders(items, gate.resolve_needs(items))
+                        ],
+                        ["integration"],
+                    )
+                    self.assertEqual(
+                        gate.membership({path: items}, probes),
+                        {f"{path}::integration": frozenset(probes)},
+                    )
+            for path in (
+                "consumer/src/thing.rs",
+                "consumer/tests_extra/thing.rs",
+                "other/tests/thing.rs",
+            ):
+                with self.subTest(path=path):
+                    items = _scan(source, path=path)
+                    self.assertFalse(_named(items, "integration").in_test_scope)
+                    self.assertEqual(
+                        gate.offenders(items, gate.resolve_needs(items)), []
+                    )
+                    self.assertEqual(gate.membership({path: items}, probes), {})
 
 
 class FeatureAtomTest(unittest.TestCase):
