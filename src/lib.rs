@@ -254,13 +254,17 @@ pub use crate::suppression::{
 };
 
 /// Canonical metric catalog: offender sub-metric ids with their
-/// long-form sentences and [`metric_catalog::Direction`], plus the
-/// family view rendered by `bca list-metrics` and the metric-selector
-/// resolver ([`metric_catalog::resolve_selector`]). Single source of
-/// truth shared by the library's offender formatters, the CLI's
-/// threshold engine (which pins its extractor ids to
+/// long-form sentences, [`metric_catalog::Direction`] and
+/// [`metric_catalog::Scale`], plus the family view rendered by
+/// `bca list-metrics` and the metric-selector resolver
+/// ([`metric_catalog::resolve_selector`]). Single source of truth
+/// shared by the library's offender formatters, the CLI's threshold
+/// engine (which pins its extractor ids to
 /// [`metric_catalog::METRICS`] via a parity test), and the metric
 /// selections of `bca metrics --metrics` and the Python `metrics=`.
+/// [`metric_catalog::Threshold`] is the validated limit that answers
+/// breach, severity, soft-tier, change and drift questions in the
+/// metric's own direction and scale.
 pub mod metric_catalog;
 
 // "Did you mean?" suggestions. The resolver's error uses it in-crate;

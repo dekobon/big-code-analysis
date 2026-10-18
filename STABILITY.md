@@ -245,6 +245,28 @@ section.
     this contract.
   - `metric_catalog::Direction`: derives `Hash` (#552) so it can key
     a `HashMap`/`HashSet`. Adding these derives is additive.
+  - `metric_catalog::Scale` (added #1621): the measurement scale of a
+    metric's value, `Ratio` or `Interval { min, max, unit }`, read
+    from the new `MetricInfo::scale` field or the `metric_catalog::scale`
+    free function. The field addition is additive because `MetricInfo`
+    is `#[non_exhaustive]`. `Scale` and its `Interval` variant are both
+    `#[non_exhaustive]`, so a scale or a field can be added in a minor
+    release; match with a wildcard arm and `Interval { unit, .. }`. The
+    `unit` values (17.1 for `mi.original` / `mi.sei`, 10 for
+    `mi.visual_studio`) are a value, not a shape: like a metric
+    number, they may be recalibrated in a minor release.
+  - `metric_catalog::Threshold` (added #1621): a validated limit with
+    private fields, built by `Threshold::check`, which returns
+    `Checked { threshold, warning }` or a `LimitError`. The accessors
+    `id`, `info`, `limit` and `warning`, the predicate `is_soft_ratio`,
+    and `breaches`, `excess`, `severity`, `cmp_severity`, `cmp_breach`,
+    `soft_limit`, `change` and `drift` are stable in signature. Their arithmetic is
+    a value and may be corrected in a minor release, like any metric
+    number. `MetricInfo::cmp_worse` (added #1621) orders two values by
+    badness and sorts NaN as the worst value. `Checked`, `LimitError`,
+    `LimitWarning`, `Change` and each struct-like variant are
+    `#[non_exhaustive]`. The `Display` wording of `LimitError` and
+    `LimitWarning` is not part of the contract.
 - **Per-metric `Stats`**: one `Stats` struct under each
   `src/metrics/<metric>.rs` (`abc`, `cognitive`, `cyclomatic`,
   `halstead`, `loc`, `mi`, `nargs`, `nexits`, `nom`, `npa`, `npm`,

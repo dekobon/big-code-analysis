@@ -20,6 +20,16 @@
 //! a parity test pins the two id-sets together, so a new metric cannot
 //! ship with a half-updated catalog.
 //!
+//! Each entry also records its [`Scale`](crate::metric_catalog::Scale):
+//! ratio for the counts, interval for the Maintainability Index family,
+//! whose zero is arbitrary and whose values go negative.
+//! [`Threshold`](crate::metric_catalog::Threshold) builds on direction
+//! and scale together. It is a validated limit that answers every value
+//! question a gate asks: whether a value breaches, by how much, how two
+//! breaches rank, where the soft tier sits, and how far a value has
+//! moved from its baseline. Those answers then mean the same thing on
+//! every surface (#1621).
+//!
 //! [`resolve_selector`](crate::metric_catalog::resolve_selector) reads
 //! both tables to turn a *selector* — a name saying what to compute — into
 //! the [`Metric`] family that computes it. `bca metrics --metrics` and the
@@ -32,12 +42,16 @@
 
 #![allow(clippy::doc_markdown)]
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::sync::LazyLock;
 
 use crate::Metric;
 use crate::spaces::SpaceKind;
 use crate::suggestion::{closest_names, render_suggestion};
+
+mod threshold;
+pub use threshold::{Change, Checked, LimitError, LimitWarning, Threshold};
 
 /// The space kind a metric's threshold is meaningful on (issue #969).
 ///
@@ -115,6 +129,82 @@ pub enum Direction {
     LowerIsWorse,
 }
 
+/// The measurement scale of a metric's value: which arithmetic on it
+/// means anything (issue #1621).
+///
+/// Stevens' classification of measurement scales (*On the Theory of
+/// Scales of Measurement*, Science 103, 1946) is the reason this is a
+/// separate axis from [`Direction`]. On a **ratio** scale zero means
+/// "none of it", so `value / limit` and "N percent worse" are
+/// meaningful: 30 branches is twice 15. On an **interval** scale the
+/// zero is arbitrary, so only *differences* are meaningful: a
+/// Maintainability Index of -10 is not "twice as bad" as -5, and a drop
+/// from 0.001 to -0.0097 is a hundredth of a point, not a 1069 % fall.
+/// Every surface that ranks, scales or reports a change reads this
+/// instead of assuming ratio arithmetic; [`Threshold`] is where that
+/// arithmetic lives.
+///
+/// `#[non_exhaustive]`, as is the `Interval` variant, so a scale or a
+/// field can be added in a minor release. Match with a wildcard arm and
+/// `Interval { unit, .. }`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum Scale {
+    /// True zero, values `>= 0`: every count and count-derived metric
+    /// (`cyclomatic`, `halstead.*`, `loc.*`, …). Severity is the plain
+    /// `value / limit` ratio and a change is a percentage.
+    Ratio,
+    /// Arbitrary zero: the Maintainability Index family. Only
+    /// differences are meaningful, so severity and change are measured
+    /// in multiples of `unit`.
+    #[non_exhaustive]
+    Interval {
+        /// Smallest value the metric can take (may be `-INFINITY`).
+        min: f64,
+        /// Largest value the metric can take (may be `INFINITY`).
+        max: f64,
+        /// One step of badness, in the metric's own points: the
+        /// distance that plays the role a `Ratio` metric's limit plays
+        /// in severity, soft-tier scaling and drift. Always finite and
+        /// positive.
+        unit: f64,
+    },
+}
+
+/// One Visual Studio maintainability band, in Visual Studio points.
+///
+/// Visual Studio rates a method green at 20–100, yellow at 10–19 and
+/// red at 0–9
+/// (<https://learn.microsoft.com/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning>);
+/// radon's A/B/C ranks use the same 10/20 edges
+/// (<https://radon.readthedocs.io/en/latest/intro.html>). One band is
+/// therefore 10 points.
+const MI_VISUAL_STUDIO_UNIT: f64 = 10.0;
+
+/// One Visual Studio band expressed on the original 171-point scale.
+///
+/// `mi.visual_studio` is `mi.original · 100 / 171` (clamped at 0), so a
+/// 10-point Visual Studio band is `10 · 171 / 100 = 17.1` original
+/// points. `mi.sei` keeps the original formula's 171-point scale and
+/// adds a comment term; it takes the same unit by convention rather
+/// than by derivation.
+const MI_ORIGINAL_UNIT: f64 = MI_VISUAL_STUDIO_UNIT * 171.0 / 100.0;
+
+/// `mi.original` / `mi.sei`: unbounded and routinely negative.
+const MI_UNBOUNDED: Scale = Scale::Interval {
+    min: f64::NEG_INFINITY,
+    max: f64::INFINITY,
+    unit: MI_ORIGINAL_UNIT,
+};
+
+/// `mi.visual_studio`: the original formula rescaled to and clamped
+/// into `[0, 100]`.
+const MI_PERCENT: Scale = Scale::Interval {
+    min: 0.0,
+    max: 100.0,
+    unit: MI_VISUAL_STUDIO_UNIT,
+};
+
 /// Catalog entry for one offender-emitting sub-metric id.
 ///
 /// The `id` is the dotted key the threshold engine emits for an
@@ -176,6 +266,38 @@ pub struct MetricInfo {
     /// file-wide or `impl`-wide aggregate never fires as a per-function
     /// limit. See [`MetricScope`].
     pub scope: MetricScope,
+    /// The measurement scale of the metric's value (issue #1621):
+    /// [`Scale::Ratio`] for every count, [`Scale::Interval`] for the
+    /// `mi.*` family. See [`Scale`].
+    pub scale: Scale,
+}
+
+impl MetricInfo {
+    /// Order two values of this metric by badness: [`Ordering::Greater`]
+    /// means `a` is worse than `b`.
+    ///
+    /// The comparison is oriented by [`direction`](Self::direction) and
+    /// is a total order, so it is safe to hand to a sort. A NaN sorts as
+    /// the **worst** value in either direction (and two NaNs compare
+    /// equal), matching how a NaN measurement is treated as a regression
+    /// rather than silently passing. `-0.0` and `0.0` compare equal, as
+    /// they do under [`Threshold::breaches`].
+    #[must_use]
+    pub fn cmp_worse(&self, a: f64, b: f64) -> Ordering {
+        // Neither operand is NaN in the last arm, so `partial_cmp` is
+        // total there; `total_cmp` would rank `-0.0` below `0.0` and read
+        // an MI of `-0.0` against a record of `0.0` as a regression.
+        let numeric = |x: f64, y: f64| x.partial_cmp(&y).unwrap_or(Ordering::Equal);
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => match self.direction {
+                Direction::HigherIsWorse => numeric(a, b),
+                Direction::LowerIsWorse => numeric(b, a),
+            },
+        }
+    }
 }
 
 /// A `bca list-metrics` row: the bare name printed in `names` mode and
@@ -222,31 +344,31 @@ pub struct MetricFamily {
 /// scannable; rustfmt would otherwise wrap each struct over many lines.
 #[rustfmt::skip]
 pub const METRICS: &[MetricInfo] = &[
-    MetricInfo { id: "cognitive",           family: "cognitive",  long_description: "Cognitive Complexity exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
-    MetricInfo { id: "cyclomatic",          family: "cyclomatic", long_description: "Cyclomatic Complexity exceeds the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
-    MetricInfo { id: "cyclomatic.modified", family: "cyclomatic", long_description: "Modified Cyclomatic Complexity exceeds the configured threshold.", direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
-    MetricInfo { id: "halstead.volume",     family: "halstead",   long_description: "Halstead volume exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "halstead.difficulty", family: "halstead",   long_description: "Halstead difficulty exceeds the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "halstead.effort",     family: "halstead",   long_description: "Halstead effort exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "halstead.time",       family: "halstead",   long_description: "Halstead time-to-program exceeds the configured threshold.",      direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "halstead.bugs",       family: "halstead",   long_description: "Estimated Halstead bugs exceed the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "loc.sloc",            family: "loc",        long_description: "Source lines of code exceed the configured threshold.",            direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "loc.ploc",            family: "loc",        long_description: "Physical lines of code exceed the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "loc.lloc",            family: "loc",        long_description: "Logical lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "loc.cloc",            family: "loc",        long_description: "Comment lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "loc.blank",           family: "loc",        long_description: "Blank lines of code exceed the configured threshold.",             direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "loc.dloc",            family: "loc",        long_description: "Documentation lines of code exceed the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
-    MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
-    MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
-    MetricInfo { id: "mi.original",         family: "mi",         long_description: "Maintainability Index falls below the configured threshold.",      direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "mi.sei",              family: "mi",         long_description: "Maintainability Index (SEI) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "mi.visual_studio",    family: "mi",         long_description: "Maintainability Index (Visual Studio) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "abc",                 family: "abc",        long_description: "ABC magnitude exceeds the configured threshold.",                  direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
-    MetricInfo { id: "wmc",                 family: "wmc",        long_description: "Weighted Methods per Class exceeds the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
-    MetricInfo { id: "npm",                 family: "npm",        long_description: "Number of public methods exceeds the configured threshold.",       direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
-    MetricInfo { id: "npa",                 family: "npa",        long_description: "Number of public attributes exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
+    MetricInfo { id: "cognitive",           family: "cognitive",  long_description: "Cognitive Complexity exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "cyclomatic",          family: "cyclomatic", long_description: "Cyclomatic Complexity exceeds the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "cyclomatic.modified", family: "cyclomatic", long_description: "Modified Cyclomatic Complexity exceeds the configured threshold.", direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "halstead.volume",     family: "halstead",   long_description: "Halstead volume exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "halstead.difficulty", family: "halstead",   long_description: "Halstead difficulty exceeds the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "halstead.effort",     family: "halstead",   long_description: "Halstead effort exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "halstead.time",       family: "halstead",   long_description: "Halstead time-to-program exceeds the configured threshold.",      direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "halstead.bugs",       family: "halstead",   long_description: "Estimated Halstead bugs exceed the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "loc.sloc",            family: "loc",        long_description: "Source lines of code exceed the configured threshold.",            direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "loc.ploc",            family: "loc",        long_description: "Physical lines of code exceed the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "loc.lloc",            family: "loc",        long_description: "Logical lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "loc.cloc",            family: "loc",        long_description: "Comment lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "loc.blank",           family: "loc",        long_description: "Blank lines of code exceed the configured threshold.",             direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "loc.dloc",            family: "loc",        long_description: "Documentation lines of code exceed the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File,      scale: Scale::Ratio },
+    MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container, scale: Scale::Ratio },
+    MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "mi.original",         family: "mi",         long_description: "Maintainability Index falls below the configured threshold.",      direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function,  scale: MI_UNBOUNDED },
+    MetricInfo { id: "mi.sei",              family: "mi",         long_description: "Maintainability Index (SEI) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function,  scale: MI_UNBOUNDED },
+    MetricInfo { id: "mi.visual_studio",    family: "mi",         long_description: "Maintainability Index (Visual Studio) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function,  scale: MI_PERCENT },
+    MetricInfo { id: "abc",                 family: "abc",        long_description: "ABC magnitude exceeds the configured threshold.",                  direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function,  scale: Scale::Ratio },
+    MetricInfo { id: "wmc",                 family: "wmc",        long_description: "Weighted Methods per Class exceeds the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container, scale: Scale::Ratio },
+    MetricInfo { id: "npm",                 family: "npm",        long_description: "Number of public methods exceeds the configured threshold.",       direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container, scale: Scale::Ratio },
+    MetricInfo { id: "npa",                 family: "npa",        long_description: "Number of public attributes exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container, scale: Scale::Ratio },
 ];
 
 /// Canonical `bca list-metrics` view. Family summaries moved here
@@ -402,6 +524,13 @@ pub fn lower_is_worse(id: &str) -> bool {
 #[must_use]
 pub fn scope(id: &str) -> Option<MetricScope> {
     lookup(id).map(|m| m.scope)
+}
+
+/// The [`Scale`] of metric `id` (issue #1621), or `None` for an id the
+/// catalog does not know. The free-function twin of [`scope`].
+#[must_use]
+pub fn scale(id: &str) -> Option<Scale> {
+    lookup(id).map(|m| m.scale)
 }
 
 /// The names [`resolve_selector`] advertises: every family name (`loc`,
@@ -723,6 +852,85 @@ mod tests {
             METRICS.len(),
             "every metric must have exactly one scope"
         );
+    }
+
+    /// Exactly the three `mi.*` rows are interval-scale (#1621), each
+    /// with a finite positive unit and an ordered domain; every count is
+    /// ratio-scale.
+    #[test]
+    #[allow(clippy::float_cmp)] // The derived units are exact constants.
+    fn scale_is_interval_for_exactly_the_mi_family() {
+        let mut interval: Vec<&str> = Vec::new();
+        for m in METRICS {
+            match m.scale {
+                Scale::Interval { min, max, unit } => {
+                    assert_eq!(m.family, "mi", "{} is interval-scale", m.id);
+                    assert!(unit.is_finite() && unit > 0.0, "{} unit {unit}", m.id);
+                    assert!(min <= max, "{} domain [{min}, {max}]", m.id);
+                    interval.push(m.id);
+                }
+                Scale::Ratio => assert_ne!(m.family, "mi", "{} is ratio-scale", m.id),
+            }
+        }
+        interval.sort_unstable();
+        assert_eq!(interval, ["mi.original", "mi.sei", "mi.visual_studio"]);
+
+        // One Visual Studio band (10 points) on the 171-point scale.
+        assert_eq!(MI_ORIGINAL_UNIT, 17.1);
+        for id in ["mi.original", "mi.sei"] {
+            assert_eq!(
+                scale(id),
+                Some(Scale::Interval {
+                    min: f64::NEG_INFINITY,
+                    max: f64::INFINITY,
+                    unit: 17.1
+                }),
+                "{id}"
+            );
+        }
+        assert_eq!(
+            scale("mi.visual_studio"),
+            Some(Scale::Interval {
+                min: 0.0,
+                max: 100.0,
+                unit: 10.0
+            })
+        );
+    }
+
+    #[test]
+    fn cmp_worse_orients_by_direction() {
+        let cyc = lookup("cyclomatic").expect("known");
+        assert_eq!(cyc.cmp_worse(20.0, 10.0), Ordering::Greater);
+        assert_eq!(cyc.cmp_worse(10.0, 20.0), Ordering::Less);
+        assert_eq!(cyc.cmp_worse(3.0, 3.0), Ordering::Equal);
+
+        let mi = lookup("mi.original").expect("known");
+        assert_eq!(mi.cmp_worse(-20.0, 10.0), Ordering::Greater);
+        assert_eq!(mi.cmp_worse(10.0, -20.0), Ordering::Less);
+        // Signed zeros are one value, as they are to `breaches`: an MI of
+        // `-0.0` against a record of `0.0` is not a regression.
+        for info in [cyc, mi] {
+            assert_eq!(info.cmp_worse(-0.0, 0.0), Ordering::Equal, "{}", info.id);
+            assert_eq!(info.cmp_worse(0.0, -0.0), Ordering::Equal, "{}", info.id);
+        }
+    }
+
+    /// NaN sorts as the worst value in either direction, so a sort by
+    /// `cmp_worse` puts a NaN measurement with the regressions.
+    #[test]
+    fn cmp_worse_ranks_nan_worst_in_both_directions() {
+        for id in ["cyclomatic", "mi.original"] {
+            let info = lookup(id).expect("known");
+            for finite in [f64::NEG_INFINITY, -5.0, 0.0, 1e9, f64::INFINITY] {
+                assert_eq!(info.cmp_worse(f64::NAN, finite), Ordering::Greater, "{id}");
+                assert_eq!(info.cmp_worse(finite, f64::NAN), Ordering::Less, "{id}");
+            }
+            assert_eq!(info.cmp_worse(f64::NAN, -f64::NAN), Ordering::Equal, "{id}");
+            let mut values = [3.0, f64::NAN, -2.0, 7.0];
+            values.sort_by(|a, b| info.cmp_worse(*a, *b));
+            assert!(values[3].is_nan(), "{id}: {values:?}");
+        }
     }
 
     /// [`MetricScope::admits`] gates exactly the intended kinds: File only
