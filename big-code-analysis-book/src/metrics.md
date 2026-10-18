@@ -1188,8 +1188,8 @@ DLOC ≤ CLOC                                 # every documentation row is a com
   It is the canonical size proxy, but is sensitive to formatting and
   not portable across language conventions.
 - **PLOC** strips away the visual noise. It is the measure to gate
-  file length on (`loc.ploc`); note that the Maintainability Index
-  below sizes a space on SLOC less DLOC, not on PLOC.
+  file length on (`loc.ploc`), and the size term of the
+  Maintainability Index below.
 - **LLOC** is the most reliable *statement* count. It is the right
   measure if you are budgeting test cases per statement, or comparing
   the density of a Python file against a Java file.
@@ -1199,10 +1199,8 @@ DLOC ≤ CLOC                                 # every documentation row is a com
 - **BLANK** is mostly diagnostic: a file with very low BLANK
   proportion is often hard to read.
 - **DLOC** is the slice of CLOC that is documentation: doc comments,
-  docstrings, POD. `CLOC − DLOC` is the count of working comments, and
-  `SLOC − DLOC` is the file's size with its documentation removed,
-  which — keeping any documentation row that also carries code — is
-  the size term the Maintainability Index uses.
+  docstrings, POD. `CLOC − DLOC` is the count of working comments, the
+  numerator of the Maintainability Index's SEI comment share.
 
 The emergent uses of LOC variants go well beyond raw size. They are
 the most common input into cost-estimation models (COCOMO and COCOMO
@@ -1239,50 +1237,61 @@ The three values nest under the `mi` object as the keys `original`,
 `mi.sei`, `mi.visual_studio`):
 
 ```text
-code_lines       = SLOC − (DLOC rows that carry no code)
-comment_percent  = 100 · (CLOC − DLOC) / code_lines, clamped to [0, 100]
-
-mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(code_lines)
-mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(code_lines) + 50·sin(√(2.4·comment_percent))
+mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(PLOC)
+mi.sei           = mi.original + 50·sin(√(2.4·CM))
 mi.visual_studio = max(0, mi.original · 100 / 171)
+
+CM               = (CLOC − DLOC) / (SLOC − DLOC rows that carry no code), in [0, 1]
 ```
 
 - `mi.original` is the Coleman–Oman formula. It can be negative for
   pathological files.
 - `mi.sei` is the Software Engineering Institute's refinement, which
   adds a comment-density term — the `sin(√(...))` shape was chosen so
-  that *some* comments help, but adding more after a point does not.
-  `comment_percent` is the share of non-documentation comment rows among
-  the code lines, expressed as a percentage in `[0, 100]` (not a ratio
-  in `[0, 1]`); the code feeds this percentage straight into the SEI
-  term (see `src/metrics/mi.rs` and issue #241).
+  that *some* comments help, but adding more after a point does not,
+  and never hurts. `CM` is the share of working (non-documentation)
+  comment rows among the space's rows, a ratio in `[0, 1]`. On that
+  scale the term rises monotonically from 0 with no comment to about
+  50 (`50·sin(√2.4)` ≈ 49.99) when every row is a comment, so `mi.sei`
+  is never below `mi.original` and equals it in a comment-free space.
 - `mi.visual_studio` is the linear rescaling Microsoft chose for
   Visual Studio, where the score is clamped to `[0, 100]` and shown
   to developers traffic-light style: green ≥ 20, yellow ≥ 10, red
   below.
 
-The size term is `SLOC` less the documentation (DLOC) rows that carry
-no code (a doc comment or docstring sharing its row with code, as in
-`def f(): """doc"""` or `int x; /** doc */`, keeps that row counted).
-Documentation therefore leaves the size term and both sides of the
-comment ratio in every language, so a function scores the same with
-and without its Rust `///` block, its Javadoc comment, its POD or its
-docstring (#1597), which keeps MI consistent with Halstead, where a
-docstring's operands are already ignored. Every working comment row
-and every blank row is still charged, as the published formulas charge
-them: a `// TODO` or a commented-out block lowers all three variants
-by `16.2·ln` of the growth it adds, with Halstead and cyclomatic
-unchanged. A PLOC or LLOC size term, and a monotonic SEI comment
-term, are open in #1607.
+The size term is `PLOC`, the rows that carry code (#1607). Comment,
+documentation and blank rows never enter it, so a `// TODO`, a
+commented-out block, a Rust `///` block, a docstring or a run of blank
+lines leaves `mi.original` and `mi.visual_studio` exactly where they
+were, with Halstead and cyclomatic unchanged. A row a doc comment or
+docstring shares with code, as in `def f(): """doc"""` or
+`int x; /** doc */`, is a code row and stays counted.
+
+Documentation also leaves both sides of `CM` in every language
+(#1597), so a function's `mi.sei` is the same with and without its
+`///` block, its Javadoc comment, its POD or its docstring, which keeps
+MI consistent with Halstead, where a docstring's operands are already
+ignored. Blank rows stay in `CM`'s denominator: adding one to a space
+with a working comment dilutes the comment share and lowers `mi.sei`
+slightly, while a comment-free space is unmoved.
+
+Two details differ from some published statements of the SEI formula.
+Its `ln` matches `mi.original`'s; releases before #1607 took `log2` of
+the volume and size in `mi.sei` alone. And `CM` is a ratio rather than
+a percentage: on the 0–100 scale the `sin` term swings between −50 and
++50 several times across ordinary comment densities.
 
 ### Charging documentation {#mi-charges-docs}
 
-The documentation-inclusive formula is one setting away. With
-`mi_charges_docs` on, every variant sizes a space on `SLOC` and `mi.sei`
-takes its comment share as `CLOC / SLOC`, which is how releases without
-`loc.dloc` computed them. Use it to compare against scores such a
-release recorded, or to keep an MI gate on its old numbers. It changes
-no other metric: `loc.dloc` is reported either way.
+With `mi_charges_docs` on, `mi.sei` counts documentation as comment:
+it takes its comment share as `CLOC / SLOC`, the inputs releases
+without `loc.dloc` fed that share. Nothing else moves. The size term is
+`PLOC` in both modes, so `mi.original` and `mi.visual_studio` read the
+same either way, and since the comment term only rises with `CM`,
+charging documentation can only raise `mi.sei`. It does not reproduce
+an earlier release's numbers: those sized every variant on `SLOC` and
+took `mi.sei` on a different scale. It changes no other metric:
+`loc.dloc` is reported either way.
 
 - Library: `MetricsOptions::default().with_mi_charges_docs(true)`.
 - CLI: `--mi-charges-docs` (or `--mi-charges-docs=false` to say the
@@ -1293,19 +1302,28 @@ no other metric: `loc.dloc` is reported either way.
 - The REST server has no request field for it; an embedder sets
   `WebMetricsCfg::with_mi_charges_docs`.
 
-The setting restores the old *formula*, not every old *number*: the
-LOC inputs it reads are the current ones, so a Python file whose
+The LOC inputs it reads are the current ones, so a Python file whose
 docstring is an implicit concatenation (`"""doc""" "more"`) or whose
-bare `"a", "b"` tuple statement was once a comment row scores
-differently from a release that classified those rows the other way.
+bare `"a", "b"` tuple statement was once a comment row reads a
+different comment share from a release that classified those rows the
+other way.
 
 A baseline records which mode wrote it, and `bca check --baseline`
-warns when it reads `mi.*` entries under the other mode. The mismatch
-has no safe direction (the SEI comment term is not monotonic), so
-switching the mode means reviewing any `mi.*` threshold and
-regenerating the baseline in the same change, as for
-`cyclomatic_count_try`. `bca check --print-effective-config` names the
-mode in force.
+warns when it reads `mi.*` entries under the other mode. Only `mi.sei`
+entries can disagree, and in one direction: a value recorded with
+documentation charged sits above the default's, so reading it under the
+default can fire on untouched code, and a value recorded under the
+default can cover a real regression under the charged mode. Switching
+the mode therefore means reviewing any `mi.sei` threshold and regenerating the baseline in
+the same change, as for `cyclomatic_count_try`.
+`bca check --print-effective-config` names the mode in force.
+
+A baseline also records the MI formula revision that computed its
+values (`mi_formula` in `[provenance]`; revision 2 since #1607, and an
+unstamped file reads as revision 1). When a baseline holding any
+`mi.*` entry was written under another revision, `bca check
+--baseline` warns that its values are not comparable, in place of the
+mode warning; refresh it with `--write-baseline`.
 
 The historical context, and a sharp critique of the metric, is
 collected on Arie van Deursen's blog post [*Think Twice Before Using
@@ -1317,10 +1335,10 @@ Index*](https://avandeursen.com/2014/08/29/think-twice-before-using-the-maintain
 The implementation is purely arithmetic — `src/metrics/mi.rs`
 consumes the already-computed `Halstead`, `Cyclomatic`, and `LOC`
 metrics and applies the three formulas. Because the formulas use the
-natural log of Halstead volume and of the code-line count, MI is
+natural log of Halstead volume and of `PLOC`, MI is
 undefined for empty files; big-code-analysis returns `0.0` for any
-space with zero code lines (a docstring-only module included) or zero
-Halstead volume. That `0.0` is a sentinel, not a score, and it cannot be
+space with zero code lines or zero Halstead volume (a comment-only
+file or a docstring-only module has no volume). That `0.0` is a sentinel, not a score, and it cannot be
 told apart from a measured 0 or from `mi.visual_studio`'s clamp:
 `mi::Stats::is_empty()` identifies such a space in the library, and
 `bca report`'s averages skip it. The JSON value stays `0.0` until 3.0,

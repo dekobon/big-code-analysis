@@ -135,10 +135,10 @@ pub(crate) struct AnalyzeOptions {
     /// it (or pass `MetricSet::all()`) when the caller did not request
     /// a subset (#268).
     pub metrics: MetricSet,
-    /// Mirror `bca metrics --mi-charges-docs`: have every `mi.*`
-    /// variant charge documentation rows, the formula applied before
-    /// `loc.dloc` existed. Default `false` matches the CLI and the
-    /// library (#1597).
+    /// Mirror `bca metrics --mi-charges-docs`: have `mi.sei`'s comment
+    /// ratio count documentation rows as comments, `cloc / sloc`; the
+    /// other `mi.*` variants read the same either way. Default `false`
+    /// matches the CLI and the library (#1597).
     pub mi_charges_docs: bool,
 }
 

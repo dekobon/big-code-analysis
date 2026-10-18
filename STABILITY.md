@@ -1033,6 +1033,21 @@ constant must also:
 The schema author owns this checklist. The release-prep section of
 [`RELEASING.md`](RELEASING.md) references back to this contract.
 
+**An additive `[provenance]` key is not a schema bump, and so is not
+caught by it.** A key an older reader ignores keeps the file readable
+there, which is the point; the cost is that the older reader cannot
+know what the key meant. The `mi_formula` stamp (#1607) is the live
+case: a baseline `bca ≥ 2.4` writes records its `mi.*` values under
+formula revision 2, together with negative `mi.original` / `mi.sei`
+entries (#1611). A `bca ≤ 2.3` reading it drops the unknown key, drops
+every negative entry as unrecordable, and compares the revision-2
+values with its own revision-1 numbers — silently, since only the
+newer reader carries the revision warning. **Pin `bca ≥ 2.4` wherever
+a 2.4-written baseline is read** (the `BCA_VERSION` block of the CI
+recipe), the same way a schema bump would have forced. The reverse
+direction, a 2.4 reader on a 2.3-written file, warns on every run until
+the file is refreshed.
+
 ### `bca check` exit codes
 
 `bca check` has a stable process-exit contract, separate from the

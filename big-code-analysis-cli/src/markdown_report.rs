@@ -445,8 +445,8 @@ pub(super) fn mi_rating(mi: f64) -> &'static str {
 pub(super) const AVG_MI_LABEL: &str = "Average MI (SLOC-weighted)";
 
 /// Visual Studio MI rescale factor. `mi.original()` is the raw `171 −
-/// 5.2·ln V − 0.23·G − 16.2·ln L` formula, `L` being SLOC less the
-/// documentation rows that carry no code (#1597); `mi.visual_studio()`
+/// 5.2·ln V − 0.23·G − 16.2·ln L` formula, `L` being PLOC, the rows that
+/// carry code (#1607); `mi.visual_studio()`
 /// rescales it onto 0–100 and floors at 0. Multiplying `mi_original` by
 /// this factor recovers the *unclamped* Visual Studio value — the same
 /// expression `mi_visual_studio` clamps — so a file whose displayed MI

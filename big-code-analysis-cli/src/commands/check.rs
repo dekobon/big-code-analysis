@@ -612,7 +612,7 @@ pub(crate) fn filter_by_baseline(
     if let Some(msg) = provenance_warning(provenance, baseline.provenance()) {
         warn(msg);
     }
-    if let Some(msg) = baseline.mi_mode_warning_for(provenance, &violations) {
+    if let Some(msg) = baseline.mi_warning_for(provenance, &violations) {
         warn(msg);
     }
     let before = violations.len();

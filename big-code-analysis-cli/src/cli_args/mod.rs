@@ -236,17 +236,16 @@ pub(crate) struct WalkTuningArgs {
         help_heading = "Walker tuning"
     )]
     pub(crate) cyclomatic_count_try: Option<bool>,
-    /// Whether the maintainability index charges documentation rows.
-    /// Defaults to `false`: every `mi.*` variant sizes a space on its
-    /// rows less the documentation rows (`loc.dloc`) that carry no
-    /// code, and `mi.sei`'s comment ratio leaves documentation out of
-    /// both sides, so a docstring, a `///` block or a Javadoc comment
-    /// moves no variant. Pass `--mi-charges-docs` to apply the
-    /// documentation-inclusive formula instead — the size term is
-    /// `sloc` and the ratio `cloc / sloc`, as releases without
-    /// `loc.dloc` computed them — for instance to compare against scores
-    /// such a release recorded. Only `mi.*` moves; `loc.dloc` and every other
-    /// metric read the same either way. Mirrors the `mi_charges_docs`
+    /// Whether `mi.sei`'s comment share counts documentation rows.
+    /// Defaults to `false`: the comment ratio leaves documentation
+    /// (`loc.dloc`) out of both sides, so a docstring, a `///` block or
+    /// a Javadoc comment does not move it. Pass `--mi-charges-docs` to
+    /// count documentation as comments instead, the ratio `cloc / sloc`;
+    /// this can only raise `mi.sei`. Every `mi.*` variant sizes a space on
+    /// `loc.ploc` either way, so `mi.original` and `mi.visual_studio`
+    /// read the same in both modes, and the flag does not reproduce an
+    /// earlier release's scores. `loc.dloc` and every other metric read
+    /// the same either way. Mirrors the `mi_charges_docs`
     /// manifest key; the CLI value overrides the manifest in either
     /// direction.
     #[clap(

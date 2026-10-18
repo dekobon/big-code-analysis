@@ -106,8 +106,9 @@ pub struct WebMetricsCfg {
     /// did before #182. Toggle via
     /// [`WebMetricsCfg::with_exclude_tests`].
     pub exclude_tests: bool,
-    /// When true, every `mi.*` variant charges documentation rows, the
-    /// formula applied before `loc.dloc` existed (#1597). Defaults to
+    /// When true, `mi.sei`'s comment ratio counts documentation rows as
+    /// comments, `cloc / sloc` (#1597); the other `mi.*` variants read
+    /// the same either way. Defaults to
     /// false at every call site, matching the library; the REST request
     /// shapes carry no field for it, so it is reachable by an embedder
     /// through [`WebMetricsCfg::with_mi_charges_docs`] only.
@@ -195,6 +196,7 @@ mod tests {
     /// (#1597). Config-only on purpose: neither request shape carries
     /// the field, so an embedder is the only caller that can set it.
     #[test]
+    #[allow(clippy::float_cmp)] // Same inputs, same formula: the values are bit-identical.
     fn mi_charges_docs_builder_reaches_the_walk() {
         let code = b"def f():\n    \"\"\"Doc.\n    More.\"\"\"\n    return 1\n";
         let cfg = |charges: bool| {
@@ -218,7 +220,20 @@ mod tests {
         let (excluded, charged) = (run(false), run(true));
         assert_eq!(default.metrics, excluded.metrics, "false is the default");
         assert_eq!(excluded.metrics.loc.dloc(), 2);
-        assert_ne!(excluded.metrics.mi, charged.metrics.mi);
+        // The mode moves only `sei`'s comment share (#1607): the size term
+        // is `ploc` either way, and charging the docstring raises `sei`.
+        assert_eq!(
+            excluded.metrics.mi.original(),
+            charged.metrics.mi.original()
+        );
+        assert_eq!(
+            excluded.metrics.mi.visual_studio(),
+            charged.metrics.mi.visual_studio()
+        );
+        // The buffer's only comment rows are docstring, so the default
+        // comment share is 0 and `sei` is `original` exactly.
+        assert_eq!(excluded.metrics.mi.sei(), excluded.metrics.mi.original());
+        assert!(charged.metrics.mi.sei() > excluded.metrics.mi.sei());
         assert_eq!(excluded.metrics.loc, charged.metrics.loc);
         assert_eq!(excluded.metrics.halstead, charged.metrics.halstead);
         assert_eq!(excluded.metrics.cyclomatic, charged.metrics.cyclomatic);

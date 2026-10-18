@@ -87,6 +87,80 @@ fn tty_diff_reports_all_buckets_and_exits_zero() {
 }
 
 #[test]
+fn baselines_from_different_mi_formula_revisions_warn() {
+    // An unstamped file reads as revision 1; a file `bca >= 2.4` wrote
+    // carries `mi_formula = 2`. Their `mi.*` values are not comparable,
+    // so the diff says so (#1607) — and stays silent when they agree.
+    let entry = "[[entry]]\npath = \"src/foo.rs\"\nqualified = \"f\"\n\
+                 start_line = 1\nmetric = \"mi.original\"\nvalue = ";
+    let unstamped = format!("version = 6\n{entry}20.0\n");
+    let stamped =
+        format!("version = 6\n[provenance]\ntier = \"hard\"\nmi_formula = 2\n{entry}30.0\n");
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("v1.toml"), &unstamped).unwrap();
+    fs::write(dir.path().join("v2.toml"), &stamped).unwrap();
+    fs::write(dir.path().join("v2b.toml"), stamped.replace("30.0", "25.0")).unwrap();
+    let line = "warning: the baselines record mi.* under MI formula revisions 1 and 2";
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "v1.toml", "v2.toml"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(line));
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "v2.toml", "v2b.toml"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("MI formula revisions").not());
+}
+
+#[test]
+fn a_formula_revision_mismatch_needs_an_mi_entry() {
+    // Every write stamps the revision, so a pre-2.4 baseline diffed
+    // against its refresh always disagrees. With no `mi.*` entry on
+    // either side there is no MI value for the revision to explain, and
+    // the diff stays silent, as `check --baseline` does; an `mi.*` entry
+    // on one side is enough, since a formula change adds entries too.
+    let cyclomatic = "[[entry]]\npath = \"src/foo.rs\"\nqualified = \"f\"\n\
+                      metric = \"cyclomatic\"\nvalue = ";
+    let mi = "[[entry]]\npath = \"src/foo.rs\"\nqualified = \"f\"\n\
+              metric = \"mi.original\"\nvalue = 30.0\n";
+    let stamped = "version = 6\n[provenance]\ntier = \"hard\"\nmi_formula = 2\n";
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("old.toml"),
+        format!("version = 6\n{cyclomatic}20.0\n"),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("new.toml"),
+        format!("{stamped}{cyclomatic}25.0\n"),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("new-mi.toml"),
+        format!("{stamped}{cyclomatic}25.0\n{mi}"),
+    )
+    .unwrap();
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "old.toml", "new.toml"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 worsened"))
+        .stderr(predicate::str::contains("MI formula revisions").not());
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "old.toml", "new-mi.toml"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "warning: the baselines record mi.* under MI formula revisions 1 and 2",
+        ));
+}
+
+#[test]
 fn empty_diff_exits_zero_with_summary() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.toml"), "version = 4\n").unwrap();

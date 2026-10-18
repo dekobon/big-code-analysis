@@ -1,8 +1,9 @@
 """The ``mi_charges_docs`` kwarg (#1597) on every analysis entry point.
 
-By default every ``mi.*`` variant leaves documentation rows out of its
-size term and comment ratio; ``mi_charges_docs=True`` applies the
-documentation-inclusive formula releases without ``loc.dloc`` used.
+Every ``mi.*`` variant sizes a space on ``loc.ploc`` (#1607), so the
+mode reaches only ``mi.sei``'s comment share: by default documentation
+rows leave both sides of the ratio, and ``mi_charges_docs=True`` counts
+every comment row over every physical row.
 Each of the five entry points carries the kwarg, and the stub (gated by
 ``make py-stubtest``) only proves the signature, so every one is driven
 here to prove the value reaches MI.
@@ -51,13 +52,19 @@ def test_charging_docs_moves_mi_and_nothing_else_through_analyze_source() -> Non
 
     assert default == explicit, "False is the default"
     assert default["metrics"]["loc"]["dloc"] == 5, "the fixture is documented"
-    assert _mi(default) != _mi(charged)
     # The function space holds the docstring too, so it moves as well:
     # both finalisation paths carry the mode.
-    assert _mi(default["spaces"][0]) != _mi(charged["spaces"][0])
+    for d, c in [
+        (_mi(default), _mi(charged)),
+        (_mi(default["spaces"][0]), _mi(charged["spaces"][0])),
+    ]:
+        # `original` and `visual_studio` size on ploc in both modes.
+        assert (d[0], d[2]) == (c[0], c[2])
+        # The fixture has no working comment, so the default share is 0
+        # and charging the docstring can only raise `sei`.
+        assert d[1] == d[0]
+        assert c[1] > d[1]
     assert _without_mi(default) == _without_mi(charged), "only mi moves"
-    # Sized on every row, the charged mode scores lower.
-    assert _mi(charged)[0] < _mi(default)[0]
 
 
 def test_every_entry_point_carries_the_kwarg(tmp_path: Path) -> None:

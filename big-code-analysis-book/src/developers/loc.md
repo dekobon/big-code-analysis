@@ -67,7 +67,7 @@ a Python docstring, a Perl POD block. Those rows are always counted in
 CLOC too, so DLOC never exceeds it. Which comments are documentation
 is each language's own tool's rule (Doxygen, Javadoc, KDoc, JSDoc,
 PHPDoc, C# XML docs, LDoc, go/doc, YARD), and the Maintainability
-Index sizes a space on SLOC less the DLOC rows that carry no code. An
+Index leaves DLOC out of its SEI comment share. An
 Elixir `@doc` heredoc is an assignment that counts as code.
 
 METRIC VALUE: 1
@@ -102,10 +102,13 @@ in `sloc` and `blank`, exactly as interior blank rows are reported.
 To implement the LoC related metrics described above you need to
 implement the `Loc` trait for the language you want to support.
 
-This requires implementing the `compute` function.
-See
-[/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/metrics/loc.rs)
-for where to implement, as well as examples from other languages.
+This requires implementing the `compute` function. Each language's
+`impl Loc` lives in its own file under
+[/src/metrics/loc/](https://github.com/dekobon/big-code-analysis/tree/main/src/metrics/loc)
+(`rust.rs`, `python.rs`, …), with the row-billing helpers every arm
+routes through in `shared.rs`; the tests stay in
+[/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/metrics/loc.rs).
+Read a sibling language's file for the shape.
 
 Take care with the catch-all `_` arm that inserts a row into PLOC. If
 the grammar surfaces its row terminator as a *token* rather than as

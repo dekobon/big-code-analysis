@@ -330,7 +330,8 @@ mod tests {
     }
 
     /// A doc comment sharing its row with code is a `dloc` row and a code
-    /// row at once; `dloc_without_code` leaves it to the MI size term,
+    /// row at once; `dloc_without_code` leaves it in the denominator of
+    /// `mi.sei`'s comment ratio,
     /// as it does for `def f(): """doc"""` (#1597).
     #[cfg(all(
         feature = "c",
@@ -369,7 +370,7 @@ mod tests {
             assert_eq!(
                 loc.dloc_without_code(),
                 0,
-                "{lang:?} {text:?}: the shared row stays in the size term"
+                "{lang:?} {text:?}: the shared row stays a physical row"
             );
         }
     }

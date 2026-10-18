@@ -1499,3 +1499,107 @@ fn check_provenance_silent_when_either_side_is_soft_table() {
         ProvenanceCheck::Ok
     );
 }
+
+// -- MI formula revision (issue #1607) ---------------------------------
+
+/// A run's provenance at MI formula `revision`, as `bca check` stamps it.
+fn run_at(revision: u8) -> Provenance {
+    Provenance::hard()
+        .with_mi_charges_docs(false)
+        .with_mi_formula(revision)
+}
+
+/// A baseline holding one `mi.sei` entry (or a `cyclomatic` one when
+/// `with_mi` is false) under `provenance_toml`'s `[provenance]` table.
+fn mi_baseline(provenance_toml: &str, with_mi: bool) -> Baseline {
+    let metric = if with_mi { "mi.sei" } else { "cyclomatic" };
+    let toml = format!(
+        "version = {BASELINE_VERSION}\n{provenance_toml}\n[[entry]]\npath = \"a.py\"\nqualified = \"f\"\nmetric = \"{metric}\"\nvalue = 5.0\n"
+    );
+    Baseline::from_str(&toml, test_anchor(), DEFAULT_LINE_TOLERANCE, false).expect("parse")
+}
+
+const FORMULA_WARNING_REV1: &str = "this baseline records mi.* values under MI formula revision 1; \
+     this run computes revision 2. The recorded values are not comparable and can misclassify \
+     a regression. Review any mi.* threshold and refresh with `--write-baseline <file>`.";
+
+#[test]
+fn an_unstamped_baseline_reads_as_mi_formula_revision_1() {
+    // No `[provenance]` at all, and a table without the key: both are
+    // files every pre-stamp bca wrote, under revision 1. The warning needs
+    // no live `mi.*` offender, so the violation list is empty.
+    for provenance in ["", "[provenance]\ntier = \"hard\"\nmi_charges_docs = false"] {
+        let b = mi_baseline(provenance, true);
+        assert_eq!(
+            b.mi_warning_for(run_at(MI_FORMULA_REVISION), &[])
+                .as_deref(),
+            Some(FORMULA_WARNING_REV1),
+            "provenance {provenance:?}"
+        );
+        // Without an `mi.*` entry there is nothing recorded to misread.
+        let b = mi_baseline(provenance, false);
+        assert_eq!(b.mi_warning_for(run_at(MI_FORMULA_REVISION), &[]), None);
+    }
+}
+
+#[test]
+fn equal_mi_formula_revisions_are_silent_and_a_newer_file_warns() {
+    let stamped = |rev: u8| {
+        mi_baseline(
+            &format!("[provenance]\ntier = \"hard\"\nmi_charges_docs = false\nmi_formula = {rev}"),
+            true,
+        )
+    };
+    assert_eq!(stamped(2).mi_warning_for(run_at(2), &[]), None);
+    let msg = stamped(3)
+        .mi_warning_for(run_at(2), &[])
+        .expect("a newer revision warns too");
+    assert!(
+        msg.contains("revision 3; this run computes revision 2"),
+        "{msg}"
+    );
+    // A run whose own revision is unknown has nothing to compare.
+    assert_eq!(
+        mi_formula_warning(Provenance::hard(), MI_FORMULA_UNSTAMPED, true),
+        None
+    );
+}
+
+#[test]
+fn a_formula_mismatch_suppresses_the_mode_warning() {
+    // The baseline differs from the run in both revision and mode, and an
+    // `mi.*` offender is read against it: only the formula warning fires.
+    let b = mi_baseline(
+        "[provenance]\ntier = \"hard\"\nmi_charges_docs = true\nmi_formula = 1",
+        true,
+    );
+    let offender = [v_low("a.py", "f", 1, "mi.sei", 1.0)];
+    assert_eq!(
+        b.mi_warning_for(run_at(2), &offender).as_deref(),
+        Some(FORMULA_WARNING_REV1)
+    );
+    // With the revisions agreeing, the mode mismatch is reported.
+    let b = mi_baseline(
+        "[provenance]\ntier = \"hard\"\nmi_charges_docs = true\nmi_formula = 2",
+        true,
+    );
+    let msg = b
+        .mi_warning_for(run_at(2), &offender)
+        .expect("mode warning");
+    assert!(msg.contains("--mi-charges-docs=true"), "{msg}");
+}
+
+#[test]
+fn a_written_baseline_round_trips_the_mi_formula_revision() {
+    let file = from_violations(
+        vec![v_low("src/a.py", "f", 10, "mi.sei", 5.0)],
+        test_anchor(),
+        run_at(MI_FORMULA_REVISION),
+    );
+    let rendered = render(&file).expect("render");
+    assert!(rendered.contains("mi_formula = 2"), "{rendered}");
+    let reloaded = Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+        .expect("reload");
+    assert_eq!(reloaded.provenance(), Some(run_at(2)));
+    assert_eq!(reloaded.mi_warning_for(run_at(2), &[]), None);
+}

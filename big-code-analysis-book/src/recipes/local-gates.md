@@ -272,9 +272,10 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `=false` form), so its manifest key can only turn pruning **on** — a
   CLI `--exclude-tests` wins, but the manifest cannot turn off a key the
   CLI did not set.
-- `mi_charges_docs` mirrors `--mi-charges-docs`: `true` has every
-  `mi.*` variant charge documentation rows, the formula releases
-  without `loc.dloc` applied. Off by default, merged like
+- `mi_charges_docs` mirrors `--mi-charges-docs`: `true` has `mi.sei`'s
+  comment share count documentation rows as comments, which can only
+  raise `mi.sei`; `mi.original` and `mi.visual_studio` read the same
+  either way. Off by default, merged like
   `cyclomatic_count_try` (the CLI value wins in either direction). A
   baseline records the mode it was written under and `bca check` warns
   when it is read under the other; see

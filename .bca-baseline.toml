@@ -11,6 +11,7 @@ version = 6
 tier = "soft"
 headroom = 0.95
 mi_charges_docs = false
+mi_formula = 2
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"

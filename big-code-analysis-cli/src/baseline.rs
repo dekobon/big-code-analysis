@@ -85,14 +85,26 @@ pub(crate) use path_key::{anchor_for, lexical_normalize};
 /// - v6, `[provenance] mi_charges_docs` (#1597): the `[provenance]`
 ///   table also records whether the maintainability index charged
 ///   documentation rows when the file was written, so `bca check` can
-///   warn when it reads an `mi.*` entry under the other mode — a
-///   mismatch that is not directional, since the SEI comment term is
-///   not monotonic, and so is reported both ways. Absent from a file
+///   warn when it reads an `mi.*` entry under the other mode. Reported
+///   both ways: since #1607 only `mi.sei` differs, charged above the
+///   default, so either order can misjudge an entry. Absent from a file
 ///   written before the key existed, which reads as charging
 ///   documentation: every bca that wrote such a file did, so a missing
-///   key is evidence rather than an unknown. A `--write-baseline`
-///   refresh stamps it. No version bump: the field is optional and a v6
-///   reader ignores an unknown key.
+///   key is evidence rather than an unknown. Such a file also predates
+///   `mi_formula` below, whose warning takes precedence. A
+///   `--write-baseline` refresh stamps it. No version bump: the field is
+///   optional and a v6 reader ignores an unknown key.
+///
+/// - v6, `[provenance] mi_formula` (#1607): the `[provenance]` table
+///   also records the revision of the maintainability-index formula the
+///   file's `mi.*` values were computed under ([`MI_FORMULA_REVISION`]),
+///   so `bca check` can warn when it reads them under another revision —
+///   recorded values from a different formula are not comparable in
+///   either direction. Absent from a file written before the key existed,
+///   which reads as revision 1: every bca that wrote such a file sized MI
+///   on `sloc` and took `mi.sei` on `log2` and a percentage. A
+///   `--write-baseline` refresh stamps it. No version bump: the field is
+///   optional and a v6 reader ignores an unknown key.
 ///
 /// - v5 → v6: `start_line` is optional and is written **only** for an
 ///   entry whose `(path, qualified, metric)` identity is shared with
@@ -107,6 +119,24 @@ pub(crate) use path_key::{anchor_for, lexical_normalize};
 /// Either legacy version emits a one-time deprecation warning so the
 /// user knows to refresh.
 pub(crate) const BASELINE_VERSION: u32 = 6;
+
+/// Revision of the maintainability-index formula `mi.*` values are
+/// computed under, stamped into a written baseline's `[provenance]`
+/// (#1607). Revision 1 sized every variant on `sloc` (less documentation
+/// rows after #1597) and took `mi.sei` on `log2` with a percentage
+/// comment share; revision 2 sizes on `ploc` and takes `mi.sei` on `ln`
+/// with the 0–1 comment ratio. Bump it whenever a change moves `mi.*`
+/// values for unchanged code.
+pub(crate) const MI_FORMULA_REVISION: u8 = 2;
+
+/// The revision an unstamped baseline was written under: every bca
+/// before the stamp computed the revision-1 formula.
+pub(crate) const MI_FORMULA_UNSTAMPED: u8 = 1;
+
+/// The one `mi.*` metric the documentation mode
+/// (`MetricsOptions::mi_charges_docs`) moves, through its comment share
+/// (#1607); `mi.original` and `mi.visual_studio` read the same in both.
+const MODE_MOVED_METRIC: &str = "mi.sei";
 
 /// Lowest legacy version still accepted at read time. Below this we
 /// reject with a "regenerate" hint instead of silently mis-matching.
@@ -177,6 +207,12 @@ pub(crate) struct Provenance {
     /// check reads as `true`, the only mode such a file was written in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) mi_charges_docs: Option<bool>,
+    /// The MI formula revision the file's `mi.*` values were computed
+    /// under ([`MI_FORMULA_REVISION`], #1607). `None` for a file written
+    /// before the key existed, which the mismatch check reads as revision
+    /// 1, the only formula such a file was written under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) mi_formula: Option<u8>,
 }
 
 impl Provenance {
@@ -186,6 +222,7 @@ impl Provenance {
             tier: BaselineTier::Hard,
             headroom: None,
             mi_charges_docs: None,
+            mi_formula: None,
         }
     }
 
@@ -194,7 +231,7 @@ impl Provenance {
         Self {
             tier: BaselineTier::Soft,
             headroom: Some(headroom),
-            mi_charges_docs: None,
+            ..Self::hard()
         }
     }
 
@@ -203,8 +240,7 @@ impl Provenance {
     pub(crate) fn soft_table() -> Self {
         Self {
             tier: BaselineTier::Soft,
-            headroom: None,
-            mi_charges_docs: None,
+            ..Self::hard()
         }
     }
 
@@ -213,6 +249,14 @@ impl Provenance {
     #[must_use]
     pub(crate) fn with_mi_charges_docs(mut self, charges_docs: bool) -> Self {
         self.mi_charges_docs = Some(charges_docs);
+        self
+    }
+
+    /// This provenance, recording the MI formula revision the run
+    /// computes `mi.*` under (#1607).
+    #[must_use]
+    pub(crate) fn with_mi_formula(mut self, revision: u8) -> Self {
+        self.mi_formula = Some(revision);
         self
     }
 
@@ -251,27 +295,32 @@ pub(crate) enum ProvenanceCheck {
     StricterThanBaseline { current: f64, baseline: f64 },
 }
 
-/// Compose the stderr warning (#1597) when this run reads `mi.*` values
+/// Compose the stderr warning (#1597) when this run reads `mi.sei` values
 /// against a baseline written under the other MI documentation mode, or
-/// `None` when the modes agree, the run's mode is unknown, or nothing
-/// `mi.*` is compared: `compares_mi` is false unless the baseline holds an
-/// `mi.*` entry and the run has an `mi.*` offender to classify against it.
-/// A baseline that records no mode predates the stamp, and every bca that
-/// wrote one charged documentation, so it reads as `true` — which makes
-/// the upgrade, the one guaranteed mismatch, the case that warns. The
-/// mismatch has no safe direction: the SEI comment term is not monotonic
-/// in the rows the mode moves, so a recorded value can sit on either side
-/// of the live one, and a covered entry can read as a regression on
-/// untouched code while a real regression hides under a looser record.
+/// `None` when the modes agree, the run's mode is unknown, or nothing the
+/// mode moves is compared: `compares_sei` is false unless the baseline
+/// holds an `mi.sei` entry and the run has an `mi.sei` offender to
+/// classify against it. The mode moves only `mi.sei`'s comment share
+/// (#1607): `mi.original` and `mi.visual_studio` read the same under both,
+/// and charging documentation can only raise `mi.sei`. `mi.*` is
+/// lower-is-worse, so a `mi.sei` entry recorded charged fires on untouched
+/// code read under the default, and one recorded under the default covers
+/// a real regression read charged.
+///
+/// A baseline that records no mode reads as `true`, the only mode bca had
+/// before the stamp. Every file a release wrote without the key also lacks
+/// `mi_formula`, so [`mi_formula_warning`], which takes precedence, fires
+/// for it instead; the fallback shapes the message only for a hand-edited
+/// file that kept `mi_formula` and dropped the mode.
 pub(crate) fn mi_mode_warning(
     current: Provenance,
     baseline: Option<Provenance>,
-    compares_mi: bool,
+    compares_sei: bool,
 ) -> Option<String> {
     let live = current.mi_charges_docs?;
     let stamped = baseline.and_then(|p| p.mi_charges_docs);
     let recorded = stamped.unwrap_or(true);
-    if !compares_mi || live == recorded {
+    if !compares_sei || live == recorded {
         return None;
     }
     let describe = |charges: bool| {
@@ -292,12 +341,36 @@ pub(crate) fn mi_mode_warning(
     };
     Some(format!(
         "this check computes mi.* {} but the baseline {written}; its \
-         mi.* entries describe a different formula, so the gate can fire on \
-         untouched files or cover a real regression. Refresh it under this \
+         mi.sei entries describe a different comment share (mi.original and \
+         mi.visual_studio read the same in both modes), so the gate can fire \
+         on untouched files or cover a real regression. Refresh it under this \
          mode with `--write-baseline <file>`, or pass `--mi-charges-docs={}` \
          to match the baseline.",
         describe(live),
         recorded,
+    ))
+}
+
+/// Compose the stderr warning (#1607) when this run computes `mi.*` under
+/// a different formula revision than the baseline recorded, or `None`
+/// when the revisions agree, the run's revision is unknown, or the
+/// baseline holds no `mi.*` entry (`has_mi_entries`). Unlike
+/// [`mi_mode_warning`] it does not wait for a live `mi.*` offender, which
+/// is what a misclassification needs: it fires on every read of such a
+/// file, so the stale record is refreshed before an `mi.*` gate comes to
+/// depend on it, even from a run that gates no `mi.*` metric. `recorded`
+/// is the baseline's revision ([`Baseline::mi_formula`]). Any inequality
+/// warns, a newer file included.
+fn mi_formula_warning(current: Provenance, recorded: u8, has_mi_entries: bool) -> Option<String> {
+    let live = current.mi_formula?;
+    if !has_mi_entries || live == recorded {
+        return None;
+    }
+    Some(format!(
+        "this baseline records mi.* values under MI formula revision \
+         {recorded}; this run computes revision {live}. The recorded values \
+         are not comparable and can misclassify a regression. Review any \
+         mi.* threshold and refresh with `--write-baseline <file>`."
     ))
 }
 
@@ -614,20 +687,47 @@ impl Baseline {
         self.provenance
     }
 
-    /// The MI documentation-mode warning (#1597) for this run's
-    /// `violations` read against this baseline, or `None`; see
-    /// [`mi_mode_warning`]. A mismatch can misjudge only an `mi.*`
-    /// offender read against an `mi.*` entry, so a baseline holding none,
-    /// or a run with none, is silent.
-    pub(crate) fn mi_mode_warning_for(
+    /// The MI formula revision this baseline's `mi.*` values were written
+    /// under (#1607): the `[provenance]` stamp, or revision 1 for a file
+    /// written before the stamp existed.
+    pub(crate) fn mi_formula(&self) -> u8 {
+        self.provenance
+            .and_then(|p| p.mi_formula)
+            .unwrap_or(MI_FORMULA_UNSTAMPED)
+    }
+
+    /// Whether any entry records an `mi.*` metric, the family whose values
+    /// a formula revision (#1607) moves. `bca check` and
+    /// `bca diff-baseline` both gate their revision warning on it.
+    pub(crate) fn has_mi_entries(&self) -> bool {
+        self.by_symbol
+            .keys()
+            .any(|key| lookup(&key.metric).is_some_and(|info| info.family == "mi"))
+    }
+
+    /// The MI warning for this run's `violations` read against this
+    /// baseline, or `None`. A formula-revision mismatch
+    /// ([`mi_formula_warning`], #1607) fires whenever the baseline holds
+    /// an `mi.*` entry and suppresses the mode check; otherwise the
+    /// documentation-mode warning ([`mi_mode_warning`], #1597) fires only
+    /// when an `mi.sei` offender is read against an `mi.sei` entry, the
+    /// one metric the mode moves.
+    pub(crate) fn mi_warning_for(
         &self,
         current: Provenance,
         violations: &[Violation],
     ) -> Option<String> {
-        let is_mi = |id: &str| lookup(id).is_some_and(|m| m.family == "mi");
-        let compares_mi = self.by_symbol.keys().any(|key| is_mi(&key.metric))
-            && violations.iter().any(|v| is_mi(v.metric));
-        mi_mode_warning(current, self.provenance, compares_mi)
+        if let Some(msg) = mi_formula_warning(current, self.mi_formula(), self.has_mi_entries()) {
+            return Some(msg);
+        }
+        let compares_sei = self
+            .by_symbol
+            .keys()
+            .any(|key| key.metric == MODE_MOVED_METRIC)
+            && violations
+                .iter()
+                .any(|v| v.threshold.id() == MODE_MOVED_METRIC);
+        mi_mode_warning(current, self.provenance, compares_sei)
     }
 
     /// Flatten the loaded records into [`DiffEntry`] values for

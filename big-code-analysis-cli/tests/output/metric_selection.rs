@@ -189,7 +189,10 @@ fn mi_charges_docs_moves_mi_and_nothing_else() {
         default["spaces"], on["spaces"],
         "an undocumented space is unmoved"
     );
-    // The charged mode sizes on every row, so it scores lower.
+    // Both modes size on ploc, so only `sei`'s comment share moves, and
+    // counting the doc rows as comments raises it (#1607).
     let (d, o) = (&default["metrics"]["mi"], &on["metrics"]["mi"]);
-    assert!(d["original"].as_f64().unwrap() > o["original"].as_f64().unwrap());
+    assert_eq!(d["original"], o["original"]);
+    assert_eq!(d["visual_studio"], o["visual_studio"]);
+    assert!(d["sei"].as_f64().unwrap() < o["sei"].as_f64().unwrap());
 }

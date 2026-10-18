@@ -1776,9 +1776,10 @@ fn provenance_warning_silent_when_baseline_absent() {
 
 #[test]
 fn mi_mode_warning_fires_in_both_directions() {
-    // The mismatch is not directional — the SEI comment term is not
-    // monotonic — so both orders warn, and each names the two modes and
-    // the flag that would match the baseline.
+    // The mismatch misjudges an entry in either order — charging
+    // documentation raises `mi.sei`, so one order fires on untouched code
+    // and the other covers a regression — so both warn, and each names
+    // the two modes and the flag that would match the baseline.
     let excluded = baseline::Provenance::hard().with_mi_charges_docs(false);
     let charged = baseline::Provenance::hard().with_mi_charges_docs(true);
     let msg = baseline::mi_mode_warning(excluded, Some(charged), true)
@@ -1795,10 +1796,13 @@ fn mi_mode_warning_fires_in_both_directions() {
 #[test]
 fn mi_mode_warning_reads_an_unstamped_baseline_as_charging_docs() {
     // Every bca that wrote a baseline without the key charged
-    // documentation, so the upgrade — the one guaranteed mismatch — warns,
-    // naming the flag that keeps the old formula. Both shapes of an
-    // unstamped file: a `[provenance]` table without the key (2.x hard
-    // tier, as `Provenance::hard()` builds one) and no table at all (v2–v4).
+    // documentation, so a missing key reads as `true` and warns under the
+    // default, naming the flag that matches the baseline. In `bca check`
+    // such a released file also lacks `mi_formula`, whose warning takes
+    // precedence (`Baseline::mi_warning_for`); this pins the fallback the
+    // mode check itself applies. Both shapes of an unstamped file: a
+    // `[provenance]` table without the key (2.x hard tier, as
+    // `Provenance::hard()` builds one) and no table at all (v2–v4).
     let excluded = baseline::Provenance::hard().with_mi_charges_docs(false);
     let charged = baseline::Provenance::hard().with_mi_charges_docs(true);
     for unstamped in [Some(baseline::Provenance::hard()), None] {
@@ -1809,7 +1813,7 @@ fn mi_mode_warning_reads_an_unstamped_baseline_as_charging_docs() {
             "{msg}"
         );
         assert!(msg.contains("--mi-charges-docs=true"), "{msg}");
-        // A run that kept the old formula matches it.
+        // A charged run matches it.
         assert_eq!(baseline::mi_mode_warning(charged, unstamped, true), None);
     }
 }
@@ -1831,8 +1835,9 @@ fn mi_mode_warning_silent_when_modes_agree_or_mi_is_not_compared() {
             None
         );
     }
-    // The modes differ, but no `mi.*` value is read against the baseline:
-    // a cyclomatic-only baseline, or a run gating no `mi.*` metric.
+    // The modes differ, but no `mi.sei` value is read against the
+    // baseline: a baseline holding no `mi.sei` entry, or a run gating no
+    // `mi.sei` metric.
     assert_eq!(
         baseline::mi_mode_warning(excluded, Some(charged), false),
         None
@@ -1849,27 +1854,35 @@ fn mi_mode_warning_silent_when_modes_agree_or_mi_is_not_compared() {
 
 #[test]
 fn resolve_provenance_maps_each_tier_branch() {
-    // Hard tier: no scaling.
-    assert_eq!(
-        resolve_provenance(TierSpec::Hard, false, false),
-        baseline::Provenance::hard().with_mi_charges_docs(false)
-    );
-    // Soft with a `[thresholds.soft]` table: per-metric, no single ratio.
-    assert_eq!(
-        resolve_provenance(TierSpec::Soft(Some(0.5)), true, false),
-        baseline::Provenance::soft_table().with_mi_charges_docs(false)
-    );
-    // Soft without a table: scaled by the spec's ratio.
-    assert_eq!(
-        resolve_provenance(TierSpec::Soft(Some(0.90)), false, false),
-        baseline::Provenance::soft_headroom(0.90).with_mi_charges_docs(false)
-    );
-    // Soft without a table or a pinned ratio: the default soft headroom.
-    assert_eq!(
-        resolve_provenance(TierSpec::Soft(None), false, false),
-        baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM).with_mi_charges_docs(false)
-    );
-    // The MI mode rides along on every branch (#1597).
+    // Every branch carries the MI mode (#1597) and formula revision (#1607).
+    let stamped = |p: baseline::Provenance| {
+        p.with_mi_charges_docs(false)
+            .with_mi_formula(baseline::MI_FORMULA_REVISION)
+    };
+    for (tier, table, expected) in [
+        // Hard tier: no scaling.
+        (TierSpec::Hard, false, baseline::Provenance::hard()),
+        // Soft with a `[thresholds.soft]` table: per-metric, no single ratio.
+        (
+            TierSpec::Soft(Some(0.5)),
+            true,
+            baseline::Provenance::soft_table(),
+        ),
+        // Soft without a table: scaled by the spec's ratio.
+        (
+            TierSpec::Soft(Some(0.90)),
+            false,
+            baseline::Provenance::soft_headroom(0.90),
+        ),
+        // Soft without a table or a pinned ratio: the default soft headroom.
+        (
+            TierSpec::Soft(None),
+            false,
+            baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM),
+        ),
+    ] {
+        assert_eq!(resolve_provenance(tier, table, false), stamped(expected));
+    }
     assert_eq!(
         resolve_provenance(TierSpec::Hard, false, true).mi_charges_docs,
         Some(true)

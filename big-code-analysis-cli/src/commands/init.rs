@@ -41,13 +41,12 @@ exclude_from = \".bcaignore\"
 # emits the node). Uncomment to opt in if your project is Rust.
 # cyclomatic_count_try = false
 
-# Have the maintainability index charge documentation rows: the size
-# term becomes `sloc` and the SEI comment ratio `cloc / sloc`, the
-# formula applied before `loc.dloc` existed (#1597). The default leaves
-# documentation out, so a docstring or doc comment moves no `mi.*`
-# variant. Uncomment to compare against scores an older release
-# recorded; a baseline written under one mode warns when read under the
-# other.
+# Have the maintainability index count documentation rows as comments
+# in `mi.sei`'s comment ratio, `cloc / sloc` (#1597). The default leaves
+# documentation out of that ratio, so a docstring or doc comment does
+# not move it. `mi.original` and `mi.visual_studio` read the same in
+# both modes, and neither reproduces an older release's scores. A
+# baseline written under one mode warns when read under the other.
 # mi_charges_docs = true
 
 # Gate-only options consumed by `bca check` (#599). The baseline pairs

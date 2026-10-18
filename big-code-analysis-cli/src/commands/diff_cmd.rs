@@ -24,6 +24,20 @@ pub(crate) fn run_command_diff_baseline(args: DiffBaselineArgs) {
     }
     let old = load_baseline(&args.old, baseline::DEFAULT_LINE_TOLERANCE, false);
     let new = load_baseline(&args.new, baseline::DEFAULT_LINE_TOLERANCE, false);
+    // Two revisions of the MI formula (#1607) describe different numbers
+    // for the same code, so their `mi.*` deltas are the formula's, not
+    // the tree's. Like `check --baseline`, say so only when there is an
+    // `mi.*` entry for the revision to have moved: every write now
+    // stamps the revision, so a gate that records no `mi.*` metric would
+    // otherwise warn on the first diff after an upgrade. Either side
+    // counts, since a formula change adds and removes entries too.
+    let (old_mi, new_mi) = (old.mi_formula(), new.mi_formula());
+    if old_mi != new_mi && (old.has_mi_entries() || new.has_mi_entries()) {
+        warn(format_args!(
+            "the baselines record mi.* under MI formula revisions {old_mi} and {new_mi}; their \
+             mi.* deltas reflect the formula change, not the code"
+        ));
+    }
     let diff = BaselineDiff::compute(&old.diff_entries(), &new.diff_entries());
     let filter = SectionFilter::from_flags([
         args.added_only,

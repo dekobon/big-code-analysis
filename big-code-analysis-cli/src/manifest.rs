@@ -169,10 +169,10 @@ struct RawManifest {
     /// `--cyclomatic-count-try <bool>` flag (#666); the CLI value
     /// overrides this key in either direction.
     cyclomatic_count_try: Option<bool>,
-    /// When `true`, every `mi.*` variant charges documentation rows —
-    /// the size term is `sloc` and the SEI comment ratio `cloc / sloc`,
-    /// the formula applied before `loc.dloc` existed (#1597). Defaults
-    /// to leaving documentation out (the key absent is equivalent to
+    /// When `true`, `mi.sei`'s comment ratio counts documentation rows
+    /// as comments, `cloc / sloc` (#1597); the size term is `ploc` either
+    /// way (#1607), so only `mi.sei` moves. Defaults to leaving
+    /// documentation out (the key absent is equivalent to
     /// `false`). Mirrors the value-taking `--mi-charges-docs <bool>`
     /// flag; the CLI value overrides this key in either direction.
     mi_charges_docs: Option<bool>,

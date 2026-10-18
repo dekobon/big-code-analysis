@@ -1471,9 +1471,9 @@ fn stricter_check_reading_looser_baseline_warns() {
 
 // -- MI documentation mode provenance (#1597) --------------------------
 
-/// A documented Rust function whose `mi.visual_studio` is well under 100
-/// in either mode, so an `mi.visual_studio=100` threshold flags it
-/// whichever formula ran and the baseline carries an `mi.*` entry.
+/// A documented Rust function whose `mi.sei` (about 133) is well under
+/// 200 in either mode, so [`SEI_FLOOR`] flags it whichever mode ran and
+/// the baseline carries an `mi.sei` entry.
 const DOCUMENTED_RUST: &str = r"
 /// Clamp `n` into `[lo, hi]`.
 ///
@@ -1490,6 +1490,11 @@ pub fn clamp(n: i32, lo: i32, hi: i32) -> i32 {
 }
 ";
 
+/// The floor the documentation-mode tests gate on: `mi.sei` is the one
+/// metric the mode moves (#1607), so it is the one whose entries the mode
+/// warning compares.
+const SEI_FLOOR: &str = "mi.sei=200";
+
 fn write_mi_baseline(dir: &TempDir, src: &str, baseline: &Path, mode: &str) {
     cli(dir.path())
         .args([
@@ -1498,7 +1503,7 @@ fn write_mi_baseline(dir: &TempDir, src: &str, baseline: &Path, mode: &str) {
             src,
             mode,
             "--threshold",
-            "mi.visual_studio=100",
+            SEI_FLOOR,
             "--write-baseline",
             baseline.to_str().unwrap(),
         ])
@@ -1553,12 +1558,12 @@ fn reading_a_baseline_under_the_other_mi_mode_warns_both_ways() {
                 &src,
                 read,
                 "--threshold",
-                "mi.visual_studio=100",
+                SEI_FLOOR,
                 "--baseline",
                 baseline.to_str().unwrap(),
             ])
             .assert()
-            .stderr(predicate::str::contains("different formula"))
+            .stderr(predicate::str::contains("different comment share"))
             .stderr(predicate::str::contains(hint));
     }
 }
@@ -1577,21 +1582,55 @@ fn reading_a_baseline_under_the_same_mi_mode_is_silent() {
             &src,
             "--mi-charges-docs",
             "--threshold",
-            "mi.visual_studio=100",
+            SEI_FLOOR,
             "--baseline",
             baseline.to_str().unwrap(),
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("different formula").not());
+        .stderr(predicate::str::contains("different comment share").not());
+}
+
+#[test]
+fn the_mi_mode_warning_ignores_metrics_the_mode_does_not_move() {
+    // `mi.original` and `mi.visual_studio` read the same in both modes
+    // (#1607), so a baseline holding only those entries, read under the
+    // other mode, classifies exactly as it would under its own and stays
+    // silent; only an `mi.sei` entry is worth the warning.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+    for floor in ["mi.visual_studio=100", "mi.original=171"] {
+        let run = |mode: &str, flag: &str| {
+            cli(dir.path())
+                .args([
+                    "check",
+                    "--paths",
+                    &src,
+                    mode,
+                    "--threshold",
+                    floor,
+                    flag,
+                    baseline.to_str().unwrap(),
+                ])
+                .assert()
+                .success()
+        };
+        run("--mi-charges-docs=false", "--write-baseline");
+        run("--mi-charges-docs", "--baseline")
+            .stderr(predicate::str::contains("filtered 1 violations"))
+            .stderr(predicate::str::contains("different comment share").not());
+    }
 }
 
 #[test]
 fn a_baseline_without_an_mi_mode_reads_as_charging_docs() {
-    // A file written before the key existed carries no mode, and every
-    // bca that wrote one charged documentation: a run under the new
-    // default warns that the baseline predates the stamp, and a run that
-    // kept the old formula matches it.
+    // A hand-edited file that keeps `mi_formula = 2` but drops the mode
+    // key reads as charging documentation, the only mode bca had before
+    // the stamp: a run under the new default warns that the baseline
+    // predates the key, and a charged run matches it. A file a release
+    // actually wrote without the key also lacks `mi_formula`, and gets
+    // the formula warning instead (the next test but one).
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
     let baseline = dir.path().join("baseline.toml");
@@ -1612,7 +1651,7 @@ fn a_baseline_without_an_mi_mode_reads_as_charging_docs() {
                 &src,
                 mode,
                 "--threshold",
-                "mi.visual_studio=100",
+                SEI_FLOOR,
                 "--baseline",
                 baseline.to_str().unwrap(),
             ])
@@ -1623,14 +1662,14 @@ fn a_baseline_without_an_mi_mode_reads_as_charging_docs() {
             "predates the mi_charges_docs provenance key",
         ))
         .stderr(predicate::str::contains("--mi-charges-docs=true"));
-    run("--mi-charges-docs").stderr(predicate::str::contains("different formula").not());
+    run("--mi-charges-docs").stderr(predicate::str::contains("different comment share").not());
 }
 
 #[test]
 fn the_mi_mode_warning_needs_an_mi_value_read_against_the_baseline() {
-    // The mode moves only `mi.*`, so a mismatch is worth a warning only
-    // when an `mi.*` offender is classified against an `mi.*` entry: a
-    // baseline holding none, or a run gating no `mi.*` metric, stays
+    // The mode moves only `mi.sei`, so a mismatch is worth a warning only
+    // when an `mi.sei` offender is classified against an `mi.sei` entry:
+    // a baseline holding none, or a run gating no `mi.*` metric, stays
     // silent although both record the other mode.
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
@@ -1668,15 +1707,86 @@ fn the_mi_mode_warning_needs_an_mi_value_read_against_the_baseline() {
                 baseline.to_str().unwrap(),
             ])
             .assert()
-            .stderr(predicate::str::contains("different formula").not());
+            .stderr(predicate::str::contains("different comment share").not());
+    }
+}
+
+#[test]
+fn a_baseline_from_another_mi_formula_revision_warns() {
+    // A file written before the `mi_formula` stamp (#1607) reads as
+    // revision 1, so a check reading it warns even though nothing in the
+    // run is an `mi.*` offender: the stale record is named before an
+    // `mi.*` gate comes to depend on it. The freshly written file
+    // carries the stamp and is silent. Read under the other
+    // documentation mode with an `mi.sei` offender, the stamped file
+    // gives the mode warning and the unstamped one only the formula
+    // warning.
+    const WARNING: &str = "warning: this baseline records mi.* values under MI formula \
+         revision 1; this run computes revision 2. The recorded values are not comparable \
+         and can misclassify a regression. Review any mi.* threshold and refresh with \
+         `--write-baseline <file>`.\n";
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "doc.rs", DOCUMENTED_RUST);
+    let baseline = dir.path().join("baseline.toml");
+    write_mi_baseline(&dir, &src, &baseline, "--mi-charges-docs=false");
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(content.contains("mi_formula = 2"), "content:\n{content}");
+
+    let run = |mode: &str, threshold: &str| {
+        let out = cli(dir.path())
+            .args([
+                "check",
+                "--paths",
+                &src,
+                mode,
+                "--threshold",
+                threshold,
+                "--baseline",
+                baseline.to_str().unwrap(),
+            ])
+            .assert()
+            .get_output()
+            .stderr
+            .clone();
+        String::from_utf8(out).unwrap()
+    };
+    let stderr = run("--mi-charges-docs=false", "cyclomatic=100");
+    assert!(!stderr.contains("warning: "), "stderr:\n{stderr}");
+    let stderr = run("--mi-charges-docs", SEI_FLOOR);
+    assert!(
+        stderr.contains("different comment share") && !stderr.contains("MI formula"),
+        "stderr:\n{stderr}"
+    );
+
+    let stripped: String = content
+        .lines()
+        .filter(|line| !line.starts_with("mi_formula"))
+        .flat_map(|line| [line, "\n"])
+        .collect();
+    fs::write(&baseline, stripped).unwrap();
+    for (mode, threshold) in [
+        ("--mi-charges-docs=false", "cyclomatic=100"),
+        ("--mi-charges-docs", SEI_FLOOR),
+    ] {
+        let stderr = run(mode, threshold);
+        assert_eq!(
+            stderr
+                .lines()
+                .filter(|l| l.starts_with("warning: "))
+                .count(),
+            1,
+            "{mode}: stderr:\n{stderr}"
+        );
+        assert!(stderr.contains(WARNING), "{mode}: stderr:\n{stderr}");
     }
 }
 
 /// One Python function of `lines` ternary assignments. Each line adds a
 /// decision and a dozen Halstead tokens, so `mi.original` and `mi.sei`
 /// fall below zero far sooner than the plain arithmetic of the issue's
-/// 3,000-line reproducer: at 200 lines they read about −15 and −77, at
-/// 300 about −47 and −112 (#1611).
+/// 3,000-line reproducer: at 200 lines both read about −15, at 300 about
+/// −47 (#1611). The function has no comment, so `mi.sei` equals
+/// `mi.original` (#1607).
 fn negative_mi_python(lines: usize) -> String {
     use std::fmt::Write as _;
     let mut src = String::from("def big(a, b, c):\n");

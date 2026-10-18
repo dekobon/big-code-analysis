@@ -548,14 +548,13 @@ def analyze(
     ignore the flag, matching CLI behaviour.
 
     Pass ``mi_charges_docs=True`` to mirror the CLI's global
-    ``--mi-charges-docs`` flag: every ``mi.*`` variant then charges
-    documentation rows — the size term is ``loc.sloc`` and the SEI
-    comment ratio ``loc.cloc / loc.sloc``, the formula applied before
-    ``loc.dloc`` existed. The default leaves the ``dloc`` rows that
-    carry no code out of the size term and documentation out of both
-    sides of the ratio, so a docstring or doc comment moves no
-    variant. Only ``mi`` moves; ``loc.dloc`` and every other metric
-    read the same either way.
+    ``--mi-charges-docs`` flag: ``mi.sei``'s comment ratio then counts
+    documentation rows as comments, ``loc.cloc / loc.sloc``. The
+    default leaves documentation out of both sides of the ratio, so a
+    docstring or doc comment does not move it. Every ``mi`` variant
+    sizes a space on ``loc.ploc`` in both modes, so only ``mi.sei``
+    moves, and charging documentation can only raise it; ``loc.dloc``
+    and every other metric read the same either way.
 
     Pass ``allow_lossy_path=True`` to mirror the CLI's non-UTF-8
     path handling: bytes that are not valid UTF-8 are replaced

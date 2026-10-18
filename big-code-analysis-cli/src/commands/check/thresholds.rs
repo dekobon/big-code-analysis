@@ -37,7 +37,8 @@ pub(crate) struct ResolvedThresholds {
 /// scaled by the spec's ratio (defaulting to [`DEFAULT_SOFT_HEADROOM`]).
 ///
 /// `mi_charges_docs` is the resolved MI documentation mode (#1597),
-/// stamped alongside so a read under the other mode can be named.
+/// stamped alongside so a read under the other mode can be named, and
+/// the MI formula revision rides along on every branch (#1607).
 pub(crate) fn resolve_provenance(
     tier: TierSpec,
     soft_table_present: bool,
@@ -51,6 +52,7 @@ pub(crate) fn resolve_provenance(
         }
     }
     .with_mi_charges_docs(mi_charges_docs)
+    .with_mi_formula(baseline::MI_FORMULA_REVISION)
 }
 
 /// Resolve the effective `--format` for `check` and eagerly validate the

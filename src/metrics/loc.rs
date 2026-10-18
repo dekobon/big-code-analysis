@@ -335,7 +335,7 @@ pub struct Cloc {
     // A line with several inline block comments (`f(int /*a*/, int
     // /*b*/)`) must contribute a single comment line, not one per
     // node, otherwise cloc can exceed sloc/ploc and push the MI
-    // comments_percentage above 100% (issue #461). Mirrors `Ploc`'s
+    // comment ratio above 1 (issue #461). Mirrors `Ploc`'s
     // per-line de-dup via `Ploc::lines`; disjoint from
     // `only_comment_line_starts` by construction.
     code_comment_line_starts: LineSet,
@@ -666,7 +666,8 @@ impl Stats {
     /// Documentation rows that carry no code: `dloc()` less the rows
     /// `ploc` also holds. A docstring that opens on its `def` row, or
     /// whose closing quote is followed by a statement, shares that row
-    /// with code, and MI's size term must keep counting it (#1597).
+    /// with code, and the denominator of `mi.sei`'s comment ratio must
+    /// keep counting it (#1597).
     #[inline]
     #[must_use]
     pub(crate) fn dloc_without_code(&self) -> u64 {
@@ -2887,10 +2888,11 @@ line two
     #[cfg(feature = "python")]
     #[test]
     fn python_docstring_sharing_a_code_row_is_not_without_code() {
-        // `dloc_without_code` is what MI subtracts: a def-row
-        // docstring is a docstring row and a code row, so nothing leaves
-        // the size term; a two-row docstring whose closing quote is
-        // followed by a statement gives up only its first row.
+        // `dloc_without_code` is what MI subtracts from the comment
+        // ratio's denominator: a def-row docstring is a docstring row and
+        // a code row, so nothing leaves it; a two-row docstring whose
+        // closing quote is followed by a statement gives up only its
+        // first row.
         check_metrics::<PythonParser>("def f(): \"\"\"x\"\"\"", "foo.py", |metric| {
             assert_eq!((metric.loc.dloc(), metric.loc.dloc_without_code()), (1, 0));
         });
@@ -12009,8 +12011,8 @@ class A {
     /// each carry a comment on the one shared row must yield `cloc == 1`.
     ///
     /// Summing rather than unioning would report `cloc == 2` against
-    /// `sloc == 1`, the `cloc > sloc` state that pushes MI's
-    /// comments_percentage above 100% (the failure mode of issue #461,
+    /// `sloc == 1`, the `cloc > sloc` state that pushes MI's comment
+    /// ratio above 1 (the failure mode of issue #461,
     /// here across the space merge rather than within one space).
     #[cfg(all(feature = "cpp", feature = "rust"))]
     #[test]
@@ -12071,7 +12073,7 @@ class A {
     /// single comment line, not one per comment node. Pre-fix this
     /// reported `cloc = 2` (one increment per node) for a one-line
     /// construct, violating `cloc <= sloc`/`cloc <= ploc` and pushing
-    /// the MI comments_percentage above 100% (issue #461). Reverting
+    /// the MI comment ratio above 1 (issue #461). Reverting
     /// the per-line de-dup in `add_code_comment_line` makes the
     /// `cloc == 1` assertions fail with `2`.
     #[cfg(feature = "cpp")]

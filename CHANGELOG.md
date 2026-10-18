@@ -154,31 +154,36 @@ for historical reference.
   shapes and the Ruby `ploc` rows under Fixed below; the `mi.*` drift
   is its own entry under Changed.
 
-- **`mi_charges_docs`: a switch back to the documentation-inclusive
-  MI formula** (#1597). `MetricsOptions::with_mi_charges_docs(true)`,
+- **`mi_charges_docs`: count documentation in `mi.sei`'s comment
+  share** (#1597). `MetricsOptions::with_mi_charges_docs(true)`,
   the `--mi-charges-docs[=BOOL]` walker-tuning flag, the
   `mi_charges_docs` manifest key (merged like `cyclomatic_count_try`:
   the CLI value wins in either direction), the `mi_charges_docs=`
   keyword on the Python `analyze`, `analyze_source`, `analyze_batch`,
   `analyze_paths` and `Ast.metrics`, and
   `WebMetricsCfg::with_mi_charges_docs` for a server embedder (the REST
-  request shapes carry no field for it) all size every `mi.*` variant
-  on `sloc` and form `mi.sei`'s comment share as `cloc / sloc`, as
-  every release without `loc.dloc` did. Off by default — the Changed
-  entry below is the default — and it moves nothing but `mi.*`. It
-  restores the old formula on the current LOC inputs, not every old
-  number: the three Python bare-string shapes under Fixed still read as
-  this release classifies them. `bca check --print-effective-config`
-  names the mode alongside `cyclomatic_count_try`, which it had not
-  listed before; a `--write-baseline` stamps `mi_charges_docs` into the
-  `[provenance]` table, and a `--baseline` read under the other mode
-  warns in either direction when it classifies an `mi.*` offender
-  against an `mi.*` entry, since the SEI comment term is not monotonic
-  in the rows the mode moves. A baseline written before the key
-  existed reads as charging documentation, the only mode an earlier
-  `bca` computed, so after upgrading, the first check that reads an
-  `mi.*` entry against an `mi.*` offender warns and names both
-  remedies. All additive within `2.x`: `MetricsOptions` is
+  request shapes carry no field for it) all form `mi.sei`'s comment
+  share as `cloc / sloc`, the inputs that share read before `loc.dloc`
+  existed. Since #1607 (under Changed) every variant sizes on `ploc`
+  in both modes, so only `mi.sei` moves, and charging documentation
+  can only raise it; the setting does not reproduce an earlier
+  release's numbers. Off by default — the Changed entry below is the
+  default — and it moves nothing but `mi.sei`. It reads the current
+  LOC inputs: the three Python bare-string shapes under Fixed still
+  read as this release classifies them. `bca check
+  --print-effective-config` names the mode alongside
+  `cyclomatic_count_try`, which it had not listed before; a
+  `--write-baseline` stamps `mi_charges_docs` into the `[provenance]`
+  table, and a `--baseline` read under the other mode warns in either
+  direction when it classifies an `mi.sei` offender against an
+  `mi.sei` entry: a `mi.sei` value recorded with documentation charged
+  sits above the default's, so a charged record read under the default
+  fires on untouched code and a default record read charged covers a
+  real regression. A baseline written before the key existed reads as
+  charging documentation, the only mode an earlier `bca` computed;
+  every such file also predates the `mi_formula` stamp (#1607, under
+  Changed), whose warning fires instead after upgrading. All additive
+  within `2.x`: `MetricsOptions` is
   `#[non_exhaustive]` with a builder, the Python keywords default, and
   `WebMetricsCfg` is `#[non_exhaustive]`.
 
@@ -247,12 +252,46 @@ for historical reference.
   dict-side copy of that predicate in the Python bindings
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
+- **The maintainability index sizes on PLOC, and `mi.sei`'s comment
+  term is monotonic** (#1607). Every `mi.*` variant now uses
+  `loc.ploc` (the rows that carry code) as its size term, in both
+  documentation modes. A working comment, a commented-out block,
+  documentation or a blank row no longer lowers `mi.original` or
+  `mi.visual_studio`; a row shared between documentation and code
+  stays counted. `mi.sei` is now `mi.original + 50·sin(√(2.4·CM))`:
+  it takes `ln` rather than `log2` of the volume and size (the SEI
+  C4 handbook's form), and CM is the 0–1 comment ratio
+  `(cloc − dloc) / (sloc − dloc rows that carry no code)`, not a
+  0–100 percentage — on the percentage scale the term swung between
+  −50 and +50 several times across ordinary comment densities. The
+  term rises from 0 with no comment to about 50 when every row is a
+  comment, so `mi.sei ≥ mi.original`, and the two are equal in a
+  comment-free space. Blank rows stay in CM's denominator, so adding
+  blank rows to a space with comments still lowers `mi.sei` slightly,
+  and adding them to a comment-free space moves nothing. This changes
+  `mi.original` and `mi.visual_studio` in every language for any space
+  with comments, blank rows or rows that carry no code, and `mi.sei`
+  for every space with code, since `ln` moves it even where nothing
+  else changed; review any `mi.*` threshold. `mi_charges_docs` now
+  affects only `mi.sei`'s comment share, and charging documentation
+  can only raise it. `--write-baseline` writes `mi_formula = 2` into
+  `[provenance]`; a file without it reads as revision 1, and
+  `bca check --baseline` warns, on every read, when a baseline holding
+  any `mi.*` entry records a different revision, whether or not the
+  run has an `mi.*` offender — that warning replaces the
+  documentation-mode warning. `bca diff-baseline` warns the same way
+  when its two files record different revisions and either holds an
+  `mi.*` entry. No baseline version bump, so an older
+  `bca` still reads such a file — but cannot know the stamp or keep the
+  negative entries, and compares values from two formulas without a
+  word: pin `bca ≥ 2.4` wherever a 2.4-written baseline is read.
+
 - **The maintainability index no longer charges documentation**
-  (#1597). Every `mi.*` variant sizes a space on `sloc` less the
-  documentation (`dloc`) rows that carry no code, and `mi.sei` forms
-  its comment percentage as `cloc − dloc` over that size, so a
-  function scores the same with and without its documentation on all
-  three variants (a doc row sharing its row with code, as in
+  (#1597). Documentation (`dloc`) rows leave the maintainability
+  index: `mi.sei` forms its comment share as `cloc − dloc` over `sloc`
+  less the `dloc` rows that carry no code, and since #1607 the size
+  term is `ploc`, so a function scores the same with and without its
+  documentation on all three variants (a doc row sharing its row with code, as in
   `def f(): """doc"""` or `int x; /** doc */`, keeps that row
   counted); before, the documented side of the issue's reproducer read
   12.5 points lower on `original` and 64.6 lower on `sei` with
@@ -263,12 +302,11 @@ for historical reference.
   POD block inside a sub moves the function itself. This is a
   metric-value drift for every space that carries documentation rows,
   in every language with a documentation syntax the `dloc` entry above
-  lists; a space with none keeps its values. Working comment rows and blank rows are still
-  charged everywhere, as the published formulas charge them; #1607
-  carries the PLOC / LLOC size-term and SEI comment-term questions.
-  The book's MI section states the formulas as implemented. The
-  previous formula stays one setting away: `mi_charges_docs`, under
-  Added above.
+  lists; a space with none keeps its values. Working comment rows and
+  blank rows are no longer charged either; see #1607 under Changed
+  above. The book's MI section states the formulas as implemented.
+  `mi_charges_docs`, under Added above, counts documentation in
+  `mi.sei`'s comment share again.
 
 - **Elixir helper cleanup:** remote short-circuit call recognition now
   returns its argument list with the call and ancestry, avoiding a second
@@ -391,9 +429,10 @@ for historical reference.
   `ploc` as well, so `blank` rises by the same rows.
 
 - The book's Lines of Code chapter said PLOC "is the size measure used
-  inside the Maintainability Index formula". Every `mi.*` variant has
-  always sized a space on SLOC (`src/metrics/mi.rs`); the sentence now
-  says so (#1597).
+  inside the Maintainability Index formula". At the time every `mi.*`
+  variant sized a space on SLOC, and the sentence was corrected to say
+  so (#1597); #1607, under Changed above, then moved the size term to
+  PLOC, so the chapter's original claim is the one that now holds.
 
 - **Dependency-audit failures in CI:** update the locked `rustls` to
   0.23.46 for RUSTSEC-2026-0346 through RUSTSEC-2026-0349, and replace

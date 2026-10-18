@@ -289,7 +289,7 @@ struct Config {
     /// `--no-cyclomatic-try` alias) or the `cyclomatic_count_try`
     /// manifest key.
     no_cyclomatic_try: bool,
-    /// When true, every `mi.*` variant charges documentation rows.
+    /// When true, `mi.sei`'s comment ratio counts documentation rows.
     /// Projected onto [`MetricsOptions::with_mi_charges_docs`]. Defaults
     /// off, matching the library (#1597). Set by `--mi-charges-docs` or
     /// the `mi_charges_docs` manifest key.

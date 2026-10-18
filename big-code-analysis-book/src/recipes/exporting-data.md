@@ -94,7 +94,7 @@ produced it, so `bca diff` cannot tell two captures made under
 different ones apart from a real change: compare captures taken by the
 same version with the same `exclude_tests`, `cyclomatic_count_try` and
 `mi_charges_docs` (a different [MI documentation
-mode](../metrics.md#mi-charges-docs) moves every `mi.*` value of every
+mode](../metrics.md#mi-charges-docs) moves the `mi.sei` value of every
 documented space). `--since` runs both sides itself with one set of
 flags, so it cannot mix modes.
 

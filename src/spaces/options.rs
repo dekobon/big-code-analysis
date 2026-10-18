@@ -51,18 +51,17 @@ impl MetricsOptions {
 
     /// Builder-style setter for `MetricsOptions::mi_charges_docs`.
     ///
-    /// Pass `true` to have every `mi.*` variant charge documentation
-    /// rows — the size term is `sloc` and `mi.sei`'s comment ratio is
-    /// `cloc / sloc`, the documentation-inclusive formula applied before
-    /// #1597. It restores that formula on the *current* LOC inputs, not
-    /// every earlier number: where #1597 also reclassified a row (an
-    /// implicitly concatenated Python docstring, a bare `"a", "b"`
-    /// tuple statement), a pre-#1597 release scored it differently.
-    /// The default, `false`, sizes a space on `sloc` less the
-    /// `dloc` rows that carry no code and forms the ratio on
-    /// `cloc − dloc`, so a docstring, a `///` block or a Javadoc comment
-    /// moves no variant. Only `mi.*` reads this: `loc.dloc` and every
-    /// other metric are the same in both modes.
+    /// Pass `true` to count documentation rows as comments in `mi.sei`'s
+    /// comment ratio, `cloc / sloc` — the inputs the comment share read
+    /// before #1597, on the *current* LOC classification. The default,
+    /// `false`, forms the ratio as `(cloc − dloc) / (sloc −` the `dloc`
+    /// rows that carry no code`)`, so a docstring, a `///` block or a
+    /// Javadoc comment does not move it. Every `mi.*` variant sizes a
+    /// space on `ploc` in both modes (#1607), so `mi.original` and
+    /// `mi.visual_studio` read the same either way and only `mi.sei`
+    /// moves; charging documentation can only raise it. It does not
+    /// reproduce an earlier release's numbers. Only `mi.*` reads this:
+    /// `loc.dloc` and every other metric are the same in both modes.
     #[inline]
     #[must_use]
     pub fn with_mi_charges_docs(mut self, charges_docs: bool) -> Self {
