@@ -142,6 +142,8 @@ number and the higher number stays as a redirect.
 | [96](#96-a-tree-sitter-child-seek-is-olog-n-only-through-a-grammar-repetition) | A tree-sitter child seek is O(log n) only through a grammar repetition — the walk is the O(1) source of siblings |
 | [97](#97-a-beforeafter-on-a-rebuilt-corpus-measures-the-corpus) | A before/after on a rebuilt corpus measures the corpus — run the old binary on it too |
 | [98](#98-an-emulated-tools-specification-is-its-source-not-its-manual) | An emulated tool's specification is its source, not its manual — read the path it runs, then run it |
+| [99](#99-a-probe-guards-only-the-axis-it-grows) | A probe guards only the axis it grows — a walk that descends needs a depth probe |
+| [100](#100-a-float-tolerance-is-measured-in-the-values-own-ulps-and-a-rounded-limit-is-held-on-the-hard-limits-side) | A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side |
 
 ---
 
@@ -4132,5 +4134,99 @@ said YARD reads a `when` body, but YARD's processor descends only into
 constructs a handler names, so nothing in a `case`, `begin` or loop body
 is read. RDoc's metaprogramming marker, meanwhile, is exactly `##`, not
 any `##…` run.
+
+**A plan read from the source still had premises the tool refuted**
+(#1613). The attachment rule for fourteen languages was planned from
+each tool's source before any tool ran. Running them reversed premises
+the plan stated as settled: rustc attaches *every* outer doc comment
+above an item, not only the last, and attaches one above `use`;
+JSDoc's `@license` does not stand alone, and `/** d */ foo();`
+produces no doclet while `x = 1` does; Doxygen reads past `#include`
+and documents a file-scope `FOO(bar);` as a function. The Doxygen ones
+could not have surfaced from the corpus, whose C++ doc blocks are all
+attached, so "no snapshot moved" was consistent with every wrong
+reading there. A source-only verification — Kotlin here, with no
+`kotlinc` or Dokka to run — is a recorded deviation, not a confirmation.
+
+---
+
+## 99. A probe guards only the axis it grows
+
+**Lesson:** When a change adds a walk that *descends* — into a
+preprocessor conditional, a parenthesised expression, a nested block —
+give it a `bench-scaling` probe whose size axis is nesting **depth**, and
+watch it fail with the defect reinstated. A width probe over the same
+construct measures the sibling loop and fits linear while the descent is
+quadratic in depth. Choose the axis from the shape of the work, not from
+the shape of the fixture that was convenient to render: every loop the
+walk runs per node is a candidate axis, and the probe must grow the one
+that loop runs over.
+
+The gates cannot tell the two apart. `probe_workload_is_exercised`
+checks that the measured metric comes from the repeated construct, and
+the exponent bound checks the fit, so a width probe that renders a
+thousand siblings in a row satisfies both — and a walk that re-descends
+a nest for each sibling is still linear on it when the nest is one
+level deep, or absent. Pre-commit, bench-scaling and chain-audit all
+pass; only an input nested as deep as it is wide shows the slope.
+(cf. lesson 96, where the probe's *shape* hid the cost.)
+
+**Nested `#ifdef` chains were O(depth²) under three green gates**
+(#1613). `conditional_declares` answered "does this conditional hold a
+declaration" by walking every branch at every depth, and the stretch
+scan asked it for each comment — so a doc comment above each level of a
+nest cost O(depth) per comment. The two probes added with the change,
+`loc/c-dangling-docs` and `loc/cpp-structural-docs`, repeat a doc block
+above an `#include` — no conditional at all — and fit 1.00 and 1.03. A
+reviewer's depth fixture ran 8.1 s at 8,000 levels, ×4 per doubling.
+The answer is now memoised per conditional for the walk, and
+`loc/c-nested-conditional-docs` fits 2.01 with the memo disabled and
+1.00 with it. The parenthesised-docstring walk of #1610 carries the
+same exposure and had the same gap: its cap at 200 levels was bounded
+by CPython's `MAXLEVEL`, and `halstead/python-nested-paren` was added
+only when a review noticed that no probe priced the cap.
+
+---
+
+## 100. A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side
+
+**Lesson:** Measure a float tolerance as a bit distance
+(`a.to_bits().abs_diff(b.to_bits())`) or against the magnitude of the
+*operands* the value came from — never as `(a − b) / f64::EPSILON`,
+which is the spacing at 1.0 and reads eight ulps of `0.855` as four.
+Then, whatever a snap or rounding produces, clamp the result to the
+limit it is derived from, on that limit's own side: a soft floor never
+below the hard floor, a soft ceiling never above the hard ceiling. A
+tolerance is a bet that no genuine remainder is smaller than it, and
+some input always loses the bet; the clamp is what makes the invariant
+true regardless.
+
+The failure is doubly quiet. An assertion written with `EPSILON`
+passes on the code it was added to reject, because the error it
+measures is a fraction of the real one. And a tolerance widened to fix
+that — scaled to the operands, so cancellation (`−1 + 0.855`) stops
+reading as a remainder — now absorbs a genuine remainder on a limit far
+smaller than its unit, and rounds the floor the wrong way. Three
+reviewers converged on the seam: a tiny floor snapped down a tick and a
+seven-figure ceiling rounded to nearest at ratio 1 landed above its
+hard value, each tripping the gate's looser-than-hard guard on a valid
+configuration, against the `ratio == 1` identity the stability contract
+promises; and an exact cancellation (`−0.855 + 0.855`) left `4.4e-16`,
+which set its own sig-fig grid and survived — above the floor, so no
+guard fired, but a `mi.visual_studio` floor meant to be `0` now sat
+inside the domain and its "cannot fire" advisory never printed.
+
+**The soft-tier floor snap, twice** (#1621). The additive `mi.*` floor
+`limit + (unit − ratio·unit)` resolved `0` to `0.855001` because the
+float residue of `(1 − ratio)·unit` exceeded the four-ulp snap; the fix
+formed the step with one rounding, and its test pinned "within 4 ulps"
+with `EPSILON` — which accepted the old residue too. The second fix
+scaled the snap to the operands and measured ulps by bit distance, and
+a review found the three crossings above the next day. The final form
+snaps a residue within the operand tolerance of zero to zero, rounds,
+and clamps to the hard limit in the tier's direction; its tests hold
+nineteen floor/ratio pairs, four of them exact cancellations, the two
+tiny floors that snapped below their hard value, and the two ceilings
+that could not fit a six-figure grid.
 
 ---

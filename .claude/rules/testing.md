@@ -53,9 +53,26 @@ gets reached for, and it destroyed an entire uncommitted rewrite a third
 time during #1219. Read the file once into a variable, write each
 perturbation from that string, and restore from it in a `finally` — the
 backup then lives in memory and cannot be defeated by the working tree
-changing underneath. Put the driver in a file rather than nesting quotes
-through zsh into `python3 -c`, which is how those edits came to be
-applied inconsistently in the first place.
+changing underneath. Write that same copy to the driver's scratch
+directory before the first edit, too, for the case below. Put the
+driver in a file rather than nesting quotes through zsh into
+`python3 -c`, which is how those edits came to be applied
+inconsistently in the first place.
+
+**An interrupted sweep leaves a mutant in the tree, and it looks like
+a fix in progress.** A driver killed between a perturbation and its
+restore — a server restart, a cancelled agent — never reaches its
+`finally`, and production code keeps the mutant. What the next reader
+sees is an uncommitted edit that compiles with a warning
+(`unused variable: index`, for the dropped `index > 0 &&`) or fails one
+test, which is exactly the shape of a half-finished fix, and the
+natural response is to finish it. Before trusting partial edits from an
+interrupted session, `cmp` each touched file against the on-disk copy
+the driver wrote; where the agent that ran the driver can be resumed,
+have it do the classification, since it knows which hunks were its own
+edits and which its mutant. During #1613 a restart left one mutant in
+`doxygen.rs` beside real edits; the resumed agent's `cmp` is what told
+them apart.
 
 **A broken harness reports a plausible failure count, not an error.**
 In that same sweep the restore silently reverted the gate to its `main`
