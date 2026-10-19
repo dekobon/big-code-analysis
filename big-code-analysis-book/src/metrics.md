@@ -1076,7 +1076,8 @@ decision, not one rule for all:
   declaration's first token. JavaScript, TypeScript and TSX keep
   in-body JSDoc, which documents inner symbols, and Perl keeps POD
   wherever it sits, as [perldoc](https://perldoc.perl.org/perldoc)
-  does.
+  does — after `__END__` or `__DATA__` too, where every other
+  non-blank row of the data section counts as PLOC.
 - In Python, every bare string statement — a string whose value is
   discarded — is a comment row, but only one where Python reads
   documentation is DLOC, following

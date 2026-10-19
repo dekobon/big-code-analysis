@@ -482,6 +482,19 @@ pub fn lua_tagless_blocks(width: usize) -> String {
     )
 }
 
+/// Perl: `width` statements, `__END__`, and a data section of `width`
+/// units, each a `=begin comment` block, a documenting POD block and a
+/// data row. The section is one opaque grammar leaf however long it is,
+/// so the statements are what widen the root as the section grows.
+#[must_use]
+pub fn perl_data_pod(width: usize) -> String {
+    format!(
+        "{}__END__\n{}",
+        "1;\n".repeat(width),
+        "=begin comment\nx\n=end comment\n=cut\n=head1 A\n\na\n=cut\nrow\n\n".repeat(width)
+    )
+}
+
 /// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
 /// all at file scope.
 ///
@@ -1928,6 +1941,24 @@ pub const PROBES: &[Probe] = &[
                     block for a run continuation ran on to the top of the \
                     file, once per block. The reading is the documented \
                     functions' rows, which the scan does not decide.",
+    },
+    Probe {
+        name: "loc/perl-data-pod",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: perl_data_pod,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1608: the rows after `__END__` are one grammar leaf, \
+                    classified by one pass over its bytes; each POD block's \
+                    `comment` test reads that block's own text alone. A \
+                    rescan per block or per row is quadratic in the \
+                    section. Every documenting block is a doc row.",
     },
     Probe {
         name: "nom/nested-cfg-predicate",

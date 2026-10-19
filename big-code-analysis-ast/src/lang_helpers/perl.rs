@@ -1,9 +1,114 @@
 //! Perl: telling the `and` and `not` operators, the file tests, the
 //! unary minus and bareword calls from an auto-quoted key that the
-//! grammar lexes as one of them.
+//! grammar lexes as one of them; and reading the POD in the data
+//! section after `__END__`, which the grammar leaves as one leaf.
 
 use crate::Perl;
+use crate::lang_helpers::doc_comment::pod_comment_region;
 use crate::node::{Ancestors, Node};
+
+/// One classified run of rows in a Perl data section, as reported by
+/// [`perl_data_section_rows`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PerlDataSectionRows {
+    /// A POD block, `first..=last`. `documentation` is false for a block
+    /// that is nothing but `=begin comment` / `=for comment` regions.
+    Pod {
+        /// The block's opening command row.
+        first: usize,
+        /// Its `=cut` row, or its last non-blank row when no `=cut`
+        /// closes it.
+        last: usize,
+        /// Whether the block documents anything.
+        documentation: bool,
+    },
+    /// A non-blank row outside every POD block: the section's data.
+    Data(usize),
+}
+
+/// Classifies the rows of a `data_not_for_compiler` node — the text
+/// after `__END__` or `__DATA__`, which the grammar holds as one opaque
+/// leaf — in one pass over `section`, its bytes. `start_row` is the
+/// marker's row, where the node starts; the rest of that row is never
+/// reported, since the marker makes the row code and no line there
+/// starts with `=`.
+///
+/// A POD block is read as `Pod::Simple` reads one (`BlackBox.pm`, the
+/// parser `perldoc` runs): it opens on a line matching
+/// `^=[a-zA-Z][a-zA-Z0-9]*(\s|$)` other than `=cut`, so `=1` opens
+/// nothing, and closes on a line matching `^=cut` — its own opening line
+/// included, so `=cutting` is a block of one row — or at the end of the
+/// file. Blank rows outside a block are reported as nothing.
+pub fn perl_data_section_rows(
+    section: &[u8],
+    start_row: usize,
+    mut visit: impl FnMut(PerlDataSectionRows),
+) {
+    // bca: suppress(halstead) — one line-at-a-time POD state machine:
+    // open, close on the opening line itself, extend and data share each
+    // row's offsets, and splitting them would scatter Pod::Simple's
+    // fall-through across helpers that each re-derive the row.
+    // The open block's first row, the byte offset of that row, and its
+    // last non-blank row so far.
+    let mut block: Option<(usize, usize, usize)> = None;
+    let mut lines = section.split(|&byte| byte == b'\n');
+    let mut offset = lines.next().map_or(0, |marker_rest| marker_rest.len() + 1);
+    for (row, line) in (start_row.saturating_add(1)..).zip(lines) {
+        let end = offset + line.len();
+        let blank = line.trim_ascii().is_empty();
+        // `Pod::Simple` falls through from opening a block to its pod
+        // mode, whose `^=cut` test then reads the opening line too.
+        let opens = block.is_none() && opens_pod(line);
+        if opens {
+            block = Some((row, offset, row));
+        }
+        match block {
+            Some((first, start, _)) if line.starts_with(b"=cut") => {
+                visit(pod_rows(section, first, start..end, row));
+                block = None;
+            }
+            _ if opens || blank => {}
+            Some((first, start, _)) => block = Some((first, start, row)),
+            None => visit(PerlDataSectionRows::Data(row)),
+        }
+        offset = end + 1;
+    }
+    if let Some((first, start, last)) = block {
+        visit(pod_rows(section, first, start..section.len(), last));
+    }
+}
+
+fn pod_rows(
+    section: &[u8],
+    first: usize,
+    bytes: std::ops::Range<usize>,
+    last: usize,
+) -> PerlDataSectionRows {
+    PerlDataSectionRows::Pod {
+        first,
+        last,
+        documentation: !pod_comment_region(section.get(bytes).unwrap_or_default()),
+    }
+}
+
+/// `^=[a-zA-Z][a-zA-Z0-9]*(\s|$)`, `=cut` aside: a line that opens a
+/// POD block outside one. Perl's `\s` takes a vertical tab, which
+/// `is_ascii_whitespace` does not.
+fn opens_pod(line: &[u8]) -> bool {
+    let Some(rest) = line.strip_prefix(b"=") else {
+        return false;
+    };
+    let word = rest
+        .iter()
+        .position(|byte| !byte.is_ascii_alphanumeric())
+        .unwrap_or(rest.len());
+    let (command, after) = rest.split_at(word);
+    command.first().is_some_and(u8::is_ascii_alphabetic)
+        && command != b"cut"
+        && after
+            .first()
+            .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'\x0b')
+}
 
 /// Whether `and`, a Perl `and` token whose parent is `parent`, is the
 /// low-precedence logical operator.

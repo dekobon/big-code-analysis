@@ -148,6 +148,5 @@ src/metrics/cyclomatic/irules.rs 2
 src/metrics/cyclomatic/perl.rs 2
 src/metrics/cyclomatic/php.rs 4
 src/metrics/cyclomatic/ruby.rs 5
-src/metrics/loc/perl.rs 6
 src/vcs/error.rs 12
 tests/common/mod.rs 2

@@ -1163,7 +1163,7 @@ value = 5.0
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 59310.25237096207
+value = 62449.60005820913
 
 [[entry]]
 path = "src/metrics/loc/perl.rs"
