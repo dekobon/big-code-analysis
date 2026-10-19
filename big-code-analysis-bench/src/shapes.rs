@@ -390,6 +390,29 @@ pub fn rust_inner_doc_run(width: usize) -> String {
     format!("fn f() {{\n{}let x = 1;\n}}\n", "//! d\n".repeat(width))
 }
 
+/// C#: a property whose accessor list holds `width` doc comments before
+/// its one accessor.
+#[must_use]
+pub fn csharp_accessor_docs(width: usize) -> String {
+    format!(
+        "class C {{\n  int X {{\n{}    get;\n  }}\n}}\n",
+        "    /// d\n".repeat(width)
+    )
+}
+
+/// PHP: `width` docblocks between a function's signature and its body.
+#[must_use]
+pub fn php_signature_docs(width: usize) -> String {
+    format!("<?php\nfunction f()\n{}{{ }}\n", "/** d */\n".repeat(width))
+}
+
+/// Kotlin: `width` `/** */` blocks between a function's signature and
+/// its body.
+#[must_use]
+pub fn kotlin_signature_docs(width: usize) -> String {
+    format!("fun f()\n{}{{ }}\n", "/** d */\n".repeat(width))
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -1735,6 +1758,61 @@ pub const PROBES: &[Probe] = &[
         rationale: "Additional docstrings inherit the first string's position. \
                     Decide the run once, rather than scanning back to its \
                     assignment at every string. Every string is a doc row.",
+    },
+    Probe {
+        name: "loc/csharp-accessor-docs",
+        lang: LANG::Csharp,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: csharp_accessor_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1612, #1613: each comment in the accessor list asks \
+                    where its stretch ends, one sibling step to the \
+                    accessor, which is no doc target; the in-body test \
+                    #1612 made path-decided is never reached, since a C# \
+                    doc comment documents only by binding forward. A \
+                    stretch scan that read on past the accessor would be \
+                    quadratic here. Roslyn attaches none of them, so the \
+                    reading is the comment rows.",
+    },
+    Probe {
+        name: "loc/php-signature-docs",
+        lang: LANG::Php,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: php_signature_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1612: whether the body holds each docblock is decided \
+                    by the node on its path; the `body` field lookup walks \
+                    past every docblock in the signature. Every docblock is \
+                    a doc row.",
+    },
+    Probe {
+        name: "loc/kotlin-signature-docs",
+        lang: LANG::Kotlin,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: kotlin_signature_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1612: whether the body holds each KDoc is decided by \
+                    the node on its path; a search of the function's \
+                    children for its body walks past every KDoc in the \
+                    signature. Every KDoc is a doc row.",
     },
     Probe {
         name: "halstead/python-nested-paren",

@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{kotlin_doc, node_bytes, spans};
+use crate::lang_helpers::doc_comment::{kotlin_doc, node_bytes};
 
 impl Checker for KotlinCode {
     fn is_comment(node: &Node) -> bool {
@@ -22,7 +22,9 @@ impl Checker for KotlinCode {
     // only the body is in-body, and a bodiless declaration (an interface
     // or `abstract` fun, a delegating secondary constructor) holds none.
     // No Kotlin kind has a `body` field — the body is the `function_body`
-    // or `block` child. A lambda literal has no such child: it is all
+    // or `block` child, so the body holds the comment when `below` is one;
+    // a search of the children would rescan every KDoc in the signature
+    // for each of them (#1612). A lambda literal has no such child: it is all
     // body, decided by its kind so that a lambda holding thousands of
     // statements is not rescanned for every comment in it (#1597).
     // Accessors and `init` blocks open function spaces without being
@@ -42,12 +44,7 @@ impl Checker for KotlinCode {
                 ancestor.kind_id().into(),
                 Kotlin::Getter | Kotlin::Setter | Kotlin::AnonymousInitializer
             ))
-            && ancestor
-                .children()
-                .find(|child| {
-                    matches!(child.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
-                })
-                .is_some_and(|body| spans(&body, below))
+            && matches!(below.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
     }
 
     fn is_func_space(node: &Node) -> bool {

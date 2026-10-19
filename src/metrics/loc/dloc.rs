@@ -1225,6 +1225,133 @@ mod tests {
         );
     }
 
+    /// A C# doc comment in a property's or indexer's accessor list sits
+    /// before an accessor and documents it; one in the member's header
+    /// documents nothing, whether the member has accessors or an
+    /// expression body, as one after a method's attribute does (#1612).
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_property_doc_comments_document_only_in_the_accessor_list() {
+        assert_doc_rows(
+            LANG::Csharp,
+            &[
+                (
+                    "accessor list",
+                    b"class C {\n    int X {\n        /// a\n        get;\n    }\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "header, bodied",
+                    b"class C {\n    int X\n    /// a\n    { get; }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "after an attribute, bodied",
+                    b"class C {\n    [A]\n    /// a\n    int X { get; }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "header, expression-bodied",
+                    b"class C {\n    int X\n    /// a\n    => 1;\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "indexer header",
+                    b"class C {\n    int this[int i]\n    /// a\n    { get { return 1; } }\n}\n",
+                    0,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// A PHPDoc between a function's signature and its body, or between
+    /// an arrow function's `=>` and its expression, is outside the body
+    /// and documents; one inside the body does not (#1612).
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_doc_comments_before_the_body_document() {
+        assert_doc_rows(
+            LANG::Php,
+            &[
+                ("signature", b"<?php\nfunction f()\n/** s */\n{ }\n", 1, 1),
+                (
+                    "body",
+                    b"<?php\nfunction f() {\n/** s */\nreturn 1; }\n",
+                    0,
+                    1,
+                ),
+                (
+                    "arrow signature",
+                    b"<?php\n$f = fn()\n/** t */\n=> 1;\n",
+                    1,
+                    1,
+                ),
+                (
+                    "after an arrow's =>",
+                    b"<?php\n$f = fn() => /** t */ 1;\n",
+                    1,
+                    1,
+                ),
+                (
+                    "arrow body",
+                    b"<?php\n$f = fn() => [\n/** t */\n1];\n",
+                    0,
+                    1,
+                ),
+                (
+                    "before a missing arrow body",
+                    b"<?php\n$f = fn() => /** t */;\n",
+                    1,
+                    1,
+                ),
+                (
+                    "closure use clause",
+                    b"<?php\n$k = function($x)\nuse ($a) /** w */ { };\n",
+                    1,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// A KDoc between a function's or accessor's signature and its body
+    /// documents; one in a block or expression body does not (#1612).
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_doc_comments_before_the_body_document() {
+        assert_doc_rows(
+            LANG::Kotlin,
+            &[
+                ("signature", b"fun f()\n/** s */\n{ }\n", 1, 1),
+                ("block body", b"fun f() {\n/** s */\n}\n", 0, 1),
+                ("expression body", b"fun g() = /** s */ 1\n", 0, 1),
+                (
+                    "getter head",
+                    b"val x: Int\n/** z */ get() { return 1 }\n",
+                    1,
+                    1,
+                ),
+                (
+                    "secondary constructor",
+                    b"class C {\n    constructor(x: Int)\n    /** s */\n    { }\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "secondary constructor body",
+                    b"class C {\n    constructor(x: Int) {\n        /** s */\n    }\n}\n",
+                    0,
+                    1,
+                ),
+            ],
+        );
+    }
+
     /// An inner doc comment (`//!`, `/*! */`) opening a function's body is
     /// the function's own `#![doc]`: rustdoc renders it and rustc does not
     /// lint it, so it documents as an outer `///` above the function does.

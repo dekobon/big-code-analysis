@@ -13,6 +13,26 @@ impl Checker for CsharpCode {
         Self::is_comment(node) && csharp_doc(node_bytes(node, code))
     }
 
+    // A property or indexer holds every doc comment in it but those in its
+    // accessor list: Roslyn binds one only before the member, so a comment
+    // in its header or initializer documents nothing, as one after a
+    // method's attribute does. Decided by the node on the comment's path
+    // rather than by `is_func`, whose accessor search rescans every
+    // comment in the list or the header for each of them (#1612).
+    fn holds_doc_comment_in_body<'a>(
+        ancestor: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        below: &Node<'a>,
+    ) -> bool {
+        if matches!(
+            ancestor.kind_id().into(),
+            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
+        ) {
+            return below.kind_id() != Csharp::AccessorList;
+        }
+        Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
+    }
+
     // A bodied indexer (`this[int i] { get; set; }`) or property
     // (`int X { get; set; }`) defers to its `accessor_declaration` children
     // for its function spaces — counting it here too double-counts (property,

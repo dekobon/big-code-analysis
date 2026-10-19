@@ -982,11 +982,15 @@ pub fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// accessor-less expression-bodied member still counts as one method (#464).
 #[must_use]
 pub fn csharp_accessor_count(node: &Node) -> usize {
+    csharp_accessors(node).count()
+}
+
+/// The `accessor_declaration`s in a C# member's `accessor_list`.
+fn csharp_accessors<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
     node.children()
         .filter(|c| c.kind_id() == Csharp::AccessorList as u16)
         .flat_map(|list| list.children())
         .filter(|c| c.kind_id() == Csharp::AccessorDeclaration as u16)
-        .count()
 }
 
 /// Returns `true` when a C# `indexer_declaration` / `property_declaration`
@@ -1003,7 +1007,7 @@ pub fn csharp_accessor_count(node: &Node) -> usize {
 /// accessor-less expression-bodied form (#464 indexer, #472 property).
 #[must_use]
 pub fn csharp_member_has_accessors(node: &Node) -> bool {
-    csharp_accessor_count(node) > 0
+    csharp_accessors(node).next().is_some()
 }
 
 /// Returns `true` when a C++ `struct_specifier` / `class_specifier`

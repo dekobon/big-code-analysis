@@ -33,32 +33,6 @@ pub(crate) fn node_bytes<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
     code.get(node.start_byte()..node.end_byte()).unwrap_or(&[])
 }
 
-/// Whether `inner`'s byte span lies within `outer`'s.
-#[inline]
-#[must_use]
-pub(crate) fn spans(outer: &Node, inner: &Node) -> bool {
-    outer.start_byte() <= inner.start_byte() && inner.end_byte() <= outer.end_byte()
-}
-
-/// [`Checker::holds_doc_comment_in_body`] for a language whose tool reads
-/// doc comments in a function's signature and whose function and closure
-/// kinds name their body in a `body` field: only that node holds a comment
-/// in-body, and a bodiless declaration holds none. `below` is the node
-/// under `ancestor` on the comment's path, so the body holds the comment
-/// exactly when it spans `below` (#1597).
-#[inline]
-#[must_use]
-pub(crate) fn holds_in_body_field<'a, T: Checker>(
-    ancestor: &Node<'a>,
-    ancestors: Ancestors<'a, '_>,
-    below: &Node<'a>,
-) -> bool {
-    (T::is_func(ancestor, ancestors) || T::is_closure(ancestor, ancestors))
-        && ancestor
-            .child_by_field_name("body")
-            .is_some_and(|body| spans(&body, below))
-}
-
 /// `/**` opened by a byte that is neither `*` nor `/`: the Javadoc /
 /// JSDoc / Doxygen block form. Rejects the empty `/**/` and the banner
 /// `/***`, as JSDoc ("more than 3 stars will be ignored"), Doxygen

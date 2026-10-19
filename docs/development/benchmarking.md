@@ -159,6 +159,9 @@ Read it as follows.
 | `loc/rust-nested-doc-mods` | Rust | depth | the in-body doc test, memoised per ancestor by `Ancestors::fold_down` (#1597) | linear |
 | `loc/rust-inner-doc-run` | Rust | width | the inner-doc test of each `//!` opening a function body, with no prefix scan | linear |
 | `loc/python-additional-docstrings` | Python | width | additional docstrings classified once per consecutive run | linear |
+| `loc/csharp-accessor-docs` | C# | width | the in-body doc test of each comment in a property's accessor list (#1612) | linear |
+| `loc/php-signature-docs` | PHP | width | the in-body doc test of each docblock between a signature and its body (#1612) | linear |
+| `loc/kotlin-signature-docs` | Kotlin | width | the same test for KDoc in a Kotlin signature (#1612) | linear |
 | `halstead/python-nested-paren` | Python | depth | the climb from each parenthesis to its statement, capped at CPython's nesting limit (#1610) | linear |
 | `loc/python-paren-bare-strings` | Python | depth | each parenthesis of a bare string statement asking whether it wraps the string, memoised per statement under the cap (#1610) | linear |
 | `ops/python-paren-bare-strings` | Python | depth | the same test in the `bca ops` walk, which keeps its own fold cache (#1610) | linear |

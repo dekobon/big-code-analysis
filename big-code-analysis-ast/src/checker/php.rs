@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{holds_in_body_field, node_bytes, phpdoc};
+use crate::lang_helpers::doc_comment::{node_bytes, phpdoc};
 
 impl Checker for PhpCode {
     fn is_comment(node: &Node) -> bool {
@@ -16,13 +16,27 @@ impl Checker for PhpCode {
     // PHP's parser binds the last docblock before a function's name to it,
     // so one written after `#[...]` attributes still documents it, and a
     // promoted constructor property keeps its parameter's docblock
-    // (`ReflectionProperty::getDocComment`). Only the body is in-body.
+    // (`ReflectionProperty::getDocComment`). Only the body is in-body: the
+    // `compound_statement` child, or an arrow function's expression, which
+    // is its last child since tree-sitter moves trailing comments out of a
+    // node — except before a zero-width MISSING body, which leaves the
+    // comment itself ending where the arrow function does. Decided by
+    // `below`'s kind and span, because the `body` field lookup walks every
+    // comment in the signature (#1612).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
-        ancestors: Ancestors<'a, '_>,
+        _ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        holds_in_body_field::<Self>(ancestor, ancestors, below)
+        match ancestor.kind_id().into() {
+            Php::FunctionDefinition | Php::MethodDeclaration | Php::AnonymousFunction => {
+                below.kind_id() == Php::CompoundStatement
+            }
+            Php::ArrowFunction => {
+                below.end_byte() == ancestor.end_byte() && !Self::is_comment(below)
+            }
+            _ => false,
+        }
     }
 
     fn is_func_space(node: &Node) -> bool {
