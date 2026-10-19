@@ -164,6 +164,9 @@ Read it as follows.
 | `loc/csharp-dangling-docs` | C# | width | Roslyn's reverse trivia scan over doc comments split by plain ones (#1613) | linear |
 | `loc/php-file-docblock` | PHP | width | phpDocumentor's file-DocBlock test, a forward scan from the first DocBlock only (#1613) | linear |
 | `loc/js-standalone-tags` | JavaScript | width | JSDoc's virtual-comment test on each `@file` block (#1613) | linear |
+| `loc/c-dangling-docs` | C | width | Doxygen's stretch over doc blocks alternating with the `#include`s it reads past (#1613) | linear |
+| `loc/cpp-structural-docs` | C++ | width | the `@file` scan and the gathering walk of a stretch ending at no target (#1613) | linear |
+| `loc/c-nested-conditional-docs` | C | depth | Doxygen's "does this conditional hold an entry" test, memoised per conditional for the walk (#1613) | linear |
 | `loc/python-additional-docstrings` | Python | width | additional docstrings classified once per consecutive run | linear |
 | `loc/csharp-accessor-docs` | C# | width | the in-body doc test of each comment in a property's accessor list (#1612) | linear |
 | `loc/php-signature-docs` | PHP | width | the in-body doc test of each docblock between a signature and its body (#1612) | linear |

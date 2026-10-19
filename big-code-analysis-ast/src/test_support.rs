@@ -61,3 +61,15 @@ pub fn for_each_node_with_chain<L: LanguageInfo>(
 pub fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
     parser.root().preorder().any(|n| n.kind_id() == target)
 }
+
+/// Asserts that `predicate` holds for every input in `yes` and for none
+/// in `no`, naming the offending input on failure.
+#[track_caller]
+pub fn assert_classifies(predicate: fn(&[u8]) -> bool, yes: &[&[u8]], no: &[&[u8]]) {
+    for input in yes {
+        assert!(predicate(input), "{}", String::from_utf8_lossy(input));
+    }
+    for input in no {
+        assert!(!predicate(input), "{}", String::from_utf8_lossy(input));
+    }
+}

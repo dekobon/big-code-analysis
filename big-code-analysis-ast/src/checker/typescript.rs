@@ -20,12 +20,22 @@ impl Checker for TypescriptCode {
     // declaration's first token, past every plain comment; a comment after
     // a decorator is inside the declaration and documents nothing. TypeDoc
     // withholds a `@module` or `@packageDocumentation` comment from the
-    // declaration and reads it as the file's (#1613).
+    // declaration and reads it as the file's (#1613). tsc reads a
+    // declaration's leading comments from the line break after the token
+    // before it, so a doc comment after code on its row documents nothing,
+    // except before a parameter, whose trailing comments it reads too.
     impl_js_family_doc_binding!(
         Typescript,
         |node, code| Self::is_comment(node) && !Self::is_doc_comment(node, code),
         crate::lang_helpers::doc_comment::tsdoc_module,
-        tsdoc_target
+        tsdoc_target,
+        |target| matches!(
+            target.kind_id().into(),
+            Typescript::RequiredParameter
+                | Typescript::RequiredParameter2
+                | Typescript::OptionalParameter
+                | Typescript::OptionalParameter2
+        )
     );
 
     fn is_func_space(node: &Node) -> bool {

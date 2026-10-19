@@ -3,6 +3,7 @@
 //! lend with it.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use super::Node;
 
@@ -127,6 +128,11 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
+    /// The walk's per-node memo, when it lent a [`FoldCache`].
+    pub(crate) fn node_memo(self) -> Option<&'chain NodeMemo> {
+        self.folds.map(|cache| &cache.nodes)
+    }
+
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
     /// one a walk lent a [`FoldCache`] with. Otherwise every fold runs
     /// from the root, so a predicate whose own climb is bounded takes that
@@ -200,6 +206,15 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     #[inline]
     pub fn depth(self) -> Option<usize> {
         self.chain.map(<[Node<'tree>]>::len)
+    }
+
+    /// The chain of `node`'s children, `self` being `node`'s own: a copy
+    /// extended by `node`, for a predicate that looks into a node the walk
+    /// has not descended into yet. `None` without a known chain, where
+    /// [`Ancestors::unknown`] gives the same answers by climbing.
+    pub(crate) fn children_chain(self, node: &Node<'tree>) -> Option<Vec<Node<'tree>>> {
+        self.chain
+            .map(|chain| [chain, std::slice::from_ref(node)].concat())
     }
 
     /// `node`'s parent.
@@ -494,6 +509,29 @@ impl FoldLane {
 #[derive(Debug, Default)]
 pub struct FoldCache {
     lanes: RefCell<[Vec<(usize, u8)>; FoldLane::COUNT]>,
+    nodes: NodeMemo,
+}
+
+/// Answers about a node's own subtree, memoised for one walk and keyed
+/// by node id, which is unique within a tree: Doxygen's "does this
+/// preprocessor conditional hold an entry", asked of every conditional
+/// a doc comment's stretch meets. Unlike a [`FoldLane`] it is not tied to
+/// the chain, so an answer stored for one sibling subtree serves every
+/// later question about it (#1613). It holds one question; a second
+/// would need a key of its own.
+#[derive(Debug, Default)]
+pub(crate) struct NodeMemo(RefCell<HashMap<usize, bool>>);
+
+impl NodeMemo {
+    /// The stored answer for `node`, if any.
+    pub(crate) fn get(&self, node: &Node<'_>) -> Option<bool> {
+        self.0.borrow().get(&node.id()).copied()
+    }
+
+    /// Stores `answer` for `node`.
+    pub(crate) fn set(&self, node: &Node<'_>, answer: bool) {
+        self.0.borrow_mut().insert(node.id(), answer);
+    }
 }
 
 impl FoldCache {

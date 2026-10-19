@@ -18,6 +18,9 @@ pub mod bash;
 // `Checker` impls; only the run walk the LOC metric drives is
 // re-exported below.
 pub(crate) mod doc_comment;
+// Crate-private: Doxygen's attachment rule, read by the four C-family
+// `Checker` impls only (#1613).
+pub(crate) mod doxygen;
 pub mod elixir;
 // Crate-private: this dialect's only helper is a kind table the three
 // classifiers in this crate share, and nothing outside names it.

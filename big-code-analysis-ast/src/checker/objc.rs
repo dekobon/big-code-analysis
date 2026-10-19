@@ -10,6 +10,11 @@ impl Checker for ObjcCode {
 
     impl_doxygen_doc_comment!();
 
+    // Objective-C adds `@interface`, `@implementation`, `@protocol`,
+    // `@property`, methods and instance variables; `@class C;`,
+    // `@protocol P;`, `@synthesize` and `@dynamic` take none (#1613).
+    impl_doxygen_doc_binding!();
+
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }

@@ -38,12 +38,14 @@ impl Checker for CsharpCode {
     // every doc comment it leaves is CS1587 (#1613). A directive that
     // wraps code (`#if`) is a node the stretch cannot read past, so a doc
     // comment above one stays a plain comment, where Roslyn would give it
-    // to the first member inside.
+    // to the first member inside. A doc comment after code on its row
+    // documents the member after it too.
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
-        skips: csharp_directive,
+        skips: |node, _| csharp_directive(node),
         ..DocBinding::new(KeptDocs::Leading {
             hidden: |node, code| !Self::is_doc_comment(node, code),
             joins: |_, _, _| true,
+            after_code: |_| true,
         })
     });
 

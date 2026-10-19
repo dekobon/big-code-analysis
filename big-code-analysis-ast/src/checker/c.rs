@@ -10,6 +10,11 @@ impl Checker for CCode {
 
     impl_doxygen_doc_comment!();
 
+    // C as Doxygen reads it: a doc block documents the next declaration,
+    // macro or typedef, read past `#include` and an empty conditional, and
+    // a forward `struct s;` takes none (#1613).
+    impl_doxygen_doc_binding!();
+
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }

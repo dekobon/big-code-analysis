@@ -347,10 +347,10 @@ mod tests {
     ))]
     #[test]
     fn a_doc_comment_sharing_a_code_row_keeps_the_row() {
-        // Java, JavaScript, PHP and C# bind a doc comment to the declaration
-        // after it (#1613), so their fixtures put one there.
+        // Java, JavaScript, PHP, C# and C bind a doc comment to the
+        // declaration after it (#1613), so their fixtures put one there.
         let fixtures: &[(LANG, &[u8], u64)] = &[
-            (LANG::C, b"int x; /** d */\n", 1),
+            (LANG::C, b"int x; /** d */ int y;\n", 1),
             (LANG::Java, b"class C { int x; /** d */ int y; }\n", 1),
             (LANG::Javascript, b"let x = 1; /** d */ let y = 2;\n", 1),
             (LANG::Php, b"<?php $x = 1; /** d */ function f() {}\n", 1),
@@ -1492,6 +1492,14 @@ mod tests {
                 ),
                 ("macro item", b"/// d\nm! { x }\n", 0, 1),
                 ("extern block", b"/// d\nunsafe extern \"C\" {}\n", 0, 1),
+                // tree-sitter-rust parses Rust 2024's `safe` as an error
+                // before the rest of the item, which the stretch reads past.
+                (
+                    "safe foreign fn",
+                    b"unsafe extern \"C\" {\n    /// d\n    safe fn g();\n}\n",
+                    1,
+                    1,
+                ),
                 (
                     "generic parameter",
                     b"struct P<\n    /// d\n    T,\n>(T);\n",
@@ -1720,6 +1728,21 @@ mod tests {
                     1,
                 ),
                 ("named argument", b"val y = foo(/** d */ a = 1)\n", 0, 1),
+                // In a class body the grammar parses a context receiver as
+                // an error around an enum entry, which stands in for the
+                // declaration it begins; at the top level it is a call.
+                (
+                    "context receiver in a class body",
+                    b"class C {\n    /** d */\n    context(Foo)\n    fun f() {}\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "context receiver at the top level",
+                    b"/** d */\ncontext(Foo)\nfun f() {}\n",
+                    0,
+                    1,
+                ),
             ],
         );
     }
@@ -1823,6 +1846,12 @@ mod tests {
                     2,
                 ),
                 ("enum member", b"enum E {\n    /// d\n    A,\n}\n", 1, 1),
+                (
+                    "after code on its row",
+                    b"class C {\n    int a; /// d\n    int b;\n}\n",
+                    1,
+                    1,
+                ),
                 ("at the end of the file", b"class C {}\n/// d\n", 0, 1),
                 (
                     "before a closing brace",
@@ -1994,6 +2023,12 @@ mod tests {
                 2,
             ),
             ("superseded", b"/** a */\n/** b */\nfunction f() {}\n", 1, 2),
+            (
+                "after code on its row",
+                b"x; /** d */\nfunction f() {}\n",
+                1,
+                1,
+            ),
             ("assignment", b"x;\n/** d */\nx = 1;\n", 1, 1),
             ("member assignment", b"x;\n/** d */\na.b += 1;\n", 1, 1),
             (
@@ -2011,6 +2046,21 @@ mod tests {
             ("call", b"x;\n/** d */\nfoo();\n", 0, 1),
             ("destructuring", b"x;\n/** d */\nlet { q } = o;\n", 0, 1),
             ("export list", b"x;\n/** d */\nexport { o };\n", 0, 1),
+            // A parse error between two doc comments is read past, not
+            // read as the declaration's first token: JSDoc documents `f`
+            // with `b`, whichever of the two spans more rows.
+            (
+                "error between a multi-row and a one-row doc",
+                b"/**\n * a\n */\n%%%\n/** b */\nfunction f() {}\n",
+                1,
+                4,
+            ),
+            (
+                "error between a one-row and a multi-row doc",
+                b"/** a */\n%%%\n/**\n * b\n */\nfunction f() {}\n",
+                3,
+                4,
+            ),
             (
                 "at the end of the file",
                 b"function f() {}\n/** d */\n",
@@ -2110,6 +2160,60 @@ mod tests {
                 2,
             ),
             ("parameter", b"function f(/** d */ x: number) {}\n", 1, 1),
+            // tsc's leading-comment scan starts at the line break after the
+            // token before a declaration; a parameter reads its trailing
+            // comments too.
+            (
+                "trailing code on its row",
+                b"x; /** d */\nfunction f() {}\n",
+                0,
+                1,
+            ),
+            (
+                "below code's row",
+                b"x; /** a */\n/** b */\nfunction f() {}\n",
+                1,
+                2,
+            ),
+            (
+                "trailing a member",
+                b"interface I {\n  a: number; /** d */\n  b: string;\n}\n",
+                0,
+                1,
+            ),
+            (
+                "multi-row block trailing code",
+                b"x; /**\n * d\n */\nfunction f() {}\n",
+                0,
+                3,
+            ),
+            (
+                "plain comment below the trailing doc",
+                b"x; /** d */\n/* p */\nfunction f() {}\n",
+                0,
+                2,
+            ),
+            // A parse error between two doc comments is read past, not
+            // read as the declaration's first token: tsc attaches `b` to
+            // `f`, whichever of the two spans more rows.
+            (
+                "error between a multi-row and a one-row doc",
+                b"/**\n * a\n */\n%%%\n/** b */\nfunction f() {}\n",
+                1,
+                4,
+            ),
+            (
+                "error between a one-row and a multi-row doc",
+                b"/** a */\n%%%\n/**\n * b\n */\nfunction f() {}\n",
+                3,
+                4,
+            ),
+            (
+                "after a parameter's comma",
+                b"function f(\n  a: number, /** d */\n  b: string,\n) {}\n",
+                1,
+                1,
+            ),
             ("member name", b"a./** d */b;\n", 0, 1),
             (
                 "after a modifier",
@@ -2163,6 +2267,7 @@ mod tests {
                 0,
                 1,
             ),
+            ("@module", b"/**\n * @module m\n */\nfoo();\n", 3, 3),
             (
                 "@packageDocumentation",
                 b"/**\n * @packageDocumentation\n */\nfoo();\n",
@@ -2178,6 +2283,606 @@ mod tests {
         ];
         assert_doc_rows(LANG::Typescript, cases);
         assert_doc_rows(LANG::Tsx, cases);
+    }
+
+    /// Doxygen keeps every doc block it meets until the next entry and
+    /// gives them all to it, reading past `#include`, `#pragma`, an empty
+    /// conditional and plain comments; a block before a closing brace, at
+    /// the end of the file or before a forward declaration documents
+    /// nothing. A structural block (`@file`, `@def X`, `@class X`) and a
+    /// member-after `/**<` document where they sit (#1613). Each row was
+    /// checked with Doxygen 1.13.2's XML output, `EXTRACT_ALL=NO`.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    #[test]
+    fn doxygen_doc_comments_bind_to_the_entry_after_them() {
+        // Shared by C, C++, Mozilla's C++ and Objective-C: C syntax only.
+        let c_family: &[(&str, &[u8], u64, u64)] = &[
+            ("direct", b"/** d */\nint f(void);\n", 1, 1),
+            (
+                "qt and line forms",
+                b"/*! a */\n//! b\n/// c\nint f(void);\n",
+                3,
+                3,
+            ),
+            ("across a blank row", b"/** d */\n\nint f(void);\n", 1, 1),
+            (
+                "through static inline",
+                b"/** d */\nstatic inline int f(void) { return 0; }\n",
+                1,
+                1,
+            ),
+            (
+                "through __attribute__",
+                b"/** d */\n__attribute__((unused)) static int x;\n",
+                1,
+                1,
+            ),
+            (
+                "superseded: both kept",
+                b"/** a */\n/** b */\nint f(void);\n",
+                2,
+                2,
+            ),
+            (
+                "past a plain comment",
+                b"/** a */\n// p\nint f(void);\n",
+                1,
+                2,
+            ),
+            (
+                "past #include",
+                b"/** d */\n#include <x.h>\nint f(void);\n",
+                1,
+                1,
+            ),
+            (
+                "past #pragma",
+                b"/** d */\n#pragma once\nint f(void);\n",
+                1,
+                1,
+            ),
+            (
+                "past an empty statement",
+                b"/** d */\n;\nint f(void);\n",
+                1,
+                1,
+            ),
+            (
+                "past an empty conditional",
+                b"/** d */\n#ifdef X\n#endif\nint f(void);\n",
+                1,
+                1,
+            ),
+            ("a macro", b"/** d */\n#define M 1\n", 1, 1),
+            (
+                "a function-like macro",
+                b"/** d */\n#define M(a) (a)\n",
+                1,
+                1,
+            ),
+            ("a typedef", b"/** d */\ntypedef int t;\n", 1, 1),
+            ("a struct", b"/** d */\nstruct s { int a; };\n", 1, 1),
+            (
+                "a field",
+                b"struct s {\n    /** d */\n    int a;\n};\n",
+                1,
+                1,
+            ),
+            (
+                "an enumerator",
+                b"enum e {\n    /** d */\n    A,\n};\n",
+                1,
+                1,
+            ),
+            ("a macro call", b"/** d */\nFOO(bar);\n", 1, 1),
+            (
+                "a conditional holding a declaration",
+                b"/** d */\n#ifdef X\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            (
+                "into an include guard",
+                b"/** d */\n#ifndef G\n#define G\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            ("a forward declaration", b"/** d */\nstruct s;\n", 0, 1),
+            ("above #include alone", b"/** d */\n#include <x.h>\n", 0, 1),
+            ("at the end of the file", b"int f(void);\n/** d */\n", 0, 1),
+            (
+                "before a closing brace",
+                b"struct s {\n    int a;\n    /** d */\n};\n",
+                0,
+                1,
+            ),
+            (
+                "after a function body",
+                b"void f(void) {\n    return;\n}\n/** d */\n",
+                0,
+                1,
+            ),
+            (
+                "an initializer list",
+                b"int a[] = {\n    /** d */\n    1,\n};\n",
+                1,
+                1,
+            ),
+            ("member after", b"int x; /**< d */\nint y;\n", 1, 1),
+            ("member after on its own row", b"int x;\n///< d\n", 1, 1),
+            ("@file alone", b"/** @file\n * d\n */\n", 3, 3),
+            (
+                "@file before a declaration",
+                b"/** @file */\nint f(void);\n",
+                1,
+                1,
+            ),
+            (
+                "a licence block above @file",
+                b"/** licence */\n/** @file */\n#include <x.h>\n",
+                2,
+                2,
+            ),
+            ("a doc block after @file", b"/** @file */\n/** d */\n", 1, 2),
+            ("@def naming its macro", b"/** @def M\n * d\n */\n", 3, 3),
+            ("@defgroup", b"/// @defgroup g Group\n/// @{\n", 2, 2),
+            ("@} alone", b"int f(void);\n/** @} */\n", 0, 1),
+            (
+                "@brief is not structural",
+                b"/** @brief d */\n#include <x.h>\n",
+                0,
+                1,
+            ),
+            ("@fn with no name", b"/** @fn */\n#include <x.h>\n", 0, 1),
+            (
+                "escaped command",
+                b"/** \\\\file x */\n#include <x.h>\n",
+                0,
+                1,
+            ),
+            ("in a code span", b"/** `@file` */\n#include <x.h>\n", 0, 1),
+            (
+                "in a mail address",
+                b"/** a@file.com */\n#include <x.h>\n",
+                0,
+                1,
+            ),
+            (
+                "in a code block",
+                b"/**\n * @code\n * @file\n * @endcode\n */\n#include <x.h>\n",
+                0,
+                5,
+            ),
+            (
+                "in a function body",
+                b"int f(void) {\n    /** note */\n    return 0;\n}\n",
+                1,
+                1,
+            ),
+            (
+                "in a local struct, before its closing brace",
+                b"void f(void) {\n    struct s {\n        int a;\n        /** d */\n    };\n}\n",
+                1,
+                1,
+            ),
+            (
+                "a field of a body-less struct type",
+                b"struct s {\n    /** d */\n    struct t *p;\n};\n",
+                1,
+                1,
+            ),
+            (
+                "before an enum's closing brace",
+                b"enum e {\n    A,\n    /** d */\n};\n",
+                0,
+                1,
+            ),
+            (
+                "a conditional holding only an empty statement",
+                b"/** d */\n#ifndef G\n;\n#endif\n",
+                0,
+                1,
+            ),
+            ("into #if", b"/** d */\n#if 1\nint f(void);\n#endif\n", 1, 1),
+            (
+                "into #else",
+                b"/** d */\n#ifdef X\n#else\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            (
+                "at the end of an #if branch",
+                b"#if 1\nint f(void);\n/** d */\n#endif\n",
+                0,
+                1,
+            ),
+            (
+                "at the end of an #else branch",
+                b"#ifdef X\n#else\nint f(void);\n/** d */\n#endif\n",
+                0,
+                1,
+            ),
+            (
+                "at the end of an #elif branch",
+                b"#if 0\n#elif 1\nint f(void);\n/** d */\n#endif\n",
+                0,
+                1,
+            ),
+            (
+                "at the end of an #elifndef branch",
+                b"#ifdef X\n#elifndef Y\nint f(void);\n/** d */\n#endif\n",
+                0,
+                1,
+            ),
+            (
+                "between two gathering blocks",
+                b"/** @file */\n/** a */\n/** @defgroup g G */\n/** b */\n",
+                3,
+                4,
+            ),
+            (
+                "a line block below a gathering block",
+                b"/** @file */\n/// d\n",
+                1,
+                2,
+            ),
+            (
+                "a block below a gathering line",
+                b"/// @file\n/** d */\n",
+                1,
+                2,
+            ),
+            (
+                "a line below a plain comment below a gathering line",
+                b"/// @file\n// p\n/// d\n",
+                1,
+                3,
+            ),
+            (
+                "a plain comment above a gathering block",
+                b"// p\n/** @file */\n",
+                1,
+                2,
+            ),
+            (
+                "in an unclosed fence",
+                b"/**\n * ```\n * @file\n */\n#include <x.h>\n",
+                0,
+                4,
+            ),
+            (
+                "in an unclosed code block",
+                b"/**\n * @code\n * @file\n */\n#include <x.h>\n",
+                0,
+                4,
+            ),
+            (
+                "before a stray closing brace",
+                b"int f(void);\n/** d */\n}\n",
+                0,
+                1,
+            ),
+            (
+                "past a stray closing brace",
+                b"int f(void);\n/** d */\n}\nint g(void);\n",
+                1,
+                1,
+            ),
+            (
+                "past a stray closing parenthesis",
+                b"int f(void);\n/** d */\n)\nint g(void);\n",
+                1,
+                1,
+            ),
+            (
+                "a declaration after a macro call missing its semicolon",
+                b"/** d */\nFOO(bar)\nvoid g(void);\n",
+                1,
+                1,
+            ),
+            (
+                "before a lone identifier at the start",
+                b"/** d */\nFOO\n",
+                0,
+                1,
+            ),
+            ("before a stray literal", b"int x;\n/** d */\n42\n", 0, 1),
+            (
+                "before stray parentheses around a plain comment",
+                b"int f(void);\n/** d */\n)\n// p\n)\n",
+                0,
+                2,
+            ),
+            (
+                "before two stray closing braces",
+                b"int f(void);\n/** d */\n}\n}\n",
+                0,
+                1,
+            ),
+            (
+                "a struct before a stray closing brace",
+                b"/** d */\nstruct s { int a; } }\n",
+                1,
+                1,
+            ),
+            (
+                "before a lone identifier and a plain comment",
+                b"int x;\n/** d */\nend // p\n",
+                0,
+                2,
+            ),
+            (
+                "past a lone identifier and #include",
+                b"int x;\n/** d */\nFOO\n#include <a.h>\nint y;\n",
+                1,
+                1,
+            ),
+            (
+                "past an empty conditional inside #elif",
+                b"#if 0\n#elif 1\n/** d */\n#ifdef Z\n#endif\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            (
+                "into #elif from outside",
+                b"/** d */\n#if 0\n#elif 1\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            (
+                "before a parse error holding only comments",
+                b"int a;\n/** d */\n) /* p */ /* q */ }\n",
+                0,
+                2,
+            ),
+            (
+                "into #elif",
+                b"#if 0\n#elif 1\n/** d */\nint f(void);\n#endif\n",
+                1,
+                1,
+            ),
+            (
+                "a terminated lone identifier",
+                b"int x;\n/** d */\nFOO;\n",
+                1,
+                1,
+            ),
+            (
+                "a conditional holding only @end",
+                b"/** d */\n#ifdef __OBJC__\n@end\n#endif\n",
+                0,
+                1,
+            ),
+            ("before a lone identifier", b"int x;\n/** d */\nFOO\n", 0, 1),
+            (
+                "in an htmlonly block",
+                b"/**\n * @htmlonly @file @endhtmlonly\n */\n#include <x.h>\n",
+                0,
+                3,
+            ),
+            (
+                "in an HTML comment",
+                b"/**\n * <!-- @file -->\n */\n#include <x.h>\n",
+                0,
+                3,
+            ),
+            (
+                "after an htmlonly block",
+                b"/**\n * @htmlonly x @endhtmlonly\n * @file\n */\n#include <x.h>\n",
+                4,
+                4,
+            ),
+        ];
+        for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc] {
+            assert_doc_rows(lang, c_family);
+        }
+
+        let cpp: &[(&str, &[u8], u64, u64)] = &[
+            ("through [[nodiscard]]", b"/** d */\n[[nodiscard]] int f();\n", 1, 1),
+            (
+                "through a template head",
+                b"/** d */\ntemplate <class T>\nT f(T t) { return t; }\n",
+                1,
+                1,
+            ),
+            (
+                "through requires",
+                b"/** d */\ntemplate <class T>\n    requires (sizeof(T) > 1)\nT f(T t) { return t; }\n",
+                1,
+                1,
+            ),
+            ("a template forward declaration", b"/** d */\ntemplate <class T> class F;\n", 1, 1),
+            ("a namespace", b"/** d */\nnamespace n {\nint f();\n}\n", 1, 1),
+            ("a using directive", b"/** d */\nusing namespace std;\n", 1, 1),
+            ("an alias", b"/** d */\nusing T = int;\n", 1, 1),
+            ("extern C", b"/** d */\nextern \"C\" {\nint f();\n}\n", 1, 1),
+            (
+                "past static_assert",
+                b"/** d */\nstatic_assert(true, \"x\");\nint f();\n",
+                1,
+                1,
+            ),
+            (
+                "past an access specifier",
+                b"class C {\n    /** d */\npublic:\n    int m();\n};\n",
+                1,
+                1,
+            ),
+            (
+                "a member function definition",
+                b"class C {\n    /** d */\n    int m() { return 0; }\n};\n",
+                1,
+                1,
+            ),
+            (
+                "a nested forward declaration",
+                b"class C {\n    /** d */\n    struct In;\n    int m();\n};\n",
+                0,
+                1,
+            ),
+            ("a class forward declaration", b"/** d */\nclass C;\n", 0, 1),
+            (
+                "an explicit instantiation",
+                b"template <class T> struct S {};\n/** d */\ntemplate struct S<int>;\n",
+                0,
+                1,
+            ),
+            (
+                "before a namespace's closing brace",
+                b"namespace n {\nint f();\n/** d */\n}\n",
+                0,
+                1,
+            ),
+            ("@class naming its class", b"/** @class X\n * d\n */\n", 3, 3),
+            (
+                "@class with no name",
+                b"/** @class */\nclass C;\n",
+                0,
+                1,
+            ),
+            (
+                "after an attribute, in the declaration",
+                b"[[nodiscard]]\n/// d\nint f();\n",
+                1,
+                1,
+            ),
+            (
+                "in a template parameter list",
+                b"template </** d */ class T> void f(T);\n",
+                0,
+                1,
+            ),
+            (
+                "past a namespace alias",
+                b"namespace b {}\n/** d */\nnamespace a = b;\nint f();\n",
+                1,
+                1,
+            ),
+            (
+                "past an empty member",
+                b"class C {\n    /** d */\n    ;\n    int m();\n};\n",
+                1,
+                1,
+            ),
+            (
+                "a friend",
+                b"class D;\nclass C {\n    /** d */\n    friend class D;\n};\n",
+                1,
+                1,
+            ),
+            (
+                "a nested struct with a body",
+                b"struct S {\n    /** d */\n    struct In { int a; };\n    int b;\n};\n",
+                1,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Cpp, cpp);
+        assert_doc_rows(LANG::Mozcpp, cpp);
+
+        // A `.h` is read as C++, so Objective-C's `@end` there parses as a
+        // parse error holding `@` and a statement holding `end`.
+        assert_doc_rows(
+            LANG::Cpp,
+            &[
+                ("@end in a header", b"int x;\n/** d */\n@end\n", 0, 1),
+                ("@end alone in a header", b"/** d */\n@end\n", 0, 1),
+                (
+                    "@interface in a header",
+                    b"/** d */\n@interface O : NSObject\n- (void)m;\n@end\n",
+                    1,
+                    1,
+                ),
+                (
+                    "before @end and a plain comment in a header",
+                    b"int x;\n/** d */\n@end\n// p\n",
+                    0,
+                    2,
+                ),
+                (
+                    "before a class macro",
+                    b"class C {\n    /** d */\n    Q_OBJECT\n};\n",
+                    0,
+                    1,
+                ),
+                (
+                    "past @end in a header",
+                    b"int x;\n/** d */\n@end\nint y;\n",
+                    1,
+                    1,
+                ),
+            ],
+        );
+
+        assert_doc_rows(
+            LANG::Objc,
+            &[
+                (
+                    "@interface, @property and a method",
+                    b"/** a */\n@interface O : NSObject\n/** b */\n@property int x;\n/** c */\n- (void)m;\n@end\n",
+                    3,
+                    3,
+                ),
+                (
+                    "@implementation and a method",
+                    b"/** a */\n@implementation O\n/** b */\n- (void)m {}\n@end\n",
+                    2,
+                    2,
+                ),
+                (
+                    "@protocol and an instance variable",
+                    b"/** a */\n@protocol P\n- (void)m;\n@end\n@interface O : NSObject {\n    /** b */\n    int iv;\n}\n@end\n",
+                    2,
+                    2,
+                ),
+                ("before @end", b"@interface O : NSObject\n/** d */\n@end\n", 0, 1),
+                ("a forward @class", b"/** d */\n@class C;\n", 0, 1),
+                ("a forward @protocol", b"/** d */\n@protocol P;\n", 0, 1),
+                (
+                    "@synthesize",
+                    b"@implementation O\n/** d */\n@synthesize x;\n@end\n",
+                    0,
+                    1,
+                ),
+                ("past #import", b"/** d */\n#import <F/F.h>\nint f(void);\n", 1, 1),
+                (
+                    "before a protocol's @end",
+                    b"@protocol P\n- (void)m;\n/** d */\n@end\n",
+                    0,
+                    1,
+                ),
+                (
+                    "before an @optional section's @end",
+                    b"@protocol P\n@optional\n- (void)m;\n/** d */\n@end\n",
+                    0,
+                    1,
+                ),
+                (
+                    "before an @optional section's @end, past a #pragma",
+                    b"@protocol P\n@optional\n/** d */\n#pragma mark x\n@end\n",
+                    0,
+                    1,
+                ),
+                (
+                    "a conditional holding #include and @end",
+                    b"/** d */\n#ifdef X\n#include <a.h>\n@end\n#endif\n",
+                    0,
+                    1,
+                ),
+                (
+                    "an @optional section",
+                    b"@protocol P\n/** d */\n@optional\n- (void)m;\n@end\n",
+                    1,
+                    1,
+                ),
+                (
+                    "before an instance-variable block's closing brace",
+                    b"@interface O : NSObject {\n    int a;\n    /** d */\n}\n@end\n",
+                    0,
+                    1,
+                ),
+            ],
+        );
     }
 
     /// Bodies that open a function space without being a function — a

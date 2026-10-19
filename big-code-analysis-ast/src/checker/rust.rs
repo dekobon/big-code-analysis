@@ -19,6 +19,12 @@ fn rust_inner_doc_opens_body(function: &Node, body: &Node) -> bool {
             .is_some_and(|actual| actual.id() == body.id())
 }
 
+/// An inner doc comment, `//!` or `/*! */`: one that documents the item
+/// enclosing it rather than the one after it.
+fn rust_inner_doc(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"//!") || bytes.starts_with(b"/*!")
+}
+
 /// Whether a Rust doc comment attaches to what follows it: an outer one
 /// outside a macro's token trees (#1613).
 fn rust_doc_binds_forward<'a>(
@@ -26,8 +32,7 @@ fn rust_doc_binds_forward<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let bytes = node_bytes(comment, code);
-    let inner = bytes.starts_with(b"//!") || bytes.starts_with(b"/*!");
+    let inner = rust_inner_doc(node_bytes(comment, code));
     let in_macro = ancestors.parent(comment).is_some_and(|parent| {
         matches!(
             parent.kind_id().into(),
@@ -65,9 +70,7 @@ impl Checker for RustCode {
     // (comment → body block → `function_item`) can grant it, and
     // `documents_where_it_sits` asks exactly those two levels.
     fn doc_comment_opens_body(comment: &Node, ancestor: &Node, below: &Node, code: &[u8]) -> bool {
-        let bytes = node_bytes(comment, code);
-        (bytes.starts_with(b"//!") || bytes.starts_with(b"/*!"))
-            && rust_inner_doc_opens_body(ancestor, below)
+        rust_inner_doc(node_bytes(comment, code)) && rust_inner_doc_opens_body(ancestor, below)
     }
 
     // rustc makes every outer doc comment above an item one of its
@@ -77,7 +80,7 @@ impl Checker for RustCode {
     // trees documents whatever the expansion makes of it; both keep the
     // unbound reading.
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
-        skips: |node| node.kind_id() == Rust::AttributeItem,
+        skips: |node, _| node.kind_id() == Rust::AttributeItem,
         forward: rust_doc_binds_forward,
         ..DocBinding::new(KeptDocs::All)
     });

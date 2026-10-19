@@ -536,8 +536,9 @@ pub trait Checker {
     /// YARD's convention; see `lang_helpers::doc_comment::leading_doc_run`
     /// (#1597). A language with a [`DOC_BINDING`](Self::DOC_BINDING) asks
     /// it of the first sibling after the run's comments and the nodes its
-    /// [`DocBinding::skips`] names, and answers for the declarations its tool attaches a doc comment to;
-    /// see `lang_helpers::doc_comment::bound_doc_run` (#1613). `ancestors`
+    /// [`DocBinding::skips`] names, and answers for the declarations its
+    /// tool attaches a doc comment to; see
+    /// `lang_helpers::doc_comment::bound_doc_run` (#1613). `ancestors`
     /// is `node`'s chain, for a rule that depends on where it sits.
     #[inline]
     #[must_use]
@@ -946,8 +947,10 @@ pub trait Checker {
     }
 }
 
-// The JS family's doc-comment binding macros (#1613), declared before
-// the language modules that invoke them.
+// The doc-comment binding macros of the C and JS families (#1613),
+// declared before the language modules that invoke them.
+#[macro_use]
+mod doxygen_doc_binding;
 #[macro_use]
 mod js_doc_binding;
 mod bash;
@@ -993,9 +996,10 @@ pub fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// `accessor_list`. Returns `0` for the expression-bodied form
 /// (`this[int i] => _d[i];` / `int W => _w;`), which has no accessor list.
 ///
-/// Shared by `csharp_member_has_accessors` (here) and the npm reference
-/// `csharp_count_member`, which keeps its own `.max(1)` fallback so an
-/// accessor-less expression-bodied member still counts as one method (#464).
+/// Used by the npm reference `csharp_count_member`, which keeps its own
+/// `.max(1)` fallback so an accessor-less expression-bodied member still
+/// counts as one method (#464). `csharp_member_has_accessors` asks only
+/// whether one exists and stops at the first (#1612).
 #[must_use]
 pub fn csharp_accessor_count(node: &Node) -> usize {
     csharp_accessors(node).count()

@@ -42,8 +42,9 @@ pub struct DocBinding {
     /// without detaching it, so a stretch reads past it: rustc gives an
     /// item every outer doc comment above it, through its other
     /// attributes. A grammar that nests annotations inside the declaration
-    /// has nothing to skip. A skipped node is never a target.
-    pub skips: fn(&Node) -> bool,
+    /// has nothing to skip. A skipped node is never a target. The
+    /// [`Ancestors`] are the node's chain.
+    pub skips: for<'a, 'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
     /// Whether a doc comment documents what follows it. `false` leaves it
     /// to where it sits, as in an unbound language: Rust's inner `//!`
     /// documents the item enclosing it, a doc comment in a macro token
@@ -51,17 +52,28 @@ pub struct DocBinding {
     /// inside a Kotlin declaration's signature is read by `findDocComment`
     /// from there. The [`Ancestors`] are the comment's chain.
     pub forward: for<'a, 'b> fn(&Node<'a>, &[u8], Ancestors<'a, 'b>) -> bool,
+    /// A doc comment that documents an entry of its own and takes with it
+    /// the forward doc comments before it in its stretch, so they document
+    /// even when the stretch ends at no target: Doxygen gives a `\file`
+    /// block the doc blocks it has gathered since the last entry, so a
+    /// licence block above one at the end of a header documents the file.
+    /// It should not itself bind [`forward`](Self::forward). Where the
+    /// stretch does end at a target, [`kept`](Self::kept) alone decides.
+    /// `None` for a tool with no such block, which lets a stretch that
+    /// ends at no target return before it is even collected.
+    pub gathers: Option<fn(&Node, &[u8]) -> bool>,
 }
 
 impl DocBinding {
-    /// A binding that keeps `kept`, skips no sibling, and binds every doc
-    /// comment forward.
+    /// A binding that keeps `kept`, skips no sibling, binds every doc
+    /// comment forward, and has no doc comment gather the others.
     #[must_use]
     pub const fn new(kept: KeptDocs) -> Self {
         Self {
             kept,
-            skips: |_| false,
+            skips: |_, _| false,
             forward: |_, _, _| true,
+            gathers: None,
         }
     }
 }
@@ -112,6 +124,13 @@ pub enum KeptDocs {
         hidden: fn(&Node, &[u8]) -> bool,
         /// Whether two adjacent doc comments are one to the tool.
         joins: fn(&Node, &Node, &[u8]) -> bool,
+        /// Whether the tool reads a member on the row where the code
+        /// before the stretch ends, asked of the target. tsc's
+        /// `getLeadingCommentRanges` starts at the line break after the
+        /// token before the declaration, so `x; /** d */` documents
+        /// nothing after it, except before a parameter, whose trailing
+        /// comment ranges it reads too; Roslyn and JSDoc read it.
+        after_code: fn(&Node) -> bool,
     },
 }
 
@@ -212,12 +231,12 @@ fn jsdoc_line(line: &[u8]) -> &[u8] {
     line.strip_prefix(b" ").unwrap_or(line)
 }
 
-/// The block tags of a `/** … */` comment as JSDoc's `Doclet` reads them
-/// (`toTags`): a tag opens at an `@` that starts a line, its title runs to
-/// the first space, and its text over every line up to the next tag. Each
-/// tag is yielded as its title and its text's lines, delimiters stripped,
-/// extra stars at either end included, as `unwrap` strips them.
-fn jsdoc_tags(s: &[u8]) -> Vec<(&[u8], Vec<&[u8]>)> {
+/// The lines of a `/** … */` body, delimiters and the extra stars at
+/// either end stripped (`unwrap`), each with its leading ` * ` stripped
+/// ([`jsdoc_line`]). `Clone`, so a tag's text — every line up to the next
+/// tag, as JSDoc's `toTags` reads it — can be read in place from the line
+/// that opened it.
+fn jsdoc_lines(s: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
     let body = s.strip_prefix(b"/**").unwrap_or(s);
     let body = body.strip_suffix(b"*/").unwrap_or(body);
     let start = body.iter().position(|&b| b != b'*').unwrap_or(body.len());
@@ -225,43 +244,40 @@ fn jsdoc_tags(s: &[u8]) -> Vec<(&[u8], Vec<&[u8]>)> {
         .iter()
         .rposition(|&b| b != b'*')
         .map_or(start, |at| at + 1);
-    let body = &body[start..end];
-    let mut tags: Vec<(&[u8], Vec<&[u8]>)> = Vec::new();
-    for line in body.split(|&b| b == b'\n').map(jsdoc_line) {
-        let opened = line.trim_ascii_start().strip_prefix(b"@").and_then(|tag| {
-            let title = tag.iter().take_while(|b| !b.is_ascii_whitespace()).count();
-            (title > 0).then(|| tag.split_at(title))
-        });
-        match (opened, tags.last_mut()) {
-            (Some((title, text)), _) => tags.push((title, vec![text])),
-            (None, Some((_, text))) => text.push(line),
-            (None, None) => {}
-        }
-    }
-    tags
+    body[start..end].split(|&b| b == b'\n').map(jsdoc_line)
+}
+
+/// The `(title, text)` a line opens when it starts a tag.
+fn jsdoc_tag_open(line: &[u8]) -> Option<(&[u8], &[u8])> {
+    let tag = line.trim_ascii_start().strip_prefix(b"@")?;
+    let title = tag.iter().take_while(|b| !b.is_ascii_whitespace()).count();
+    (title > 0).then(|| tag.split_at(title))
 }
 
 /// Whether a JSDoc tag's text names a symbol: anything left once the
 /// `{type}` that may lead it is set aside.
-fn jsdoc_names(lines: &[&[u8]]) -> bool {
-    let text = lines.concat();
-    let text = text.trim_ascii();
-    let rest = match text.strip_prefix(b"{") {
-        Some(inner) => {
-            let mut depth = 1_usize;
-            let close = inner.iter().position(|&b| {
-                match b {
-                    b'{' => depth += 1,
-                    b'}' => depth -= 1,
-                    _ => {}
-                }
-                depth == 0
-            });
-            close.map_or(&b""[..], |at| &inner[at + 1..])
+fn jsdoc_names<'a>(lines: impl IntoIterator<Item = &'a [u8]>) -> bool {
+    // The lines joined, read once without joining them: a `{type}` is
+    // skipped by brace depth, and anything non-blank after it names.
+    let mut bytes = lines
+        .into_iter()
+        .flat_map(|line| line.iter().copied())
+        .skip_while(u8::is_ascii_whitespace)
+        .peekable();
+    if bytes.peek() == Some(&b'{') {
+        let mut depth = 0_usize;
+        for b in bytes.by_ref() {
+            match b {
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                break;
+            }
         }
-        None => text,
-    };
-    !rest.trim_ascii().is_empty()
+    }
+    bytes.any(|b| !b.is_ascii_whitespace())
 }
 
 /// A JSDoc *virtual* comment, which stands alone: it documents the symbol
@@ -273,17 +289,43 @@ fn jsdoc_names(lines: &[&[u8]]) -> bool {
 /// Titles match in any case, as the tag dictionary's `normalize` does.
 #[must_use]
 pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
-    jsdoc_tags(s)
-        .iter()
-        .any(|(title, text)| match &*title.to_ascii_lowercase() {
-            b"file" | b"fileoverview" | b"overview" | b"module" => true,
-            b"name" | b"function" | b"func" | b"method" | b"class" | b"constructor"
-            | b"constant" | b"const" | b"member" | b"var" | b"namespace" | b"mixin"
-            | b"interface" | b"event" | b"external" | b"host" | b"typedef" | b"callback" => {
-                jsdoc_names(text)
-            }
-            _ => false,
-        })
+    const ALWAYS: [&[u8]; 4] = [b"file", b"fileoverview", b"overview", b"module"];
+    const NAMING: [&[u8]; 18] = [
+        b"name",
+        b"function",
+        b"func",
+        b"method",
+        b"class",
+        b"constructor",
+        b"constant",
+        b"const",
+        b"member",
+        b"var",
+        b"namespace",
+        b"mixin",
+        b"interface",
+        b"event",
+        b"external",
+        b"host",
+        b"typedef",
+        b"callback",
+    ];
+    let is = |title: &[u8], names: &[&[u8]]| names.iter().any(|n| title.eq_ignore_ascii_case(n));
+    let mut lines = jsdoc_lines(s);
+    while let Some(line) = lines.next() {
+        let Some((title, text)) = jsdoc_tag_open(line) else {
+            continue;
+        };
+        if is(title, &ALWAYS) {
+            return true;
+        }
+        // The tag's text runs over every line up to the next tag.
+        let rest = lines.clone().take_while(|l| jsdoc_tag_open(l).is_none());
+        if is(title, &NAMING) && jsdoc_names(std::iter::once(text).chain(rest)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A TypeDoc module comment: one carrying `@module` or
@@ -291,9 +333,9 @@ pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
 /// declaration and reads as the file's documentation (#1613).
 #[must_use]
 pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
-    jsdoc_tags(s)
-        .iter()
-        .any(|(title, _)| *title == b"module" || *title == b"packageDocumentation")
+    jsdoc_lines(s)
+        .filter_map(jsdoc_tag_open)
+        .any(|(title, _)| title == b"module" || title == b"packageDocumentation")
 }
 
 /// Whether `comment` lies outside every function and closure body, by the
@@ -304,15 +346,28 @@ pub(crate) fn outside_function_bodies<'a, T: Checker>(
     comment: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    !held_in_body::<T>(comment, 0, ancestors)
+}
+
+/// Whether an ancestor of `node`, past the `skip` nearest ones, holds it
+/// in a function body. One step closure for the shared
+/// [`FoldLane::DocInBody`] memo: `fold_down` serves a cached answer to
+/// every caller on the lane, so the question must be asked the same way
+/// everywhere.
+fn held_in_body<'a, T: Checker>(
+    node: &Node<'a>,
+    skip: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     ancestors.fold_down(
-        comment,
-        0,
+        node,
+        skip,
         FoldLane::DocInBody,
         0,
         |held, ancestor, outer, below| {
             u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
         },
-    ) == 0
+    ) != 0
 }
 
 // ---------------------------------------------------------------------
@@ -358,15 +413,7 @@ pub fn documents_where_it_sits<'a, T: Checker>(
         }
         below = ancestor;
     }
-    ancestors.fold_down(
-        node,
-        2,
-        FoldLane::DocInBody,
-        0,
-        |held, ancestor, outer, below| {
-            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
-        },
-    ) == 0
+    !held_in_body::<T>(node, 2, ancestors)
 }
 
 /// Whether a doc comment documents without a following declaration,
@@ -390,7 +437,8 @@ pub fn documents_unbound<'a, T: Checker>(
 /// [`Checker::DOC_BINDING`] credits nothing here.
 ///
 /// The comments compared are one *stretch*: the comment siblings between
-/// two other siblings, read past those [`DocBinding::skips`] names. Only the stretch's last
+/// two other siblings, read past those [`DocBinding::skips`] names and any
+/// parse error that is no doc target and holds none. Only the stretch's last
 /// comment does more than one sibling step, so a stretch of `k` members
 /// costs `O(k)` steps in total, the #1446 bound: it finds the sibling the
 /// stretch ends at and, when that is an [`Checker::is_doc_target`], walks
@@ -407,48 +455,198 @@ pub fn bound_doc_run<'a, T: Checker>(
     let Some(binding) = T::DOC_BINDING else {
         return;
     };
-    // A later member decides, or the stretch documents nothing.
-    let Some(next) = stretch_end_at_target::<T>(comment, code, ancestors, binding.skips) else {
-        return;
+    let end = match stretch_end::<T>(comment, code, ancestors, binding.skips) {
+        // A later member decides.
+        StretchEnd::Undecided => return,
+        // Nothing documents, and no block gathers the stretch either.
+        StretchEnd::Elsewhere if binding.gathers.is_none() => return,
+        end => end,
     };
     if !documents_where_it_sits::<T>(comment, code, ancestors) {
         return;
     }
-    // The stretch in source order, followed by the sibling it ends at.
-    let mut stretch: Vec<Node<'a>> = std::iter::once(*comment)
-        .chain(ancestors.siblings_before(comment))
-        .take_while(|n| T::is_comment(n) || (binding.skips)(n))
-        .collect();
-    stretch.reverse();
+    let (stretch, code_before) = collect_stretch::<T>(comment, code, ancestors, binding.skips);
     let forward =
         |n: &Node<'a>| T::is_doc_comment(n, code) && (binding.forward)(n, code, ancestors);
+    let StretchEnd::AtTarget { next, target } = end else {
+        if let Some(gathers) = binding.gathers {
+            bind_gathered::<T>(&stretch, code, gathers, forward)
+                .iter()
+                .for_each(&mut credit);
+        }
+        return;
+    };
     let kept = match binding.kept {
         KeptDocs::All => stretch.iter().copied().filter(forward).collect(),
         KeptDocs::Last { joins } => bind_last::<T>(&stretch, code, joins, forward),
         KeptDocs::Nearest { hidden } => bind_nearest::<T>(&stretch, next, hidden, forward)
             .into_iter()
             .collect(),
-        KeptDocs::Leading { hidden, joins } => {
-            bind_leading::<T>(&stretch, code, hidden, joins, forward)
+        KeptDocs::Leading {
+            hidden,
+            joins,
+            after_code,
+        } => {
+            // A member on the row the code before the stretch ends on is
+            // after that code, where a scan from the next line break does
+            // not reach.
+            let after_code_row = code_before
+                .filter(|_| !after_code(&target))
+                .map(|before| before.end_row());
+            let attaches = |n: &Node<'a>| forward(n) && Some(n.start_row()) != after_code_row;
+            bind_leading::<T>(&stretch, code, hidden, joins, attaches)
         }
     };
     kept.iter().for_each(&mut credit);
 }
 
-/// The sibling right after `comment` when `comment` is its stretch's last
-/// comment and the stretch ends at an [`Checker::is_doc_target`]; `None`
-/// otherwise. The scan stops at the first sibling that is not skipped, so
-/// it never passes a later comment of the stretch.
-fn stretch_end_at_target<'a, T: Checker>(
+/// Where a stretch of comments ends, asked of its last comment.
+enum StretchEnd<'a> {
+    /// A later comment of the stretch decides.
+    Undecided,
+    /// At `target`, an [`Checker::is_doc_target`] or a parse error holding
+    /// one. `next` is the sibling right after the asking comment, where a
+    /// walk back from the target begins.
+    AtTarget { next: Node<'a>, target: Node<'a> },
+    /// At a statement, a closing brace, the end of the file — anything
+    /// that documents nothing.
+    Elsewhere,
+}
+
+/// Where the stretch `comment` belongs to ends. The scan stops at the
+/// first sibling that is neither skipped nor a parse error read past, so
+/// it never passes a later comment of the stretch. Only an error is asked
+/// whether it is read past, and only once the binding's own `skips` and
+/// [`Checker::is_doc_target`] have passed on it, so a binding that decides
+/// errors itself (Doxygen's) keeps its reading.
+fn stretch_end<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
-    skips: fn(&Node) -> bool,
-) -> Option<Node<'a>> {
-    let mut after = ancestors.siblings_after(comment);
-    let next = after.next()?;
-    let target = std::iter::once(next).chain(after).find(|n| !skips(n))?;
-    T::is_doc_target(&target, code, ancestors).then_some(next)
+    skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+) -> StretchEnd<'a> {
+    let mut after = ancestors.siblings_after(comment).peekable();
+    let Some(&next) = after.peek() else {
+        return StretchEnd::Elsewhere;
+    };
+    match after.find(|n| !skips(n, ancestors) && !read_past_error::<T>(n, code, ancestors)) {
+        Some(target) if T::is_comment(&target) => StretchEnd::Undecided,
+        Some(target)
+            if T::is_doc_target(&target, code, ancestors)
+                || (target.is_error() && error_holds_target::<T>(&target, code, ancestors)) =>
+        {
+            StretchEnd::AtTarget { next, target }
+        }
+        _ => StretchEnd::Elsewhere,
+    }
+}
+
+/// The stretch `comment` ends, in source order, and the sibling before it:
+/// `comment` and the siblings before it that are comments or skipped,
+/// read past the parse errors [`stretch_end`] reads past with the same
+/// test, so every member whose scan stopped at the next comment is in
+/// the stretch that decides it. The errors themselves are left out: the
+/// `safe` of a `safe fn` is between the item's doc comments and its
+/// first token, not that token. An error the scan does not read past —
+/// one holding a target — ends the stretch and is the sibling before it.
+fn collect_stretch<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+) -> (Vec<Node<'a>>, Option<Node<'a>>) {
+    let mut stretch = vec![*comment];
+    let mut before = None;
+    // An error read past is no member of the stretch: neither a comment
+    // nor the first token a binder stops at. Left in, a binder that keeps
+    // the last doc comment before the first token (tsc's, JSDoc's,
+    // javac's) would read the error as that token and keep the comment
+    // above it instead of the one the tool attaches.
+    for sibling in ancestors
+        .siblings_before(comment)
+        .filter(|sibling| !read_past_error::<T>(sibling, code, ancestors))
+    {
+        if T::is_comment(&sibling) || skips(&sibling, ancestors) {
+            stretch.push(sibling);
+        } else {
+            before = Some(sibling);
+            break;
+        }
+    }
+    stretch.reverse();
+    (stretch, before)
+}
+
+/// Whether a stretch reads past `node`: a parse error that is no doc
+/// target and holds none — tokens the grammar could not place, such as the
+/// `safe` of a Rust 2024 foreign item, which tree-sitter-rust leaves as an
+/// error between the item's doc comment and the rest of it. Given the
+/// benefit of the doubt, as Doxygen's binding gives one (`doxygen_skips`),
+/// rather than dropping the doc comment on a parse failure.
+fn read_past_error<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    node.is_error()
+        && !T::is_doc_target(node, code, ancestors)
+        && !error_holds_target::<T>(node, code, ancestors)
+}
+
+/// Whether a child of the parse error `error` is a doc target: a
+/// declaration parsed amid code the grammar could not place, which the
+/// error then stands in for as Doxygen's `doxygen_target` reads one.
+/// `ancestors` is the error's chain. Errors are rare, so the copy of the
+/// chain its children are judged with costs nothing on the common path.
+/// Without a chain the children are judged with none, which a target
+/// test that climbs pays for at `O(depth)`; every production walk lends
+/// one, so only a test reaches that fallback.
+fn error_holds_target<'a, T: Checker>(
+    error: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let chain = ancestors.children_chain(error);
+    let inside = chain
+        .as_deref()
+        .map_or_else(Ancestors::unknown, Ancestors::known);
+    error
+        .children()
+        .any(|child| child.is_named() && T::is_doc_target(&child, code, inside))
+}
+
+/// What a stretch that ends at no target documents: what its last
+/// gathering comment ([`DocBinding::gathers`]) takes — the forward doc
+/// comments before it, and the line doc comments on the rows directly
+/// below it, which a line-comment tool reads as one block with it. The
+/// gathering comment does not bind forward, so `forward` drops it; it
+/// documents where it sits.
+fn bind_gathered<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    gathers: fn(&Node, &[u8]) -> bool,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Vec<Node<'a>> {
+    let Some(gatherer) = stretch
+        .iter()
+        .rposition(|n| T::is_doc_comment(n, code) && gathers(n, code))
+    else {
+        return Vec::new();
+    };
+    let line = |n: &Node| node_bytes(n, code).starts_with(b"//");
+    // Only a line-comment gatherer reads the line doc comments below it
+    // as one block with itself.
+    let gathers_below = line(&stretch[gatherer]);
+    let mut last = gatherer;
+    while let Some(below) = stretch.get(last + 1)
+        && gathers_below
+        && line(below)
+        && T::is_doc_comment(below, code)
+        && below.start_row() == stretch[last].end_row().saturating_add(1)
+    {
+        last += 1;
+    }
+    stretch[..=last].iter().copied().filter(forward).collect()
 }
 
 /// [`KeptDocs::Last`] over a stretch in source order: the last doc
@@ -468,14 +666,7 @@ fn bind_last<'a, T: Checker>(
     let Some(last) = before.iter().rposition(&forward) else {
         return after.iter().copied().find(forward).into_iter().collect();
     };
-    let mut first = last;
-    while first > 0
-        && forward(&before[first - 1])
-        && joins(&before[first - 1], &before[first], code)
-    {
-        first -= 1;
-    }
-    before[first..=last].to_vec()
+    joined_run(before, last, code, joins, forward)
 }
 
 /// [`KeptDocs::Leading`] over a stretch in source order: the members
@@ -500,10 +691,24 @@ fn bind_leading<'a, T: Checker>(
     if !forward(&before[last]) {
         return Vec::new();
     }
+    joined_run(before, last, code, joins, forward)
+}
+
+/// `before[last]` with the doc comments directly before it that it
+/// joins, in source order. `joins` is asked first: for a binding whose
+/// `joins` is [`never_joins`] it answers at once, where `forward`
+/// would scan the comment's bytes for nothing.
+fn joined_run<'a>(
+    before: &[Node<'a>],
+    last: usize,
+    code: &[u8],
+    joins: fn(&Node, &Node, &[u8]) -> bool,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Vec<Node<'a>> {
     let mut first = last;
     while first > 0
-        && forward(&before[first - 1])
         && joins(&before[first - 1], &before[first], code)
+        && forward(&before[first - 1])
     {
         first -= 1;
     }
@@ -863,6 +1068,39 @@ mod tests {
         assert!(!ruby_directive_opener(b"##### Private helpers #####"));
     }
 
+    /// The walk back from a stretch's last comment reads past the parse
+    /// errors the scan forward from each member read past, so a member
+    /// whose scan stopped at the next comment is decided by the stretch
+    /// holding it. Not valid Rust — no qualifier may precede a doc comment
+    /// — but an error between two doc comments needs one, and a binding
+    /// that keeps every doc comment is where an undecided member shows. The
+    /// test pins that the two scans agree, not a reading of Rust.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn both_scans_read_past_the_same_error() {
+        use crate::langs::RustCode;
+        use crate::node::Tree;
+        let source = b"unsafe extern \"C\" {\n    /// a\n    safe\n    /// b\n    fn g();\n}\n";
+        let tree = Tree::new::<RustCode>(source);
+        let comments: Vec<_> = tree
+            .get_root()
+            .preorder()
+            .filter(|node| RustCode::is_comment(node))
+            .collect();
+        assert_eq!(comments.len(), 2);
+        assert!(
+            tree.get_root().preorder().any(|node| node.is_error()),
+            "the fixture no longer parses `safe` as an error"
+        );
+        let mut credited = Vec::new();
+        for comment in &comments {
+            bound_doc_run::<RustCode>(comment, source, Ancestors::unknown(), |doc| {
+                credited.push(doc.start_row());
+            });
+        }
+        assert_eq!(credited, [1, 3]);
+    }
+
     #[test]
     fn javadoc_block_accepts_the_block_form_only() {
         assert!(javadoc_block(b"/** doc */"));
@@ -953,41 +1191,35 @@ mod tests {
     /// line after its tag, and a tag inline in the description is text.
     #[test]
     fn jsdoc_virtual_follows_jsdoc_naming_tags() {
-        for virtual_ in [
-            &b"/** @file */"[..],
-            b"/**\n * @fileoverview x\n */",
-            b"/** @overview */",
-            b"/** @module */",
-            b"/**\n * @typedef {Object} T\n */",
-            b"/**\n * @typedef {Object}\n * T\n */",
-            b"/**\n * @function f\n */",
-            b"/**\n * @callback cb\n */",
-            b"/** @FILE */",
-            b"/** @FileOverview */",
-            b"/** @Typedef {Object} T */",
-            b"/** @function f **/",
-        ] {
-            assert!(
-                jsdoc_virtual(virtual_),
-                "{}",
-                String::from_utf8_lossy(virtual_)
-            );
-        }
-        for attached in [
-            &b"/**\n * @license MIT\n */"[..],
-            b"/**\n * @typedef {Object}\n */",
-            b"/**\n * @function\n */",
-            b"/** @function **/",
-            b"/** x @file */",
-            b"/** d */",
-        ] {
-            assert!(
-                !jsdoc_virtual(attached),
-                "{}",
-                String::from_utf8_lossy(attached)
-            );
-        }
+        crate::test_support::assert_classifies(
+            jsdoc_virtual,
+            &[
+                b"/** @file */",
+                b"/**\n * @fileoverview x\n */",
+                b"/** @overview */",
+                b"/** @module */",
+                b"/**\n * @typedef {Object} T\n */",
+                b"/**\n * @typedef {Object}\n * T\n */",
+                b"/**\n * @function f\n */",
+                b"/**\n * @callback cb\n */",
+                b"/** @FILE */",
+                b"/** @FileOverview */",
+                b"/** @Typedef {Object} T */",
+                b"/** @function f **/",
+            ],
+            &[
+                b"/**\n * @license MIT\n */",
+                b"/**\n * @typedef {Object}\n */",
+                b"/**\n * @function\n */",
+                b"/** @function **/",
+                // A nested `{type}` is one type: no name follows it.
+                b"/**\n * @typedef {{a: number}}\n */",
+                b"/** x @file */",
+                b"/** d */",
+            ],
+        );
         assert!(tsdoc_module(b"/**\n * @packageDocumentation\n */"));
+        assert!(tsdoc_module(b"/**\n * @module m\n */"));
         assert!(!tsdoc_module(b"/**\n * @license MIT\n */"));
     }
 

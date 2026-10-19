@@ -15,10 +15,10 @@
 mod ancestors;
 mod parser_cache;
 
-pub(crate) use ancestors::FoldLane;
 #[doc(hidden)]
 pub use ancestors::WIDE_PARENT;
 pub use ancestors::{AncestorIter, Ancestors, FoldCache, SiblingCache};
+pub(crate) use ancestors::{FoldLane, NodeMemo};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;

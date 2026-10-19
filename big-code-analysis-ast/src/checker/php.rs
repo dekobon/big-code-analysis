@@ -96,6 +96,9 @@ impl Checker for PhpCode {
         ..DocBinding::new(KeptDocs::Leading {
             hidden: |node, code| !Self::is_doc_comment(node, code),
             joins: never_joins,
+            // PHP-Parser gives a node every comment since the token before
+            // it, whatever row that token ends on.
+            after_code: |_| true,
         })
     });
 

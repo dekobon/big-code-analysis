@@ -34,7 +34,7 @@ impl Checker for KotlinCode {
     // annotation's arguments, in a type parameter list — documents a
     // declaration directly after it or nothing, as javac's does.
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
-        skips: |node| node.kind_id() == Kotlin::AnnotatedExpression,
+        skips: |node, _| node.kind_id() == Kotlin::AnnotatedExpression,
         forward: |comment, _, ancestors| {
             !ancestors.parent(comment).is_some_and(|parent| {
                 matches!(

@@ -170,7 +170,7 @@ pub(crate) fn add_leading_doc_run<'a, T: Checker>(
 
 #[inline]
 // Bills a comment node's rows, as documentation when `is_documentation`
-// says so. Every language's comment arm routes here — Rust's line-comment
+// says so. Every language's comment arm routes here — Rust's comment
 // arm bills through `add_comment_rows` itself, since its
 // `Checker::is_doc_comment` answer also sizes its row span — so "which
 // comments are documentation" is answered in one place per language, in
@@ -195,13 +195,22 @@ pub(crate) fn add_comment_lines<'a, T: Checker>(
 // attaches forward (`documents_unbound`; `add_bound_doc_run` bills
 // those), and, per `documents_where_it_sits`, not a working note in a
 // function body (#1597, #1613).
-pub(crate) fn is_documentation<'a, T: Checker>(
+fn is_documentation<'a, T: Checker>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    T::is_doc_comment(node, code)
-        && documents_unbound::<T>(node, code, ancestors)
+    T::is_doc_comment(node, code) && documents_by_placement::<T>(node, code, ancestors)
+}
+
+// The placement half of `is_documentation`, for a caller that already
+// holds the `Checker::is_doc_comment` answer (Rust's comment arm).
+pub(crate) fn documents_by_placement<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    documents_unbound::<T>(node, code, ancestors)
         && documents_where_it_sits::<T>(node, code, ancestors)
 }
 
@@ -213,7 +222,7 @@ pub(crate) fn is_documentation<'a, T: Checker>(
 // member is a sibling of `node`, so they were billed to this space's
 // `stats`. Rust's arm, whose `///` rows are not its node's, calls
 // `bound_doc_run` itself.
-pub(crate) fn add_bound_doc_run<'a, T: Checker>(
+fn add_bound_doc_run<'a, T: Checker>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,

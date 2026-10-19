@@ -10,6 +10,11 @@ impl Checker for CppCode {
 
     impl_doxygen_doc_comment!();
 
+    // C++ adds namespaces, `using`, templates (a forward-declared template
+    // included), friends and access specifiers, which Doxygen reads past;
+    // an explicit instantiation takes none (#1613).
+    impl_doxygen_doc_binding!();
+
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }

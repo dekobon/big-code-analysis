@@ -1081,10 +1081,14 @@ decision, not one rule for all:
 - In Rust, Java, Kotlin and Groovy, a doc comment also has to be
   attached: it counts only when the declaration after it is one its
   tool documents. Attributes, annotations, modifiers and blank rows may
-  come between the comment and the declaration. A doc comment above
-  anything else stays a plain comment row: an import, a statement, a
-  macro call, a Rust `extern` block, a closing brace, or the end of the
-  file. The tools also differ on a run of several doc comments.
+  come between the comment and the declaration. A Rust 2024 `safe fn`
+  in an `extern` block counts too, although tree-sitter-rust parses its
+  `safe` as an error. A doc comment above anything else stays a plain
+  comment row: an import (Rust's `use` and `extern crate` take one), a
+  statement, a macro call, a Rust `extern` block, a closing brace, or
+  the end of the file. A KDoc nested in an argument or type-parameter
+  list documents nothing. The tools also differ on a run of several doc
+  comments.
   [rustc](https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#unused-doc-comments)
   attaches every outer doc comment above an item, so all of them count.
   javac and Kotlin keep only the last one; javac's
@@ -1124,12 +1128,33 @@ decision, not one rule for all:
     past every plain comment, and documents no assignment statement. A
     doc comment after a decorator, a modifier such as `static`, or
     `export` or `declare` is inside the declaration and documents
-    nothing. A `@module` or
+    nothing, and so does one after code on its own row, except before a
+    parameter. A `@module` or
     `@packageDocumentation` block documents the file, as
     [TypeDoc](https://typedoc.org/) reads it.
 
   In a JavaScript or TypeScript function body every doc comment still
   counts, since JSDoc documents inner symbols.
+- C, C++ and Objective-C follow [Doxygen](https://www.doxygen.nl/),
+  which keeps every doc block it meets and gives them all to the next
+  entry. A doc block counts when what follows it is something Doxygen
+  documents: a declaration, a definition, a macro, a `typedef` or
+  `using`, a namespace, a template, an enumerator, a macro call such
+  as `FOO(bar);`, or an Objective-C `@interface`, `@property` or method.
+  Doxygen reads past blank rows, plain comments, `#include`, `#import`,
+  `#pragma` and an empty `;`, and into an include guard or another
+  `#if` that holds a declaration. A doc block above a forward
+  declaration (`struct s;`, `@class C;`), a closing `}` or `@end`, or
+  the end of the file stays a plain comment row. A block carrying a
+  structural command documents an entry of its own, so it counts
+  wherever it sits: `\file`, `\mainpage`, `\page`, `\defgroup`,
+  `\addtogroup` and `\name` always, and a command that names its
+  subject, such as `\class X` or `\def M`, when it has a name. The doc
+  blocks above a `\file` block count with it. `\brief` and `\ingroup`
+  are not structural. A member-after comment (`/**<`, `///<`) documents
+  the member before it and always counts, as do the blocks in a
+  function body, which Doxygen publishes as the function's in-body
+  description.
 - In Python, every bare string statement — a string whose value is
   discarded — is a comment row, but only one where Python reads
   documentation is DLOC, following

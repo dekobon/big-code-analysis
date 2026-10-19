@@ -20,13 +20,16 @@ impl Checker for JavascriptCode {
     // before a node, line comments filtered out, so a plain `/* */` in
     // between detaches a doc comment and a `//` does not. A virtual
     // comment (`@file`, `@module`, a tag that names a symbol) documents
-    // that symbol and stands alone (#1613).
+    // that symbol and stands alone (#1613). The Babel leading comments it
+    // reads hold every comment since the node before, so a doc comment
+    // after code on its row documents the declaration below it.
     impl_js_family_doc_binding!(
         Javascript,
         |node, code| Self::is_comment(node)
             && !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b"/*"),
         crate::lang_helpers::doc_comment::jsdoc_virtual,
-        jsdoc_target
+        jsdoc_target,
+        |_| true
     );
 
     fn is_func_space(node: &Node) -> bool {

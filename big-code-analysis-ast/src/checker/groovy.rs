@@ -33,7 +33,7 @@ impl Checker for GroovyCode {
     // hidden channel (`ignoreMultiLineCommentConditionally`), where the
     // manager never sees it.
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
-        skips: |node| node.kind_id() == Groovy::PackageDeclaration,
+        skips: |node, _| node.kind_id() == Groovy::PackageDeclaration,
         ..DocBinding::new(KeptDocs::Nearest {
             hidden: |comment, next| {
                 comment.kind_id() != Groovy::LineComment && next.start_row() == comment.end_row()

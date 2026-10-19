@@ -8,12 +8,13 @@
 // grammar leaves beside a class member, unless `$standalone` says it
 // documents the file or a symbol it names. In a body it keeps the
 // unbound reading, since JSDoc publishes inner symbols. `$target` is the
-// language's `is_doc_target` body.
+// language's `is_doc_target` body, and `$after_code` says before which
+// targets a doc comment after code on its row still documents.
 macro_rules! impl_js_family_doc_binding {
-    ($lang:ident, $hidden:expr, $standalone:path, $target:ident) => {
+    ($lang:ident, $hidden:expr, $standalone:path, $target:ident, $after_code:expr) => {
         const DOC_BINDING: Option<$crate::lang_helpers::DocBinding> =
             Some($crate::lang_helpers::DocBinding {
-                skips: |node| node.kind_id() == $lang::Decorator,
+                skips: |node, _| node.kind_id() == $lang::Decorator,
                 forward: |comment, code, ancestors| {
                     $crate::lang_helpers::doc_comment::outside_function_bodies::<Self>(
                         comment, ancestors,
@@ -22,6 +23,7 @@ macro_rules! impl_js_family_doc_binding {
                 ..$crate::lang_helpers::DocBinding::new($crate::lang_helpers::KeptDocs::Leading {
                     hidden: $hidden,
                     joins: $crate::lang_helpers::doc_comment::never_joins,
+                    after_code: $after_code,
                 })
             });
 

@@ -27,9 +27,9 @@ use crate::lang_helpers::bound_doc_run;
 /// `saturating_sub` is exact under the `end > start` guard and is
 /// belt-and-braces on the one line in this crate known to have
 /// underflowed.
-fn rendered_rows(node: &Node, code: &[u8]) -> (usize, usize) {
+fn rendered_rows(node: &Node, doc: bool) -> (usize, usize) {
     let (start, end) = (node.start_row(), node.end_row());
-    if node.kind_id() == Rust::LineComment && end > start && RustCode::is_doc_comment(node, code) {
+    if doc && node.kind_id() == Rust::LineComment && end > start {
         (start, end.saturating_sub(1))
     } else {
         (start, end)
@@ -70,12 +70,16 @@ impl Loc for RustCode {
             // (`rendered_rows`), so both kinds bill their rendered rows here
             // rather than through `add_comment_lines`, and a doc comment
             // bound to an item is billed across the same rows.
+            // `is_doc_comment` opens a cursor over the node's children, so
+            // it is asked once here and its answer handed down; a member
+            // `bound_doc_run` credits has already passed that test.
             BlockComment | LineComment => {
-                let (first, last) = rendered_rows(node, code);
-                let documentation = is_documentation::<Self>(node, code, ancestors);
+                let doc = Self::is_doc_comment(node, code);
+                let (first, last) = rendered_rows(node, doc);
+                let documentation = doc && documents_by_placement::<Self>(node, code, ancestors);
                 add_comment_rows(stats, first, last, documentation);
                 bound_doc_run::<Self>(node, code, ancestors, |member| {
-                    let (first, last) = rendered_rows(member, code);
+                    let (first, last) = rendered_rows(member, true);
                     stats.dloc.lines.insert_range(first, last);
                 });
             }

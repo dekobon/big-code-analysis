@@ -227,13 +227,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 582.0
+value = 584.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1407.0
+value = 1411.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -279,9 +279,9 @@ value = 120642.89096069236
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
-qualified = "bind_leading"
-metric = "halstead.effort"
-value = 48071.0104732308
+qualified = "<file>"
+metric = "loc.ploc"
+value = 632.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -293,7 +293,31 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bound_doc_run"
 metric = "halstead.effort"
-value = 55526.804216425524
+value = 74870.34845140431
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "bound_doc_run"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "joined_run"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doxygen.rs"
+qualified = "literal_end"
+metric = "cyclomatic"
+value = 19.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doxygen.rs"
+qualified = "literal_end"
+metric = "nexits"
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node.rs"

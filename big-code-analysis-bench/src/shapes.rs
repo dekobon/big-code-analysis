@@ -461,6 +461,35 @@ pub fn js_standalone_tags(width: usize) -> String {
     format!("{}function f() {{}}\n", "/** @file d */\n".repeat(width))
 }
 
+/// C: `width` doc blocks, each above an `#include` Doxygen reads past,
+/// ending at the end of the file. The stretch runs over every member, so
+/// each comment that asks where it ends must stop at the next comment
+/// rather than scan to the end; none documents anything.
+#[must_use]
+pub fn c_dangling_docs(width: usize) -> String {
+    "/** d */\n#include <x.h>\n".repeat(width)
+}
+
+/// C++: `width` `@file` blocks gathered by none after them, each read by
+/// Doxygen's structural-command scan and then by the gathering walk from
+/// the stretch's last comment, ending at the end of the file.
+#[must_use]
+pub fn cpp_structural_docs(width: usize) -> String {
+    "/** @file d */\n#include <x.h>\n".repeat(width)
+}
+
+/// C: a doc block above each of `depth` nested `#ifdef`s, with one
+/// declaration at the bottom. Every block asks whether the conditional
+/// below it holds an entry, which reads the nest beneath it.
+#[must_use]
+pub fn c_nested_conditional_docs(depth: usize) -> String {
+    format!(
+        "{}int x;\n{}",
+        "/** d */\n#ifdef A\n".repeat(depth),
+        "#endif\n".repeat(depth)
+    )
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -1910,6 +1939,58 @@ pub const PROBES: &[Probe] = &[
         rationale: "#1613: each JSDoc virtual comment is classified by its \
                     own tags, not by a scan to the declaration; every \
                     `@file` block is a doc row.",
+    },
+    Probe {
+        name: "loc/c-dangling-docs",
+        lang: LANG::C,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: c_dangling_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: Doxygen's stretch reads past every `#include`, \
+                    so it spans the whole file; it is decided once, at its \
+                    last comment. None documents anything, so the reading \
+                    is the comment rows.",
+    },
+    Probe {
+        name: "loc/cpp-structural-docs",
+        lang: LANG::Cpp,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: cpp_structural_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: a stretch of `@file` blocks ending at no target \
+                    is credited once, from its last gathering comment; \
+                    every block is a doc row.",
+    },
+    Probe {
+        name: "loc/c-nested-conditional-docs",
+        lang: LANG::C,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: c_nested_conditional_docs,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: a doc block above a preprocessor conditional \
+                    documents it when any branch, at any depth, holds an \
+                    entry. Asked afresh at every level that is `O(depth)` \
+                    each; the walk's `FoldCache` memoises the answer per \
+                    conditional. Every block binds, so the reading is the \
+                    doc rows, one per level.",
     },
     Probe {
         name: "loc/python-additional-docstrings",
