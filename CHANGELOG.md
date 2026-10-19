@@ -208,6 +208,60 @@ for historical reference.
 
 ### Changed
 
+- **`loc.dloc` counts a doc comment only when its tool attaches it**
+  (#1613). A marker doc comment outside a function body now counts only
+  when the declaration after it is one its language's documentation
+  tool documents. Attributes, annotations, modifiers and blank lines
+  may come between. A doc comment attached to nothing is now a plain
+  comment row: one above an import (outside Rust, whose `use` takes
+  one), a statement, a closing brace or the end of the file. Each
+  language follows its own tool, read from the tool's source and run
+  where a toolchain exists:
+  - **Rust** follows rustc, which attaches every outer doc comment
+    above an item and ignores one on an `extern` block, macro call,
+    statement or generic parameter; `//!` is unchanged. A Rust 2024
+    `safe fn` in an `extern` block keeps its doc comment, although
+    tree-sitter-rust parses the `safe` as an error.
+  - **Java** follows javac: only the last doc comment before a
+    declaration counts, consecutive `///` lines are one, and a Javadoc
+    above `package` counts only in a file with no type after it
+    (`package-info.java`). **Kotlin** keeps the last KDoc before a
+    declaration, and none nested in an argument or type-parameter list.
+    **Groovy** keeps only the comment nearest the declaration, so a
+    `//` in between detaches it.
+  - **C#** follows Roslyn, which keeps the nearest run of doc comments
+    before a member, reading past plain comments and directives; one
+    above a namespace, a `using` or inside an accessor list is CS1587
+    and no longer counts. **PHP** follows phpDocumentor: the last DocBlock
+    before an element, plus its file DocBlock.
+  - **JavaScript** follows JSDoc, which documents the declaration or
+    assignment after the nearest block comment; a `@file`, `@module` or
+    symbol-naming block stands alone, `@license` does not.
+    **TypeScript** follows tsc, which keeps the last `/**` before a
+    declaration and none after a modifier, `export`, `declare` or a
+    decorator, nor one after code on its own row; TypeDoc's `@module`
+    and `@packageDocumentation` blocks document the file.
+  - **C, C++ and Objective-C** follow Doxygen (1.13.2, `EXTRACT_ALL=NO`),
+    which keeps every doc block before an entry — a declaration, a
+    macro, a typedef, a namespace, a template, an enumerator, a macro
+    call or an Objective-C container, property or method — reading past
+    `#include`, `#pragma`, plain comments and an empty conditional. A
+    block above a forward declaration, a closing `}` or `@end`, or the
+    end of the file no longer counts. A block with a structural command
+    (`\file`, `\defgroup`, `\class X`, `\def M`) documents its own
+    entry wherever it sits, and the doc blocks above a `\file` block
+    count with it. Member-after `/**<` and in-body blocks keep counting.
+  `dloc`, and so the Maintainability Index comment share, falls for
+  files with licence headers, superseded doc comments or commented-out
+  doc blocks. Three pdf.js corpus files lose 6, 21 and 21 `dloc` rows;
+  no C/C++ corpus snapshot moves.
+- A C# doc comment in the header or initializer of a property or
+  indexer with accessors (`int X /// d { get; }`, `} /// d = 2;`) now
+  counts as a plain comment rather than `dloc`, as it already did on an
+  expression-bodied property and after a method's attribute: Roslyn
+  binds an XML doc comment only before the member's first token. One
+  inside the accessor list (`{ /// d get; }`) is a plain comment too,
+  per the #1613 entry above. (#1612)
 - `mi.original` and `mi.sei` limits may be negative
   (`--threshold mi.original=-50`); a negative limit on any metric was
   rejected before. A `mi.visual_studio` limit of `0` or above `100`
@@ -355,6 +409,21 @@ for historical reference.
 ### Fixed
 
 - Excluded source-tree bytecode caches from locally built Python wheels.
+- A parenthesized Python string statement (`("""doc""")`, `(("doc"))`,
+  `("a" "b")`) is now the docstring or bare string it wraps, as CPython
+  reads it. Its rows, including rows holding only its `(` or `)`, are
+  comment rows, and `dloc` rows when it sits in a docstring position.
+  Halstead no longer counts the string or its `(`. Before, it was
+  counted as code and `mi` charged it. A parenthesized tuple of strings
+  is unchanged. (#1610)
+- Perl POD placed after `__END__` or `__DATA__` (the `h2xs` layout) is
+  now counted as comment and documentation lines (`cloc` / `dloc`)
+  instead of `blank`. As with POD before the marker, a block that is
+  nothing but `=begin comment` / `=for comment` regions counts as
+  comment but not documentation. Other non-blank rows of the data
+  section now count as `ploc`, blank rows stay `blank`, and the marker
+  row stays code. The block rule is `Pod::Simple`'s: a command opens on
+  `=` followed by a letter, `=cut` closes. (#1608)
 - `bca check --write-baseline` now records negative `mi.original` and
   `mi.sei` values instead of skipping them with a warning, and
   `--baseline` loads them. Both metrics are unclamped and fall below
@@ -598,6 +667,19 @@ for historical reference.
 
 ### Performance
 
+- The LOC walk is linear again in the number of doc comments in one C#
+  property's accessor list, or between one PHP or Kotlin function's
+  signature and its body. The check for whether a doc comment sits in a
+  function body scanned the declaration's children for every comment,
+  which was quadratic (exponent ≈ 1.95 on the new
+  `loc/csharp-accessor-docs`, `loc/php-signature-docs` and
+  `loc/kotlin-signature-docs` probes; now ≈ 0.97). (#1612)
+- The doc-comment attachment walk of #1613 is linear in nested
+  preprocessor conditionals: whether a conditional holds a declaration
+  is answered once per walk and memoised, where a first version walked
+  every branch at every depth per comment (`loc/c-nested-conditional-docs`
+  2.01 → 1.00). Nine attachment probes guard the per-language scans.
+  (#1613)
 - **Perl ABC and Halstead no longer go quadratic on a file whose tail
   fails to parse into a flat `ERROR` node** (#1584). The bareword-key,
   dash-key, key-sign and misparse-operator lookups now read the children
