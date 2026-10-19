@@ -4,6 +4,33 @@
 use super::*;
 use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 
+/// A declaration javac attaches a doc comment to, the package aside.
+fn java_declaration(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Java::ModuleDeclaration
+            | Java::ClassDeclaration
+            | Java::InterfaceDeclaration
+            | Java::EnumDeclaration
+            | Java::RecordDeclaration
+            | Java::AnnotationTypeDeclaration
+            | Java::MethodDeclaration
+            | Java::ConstructorDeclaration
+            | Java::CompactConstructorDeclaration
+            | Java::FieldDeclaration
+            | Java::ConstantDeclaration
+            | Java::AnnotationTypeElementDeclaration
+            | Java::EnumConstant
+    )
+}
+
+/// Whether two `///` doc comments on consecutive rows are one Markdown
+/// doc comment, as javac's scanner lexes them.
+fn java_markdown_lines_join(prev: &Node, next: &Node, code: &[u8]) -> bool {
+    let line = |node: &Node| node_bytes(node, code).starts_with(b"///");
+    line(prev) && line(next) && prev.end_row().saturating_add(1) == next.start_row()
+}
+
 impl Checker for JavaCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Java::LineComment || node.kind_id() == Java::BlockComment
@@ -11,6 +38,36 @@ impl Checker for JavaCode {
 
     fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
         Self::is_comment(node) && java_doc(node_bytes(node, code))
+    }
+
+    // javac's `Token::docComment` gives a declaration the last doc comment
+    // before its first token, its annotations and modifiers included, and
+    // its dangling-doc-comments lint names every earlier one; blank rows
+    // and plain comments in between do not matter (#1613).
+    // The scanner lexes `///` lines on consecutive rows as one doc comment
+    // (`JavaTokenizer`, JEP 467).
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding::new(KeptDocs::Last {
+        joins: java_markdown_lines_join,
+    }));
+
+    // What javac attaches a doc comment to (`JavacParser`'s `attach`
+    // calls): a type, a member, an enum constant and a module. An import
+    // or a statement takes none, and an initializer's is dropped
+    // (`ignoreDanglingComments`). The package declaration takes the
+    // file's first doc comment, but javadoc reads a package's only from
+    // `package-info.java`, and javac's lint calls it dangling once a
+    // declaration follows; a file with none after its package is that
+    // file's shape. The scan stops at the next package too, so a file of
+    // repeated packages — invalid, but parsed without error — is read in
+    // disjoint stretches rather than to its end from each one (#1446).
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        if node.kind_id() == Java::PackageDeclaration {
+            return !ancestors
+                .siblings_after(node)
+                .find(|n| java_declaration(n) || n.kind_id() == Java::PackageDeclaration)
+                .is_some_and(|n| java_declaration(&n));
+        }
+        java_declaration(node)
     }
 
     // A `static { … }` initializer opens a function space (#1184) without

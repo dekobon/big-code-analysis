@@ -53,7 +53,9 @@
 )]
 
 use super::*;
-use crate::lang_helpers::{documents_where_it_sits, leading_doc_run};
+use crate::lang_helpers::{
+    bound_doc_run, documents_unbound, documents_where_it_sits, leading_doc_run,
+};
 
 #[inline]
 pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> usize {
@@ -185,17 +187,44 @@ pub(crate) fn add_comment_lines<'a, T: Checker>(
 ) {
     let documentation = is_documentation::<T>(node, code, ancestors);
     add_comment_rows(stats, node.start_row(), node.end_row(), documentation);
+    add_bound_doc_run::<T>(node, code, ancestors, stats);
 }
 
-// Whether a comment is documentation where it sits: spelled as a doc
-// comment (`Checker::is_doc_comment`) and, per `documents_where_it_sits`,
-// not a working note in a function body (#1597).
-fn is_documentation<'a, T: Checker>(
+// Whether a comment is documentation by where it sits: spelled as a doc
+// comment (`Checker::is_doc_comment`), not one a `Checker::DOC_BINDING`
+// attaches forward (`documents_unbound`; `add_bound_doc_run` bills
+// those), and, per `documents_where_it_sits`, not a working note in a
+// function body (#1597, #1613).
+pub(crate) fn is_documentation<'a, T: Checker>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    T::is_doc_comment(node, code) && documents_where_it_sits::<T>(node, code, ancestors)
+    T::is_doc_comment(node, code)
+        && documents_unbound::<T>(node, code, ancestors)
+        && documents_where_it_sits::<T>(node, code, ancestors)
+}
+
+#[inline]
+// Bills as `dloc` the doc comments a bound language's tool attaches to
+// the declaration after them, once `node` ends their stretch
+// (`bound_doc_run`, #1613). Each member's rows are the ones its own
+// comment arm billed to `cloc`, so `dloc() <= cloc()` still holds; every
+// member is a sibling of `node`, so they were billed to this space's
+// `stats`. Rust's arm, whose `///` rows are not its node's, calls
+// `bound_doc_run` itself.
+pub(crate) fn add_bound_doc_run<'a, T: Checker>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    bound_doc_run::<T>(node, code, ancestors, |member| {
+        stats
+            .dloc
+            .lines
+            .insert_range(member.start_row(), member.end_row());
+    });
 }
 
 #[inline]

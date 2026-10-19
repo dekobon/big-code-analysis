@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{kotlin_doc, node_bytes};
+use crate::lang_helpers::doc_comment::{kotlin_doc, never_joins, node_bytes};
 
 impl Checker for KotlinCode {
     fn is_comment(node: &Node) -> bool {
@@ -15,6 +15,67 @@ impl Checker for KotlinCode {
     fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
         // KDoc has no line form, so only a `BlockComment` can qualify.
         node.kind_id() == Kotlin::BlockComment && kotlin_doc(node_bytes(node, code))
+    }
+
+    // Kotlin's parser closes each declaration with
+    // `PrecedingDocCommentsBinder`, which pulls in the last KDoc of the
+    // comments before it and leaves the earlier ones outside, whatever
+    // plain comments or blank rows lie between (#1613).
+    //
+    // tree-sitter-kotlin parses an annotation with arguments
+    // (`@Suppress("x")`) after a top-level declaration as an expression
+    // beside the declaration it modifies, which Kotlin's parser reads as
+    // that declaration's modifier, so the stretch reads past it.
+    //
+    // A KDoc among a declaration's own children or its modifier list's —
+    // after an annotation, before a body or an accessor — is the one
+    // `findDocComment` reads there, decided as before (#1612). Every other
+    // KDoc binds forward, so one nested deeper — in a call's or an
+    // annotation's arguments, in a type parameter list — documents a
+    // declaration directly after it or nothing, as javac's does.
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
+        skips: |node| node.kind_id() == Kotlin::AnnotatedExpression,
+        forward: |comment, _, ancestors| {
+            !ancestors.parent(comment).is_some_and(|parent| {
+                matches!(
+                    parent.kind_id().into(),
+                    Kotlin::ClassDeclaration
+                        | Kotlin::ObjectDeclaration
+                        | Kotlin::CompanionObject
+                        | Kotlin::FunctionDeclaration
+                        | Kotlin::PropertyDeclaration
+                        | Kotlin::TypeAlias
+                        | Kotlin::SecondaryConstructor
+                        | Kotlin::PrimaryConstructor
+                        | Kotlin::EnumEntry
+                        | Kotlin::Parameter
+                        | Kotlin::ClassParameter
+                        | Kotlin::Getter
+                        | Kotlin::Setter
+                        | Kotlin::Modifiers
+                )
+            })
+        },
+        ..DocBinding::new(KeptDocs::Last { joins: never_joins })
+    });
+
+    // The declarations Dokka documents. The package directive binds no
+    // comment (`BindFirstShebangWithWhitespaceOnly`), an import none, and
+    // an `init` block has no page to carry one.
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::ClassDeclaration
+                | Kotlin::ObjectDeclaration
+                | Kotlin::CompanionObject
+                | Kotlin::FunctionDeclaration
+                | Kotlin::PropertyDeclaration
+                | Kotlin::TypeAlias
+                | Kotlin::SecondaryConstructor
+                | Kotlin::EnumEntry
+                | Kotlin::Parameter
+                | Kotlin::ClassParameter
+        )
     }
 
     // Kotlin's KDoc lookup reads past a declaration's annotations and

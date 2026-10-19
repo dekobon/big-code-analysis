@@ -14,6 +14,7 @@ use aho_corasick::AhoCorasick;
 use regex::bytes::Regex;
 
 use crate::cfg_predicate::attribute_marks_test as rust_attribute_marks_test;
+use crate::lang_helpers::{DocBinding, KeptDocs};
 use crate::macros::csharp_invocation_expr_kinds;
 use crate::*;
 
@@ -529,17 +530,28 @@ pub trait Checker {
     ) -> bool {
         false
     }
-    /// Whether a comment run ending on the row directly above `node`
-    /// documents it — go/doc's lead comment, YARD's convention — so the
-    /// LOC walk bills that run as `dloc`. `ancestors` is `node`'s chain,
-    /// for a rule that depends on where the declaration sits. Languages
-    /// whose documentation is marked per comment leave this `false`; see
-    /// `lang_helpers::doc_comment::leading_doc_run` (#1597).
+    /// Whether a comment run before `node` documents it, so the LOC walk
+    /// bills that run as `dloc`. A positional language asks it of the
+    /// node on the row directly below the run — go/doc's lead comment,
+    /// YARD's convention; see `lang_helpers::doc_comment::leading_doc_run`
+    /// (#1597). A language with a [`DOC_BINDING`](Self::DOC_BINDING) asks
+    /// it of the first sibling after the run's comments and the nodes its
+    /// [`DocBinding::skips`] names, and answers for the declarations its tool attaches a doc comment to;
+    /// see `lang_helpers::doc_comment::bound_doc_run` (#1613). `ancestors`
+    /// is `node`'s chain, for a rule that depends on where it sits.
     #[inline]
     #[must_use]
     fn is_doc_target<'a>(_: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
         false
     }
+    /// How a doc comment attaches to the declaration after it (#1613).
+    /// `None` by default: a doc comment documents wherever it sits outside
+    /// a function body, attached to anything or not, which is every
+    /// language not yet bound. A bound language's forward doc comments
+    /// ([`DocBinding::forward`]) document only when their stretch ends at
+    /// an [`is_doc_target`](Self::is_doc_target), and only the ones the
+    /// binding keeps; see `lang_helpers::doc_comment::bound_doc_run`.
+    const DOC_BINDING: Option<DocBinding> = None;
     /// The row a doc target begins on, which a comment run must end
     /// directly above. Normally `node`'s own start row; Ruby's `then`
     /// wrapper starts on the row of the comment the grammar parks ahead of

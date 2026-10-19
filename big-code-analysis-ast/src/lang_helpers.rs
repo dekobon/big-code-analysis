@@ -37,6 +37,11 @@ pub(crate) mod tcl_family;
 /// so they normalise the `::` qualifier at their own call sites.
 pub use tcl_family::strip_global_qualifier;
 
-/// Re-exported because the LOC metric bills Go, Ruby and Lua documentation
-/// runs through it, while the predicates beside it stay crate-private.
-pub use doc_comment::{documents_where_it_sits, leading_doc_run};
+/// Re-exported because the LOC metric bills documentation through them —
+/// Go, Ruby and Lua runs by position, and the doc comments a bound
+/// language's tool attaches — while the predicates beside them stay
+/// crate-private.
+pub use doc_comment::{
+    DocBinding, KeptDocs, bound_doc_run, documents_unbound, documents_where_it_sits,
+    leading_doc_run,
+};

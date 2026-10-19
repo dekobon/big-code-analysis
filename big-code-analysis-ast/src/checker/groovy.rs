@@ -24,6 +24,41 @@ impl Checker for GroovyCode {
         node.kind_id() == Groovy::GroovydocComment && java_doc(node_bytes(node, code))
     }
 
+    // `GroovydocManager::findDocCommentByNode` reads the last comment
+    // token before a declaration and keeps it only if it opens `/**`, so
+    // a plain comment in between detaches the Groovydoc; blank rows do
+    // not. A package declaration resets nothing, so the file's first
+    // declaration still reads a comment above `package` (#1613).
+    // The lexer sends a block comment that code follows on its row to the
+    // hidden channel (`ignoreMultiLineCommentConditionally`), where the
+    // manager never sees it.
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
+        skips: |node| node.kind_id() == Groovy::PackageDeclaration,
+        ..DocBinding::new(KeptDocs::Nearest {
+            hidden: |comment, next| {
+                comment.kind_id() != Groovy::LineComment && next.start_row() == comment.end_row()
+            },
+        })
+    });
+
+    // The nodes `AstBuilder` hands to `GroovydocManager::handle`: a type,
+    // a method or constructor, a field or property, an enum constant.
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::ClassDeclaration
+                | Groovy::TraitDeclaration
+                | Groovy::InterfaceDeclaration
+                | Groovy::EnumDeclaration
+                | Groovy::RecordDeclaration
+                | Groovy::AnnotationTypeDeclaration
+                | Groovy::MethodDeclaration
+                | Groovy::ConstructorDeclaration
+                | Groovy::FieldDeclaration
+                | Groovy::EnumConstant
+        )
+    }
+
     // A `static { … }` initializer opens a function space without being
     // `is_func`, and Groovydoc reads a doc comment in it no more than one
     // in a method body.

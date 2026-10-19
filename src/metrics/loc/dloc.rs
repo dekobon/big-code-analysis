@@ -14,7 +14,9 @@ use super::min_or_zero;
 /// docstring are the constructs recorded here, and their rows are
 /// exactly the rows the same arms also record as comment lines, so
 /// `dloc() <= cloc()` holds by construction — `add_comment_rows` inserts
-/// into both, and `add_leading_doc_run` (Go, Ruby, Lua) and Python's
+/// into both, and `add_leading_doc_run` (Go, Ruby, Lua),
+/// `add_bound_doc_run` (the doc comments Rust, Java, Kotlin and Groovy
+/// attach to the declaration after them, #1613) and Python's
 /// `add_sphinx_doc_comment` (`#:` comments) re-bill only rows a comment
 /// arm already recorded. A language without a
 /// documentation syntax this crate recognises reports `0`; Elixir's
@@ -343,9 +345,11 @@ mod tests {
     ))]
     #[test]
     fn a_doc_comment_sharing_a_code_row_keeps_the_row() {
+        // Java binds a doc comment to the declaration after it (#1613), so
+        // its fixture puts one there.
         let fixtures: &[(LANG, &[u8], u64)] = &[
             (LANG::C, b"int x; /** d */\n", 1),
-            (LANG::Java, b"class C { int x; /** d */ }\n", 1),
+            (LANG::Java, b"class C { int x; /** d */ int y; }\n", 1),
             (LANG::Javascript, b"let x = 1; /** d */\n", 1),
             (LANG::Php, b"<?php $x = 1; /** d */\n", 1),
             // The `///` form consumes its newline into the `doc_comment`
@@ -1415,6 +1419,339 @@ mod tests {
                 (
                     "closure body",
                     b"const G: fn() = || {\n    //! Docs.\n};\n",
+                    0,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// rustc makes every outer doc comment above an item one of its
+    /// attributes — across blank rows, plain comments and its other
+    /// attributes — and lints one on anything else as unused: an extern
+    /// block, a macro call, a statement, a generic parameter, or nothing
+    /// at the end of the file (#1613). The stretch's rows are pinned
+    /// against what `rustdoc` renders and `rustc -W unused_doc_comments`
+    /// reports. `//!` and a doc comment in a macro's token tree keep the
+    /// unbound reading.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_doc_comments_bind_to_the_item_after_them() {
+        assert_doc_rows(
+            LANG::Rust,
+            &[
+                ("direct", b"/// d\nfn f() {}\n", 1, 1),
+                (
+                    "through an attribute",
+                    b"/// d\n#[inline]\n/// e\nfn f() {}\n",
+                    2,
+                    2,
+                ),
+                ("across a blank row", b"/// d\n\nfn f() {}\n", 1, 1),
+                ("two runs, both kept", b"/// a\n\n/// b\nfn f() {}\n", 2, 2),
+                ("across a plain comment", b"/// a\n// p\nfn f() {}\n", 1, 2),
+                ("block form", b"/** a */\nfn f() {}\n", 1, 1),
+                ("use declaration", b"/// d\nuse std::fmt;\n", 1, 1),
+                (
+                    "tuple field",
+                    b"struct T(\n    /// d\n    pub u8,\n);\n",
+                    1,
+                    1,
+                ),
+                ("enum variant", b"enum E {\n    /// d\n    A,\n}\n", 1, 1),
+                ("at the end of the file", b"fn f() {}\n/// d\n", 0, 1),
+                ("before a closing brace", b"mod m {\n    /// d\n}\n", 0, 1),
+                ("macro call", b"/// d\nm!();\n", 0, 1),
+                (
+                    "item in a function body",
+                    b"fn f() {\n    /// d\n    fn g() {}\n}\n",
+                    0,
+                    1,
+                ),
+                ("macro item", b"/// d\nm! { x }\n", 0, 1),
+                ("extern block", b"/// d\nunsafe extern \"C\" {}\n", 0, 1),
+                (
+                    "generic parameter",
+                    b"struct P<\n    /// d\n    T,\n>(T);\n",
+                    0,
+                    1,
+                ),
+                ("inner doc comment", b"//! d\nfn f() {}\n", 1, 1),
+                (
+                    "in a macro rule",
+                    b"macro_rules! m {\n    () => {\n        /// d\n        fn g() {}\n    };\n}\n",
+                    1,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// javac gives a declaration the last doc comment before its first
+    /// token, annotations and modifiers included, and its
+    /// dangling-doc-comments lint names every other one (#1613): an earlier
+    /// doc comment in the same stretch, one above an import or a closing
+    /// brace, one after an annotation. The package declaration takes the
+    /// file's first doc comment, which javadoc reads only from
+    /// `package-info.java`, and which javac calls dangling once a type
+    /// follows. Each row was checked with `javac -Xlint:dangling-doc-comments`
+    /// and javac's own `DocTrees::getDocComment`.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_doc_comments_bind_to_the_declaration_after_them() {
+        assert_doc_rows(
+            LANG::Java,
+            &[
+                ("direct", b"/** d */\nclass C {}\n", 1, 1),
+                (
+                    "through an annotation",
+                    b"/** d */\n@Deprecated\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "across a blank row",
+                    b"class C {\n    /** d */\n\n    int x;\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "across a plain comment",
+                    b"class C {\n    /** d */\n    // p\n    int x;\n}\n",
+                    1,
+                    2,
+                ),
+                ("superseded", b"/** a */\n/** b */\nclass C {}\n", 1, 2),
+                ("markdown lines join", b"/// a\n/// b\nclass C {}\n", 2, 2),
+                ("markdown runs split", b"/// a\n\n/// b\nclass C {}\n", 1, 2),
+                (
+                    "after an annotation",
+                    b"class C {\n    @Deprecated\n    /** d */\n    int x;\n}\n",
+                    0,
+                    1,
+                ),
+                ("enum constant", b"enum E {\n    /** d */\n    A\n}\n", 1, 1),
+                (
+                    "import",
+                    b"/** d */\nimport java.util.List;\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                ("at the end of the file", b"class C {}\n/** d */\n", 0, 1),
+                (
+                    "before a closing brace",
+                    b"class C {\n    int x;\n    /** d */\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "before an initializer",
+                    b"class C {\n    /** d */\n    static {}\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "local class in a method body",
+                    b"class C {\n    void m() {\n        /** d */\n        class L {}\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "package with a type after it",
+                    b"/** d */\npackage p;\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "package with a type after its imports",
+                    b"/** d */\npackage p;\nimport a.B;\n;\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "package-info.java",
+                    b"/** a */\n/** d */\npackage p;\n",
+                    1,
+                    2,
+                ),
+                // A parse error between two doc comments is read past,
+                // not read as the member's first token: javac takes `b`,
+                // whichever of the two spans more rows.
+                (
+                    "error between a multi-row and a one-row doc",
+                    b"class C {\n/**\n * a\n */\n%%%\n/** b */\nvoid f() {}\n}\n",
+                    1,
+                    4,
+                ),
+                (
+                    "error between a one-row and a multi-row doc",
+                    b"class C {\n/** a */\n%%%\n/**\n * b\n */\nvoid f() {}\n}\n",
+                    3,
+                    4,
+                ),
+            ],
+        );
+    }
+
+    /// Kotlin's parser closes each declaration with
+    /// `PrecedingDocCommentsBinder`, which takes the last KDoc of the
+    /// comments before it; an earlier one, one above the package or an
+    /// import, and one at the end of a body bind to nothing (#1613). A KDoc
+    /// among a declaration's own children — its modifier list's children
+    /// included, which is why one after an annotation binds — is
+    /// `findDocComment`'s and stays as #1612 decided it; one nested deeper,
+    /// in an argument list, a type parameter list or a `when` body, binds
+    /// forward like any other. tree-sitter-kotlin parses a top-level
+    /// annotation with arguments as an expression beside its declaration,
+    /// and a top-level `context(…)` receiver as a call, so neither KDoc
+    /// reaches the declaration.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_doc_comments_bind_to_the_declaration_after_them() {
+        assert_doc_rows(
+            LANG::Kotlin,
+            &[
+                ("direct", b"/** d */\nfun f() {}\n", 1, 1),
+                // After a declaration the grammar splits the annotation off
+                // as an expression; at the top of the file it does not.
+                (
+                    "through a split annotation",
+                    b"fun g() {}\n/** d */\n@Suppress(\"x\")\nfun f() {}\n",
+                    1,
+                    1,
+                ),
+                // `findDocComment` reads a KDoc in the modifier list when
+                // none precedes the declaration. The grammar splits the
+                // annotation off only with code after the declaration.
+                (
+                    "after a split annotation",
+                    b"fun g() {}\n@Suppress(\"x\")\n/** d */\n\nfun f() {}\nval y = 2\n",
+                    1,
+                    1,
+                ),
+                (
+                    "before and after a split annotation",
+                    b"fun g() {}\n/** a */\n@Suppress(\"x\")\n/** b */\n\nfun f() {}\nval y = 2\n",
+                    1,
+                    2,
+                ),
+                ("across a blank row", b"/** d */\n\nfun f() {}\n", 1, 1),
+                (
+                    "across a plain comment",
+                    b"/** d */\n// p\nfun f() {}\n",
+                    1,
+                    2,
+                ),
+                ("superseded", b"/** a */\n/** b */\nfun f() {}\n", 1, 2),
+                (
+                    "enum entry",
+                    b"enum class E {\n    /** d */\n    A\n}\n",
+                    1,
+                    1,
+                ),
+                ("package", b"/** d */\npackage p\n", 0, 1),
+                ("import", b"/** d */\nimport a.B\n", 0, 1),
+                ("at the end of the file", b"fun f() {}\n/** d */\n", 0, 1),
+                (
+                    "before a closing brace",
+                    b"class C {\n    fun f() {}\n    /** d */\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "before an init block",
+                    b"class C {\n    /** d */\n    init {}\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "local function in a body",
+                    b"fun f() {\n    /** d */\n    fun g() {}\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "after an annotation",
+                    b"@Deprecated(\"x\")\n/** d */\nfun f() {}\n",
+                    1,
+                    1,
+                ),
+                // Nested below a declaration's own children, where
+                // `findDocComment` never looks.
+                (
+                    "call argument in an initializer",
+                    b"val x = listOf(\n    /** d */\n    1,\n)\n",
+                    0,
+                    1,
+                ),
+                (
+                    "annotation argument",
+                    b"@Suppress(/** d */ \"a\")\nfun f() {}\n",
+                    0,
+                    1,
+                ),
+                ("type parameter", b"fun </** d */ T> f() {}\n", 0, 1),
+                (
+                    "when branch",
+                    b"fun f(x: Int) = when (x) {\n    /** d */\n    1 -> 2\n    else -> 3\n}\n",
+                    0,
+                    1,
+                ),
+                ("named argument", b"val y = foo(/** d */ a = 1)\n", 0, 1),
+            ],
+        );
+    }
+
+    /// Groovy's `GroovydocManager` reads the last comment token before a
+    /// declaration and keeps it only if it opens `/**`: a plain comment in
+    /// between detaches the Groovydoc, but a block comment that code
+    /// follows on its row is on the lexer's hidden channel and is read
+    /// past, and a package declaration resets nothing (#1613). Each row
+    /// was checked against Groovy 4.0.32's own `AstBuilder`.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_doc_comments_bind_to_the_declaration_after_them() {
+        assert_doc_rows(
+            LANG::Groovy,
+            &[
+                ("direct", b"/** d */\nclass C {}\n", 1, 1),
+                (
+                    "across a blank row",
+                    b"class C {\n    /** d */\n\n    int x\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "across a plain comment",
+                    b"class C {\n    /** d */\n    // p\n    def f() {}\n}\n",
+                    0,
+                    2,
+                ),
+                (
+                    "across a hidden block",
+                    b"class C {\n    /** d */\n    /* h */ def f() {}\n}\n",
+                    1,
+                    2,
+                ),
+                (
+                    "across a block on its own row",
+                    b"class C {\n    /** d */\n    /* h */\n    def f() {}\n}\n",
+                    0,
+                    2,
+                ),
+                ("superseded", b"/** a */\n/** b */\nclass C {}\n", 1, 2),
+                (
+                    "through the package",
+                    b"/** d */\npackage p\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                ("enum constant", b"enum E {\n    /** d */\n    A\n}\n", 1, 1),
+                ("import", b"/** d */\nimport java.util.List\n", 0, 1),
+                ("at the end of the file", b"class C {}\n/** d */\n", 0, 1),
+                (
+                    "before a closing brace",
+                    b"class C {\n    def f() {}\n    /** d */\n}\n",
                     0,
                     1,
                 ),

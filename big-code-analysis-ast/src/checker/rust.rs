@@ -19,6 +19,29 @@ fn rust_inner_doc_opens_body(function: &Node, body: &Node) -> bool {
             .is_some_and(|actual| actual.id() == body.id())
 }
 
+/// Whether a Rust doc comment attaches to what follows it: an outer one
+/// outside a macro's token trees (#1613).
+fn rust_doc_binds_forward<'a>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let bytes = node_bytes(comment, code);
+    let inner = bytes.starts_with(b"//!") || bytes.starts_with(b"/*!");
+    let in_macro = ancestors.parent(comment).is_some_and(|parent| {
+        matches!(
+            parent.kind_id().into(),
+            Rust::TokenTree
+                | Rust::TokenTree2
+                | Rust::TokenTreePattern
+                | Rust::TokenRepetition
+                | Rust::TokenRepetitionPattern
+                | Rust::MacroDefinition
+        )
+    });
+    !inner && !in_macro
+}
+
 impl Checker for RustCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Rust::LineComment || node.kind_id() == Rust::BlockComment
@@ -45,6 +68,49 @@ impl Checker for RustCode {
         let bytes = node_bytes(comment, code);
         (bytes.starts_with(b"//!") || bytes.starts_with(b"/*!"))
             && rust_inner_doc_opens_body(ancestor, below)
+    }
+
+    // rustc makes every outer doc comment above an item one of its
+    // attributes, across blank rows, plain comments and the item's other
+    // attributes, and rustdoc concatenates them (#1613). An inner doc
+    // comment documents the item around it, and one in a macro's token
+    // trees documents whatever the expansion makes of it; both keep the
+    // unbound reading.
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
+        skips: |node| node.kind_id() == Rust::AttributeItem,
+        forward: rust_doc_binds_forward,
+        ..DocBinding::new(KeptDocs::All)
+    });
+
+    // What rustc's `unused_doc_comments` lint leaves alone: an item, an
+    // associated or foreign item, a field or a variant. It lints a doc
+    // comment on an extern block, a macro invocation, a statement, an
+    // expression and a generic parameter, none of which is listed. A tuple
+    // struct's field has no node of its own, so its first token stands in.
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        if ancestors.parent_has_kind(node, Rust::OrderedFieldDeclarationList as u16) {
+            return node.is_named() && !Self::is_comment(node);
+        }
+        matches!(
+            node.kind_id().into(),
+            Rust::ModItem
+                | Rust::StructItem
+                | Rust::UnionItem
+                | Rust::EnumItem
+                | Rust::EnumVariant
+                | Rust::FieldDeclaration
+                | Rust::ConstItem
+                | Rust::StaticItem
+                | Rust::TypeItem
+                | Rust::FunctionItem
+                | Rust::FunctionSignatureItem
+                | Rust::ImplItem
+                | Rust::TraitItem
+                | Rust::AssociatedType
+                | Rust::UseDeclaration
+                | Rust::ExternCrateDeclaration
+                | Rust::MacroDefinition
+        )
     }
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {

@@ -413,6 +413,31 @@ pub fn kotlin_signature_docs(width: usize) -> String {
     format!("fun f()\n{}{{ }}\n", "/** d */\n".repeat(width))
 }
 
+/// Java: `width` dangling Javadoc comments, then a documented field, in
+/// one class body — a stretch javac reads only the last of.
+#[must_use]
+pub fn java_dangling_docs(width: usize) -> String {
+    format!(
+        "class C {{\n{}    int x;\n}}\n",
+        "    /** d */\n".repeat(width)
+    )
+}
+
+/// Java: `width` units of a Javadoc comment and a package declaration,
+/// then a type. Invalid Java that tree-sitter-java parses without error:
+/// each package asks whether a type follows it.
+#[must_use]
+pub fn java_package_docs(width: usize) -> String {
+    format!("{}class C {{}}\n", "/** d */\npackage p;\n".repeat(width))
+}
+
+/// Rust: `width` units of an outer doc comment and an attribute above
+/// one function, every doc comment of which rustc attaches.
+#[must_use]
+pub fn rust_attributed_docs(width: usize) -> String {
+    format!("{}fn f() {{}}\n", "/// d\n#[inline]\n".repeat(width))
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -1755,6 +1780,62 @@ pub const PROBES: &[Probe] = &[
                     block that holds it, with no scan of the function's \
                     prefix; a scan per comment is quadratic in the run. The \
                     reading is one doc row per member.",
+    },
+    Probe {
+        name: "loc/java-dangling-docs",
+        lang: LANG::Java,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: java_dangling_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: which doc comments of a stretch javac attaches is \
+                    decided once, at the stretch's last comment, which walks \
+                    back over it; a forward scan from every comment to the \
+                    declaration is quadratic in the stretch. Only one comment \
+                    is a doc row, so the reading is the comment rows.",
+    },
+    Probe {
+        name: "loc/java-package-docs",
+        lang: LANG::Java,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: java_package_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: a package Javadoc documents only with no type \
+                    after it; a scan from each package to the end of the \
+                    file is quadratic in the packages, so it stops at the \
+                    next one. Every package but the last has a package \
+                    after it, not a type, so all but one comment are doc \
+                    rows; the reading counts the comment rows, which do \
+                    not depend on the scan.",
+    },
+    Probe {
+        name: "loc/rust-attributed-docs",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: rust_attributed_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: a doc comment followed by an attribute reads past \
+                    it to the item; the stretch's members alternate with \
+                    attributes, so each comment that asks for its target \
+                    must stop at the next comment rather than scan to the \
+                    item. Every doc comment is a doc row.",
     },
     Probe {
         name: "loc/python-additional-docstrings",

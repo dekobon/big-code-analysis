@@ -227,13 +227,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 578.0
+value = 580.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1391.0
+value = 1403.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -276,6 +276,12 @@ path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
 value = 120642.89096069236
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "bound_doc_run"
+metric = "halstead.effort"
+value = 48835.091822195995
 
 [[entry]]
 path = "big-code-analysis-ast/src/node.rs"

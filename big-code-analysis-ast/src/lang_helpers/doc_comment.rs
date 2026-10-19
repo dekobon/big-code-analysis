@@ -24,6 +24,85 @@
 use crate::checker::Checker;
 use crate::node::{Ancestors, FoldLane, Node};
 
+/// How a language's tool attaches a doc comment to the declaration after
+/// it (#1613), read from each tool's source rather than its manual
+/// (lesson 98); see [`Checker::DOC_BINDING`]. A forward doc comment that
+/// the binding does not attach documents nothing and is billed as a plain
+/// comment.
+///
+/// The doc comments compared are those of one *stretch*: the comment
+/// siblings between two other siblings, read past the ones
+/// [`skips`](Self::skips) names. Blank rows never split a stretch; none of
+/// the bound tools reads them.
+#[derive(Clone, Copy, Debug)]
+pub struct DocBinding {
+    /// Which doc comments of a stretch the tool attaches.
+    pub kept: KeptDocs,
+    /// A sibling that may sit between a doc comment and its target
+    /// without detaching it, so a stretch reads past it: rustc gives an
+    /// item every outer doc comment above it, through its other
+    /// attributes. A grammar that nests annotations inside the declaration
+    /// has nothing to skip. A skipped node is never a target.
+    pub skips: fn(&Node) -> bool,
+    /// Whether a doc comment documents what follows it. `false` leaves it
+    /// to where it sits, as in an unbound language: Rust's inner `//!`
+    /// documents the item enclosing it, a doc comment in a macro token
+    /// tree documents whatever the expansion makes of it, and a KDoc
+    /// inside a Kotlin declaration's signature is read by `findDocComment`
+    /// from there. The [`Ancestors`] are the comment's chain.
+    pub forward: for<'a, 'b> fn(&Node<'a>, &[u8], Ancestors<'a, 'b>) -> bool,
+}
+
+impl DocBinding {
+    /// A binding that keeps `kept`, skips no sibling, and binds every doc
+    /// comment forward.
+    #[must_use]
+    pub const fn new(kept: KeptDocs) -> Self {
+        Self {
+            kept,
+            skips: |_| false,
+            forward: |_, _, _| true,
+        }
+    }
+}
+
+/// Which doc comments of a stretch a [`DocBinding`] attaches.
+#[derive(Clone, Copy, Debug)]
+pub enum KeptDocs {
+    /// Every doc comment of the stretch: rustc gives an item all the outer
+    /// doc comments above it, across blank rows, plain comments and other
+    /// attributes, which rustdoc concatenates.
+    All,
+    /// The last doc comment before the declaration's first token, and the
+    /// doc comments before it that `joins(earlier, later, code)` makes one
+    /// comment with it: javac's `Token::docComment` and Kotlin's
+    /// `PrecedingDocCommentsBinder` keep the last, and javac's
+    /// dangling-doc-comments lint names the rest. A skipped node is that
+    /// first token, a Kotlin annotation the grammar leaves outside its
+    /// declaration; when no doc comment precedes it, the first one after
+    /// it is read, as `findDocComment` reads Kotlin's modifier list.
+    Last {
+        /// Whether two adjacent doc comments are one to the tool.
+        joins: fn(&Node, &Node, &[u8]) -> bool,
+    },
+    /// The stretch's last comment, if it is a doc comment: Groovy's
+    /// `GroovydocManager` reads the comment nearest the declaration and
+    /// drops it unless it opens `/**`, so a plain comment in between
+    /// detaches it. A comment for which `hidden(comment, next)` holds,
+    /// `next` being the sibling after it, is invisible to the tool and
+    /// read past.
+    Nearest {
+        /// Whether the tool cannot see a comment.
+        hidden: fn(&Node, &Node) -> bool,
+    },
+}
+
+/// A [`KeptDocs::Last`] join that joins nothing.
+#[must_use]
+pub(crate) fn never_joins(_: &Node, _: &Node, _: &[u8]) -> bool {
+    false
+}
+
 /// The bytes of `node`'s own span, or nothing when the span is outside
 /// `code` — a recovery token can point past the source. Used for comment
 /// markers and for the identifiers the positional rules read.
@@ -159,6 +238,131 @@ pub fn documents_where_it_sits<'a, T: Checker>(
             u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
         },
     ) == 0
+}
+
+/// Whether a doc comment documents without a following declaration,
+/// before [`documents_where_it_sits`] has its say: every doc comment of a
+/// language with no [`Checker::DOC_BINDING`], and a bound language's that
+/// does not attach forward ([`DocBinding::forward`]). A forward one
+/// documents only through [`bound_doc_run`] (#1613).
+#[must_use]
+pub fn documents_unbound<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    T::DOC_BINDING.is_none_or(|binding| !(binding.forward)(comment, code, ancestors))
+}
+
+/// Credits the doc comments a bound language's tool attaches to the
+/// declaration after them (#1613). Called from the LOC comment arm for
+/// every comment; `credit` receives each attached doc comment, whose own
+/// arm has already billed its rows as `cloc`. A language with no
+/// [`Checker::DOC_BINDING`] credits nothing here.
+///
+/// The comments compared are one *stretch*: the comment siblings between
+/// two other siblings, read past those [`DocBinding::skips`] names. Only the stretch's last
+/// comment does more than one sibling step, so a stretch of `k` members
+/// costs `O(k)` steps in total, the #1446 bound: it finds the sibling the
+/// stretch ends at and, when that is an [`Checker::is_doc_target`], walks
+/// back once to credit what the binding keeps. A stretch that ends
+/// anywhere else — a statement, a macro call, a closing brace, the end of
+/// the file — documents nothing. Members are siblings, so one in-body test
+/// ([`documents_where_it_sits`]) answers for them all.
+pub fn bound_doc_run<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    mut credit: impl FnMut(&Node<'a>),
+) {
+    let Some(binding) = T::DOC_BINDING else {
+        return;
+    };
+    // A later member decides, or the stretch documents nothing.
+    let Some(next) = stretch_end_at_target::<T>(comment, code, ancestors, binding.skips) else {
+        return;
+    };
+    if !documents_where_it_sits::<T>(comment, code, ancestors) {
+        return;
+    }
+    // The stretch in source order, followed by the sibling it ends at.
+    let mut stretch: Vec<Node<'a>> = std::iter::once(*comment)
+        .chain(ancestors.siblings_before(comment))
+        .take_while(|n| T::is_comment(n) || (binding.skips)(n))
+        .collect();
+    stretch.reverse();
+    let forward =
+        |n: &Node<'a>| T::is_doc_comment(n, code) && (binding.forward)(n, code, ancestors);
+    let kept = match binding.kept {
+        KeptDocs::All => stretch.iter().copied().filter(forward).collect(),
+        KeptDocs::Last { joins } => bind_last::<T>(&stretch, code, joins, forward),
+        KeptDocs::Nearest { hidden } => bind_nearest::<T>(&stretch, next, hidden, forward)
+            .into_iter()
+            .collect(),
+    };
+    kept.iter().for_each(&mut credit);
+}
+
+/// The sibling right after `comment` when `comment` is its stretch's last
+/// comment and the stretch ends at an [`Checker::is_doc_target`]; `None`
+/// otherwise. The scan stops at the first sibling that is not skipped, so
+/// it never passes a later comment of the stretch.
+fn stretch_end_at_target<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    skips: fn(&Node) -> bool,
+) -> Option<Node<'a>> {
+    let mut after = ancestors.siblings_after(comment);
+    let next = after.next()?;
+    let target = std::iter::once(next).chain(after).find(|n| !skips(n))?;
+    T::is_doc_target(&target, code, ancestors).then_some(next)
+}
+
+/// [`KeptDocs::Last`] over a stretch in source order: the last doc
+/// comment before the first skipped node — the declaration's first token —
+/// with the doc comments it joins, or else the first doc comment after it.
+fn bind_last<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    joins: fn(&Node, &Node, &[u8]) -> bool,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Vec<Node<'a>> {
+    let split = stretch
+        .iter()
+        .position(|n| !T::is_comment(n))
+        .unwrap_or(stretch.len());
+    let (before, after) = stretch.split_at(split);
+    let Some(last) = before.iter().rposition(&forward) else {
+        return after.iter().copied().find(forward).into_iter().collect();
+    };
+    let mut first = last;
+    while first > 0
+        && forward(&before[first - 1])
+        && joins(&before[first - 1], &before[first], code)
+    {
+        first -= 1;
+    }
+    before[first..=last].to_vec()
+}
+
+/// [`KeptDocs::Nearest`] over a stretch in source order whose last
+/// member `next` follows: the comment nearest the declaration that the
+/// tool can see, if it is a doc comment.
+fn bind_nearest<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    next: Node<'a>,
+    hidden: fn(&Node, &Node) -> bool,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Option<Node<'a>> {
+    let mut later = next;
+    for member in stretch.iter().rev() {
+        if T::is_comment(member) && !hidden(member, &later) {
+            return Some(*member).filter(forward);
+        }
+        later = *member;
+    }
+    None
 }
 
 /// Credits the rows of the comment run that `comment` ends, when the

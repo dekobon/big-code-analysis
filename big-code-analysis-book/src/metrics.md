@@ -1078,6 +1078,23 @@ decision, not one rule for all:
   wherever it sits, as [perldoc](https://perldoc.perl.org/perldoc)
   does — after `__END__` or `__DATA__` too, where every other
   non-blank row of the data section counts as PLOC.
+- In Rust, Java, Kotlin and Groovy, a doc comment also has to be
+  attached: it counts only when the declaration after it is one its
+  tool documents. Attributes, annotations, modifiers and blank rows may
+  come between the comment and the declaration. A doc comment above
+  anything else stays a plain comment row: an import, a statement, a
+  macro call, a Rust `extern` block, a closing brace, or the end of the
+  file. The tools also differ on a run of several doc comments.
+  [rustc](https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#unused-doc-comments)
+  attaches every outer doc comment above an item, so all of them count.
+  javac and Kotlin keep only the last one; javac's
+  `-Xlint:dangling-doc-comments` names the earlier ones, and they do not
+  count. Consecutive `///` lines are one Java Markdown doc comment.
+  Groovydoc reads only the comment nearest the declaration, so a plain
+  `//` comment in between detaches it. A Java doc comment above
+  `package` counts only in a file with no type after it, which is the
+  shape of `package-info.java`. Rust's inner `//!` is unaffected: it
+  documents the item it sits in.
 - In Python, every bare string statement — a string whose value is
   discarded — is a comment row, but only one where Python reads
   documentation is DLOC, following

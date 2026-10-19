@@ -12,7 +12,29 @@
 )]
 
 use super::*;
-use crate::lang_helpers::documents_where_it_sits;
+use crate::lang_helpers::bound_doc_run;
+
+/// The rows a Rust comment renders on. tree-sitter-rust's
+/// `process_line_doc_content` (see `src/scanner.c` in the pinned grammar
+/// crate) consumes a line doc comment's trailing newline into its
+/// `DocComment`, so the node spans one row more than it renders — except
+/// at EOF, where it returns without consuming one. The row is discounted
+/// only when the node really spans it; discounting unconditionally
+/// underflowed (#1051). Only a doc comment carries the newline, and the
+/// discount follows the spelling alone: an in-body `///` swallows its
+/// newline too. A block comment never spans a row past its `*/`.
+///
+/// `saturating_sub` is exact under the `end > start` guard and is
+/// belt-and-braces on the one line in this crate known to have
+/// underflowed.
+fn rendered_rows(node: &Node, code: &[u8]) -> (usize, usize) {
+    let (start, end) = (node.start_row(), node.end_row());
+    if node.kind_id() == Rust::LineComment && end > start && RustCode::is_doc_comment(node, code) {
+        (start, end.saturating_sub(1))
+    } else {
+        (start, end)
+    }
+}
 
 impl Loc for RustCode {
     fn compute<'a>(
@@ -44,38 +66,18 @@ impl Loc for RustCode {
             StringLiteral | RawStringLiteral => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
-            BlockComment => {
-                add_comment_lines::<Self>(node, code, ancestors, stats);
-            }
-            LineComment => {
-                // tree-sitter-rust's `process_line_doc_content` (see
-                // `src/scanner.c` in the pinned grammar crate) consumes the
-                // trailing newline into the `DocComment`, so the node spans
-                // one row more than it renders — except at EOF, where it
-                // returns without consuming one. Discount that row only when
-                // the node really spans it; discounting unconditionally
-                // underflowed (#1051).
-                //
-                // Only a doc comment carries the newline, so the one
-                // `Checker::is_doc_comment` answer decides both the row span
-                // and, with where the comment sits, the `dloc` billing —
-                // asked once rather than again through `add_comment_lines`.
-                // The row discount follows the spelling alone: an in-body
-                // `///` swallows its newline too.
-                //
-                // `saturating_sub` is exact under the `end > start` guard —
-                // `end > start` and `start >= 0` give `end >= 1` — and is
-                // belt-and-braces on the one line in this crate known to
-                // have underflowed.
-                let doc = Self::is_doc_comment(node, code);
-                let end = node.end_row();
-                let end = if doc && end > start {
-                    end.saturating_sub(1)
-                } else {
-                    end
-                };
-                let documentation = doc && documents_where_it_sits::<Self>(node, code, ancestors);
-                add_comment_rows(stats, start, end, documentation);
+            // A line doc comment renders on fewer rows than its node spans
+            // (`rendered_rows`), so both kinds bill their rendered rows here
+            // rather than through `add_comment_lines`, and a doc comment
+            // bound to an item is billed across the same rows.
+            BlockComment | LineComment => {
+                let (first, last) = rendered_rows(node, code);
+                let documentation = is_documentation::<Self>(node, code, ancestors);
+                add_comment_rows(stats, first, last, documentation);
+                bound_doc_run::<Self>(node, code, ancestors, |member| {
+                    let (first, last) = rendered_rows(member, code);
+                    stats.dloc.lines.insert_range(first, last);
+                });
             }
             Statement
             | EmptyStatement
