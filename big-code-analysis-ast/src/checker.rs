@@ -946,6 +946,10 @@ pub trait Checker {
     }
 }
 
+// The JS family's doc-comment binding macros (#1613), declared before
+// the language modules that invoke them.
+#[macro_use]
+mod js_doc_binding;
 mod bash;
 mod c;
 mod ccomment;

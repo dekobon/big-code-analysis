@@ -6579,6 +6579,8 @@ y, z = 2, 3",
                 assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 2);
                 assert_eq!(metric.loc.blank(), 0);
+                // Roslyn attaches no `///` to a statement (CS1587, #1613).
+                assert_eq!(metric.loc.dloc(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -14223,11 +14225,13 @@ class A {
                     // `def f; end` are doc targets, so a comment directly
                     // above either is a lead comment and documentation by
                     // position; after the code it is a dangling comment and
-                    // is not. Rust binds a doc comment to the item after it
-                    // (#1613), so a `///` at the end of the file is not one.
+                    // is not. Rust and PHP bind a doc comment to the
+                    // declaration after it (#1613), so one at the end of the
+                    // file is not one.
                     let positional =
                         comment_first && matches!(lang, crate::LANG::Go | crate::LANG::Ruby);
-                    let bound_dangling = !comment_first && *lang == crate::LANG::Rust;
+                    let bound_dangling =
+                        !comment_first && matches!(lang, crate::LANG::Rust | crate::LANG::Php);
                     let expected = u64::from(
                         (doc_comment_spellings(*lang).contains(&comment) && !bound_dangling)
                             || positional,

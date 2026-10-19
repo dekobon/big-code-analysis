@@ -2,7 +2,54 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{node_bytes, phpdoc};
+use crate::lang_helpers::doc_comment::{never_joins, node_bytes, phpdoc};
+
+/// A top-level node phpDocumentor's `createFileDocBlock` passes over
+/// looking for the file's first element: `Declare_` and `InlineHTML`, which
+/// tree-sitter-php spells as a `declare` statement and the `<?php` / `?>`
+/// text around inline HTML.
+fn php_file_preamble(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Php::PhpTag | Php::Text | Php::TextInterpolation | Php::DeclareStatement
+    )
+}
+
+/// Whether `comment` is phpDocumentor's file DocBlock (#1613), which
+/// documents the file wherever it sits. `createFileDocBlock` gathers the
+/// comments before the first top-level node that is not a preamble; if that
+/// node is not a class, function, constant, interface or trait, the first
+/// DocBlock among them is the file's, and otherwise it is only when exactly
+/// two DocBlocks precede it. The backward test stops at the previous
+/// DocBlock, so only the file's first one scans forward.
+fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    let preamble_or_plain = |n: Node| {
+        php_file_preamble(&n) || (PhpCode::is_comment(&n) && !PhpCode::is_doc_comment(&n, code))
+    };
+    if !ancestors.parent_has_kind(comment, Php::Program as u16)
+        || !ancestors.siblings_before(comment).all(preamble_or_plain)
+    {
+        return false;
+    }
+    let mut docs = 1_usize;
+    for node in ancestors.siblings_after(comment) {
+        if PhpCode::is_doc_comment(&node, code) {
+            docs += 1;
+        } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
+            return docs == 2
+                || !matches!(
+                    node.kind_id().into(),
+                    Php::ClassDeclaration
+                        | Php::FunctionDefinition
+                        | Php::ConstDeclaration
+                        | Php::ConstDeclaration2
+                        | Php::InterfaceDeclaration
+                        | Php::TraitDeclaration
+                );
+        }
+    }
+    true
+}
 
 impl Checker for PhpCode {
     fn is_comment(node: &Node) -> bool {
@@ -11,6 +58,67 @@ impl Checker for PhpCode {
 
     fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
         Self::is_comment(node) && phpdoc(node_bytes(node, code))
+    }
+
+    // phpDocumentor gives an element PHP-Parser's `getDocComment`: the
+    // last DocBlock among the comments before the node's first token, so
+    // plain comments in between are read past and only the last of several
+    // DocBlocks documents it (#1613). A DocBlock among a declaration's own
+    // children — after its `#[…]` attributes, before its body, on a
+    // promoted parameter — is the one `ReflectionFunction::getDocComment`
+    // reads, decided as before (#1612), as is the file DocBlock, which
+    // documents the file rather than what follows. A property, a constant
+    // and an enum case hold their `#[…]` attributes as children too, so
+    // each is a declaration here like a method.
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
+        forward: |comment, code, ancestors| {
+            let in_signature = ancestors.parent(comment).is_some_and(|parent| {
+                matches!(
+                    parent.kind_id().into(),
+                    Php::ClassDeclaration
+                        | Php::InterfaceDeclaration
+                        | Php::TraitDeclaration
+                        | Php::EnumDeclaration
+                        | Php::FunctionDefinition
+                        | Php::MethodDeclaration
+                        | Php::PropertyDeclaration
+                        | Php::ConstDeclaration
+                        | Php::ConstDeclaration2
+                        | Php::EnumCase
+                        | Php::AnonymousFunction
+                        | Php::ArrowFunction
+                        | Php::FormalParameters
+                        | Php::PropertyPromotionParameter
+                )
+            });
+            !in_signature && !php_file_docblock(comment, code, ancestors)
+        },
+        ..DocBinding::new(KeptDocs::Leading {
+            hidden: |node, code| !Self::is_doc_comment(node, code),
+            joins: never_joins,
+        })
+    });
+
+    // The structural elements phpDocumentor's reflection builds: a class,
+    // interface, trait or enum, a function or method, a property, a class
+    // or global constant and an enum case. `define()` is a call the
+    // grammar parses as a statement, so a DocBlock above it stays a plain
+    // comment, where phpDocumentor reads it as a constant's; a `use`, a
+    // `namespace` or any other statement takes none.
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::ClassDeclaration
+                | Php::InterfaceDeclaration
+                | Php::TraitDeclaration
+                | Php::EnumDeclaration
+                | Php::FunctionDefinition
+                | Php::MethodDeclaration
+                | Php::PropertyDeclaration
+                | Php::ConstDeclaration
+                | Php::ConstDeclaration2
+                | Php::EnumCase
+        )
     }
 
     // PHP's parser binds the last docblock before a function's name to it,

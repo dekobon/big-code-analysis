@@ -16,6 +16,19 @@ impl Checker for JavascriptCode {
     // JSDoc ignores `/***`; plain JavaScript follows it.
     impl_js_family_doc_comment!(Javascript, javadoc_block);
 
+    // JSDoc's `getLeadingJsdocComment` takes the nearest block comment
+    // before a node, line comments filtered out, so a plain `/* */` in
+    // between detaches a doc comment and a `//` does not. A virtual
+    // comment (`@file`, `@module`, a tag that names a symbol) documents
+    // that symbol and stands alone (#1613).
+    impl_js_family_doc_binding!(
+        Javascript,
+        |node, code| Self::is_comment(node)
+            && !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b"/*"),
+        crate::lang_helpers::doc_comment::jsdoc_virtual,
+        jsdoc_target
+    );
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

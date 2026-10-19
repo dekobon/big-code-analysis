@@ -15,8 +15,9 @@ use super::min_or_zero;
 /// exactly the rows the same arms also record as comment lines, so
 /// `dloc() <= cloc()` holds by construction — `add_comment_rows` inserts
 /// into both, and `add_leading_doc_run` (Go, Ruby, Lua),
-/// `add_bound_doc_run` (the doc comments Rust, Java, Kotlin and Groovy
-/// attach to the declaration after them, #1613) and Python's
+/// `add_bound_doc_run` (the doc comments Rust, Java, Kotlin, Groovy, C#,
+/// PHP and the JS family attach to the declaration after them, #1613)
+/// and Python's
 /// `add_sphinx_doc_comment` (`#:` comments) re-bill only rows a comment
 /// arm already recorded. A language without a
 /// documentation syntax this crate recognises reports `0`; Elixir's
@@ -148,7 +149,8 @@ mod tests {
         /// One single-row code fixture per language whose grammar emits one
         /// comment kind, or marks documentation structurally. A fixture is
         /// the comment row above this code row — after it for PHP, whose
-        /// comment must follow `<?php`.
+        /// comment must follow `<?php`, and which is then the file's only
+        /// DocBlock and so phpDocumentor's file DocBlock.
         const CODE_ROW: &[(LANG, &str)] = &[
             (LANG::C, "int x;"),
             (LANG::Cpp, "int x;"),
@@ -160,7 +162,7 @@ mod tests {
             (LANG::Mozjs, "let x = 1;"),
             (LANG::Typescript, "let x = 1;"),
             (LANG::Tsx, "let x = 1;"),
-            (LANG::Php, "<?php $x = 1;"),
+            (LANG::Php, "<?php"),
             (LANG::Csharp, "class C {}"),
             (LANG::Rust, "fn f() {}"),
             (LANG::Groovy, "def f() {}"),
@@ -345,18 +347,18 @@ mod tests {
     ))]
     #[test]
     fn a_doc_comment_sharing_a_code_row_keeps_the_row() {
-        // Java binds a doc comment to the declaration after it (#1613), so
-        // its fixture puts one there.
+        // Java, JavaScript, PHP and C# bind a doc comment to the declaration
+        // after it (#1613), so their fixtures put one there.
         let fixtures: &[(LANG, &[u8], u64)] = &[
             (LANG::C, b"int x; /** d */\n", 1),
             (LANG::Java, b"class C { int x; /** d */ int y; }\n", 1),
-            (LANG::Javascript, b"let x = 1; /** d */\n", 1),
-            (LANG::Php, b"<?php $x = 1; /** d */\n", 1),
+            (LANG::Javascript, b"let x = 1; /** d */ let y = 2;\n", 1),
+            (LANG::Php, b"<?php $x = 1; /** d */ function f() {}\n", 1),
             // The `///` form consumes its newline into the `doc_comment`
             // child, the #1051 end-row discount path; the item after it
             // keeps the fixture valid Rust.
             (LANG::Rust, b"fn f() {} /// d\nfn g() {}\n", 2),
-            (LANG::Csharp, b"class C { int x; /// d\n}\n", 2),
+            (LANG::Csharp, b"class C { int x; /// d\nint y; }\n", 2),
         ];
         for (lang, source, rows) in fixtures {
             let loc = metrics_verbatim(*lang, source, loc_only()).loc;
@@ -515,6 +517,7 @@ mod tests {
         feature = "go",
         feature = "groovy",
         feature = "java",
+        feature = "javascript",
         feature = "kotlin",
         feature = "lua",
         feature = "mozcpp",
@@ -1173,6 +1176,24 @@ mod tests {
                     1,
                     1,
                 ),
+                (
+                    "property after an attribute",
+                    b"<?php\nclass X {\n    #[Attr]\n    /** Doc. */\n    public int $p = 1;\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "class constant after an attribute",
+                    b"<?php\nclass X {\n    #[Attr]\n    /** Doc. */\n    const C = 1;\n}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "enum case after an attribute",
+                    b"<?php\nenum E {\n    #[Attr]\n    /** Doc. */\n    case A;\n}\n",
+                    1,
+                    1,
+                ),
             ],
         );
         // A bodiless declaration holds no doc comment in its body: an
@@ -1229,20 +1250,21 @@ mod tests {
         );
     }
 
-    /// A C# doc comment in a property's or indexer's accessor list sits
-    /// before an accessor and documents it; one in the member's header
-    /// documents nothing, whether the member has accessors or an
-    /// expression body, as one after a method's attribute does (#1612).
+    /// A C# doc comment in a property's or indexer's accessor list, in the
+    /// member's header, or after its attribute documents nothing: Roslyn
+    /// reports each as CS1587, since an accessor takes no doc comment of its
+    /// own (`DocumentationCommentCompiler.ShouldSkip`). #1612 counted the
+    /// accessor-list one; #1613 reads it as `dotnet build` does.
     #[cfg(feature = "csharp")]
     #[test]
-    fn csharp_property_doc_comments_document_only_in_the_accessor_list() {
+    fn csharp_property_doc_comments_document_nothing_inside_the_member() {
         assert_doc_rows(
             LANG::Csharp,
             &[
                 (
                     "accessor list",
                     b"class C {\n    int X {\n        /// a\n        get;\n    }\n}\n",
-                    1,
+                    0,
                     1,
                 ),
                 (
@@ -1757,6 +1779,405 @@ mod tests {
                 ),
             ],
         );
+    }
+
+    /// Roslyn's `GetDocumentationCommentTriviaFromSyntaxNode` reads a
+    /// member's leading trivia back past plain comments and directives to
+    /// the nearest doc comment, then keeps every doc comment before it
+    /// that only blank rows separate; everything else is CS1587 (#1613). A
+    /// namespace, a `using` and a statement take none. Each row was checked
+    /// with `dotnet build` (SDK 9.0) and the XML documentation file.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_doc_comments_bind_to_the_member_after_them() {
+        assert_doc_rows(
+            LANG::Csharp,
+            &[
+                ("direct", b"/// d\nclass C {}\n", 1, 1),
+                (
+                    "through an attribute",
+                    b"/// d\n[System.Obsolete]\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                ("across a blank row", b"/// d\n\nclass C {}\n", 1, 1),
+                ("two runs, both kept", b"/// a\n\n/// b\nclass C {}\n", 2, 2),
+                ("block and line", b"/** a */\n/// b\nclass C {}\n", 2, 2),
+                ("past a plain comment", b"/// a\n// p\nclass C {}\n", 1, 2),
+                (
+                    "superseded across a plain comment",
+                    b"/// a\n// p\n/// b\nclass C {}\n",
+                    1,
+                    3,
+                ),
+                (
+                    "past a directive",
+                    b"/// d\n#nullable enable\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "superseded across a directive",
+                    b"/// a\n#pragma warning disable CS0169\n/// b\nclass C {}\n",
+                    1,
+                    2,
+                ),
+                ("enum member", b"enum E {\n    /// d\n    A,\n}\n", 1, 1),
+                ("at the end of the file", b"class C {}\n/// d\n", 0, 1),
+                (
+                    "before a closing brace",
+                    b"class C {\n    void F() {}\n    /// d\n}\n",
+                    0,
+                    1,
+                ),
+                ("using", b"/// d\nusing System;\nclass C {}\n", 0, 1),
+                ("block namespace", b"/// d\nnamespace N { }\n", 0, 1),
+                (
+                    "file-scoped namespace",
+                    b"/// d\nnamespace N;\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "assembly attribute",
+                    b"/// d\n[assembly: System.CLSCompliant(false)]\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "top-level statement",
+                    b"/// d\nSystem.Console.WriteLine();\n",
+                    0,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// phpDocumentor gives an element PHP-Parser's `getDocComment`, the
+    /// last DocBlock before its first token, plain comments read past; a
+    /// DocBlock above a statement documents nothing. `createFileDocBlock`
+    /// makes the file's first DocBlock the file's own when a non-element
+    /// (a `namespace`, a `use`, a statement, nothing) follows the leading
+    /// DocBlocks, or when exactly two precede the first element (#1613).
+    /// Each row was checked with phpDocumentor 3's reflection.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_doc_comments_bind_to_the_element_after_them() {
+        assert_doc_rows(
+            LANG::Php,
+            &[
+                (
+                    "direct",
+                    b"<?php\nfunction z() {}\n/** d */\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "through an attribute",
+                    b"<?php\nfunction z() {}\n/** d */\n#[Attr]\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "across a blank row",
+                    b"<?php\nfunction z() {}\n/** d */\n\nfunction f() {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "past a plain comment",
+                    b"<?php\nfunction z() {}\n/** d */\n// p\nfunction f() {}\n",
+                    1,
+                    2,
+                ),
+                (
+                    "superseded",
+                    b"<?php\nfunction z() {}\n/** a */\n/** b */\nfunction f() {}\n",
+                    1,
+                    2,
+                ),
+                (
+                    "class member",
+                    b"<?php\nclass C {\n    /** d */\n    public $p;\n    /** e */\n}\n",
+                    1,
+                    2,
+                ),
+                (
+                    "above a statement",
+                    b"<?php\nfunction z() {}\n/** d */\n$x = 1;\n",
+                    0,
+                    1,
+                ),
+                (
+                    "at the end of the file",
+                    b"<?php\nfunction z() {}\n/** d */\n",
+                    0,
+                    1,
+                ),
+                ("file DocBlock alone", b"<?php\n/** f */\n", 1, 1),
+                (
+                    "file DocBlock and the class's",
+                    b"<?php\n/** f */\n\n/** c */\nclass C {}\n",
+                    2,
+                    2,
+                ),
+                (
+                    "one DocBlock above the first class is the class's",
+                    b"<?php\n/** c */\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "three DocBlocks above the first function",
+                    b"<?php\n/** a */\n/** b */\n/** c */\nfunction f() {}\n",
+                    1,
+                    3,
+                ),
+                (
+                    "file DocBlock above a namespace",
+                    b"<?php\n/** f */\nnamespace N;\nclass C {}\n",
+                    1,
+                    1,
+                ),
+                (
+                    "file DocBlock above a declare",
+                    b"<?php\n/** f */\ndeclare(strict_types=1);\n/** u */\nuse A\\B;\n",
+                    1,
+                    2,
+                ),
+                (
+                    "file DocBlock above a statement",
+                    b"<?php\n/** f */\n$x = 1;\n",
+                    1,
+                    1,
+                ),
+            ],
+        );
+    }
+
+    /// JSDoc's `getLeadingJsdocComment` takes the nearest block comment
+    /// before a node, line comments filtered out, and documents a
+    /// declaration or an assignment; a call or another statement takes
+    /// none. A virtual comment — `@file`, `@fileoverview`, `@module`, or a
+    /// tag naming a symbol — documents that symbol wherever it sits, and
+    /// `@license` is not one (#1613). Each row was checked with
+    /// `jsdoc -X` (4.x). Mozilla's JavaScript shares the rule.
+    #[cfg(all(feature = "javascript", feature = "mozjs"))]
+    #[test]
+    fn javascript_doc_comments_bind_to_the_symbol_after_them() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            ("direct", b"/** d */\nfunction f() {}\n", 1, 1),
+            ("through a decorator", b"/** d */\n@dec\nclass C {}\n", 1, 1),
+            (
+                "after a member's decorator",
+                b"class C {\n  @dec\n  /** d */\n  m() {}\n}\n",
+                0,
+                1,
+            ),
+            (
+                "across a blank row",
+                b"x;\n/** d */\n\nfunction f() {}\n",
+                1,
+                1,
+            ),
+            (
+                "past a line comment",
+                b"/** d */\n// p\nfunction f() {}\n",
+                1,
+                2,
+            ),
+            (
+                "detached by a block comment",
+                b"/** d */\n/* p */\nfunction f() {}\n",
+                0,
+                2,
+            ),
+            ("superseded", b"/** a */\n/** b */\nfunction f() {}\n", 1, 2),
+            ("assignment", b"x;\n/** d */\nx = 1;\n", 1, 1),
+            ("member assignment", b"x;\n/** d */\na.b += 1;\n", 1, 1),
+            (
+                "parenthesized assignment",
+                b"x;\n/** d */\n(a = 1);\n",
+                1,
+                1,
+            ),
+            (
+                "comment inside the parentheses",
+                b"x;\n/** d */\n(\n  // c\n  a = 1\n);\n",
+                1,
+                2,
+            ),
+            ("call", b"x;\n/** d */\nfoo();\n", 0, 1),
+            ("destructuring", b"x;\n/** d */\nlet { q } = o;\n", 0, 1),
+            ("export list", b"x;\n/** d */\nexport { o };\n", 0, 1),
+            (
+                "at the end of the file",
+                b"function f() {}\n/** d */\n",
+                0,
+                1,
+            ),
+            ("@file", b"/**\n * @file F\n */\nfunction f() {}\n", 3, 3),
+            (
+                "@file above a call",
+                b"/**\n * @file F\n */\nfoo();\n",
+                3,
+                3,
+            ),
+            ("@module", b"/**\n * @module m\n */\nfoo();\n", 3, 3),
+            (
+                "named @typedef",
+                b"/**\n * @typedef {Object} T\n */\nfoo();\n",
+                3,
+                3,
+            ),
+            (
+                "unnamed @typedef",
+                b"/**\n * @typedef {Object}\n */\nfoo();\n",
+                0,
+                3,
+            ),
+            (
+                "@license above a call",
+                b"/**\n * @license MIT\n */\nfoo();\n",
+                0,
+                3,
+            ),
+            (
+                "@license above a function",
+                b"/**\n * @license MIT\n */\nfunction f() {}\n",
+                3,
+                3,
+            ),
+            (
+                "in a body, above a call",
+                b"function f() {\n  /** d */\n  foo();\n}\n",
+                1,
+                1,
+            ),
+        ];
+        assert_doc_rows(LANG::Javascript, cases);
+        assert_doc_rows(LANG::Mozjs, cases);
+    }
+
+    /// tsc's `getJSDocCommentsAndTags` gives a declaration the last `/**`
+    /// before its first token, past every plain comment, and declares no
+    /// symbol for an assignment statement; a comment after a decorator is
+    /// in the declaration and documents nothing. TypeDoc reads a `@module`
+    /// or `@packageDocumentation` comment as the file's, and `@license`
+    /// stays a tag of the declaration (#1613). Each row was checked with
+    /// tsc's quick info and TypeDoc 0.28. TSX shares the rule.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_doc_comments_bind_to_the_declaration_after_them() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            ("direct", b"/** d */\nfunction f() {}\n", 1, 1),
+            (
+                "past a block comment",
+                b"/** d */\n/* p */\nfunction f() {}\n",
+                1,
+                2,
+            ),
+            ("superseded", b"/** a */\n/** b */\nfunction f() {}\n", 1, 2),
+            (
+                "before a member's decorator",
+                b"class C {\n  /** d */\n  @dec\n  m() {}\n}\n",
+                1,
+                1,
+            ),
+            (
+                "after a member's decorator",
+                b"class C {\n  @dec\n  /** d */\n  m() {}\n}\n",
+                0,
+                1,
+            ),
+            (
+                "interface member",
+                b"interface I {\n  /** d */\n  p: number;\n}\n",
+                1,
+                1,
+            ),
+            (
+                "enum member",
+                b"enum E {\n  /** a */\n  A,\n  /** b */\n  B = 1,\n}\n",
+                2,
+                2,
+            ),
+            (
+                "string-named enum member",
+                b"enum E {\n  /** a */\n  'a',\n  /** b */\n  [\"b\"],\n}\n",
+                2,
+                2,
+            ),
+            ("parameter", b"function f(/** d */ x: number) {}\n", 1, 1),
+            ("member name", b"a./** d */b;\n", 0, 1),
+            (
+                "after a modifier",
+                b"class C { static /** d */ x = 1 }\n",
+                0,
+                1,
+            ),
+            ("after export", b"export /** d */ function f() {}\n", 0, 1),
+            ("before export", b"/** d */\nexport function f() {}\n", 1, 1),
+            (
+                "anonymous default function",
+                b"/** d */\nexport default function () {}\n",
+                1,
+                1,
+            ),
+            (
+                "anonymous default generator",
+                b"/** d */\nexport default function* () {}\n",
+                1,
+                1,
+            ),
+            (
+                "anonymous default class",
+                b"/** d */\nexport default class {}\n",
+                1,
+                1,
+            ),
+            (
+                "default expression",
+                b"/** d */\nexport default foo;\n",
+                0,
+                1,
+            ),
+            (
+                "after declare",
+                b"declare /** d */ function f(): void;\n",
+                0,
+                1,
+            ),
+            ("assignment", b"x;\n/** d */\nx = 1;\n", 0, 1),
+            ("using declaration", b"/** d */\nusing h = open();\n", 1, 1),
+            (
+                "await using declaration",
+                b"/** d */\nawait using h = open();\n",
+                1,
+                1,
+            ),
+            (
+                "at the end of the file",
+                b"function f() {}\n/** d */\n",
+                0,
+                1,
+            ),
+            (
+                "@packageDocumentation",
+                b"/**\n * @packageDocumentation\n */\nfoo();\n",
+                3,
+                3,
+            ),
+            (
+                "@license",
+                b"/**\n * @license MIT\n */\nexport function f() {}\n",
+                3,
+                3,
+            ),
+        ];
+        assert_doc_rows(LANG::Typescript, cases);
+        assert_doc_rows(LANG::Tsx, cases);
     }
 
     /// Bodies that open a function space without being a function — a

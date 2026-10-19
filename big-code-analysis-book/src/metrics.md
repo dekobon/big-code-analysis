@@ -1095,6 +1095,41 @@ decision, not one rule for all:
   `package` counts only in a file with no type after it, which is the
   shape of `package-info.java`. Rust's inner `//!` is unaffected: it
   documents the item it sits in.
+- C#, PHP, JavaScript and TypeScript bind doc comments the same way.
+  Each language still follows its own tool:
+  - C#: Roslyn keeps the nearest run of doc comments that only blank
+    rows separate, reading past plain comments and directives such as
+    `#region` to find it. Every other doc comment is
+    [CS1587](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/compiler-messages/xml-documentation-comments),
+    and so is a doc comment above a namespace, a `using` directive, or
+    an accessor such as `get;`.
+  - PHP:
+    [phpDocumentor](https://www.phpdoc.org/) gives a class, function,
+    method, property, constant or enum case the last DocBlock before
+    it. A DocBlock above a statement, a `use` or a `namespace` counts
+    only as the file DocBlock. phpDocumentor takes the file's first
+    DocBlock as the file DocBlock when no class, function, constant,
+    interface or trait follows the DocBlocks at the top of the file. It
+    also takes it when exactly two DocBlocks come before the first such
+    element.
+  - JavaScript: [JSDoc](https://jsdoc.app/) gives a declaration or an
+    assignment the nearest block comment before it, reading past `//`
+    lines, so a plain `/* */` in between detaches a doc comment. A call
+    or another statement takes nothing. A block
+    tagged `@file`, `@fileoverview`, `@overview` or `@module`, or with a
+    tag that names a symbol (`@typedef {Object} T`), documents that
+    symbol wherever it sits. `@license` does not make a block stand
+    alone.
+  - TypeScript: tsc keeps the last `/**` before a declaration, reading
+    past every plain comment, and documents no assignment statement. A
+    doc comment after a decorator, a modifier such as `static`, or
+    `export` or `declare` is inside the declaration and documents
+    nothing. A `@module` or
+    `@packageDocumentation` block documents the file, as
+    [TypeDoc](https://typedoc.org/) reads it.
+
+  In a JavaScript or TypeScript function body every doc comment still
+  counts, since JSDoc documents inner symbols.
 - In Python, every bare string statement — a string whose value is
   discarded — is a comment row, but only one where Python reads
   documentation is DLOC, following

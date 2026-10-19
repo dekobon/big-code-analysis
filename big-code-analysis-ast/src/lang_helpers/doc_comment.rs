@@ -95,6 +95,24 @@ pub enum KeptDocs {
         /// Whether the tool cannot see a comment.
         hidden: fn(&Node, &Node) -> bool,
     },
+    /// What a reverse scan over the declaration's leading trivia keeps,
+    /// from its first token back: past the comments and skipped nodes
+    /// `hidden(node, code)` names to the nearest other comment, kept if it
+    /// is a doc comment, then on over the doc comments directly before it
+    /// that `joins(earlier, later, code)` makes one with it. A member
+    /// directly before them that is hidden or plain ends the run. A skipped
+    /// node `hidden` does not name is the first token — a decorator the
+    /// grammar leaves outside its declaration — so a doc comment after it
+    /// documents nothing. Roslyn's `GetDocumentationCommentTriviaFromSyntaxNode`
+    /// reads past plain comments and directives and keeps adjacent doc
+    /// comments; JSDoc's `getLeadingJsdocComment` reads past line comments
+    /// only; tsc reads past every plain comment.
+    Leading {
+        /// Whether the scan reads past a member to the one before it.
+        hidden: fn(&Node, &[u8]) -> bool,
+        /// Whether two adjacent doc comments are one to the tool.
+        joins: fn(&Node, &Node, &[u8]) -> bool,
+    },
 }
 
 /// A [`KeptDocs::Last`] join that joins nothing.
@@ -184,6 +202,117 @@ pub(crate) fn phpdoc(s: &[u8]) -> bool {
 #[must_use]
 pub(crate) fn csharp_doc(s: &[u8]) -> bool {
     triple_slash(s) || javadoc_block(s)
+}
+
+/// A doc comment's line with the delimiters JSDoc's `unwrap` strips: the
+/// indent, one leading `*` and the space after it.
+fn jsdoc_line(line: &[u8]) -> &[u8] {
+    let line = line.trim_ascii_start();
+    let line = line.strip_prefix(b"*").unwrap_or(line);
+    line.strip_prefix(b" ").unwrap_or(line)
+}
+
+/// The block tags of a `/** … */` comment as JSDoc's `Doclet` reads them
+/// (`toTags`): a tag opens at an `@` that starts a line, its title runs to
+/// the first space, and its text over every line up to the next tag. Each
+/// tag is yielded as its title and its text's lines, delimiters stripped,
+/// extra stars at either end included, as `unwrap` strips them.
+fn jsdoc_tags(s: &[u8]) -> Vec<(&[u8], Vec<&[u8]>)> {
+    let body = s.strip_prefix(b"/**").unwrap_or(s);
+    let body = body.strip_suffix(b"*/").unwrap_or(body);
+    let start = body.iter().position(|&b| b != b'*').unwrap_or(body.len());
+    let end = body
+        .iter()
+        .rposition(|&b| b != b'*')
+        .map_or(start, |at| at + 1);
+    let body = &body[start..end];
+    let mut tags: Vec<(&[u8], Vec<&[u8]>)> = Vec::new();
+    for line in body.split(|&b| b == b'\n').map(jsdoc_line) {
+        let opened = line.trim_ascii_start().strip_prefix(b"@").and_then(|tag| {
+            let title = tag.iter().take_while(|b| !b.is_ascii_whitespace()).count();
+            (title > 0).then(|| tag.split_at(title))
+        });
+        match (opened, tags.last_mut()) {
+            (Some((title, text)), _) => tags.push((title, vec![text])),
+            (None, Some((_, text))) => text.push(line),
+            (None, None) => {}
+        }
+    }
+    tags
+}
+
+/// Whether a JSDoc tag's text names a symbol: anything left once the
+/// `{type}` that may lead it is set aside.
+fn jsdoc_names(lines: &[&[u8]]) -> bool {
+    let text = lines.concat();
+    let text = text.trim_ascii();
+    let rest = match text.strip_prefix(b"{") {
+        Some(inner) => {
+            let mut depth = 1_usize;
+            let close = inner.iter().position(|&b| {
+                match b {
+                    b'{' => depth += 1,
+                    b'}' => depth -= 1,
+                    _ => {}
+                }
+                depth == 0
+            });
+            close.map_or(&b""[..], |at| &inner[at + 1..])
+        }
+        None => text,
+    };
+    !rest.trim_ascii().is_empty()
+}
+
+/// A JSDoc *virtual* comment, which stands alone: it documents the symbol
+/// its tags name rather than the code after it, and the code after it gets
+/// no doc from it (`createSymbolDoclet` drops a comment that set a name).
+/// `@file`, `@fileoverview`, `@overview` and `@module` always set one; the
+/// tags that take a name set one only when given it. `@license` sets none,
+/// so a licence comment documents what follows like any other (#1613).
+/// Titles match in any case, as the tag dictionary's `normalize` does.
+#[must_use]
+pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
+    jsdoc_tags(s)
+        .iter()
+        .any(|(title, text)| match &*title.to_ascii_lowercase() {
+            b"file" | b"fileoverview" | b"overview" | b"module" => true,
+            b"name" | b"function" | b"func" | b"method" | b"class" | b"constructor"
+            | b"constant" | b"const" | b"member" | b"var" | b"namespace" | b"mixin"
+            | b"interface" | b"event" | b"external" | b"host" | b"typedef" | b"callback" => {
+                jsdoc_names(text)
+            }
+            _ => false,
+        })
+}
+
+/// A TypeDoc module comment: one carrying `@module` or
+/// `@packageDocumentation`, which `getCommentImpl` withholds from any
+/// declaration and reads as the file's documentation (#1613).
+#[must_use]
+pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
+    jsdoc_tags(s)
+        .iter()
+        .any(|(title, _)| *title == b"module" || *title == b"packageDocumentation")
+}
+
+/// Whether `comment` lies outside every function and closure body, by the
+/// same fold [`documents_where_it_sits`] runs, for a language whose
+/// in-body doc comments document wherever they sit and so must not bind.
+#[must_use]
+pub(crate) fn outside_function_bodies<'a, T: Checker>(
+    comment: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.fold_down(
+        comment,
+        0,
+        FoldLane::DocInBody,
+        0,
+        |held, ancestor, outer, below| {
+            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
+        },
+    ) == 0
 }
 
 // ---------------------------------------------------------------------
@@ -299,6 +428,9 @@ pub fn bound_doc_run<'a, T: Checker>(
         KeptDocs::Nearest { hidden } => bind_nearest::<T>(&stretch, next, hidden, forward)
             .into_iter()
             .collect(),
+        KeptDocs::Leading { hidden, joins } => {
+            bind_leading::<T>(&stretch, code, hidden, joins, forward)
+        }
     };
     kept.iter().for_each(&mut credit);
 }
@@ -336,6 +468,38 @@ fn bind_last<'a, T: Checker>(
     let Some(last) = before.iter().rposition(&forward) else {
         return after.iter().copied().find(forward).into_iter().collect();
     };
+    let mut first = last;
+    while first > 0
+        && forward(&before[first - 1])
+        && joins(&before[first - 1], &before[first], code)
+    {
+        first -= 1;
+    }
+    before[first..=last].to_vec()
+}
+
+/// [`KeptDocs::Leading`] over a stretch in source order: the members
+/// before the first token, read back past the hidden ones to the nearest
+/// other one, kept if it is a doc comment that binds forward, with the doc
+/// comments directly before it that it joins.
+fn bind_leading<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    hidden: fn(&Node, &[u8]) -> bool,
+    joins: fn(&Node, &Node, &[u8]) -> bool,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Vec<Node<'a>> {
+    let first_token = stretch
+        .iter()
+        .position(|n| !T::is_comment(n) && !hidden(n, code))
+        .unwrap_or(stretch.len());
+    let before = &stretch[..first_token];
+    let Some(last) = before.iter().rposition(|n| !hidden(n, code)) else {
+        return Vec::new();
+    };
+    if !forward(&before[last]) {
+        return Vec::new();
+    }
     let mut first = last;
     while first > 0
         && forward(&before[first - 1])
@@ -782,6 +946,49 @@ mod tests {
         ] {
             assert!(!csharp_doc(plain), "{}", String::from_utf8_lossy(plain));
         }
+    }
+
+    /// Each row is what `jsdoc -X` 4.x made of the comment above a call:
+    /// a doclet of its own (virtual) or nothing. A name may sit on the
+    /// line after its tag, and a tag inline in the description is text.
+    #[test]
+    fn jsdoc_virtual_follows_jsdoc_naming_tags() {
+        for virtual_ in [
+            &b"/** @file */"[..],
+            b"/**\n * @fileoverview x\n */",
+            b"/** @overview */",
+            b"/** @module */",
+            b"/**\n * @typedef {Object} T\n */",
+            b"/**\n * @typedef {Object}\n * T\n */",
+            b"/**\n * @function f\n */",
+            b"/**\n * @callback cb\n */",
+            b"/** @FILE */",
+            b"/** @FileOverview */",
+            b"/** @Typedef {Object} T */",
+            b"/** @function f **/",
+        ] {
+            assert!(
+                jsdoc_virtual(virtual_),
+                "{}",
+                String::from_utf8_lossy(virtual_)
+            );
+        }
+        for attached in [
+            &b"/**\n * @license MIT\n */"[..],
+            b"/**\n * @typedef {Object}\n */",
+            b"/**\n * @function\n */",
+            b"/** @function **/",
+            b"/** x @file */",
+            b"/** d */",
+        ] {
+            assert!(
+                !jsdoc_virtual(attached),
+                "{}",
+                String::from_utf8_lossy(attached)
+            );
+        }
+        assert!(tsdoc_module(b"/**\n * @packageDocumentation\n */"));
+        assert!(!tsdoc_module(b"/**\n * @license MIT\n */"));
     }
 
     #[test]

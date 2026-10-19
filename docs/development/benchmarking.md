@@ -161,6 +161,9 @@ Read it as follows.
 | `loc/java-dangling-docs` | Java | width | `bound_doc_run`'s once-per-stretch decision over dangling Javadoc (#1613) | linear |
 | `loc/java-package-docs` | Java | width | the package Javadoc's look-ahead for a type, stopped at the next package (#1613) | linear |
 | `loc/rust-attributed-docs` | Rust | width | the same decision through the attributes between `///` comments (#1613) | linear |
+| `loc/csharp-dangling-docs` | C# | width | Roslyn's reverse trivia scan over doc comments split by plain ones (#1613) | linear |
+| `loc/php-file-docblock` | PHP | width | phpDocumentor's file-DocBlock test, a forward scan from the first DocBlock only (#1613) | linear |
+| `loc/js-standalone-tags` | JavaScript | width | JSDoc's virtual-comment test on each `@file` block (#1613) | linear |
 | `loc/python-additional-docstrings` | Python | width | additional docstrings classified once per consecutive run | linear |
 | `loc/csharp-accessor-docs` | C# | width | the in-body doc test of each comment in a property's accessor list (#1612) | linear |
 | `loc/php-signature-docs` | PHP | width | the in-body doc test of each docblock between a signature and its body (#1612) | linear |

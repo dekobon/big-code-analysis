@@ -4,6 +4,23 @@
 use super::*;
 use crate::lang_helpers::doc_comment::{csharp_doc, node_bytes};
 
+/// A preprocessor directive that is trivia to Roslyn: one that wraps no
+/// code, so the declaration after it keeps the doc comment above it.
+fn csharp_directive(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Csharp::PreprocRegion
+            | Csharp::PreprocEndregion
+            | Csharp::PreprocLine
+            | Csharp::PreprocPragma
+            | Csharp::PreprocNullable
+            | Csharp::PreprocError
+            | Csharp::PreprocWarning
+            | Csharp::PreprocDefine
+            | Csharp::PreprocUndef
+    )
+}
+
 impl Checker for CsharpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Csharp::Comment
@@ -11,6 +28,51 @@ impl Checker for CsharpCode {
 
     fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
         Self::is_comment(node) && csharp_doc(node_bytes(node, code))
+    }
+
+    // Roslyn's `GetDocumentationCommentTriviaFromSyntaxNode` reads a
+    // member's leading trivia backwards: past plain comments and
+    // directives to the nearest doc comment, then over every doc comment
+    // before it that only blank rows separate, all of which it
+    // concatenates. A plain comment or a directive in that run ends it, and
+    // every doc comment it leaves is CS1587 (#1613). A directive that
+    // wraps code (`#if`) is a node the stretch cannot read past, so a doc
+    // comment above one stays a plain comment, where Roslyn would give it
+    // to the first member inside.
+    const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
+        skips: csharp_directive,
+        ..DocBinding::new(KeptDocs::Leading {
+            hidden: |node, code| !Self::is_doc_comment(node, code),
+            joins: |_, _, _| true,
+        })
+    });
+
+    // The members `DocumentationCommentCompiler` writes: a type, a
+    // delegate, a member and an enum member. A namespace (block or
+    // file-scoped), a `using`, an assembly attribute, a top-level
+    // statement and an accessor take none; checked with `dotnet build`
+    // and CS1587.
+    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::ClassDeclaration
+                | Csharp::StructDeclaration
+                | Csharp::RecordDeclaration
+                | Csharp::InterfaceDeclaration
+                | Csharp::EnumDeclaration
+                | Csharp::DelegateDeclaration
+                | Csharp::MethodDeclaration
+                | Csharp::ConstructorDeclaration
+                | Csharp::DestructorDeclaration
+                | Csharp::OperatorDeclaration
+                | Csharp::ConversionOperatorDeclaration
+                | Csharp::FieldDeclaration
+                | Csharp::EventFieldDeclaration
+                | Csharp::EventDeclaration
+                | Csharp::PropertyDeclaration
+                | Csharp::IndexerDeclaration
+                | Csharp::EnumMemberDeclaration
+        )
     }
 
     // A property or indexer holds every doc comment in it but those in its

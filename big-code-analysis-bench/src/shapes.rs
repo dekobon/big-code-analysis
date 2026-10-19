@@ -438,6 +438,29 @@ pub fn rust_attributed_docs(width: usize) -> String {
     format!("{}fn f() {{}}\n", "/// d\n#[inline]\n".repeat(width))
 }
 
+/// C#: `width` units of a `///` doc comment and a plain `//` comment,
+/// then a type. Roslyn keeps only the last doc comment, since each plain
+/// comment ends the run read back from the type.
+#[must_use]
+pub fn csharp_dangling_docs(width: usize) -> String {
+    format!("{}class C {{}}\n", "/// d\n// p\n".repeat(width))
+}
+
+/// PHP: `width` `/** */` blocks at the top of a file, then a class. The
+/// first asks phpDocumentor's file-doc question, which reads every block
+/// after it to the class; each later one stops at the block before it.
+#[must_use]
+pub fn php_file_docblock(width: usize) -> String {
+    format!("<?php\n{}class C {{}}\n", "/** d */\n".repeat(width))
+}
+
+/// JavaScript: `width` `@file` blocks, each a `JSDoc` virtual comment that
+/// documents the file, then a function.
+#[must_use]
+pub fn js_standalone_tags(width: usize) -> String {
+    format!("{}function f() {{}}\n", "/** @file d */\n".repeat(width))
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -1836,6 +1859,57 @@ pub const PROBES: &[Probe] = &[
                     attributes, so each comment that asks for its target \
                     must stop at the next comment rather than scan to the \
                     item. Every doc comment is a doc row.",
+    },
+    Probe {
+        name: "loc/csharp-dangling-docs",
+        lang: LANG::Csharp,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: csharp_dangling_docs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: Roslyn's reverse trivia scan is run once per \
+                    stretch, at its last comment, over comments alternating \
+                    with plain ones; only one is a doc row, so the reading \
+                    is the comment rows.",
+    },
+    Probe {
+        name: "loc/php-file-docblock",
+        lang: LANG::Php,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: php_file_docblock,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: the file-DocBlock test scans forward from the \
+                    file's first DocBlock only; every later one stops at the \
+                    DocBlock before it, or the stretch is quadratic. One \
+                    DocBlock is a doc row, so the reading is the comment \
+                    rows.",
+    },
+    Probe {
+        name: "loc/js-standalone-tags",
+        lang: LANG::Javascript,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: js_standalone_tags,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1613: each JSDoc virtual comment is classified by its \
+                    own tags, not by a scan to the declaration; every \
+                    `@file` block is a doc row.",
     },
     Probe {
         name: "loc/python-additional-docstrings",

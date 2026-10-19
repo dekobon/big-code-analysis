@@ -13,6 +13,18 @@ impl Checker for TsxCode {
     // tsc reads `/***` as JSDoc, so TSX follows tsc, not JSDoc.
     impl_js_family_doc_comment!(Tsx, tsdoc_block);
 
+    // tsc's `getJSDocCommentsAndTags` takes the last `/**` before a
+    // declaration's first token, past every plain comment; a comment after
+    // a decorator is inside the declaration and documents nothing. TypeDoc
+    // withholds a `@module` or `@packageDocumentation` comment from the
+    // declaration and reads it as the file's (#1613).
+    impl_js_family_doc_binding!(
+        Tsx,
+        |node, code| Self::is_comment(node) && !Self::is_doc_comment(node, code),
+        crate::lang_helpers::doc_comment::tsdoc_module,
+        tsdoc_target
+    );
+
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
