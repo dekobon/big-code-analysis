@@ -1052,6 +1052,29 @@ fn ldoc_end_marker(s: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// Every language's `DOC_BINDING` spreads `..DocBinding::new(kept)`
+    /// and relies on its defaults: nothing skipped, every doc comment
+    /// binding forward, no gathering comment. Each const is evaluated at
+    /// compile time, so this is the one runtime call that pins them.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn doc_binding_defaults_skip_nothing_and_bind_everything_forward() {
+        use crate::langs::RustCode;
+        use crate::node::Tree;
+        let source = b"/// d\nfn f() {}\n";
+        let tree = Tree::new::<RustCode>(source);
+        let comment = tree
+            .get_root()
+            .preorder()
+            .find(|node| RustCode::is_comment(node))
+            .expect("the fixture has a comment");
+        let binding = DocBinding::new(KeptDocs::All);
+        assert!(matches!(binding.kept, KeptDocs::All));
+        assert!(!(binding.skips)(&comment, Ancestors::unknown()));
+        assert!((binding.forward)(&comment, source, Ancestors::unknown()));
+        assert!(binding.gathers.is_none());
+    }
+
     #[test]
     fn ruby_directive_opener_accepts_rdoc_and_yard_forms() {
         assert!(ruby_directive_opener(b"##"));

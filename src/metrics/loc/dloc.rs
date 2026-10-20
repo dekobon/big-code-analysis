@@ -2046,6 +2046,25 @@ mod tests {
             ("call", b"x;\n/** d */\nfoo();\n", 0, 1),
             ("destructuring", b"x;\n/** d */\nlet { q } = o;\n", 0, 1),
             ("export list", b"x;\n/** d */\nexport { o };\n", 0, 1),
+            // An expression-bodied arrow holds only its body expression;
+            // a comment before that expression is its sibling, not in it,
+            // and binds to the `1` after it, which is no declaration —
+            // JSDoc attaches it to nothing.
+            (
+                "in an expression-bodied arrow",
+                b"const f = () => /** d */ 1;\n",
+                0,
+                1,
+            ),
+            // Inside the body expression the arrow does hold it, and a
+            // JS doc comment documents where it sits in a body: JSDoc
+            // documents the member `a`.
+            (
+                "in an arrow's object literal",
+                b"const f = () => ({\n  /** d */\n  a: 1,\n});\n",
+                1,
+                1,
+            ),
             // A parse error between two doc comments is read past, not
             // read as the declaration's first token: JSDoc documents `f`
             // with `b`, whichever of the two spans more rows.
@@ -2254,6 +2273,10 @@ mod tests {
                 1,
             ),
             ("assignment", b"x;\n/** d */\nx = 1;\n", 0, 1),
+            // The grammar parses a top-level `namespace N {}` as an
+            // expression statement around an `internal_module`; tsc's
+            // `ModuleDeclaration` carries the JSDoc.
+            ("namespace statement", b"/** d */\nnamespace N {}\n", 1, 1),
             ("using declaration", b"/** d */\nusing h = open();\n", 1, 1),
             (
                 "await using declaration",
