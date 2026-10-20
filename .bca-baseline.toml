@@ -608,12 +608,6 @@ value = 6.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report/sections.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 528.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report/sections.rs"
 qualified = "write_language_section"
 metric = "nargs"
 value = 7.0
@@ -634,7 +628,7 @@ value = 49443.19551903411
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 603.0
+value = 633.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"

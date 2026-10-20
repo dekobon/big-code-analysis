@@ -932,11 +932,49 @@ impl GlobalTotals {
     }
 
     fn comment_ratio(&self) -> f64 {
-        if self.sloc > 0 {
-            (self.cloc as f64 / self.sloc as f64) * 100.0
-        } else {
-            0.0
+        comment_ratio_percent(self.sloc, self.cloc)
+    }
+}
+
+/// Comment lines as a percentage of source lines, guarding the
+/// zero-SLOC case. Shared by both reports' global and per-language
+/// roll-ups so the formula lives in one place.
+pub(crate) fn comment_ratio_percent(sloc: usize, cloc: usize) -> f64 {
+    if sloc > 0 {
+        (cloc as f64 / sloc as f64) * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// File-level roll-up behind one language's summary in both reports.
+/// Only `SpaceKind::Unit` summaries feed it.
+#[derive(Default)]
+pub(crate) struct LanguageTotals {
+    pub(crate) files: usize,
+    pub(crate) sloc: usize,
+    pub(crate) ploc: usize,
+    pub(crate) cloc: usize,
+    /// SLOC-weighted unclamped Visual Studio MI (issue #725), over the
+    /// units whose MI is not empty (#1621).
+    pub(crate) mi: MiAverage,
+}
+
+impl LanguageTotals {
+    pub(crate) fn from_units(units: &[&FunctionSummary]) -> Self {
+        let mut t = Self::default();
+        for s in units {
+            t.files += 1;
+            t.sloc += s.sloc;
+            t.ploc += s.ploc;
+            t.cloc += s.cloc;
+            t.mi.add(s);
         }
+        t
+    }
+
+    pub(crate) fn comment_ratio(&self) -> f64 {
+        comment_ratio_percent(self.sloc, self.cloc)
     }
 }
 
@@ -1010,7 +1048,12 @@ fn write_per_language_overview(out: &mut String, by_lang: &BTreeMap<&str, Vec<&F
     );
 }
 
-fn lang_overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
+/// The seven-cell per-language overview row both reports render: Files /
+/// SLOC / Functions and the averages over one language's summaries.
+pub(crate) fn lang_overview_row(
+    lang_name: &str,
+    lang_summaries: &[&FunctionSummary],
+) -> Vec<String> {
     let (unit_count, lang_sloc, avg_mi) = unit_aggregates(lang_summaries);
     let (func_count, avg_cc, avg_cog) = function_aggregates(lang_summaries);
     vec![

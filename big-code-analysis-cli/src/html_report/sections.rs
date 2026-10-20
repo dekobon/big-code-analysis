@@ -144,17 +144,6 @@ pub(crate) fn group_by_language(summaries: &[FunctionSummary]) -> LangGroups<'_>
     map
 }
 
-/// Comment lines as a percentage of source lines, guarding the
-/// zero-SLOC case. Shared by the global and per-language roll-ups so the
-/// formula lives in one place.
-fn comment_ratio_percent(sloc: usize, cloc: usize) -> f64 {
-    if sloc > 0 {
-        (cloc as f64 / sloc as f64) * 100.0
-    } else {
-        0.0
-    }
-}
-
 /// Whole-walk roll-up shown in the global `<div class="summary">` block.
 /// Only `SpaceKind::Unit` summaries contribute file-level line counts;
 /// functions and class-likes are counted separately.
@@ -245,51 +234,6 @@ pub(crate) fn write_global_summary(
     let _ = out.write_str("</div>\n");
 }
 
-/// Build the seven-cell per-language overview row (Files / SLOC /
-/// Functions averaged from the unit and function summaries of one
-/// language).
-fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
-    let mut unit_count = 0usize;
-    let mut sloc = 0usize;
-    let mut mi = MiAverage::default();
-    let mut func_count = 0usize;
-    let mut cc_sum = 0.0f64;
-    let mut cog_sum = 0.0f64;
-    for s in lang_summaries {
-        match s.kind {
-            SpaceKind::Unit => {
-                unit_count += 1;
-                sloc += s.sloc;
-                mi.add(s);
-            }
-            SpaceKind::Function => {
-                func_count += 1;
-                cc_sum += s.cyclomatic;
-                cog_sum += s.cognitive;
-            }
-            _ => {}
-        }
-    }
-    let avg_mi = mi.average();
-    let (avg_cc, avg_cog) = if func_count > 0 {
-        (cc_sum / func_count as f64, cog_sum / func_count as f64)
-    } else {
-        (0.0, 0.0)
-    };
-    vec![
-        language_display_name(lang_name).into_owned(),
-        thousands(unit_count),
-        thousands(sloc),
-        thousands(func_count),
-        // An empty cell, not `n/a`, when no file had code to measure: the
-        // table sorter reads an empty cell as "no value" and sorts it
-        // last, where any other text would parse as NaN.
-        avg_mi.map_or_else(String::new, |mi| format!("{mi:.1}")),
-        format!("{avg_cc:.1}"),
-        format!("{avg_cog:.1}"),
-    ]
-}
-
 pub(crate) fn write_overview_table(
     out: &mut String,
     headings: &mut Headings,
@@ -303,7 +247,7 @@ pub(crate) fn write_overview_table(
     let _ = out.write_str("<p class=\"sort-hint\">Click a column header to sort any table.</p>\n");
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
     for (&lang_name, lang_summaries) in by_lang {
-        rows.push(overview_row(lang_name, lang_summaries));
+        rows.push(lang_overview_row(lang_name, lang_summaries));
     }
     write_table(
         out,
@@ -392,46 +336,6 @@ pub(crate) fn write_legend_html(out: &mut String, entries: &[(&str, &str)]) {
     let _ = out.write_str("</dl>\n</details>\n");
 }
 
-/// File-level roll-up backing one language's `<h3>Summary</h3>` note.
-/// Only `SpaceKind::Unit` summaries feed it.
-struct LanguageTotals {
-    files: usize,
-    sloc: usize,
-    ploc: usize,
-    cloc: usize,
-    /// SLOC-weighted unclamped Visual Studio MI (issue #725), over the
-    /// units whose MI is not empty (#1621).
-    mi: MiAverage,
-}
-
-impl LanguageTotals {
-    fn from_units(units: &[&FunctionSummary]) -> Self {
-        let mut t = Self {
-            files: 0,
-            sloc: 0,
-            ploc: 0,
-            cloc: 0,
-            mi: MiAverage::default(),
-        };
-        for s in units {
-            t.files += 1;
-            t.sloc += s.sloc;
-            t.ploc += s.ploc;
-            t.cloc += s.cloc;
-            t.mi.add(s);
-        }
-        t
-    }
-
-    fn comment_ratio(&self) -> f64 {
-        comment_ratio_percent(self.sloc, self.cloc)
-    }
-
-    fn avg_mi(&self) -> Option<f64> {
-        self.mi.average()
-    }
-}
-
 fn write_language_header(out: &mut String, headings: &mut Headings, lang_name: &str) {
     let display_name = language_display_name(lang_name);
     // `slug` is sourced from `LANGUAGE_PALETTE` (or the literal "other"
@@ -484,7 +388,7 @@ fn write_language_summary(section: &mut HtmlSection<'_>, units: &[&FunctionSumma
         section.out,
         "<p class=\"note\">{}: {}</p>",
         crate::markdown_report::AVG_MI_LABEL,
-        escape_html(&rated_avg_mi(totals.avg_mi()))
+        escape_html(&rated_avg_mi(totals.mi.average()))
     );
 }
 

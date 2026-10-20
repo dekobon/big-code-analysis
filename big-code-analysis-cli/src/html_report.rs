@@ -38,7 +38,8 @@ use big_code_analysis::{SpaceKind, SuppressionPolicy};
 use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
 use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS};
 use crate::markdown_report::{
-    FunctionSummary, MiAverage, is_class_like, language_display_name, rated_avg_mi, thousands,
+    FunctionSummary, LanguageTotals, comment_ratio_percent, is_class_like, lang_overview_row,
+    language_display_name, rated_avg_mi, thousands,
 };
 
 mod sections;

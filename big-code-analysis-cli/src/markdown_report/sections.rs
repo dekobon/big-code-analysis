@@ -16,32 +16,20 @@ use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
 use super::{Align, FunctionSummary, escape_cell, escape_name, thousands, write_table};
 
 pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
-    let (mut sloc, mut ploc, mut cloc) = (0usize, 0usize, 0usize);
-    let mut mi = super::MiAverage::default();
-    for s in units {
-        sloc += s.sloc;
-        ploc += s.ploc;
-        cloc += s.cloc;
-        mi.add(s);
-    }
-    let files = units.len();
-    let cr = if sloc > 0 {
-        (cloc as f64 / sloc as f64) * 100.0
-    } else {
-        0.0
-    };
+    let totals = super::LanguageTotals::from_units(units);
+    let cr = totals.comment_ratio();
 
     // A two-column (metric | value) table renders identically in every GFM
     // dialect; the earlier `|`-joined single-newline lines collapsed to a
     // run-on paragraph in spec-conformant GFM (issue #671).
     let rows: Vec<Vec<String>> = vec![
-        vec!["Files".to_string(), thousands(files)],
-        vec!["SLOC".to_string(), thousands(sloc)],
-        vec!["PLOC".to_string(), thousands(ploc)],
+        vec!["Files".to_string(), thousands(totals.files)],
+        vec!["SLOC".to_string(), thousands(totals.sloc)],
+        vec!["PLOC".to_string(), thousands(totals.ploc)],
         vec!["Comment ratio".to_string(), format!("{cr:.1}%")],
         vec![
             super::AVG_MI_LABEL.to_string(),
-            super::rated_avg_mi(mi.average()),
+            super::rated_avg_mi(totals.mi.average()),
         ],
     ];
 
