@@ -123,14 +123,7 @@ impl FromStr for ErrorKind {
     name = "AnalysisFailure",
     module = "big_code_analysis._native",
     eq,
-    hash,
-    // Skip the auto `FromPyObject` derive that PyO3 generates for
-    // `Clone` `#[pyclass]` types. `PyAnalysisError` only flows
-    // *out* of the FFI boundary (it is built in Rust and returned
-    // to Python); never accepting it as a `FromPyObject` argument
-    // future-proofs the contract — and silences the 0.28
-    // deprecation warning about the implicit derive.
-    skip_from_py_object
+    hash
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PyAnalysisError {
