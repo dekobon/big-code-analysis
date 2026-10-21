@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use super::diff_err;
+use super::{diff_err, diff_visitor};
 use crate::vcs::error::Error;
 use crate::vcs::options::FileTypeScope;
 
@@ -29,7 +29,9 @@ pub(crate) struct OpenRepo {
 /// (corrupt repo, permission denied, …).
 pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
     let repo = gix::discover(root).map_err(|e| map_discover_error(root, &e))?;
-    let shallow = repo.is_shallow();
+    let shallow = repo
+        .is_shallow()
+        .map_err(|e| Error::OpenRepository(e.to_string()))?;
     // Canonicalise the work dir so absolute-path lookups (used by
     // `bca metrics --metrics vcs`) strip a matching prefix even when
     // the caller passed a symlinked or relative root.
@@ -161,14 +163,20 @@ pub(crate) fn resolve_commit<'repo>(
 /// Map a discovery failure to a typed error, distinguishing "no
 /// repository here" (a clean user-facing condition) from genuine open
 /// failures.
-fn map_discover_error(root: &Path, error: &gix::discover::Error) -> Error {
+///
+/// `gix` 0.88 erased its error types, but the upward search still raises
+/// its own typed error inside the tree, so a downcast keeps the exact
+/// variant set rather than widening to every `NotFound`-classified cause
+/// (a missing `HEAD` inside a found `.git` is a corrupt repository, not
+/// "no repository here").
+fn map_discover_error(root: &Path, error: &gix::Error) -> Error {
     use gix::discover::upwards::Error as Upwards;
-    if let gix::discover::Error::Discover(
+    if let Some(
         Upwards::NoGitRepository { .. }
         | Upwards::NoGitRepositoryWithinCeiling { .. }
         | Upwards::NoGitRepositoryWithinFs { .. }
         | Upwards::NoTrustedGitRepository { .. },
-    ) = error
+    ) = error.downcast_any_ref::<Upwards>()
     {
         return Error::NotARepository(root.to_path_buf());
     }
@@ -208,28 +216,31 @@ pub(crate) fn enumerate_target_files(
             // addition relative to the empty tree.
             opts.track_rewrites(None);
         })
-        .for_each_to_obtain_tree(target_tree, |change| -> Result<ControlFlow<()>, Error> {
-            let entry_mode = change.entry_mode();
-            if entry_mode.is_blob() && !entry_mode.is_link() {
-                let path = bstr_to_path(change.location())?;
-                // Extension-only scope check first — it reads no blob, so
-                // an out-of-scope file costs nothing beyond the path decode.
-                if !scope.includes(&path) {
-                    return Ok(ControlFlow::Continue(()));
+        .for_each_to_obtain_tree(
+            target_tree,
+            diff_visitor(|change| {
+                let entry_mode = change.entry_mode();
+                if entry_mode.is_blob() && !entry_mode.is_link() {
+                    let path = bstr_to_path(change.location())?;
+                    // Extension-only scope check first — it reads no blob, so
+                    // an out-of-scope file costs nothing beyond the path decode.
+                    if !scope.includes(&path) {
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    if let Some(stats) = change
+                        .diff(&mut cache)
+                        .map_err(diff_err)?
+                        .line_counts()
+                        .map_err(diff_err)?
+                    {
+                        // `after` is the destination line count — i.e. the
+                        // file's SLOC, since the source (empty tree) is 0.
+                        files.insert(path, stats.after as u64);
+                    }
                 }
-                if let Some(stats) = change
-                    .diff(&mut cache)
-                    .map_err(diff_err)?
-                    .line_counts()
-                    .map_err(diff_err)?
-                {
-                    // `after` is the destination line count — i.e. the
-                    // file's SLOC, since the source (empty tree) is 0.
-                    files.insert(path, stats.after as u64);
-                }
-            }
-            Ok(ControlFlow::Continue(()))
-        })
+                Ok(ControlFlow::Continue(()))
+            }),
+        )
         .map_err(diff_err)?;
 
     Ok(files)
@@ -239,7 +250,7 @@ pub(crate) fn enumerate_target_files(
 /// lossily mangling a non-UTF-8 path that is used as a map key
 /// (per the path rules in AGENTS.md).
 pub(crate) fn bstr_to_path(location: &bstr::BStr) -> Result<PathBuf, Error> {
-    gix::path::try_from_bstr(location)
+    gix::path::from_bstr(location)
         .map(std::borrow::Cow::into_owned)
         .map_err(|_| Error::Diff(format!("path {location:?} is not valid UTF-8")))
 }

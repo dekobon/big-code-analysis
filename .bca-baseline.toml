@@ -1539,7 +1539,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L213>"
+qualified = "diff_collect::<anon@L215>"
 metric = "nexits"
 value = 6.0
 
@@ -1563,7 +1563,7 @@ value = 10.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
-qualified = "collect_touched::<anon@L227>"
+qualified = "collect_touched::<anon@L229>"
 metric = "nexits"
 value = 7.0
 

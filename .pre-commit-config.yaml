@@ -10,7 +10,7 @@ repos:
         # Pyright accepts JSONC comments; py-typecheck validates its configuration.
         exclude: ^(enums/templates/json\.json|big-code-analysis-py/pyrightconfig\.json)$
 -   repo: https://github.com/marco-c/taskcluster_yml_validator
-    rev: v0.0.12
+    rev: v0.0.13
     hooks:
       - id: taskcluster_yml
 -   repo: https://github.com/astral-sh/ruff-pre-commit
@@ -22,7 +22,7 @@ repos:
     # locked version, so the comment is documentation rather than the
     # mechanism it used to be (#1230). `ruff-check` and `ruff-format`
     # are the current hook IDs (the legacy `ruff` alias is deprecated).
-    rev: v0.16.4
+    rev: v0.16.10
     hooks:
     -   id: ruff-check
         args: [--fix]

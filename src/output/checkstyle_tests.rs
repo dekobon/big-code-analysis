@@ -199,9 +199,9 @@ fn whitespace_in_attribute_round_trips_via_numeric_refs() {
     let mut roundtripped: Option<String> = None;
     loop {
         match reader.read_event_into(&mut buf).expect("well-formed XML") {
-            Event::Start(start) | Event::Empty(start) if start.name().as_ref() == b"file" => {
+            Event::Start(start) | Event::Empty(start) if start.name().as_ref() == "file" => {
                 for attr in start.attributes().with_checks(false).flatten() {
-                    if attr.key.as_ref() == b"name" {
+                    if attr.key.as_ref() == "name" {
                         roundtripped = Some(
                             attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .expect("attribute value decodes")

@@ -208,6 +208,21 @@ for historical reference.
 
 ### Changed
 
+- Bumped the `tree-sitter-php` grammar pin to `=0.25.1`. Four constructs the
+  old grammar parsed as `ERROR` now parse: a group
+  `use` with a leading backslash (`use \Foo\{Bar, Baz};`), asymmetric
+  visibility on a promoted constructor parameter
+  (`public private(set) int $x`), `clone($a, [...])`, and partial
+  function application (`f(?, 2)`). The first had hidden every function
+  after it from all metrics. The second now scores like the same
+  modifier on a property declaration: `private` is an operator and
+  `set` is not an operand. The regenerated `Php` enum gains
+  `ArgumentPlaceholder`, renumbering the ids after it.
+- Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.3.0`. The
+  release regenerates the parser with tree-sitter-cli 0.26.13 and leaves
+  the grammar unchanged, so no metric moves.
+- Bumped the `tree-sitter-irules` grammar pin to `=0.2.0`. As with
+  Groovy, the grammar is unchanged and no metric moves.
 - **`loc.dloc` counts a doc comment only when its tool attaches it**
   (#1613). A marker doc comment outside a function body now counts only
   when the declaration after it is one its language's documentation

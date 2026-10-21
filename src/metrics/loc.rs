@@ -10069,7 +10069,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     #[test]
     fn php_short_echo_tag_ploc() {
         // `<?=` is the same `php_tag` kind as `<?php` per
-        // tree-sitter-php 0.24.2. A regression that re-classified `<?=`
+        // tree-sitter-php 0.25.1. A regression that re-classified `<?=`
         // would shift PLOC; this test pins the current behavior.
         check_metrics::<PhpParser>("<p><?= $name ?></p>", "foo.php", |metric| {
             assert_eq!(metric.loc.sloc(), 1);
@@ -10125,7 +10125,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// The nowdoc half of #1396, which the issue did not measure and
     /// which was worse: it reported `ploc 4, blank 2` on this fixture
     /// against the heredoc's `ploc 5, blank 1`. The grammar shape
-    /// differs: tree-sitter-php 0.24.2 emits one `nowdoc_string` per body
+    /// differs: tree-sitter-php 0.25.1 emits one `nowdoc_string` per body
     /// line, but each after the first starts at the *end of the row
     /// before it*, so the catch-all's start-row insertion credited every
     /// body row to its predecessor and the last one (`b`) to nothing, on

@@ -32,6 +32,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use gix::object::tree::diff::{Action, Change};
+
 use crate::vcs::HistoryIndex;
 use crate::vcs::error::Error;
 use crate::vcs::options::Options;
@@ -124,6 +126,17 @@ pub(super) fn walk_err(e: impl std::fmt::Display) -> Error {
 /// blob-diff failures.
 pub(super) fn diff_err(e: impl std::fmt::Display) -> Error {
     Error::Diff(e.to_string())
+}
+
+/// Adapt a tree-diff visitor that fails with this crate's [`Error`] to the
+/// `gix::Result` callback that `for_each_to_obtain_tree` requires since
+/// `gix` 0.88. The caller's `.map_err(diff_err)` then flattens the error
+/// to [`Error::Diff`], exactly as it did the boxed `ForEach` variant
+/// before.
+pub(super) fn diff_visitor<'old, 'new>(
+    mut visit: impl FnMut(Change<'_, 'old, 'new>) -> Result<Action, Error>,
+) -> impl FnMut(Change<'_, 'old, 'new>) -> gix::Result<Action> {
+    move |change| visit(change).map_err(gix::Error::from_error)
 }
 
 /// Parse an `--as-of` timestamp (RFC 3339 / ISO 8601 / `@unix` / git

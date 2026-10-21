@@ -149,7 +149,7 @@ fn groovy_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
 // The Groovy spelling of `java_eq_initializes_final_binding`: the
 // grammar puts `final` directly under the declaration rather than in a
 // `modifiers` node. Only the field form is reachable — tree-sitter-
-// groovy 0.2.2 parses a `final` local as an `ERROR` node, with or
+// groovy 0.3.0 parses a `final` local as an `ERROR` node, with or
 // without a `;` (pinned by `groovy_final_local_is_an_error_at_the_pinned_grammar`)
 // — but the local kind is listed so a grammar that starts parsing it
 // classifies it like Java. Before this predicate a sentinel stack

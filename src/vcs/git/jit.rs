@@ -21,7 +21,7 @@ use gix::traverse::commit::simple::CommitTimeOrder;
 
 use super::identity::ParticipantResolver;
 use super::repo::bstr_to_path;
-use super::{current_unix_seconds, diff_err, history, walk_err};
+use super::{current_unix_seconds, diff_err, diff_visitor, history, walk_err};
 use crate::vcs::classify;
 use crate::vcs::entropy::shannon_entropy;
 use crate::vcs::error::Error;
@@ -224,41 +224,44 @@ fn collect_touched(
             opts.track_path();
             opts.track_rewrites(rewrites);
         })
-        .for_each_to_obtain_tree(commit_tree, |change| -> Result<ControlFlow<()>, Error> {
-            let mode = change.entry_mode();
-            if !mode.is_blob() || mode.is_link() {
-                return Ok(ControlFlow::Continue(()));
-            }
-            // The scored-commit-side path (for diffusion / display) and
-            // the parent-side path (for the prior lookup) differ only on a
-            // rename; an addition has no parent-side path.
-            let (path, parent_path) = match &change {
-                Change::Addition { location, .. } => (bstr_to_path(location)?, None),
-                Change::Deletion { location, .. } | Change::Modification { location, .. } => {
-                    let p = bstr_to_path(location)?;
-                    (p.clone(), Some(p))
+        .for_each_to_obtain_tree(
+            commit_tree,
+            diff_visitor(|change| {
+                let mode = change.entry_mode();
+                if !mode.is_blob() || mode.is_link() {
+                    return Ok(ControlFlow::Continue(()));
                 }
-                Change::Rewrite {
-                    source_location,
-                    location,
-                    ..
-                } => (
-                    bstr_to_path(location)?,
-                    Some(bstr_to_path(source_location)?),
-                ),
-            };
-            let Some((added, deleted, hunks)) = blob_line_stats(&change, &mut cache)? else {
-                return Ok(ControlFlow::Continue(())); // binary blob
-            };
-            touched.push(Touched {
-                path,
-                parent_path,
-                added,
-                deleted,
-                hunks,
-            });
-            Ok(ControlFlow::Continue(()))
-        })
+                // The scored-commit-side path (for diffusion / display) and
+                // the parent-side path (for the prior lookup) differ only on a
+                // rename; an addition has no parent-side path.
+                let (path, parent_path) = match &change {
+                    Change::Addition { location, .. } => (bstr_to_path(location)?, None),
+                    Change::Deletion { location, .. } | Change::Modification { location, .. } => {
+                        let p = bstr_to_path(location)?;
+                        (p.clone(), Some(p))
+                    }
+                    Change::Rewrite {
+                        source_location,
+                        location,
+                        ..
+                    } => (
+                        bstr_to_path(location)?,
+                        Some(bstr_to_path(source_location)?),
+                    ),
+                };
+                let Some((added, deleted, hunks)) = blob_line_stats(&change, &mut cache)? else {
+                    return Ok(ControlFlow::Continue(())); // binary blob
+                };
+                touched.push(Touched {
+                    path,
+                    parent_path,
+                    added,
+                    deleted,
+                    hunks,
+                });
+                Ok(ControlFlow::Continue(()))
+            }),
+        )
         .map_err(diff_err)?;
 
     Ok(touched)

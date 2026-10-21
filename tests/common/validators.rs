@@ -146,10 +146,8 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
                 // Empty elements have no End event, so the stack is not pushed.
             }
             Event::End(end) => {
-                let name_bytes = end.name();
-                let name = std::str::from_utf8(name_bytes.as_ref()).unwrap_or_else(|_| {
-                    panic!("checkstyle end-element name is not UTF-8 at byte {pos}")
-                });
+                let qname = end.name();
+                let name = qname.as_ref();
                 let open = stack.pop().unwrap_or_else(|| {
                     panic!("checkstyle: end-element </{name}> with no open element at byte {pos}")
                 });
@@ -197,9 +195,8 @@ fn assert_nesting(parent: Option<&str>, child: &str, pos: u64) {
 /// for nesting checks. Panics on an unknown element or a missing/invalid
 /// required attribute.
 fn check_element(start: &quick_xml::events::BytesStart<'_>, pos: u64) -> &'static str {
-    let name_bytes = start.name();
-    let name = std::str::from_utf8(name_bytes.as_ref())
-        .unwrap_or_else(|_| panic!("checkstyle element name is not UTF-8 at byte {pos}"));
+    let qname = start.name();
+    let name = qname.as_ref();
 
     match name {
         "checkstyle" => {
@@ -258,17 +255,14 @@ fn require_attr(start: &quick_xml::events::BytesStart<'_>, attr: &str, elem: &st
 fn attr_value(start: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<String> {
     use std::borrow::Cow;
     for attr in start.attributes().with_checks(false).flatten() {
-        if attr.key.as_ref() == name.as_bytes() {
+        if attr.key.as_ref() == name {
             // normalized_value decodes character references like &lt; back
             // to < (XmlVersion::Implicit1_0 matches the retired unescape_value,
-            // deprecated in quick-xml 0.41); fall back to a lossy decode if the
+            // deprecated in quick-xml 0.41); fall back to the raw value if the
             // attribute is malformed.
             return Some(
                 attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                    .map_or_else(
-                        |_| String::from_utf8_lossy(&attr.value).into_owned(),
-                        Cow::into_owned,
-                    ),
+                    .map_or_else(|_| attr.value.clone().into_owned(), Cow::into_owned),
             );
         }
     }

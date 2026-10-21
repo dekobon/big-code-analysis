@@ -66,9 +66,9 @@ fn retry_exhausts_budget_and_returns_last_error() {
 
 #[test]
 fn retry_stops_on_non_retryable_error() {
-    // A deterministic failure (predicate returns false) must fail fast on
-    // the first call — never burn retries on an object that truly is
-    // absent at the ref.
+    // An error the predicate rejects must fail fast on the first call.
+    // Which errors those are is `is_transient_object_miss`'s business,
+    // pinned by the tests further down.
     let calls = Cell::new(0u32);
     let result = retry_transient(
         MAX_BLAME_ATTEMPTS,
@@ -262,42 +262,98 @@ fn a_session_handle_carries_the_object_cache() {
     );
 }
 
-/// `is_transient_object_miss` decides whether the post-blame commit
-/// lookup is retried. Getting it wrong is silent in both directions: too
-/// narrow and the #579 race resurfaces as a hard failure, too wide and a
-/// genuinely-missing or wrong-kind object burns the whole retry budget
-/// before reporting what was actually wrong.
+/// `is_transient_object_miss` decides whether a blame or post-blame
+/// commit lookup is retried. Getting it wrong is silent in both
+/// directions: too narrow and the #579 race resurfaces as a hard failure,
+/// too wide and a wrong-kind object or a broken handle burns the whole
+/// retry budget before reporting what was actually wrong.
 ///
-/// The predicate is a two-level `matches!`, so a test that only supplied
-/// the retryable value would pass against `|_| true`. Each non-retryable
-/// shape is therefore constructed too, one per arm the pattern can
-/// reject: the sibling `Find` variant (inner arm) and `Convert` (outer
-/// arm).
+/// Since `gix` 0.88 the predicate reads an error *class*, so the errors
+/// here come from real `find_commit` calls rather than hand-built values:
+/// what is under test is as much gix's classification of each failure as
+/// the predicate itself. A test that only supplied the retryable value
+/// would pass against `|_| true`, so each rejected shape is produced too.
 #[test]
 fn only_a_not_found_commit_lookup_is_retried() {
-    use gix::object::find::existing::Error as ExistingError;
-    use gix::object::find::existing::with_conversion::Error as LookupError;
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
 
-    let oid = ObjectId::null(gix::hash::Kind::Sha1);
-
+    let absent =
+        ObjectId::from_hex(b"1111111111111111111111111111111111111111").expect("valid hex");
+    let missing = repo
+        .find_commit(absent)
+        .expect_err("an id with no object behind it cannot resolve");
+    // Genuinely absent rather than the race, but the two share
+    // `Class::NotFound` and nothing else, so this is retried as well.
     assert!(
-        is_transient_object_miss(&LookupError::Find(ExistingError::NotFound { oid })),
-        "a NotFound miss is the transient ODB race (#579) and must be retried"
+        is_transient_object_miss(&missing),
+        "a NotFound miss carries the #579 race's class and must be retried: {missing}"
     );
 
+    let not_a_commit = repo
+        .find_commit(repo.empty_tree().id)
+        .expect_err("the empty tree is not a commit");
     assert!(
-        !is_transient_object_miss(&LookupError::Find(ExistingError::Find(
-            "odb handle is closed".into()
-        ))),
-        "a lower-level Find failure is deterministic — retrying it only delays the error"
+        !is_transient_object_miss(&not_a_commit),
+        "an object that is not a commit will never become one; retrying cannot help: {not_a_commit}"
     );
 
+    let broken = gix::Error::from_error(std::io::Error::other("odb handle is closed"));
     assert!(
-        !is_transient_object_miss(&LookupError::Convert(gix::object::try_into::Error {
-            actual: gix::objs::Kind::Tree,
-            expected: gix::objs::Kind::Commit,
-            id: oid,
-        })),
-        "an object that is not a commit will never become one; retrying cannot help"
+        !is_transient_object_miss(&broken),
+        "an unclassified lookup failure is deterministic — retrying it only delays the error"
+    );
+}
+
+/// The #579 race surfaces inside `blame_file`, where gix-blame wraps the
+/// object lookup's `NotFound` in its own unclassified message ("Could not
+/// find existing blob or commit"). The retry fires only if the class is
+/// still visible through that wrapper, which the `find_commit` errors
+/// above cannot show.
+///
+/// The race itself cannot be provoked on demand, so the fixture builds the
+/// same error shape deterministically: a committed tree whose blob entry
+/// names an object that was never written.
+#[test]
+fn a_blame_whose_blob_lookup_misses_is_retried() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    let dangling =
+        ObjectId::from_hex(b"2222222222222222222222222222222222222222").expect("valid hex");
+    let tree = gix::objs::Tree {
+        entries: vec![gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: "f.txt".into(),
+            oid: dangling,
+        }],
+    };
+    let tree_id = repo.write_object(&tree).expect("write tree").detach();
+    let who = gix::actor::SignatureRef {
+        name: "Ada".into(),
+        email: "ada@example.com".into(),
+        time: "1700000000 +0000",
+    };
+    let head = repo
+        .commit_as(
+            who,
+            who,
+            "HEAD",
+            "seed",
+            tree_id,
+            gix::commit::NO_PARENT_IDS,
+        )
+        .expect("write seed commit")
+        .detach();
+
+    let engine = super::PerFunctionBlame::open(dir.path(), crate::vcs::options::Options::default())
+        .expect("open blame engine");
+    let err = engine
+        .new_state()
+        .repo
+        .blame_file("f.txt".into(), head, engine.blame_options())
+        .expect_err("the blob behind f.txt was never written");
+    assert!(
+        is_transient_object_miss(&err),
+        "a blob miss under gix-blame's wrapper must still read as NotFound: {err}"
     );
 }

@@ -3194,7 +3194,7 @@ mod tests {
     fn groovy_final_local_is_an_error_at_the_pinned_grammar() {
         // `groovy_eq_initializes_final_binding` lists
         // `local_variable_declaration` for symmetry with Java, but at
-        // dekobon-tree-sitter-groovy 0.2.2 a `final` local never
+        // dekobon-tree-sitter-groovy 0.3.0 a `final` local never
         // reaches it: the parser emits an `ERROR` node for the
         // declaration, with or without a terminator, so both of its `=`
         // tokens count. This pins the grammar limitation so a bump that

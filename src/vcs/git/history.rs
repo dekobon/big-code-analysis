@@ -21,7 +21,7 @@ use gix::traverse::commit::simple::CommitTimeOrder;
 
 use super::identity::ParticipantResolver;
 use super::repo::bstr_to_path;
-use super::{diff_err, walk_err};
+use super::{diff_err, diff_visitor, walk_err};
 use crate::vcs::cache::CommitEvent;
 use crate::vcs::classify::{self, Classification};
 use crate::vcs::error::Error;
@@ -210,41 +210,44 @@ fn diff_collect(
             opts.track_path();
             opts.track_rewrites(rewrites);
         })
-        .for_each_to_obtain_tree(commit_tree, |change| -> Result<ControlFlow<()>, Error> {
-            // Only regular file blobs carry line churn. Skipping every
-            // non-blob mode drops directories, symlinks (per spec), and
-            // submodule gitlinks (commit mode) — diffing the latter as a
-            // blob is what failed the callback on repos with submodules.
-            if !change.entry_mode().is_blob() {
-                return Ok(ControlFlow::Continue(()));
-            }
+        .for_each_to_obtain_tree(
+            commit_tree,
+            diff_visitor(|change| {
+                // Only regular file blobs carry line churn. Skipping every
+                // non-blob mode drops directories, symlinks (per spec), and
+                // submodule gitlinks (commit mode) — diffing the latter as a
+                // blob is what failed the callback on repos with submodules.
+                if !change.entry_mode().is_blob() {
+                    return Ok(ControlFlow::Continue(()));
+                }
 
-            let location_path = bstr_to_path(change.location())?;
-            // On a rename, record the edge (former name → current path) so
-            // replay can attribute older commits under the former name
-            // forward — including across an incremental splice.
-            if let Change::Rewrite {
-                source_location, ..
-            } = &change
-            {
-                let source_path = bstr_to_path(source_location)?;
-                renames.push((source_path, location_path.clone()));
-            }
+                let location_path = bstr_to_path(change.location())?;
+                // On a rename, record the edge (former name → current path) so
+                // replay can attribute older commits under the former name
+                // forward — including across an incremental splice.
+                if let Change::Rewrite {
+                    source_location, ..
+                } = &change
+                {
+                    let source_path = bstr_to_path(source_location)?;
+                    renames.push((source_path, location_path.clone()));
+                }
 
-            // Binary blobs yield no line counts → skip (file excluded).
-            let Some(line_stats) = change
-                .diff(cache)
-                .map_err(diff_err)?
-                .line_counts()
-                .map_err(diff_err)?
-            else {
-                return Ok(ControlFlow::Continue(()));
-            };
-            let churn = u64::from(line_stats.insertions) + u64::from(line_stats.removals);
-            touched.push((location_path, churn));
+                // Binary blobs yield no line counts → skip (file excluded).
+                let Some(line_stats) = change
+                    .diff(cache)
+                    .map_err(diff_err)?
+                    .line_counts()
+                    .map_err(diff_err)?
+                else {
+                    return Ok(ControlFlow::Continue(()));
+                };
+                let churn = u64::from(line_stats.insertions) + u64::from(line_stats.removals);
+                touched.push((location_path, churn));
 
-            Ok(ControlFlow::Continue(()))
-        })
+                Ok(ControlFlow::Continue(()))
+            }),
+        )
         .map_err(diff_err)?;
 
     Ok((renames, touched))

@@ -581,8 +581,8 @@ fn extract_as_of(value: &Bound<'_, PyAny>) -> PyResult<String> {
 /// `Options()` with no arguments reproduces the default ranking.
 // `from_py_object`: `Options` flows *into* the VCS functions as an
 // `options=` argument, so the `Clone`-derived `FromPyObject` is needed to
-// extract it by value. Opting in explicitly silences the 0.28 deprecation
-// about the implicit derive (which becomes opt-in upstream).
+// extract it by value. Since PyO3 0.30 the derive is opt-in, so without
+// this attribute the `Option<PyVcsOptions>` parameters do not compile.
 #[pyclass(name = "Options", module = "big_code_analysis.vcs", from_py_object)]
 #[derive(Clone, Default)]
 #[allow(clippy::struct_excessive_bools)]

@@ -68,11 +68,11 @@
 //!   (each retry re-reads the ODB index snapshot, so a momentary miss
 //!   becomes a hit), and if every attempt still fails the front end skips
 //!   that one file's per-function blocks while keeping its file-level
-//!   block, so an unblameable file never aborts the walk. The defect is
-//!   still present in the latest upstream release as of 2026-06-08 (`gix`
-//!   0.84 / `gix-blame` 0.14; this crate pins 0.83 / 0.13), so bumping
-//!   does not fix it; real code does not trigger it (verified on this
-//!   repository's own 200-plus-commit files).
+//!   block, so an unblameable file never aborts the walk. The defect was
+//!   last confirmed upstream on 2026-06-08 (`gix` 0.84 / `gix-blame`
+//!   0.14) and has not been re-checked against the `gix` 0.89 /
+//!   `gix-blame` 0.19 pinned now; real code does not trigger it (verified
+//!   on this repository's own 200-plus-commit files).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -132,9 +132,9 @@ impl LineSpan {
 /// commit resolution) before giving up to the front end's graceful
 /// degradation. One initial attempt plus two retries: the transient
 /// `gix-odb` pack-refresh race it guards against (issue #579) clears as
-/// soon as the racing index load is observed, so a small bound suffices
-/// and a deterministic failure (e.g. the path is absent at the ref) is
-/// never retried at all — see [`is_transient_blame_miss`].
+/// soon as the racing index load is observed, so a small bound suffices.
+/// Only a `NotFound`-classified failure is retried — see
+/// [`is_transient_object_miss`].
 const MAX_BLAME_ATTEMPTS: u32 = 3;
 
 /// Run `attempt` up to `attempts` times, retrying only while `retry_if`
@@ -144,7 +144,7 @@ const MAX_BLAME_ATTEMPTS: u32 = 3;
 /// Generic over the value and error types so the retry policy is exercised
 /// by pure unit tests without a live repository — the only branching logic
 /// lives here, while the production call supplies a real blame closure and
-/// the [`is_transient_blame_miss`] predicate. A success on the first
+/// the [`is_transient_object_miss`] predicate. A success on the first
 /// attempt costs exactly one call, so the happy path carries no overhead.
 fn retry_transient<T, E>(
     attempts: u32,
@@ -164,42 +164,20 @@ fn retry_transient<T, E>(
     result
 }
 
-/// Whether a [`blame_file`](gix::Repository::blame_file) error is the
-/// transient `gix-odb` object-lookup miss tracked in issue #579 — the
-/// only blame error [`PerFunctionBlame::per_function`] retries (its
-/// sibling [`is_transient_object_miss`] covers the commit lookups).
+/// Whether a [`blame_file`](gix::Repository::blame_file) or
+/// [`find_commit`](gix::Repository::find_commit) error is the transient
+/// `gix-odb` object-lookup miss tracked in issue #579.
 ///
-/// Scoped to exactly the two "expected object was reported missing"
-/// variants the bug surfaces (`FindExistingObject` / `FindExistingIter`).
-/// A genuinely-absent object (`FindObject`), a missing file at the ref,
-/// or any decode/diff failure is deterministic and must fail fast rather
-/// than waste retries. Matching named variants is compile-time-checked, so
-/// a future `gix-blame` that renames or removes them breaks the build here
-/// instead of silently degrading.
-fn is_transient_blame_miss(err: &gix::repository::blame_file::Error) -> bool {
-    matches!(
-        err,
-        gix::repository::blame_file::Error::Blame(
-            gix::blame::Error::FindExistingObject(_) | gix::blame::Error::FindExistingIter(_)
-        )
-    )
-}
-
-/// Whether a [`find_commit`](gix::Repository::find_commit) error is the
-/// same transient `gix-odb` object-lookup miss as [`is_transient_blame_miss`].
-///
-/// The blamed commit ids come straight out of a successful blame, so a
-/// `NotFound` here is the race re-surfacing on the post-blame commit
-/// resolution (issue #579) rather than a genuinely-absent commit. The
-/// lower-level `Find` lookup error and the `Convert` (object-was-not-a-
-/// commit) error are deterministic and fail fast.
-fn is_transient_object_miss(err: &gix::object::find::existing::with_conversion::Error) -> bool {
-    matches!(
-        err,
-        gix::object::find::existing::with_conversion::Error::Find(
-            gix::object::find::existing::Error::NotFound { .. }
-        )
-    )
+/// Since `gix` 0.88 every error is an erased [`gix::Error`] carrying a
+/// recovery class, and the race surfaces as `Class::NotFound` — the same
+/// class a genuinely-absent object or a path absent at the ref carries,
+/// with no typed variant left to tell them apart. Retrying every
+/// `NotFound` is therefore the narrowest predicate that still covers the
+/// race; the deterministic misses pay the two extra attempts, each
+/// re-walking history up to the missing object. Decode, diff and wrong-kind
+/// (`Class::Validation`) failures still fail fast.
+fn is_transient_object_miss(err: &gix::Error) -> bool {
+    err.is_not_found()
 }
 
 /// A blame engine bound to one repository, reusable across the per-file
@@ -399,14 +377,7 @@ impl PerFunctionBlame {
         // `blame_file` takes its options by value, so clone the (cheap)
         // built options per attempt. Retry only the transient
         // object-lookup miss (issue #579); any other error fails fast.
-        //
-        // `gix`'s `blame_file::Error` is large (~264 bytes), so surfacing
-        // it through the retry closure trips `result_large_err`. Boxing it
-        // would only shave a cold, immediately-stringified error path (one
-        // blame per file) at the cost of an allocation and `Box` noise in
-        // the predicate, so the allow is the smaller change.
         let options = self.blame_options();
-        #[allow(clippy::result_large_err)]
         let outcome = retry_transient(
             MAX_BLAME_ATTEMPTS,
             || {
@@ -414,7 +385,7 @@ impl PerFunctionBlame {
                     .repo
                     .blame_file(relative.as_ref(), self.head, options.clone())
             },
-            is_transient_blame_miss,
+            is_transient_object_miss,
         )
         .map_err(|e| Error::Blame(e.to_string()))?;
 

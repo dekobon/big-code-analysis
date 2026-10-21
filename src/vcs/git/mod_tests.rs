@@ -42,3 +42,77 @@ fn current_unix_seconds_is_a_recent_wall_clock() {
     const JAN_1_2020: i64 = 1_577_836_800;
     assert!(current_unix_seconds() > JAN_1_2020);
 }
+
+/// A one-file tree naming `blob`, which the ODB need not contain. The
+/// file is `.rs` so the default `metrics` file-type scope keeps it: an
+/// out-of-scope file is skipped before its blob is read, and a `.txt`
+/// here let the enumeration test pass on the walk's failure instead.
+fn tree_with(repo: &gix::Repository, blob: gix::ObjectId) -> gix::ObjectId {
+    let tree = gix::objs::Tree {
+        entries: vec![gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: "f.rs".into(),
+            oid: blob,
+        }],
+    };
+    repo.write_object(&tree).expect("write tree").detach()
+}
+
+/// Commit `tree` onto `HEAD` a day before now, inside every default window.
+fn commit_tree(repo: &gix::Repository, tree: gix::ObjectId, parents: &[gix::ObjectId]) {
+    let time = format!("{} +0000", current_unix_seconds() - 86_400);
+    let who = gix::actor::SignatureRef {
+        name: "Ada".into(),
+        email: "ada@example.com".into(),
+        time: time.as_str(),
+    };
+    repo.commit_as(who, who, "HEAD", "c", tree, parents.iter().copied())
+        .expect("write commit");
+}
+
+/// An id no fixture writes, so a tree naming it dangles.
+fn dangling_blob() -> gix::ObjectId {
+    gix::ObjectId::from_hex(b"3333333333333333333333333333333333333333").expect("valid hex")
+}
+
+// The three tree-diff visitors each read a blob through `change.diff`.
+// A tree naming an unwritten blob is the one input that makes that read
+// fail on demand, and each visitor must surface it as `Error::Diff`
+// rather than skip the file.
+
+#[test]
+fn a_missing_blob_at_the_target_fails_enumeration_with_a_diff_error() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    commit_tree(&repo, tree_with(&repo, dangling_blob()), &[]);
+
+    let err = build(dir.path(), &Options::default()).expect_err("the target blob is missing");
+    assert!(matches!(err, Error::Diff(_)), "got {err:?}");
+}
+
+#[test]
+fn a_missing_blob_in_history_fails_the_walk_with_a_diff_error() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    let tree = tree_with(&repo, dangling_blob());
+    commit_tree(&repo, tree, &[]);
+    let first = repo.head_id().expect("HEAD").detach();
+    // The target tree is whole, so enumeration succeeds and the failure
+    // can only come from the walk diffing it against the broken parent.
+    let real = repo.write_blob(b"x\n").expect("write blob").detach();
+    commit_tree(&repo, tree_with(&repo, real), &[first]);
+
+    let err = build(dir.path(), &Options::default()).expect_err("the parent blob is missing");
+    assert!(matches!(err, Error::Diff(_)), "got {err:?}");
+}
+
+#[test]
+fn a_missing_blob_in_the_scored_commit_is_a_diff_error() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    commit_tree(&repo, tree_with(&repo, dangling_blob()), &[]);
+
+    let err = score_commit(dir.path(), "HEAD", &Options::default())
+        .expect_err("the scored commit's blob is missing");
+    assert!(matches!(err, Error::Diff(_)), "got {err:?}");
+}

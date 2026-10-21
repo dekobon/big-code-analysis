@@ -493,7 +493,7 @@ impl Exit for IrulesCode {
 }
 
 impl Exit for PhpCode {
-    // tree-sitter-php 0.24.2's `exit_statement` rule covers `exit` only
+    // tree-sitter-php 0.25.1's `exit_statement` rule covers `exit` only
     // (with or without parentheses); `die(...)` is grammar-classified as
     // a `function_call_expression` and therefore is NOT counted here.
     // Detecting `die` would require inspecting call-expression callee
@@ -2546,7 +2546,7 @@ end",
     fn php_exit_statement() {
         // `exit_statement` covers both `exit;` (bare) and `exit(N);` (with
         // optional argument). `die` is NOT in the `exit_statement` rule of
-        // tree-sitter-php 0.24.2 — `die(...)` parses as a function call —
+        // tree-sitter-php 0.25.1 — `die(...)` parses as a function call —
         // so we only count `exit` here.
         check_metrics::<PhpParser>(
             "<?php

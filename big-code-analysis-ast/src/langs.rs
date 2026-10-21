@@ -163,7 +163,7 @@ mk_langs!(
         tree_sitter_irules,
         [irule, irules],
         ["irules"],
-        "0.1.1"
+        "0.2.0"
     ),
     (
         "c",
@@ -350,7 +350,7 @@ mk_langs!(
         tree_sitter_php,
         [php, phtml, php3, php4, php5, php7, phps],
         ["php"],
-        "0.24.2"
+        "0.25.1"
     ),
     (
         "ruby",
@@ -374,7 +374,7 @@ mk_langs!(
         dekobon_tree_sitter_groovy,
         [groovy, gradle, gvy, gy, gsh],
         ["groovy"],
-        "0.2.2"
+        "0.3.0"
     )
 );
 
