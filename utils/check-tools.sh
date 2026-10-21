@@ -214,6 +214,16 @@ else
 fi
 
 echo ""
+echo "Optional Tools (Agent hooks):"
+node_missing=0
+if command -v node >/dev/null 2>&1 && node -e 'const [a,b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 7) ? 0 : 1)'; then
+	echo "  ✓ node (version: $(node --version))"
+else
+	echo "  ✗ Node.js >=22.7 (not found)"
+	node_missing=1
+fi
+
+echo ""
 echo "Optional Tools (GitHub Actions linting):"
 
 actionlint_missing=0
@@ -294,7 +304,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + nextest_missing + actionlint_missing + mdbook_missing + release_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + nextest_missing + node_missing + actionlint_missing + mdbook_missing + release_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -338,6 +348,9 @@ if [ "$optional_missing" -gt 0 ]; then
 	if [ "$nextest_missing" -eq 1 ]; then
 		echo "  - cargo-nextest: Install with: cargo install --locked cargo-nextest"
 		echo "                   ('make test' still works without it, just slower)"
+	fi
+	if [ "$node_missing" -eq 1 ]; then
+		echo "  - node: Install Node.js LTS from https://nodejs.org (agent hooks and 'make plugin-test')"
 	fi
 	if [ "$actionlint_missing" -eq 1 ]; then
 		echo "  - actionlint: Download from https://github.com/rhysd/actionlint/releases or run 'go install github.com/rhysd/actionlint/cmd/actionlint@latest'"

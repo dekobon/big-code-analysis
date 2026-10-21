@@ -253,6 +253,32 @@ jobs:
       # exercising the workspace's documentation examples.
       - name: cargo test --doc
         run: cargo test --doc --all-features --workspace --locked
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+      - name: Build analyzer for plugin integration tests
+        run: cargo build -p big-code-analysis-cli --all-features --locked
+      - name: Agent hook tests with the checkout analyzer
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          export BCA_TEST_BINARY="${GITHUB_WORKSPACE}/target/debug/bca${suffix}"
+          node --test utils/bca-check-plugin-test.mjs utils/bca-claude-hook-test.mjs
+      # Keep the documented minimum runtime executable; the cross-platform
+      # run above covers the latest LTS without multiplying Rust builds.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.os == 'Linux'
+        with:
+          node-version: "22.7.0"
+      - name: Agent hook minimum-Node compatibility
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          BCA_TEST_BINARY: ${{ github.workspace }}/target/debug/bca
+        run: node --test utils/bca-check-plugin-test.mjs utils/bca-claude-hook-test.mjs
       # Publish the JUnit XML as an artifact regardless of outcome — this
       # works even on fork PRs, where the check-run API used below is not
       # available.
@@ -700,6 +726,10 @@ jobs:
           echo "${CHECKMAKE_SHA256}  /tmp/checkmake" | sha256sum -c -
           install -m 0755 /tmp/checkmake /usr/local/bin/checkmake
           checkmake --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
       - name: make lint
         run: make lint
       # Defensive: `make lint` invokes the snapshot-anchors recipe, but
