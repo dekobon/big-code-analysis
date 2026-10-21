@@ -374,7 +374,7 @@ mk_langs!(
         dekobon_tree_sitter_groovy,
         [groovy, gradle, gvy, gy, gsh],
         ["groovy"],
-        "0.2.2"
+        "0.3.0"
     )
 );
 
