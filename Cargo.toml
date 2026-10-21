@@ -366,9 +366,9 @@ big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.3.2", de
   "test-support",
 ] }
 insta = { version = "1.49.0", features = ["yaml", "json", "redactions"] }
-jsonschema = "^0.49"
+jsonschema = "^0.59"
 tempfile.workspace = true
-quick-xml = "^0.41"
+quick-xml = "^0.42"
 # Test-only: the integration corpus harness and the concurrent_files
 # unit tests walk fixture trees; production code no longer walks (#495).
 walkdir = "^2.3"
