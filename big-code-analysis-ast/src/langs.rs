@@ -163,7 +163,7 @@ mk_langs!(
         tree_sitter_irules,
         [irule, irules],
         ["irules"],
-        "0.1.1"
+        "0.2.0"
     ),
     (
         "c",

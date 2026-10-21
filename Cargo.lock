@@ -4574,9 +4574,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-irules"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "543b050bfd32525ce7d5d249e4242912f2baaf39035285160cab51b7ea4cec81"
+checksum = "909291f3c6c83dc183990d9daf16cc7bf07401cae30fa786dff107ab4c882646"
 dependencies = [
  "cc",
  "tree-sitter-language",

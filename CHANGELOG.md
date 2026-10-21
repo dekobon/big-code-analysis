@@ -221,6 +221,8 @@ for historical reference.
 - Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.3.0`. The
   release regenerates the parser with tree-sitter-cli 0.26.13 and leaves
   the grammar unchanged, so no metric moves.
+- Bumped the `tree-sitter-irules` grammar pin to `=0.2.0`. As with
+  Groovy, the grammar is unchanged and no metric moves.
 - **`loc.dloc` counts a doc comment only when its tool attaches it**
   (#1613). A marker doc comment outside a function body now counts only
   when the declaration after it is one its language's documentation

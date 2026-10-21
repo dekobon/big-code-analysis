@@ -823,7 +823,7 @@ compares against can name only one version.
 One deliberate exception: `tree-sitter-language`, the ecosystem's shared
 `LanguageFn` trait shim, is **not** a grammar and must stay caret-ranged.
 `=`-pinning it makes the workspace unresolvable (`tree-sitter-irules
-0.1.1` requires `^0.1.7`, and cargo unifies 0.1.x deps) and would break
+0.2.0` requires `^0.1.7`, and cargo unifies 0.1.x deps) and would break
 downstream consumers of the published `bca-tree-sitter-*` crates. The
 gate carries it in `PIN_EXEMPT_DEPS`.
 
