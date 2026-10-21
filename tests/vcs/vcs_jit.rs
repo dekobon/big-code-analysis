@@ -332,6 +332,51 @@ fn scoring_a_specific_revision_works() {
 }
 
 #[test]
+fn a_renamed_file_keeps_its_prior_history() {
+    let repo = Repo::init();
+    let body = "fn a() {}\nfn b() {}\nfn c() {}\nfn d() {}\nfn e() {}\n";
+    repo.write("a.rs", body);
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "create");
+    repo.write("a.rs", &format!("{body}fn f() {{}}\n"));
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 20 * DAY, "extend");
+    repo.git(&["mv", "a.rs", "b.rs"]);
+    repo.write("b.rs", &format!("{body}fn f() {{}}\nfn g() {{}}\n"));
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 5 * DAY, "rename");
+
+    // expected: rename-following sees one rewrite whose parent-side path
+    // `a.rs` carries the two earlier commits, so nothing is new.
+    let followed = score(&repo, "HEAD");
+    assert_eq!(followed.features.size.files_touched, 1);
+    assert_eq!(followed.features.history.new_files, 0);
+    assert_eq!(followed.features.history.prior_changes, 2);
+
+    // expected: without it the same commit is a deletion of `a.rs` (whose
+    // history still counts) plus an addition of `b.rs`, which is new.
+    let mut options = opts();
+    options.follow_renames = false;
+    let unfollowed = score_commit(repo.path(), "HEAD", &options).expect("score commit");
+    assert_eq!(unfollowed.features.size.files_touched, 2);
+    assert_eq!(unfollowed.features.history.new_files, 1);
+    assert_eq!(unfollowed.features.history.prior_changes, 2);
+}
+
+#[test]
+fn a_binary_file_is_not_counted_as_touched() {
+    let repo = Repo::init();
+    repo.write("src/work.rs", "fn a() {}\nfn b() {}\nfn c() {}\n");
+    repo.write("logo.bin", "\0PNG\0\x01\x02\0");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "initial");
+
+    let report = score(&repo, "HEAD");
+
+    // expected: the blob with NUL bytes yields no line counts and is
+    // skipped, so only the three-line text file contributes.
+    assert_eq!(report.features.size.files_touched, 1);
+    assert_eq!(report.features.size.lines_added, 3);
+    assert_eq!(report.features.history.new_files, 1);
+}
+
+#[test]
 fn report_carries_stable_version_stamps() {
     let repo = Repo::init();
     repo.write("f.rs", "x\n");
