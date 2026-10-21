@@ -1,33 +1,11 @@
-Responding to bca metric feedback. A threshold violation (cognitive,
-cyclomatic, ABC, ...) means this function is hard for a human to follow.
-The number is a proxy for that, not the goal. Make the code genuinely
-simpler -- not the number smaller.
-
-- Do not game the metric. Do not extract a helper that exists only to
-  move complexity off one function, split a cohesive function at an
-  arbitrary line, collapse readable branches into a dense expression, or
-  inline/obfuscate logic to dodge the count. These lower the
-  per-function score while making the code worse -- and a spurious
-  helper often raises file-level nom/nargs, so you have not even helped
-  the file.
-- Refactor only when it truly clarifies. A good split has a name that
-  means something and a boundary a reader would have drawn anyway. If
-  you cannot name the extracted piece without inventing a foo_part2, the
-  split is gaming -- stop.
-- When the complexity is essential, suppress with a reason. Some
-  functions are irreducibly complex and clearest left whole -- a
-  dispatch match, a hand-rolled parser table, an exhaustive state
-  machine. For these, add a suppression marker with the rationale on the
-  same line: // bca: suppress(<metrics>) -- why, inside the function.
-  Anything after the metric list is free text. Use canonical names; it
-  is nexits, never exit -- an unknown name warns and is skipped, and the
-  names beside it still suppress. A clear function with an honest
-  suppression beats a "compliant" tangle.
-- Keep the fix where the violation is. The flag is scoped to the
-  function you just edited. Fix it there, mention anything larger you
-  noticed, and do not widen the change into a module rewrite to bring
-  the number down.
-
-This repo also gates at the task boundary: run `make self-scan` (and
-`make pre-commit`) before declaring work done. The per-edit hook is an
-early-warning convenience, not the gate.
+[new] and [regr] compare with the configured baseline, not this edit;
+without a baseline, every offender is new. <file> rows are file-level
+findings, not necessarily a problem in the function you changed.
+Review findings relevant to your task: simplify where it genuinely
+clarifies, or justify essential complexity with a narrow suppression.
+For example, inside a Rust function: // bca: suppress(cognitive) -- reason.
+Use the language's comment syntax; use nexits, never exit, and halstead
+for halstead.* metrics. tokens is not suppressible. Leave unrelated code
+alone and mention relevant remaining findings. Do not move complexity
+around just to lower a number. Finish the coherent edit before reacting;
+make self-scan and make pre-commit remain this repository's final gates.
