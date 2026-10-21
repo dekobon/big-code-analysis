@@ -10997,6 +10997,29 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_promoted_asymmetric_visibility_scores_like_a_property() {
+        // tree-sitter-php 0.24.2 parsed `private(set)` on a promoted
+        // parameter as ERROR and billed `private` and `set` as operands.
+        // 0.25.1 parses it as the `visibility_modifier` a property
+        // declaration already gets, so it now scores the same way.
+        //
+        // expected: operators `class`, `{}` × 2, `public` × 2, `function`,
+        // `()` × 2 (parameters, `(set)`), `private` → n1 = 6, N1 = 9.
+        // Operands `A`, `__construct`, `int`, `$x` → n2 = N2 = 4.
+        check_metrics::<PhpParser>(
+            "<?php\nclass A {\n    public function __construct(public private(set) int $x) {}\n}\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 6);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
+            },
+        );
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_operators_and_operands() {

@@ -350,7 +350,7 @@ mk_langs!(
         tree_sitter_php,
         [php, phtml, php3, php4, php5, php7, phps],
         ["php"],
-        "0.24.2"
+        "0.25.1"
     ),
     (
         "ruby",

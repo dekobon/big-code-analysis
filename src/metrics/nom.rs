@@ -2277,6 +2277,21 @@ outer() {
         );
     }
 
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_function_after_leading_backslash_group_use_is_counted() {
+        // tree-sitter-php 0.24.2 parsed `use \Foo\{…};` as ERROR and the
+        // recovery swallowed the function after it, so `u` scored nom 0.
+        // 0.25.1 accepts the leading backslash; the function is counted.
+        check_metrics::<PhpParser>(
+            "<?php\nuse \\Foo\\{Bar, Baz};\nfunction u() { return 1; }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+            },
+        );
+    }
+
     // Elixir's `def`/`defp`/`defmacro`/`defmacrop` declarations surface
     // as `Call` nodes whose target is an `Identifier`, so the byte-less
     // `is_func` cannot see them. Since #696, `Nom::compute` consults the
