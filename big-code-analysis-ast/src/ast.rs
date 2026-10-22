@@ -581,7 +581,7 @@ mod tests {
     }
 
     /// Each direct child's `(type, field_name)`.
-    #[cfg(feature = "python")]
+    #[cfg(any(feature = "python", feature = "rust"))]
     fn kinds_and_fields(node: &AstNode) -> Vec<(&'static str, Option<&'static str>)> {
         node.children
             .iter()
@@ -638,18 +638,16 @@ mod tests {
             let right = find_child(assign, "right").expect("expected a `right` child");
             assert_eq!(left.field_name, Some("left"), "{name}");
             assert_eq!(right.field_name, Some("right"), "{name}");
-            // Anonymous `=` token is a child too, with no field name.
-            assert!(
-                assign
-                    .children
-                    .iter()
-                    .any(|c| c.r#type == "=" && c.field_name.is_none()),
-                "{name}: expected the `=` token child to carry no field name; got {:?}",
-                assign
-                    .children
-                    .iter()
-                    .map(|c| (c.r#type, c.field_name))
-                    .collect::<Vec<_>>(),
+            // The anonymous `=` token is a child too, with no field name,
+            // and nothing else sits between the operands.
+            assert_eq!(
+                kinds_and_fields(assign),
+                [
+                    ("identifier", Some("left")),
+                    ("=", None),
+                    ("binary_expression", Some("right")),
+                ],
+                "{name}"
             );
         });
     }
@@ -1162,10 +1160,10 @@ mod tests {
                 "{name}: without the filter the root keeps its one comment child"
             );
             let root = build_ast_by(dump, code, "a.rs", false, true);
-            assert!(
-                root.children.is_empty(),
-                "{name}: the comment child must be filtered, got {:?}",
-                root.children.iter().map(|c| c.r#type).collect::<Vec<_>>()
+            assert_eq!(
+                kinds_and_fields(&root),
+                [],
+                "{name}: the comment child must be filtered"
             );
         }
     }
