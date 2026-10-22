@@ -144,6 +144,7 @@ number and the higher number stays as a redirect.
 | [98](#98-an-emulated-tools-specification-is-its-source-not-its-manual) | An emulated tool's specification is its source, not its manual — read the path it runs, then run it |
 | [99](#99-a-probe-guards-only-the-axis-it-grows) | A probe guards only the axis it grows — a walk that descends needs a depth probe |
 | [100](#100-a-float-tolerance-is-measured-in-the-values-own-ulps-and-a-rounded-limit-is-held-on-the-hard-limits-side) | A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side |
+| [101](#101-a-cache-lent-through-a-context-value-is-dropped-by-every-derivation-of-that-value-that-does-not-forward-it) | A derived context value drops the cache it was lent |
 
 ---
 
@@ -4249,5 +4250,49 @@ and clamps to the hard limit in the tier's direction; its tests hold
 nineteen floor/ratio pairs, four of them exact cancellations, the two
 tiny floors that snapped below their hard value, and the two ceilings
 that could not fit a six-figure grid.
+
+---
+
+## 101. A cache lent through a context value is dropped by every derivation of that value that does not forward it
+
+**Lesson:** When a walk lends a memo through a context value it hands
+down (`Ancestors` carrying a `FoldCache`), audit every place that
+*derives* a new instance of that value — an iterator over ancestors,
+a `children_chain`, a `..self` struct update, a fold's step closure —
+and make each one forward the cache or say why it must not. A
+derivation that rebuilds the value with the cache field `None` is
+type-correct, answers identically, and silently restores the cost the
+cache exists to remove, on exactly the call paths that reach the
+predicate through the derived value rather than the original. Then
+pin each seam with a counter on the memoised work (not on the answer,
+which is the same either way) and, for a seam that reaches the
+predicate through a derivation, perturb the derivation as well as the
+walk.
+
+The failure hides in the way the forwarding-default trap in
+`.claude/rules/grammar-dispatch.md` section 7 does: the predicate reads
+as memoised at its definition, the walk reads as lending at its
+construction, and the drop sits in a third place neither reader opens.
+A per-seam counter test does catch it — but only on the seam that
+reaches the predicate through the derivation, and only once it exists;
+until then every walk-level perturbation reads as covered. So write the
+counter test per seam before the sweep, confirm each passes clean, and
+perturb the derivation as its own row rather than inferring its
+forwarding from the walks' rows.
+
+**Tcl's argument-list scan stayed quadratic under `bca metrics`
+after it was memoised** (#1686, found in plan review). The fix stored
+`argument_slots_are_readable`'s answer in the `FoldCache` the metric
+walk already lent. The metric walk reaches that predicate through
+`braced_word_op_type`, which asks about a brace's *parent* via
+`ancestors.iter(node).next()`, and `AncestorIter::Chain` rebuilt each
+yielded `Ancestors` with `folds: None` — a deliberate choice copied
+from `fold_down`'s step closure, where the cache's `RefCell` is
+already borrowed, into an iterator that holds no borrow at all. Every
+other seam (dump, `find`/`count`) hands the predicate the original
+chain and would have memoised; the headline one would not. The
+iterator now forwards the cache, `an_iterated_ancestor_keeps_the_walk_s_memo`
+pins it, and the benchmark table records that dropping it moves only
+the `halstead/` probe to 2.03–2.05 while the other two stay at 1.0.
 
 ---
