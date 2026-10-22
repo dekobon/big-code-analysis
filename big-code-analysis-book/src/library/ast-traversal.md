@@ -300,6 +300,25 @@ For one-off in-process work, the `as_tree_sitter()` walker above is
 cheaper (no allocation per node). Reach for [`Ast::dump`] when you
 need a serializable owned tree.
 
+`Ast::dump` walks the tree with one cursor, the same way the walker
+above does. Two siblings name the strategy explicitly:
+[`Ast::dump_cursor`][dump_cursor] is that walk, and
+[`Ast::dump_indexed`][dump_indexed] reaches each child through
+`Node::child` and its field through `Node::field_name_for_child`
+instead. They produce the same tree; the difference is cost. Both
+index lookups scan the parent's child array to the index — `O(log n)`
+under a list the grammar stores as a balanced `repeat()`, `O(index)`
+under a node whose children sit in one raw array, which the `ERROR`
+recovery builds from a run of skipped tokens can be — so enumerating a
+wide flat node by index is quadratic in its width. Prefer the cursor
+walk for a whole-tree export, field lookup (`child_by_field_name`) for
+a grammatical role, and indexed access for picking one slot; a loop
+that needs repeated random access to a wide list should collect the
+children once and index the `Vec`.
+
+[dump_cursor]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_cursor
+[dump_indexed]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_indexed
+
 [ast_response]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstResponse.html
 [astnode]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstNode.html
 
@@ -312,9 +331,10 @@ need a serializable owned tree.
   directly via the re-exported `tree_sitter` and feed the result
   through
   [`Ast::from_tree_sitter`](parse-once.md#adopting-a-caller-built-tree).
-- **The crate-internal `big_code_analysis::Node` wrapper.** It is
-  exposed for the metric walker's traversal needs, but most of its
-  traversal methods (`kind`, `child_count`, `children`, `cursor`, …)
-  stay `pub(crate)`. Library consumers should reach the tree-sitter
-  `Node` through `as_tree_sitter().root_node()` — that is the
-  documented seam.
+- **Everything on `big_code_analysis::Node` that is not listed in
+  `STABILITY.md`.** The wrapper is re-exported, and its traversal
+  methods (`kind`, `child_count`, `children`, `cursor`, `preorder`,
+  `child`, `child_by_field_name`, …) are `pub`, but only the
+  `STABILITY.md` accessor list is shape-stable. For anything else,
+  reach the tree-sitter `Node` through `as_tree_sitter().root_node()`
+  — that is the documented seam.

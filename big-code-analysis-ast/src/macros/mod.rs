@@ -402,10 +402,26 @@ macro_rules! mk_action {
                 $crate::with_any_parser!(self, |p| $crate::comment_rm::rm_comments(p))
             }
 
-            /// The AST dump under `cfg`.
+            /// The AST dump under `cfg`, walked with one cursor; the
+            /// same export as [`Self::dump_cursor`].
             #[must_use]
             pub fn dump(&self, cfg: $crate::ast::AstCfg) -> $crate::ast::AstResponse {
                 $crate::with_any_parser!(self, |p| $crate::ast::dump_inner(p, cfg))
+            }
+
+            /// The AST dump under `cfg`, explicitly walked with one
+            /// cursor (#1684).
+            #[must_use]
+            pub fn dump_cursor(&self, cfg: $crate::ast::AstCfg) -> $crate::ast::AstResponse {
+                $crate::with_any_parser!(self, |p| $crate::ast::dump_cursor_inner(p, cfg))
+            }
+
+            /// The AST dump under `cfg`, explicitly enumerating children
+            /// by index (#1684). Same tree as [`Self::dump`]; quadratic
+            /// in the width of a flat recovery node.
+            #[must_use]
+            pub fn dump_indexed(&self, cfg: $crate::ast::AstCfg) -> $crate::ast::AstResponse {
+                $crate::with_any_parser!(self, |p| $crate::ast::dump_indexed_inner(p, cfg))
             }
 
             /// `(matching, total)` node counts for `filters` — the same

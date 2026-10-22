@@ -24,7 +24,29 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- `Ast::dump_cursor` and `Ast::dump_indexed` name the AST export's two
+  strategies explicitly: one cursor walk, or enumeration through
+  `Node::child` / `Node::field_name_for_child`. Both produce the same
+  tree. `AnyParser` and the parser-generic `dump_cursor_inner` /
+  `dump_indexed_inner` in `big-code-analysis-ast` carry the same pair,
+  and the `Cursor` wrapper there gains `goto_parent` and `field_name` —
+  all three in a crate `STABILITY.md` leaves outside the shape
+  contract. The `Ast` methods are additive and recorded in
+  `STABILITY.md` under `Ast`. (#1684)
+
 ### Changed
+
+- `Ast::dump` (and so the `/ast` endpoint and the Python `Ast.dump`;
+  `bca dump` renders the raw tree through its own cursor walk and is
+  unaffected) walks the tree with one cursor instead of indexing each
+  child. The output is unchanged. The indexed lookups scan the parent's
+  child array, so the old walk was quadratic in the width of a flat
+  `ERROR` — one whose skipped tokens recovery left as direct children:
+  enumerating 28 000 such children by index measured 1.75 s against a
+  cursor's 1.2 ms. `Node::child` and `Node::field_name_for_child` now
+  document that cost. (#1684)
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)

@@ -253,6 +253,16 @@ impl Ast {
     /// parse under `cfg`. The `Source`-based counterpart of the deprecated
     /// `AstCallback` dispatch. Safe to call repeatedly; the tree is reused.
     ///
+    /// Walks the tree with one cursor — the export [`dump_cursor`] names
+    /// explicitly. A cursor steps between siblings in amortised constant
+    /// time whatever the parent's shape, so enumerating the tree is never
+    /// quadratic; [`dump_indexed`] is the explicit alternative that reaches each
+    /// child by index, which is the same tree at a cost that is quadratic
+    /// in the width of a flat recovery `ERROR` node (#1684).
+    ///
+    /// [`dump_cursor`]: Self::dump_cursor
+    /// [`dump_indexed`]: Self::dump_indexed
+    ///
     /// # Examples
     ///
     /// ```
@@ -272,6 +282,74 @@ impl Ast {
     #[must_use]
     pub fn dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
         self.inner.dump(cfg)
+    }
+
+    /// [`dump`](Self::dump), naming its strategy: the tree is walked
+    /// with one cursor. Prefer this over [`dump_indexed`] for any whole-
+    /// tree export; the two agree on every node and this one enumerates
+    /// children in amortised constant time each (#1684).
+    ///
+    /// [`dump_indexed`]: Self::dump_indexed
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, AstCfg, LANG, Source};
+    ///
+    /// let cfg = || AstCfg {
+    ///     id: "req-1".to_owned(),
+    ///     language: "rust".to_owned(),
+    ///     comment: false,
+    ///     span: true,
+    /// };
+    /// let ast = Ast::parse(Source::new(LANG::Rust, b"fn f() {}")).expect("rust feature enabled");
+    /// let by_cursor = ast.dump_cursor(cfg());
+    /// let by_index = ast.dump_indexed(cfg());
+    /// assert_eq!(by_cursor.id, "req-1");
+    /// assert_eq!(
+    ///     serde_json::to_string(&by_cursor).unwrap(),
+    ///     serde_json::to_string(&by_index).unwrap(),
+    /// );
+    /// ```
+    #[must_use]
+    pub fn dump_cursor(&self, cfg: crate::AstCfg) -> crate::AstResponse {
+        self.inner.dump_cursor(cfg)
+    }
+
+    /// [`dump`](Self::dump) by child index: each child is reached
+    /// through [`Node::child`](crate::Node::child) and its grammar field
+    /// through [`Node::field_name_for_child`](crate::Node::field_name_for_child).
+    ///
+    /// Produces the same tree as [`dump_cursor`]. The difference is
+    /// cost: both index lookups scan the parent's child array, so
+    /// enumerating a flat node this way is quadratic in its width,
+    /// and the `ERROR` recovery builds from a run of skipped tokens can
+    /// be such a node (#1684; see the cost note on
+    /// [`Node::child`](crate::Node::child)). It is kept as a supported,
+    /// explicit choice for a consumer that wants index-addressed
+    /// export, and as the independent implementation the parity tests
+    /// hold the default to.
+    ///
+    /// [`dump_cursor`]: Self::dump_cursor
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, AstCfg, LANG, Source};
+    ///
+    /// let resp = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
+    ///     .expect("rust feature enabled")
+    ///     .dump_indexed(AstCfg {
+    ///         id: String::new(),
+    ///         language: "rust".to_owned(),
+    ///         comment: false,
+    ///         span: false,
+    ///     });
+    /// assert_eq!(resp.root.expect("root node").r#type, "source_file");
+    /// ```
+    #[must_use]
+    pub fn dump_indexed(&self, cfg: crate::AstCfg) -> crate::AstResponse {
+        self.inner.dump_indexed(cfg)
     }
 
     /// Count `(matching, total)` nodes in the held parse, where a node

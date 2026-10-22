@@ -730,8 +730,13 @@ reach the raw tree-sitter surface.
   pin in the same value-not-stable sense as the `tree_sitter`
   re-export. The rest of `Ast`'s API surface (`parse`,
   `from_tree_sitter`, `metrics`, `ops`, `strip_comments`, `functions`,
-  `dump`, `count`, `find`, `root_node`, `suppressions`, `language`,
-  `source`, `name`) is shape-stable. `Ast::root_node` / `Ast::find`
+  `dump`, `dump_cursor`, `dump_indexed`, `count`, `find`, `root_node`,
+  `suppressions`, `language`, `source`, `name`) is shape-stable.
+  `dump_cursor` and `dump_indexed` (#1684) name the two export
+  strategies explicitly — one cursor walk, or `Node::child`-indexed
+  enumeration — and both produce the same tree as `dump`, which runs
+  the cursor walk; the indexed strategy is a supported choice, not a
+  test-only reference. `Ast::root_node` / `Ast::find`
   return the public `Node` wrapper (#728), whose own `preorder()` /
   `descendants_by_kind()` traversal helpers and `as_tree_sitter()` escape
   hatch are shape-stable; the raw node *kinds* and `kind_id`s it surfaces
