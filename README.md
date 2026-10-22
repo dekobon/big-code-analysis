@@ -61,14 +61,14 @@ Coding agents write a lot of code, and nothing in their loop tells
 them a function has become too complex to maintain. `bca check` closes
 that loop: it checks each file the agent edits and reports the
 offending functions back into the model's context the moment the edit
-lands. All it needs is `bca` on `PATH` (see
-[Quick start](#quick-start)) plus a few lines of config.
+lands. Install `bca` on `PATH` (see [Quick start](#quick-start)) and
+configure the hook. The Claude Code hook also needs [Node.js](https://nodejs.org/) on `PATH`.
 
-- **Claude Code**: a `PostToolUse` hook runs `bca check` on the edited
-  file and feeds violations back to the model. This repository
-  dogfoods a reference hook at
-  [`.claude/hooks/bca-check.sh`](.claude/hooks/bca-check.sh).
-- **opencode**: a `tool.execute.after` plugin does the same; the
+- **Claude Code**: a `PostToolUse` hook sends advisory context after
+  successful edits. This repository enables the Node-based
+  [reference hook](.claude/hooks/bca-check.mjs) through
+  [`.claude/settings.json`](.claude/settings.json).
+- **OpenCode V2**: an `execute.after` plugin does the same; the
   reference copy is at
   [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js).
 

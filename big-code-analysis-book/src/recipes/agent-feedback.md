@@ -1,39 +1,32 @@
 # Feeding metrics to an agentic coding tool
 
-An agentic coding tool — Claude Code, opencode, and the like — is a
-fast-growing consumer of maintainability feedback, and it wants that
-feedback in a different shape than a human in an editor does. A human
-keystrokes, so the editor loop reaches for a language server: parse on
-`didChange`, render complexity in the margin, update on every
-character. An agent does not keystroke. It writes a whole edit through
-a tool call and yields the turn. The right feedback for that consumer
-is **batch, after-edit, structured** — exactly what
-[`bca check`](../commands/check.md) already emits.
+This recipe shows how to send maintainability findings to
+[Claude Code](https://code.claude.com/docs/en/overview) or
+[OpenCode](https://opencode.ai/) after a file-editing tool finishes.
+It assumes you can run [`bca check`](../commands/check.md) in your project
+and configure your coding agent. The findings are advice for the agent;
+the project's final validation gate still decides when a change is ready.
 
-So this recipe ships no new binary surface. `bca check` already gives
-an agent everything it needs:
+The hooks use the existing `bca check` command:
 
 - A machine-parseable offender list (per-violation rows on stdout, or
   `--report-format sarif | code-climate | clang-warning | msvc-warning
   | checkstyle` for a structured document).
-- A tiered exit code — `2` when offenders are present, `0` clean, `1`
-  on tool error — so a hook can branch on "did this edit make the code
-  too complex?" without parsing anything.
-- Baseline filtering, in-source suppression markers, and
-  `[check.exclude]` globs, so the signal an agent sees is the same
-  ratcheted signal a human sees — provided the project's exclusions
-  live under [`[check]`](#put-the-hooks-exclusions-under-check) rather
-  than in a walker deny-set.
-
-What was missing is the wiring. This page is that wiring: a
-copy-pasteable feedback loop per tool, plus the agent-facing guidance
-that keeps the loop from backfiring.
+- Exit codes distinguish current findings (`2`, or `2–5` in tiered mode),
+  a clean check (`0`), and tool errors (`1`). Findings need not be caused by the latest edit.
+- Baselines, in-source suppression markers, and `[check] exclude` globs
+  filter findings using the project's policy. Put exclusions that must
+  apply to explicitly named files under
+  [`[check]`](#put-the-hooks-exclusions-under-check).
 
 ## After-edit, not keystroke-time
 
-This recipe is the deliberate counterpart to the proposed
-[`bca lsp` server (#384)](https://github.com/dekobon/big-code-analysis/issues/384).
-The two serve different consumers and do not depend on each other:
+An editor integration can use the
+[Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+to update diagnostics while a person types. An agent hook checks the
+completed file edit. The proposed
+[`bca lsp` server (#384)](https://github.com/dekobon/big-code-analysis/issues/384)
+and these hooks serve those different uses:
 
 | | `bca lsp` (#384) | This recipe |
 | --- | --- | --- |
@@ -43,9 +36,8 @@ The two serve different consumers and do not depend on each other:
 | Surface | Margin diagnostics | Text fed back into the model |
 | Status | Proposed | Works today with `bca check` |
 
-Reach for the LSP when a person is typing; reach for this when an
-agent is editing. Wiring an agent through the LSP's incremental
-`didChange` path would pay for machinery the agent never uses.
+Use an editor integration for feedback while typing and an after-tool
+hook for feedback during an agent's edit loop.
 
 The command every per-tool section below invokes is the same one you
 would run by hand:
@@ -57,25 +49,22 @@ would run by hand:
 bca check path/to/edited_file.rs --threshold cognitive=10
 ```
 
-An agent loop wants tighter limits than a blocking CI gate: a false
-positive costs one wasted refactor rather than a blocked merge, and the
-signal arrives while the code is still being written. See the
-[agent feedback profile](thresholds.md#profile-agent) for the rest of
-the table, and [Choosing thresholds](thresholds.md) for where the
-shipped defaults come from.
+The [agent feedback profile](thresholds.md#profile-agent) suggests tighter
+limits than a blocking CI gate. Evaluate the extra findings before adopting
+them: unnecessary refactoring can expand the task or introduce bugs.
+[Choosing thresholds](thresholds.md) explains the defaults and other profiles.
 
-With a `bca.toml` at the repo root (see
-[Local threshold gates](local-gates.md#zero-config-the-bcatoml-manifest))
-the `--threshold` flags are unnecessary — a bare
-`bca check <file>` reads the committed limits, baseline, and excludes,
-so the agent loop gates on exactly what CI gates on.
+With thresholds configured in `bca.toml` (see
+[Local threshold gates](local-gates.md#zero-config-the-bcatoml-manifest)),
+`bca check <file>` reads the committed limits, baseline, and exclusions.
+Use the same configuration and tier as CI when you want the same threshold policy.
 
 ### Put the hook's exclusions under `[check]` {#put-the-hooks-exclusions-under-check}
 
 One thing does *not* carry over from the CI invocation, and it will
 produce false positives if you skip it. A hook names one file per run,
 and [an explicitly named path overrides every walker
-exclude](../commands/README.md#explicit-paths-bypass-the-filter) — the
+exclude](../commands/index.html#explicit-paths-bypass-the-filter) — the
 `rg` convention that a path you named is a direct request. So a file
 your project keeps out of scope with `-X`, `--exclude-from`, a
 `.bcaignore`, or a manifest `exclude` list is nonetheless analyzed the
@@ -103,30 +92,32 @@ Treat that line as a to-do: the entry it names wants moving to
 `[check] exclude`. This repository moved its own dev-tooling globs there
 for exactly this reason.
 
-One constraint on where the hook runs: while
-[#1164](https://github.com/dekobon/big-code-analysis/issues/1164) is
-open, a `[check] exclude` glob resolves against the *working directory*
-rather than the manifest root when the path is named explicitly. Both
-hooks below inherit the agent's working directory, which is the project
-root, so they are unaffected — but a hook that `cd`s into a subdirectory
-first would see its exemptions stop matching.
+Preserve the nearest `bca.toml` above the session's working directory, stopping at its checkout boundary.
+The reference hooks also recognize targets inside another nested checkout and apply that checkout's policy.
 
-## Claude Code
+## Claude Code {#claude-code}
 
-**Mechanism:** a
-[`PostToolUse` hook](https://code.claude.com/docs/en/hooks) in
-`.claude/settings.json`, with the `matcher` scoped to the
-file-editing tools.
+Use a [Claude Code `PostToolUse` hook](https://code.claude.com/docs/en/hooks#posttooluse)
+to send current threshold findings to the model after a successful file edit.
+The reference hook returns `hookSpecificOutput.additionalContext` on stdout
+and exits 0. The tool's original result remains intact.
 
-**Feedback channel:** this is the strongest fit of any agentic tool.
-A `PostToolUse` hook fires the instant an edit lands, and it can inject
-text straight back into the model — either by **exiting `2` with the
-message on stderr** (Claude reads stderr as context about what
-happened) or by emitting JSON with
-`hookSpecificOutput.additionalContext`. Feedback arrives at the exact
-edit boundary and costs zero tokens until there is something to say.
+Use Claude Code **2.1.139 or later**; that release added the hook `args` field
+used below (see the [official changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139)).
+Install [Node.js](https://nodejs.org/) LTS and `bca`.
+Run `bca init` in your project, or supply a nonempty `[thresholds]` table in
+[`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest).
+Run `bca check path/to/a/source-file` directly to confirm the configuration loads.
+Then copy these files into the same paths in your project:
 
-Wire the hook in `.claude/settings.json`:
+- [`.claude/hooks/bca-check.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.mjs):
+  reads the hook event and returns advisory JSON.
+- [`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs):
+  runs the analyzer and bounds its output; the OpenCode plugin uses this helper too.
+- [`.claude/hooks/bca-guidance.txt`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-guidance.txt):
+  supplies the short runtime reminder. Replace its final `make` commands with your project's validation commands.
+
+Merge this configuration into `.claude/settings.json`, preserving existing settings:
 
 ```json
 {
@@ -137,7 +128,9 @@ Wire the hook in `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.sh"
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.mjs"],
+            "timeout": 10
           }
         ]
       }
@@ -146,78 +139,58 @@ Wire the hook in `.claude/settings.json`:
 }
 ```
 
-The wrapper script reads the edited file's path from the hook's stdin
-JSON, runs `bca check` on just that file, and — only when the gate
-trips — prints the offender list followed by the agent-guidance block
-on stderr and exits `2`:
+The [exec form](https://code.claude.com/docs/en/hooks#exec-form-and-shell-form)
+passes the script path as one argument, including spaces and shell metacharacters.
+The hook requires Node on `PATH`; its JSON handling uses no npm packages or `jq`.
+For an existing `bca-check.sh` registration, replace the old script with the
+[current wrapper](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.sh)
+and copy the `.mjs` files alongside it. Alternatively, replace that registration
+with the Node configuration above. Keep only one registration to avoid duplicate checks.
 
-```bash
-#!/usr/bin/env bash
-# .claude/hooks/bca-check.sh — gate a single edited file after the edit.
-set -euo pipefail
+The event's `cwd` selects the nearest manifest within the current checkout.
+For a target in a different nested checkout, the hook discovers configuration from that target's directory.
+`CLAUDE_PROJECT_DIR` locates the script, but stays at the original project when Claude enters a worktree.
+Using it to select the analyzer configuration would check the wrong tree.
+The analyzer selection is `$BCA`, the current checkout's executable `target/release/bca`
+(`bca.exe` on Windows), then `bca` on `PATH`.
+An explicit but unavailable `$BCA` stays unavailable rather than selecting another binary.
 
-# PostToolUse delivers the tool call as JSON on stdin; the edited
-# file's path is .tool_input.file_path for Edit/Write/MultiEdit.
-file_path="$(jq -r '.tool_input.file_path // empty')"
-[ -n "$file_path" ] || exit 0          # nothing to check; stay silent.
-[ -f "$file_path" ] || exit 0          # file gone (e.g. a delete).
+Within one checkout, the session's manifest also applies when it edits a sibling package.
+Change the session directory to select that package's own manifest.
+Nested checkouts, including Git submodules, are separate configuration boundaries.
+If a nested checkout has no thresholds, the check is unavailable; it does not inherit the parent's policy.
 
-# Thresholds, baseline, and excludes come from the repo-root bca.toml.
-# --no-summary / --no-remediation keep the feedback to the offender
-# rows themselves; the guidance below tells the agent what to do. The
-# rows are on stdout and any diagnostic on stderr, so `2>&1` captures
-# whichever the run produced.
-status=0
-report="$(bca check "$file_path" --no-summary --no-remediation 2>&1)" || status=$?
+The hook handles analyzer results as follows; the hook itself exits 0:
 
-# bca check exits 0 clean, 2 on offenders, 1 on tool error. Branch on 2
-# specifically so a config/IO error is not mislabelled as "complexity".
-case "$status" in
-  0) exit 0 ;;                         # clean ⇒ say nothing.
-  2) ;;                                # offenders ⇒ report them below.
-  *) printf 'bca check could not run (exit %s):\n%s\n' "$status" "$report" >&2
-     exit 0 ;;
-esac
+- **Exit 0:** no model context for a clean or excluded file.
+- **Exits 2–5:** stdout findings become advisory context, capped at 4,000 characters with a truncation notice.
+- **Analyzer failure:** no model context for a missing binary, exit 1, abnormal exit, timeout, or output overflow.
+  Each subprocess has a three-second deadline and a 64 KiB output limit per stream.
+  Timeout, cancellation, and output overflow terminate the owned process group on POSIX or process tree on Windows.
+- **Concurrent file change:** findings are discarded if the file's identity, size, or timestamps change during analysis.
 
-# Exit 2 makes Claude read stderr as context about the edit. Default
-# CLAUDE_PROJECT_DIR and test the guidance file: under `set -u` an unset
-# variable aborts the hook, and a missing file would emit a bare `cat`
-# error where the guidance should be.
-guidance="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/bca-guidance.txt"
-cat >&2 <<EOF
-bca flagged complexity in the file you just edited:
+The adapter keeps no persistent deduplication state, so an unchanged offender can reappear on a later edit.
+It checks the whole file: `[new]` and `[regr]` compare against the configured baseline, not the preceding edit.
+Use the [standing guidance](#agent-guidance-ship-this-verbatim) to keep any response within the task's scope.
+This matcher covers Edit, Write and MultiEdit; shell commands and external editors need separate integration.
 
-$report
+**Verify model delivery after installation.** Create a disposable supported source file that breaches a configured limit
+using Claude's Write tool, and ask it to quote the finding it receives.
+Then simplify the file through Edit and confirm the clean result adds no advisory.
+In [debug output](https://code.claude.com/docs/en/hooks#debug-hooks), `[bca-check]` JSON records distinguish
+findings, clean/excluded files, out-of-scope paths, superseded results, and unavailable checks.
+These records go to stderr with exit 0, so Claude does not receive them as additional context.
+They record the checkout, analyzer, outcome, and up to 1,000 characters of analyzer stderr for troubleshooting.
+Offender rows remain in the advisory; CI annotations and summary-file side effects are disabled.
+The reference suite runs with `make plugin-test`, including the shared OpenCode helper regressions.
 
-$([ -f "$guidance" ] && cat "$guidance")
-EOF
-exit 2
-```
+## OpenCode V1 (legacy)
 
-Store the [agent-guidance block](#agent-guidance-ship-this-verbatim)
-in `.claude/hooks/bca-guidance.txt` so the hook feedback and your
-`CLAUDE.md` cite identical wording. (`jq` is the only dependency; it
-ships with most agent images and is a one-line install otherwise.)
-
-If you would rather inject advisory context without the `exit 2`
-signal, emit JSON on stdout instead of writing to stderr:
-
-```bash
-jq -n --arg ctx "$offenders" '{
-  hookSpecificOutput: {
-    hookEventName: "PostToolUse",
-    additionalContext: $ctx
-  }
-}'
-exit 0
-```
-
-Use `additionalContext` when you want the offender list in Claude's
-view as a note; use `exit 2` when you want it framed as a problem to
-address before moving on. Both leave the edit in place — `PostToolUse`
-runs *after* the tool, so neither can undo it.
-
-## opencode
+The example in this section uses the V1 plugin API.
+The repository's [current V2 plugin](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js)
+uses the [V2 hook API](https://opencode.ai/v2/docs/build/plugins) and also requires
+[`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs).
+Use the [migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) when porting a V1 plugin.
 
 **Mechanism:** a [plugin](https://opencode.ai/docs/plugins/) — a
 JavaScript or TypeScript module exporting an async function that
@@ -310,10 +283,9 @@ over threshold and checking that the `edit`/`write` tool reports the
 `bca` failure. An installed-but-inert plugin is the most likely symptom,
 and a stale session is the most likely cause.
 
-For a hardened reference, this repository ships its own copy at
+The repository now ships a V2 reference at
 [`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js).
-It adds three guards the minimal example omits, each worth porting for a
-real project:
+It uses a different plugin API and adds guards worth porting to a V1 setup:
 
 - **Repo-scope guard.** Resolve the path and skip anything outside the
   project root, so the hook never runs `bca` on a file the agent edits
@@ -327,73 +299,62 @@ real project:
 
 ## Agent guidance (ship this verbatim) {#agent-guidance-ship-this-verbatim}
 
-The feedback channel is only half the recipe. A bare "cognitive 26 >
-25" reliably triggers the gaming move — the agent extracts a
-semantically empty helper to shave the per-function number, *lowering*
-per-function complexity while *raising* file-level `nom`/`nargs` and
-leaving the code worse. The mitigation is telling the agent what a
-violation means and what to do about it. Paste this block into your
-agent rules file (`CLAUDE.md`, opencode `AGENTS.md`) **and** into the
-hook feedback text, so the instruction is present both as standing
-policy and at the moment of the violation:
+Bare metric feedback can encourage changes that lower scores without
+improving readability, such as extracting helpers with no useful responsibility.
+Tell the agent what to do with a finding. Paste this block into your
+agent rules file (`CLAUDE.md` or `AGENTS.md`) as standing policy.
+Use the short `bca-guidance.txt` reminder in runtime feedback; the reference
+hooks bound that text separately from the findings.
+
+The policy block below remains in English in translated editions; copy it as written.
 
 ```markdown
-**Responding to `bca` metric feedback.** A threshold violation
-(cognitive, cyclomatic, ABC, …) means *this function is hard for a
-human to follow*. The number is a proxy for that, not the goal. Your
-job is to make the code genuinely simpler — not to make the number go
-down.
+**Responding to `bca` metric feedback.** A threshold violation is a
+reason to review readability, not proof of a defect. Improve the code
+where that helps the current task; lowering a score is not itself a goal.
 
 - **Do not game the metric.** Do not extract a helper that exists only
   to move complexity off one function, split a cohesive function at an
   arbitrary line, collapse readable branches into a dense expression,
   or inline/obfuscate logic to dodge the count. These lower the
-  per-function score while making the code worse — and a spurious
-  helper often *raises* file-level `nom`/`nargs`, so you have not even
-  helped the file.
+  per-function score without necessarily improving readability.
+  New helpers also add names and interfaces that readers must understand.
 - **Refactor only when it truly clarifies.** A good split has a name
   that means something and a boundary a reader would have drawn anyway.
   If you cannot name the extracted piece without inventing a
-  `foo_part2`, the split is gaming — stop.
+  `foo_part2`, reconsider the split.
 - **When the complexity is essential, suppress with a reason.** Some
-  functions are irreducibly complex *and clearest left whole* — a
+  functions are clearest left whole, such as a
   dispatch `match`, a hand-rolled parser table, an exhaustive state
   machine. For these, do not contort the code: add a suppression marker
-  with the rationale on the same line —
-  `// bca: suppress(cognitive) — exhaustive opcode dispatch` — and move
-  on. A clear function with an honest marker is better than a
+  with the rationale on the same line:
+  `// bca: suppress(cognitive) -- exhaustive opcode dispatch`.
+  A clear function with an honest marker is better than a
   "compliant" tangle.
-- **Keep the fix where the violation is.** The flag is scoped to the
-  function you just edited. Fix it there, mention anything larger you
-  noticed, and do not widen the change into a module rewrite to bring
-  the number down.
+- **Keep the fix within the task.** Review findings relevant to the
+  current change. Findings may concern other functions or the whole
+  file; mention unrelated findings without expanding the edit.
 ```
 
 ## Honest suppression (exact syntax) {#honest-suppression-exact-syntax}
 
-The guidance above tells the agent that suppression is a legitimate
-move. For that to work the agent has to spell the marker correctly —
-and the marker syntax is a frequent source of silent no-ops. Teach it
-precisely (full reference:
-[Suppression markers](../commands/suppression.md)):
+Suppression requires the exact syntax described in
+[Suppression markers](../commands/suppression.md):
 
-- **Per function** — place the marker in a comment inside the function
+- **Per function:** place the marker in a comment inside the function
   body, naming the metric(s):
-  `// bca: suppress(cyclomatic, abc) — hand-rolled parser table`. A
-  bare `// bca: suppress` (no list) silences *every* metric for that
-  function.
-- **Whole file** — `// bca: suppress-file(halstead, nargs, nexits)`
+  `// bca: suppress(cyclomatic, abc) -- hand-rolled parser table`.
+  A bare `// bca: suppress` (no list) silences every suppressible metric
+  for that function; `tokens` remains enforced.
+- **Whole file:** `// bca: suppress-file(halstead, nargs, nexits)`
   anywhere in the file; the bare `// bca: suppress-file` form silences
-  every metric file-wide.
+  every suppressible metric file-wide. It does not suppress `tokens`.
 - **Put the rationale on the marker line, after a metric list.**
-  Anything after the list is free text and does not need a separator, so
-  the reason lives where the next reader of the flagged function will
-  see it. (A *bare* verb takes no trailing text at all — nothing there
-  distinguishes a rationale from prose about the marker, so naming the
-  metrics is what buys you a reason.) Write it every time:
-  a reviewer — human or agent — needs to tell an honest exemption from a
-  dodge, and `bca exemptions` lists every marker in the tree for exactly
-  that audit.
+  The text after the list is free-form and needs no separator.
+  Without a metric list, trailing text is not accepted because it cannot
+  be distinguished from prose about the marker. Include a reason so a
+  reviewer can assess the exemption. `bca exemptions` lists the markers
+  for that review.
 - **Use canonical metric names.** The accepted identifiers are `abc`,
   `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`,
   `nexits`, `nom`, `npa`, `npm`, `wmc`. It is **`nexits`, not `exit`**
@@ -405,51 +366,34 @@ precisely (full reference:
 
 ## Gate at the task boundary, not per edit
 
-The per-edit hooks above are an early-warning convenience, not the
-gate. The gate is the same check a human runs before declaring a task
-done: the two-tier
-[`make self-scan` / pre-commit pattern](local-gates.md) (hard tier
-mirroring CI, soft tier as a 95%-of-limit headroom band). Point the
-agent at that as its "before I'm finished" step.
+Per-edit hooks provide early advice. Run the project's validation gate
+after a coherent change, including its tests and linters. The
+[`make self-scan` / pre-commit pattern](local-gates.md) uses the CI
+limits for its hard gate. For higher-is-worse metrics, its default soft
+threshold is 95% of the hard limit, giving an early warning near that limit.
 
-Going finer-grained than the task boundary is low- or negative-value
-for an agent. A complexity threshold is a proxy, not a correctness
-gate (see the caveats below), so re-running it after *every* micro-edit
-mid-refactor just produces transient violations that resolve
-themselves a few edits later — noise the agent then wastes a turn
-"fixing". Let the agent finish a coherent change, then gate once.
+Intermediate edits can produce temporary findings that disappear when
+the refactoring is complete. Let the agent finish a coherent edit before
+responding to those findings. A metric is an indirect indicator of
+readability; it does not establish correctness.
 
-One instruction to leave out of the rules file: a standing "verify your
-fix, then re-check the metrics" step layered on top of the hook.
-Current models re-read and re-check their own edits without being asked,
-and an explicit instruction compounds with that — the loop spends turns
-re-running a gate whose input has not changed. The hook already fires on
-its own when an edit lands. Let that be the signal.
+Avoid requiring an extra metric check after every edit when the hook
+already runs one. Keep the final validation requirement explicit and
+rerun a check when its inputs change or its previous result is unavailable.
 
 ## Caveats
 
-Three caveats the recipe depends on; ignore them and the loop does more
-harm than good.
-
-- **Goodhart's law / metric-gaming.** "Make this number smaller" is not
-  the same instruction as "make this code simpler", and an LLM told the
-  former will satisfy it the cheapest way it can — usually by shuffling
-  complexity across a function boundary rather than removing it. The
-  [agent-guidance block](#agent-guidance-ship-this-verbatim) and the
-  [honest-suppression section](#honest-suppression-exact-syntax) are
-  the mitigation; they are load-bearing, not optional polish. Ship them
-  with the hook or expect the gaming move.
-- **Thresholds are proxies, not correctness gates.** A failing
-  compile or a red test is unambiguous — a tight agent loop on those
-  converges. A complexity threshold is softer: crossing it means
-  "a human should look at whether this is still readable", which is a
-  judgement call, not a defect. Set expectations accordingly — wire
-  complexity feedback as advice the agent weighs, not a pass/fail it
-  must drive to zero at any cost.
-- **Complexity feedback invites scope creep.** "This function is hard to
-  follow" reads to an agent as an invitation to restructure, and the
-  restructuring does not reliably stop at the function the hook named —
-  a two-line fix becomes a module rewrite nobody asked to review. Bound
-  it in the rules file: the violation is scoped to the edit that
-  triggered it. Fix it where it was flagged, mention anything larger you
-  noticed, and do not widen the change to chase the number.
+- **Metric-gaming:** optimizing a proxy can undermine the intended goal,
+  a risk described by [Goodhart's law](https://en.wikipedia.org/wiki/Goodhart%27s_law).
+  Asking for a lower number can encourage moving complexity across function
+  boundaries without improving readability. Include the
+  [agent guidance](#agent-guidance-ship-this-verbatim) and explain
+  [justified suppression](#honest-suppression-exact-syntax).
+- **Thresholds are indicators, not correctness checks:** a threshold
+  crossing calls for a readability review. It does not prove the code
+  is defective. Send findings as advice the agent considers, and verify
+  behavior with tests and other checks appropriate to the change.
+- **Scope creep:** a finding can invite a larger refactoring than the
+  task requires. Keep fixes within the current task. Findings may concern
+  unrelated functions or the whole file; report unrelated findings without
+  expanding the edit.

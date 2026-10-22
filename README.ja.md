@@ -49,16 +49,18 @@
 そのループの中に「この関数は保守できないほど複雑になった」と教えてくれる仕組みはありません。
 `bca check` はそのループを閉じます。エージェントが編集した各ファイルをチェックし、編集が確定した瞬間に、
 問題のある関数をモデルのコンテキストへ報告します。
-必要なのは `PATH` 上の `bca`（[クイックスタート](#クイックスタート)参照）と数行の設定だけです。
+`PATH` 上に `bca` をインストールし（[クイックスタート](#クイックスタート)参照）、フックを設定してください。
+Claude Code フックには `PATH` 上の [Node.js](https://nodejs.org/) も必要です。
 
-- **Claude Code** — `PostToolUse` フックが編集されたファイルに対して `bca check` を実行し、違反をモデルにフィードバックします。
-  本リポジトリ自身がリファレンス実装のフック [`.claude/hooks/bca-check.sh`](.claude/hooks/bca-check.sh) をドッグフーディングしています。
-- **opencode** — `tool.execute.after` プラグインが同じ役割を果たします。
+- **Claude Code** — `PostToolUse` フックが編集の成功後に助言をモデルへ渡します。
+  本リポジトリは Node.js ベースの[リファレンス実装](.claude/hooks/bca-check.mjs)を
+  [`.claude/settings.json`](.claude/settings.json)で有効にしています。
+- **OpenCode V2** — `execute.after` プラグインが同じ役割を果たします。
   リファレンスコピーは [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js) にあります。
 
 [エージェントフィードバックのレシピ](https://dekobon.github.io/big-code-analysis/ja/recipes/agent-feedback.html)には、
 両ツール向けのコピー＆ペーストで使える設定に加えて、
-エージェントがコードを簡潔にする代わりにメトリクスの数値だけを下げる「メトリクスのゲーム化」を防ぐガイダンスブロックも掲載しています。
+エージェントがコードを簡潔にせずにメトリクスの数値だけを下げる変更を避けるためのガイダンスブロックも掲載しています。
 
 ## クイックスタート
 

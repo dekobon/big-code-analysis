@@ -20548,6 +20548,182 @@ msgstr ""
 msgid "Feeding metrics to an agentic coding tool"
 msgstr "エージェント型コーディングツールへのメトリクスのフィード"
 
+#: src/recipes/agent-feedback.md:304
+msgid "The policy block below remains in English in translated editions; copy it as written."
+msgstr "以下の方針文は、翻訳版でも英語のまま掲載しています。そのままコピーして使ってください。"
+
+#: src/recipes/agent-feedback.md:3
+msgid "This recipe shows how to send maintainability findings to [Claude Code](https://code.claude.com/docs/en/overview) or [OpenCode](https://opencode.ai/) after a file-editing tool finishes. It assumes you can run [`bca check`](../commands/check.md) in your project and configure your coding agent. The findings are advice for the agent; the project's final validation gate still decides when a change is ready."
+msgstr "このレシピでは、ファイル編集ツールの実行後に、保守性に関する指摘を [Claude Code](https://code.claude.com/docs/en/overview) や [OpenCode](https://opencode.ai/) に渡す方法を説明します。プロジェクトで [`bca check`](../commands/check.md) を実行でき、コーディングエージェントの設定を変更できることを前提としています。指摘はエージェントへの助言です。変更が完了したかどうかは、引き続きプロジェクトの最終検証ゲートで判断します。"
+
+#: src/recipes/agent-feedback.md:10
+msgid "The hooks use the existing `bca check` command:"
+msgstr "フックは既存の `bca check` コマンドを使います。"
+
+#: src/recipes/agent-feedback.md:15
+msgid "Exit codes distinguish current findings (`2`, or `2–5` in tiered mode), a clean check (`0`), and tool errors (`1`). Findings need not be caused by the latest edit."
+msgstr "終了コードによって、現在の指摘がある場合（`2`、段階的終了コードを使う場合は `2–5`）、指摘がない場合（`0`）、ツールエラー（`1`）を区別できます。指摘が最新の編集に起因するとは限りません。"
+
+#: src/recipes/agent-feedback.md:17
+msgid "Baselines, in-source suppression markers, and `[check] exclude` globs filter findings using the project's policy. Put exclusions that must apply to explicitly named files under [`[check]`](#put-the-hooks-exclusions-under-check)."
+msgstr "ベースライン、ソース内の抑制マーカー、`[check] exclude` のグロブで、プロジェクトの方針に従って指摘を絞り込みます。明示的に指定したファイルにも適用する除外設定は、[`[check]`](#put-the-hooks-exclusions-under-check) の下に置いてください。"
+
+#: src/recipes/agent-feedback.md:24
+msgid "An editor integration can use the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) to update diagnostics while a person types. An agent hook checks the completed file edit. The proposed [`bca lsp` server (#384)](https://github.com/dekobon/big-code-analysis/issues/384) and these hooks serve those different uses:"
+msgstr "エディタとの連携では、[Language Server Protocol](https://microsoft.github.io/language-server-protocol/) を使って入力中に診断を更新できます。エージェントのフックは、ファイルの編集が完了してからチェックします。提案中の [`bca lsp` サーバー (#384)](https://github.com/dekobon/big-code-analysis/issues/384) と本レシピのフックは、それぞれ次の用途を対象としています。"
+
+#: src/recipes/agent-feedback.md:39
+msgid "Use an editor integration for feedback while typing and an after-tool hook for feedback during an agent's edit loop."
+msgstr "入力中のフィードバックにはエディタ連携を、エージェントの編集ループ内でのフィードバックにはツール実行後のフックを使ってください。"
+
+#: src/recipes/agent-feedback.md:52
+msgid "The [agent feedback profile](thresholds.md#profile-agent) suggests tighter limits than a blocking CI gate. Evaluate the extra findings before adopting them: unnecessary refactoring can expand the task or introduce bugs. [Choosing thresholds](thresholds.md) explains the defaults and other profiles."
+msgstr "[エージェントフィードバック用プロファイル](thresholds.md#profile-agent) は、合否を決める CI ゲートより厳しいしきい値を提案しています。採用する前に、増える指摘を評価してください。不要なリファクタリングは、作業範囲の拡大やバグの混入につながることがあります。デフォルト値とほかのプロファイルは、[しきい値の選択](thresholds.md)で説明しています。"
+
+#: src/recipes/agent-feedback.md:57
+msgid "With thresholds configured in `bca.toml` (see [Local threshold gates](local-gates.md#zero-config-the-bcatoml-manifest)), `bca check <file>` reads the committed limits, baseline, and exclusions. Use the same configuration and tier as CI when you want the same threshold policy."
+msgstr "`bca.toml` にしきい値を設定すると（[ローカルしきい値ゲート](local-gates.md#zero-config-the-bcatoml-manifest)を参照）、`bca check <file>` はコミット済みのしきい値、ベースライン、除外設定を読み込みます。CI と同じ基準で判定する場合は、設定と判定の層（tier）を CI とそろえてください。"
+
+#: src/recipes/agent-feedback.md:95
+msgid "Preserve the nearest `bca.toml` above the session's working directory, stopping at its checkout boundary. The reference hooks also recognize targets inside another nested checkout and apply that checkout's policy."
+msgstr "セッションの作業ディレクトリからチェックアウトの境界までを上にたどり、最も近い `bca.toml` を使ってください。リファレンス実装のフックは、入れ子になった別のチェックアウト内の対象も認識し、そのチェックアウトの方針を適用します。"
+
+#: src/recipes/agent-feedback.md:100
+msgid "Use a [Claude Code `PostToolUse` hook](https://code.claude.com/docs/en/hooks#posttooluse) to send current threshold findings to the model after a successful file edit. The reference hook returns `hookSpecificOutput.additionalContext` on stdout and exits 0. The tool's original result remains intact."
+msgstr "[Claude Code の `PostToolUse` フック](https://code.claude.com/docs/en/hooks#posttooluse)を使うと、ファイル編集の成功後に、現在のしきい値違反をモデルへ渡せます。リファレンス実装は stdout に `hookSpecificOutput.additionalContext` を返し、終了コード 0 で終了します。ツールの元の実行結果は保持されます。"
+
+#: src/recipes/agent-feedback.md:105
+msgid "Use Claude Code **2.1.139 or later**; that release added the hook `args` field used below (see the [official changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139)). Install [Node.js](https://nodejs.org/) LTS and `bca`. Run `bca init` in your project, or supply a nonempty `[thresholds]` table in [`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest). Run `bca check path/to/a/source-file` directly to confirm the configuration loads. Then copy these files into the same paths in your project:"
+msgstr "Claude Code **2.1.139 以降**を使ってください。以下で使うフックの `args` フィールドは、このバージョンで追加されました（[公式変更履歴](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139)を参照）。[Node.js](https://nodejs.org/) LTS と `bca` をインストールしてください。プロジェクトで `bca init` を実行するか、[`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest) の `[thresholds]` テーブルにしきい値を設定します。`bca check path/to/a/source-file` を直接実行し、設定が読み込まれることを確認してください。その後、次のファイルをプロジェクト内の同じパスへコピーします。"
+
+#: src/recipes/agent-feedback.md:113
+msgid "[`.claude/hooks/bca-check.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.mjs): reads the hook event and returns advisory JSON."
+msgstr "[`.claude/hooks/bca-check.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.mjs): フックのイベントを読み取り、助言を含む JSON を返します。"
+
+#: src/recipes/agent-feedback.md:115
+msgid "[`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs): runs the analyzer and bounds its output; the OpenCode plugin uses this helper too."
+msgstr "[`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs): アナライザーを実行し、出力量を制限します。OpenCode プラグインもこのヘルパーを使います。"
+
+#: src/recipes/agent-feedback.md:117
+msgid "[`.claude/hooks/bca-guidance.txt`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-guidance.txt): supplies the short runtime reminder. Replace its final `make` commands with your project's validation commands."
+msgstr "[`.claude/hooks/bca-guidance.txt`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-guidance.txt): 実行時に渡す短い注意事項です。末尾の `make` コマンドは、自分のプロジェクトの検証コマンドに置き換えてください。"
+
+#: src/recipes/agent-feedback.md:120
+msgid "Merge this configuration into `.claude/settings.json`, preserving existing settings:"
+msgstr "既存の設定を保持したまま、次の設定を `.claude/settings.json` に追加してください。"
+
+#: src/recipes/agent-feedback.md:131
+msgid "\"node\""
+msgstr "\"node\""
+
+#: src/recipes/agent-feedback.md:132
+msgid "\"args\""
+msgstr "\"args\""
+
+#: src/recipes/agent-feedback.md:132
+msgid "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.mjs\""
+msgstr "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.mjs\""
+
+#: src/recipes/agent-feedback.md:133
+msgid "\"timeout\""
+msgstr "\"timeout\""
+
+#: src/recipes/agent-feedback.md:142
+msgid "The [exec form](https://code.claude.com/docs/en/hooks#exec-form-and-shell-form) passes the script path as one argument, including spaces and shell metacharacters. The hook requires Node on `PATH`; its JSON handling uses no npm packages or `jq`. For an existing `bca-check.sh` registration, replace the old script with the [current wrapper](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.sh) and copy the `.mjs` files alongside it. Alternatively, replace that registration with the Node configuration above. Keep only one registration to avoid duplicate checks."
+msgstr "[exec 形式](https://code.claude.com/docs/en/hooks#exec-form-and-shell-form)では、空白やシェルの特殊文字を含むスクリプトのパスも、1 つの引数として渡します。フックには `PATH` 上の Node が必要です。JSON の処理に npm パッケージや `jq` は使いません。すでに `bca-check.sh` を登録している場合は、古いスクリプトを[現在のラッパー](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.sh)に置き換え、同じディレクトリに `.mjs` ファイルをコピーしてください。または、登録を上記の Node の設定に置き換えます。重複実行を避けるため、登録はどちらか一方だけにしてください。"
+
+#: src/recipes/agent-feedback.md:150
+msgid "The event's `cwd` selects the nearest manifest within the current checkout. For a target in a different nested checkout, the hook discovers configuration from that target's directory. `CLAUDE_PROJECT_DIR` locates the script, but stays at the original project when Claude enters a worktree. Using it to select the analyzer configuration would check the wrong tree. The analyzer selection is `$BCA`, the current checkout's executable `target/release/bca` (`bca.exe` on Windows), then `bca` on `PATH`. An explicit but unavailable `$BCA` stays unavailable rather than selecting another binary."
+msgstr "イベントの `cwd` を基準に、現在のチェックアウト内で最も近いマニフェストを選びます。対象が入れ子になった別のチェックアウト内にある場合は、対象のディレクトリから設定を探します。`CLAUDE_PROJECT_DIR` はスクリプトを探すために使いますが、Claude がワークツリーへ移動しても元のプロジェクトを指したままです。アナライザーの設定を選ぶ基準にすると、別のツリーをチェックしてしまいます。アナライザーは `$BCA`、現在のチェックアウト内の実行可能な `target/release/bca`（Windows では `bca.exe`）、`PATH` 上の `bca` の順で選びます。明示した `$BCA` が利用できない場合、別のバイナリには切り替えません。"
+
+#: src/recipes/agent-feedback.md:158
+msgid "The hook handles analyzer results as follows; the hook itself exits 0:"
+msgstr "アナライザーの結果は次のように扱います。フック自体の終了コードは 0 です。"
+
+#: src/recipes/agent-feedback.md:158
+msgid "Within one checkout, the session's manifest also applies when it edits a sibling package. Change the session directory to select that package's own manifest. Nested checkouts, including Git submodules, are separate configuration boundaries. If a nested checkout has no thresholds, the check is unavailable; it does not inherit the parent's policy."
+msgstr "同じチェックアウト内では、別のパッケージを編集するときも、セッションのマニフェストを適用します。そのパッケージ自身のマニフェストを使うには、セッションの作業ディレクトリを変更してください。Git サブモジュールを含む入れ子のチェックアウトは、設定を引き継がない境界です。入れ子のチェックアウトにしきい値がない場合はチェックを実行できず、親の方針も継承しません。"
+
+#: src/recipes/agent-feedback.md:160
+msgid "**Exit 0:** no model context for a clean or excluded file."
+msgstr "**終了コード 0:** 指摘がないファイルや除外されたファイルについては、モデルにコンテキストを追加しません。"
+
+#: src/recipes/agent-feedback.md:161
+msgid "**Exits 2–5:** stdout findings become advisory context, capped at 4,000 characters with a truncation notice."
+msgstr "**終了コード 2–5:** stdout の指摘を助言としてモデルのコンテキストに追加します。4,000 文字に制限し、省略した場合はその旨を示します。"
+
+#: src/recipes/agent-feedback.md:162
+msgid "**Analyzer failure:** no model context for a missing binary, exit 1, abnormal exit, timeout, or output overflow. Each subprocess has a three-second deadline and a 64 KiB output limit per stream. Timeout, cancellation, and output overflow terminate the owned process group on POSIX or process tree on Windows."
+msgstr "**アナライザーの失敗:** バイナリがない場合、終了コード 1、異常終了、タイムアウト、出力上限の超過では、モデルにコンテキストを追加しません。各子プロセスの実行時間は 3 秒、出力はストリームごとに 64 KiB が上限です。タイムアウト、キャンセル、出力上限の超過が起きると、POSIX では起動したプロセスグループを、Windows ではプロセスツリーを終了させます。"
+
+#: src/recipes/agent-feedback.md:165
+msgid "**Concurrent file change:** findings are discarded if the file's identity, size, or timestamps change during analysis."
+msgstr "**解析中のファイル変更:** 解析中にファイルの識別情報、サイズ、タイムスタンプが変わった場合は、指摘を破棄します。"
+
+#: src/recipes/agent-feedback.md:167
+msgid "The adapter keeps no persistent deduplication state, so an unchanged offender can reappear on a later edit. It checks the whole file: `[new]` and `[regr]` compare against the configured baseline, not the preceding edit. Use the [standing guidance](#agent-guidance-ship-this-verbatim) to keep any response within the task's scope. This matcher covers Edit, Write and MultiEdit; shell commands and external editors need separate integration."
+msgstr "このアダプターは重複排除の状態を永続化しないため、変化のない違反も次の編集で再び報告されることがあります。チェック対象はファイル全体です。`[new]` と `[regr]` は直前の編集ではなく、設定したベースラインとの比較を示します。[基本方針](#agent-guidance-ship-this-verbatim)に従い、対応をタスクの範囲内に収めてください。この matcher の対象は Edit、Write、MultiEdit です。シェルコマンドや外部エディタには別の連携が必要です。"
+
+#: src/recipes/agent-feedback.md:172
+msgid "**Verify model delivery after installation.** Create a disposable supported source file that breaches a configured limit using Claude's Write tool, and ask it to quote the finding it receives. Then simplify the file through Edit and confirm the clean result adds no advisory. In [debug output](https://code.claude.com/docs/en/hooks#debug-hooks), `[bca-check]` JSON records distinguish findings, clean/excluded files, out-of-scope paths, superseded results, and unavailable checks. These records go to stderr with exit 0, so Claude does not receive them as additional context. They record the checkout, analyzer, outcome, and up to 1,000 characters of analyzer stderr for troubleshooting. Offender rows remain in the advisory; CI annotations and summary-file side effects are disabled. The reference suite runs with `make plugin-test`, including the shared OpenCode helper regressions."
+msgstr "**導入後にモデルへの到達を確認してください。** Claude の Write ツールで、設定したしきい値を超える、対応言語の一時的なソースファイルを作り、受け取った指摘を引用するよう依頼します。次に Edit でファイルを簡潔にし、違反がなくなれば助言が追加されないことを確認します。[デバッグ出力](https://code.claude.com/docs/en/hooks#debug-hooks)の `[bca-check]` JSON 記録で、指摘あり、指摘なし・除外、対象外パス、更新によって古くなった結果、チェック実行不可を区別できます。この記録は終了コード 0 で stderr に出力されるため、Claude の追加コンテキストには入りません。チェックアウト、アナライザー、結果に加え、問題の調査用にアナライザーの stderr を最大 1,000 文字記録します。違反の行は助言に含まれます。CI アノテーションやサマリーファイルへの書き込みは無効です。`make plugin-test` で、OpenCode と共有するヘルパーの回帰テストも含めてリファレンス実装をテストできます。"
+
+#: src/recipes/agent-feedback.md:182
+msgid "OpenCode V1 (legacy)"
+msgstr "OpenCode V1（旧バージョン）"
+
+#: src/recipes/agent-feedback.md:184
+msgid "The example in this section uses the V1 plugin API. The repository's [current V2 plugin](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js) uses the [V2 hook API](https://opencode.ai/v2/docs/build/plugins) and also requires [`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs). Use the [migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) when porting a V1 plugin."
+msgstr "この節の例は V1 のプラグイン API を使います。本リポジトリの[現在の V2 プラグイン](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js)は [V2 フック API](https://opencode.ai/v2/docs/build/plugins)を使い、[`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs) も必要です。V1 プラグインを移植する際は、[移行ガイド](https://opencode.ai/v2/docs/build/plugins/migrate-v1)を参照してください。"
+
+#: src/recipes/agent-feedback.md:281
+msgid "The repository now ships a V2 reference at [`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js). It uses a different plugin API and adds guards worth porting to a V1 setup:"
+msgstr "本リポジトリの V2 リファレンス実装は [`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js) にあります。プラグイン API は異なりますが、V1 の設定にも取り入れられる次の対策があります。"
+
+#: src/recipes/agent-feedback.md:297
+msgid "Bare metric feedback can encourage changes that lower scores without improving readability, such as extracting helpers with no useful responsibility. Tell the agent what to do with a finding. Paste this block into your agent rules file (`CLAUDE.md` or `AGENTS.md`) as standing policy. Use the short `bca-guidance.txt` reminder in runtime feedback; the reference hooks bound that text separately from the findings."
+msgstr "数値だけのフィードバックは、役割のないヘルパーの抽出など、読みやすさを改善せずにスコアだけを下げる変更を促すことがあります。指摘への対応方針をエージェントに伝えてください。次のブロックを基本方針としてエージェントのルールファイル（`CLAUDE.md` または `AGENTS.md`）に貼り付けます。実行時のフィードバックには短い `bca-guidance.txt` を使ってください。リファレンス実装では、このテキストの長さを指摘とは別に制限しています。"
+
+#: src/recipes/agent-feedback.md:334
+msgid "Suppression requires the exact syntax described in [Suppression markers](../commands/suppression.md):"
+msgstr "抑制には、[抑制マーカー](../commands/suppression.md)で説明する正確な構文が必要です。"
+
+#: src/recipes/agent-feedback.md:337
+msgid "**Per function:** place the marker in a comment inside the function body, naming the metric(s): `// bca: suppress(cyclomatic, abc) -- hand-rolled parser table`. A bare `// bca: suppress` (no list) silences every suppressible metric for that function; `tokens` remains enforced."
+msgstr "**関数単位:** 関数本体内のコメントに、対象メトリクスを指定したマーカーを置きます。例: `// bca: suppress(cyclomatic, abc) -- hand-rolled parser table`。一覧を省略した `// bca: suppress` は、その関数の抑制可能なすべてのメトリクスを抑制します。`tokens` の制限は引き続き適用されます。"
+
+#: src/recipes/agent-feedback.md:342
+msgid "**Whole file:** `// bca: suppress-file(halstead, nargs, nexits)` anywhere in the file; the bare `// bca: suppress-file` form silences every suppressible metric file-wide. It does not suppress `tokens`."
+msgstr "**ファイル全体:** ファイル内の任意の場所に `// bca: suppress-file(halstead, nargs, nexits)` を置きます。一覧を省略した `// bca: suppress-file` は、ファイル全体で抑制可能なすべてのメトリクスを抑制します。`tokens` は抑制しません。"
+
+#: src/recipes/agent-feedback.md:345
+msgid "**Put the rationale on the marker line, after a metric list.** The text after the list is free-form and needs no separator. Without a metric list, trailing text is not accepted because it cannot be distinguished from prose about the marker. Include a reason so a reviewer can assess the exemption. `bca exemptions` lists the markers for that review."
+msgstr "**理由は、マーカーと同じ行のメトリクス一覧の後に書いてください。** 一覧の後には自由に理由を書けます。区切り文字は不要です。メトリクス一覧を省略した形式では、マーカーに関する説明文と区別できないため、末尾に理由を書けません。適用除外の妥当性をレビュアーが判断できるよう、理由を添えてください。`bca exemptions` で、その確認に使うマーカー一覧を表示できます。"
+
+#: src/recipes/agent-feedback.md:362
+msgid "Per-edit hooks provide early advice. Run the project's validation gate after a coherent change, including its tests and linters. The [`make self-scan` / pre-commit pattern](local-gates.md) uses the CI limits for its hard gate. For higher-is-worse metrics, its default soft threshold is 95% of the hard limit, giving an early warning near that limit."
+msgstr "編集ごとのフックは、早い段階で助言を提供します。ひとまとまりの変更を終えてから、テストやリンターを含むプロジェクトの検証ゲートを実行してください。[`make self-scan` / pre-commit パターン](local-gates.md)では、ハードゲートに CI と同じしきい値を使います。値が大きいほど悪いメトリクスでは、デフォルトのソフトしきい値をハード上限の 95% に設定し、上限に近づいた段階で警告します。"
+
+#: src/recipes/agent-feedback.md:368
+msgid "Intermediate edits can produce temporary findings that disappear when the refactoring is complete. Let the agent finish a coherent edit before responding to those findings. A metric is an indirect indicator of readability; it does not establish correctness."
+msgstr "編集の途中では、リファクタリングの完了時に解消される一時的な指摘が出ることがあります。それらに対応する前に、エージェントにひとまとまりの編集を終えさせてください。メトリクスは読みやすさを判断する目安であり、コードの正しさを証明するものではありません。"
+
+#: src/recipes/agent-feedback.md:373
+msgid "Avoid requiring an extra metric check after every edit when the hook already runs one. Keep the final validation requirement explicit and rerun a check when its inputs change or its previous result is unavailable."
+msgstr "フックがすでにチェックしている場合は、編集のたびに追加のメトリクスチェックを要求しないでください。最終検証を実行する義務は明示し、入力が変わった場合や前回の結果を利用できない場合にチェックを再実行します。"
+
+#: src/recipes/agent-feedback.md:379
+msgid "**Metric-gaming:** optimizing a proxy can undermine the intended goal, a risk described by [Goodhart's law](https://en.wikipedia.org/wiki/Goodhart%27s_law). Asking for a lower number can encourage moving complexity across function boundaries without improving readability. Include the [agent guidance](#agent-guidance-ship-this-verbatim) and explain [justified suppression](#honest-suppression-exact-syntax)."
+msgstr "**数値だけを改善する変更:** 代理指標の最適化が、本来の目標を損なうことがあります。[グッドハートの法則](https://en.wikipedia.org/wiki/Goodhart%27s_law)が説明するリスクです。数値を下げるよう求めると、読みやすさを改善せずに複雑さを別の関数へ移す変更を促すことがあります。[エージェント向けの指針](#agent-guidance-ship-this-verbatim)を含め、[根拠のある抑制](#honest-suppression-exact-syntax)を説明してください。"
+
+#: src/recipes/agent-feedback.md:385
+msgid "**Thresholds are indicators, not correctness checks:** a threshold crossing calls for a readability review. It does not prove the code is defective. Send findings as advice the agent considers, and verify behavior with tests and other checks appropriate to the change."
+msgstr "**しきい値は目安であり、正しさを判定するものではありません:** しきい値を超えた場合は、読みやすさを確認してください。それだけでコードに欠陥があるとは言えません。指摘はエージェントが判断材料として使う助言として渡し、変更に適したテストやほかのチェックで動作を検証してください。"
+
+#: src/recipes/agent-feedback.md:389
+msgid "**Scope creep:** a finding can invite a larger refactoring than the task requires. Keep fixes within the current task. Findings may concern unrelated functions or the whole file; report unrelated findings without expanding the edit."
+msgstr "**作業範囲の拡大:** 指摘への対応が、タスクに必要な範囲を超えるリファクタリングにつながることがあります。修正は現在のタスクの範囲に収めてください。指摘には、無関係な関数やファイル全体に関するものも含まれます。無関係な指摘は報告にとどめ、修正範囲を広げないでください。"
+
 #: src/recipes/agent-feedback.md:3
 msgid ""
 "An agentic coding tool — Claude Code, opencode, and the like — is a fast-"
@@ -20643,11 +20819,11 @@ msgstr "本レシピ"
 
 #: src/recipes/agent-feedback.md:40
 msgid "Consumer"
-msgstr "消費者"
+msgstr "利用者"
 
 #: src/recipes/agent-feedback.md:40
 msgid "Human in an editor"
-msgstr "エディタ内の人間"
+msgstr "エディタを使う人"
 
 #: src/recipes/agent-feedback.md:40
 msgid "Agent in a tool loop"
@@ -20765,8 +20941,8 @@ msgstr "フックの除外は `[check]` の下に置く"
 msgid ""
 "One thing does _not_ carry over from the CI invocation, and it will produce "
 "false positives if you skip it. A hook names one file per run, and [an "
-"explicitly named path overrides every walker exclude](../commands/README."
-"md#explicit-paths-bypass-the-filter) — the `rg` convention that a path you "
+"explicitly named path overrides every walker exclude](../commands/index."
+"html#explicit-paths-bypass-the-filter) — the `rg` convention that a path you "
 "named is a direct request. So a file your project keeps out of scope with `-"
 "X`, `--exclude-from`, a `.bcaignore`, or a manifest `exclude` list is "
 "nonetheless analyzed the moment the hook passes it by name, and reported as "
@@ -20774,7 +20950,7 @@ msgid ""
 msgstr ""
 "CI の呼び出しから引き継がれ「ない」ものが 1 つあり、これを省くと偽陽性を生み"
 "ます。フックは実行ごとにファイルを 1 つ名指しし、[明示的に名指しされたパスは"
-"すべてのウォーカー除外を上書きします](../commands/README.md#explicit-paths-"
+"すべてのウォーカー除外を上書きします](../commands/index.html#explicit-paths-"
 "bypass-the-filter)。名指ししたパスは直接の要求であるという `rg` の慣習です。"
 "そのため、プロジェクトが `-X`、`--exclude-from`、`.bcaignore`、あるいはマニ"
 "フェストの `exclude` リストでスコープ外にしているファイルであっても、フックが"
