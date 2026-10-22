@@ -3245,7 +3245,13 @@ unknown/fallback variant so unconverted callers stay correct, and pin the
 walker's own bookkeeping with a debug-only assertion: a chain type that
 trusts `chain.last()` unvalidated turns a desynchronised walker into
 wrong answers rather than a failure, and a parity test written against a
-*replica* walker cannot see the real one drift. A known chain makes each
+*replica* walker cannot see the real one drift. Then perturb the push as
+well as the pop: a containment assertion written as `is_none_or` passes
+vacuously once the chain is empty, which a walk that pops without
+pushing reaches on its first node, so the push half needs a consumer
+whose answer depends on the parent (#1684, PR #1687: Tcl's
+`keeps_children`, on a braced word that is a literal under `command` and
+a script under `word_list`). A known chain makes each
 step `O(1)`, not the climb: a predicate that walks "until the first
 ancestor that is not X" is still `O(depth)` per node wherever X can
 nest without bound, so propagate the *answer* instead, and add a
@@ -4015,8 +4021,10 @@ that pushed the children, never from a tree-sitter seek on the parent.
 `goto_first_child_for_byte`, `Node::child(i)`, `next_sibling` and
 `goto_previous_sibling` are O(log n) only when the parent's children are
 stored as a grammar `repeat()`'s balanced hidden subtree. Over a flat
-child array — every `ERROR` that recovery builds by skipping tokens —
-each is O(index), and a per-child sibling question is quadratic. Record a
+child array each is O(index), and a per-child sibling question is
+quadratic. Whether an `ERROR` is flat is a property of how recovery
+assembled it, not of its kind or position: name the shape you measured
+and the property, not a category that correlates with it. Record a
 wide node's children when the walk pushes them, lend the record through
 the ancestor chain, and gate the shape with a `bench-scaling` probe whose
 body really flattens: plain repetition folds into nested
@@ -4045,6 +4053,19 @@ each node with more than `WIDE_PARENT` children into a per-depth
 `SiblingCache` as the metric, `ops` and `find`/`count` walks push them,
 and every lookup falls back to the old seek on a miss; five probes trip
 at 1.7–2.1 with the cache ignored and fit 0.9–1.1 with it.
+
+**"Which `ERROR` is flat" was documented wrong three times in one PR**
+(#1684, PR #1687). The AST export's indexed walk was quadratic on the
+Perl shape above, and the cost note went through "every recovery
+`ERROR`" — the wording this entry carried until then — then "the root
+`ERROR` of a file that ends mid-parse", then "an `ERROR` at the root".
+Each read as a tightening of the last, each was checked, and each check
+built the one counter-example the current wording asserted against: a
+mid-file `ERROR` balanced under hidden `_ERROR` repeats; a Perl file
+that does not end mid-parse yet gets a flat root beside a Rust file that
+does and gets a nested, balanced one; a root `ERROR` whose skipped run
+stayed balanced beneath it beside a nested `ERROR` holding its popped
+tokens flat (cf. lesson 84).
 
 ---
 

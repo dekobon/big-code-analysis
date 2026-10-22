@@ -309,9 +309,10 @@ impl<'a> Frame<'a> {
 /// [`Export::finish`] carries a `debug_assert!` that catches a dropped
 /// pop on every fixture the dump walk sees, and `make chain-audit`
 /// upgrades it to the exact `chain.last() == node.parent()` check —
-/// the only one that sees a dropped *push*, since a chain that never
-/// grows ends at the root, which contains every node. The default
-/// build pins the push through `keeps_children` instead, in
+/// the only one that sees a dropped *push*: `finish` pops before it
+/// asks, so a walk that never pushes empties the chain on its first
+/// node, and the containment check passes vacuously on an empty chain.
+/// The default build pins the push through `keeps_children` instead, in
 /// `each_strategy_hands_the_alterator_the_real_parent` below. And the
 /// swap itself is priced by `dump/tcl-nested-eval` in the benchmark
 /// harness, which it takes from 0.75 to 2.00.
@@ -1104,8 +1105,10 @@ mod tests {
     ///
     /// `Ancestors::checked`'s default-build `debug_assert!` sees a
     /// dropped *pop* — the stale entry no longer contains the node —
-    /// but not a dropped *push*: a chain that never grows ends at the
-    /// root, which contains everything. Only `make chain-audit` asks
+    /// but not a dropped *push*: `finish` pops before it asks, so a walk
+    /// that never pushes empties the chain on its first node, and the
+    /// containment check passes vacuously on an empty chain. Only
+    /// `make chain-audit` asks
     /// the exact question, so this pins the push half through its one
     /// consumer. A braced word directly under a `command` is that
     /// command's *name*, a literal the alterator flattens to a leaf;
