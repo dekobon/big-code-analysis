@@ -24,6 +24,18 @@ for historical reference.
 
 ## [Unreleased]
 
+### Changed
+
+- **(breaking), deferred to the next major (3.0):** the MI of a space
+  with no code will serialize as `null` (an omitted key in TOML)
+  instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
+  use `mi::Stats::is_empty()` to tell it apart. The change retires the
+  dict-side copy of that predicate in the Python bindings
+  (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
+  only because the wire cannot yet say "empty". (#1621)
+
+## [2.4.0] - 2026-10-21
+
 ### Added
 
 - A project-level Claude Code `PostToolUse` hook delivers bounded advisory
@@ -214,6 +226,11 @@ for historical reference.
 
 ### Changed
 
+- The OpenCode reference plugin uses the V2 `execute.after` API and
+  preserves successful tool results while appending bounded advisory
+  feedback. It handles current session and worktree paths, cancels stale
+  checks, and deduplicates delivered findings. The project explicitly
+  registers the plugin; the book retains a labeled legacy V1 example.
 - Bumped the `tree-sitter-php` grammar pin to `=0.25.1`. Four constructs the
   old grammar parsed as `ERROR` now parse: a group
   `use` with a leading backslash (`use \Foo\{Bar, Baz};`), asymmetric
@@ -321,13 +338,6 @@ for historical reference.
   `; valid: <family names>` is now
   `[; did you mean `x`?]; known metrics: <family and row names>`,
   matching `bca metrics --metrics`. (#1614)
-- **(breaking), deferred to the next major (3.0):** the MI of a space
-  with no code will serialize as `null` (an omitted key in TOML)
-  instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
-  use `mi::Stats::is_empty()` to tell it apart. The change retires the
-  dict-side copy of that predicate in the Python bindings
-  (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
-  only because the wire cannot yet say "empty". (#1621)
 - **The maintainability index sizes on PLOC, and `mi.sei`'s comment
   term is monotonic** (#1607). Every `mi.*` variant now uses
   `loc.ploc` (the rows that carry code) as its size term, in both
@@ -11117,7 +11127,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/dekobon/big-code-analysis/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...v2.2.0
