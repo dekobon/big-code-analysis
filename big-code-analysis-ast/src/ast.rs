@@ -520,7 +520,7 @@ mod tests {
     type Dump<P> = fn(&P, AstCfg) -> AstResponse;
 
     /// The two explicit strategies, by name.
-    #[cfg(any(feature = "cpp", feature = "rust", feature = "tcl"))]
+    #[cfg(any(feature = "cpp", feature = "python", feature = "rust", feature = "tcl"))]
     fn strategies<P: ParserTrait>() -> [(&'static str, Dump<P>); 2] {
         [
             ("cursor", dump_cursor_inner),
@@ -538,7 +538,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "cpp", feature = "rust", feature = "tcl"))]
+    #[cfg(any(feature = "cpp", feature = "python", feature = "rust", feature = "tcl"))]
     fn build_ast_by<P: ParserTrait>(
         dump: Dump<P>,
         code: &[u8],
@@ -1027,13 +1027,8 @@ mod tests {
     #[test]
     fn each_strategy_reports_a_field_inherited_through_a_hidden_rule() {
         let code = b"a < b <= c\n";
-        let strategies: [(&str, Dump<crate::PythonParser>); 2] = [
-            ("cursor", dump_cursor_inner),
-            ("indexed", dump_indexed_inner),
-        ];
-        for (name, dump) in strategies {
-            let parser = crate::PythonParser::new(code.to_vec(), &PathBuf::from("c.py"), None);
-            let root = dump(&parser, cfg_with(false, false)).root.expect("root");
+        for (name, dump) in strategies::<crate::PythonParser>() {
+            let root = build_ast_by(dump, code, "c.py", false, false);
             let comparison = kinds_and_fields(&root.children[0].children[0]);
             // expected: the two operator tokens carry `operators`; the
             // three operands sit in no field.
