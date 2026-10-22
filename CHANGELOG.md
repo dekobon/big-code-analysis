@@ -48,6 +48,20 @@ for historical reference.
   cursor's 1.2 ms. `Node::child` and `Node::field_name_for_child` now
   document that cost. (#1684)
 
+- A Tcl or iRules command line with one parse error among its
+  arguments — `eval {a} {b} ] {c}` — was quadratic in the number of
+  arguments on every seam that classifies a braced word: `Ast::metrics`
+  and `Ast::ops` (through Halstead's brace operator), `Ast::dump`, and
+  `find` / `count --type string`. Each braced word asked whether its
+  argument list could be read by position, and the answer was a scan of
+  every sibling; a 96 KB one-line `eval` took 4.8 s under `bca metrics`.
+  The answer is now stored once per argument list in the memo each walk
+  already lends with its ancestor chain, and the same input takes
+  39 ms. The output is unchanged. The export walk and the `find` /
+  `count` walk now lend that memo too, and a chain reached through
+  `Ancestors::iter` keeps it. Three scaling probes pin the three walks.
+  (#1686)
+
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)
   instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;

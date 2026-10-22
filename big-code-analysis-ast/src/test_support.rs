@@ -62,6 +62,19 @@ pub fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
     parser.root().preorder().any(|n| n.kind_id() == target)
 }
 
+/// A Tcl-family line whose argument list a walk can read only by
+/// scanning it: `eval` with `width` braced words and one stray `]` among
+/// them. Every word asks whether the list is readable, so a walk that
+/// lends its `FoldCache` scans the list once and one that does not scans
+/// it `width` times — the two answer identically, and only
+/// `lang_helpers::argument_slot_scans` tells them apart (#1686). Shared
+/// by one test per walk, in this crate and the root's.
+#[must_use]
+pub fn tcl_wide_erroring_eval(width: usize) -> String {
+    let half = "{a b} ".repeat(width / 2);
+    format!("eval {half}] {half}\n")
+}
+
 /// Asserts that `predicate` holds for every input in `yes` and for none
 /// in `no`, naming the offending input on failure.
 #[track_caller]

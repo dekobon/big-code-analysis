@@ -975,6 +975,26 @@ pub fn tcl_nested_eval(depth: usize) -> String {
     format!("{}puts hi{}\n", "eval {".repeat(depth), "}".repeat(depth))
 }
 
+/// Tcl: one `eval` line of `width` `{a b} "x"` pairs with a stray `]`
+/// in the middle of its argument list.
+///
+/// The `]` is an `ERROR` slot of the `word_list`, so the list cannot be
+/// read by position and every braced word in it keeps the construct-wide
+/// script answer. Each word asks `argument_slots_are_readable` whether
+/// that is so; the answer is memoised per list under a walk that lends
+/// its `FoldCache`, and was an `O(width)` sibling scan per word before
+/// #1686 — 4 s for 16 000 words. `has_error` is transitive, so the one
+/// `]` admits the scan for every word of the line.
+///
+/// The `"x"` beside each braced word is the `string` filter's reading:
+/// a braced word of an unreadable list is a script, never a string, so
+/// without it the count probe would score zero on its own shape.
+#[must_use]
+pub fn tcl_wide_erroring_eval(width: usize) -> String {
+    let half = "{a b} \"x\" ".repeat(width / 2);
+    format!("eval {half}] {half}\n")
+}
+
 /// The walk a probe times.
 ///
 /// Four seams reach an AST walk — `Ast::metrics`, `Ast::ops`, the
@@ -1194,6 +1214,16 @@ const LINEAR_WIDTHS: [usize; 3] = [500, 1_000, 2_000];
 /// than abandoning the probe as over budget.
 const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
+/// Sibling counts for the three `tcl-wide-erroring-eval` probes.
+///
+/// Set by measurement, as [`SPACE_MERGE_WIDTHS`] was: the quadratic
+/// term is one sibling scan per braced word, each a cheap `kind` read
+/// per slot, riding on a walk that classifies every token. On
+/// [`LINEAR_WIDTHS`] the scan is too small a share of the walk to move
+/// the fit; here the same ladder as the space-merge probes, and the
+/// clean / regressed readings in `docs/development/benchmarking.md`.
+const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
+
 /// Depths for `nom/deep-attribute-run`, whose shape grows *two* axes
 /// with one parameter.
 ///
@@ -1311,6 +1341,58 @@ pub const PROBES: &[Probe] = &[
                     instead takes this probe from 0.75 to 2.00; the cursor \
                     walk must keep the chain in step with its own climbs \
                     (#1381, #1684).",
+    },
+    Probe {
+        name: "dump/tcl-wide-erroring-eval",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Dump {
+            span: false,
+            comment: false,
+        },
+        render: tcl_wide_erroring_eval,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Every braced word of an erroring `eval` line asks \
+                    `keeps_children` whether its argument list is readable, \
+                    and the sibling scan that answers is memoised per list \
+                    through the `FoldCache` the export lends. Dropping that \
+                    cache from `Export::finish` scans the list once per \
+                    word, quadratic in the line's width (#1686).",
+    },
+    Probe {
+        name: "halstead/tcl-wide-erroring-eval",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operators(),
+        },
+        render: tcl_wide_erroring_eval,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The metric walk's seam onto the same scan: each braced \
+                    word's `{` asks `braced_word_op_type` whether it opens a \
+                    block, which reaches the readability question through \
+                    the word's parent — so the cache must survive \
+                    `Ancestors::iter`, and the walk must lend one. Each \
+                    walk lends its own, so this probe cannot stand in for \
+                    the dump or count probes on the same shape (#1686).",
+    },
+    Probe {
+        name: "count/tcl-wide-erroring-eval",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Count { filter: "string" },
+        render: tcl_wide_erroring_eval,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The `bca count` / `bca find` seam onto the same scan: \
+                    the `string` filter asks of every braced word whether it \
+                    is a value, and `act_on_node` must lend the cache that \
+                    memoises the answer. The reading is the one quoted word \
+                    beside each braced one (#1686).",
     },
     Probe {
         name: "halstead/csharp-qualified-generics",
@@ -2800,6 +2882,17 @@ mod tests {
         "dump/perl-error-tail-calls",
     ];
 
+    /// Probes whose shape recovers *inside* a command rather than at
+    /// the root: the `ERROR` is a slot of the widening `word_list`, which
+    /// is what makes the list unreadable and the scan run at all. See
+    /// [`shapes_parse_without_error`] and
+    /// [`erroring_eval_probes_err_in_the_argument_list`].
+    const ARGUMENT_SLOT_ERROR_PROBES: &[&str] = &[
+        "dump/tcl-wide-erroring-eval",
+        "halstead/tcl-wide-erroring-eval",
+        "count/tcl-wide-erroring-eval",
+    ];
+
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///
     /// Iterative on an explicit stack: the shapes here nest thousands
@@ -2899,6 +2992,11 @@ mod tests {
             let root = ast.as_tree_sitter().root_node();
             let (parses_as_declared, declared) = if RECOVERY_PROBES.contains(&probe.name) {
                 (root.is_error(), "into an ERROR root")
+            } else if ARGUMENT_SLOT_ERROR_PROBES.contains(&probe.name) {
+                (
+                    root.has_error() && !root.is_error(),
+                    "with an ERROR below a well-formed root",
+                )
             } else {
                 (!root.has_error(), "without an ERROR node")
             };
@@ -2909,12 +3007,79 @@ mod tests {
                 "{name}: shape must parse {declared} at size {size}:\n{head}…"
             );
         }
-        for name in RECOVERY_PROBES {
-            assert!(
-                PROBES.iter().any(|probe| probe.name == *name),
-                "RECOVERY_PROBES names {name}, which is not in PROBES",
-            );
+        for (list, names) in [
+            ("RECOVERY_PROBES", RECOVERY_PROBES),
+            ("ARGUMENT_SLOT_ERROR_PROBES", ARGUMENT_SLOT_ERROR_PROBES),
+        ] {
+            for name in names {
+                assert!(
+                    PROBES.iter().any(|probe| probe.name == *name),
+                    "{list} names {name}, which is not in PROBES",
+                );
+            }
         }
+    }
+
+    /// The `tcl-wide-erroring-eval` shape errs where its probes need it
+    /// to: the `ERROR` is a direct slot of the `eval` command's argument
+    /// list, which is the widening node, with braced words on both sides
+    /// of it. At each rung of the ladder, since recovery is the workload
+    /// here and not merely permitted.
+    ///
+    /// [`shapes_parse_without_error`] only establishes that *some* nested
+    /// error exists; a grammar that moved the `]` into a command of its
+    /// own, or that absorbed it into a neighbouring word, would leave the
+    /// list readable and the scan never run, while the `"x"` words kept
+    /// every reading non-zero.
+    #[test]
+    fn erroring_eval_probes_err_in_the_argument_list() {
+        let mut checked = 0;
+        for probe in PROBES
+            .iter()
+            .filter(|probe| ARGUMENT_SLOT_ERROR_PROBES.contains(&probe.name))
+        {
+            for size in probe.sizes {
+                let ast = parse(probe, size);
+                let root = ast.as_tree_sitter().root_node();
+                let mut cursor = root.walk();
+                let eval = root
+                    .children(&mut cursor)
+                    .find(|node| node.kind() == "command")
+                    .unwrap_or_else(|| panic!("{}: the line is one command", probe.name));
+                let list = eval
+                    .child_by_field_name("arguments")
+                    .unwrap_or_else(|| panic!("{}: the command has arguments", probe.name));
+                assert_eq!(list.kind(), "word_list", "{}", probe.name);
+                assert_eq!(
+                    list.child_count(),
+                    max_child_count(&ast),
+                    "{}: the argument list must be the widening node",
+                    probe.name
+                );
+                let mut cursor = list.walk();
+                let kinds: Vec<&str> = list.children(&mut cursor).map(|c| c.kind()).collect();
+                let errors: Vec<usize> = kinds
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, kind)| (*kind == "ERROR").then_some(i))
+                    .collect();
+                let [error] = errors[..] else {
+                    panic!(
+                        "{}: exactly one ERROR slot at size {size}, found {errors:?}",
+                        probe.name
+                    );
+                };
+                let braced = |slice: &[&str]| slice.iter().filter(|k| **k == "braced_word").count();
+                assert_eq!(
+                    (braced(&kinds[..error]), braced(&kinds[error + 1..])),
+                    (size / 2, size / 2),
+                    "{}: {size} braced words, half on each side of the ERROR slot",
+                    probe.name
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, ARGUMENT_SLOT_ERROR_PROBES.len() * 3);
     }
 
     /// Every depth shape actually nests: doubling the size adds at

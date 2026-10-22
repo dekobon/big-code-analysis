@@ -18,7 +18,7 @@ mod parser_cache;
 #[doc(hidden)]
 pub use ancestors::WIDE_PARENT;
 pub use ancestors::{AncestorIter, Ancestors, FoldCache, SiblingCache};
-pub(crate) use ancestors::{FoldLane, NodeMemo};
+pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
@@ -986,6 +986,10 @@ impl<'a> Search<'a> for Node<'a> {
         for (at, ancestor) in chain.iter().enumerate() {
             siblings.record(ancestor, at, ancestor.children());
         }
+        // And the walk's memo, so the `string` filter's Tcl-family role
+        // question is answered once per argument list rather than once
+        // per braced word in it (#1686).
+        let folds = FoldCache::default();
 
         stack.push((*self, depth));
 
@@ -993,7 +997,9 @@ impl<'a> Search<'a> for Node<'a> {
             chain.truncate(depth);
             action(
                 &node,
-                Ancestors::checked(&chain, &node).with_siblings(&siblings),
+                Ancestors::checked(&chain, &node)
+                    .with_siblings(&siblings)
+                    .with_folds(&folds),
             );
             chain.push(node);
             // Source order in, tail reversed in place, so the LIFO
@@ -1604,6 +1610,42 @@ mod tests {
             scans, 0,
             "act_on_node built {scans} cursors over {nodes} nodes; it holds one \
              for the walk (#1112)"
+        );
+    }
+
+    /// `act_on_node` lends a `FoldCache`, so the `string` filter's Tcl
+    /// role question scans a wide erroring `eval` line once per walk
+    /// rather than once per braced word (#1686). The filter answers the
+    /// same either way — none of the words is a string, since an
+    /// unreadable list keeps the script answer — so the scan count is
+    /// what sees the cache; dropping `.with_folds` from the walk takes it
+    /// to `width`.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn act_on_node_scans_an_erroring_argument_list_once() {
+        use crate::lang_helpers::argument_slot_scans;
+        use crate::langs::TclCode;
+
+        let width = 200;
+        let code = crate::test_support::tcl_wide_erroring_eval(width);
+        let code = code.as_bytes();
+        let tree = Tree::new::<TclCode>(code);
+        let root = tree.get_root();
+        let before = argument_slot_scans::observed();
+        let (mut strings, mut words) = (0_usize, 0_usize);
+        root.act_on_node(&mut |node, ancestors| {
+            words += usize::from(node.kind_id() == crate::Tcl::BracedWord as u16);
+            strings += usize::from(TclCode::is_string_with_code(node, code, ancestors));
+        });
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            1,
+            "the walk lends one cache for the whole tree"
+        );
+        assert_eq!(words, width, "the fixture must reach every braced word");
+        assert_eq!(
+            strings, 0,
+            "an unreadable `eval` list keeps every word a script"
         );
     }
 

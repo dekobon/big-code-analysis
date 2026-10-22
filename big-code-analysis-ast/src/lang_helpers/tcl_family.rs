@@ -17,7 +17,18 @@
 //! [`Getter::is_braced_literal_slot`]: crate::getter::Getter::is_braced_literal_slot
 
 use crate::getter::{BracedWordKinds, node_text};
-use crate::node::{Cursor, Node};
+use crate::node::{Ancestors, Cursor, MemoQuestion, Node};
+
+// The sibling scan `argument_slots_are_readable` runs, counted so a
+// test can see that a walk lending a `FoldCache` runs it once per
+// argument list rather than once per braced word: the answers are
+// identical either way, and only the count tells the two apart (#1686).
+// Readable from the root crate's tests through `test-support`, since
+// the walks that lend the cache live there.
+crate::observation::counter!(
+    argument_slot_scans,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// The core Tcl-family commands that evaluate a braced argument as a
 /// *script* and that neither dialect's grammar models with a node of its
@@ -295,12 +306,37 @@ pub(crate) struct ArgumentRoles {
 /// every command in a file that parses — never pays for the scan, and
 /// the scan is bounded by the argument count when it does.
 ///
+/// Every braced word of `arguments` asks, so under a walk that lent a
+/// [`FoldCache`](crate::FoldCache) the scan's answer is memoised by the
+/// list's id and runs once per list; unmemoised, a wide one-line
+/// `eval` carrying one stray `]` was quadratic in its width — 4 s for
+/// 16 000 words — on every walk that reaches a braced word's role
+/// (#1686). `ancestors` is the *word's* chain, which is the one the
+/// walk lent its cache to; a chain derived through [`Ancestors::iter`]
+/// carries the same cache. The answer depends on the tree alone, so
+/// pre- and post-order walks store the same one.
+///
 /// [`Node::has_error`]: crate::Node::has_error
-pub(crate) fn argument_slots_are_readable(owner: &Node<'_>, arguments: &Node<'_>) -> bool {
-    !owner.has_error()
-        || !arguments
-            .children()
-            .any(|slot| slot.is_error() || slot.is_missing())
+pub(crate) fn argument_slots_are_readable(
+    owner: &Node<'_>,
+    arguments: &Node<'_>,
+    ancestors: Ancestors<'_, '_>,
+) -> bool {
+    if !owner.has_error() {
+        return true;
+    }
+    let memo = ancestors.node_memo(MemoQuestion::ArgumentSlotsReadable);
+    if let Some(answer) = memo.and_then(|memo| memo.get(arguments)) {
+        return answer;
+    }
+    argument_slot_scans::record();
+    let readable = !arguments
+        .children()
+        .any(|slot| slot.is_error() || slot.is_missing());
+    if let Some(memo) = memo {
+        memo.set(arguments, readable);
+    }
+    readable
 }
 
 /// Whether the braced `word` fills a slot of `arguments` that `roles`
@@ -619,6 +655,193 @@ mod tests {
         assert!(
             !reads_as_uplevel_level(&plain, code),
             "a word that is not brace-delimited carries no level"
+        );
+    }
+}
+
+#[cfg(test)]
+#[cfg(any(feature = "tcl", feature = "irules"))]
+mod readable_slot_tests {
+    //! `argument_slots_are_readable` under a lent `FoldCache`, for both
+    //! dialects: the answer is the tree's and the scan runs once per
+    //! argument list (#1686).
+
+    use super::argument_slot_scans;
+    use crate::getter::{BracedWordKinds, Getter};
+    use crate::node::{Ancestors, FoldCache, Node, Tree};
+    use crate::traits::LanguageInfo;
+
+    /// Every `braced_word` of `root`'s tree, each with its ancestor
+    /// chain, in source order: what the walks hand the predicate.
+    ///
+    /// Not `test_support::for_each_node_with_chain`, which refuses a
+    /// fixture that does not parse — and an erroring list is the point.
+    /// The sort is what gives source order, so the stack's pop order is
+    /// free to be whatever `children()` yields.
+    fn braced_words(root: Node<'_>, script: u16) -> Vec<(Node<'_>, Vec<Node<'_>>)> {
+        let mut out = Vec::new();
+        let mut stack = vec![(root, Vec::new())];
+        while let Some((node, chain)) = stack.pop() {
+            if node.kind_id() == script {
+                out.push((node, chain.clone()));
+            }
+            let mut below = chain;
+            below.push(node);
+            stack.extend(node.children().map(|child| (child, below.clone())));
+        }
+        out.sort_by_key(|(node, _)| node.start_byte());
+        out
+    }
+
+    /// A wide `eval` line with one stray `]` among its arguments is
+    /// scanned once under a lent cache, and once per braced word
+    /// without one, with every word answering the same either way.
+    ///
+    /// `eval` evaluates every argument, so each word answers "script"
+    /// whether or not its list is readable — this row pins the
+    /// *count* only, and `a_cached_answer_is_the_list_s_own` below is
+    /// what pins the answer. Deleting the `memo.set` in
+    /// `argument_slots_are_readable` fails the first assertion here;
+    /// making the memo answer a constant fails only the other test.
+    fn scans_once_per_list<L: LanguageInfo + Getter>(label: &str, kinds: &BracedWordKinds) {
+        let width = 200;
+        let code = crate::test_support::tcl_wide_erroring_eval(width);
+        let code = code.as_bytes();
+        let tree = Tree::new::<L>(code);
+        let root = tree.get_root();
+        let words = braced_words(root, kinds.script);
+        assert_eq!(
+            words.len(),
+            width,
+            "{label}: the fixture must spell {width} words"
+        );
+
+        let cache = FoldCache::default();
+        let before = argument_slot_scans::observed();
+        let cached: Vec<bool> = words
+            .iter()
+            .map(|(word, chain)| {
+                L::is_braced_literal_slot(
+                    word,
+                    code,
+                    Ancestors::known(chain).with_folds(&cache),
+                    kinds,
+                )
+            })
+            .collect();
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            1,
+            "{label}: a walk lending a FoldCache scans the list once"
+        );
+
+        let before = argument_slot_scans::observed();
+        let uncached: Vec<bool> = words
+            .iter()
+            .map(|(word, chain)| {
+                L::is_braced_literal_slot(word, code, Ancestors::known(chain), kinds)
+            })
+            .collect();
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            width,
+            "{label}: without a cache every word scans the list"
+        );
+        assert_eq!(
+            cached, uncached,
+            "{label}: the memo must not change an answer"
+        );
+    }
+
+    /// Two `after` lines in one tree and under one cache: one whose
+    /// list holds the `]` as a slot of its own, and one whose `]` is
+    /// inside a script argument. The first's `{100}` keeps the
+    /// construct-wide script answer, the second's is the value its
+    /// slot names — and asking twice answers the same, so the memo
+    /// stores the list's own answer rather than its neighbour's or a
+    /// constant.
+    fn a_cached_answer_is_the_list_s_own<L: LanguageInfo + Getter>(
+        label: &str,
+        kinds: &BracedWordKinds,
+    ) {
+        let code = b"after {100} ] {puts hi}\nafter {100} {puts ]}\n";
+        let tree = Tree::new::<L>(code);
+        let root = tree.get_root();
+        let words = braced_words(root, kinds.script);
+        let texts: Vec<&str> = words
+            .iter()
+            .map(|(word, _)| word.utf8_text(code).expect("ascii fixture"))
+            .collect();
+        assert_eq!(
+            texts,
+            ["{100}", "{puts hi}", "{100}", "{puts ]}"],
+            "{label}: the fixture must spell a `{{100}}` on each line"
+        );
+
+        let cache = FoldCache::default();
+        let before = argument_slot_scans::observed();
+        let ask = || -> Vec<bool> {
+            words
+                .iter()
+                .map(|(word, chain)| {
+                    L::is_braced_literal_slot(
+                        word,
+                        code,
+                        Ancestors::known(chain).with_folds(&cache),
+                        kinds,
+                    )
+                })
+                .collect()
+        };
+        let first = ask();
+        let again = ask();
+        assert_eq!(
+            first,
+            [false, false, true, false],
+            "{label}: the `{{100}}` after a stray `]` keeps the script answer; \
+             the one beside an error *inside* a script is the value its slot names"
+        );
+        assert_eq!(again, first, "{label}: a second ask answers from the memo");
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            2,
+            "{label}: each erroring list is scanned once across both asks"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn tcl_scans_an_erroring_list_once_per_walk() {
+        scans_once_per_list::<crate::langs::TclCode>(
+            "tcl",
+            &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn tcl_a_cached_answer_is_the_list_s_own() {
+        a_cached_answer_is_the_list_s_own::<crate::langs::TclCode>(
+            "tcl",
+            &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "irules")]
+    fn irules_scans_an_erroring_list_once_per_walk() {
+        scans_once_per_list::<crate::langs::IrulesCode>(
+            "irules",
+            &crate::lang_helpers::irules::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "irules")]
+    fn irules_a_cached_answer_is_the_list_s_own() {
+        a_cached_answer_is_the_list_s_own::<crate::langs::IrulesCode>(
+            "irules",
+            &crate::lang_helpers::irules::BRACED_WORD_KINDS,
         );
     }
 }

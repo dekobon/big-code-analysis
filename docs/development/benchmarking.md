@@ -201,6 +201,9 @@ Read it as follows.
 | `dump/perl-error-tail-calls` | Perl | width | the AST export's child enumeration under the same `ERROR` (#1684) | linear |
 | `dump/wide-distinct-fns` | Rust | width | shape control for the row above: a balanced `repeat()` list | linear |
 | `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
+| `dump/tcl-wide-erroring-eval` | Tcl | width | the argument-list readability scan under `keeps_children`, memoised through the cache the export lends (#1686) | linear |
+| `halstead/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, reached through an iterated ancestor on the metric walk (#1686) | linear |
+| `count/tcl-wide-erroring-eval` | Tcl | width | the same scan under the `string` filter, on the `find` / `count` walk (#1686) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -471,12 +474,22 @@ and flat. `Ast::dump` now walks one cursor, which
 steps to a sibling in amortised `O(1)` whatever the parent's shape and
 reads a node's field off the hidden levels above it, so enumerating
 the tree is `O(n log n)` over a balanced list and `O(n)` over a flat
-one. That bounds the enumeration, not the alterator: Tcl's
-`keeps_children` still asks `argument_slots_are_readable` of every
-braced word under a `word_list` that holds an error, an `O(width)`
-sibling scan per word, so a wide erroring `eval` line is quadratic on
-either strategy and on `main` — pre-existing, tracked as [#1686][tcl-slots],
-and not something the depth probe below can see. The
+one. That bounds the enumeration, not the alterator, whose predicates
+are the language's to keep linear. Tcl's was not until
+[#1686][tcl-slots]: `keeps_children` asks
+`argument_slots_are_readable` of every braced word under a `word_list`
+that holds an error, and the answer is an `O(width)` sibling scan — so
+a wide `eval` line with one stray `]` among its arguments was quadratic
+in its width on either strategy, and on every other walk that reaches
+a braced word's role (`Ast::metrics` through `braced_word_op_type`,
+`Ast::ops`, and `find` / `count --type string`). The scan's answer now
+rides in the `FoldCache` each walk lends with its chain, keyed by the
+list's id, so it runs once per list per walk. Three probes price it,
+one per walk, because each lends its cache independently and a
+regression in one is invisible from the others — and the metric walk's
+row has a second way to regress: it reaches the question through
+`Ancestors::iter`, which has to carry the cache onto the ancestor's
+chain. The
 indexed walk stays reachable as `Ast::dump_indexed`, and routing the
 default back to it is what `dump/perl-error-tail-calls` prices; the
 export also carries the ancestor chain `keeps_children` reads, and
@@ -496,6 +509,10 @@ larger share everywhere, 20-30 %:
 | `Ast::dump` enumerates by index | `dump/perl-error-tail-calls` | 1.02 | 1.98 | 14 003 children under the `ERROR` |
 | (same patch) | `dump/wide-distinct-fns` | 0.79 | 0.80 | unchanged, as the control should be |
 | `finish` hands `keeps_children` an unknown chain | `dump/tcl-nested-eval` | 0.75 | 2.00 | 4 000 braces, 12 000 exported levels |
+| `Export` lends no `FoldCache` | `dump/tcl-wide-erroring-eval` | 1.00-1.03 | 2.03-2.07 | 16 000 braced words, 17 ms clean against 9.1 s |
+| `metrics_inner` lends no `FoldCache` | `halstead/tcl-wide-erroring-eval` | 0.98-1.01 | 2.04-2.07 | 13 ms clean against 8.7 s |
+| `AncestorIter` drops the cache | `halstead/tcl-wide-erroring-eval` | (same) | 2.03-2.05 | the dump and count rows stay at 1.0: neither reaches the question through an ancestor |
+| `act_on_node` lends no `FoldCache` | `count/tcl-wide-erroring-eval` | 0.98-1.03 | 2.01-2.05 | 7.6 ms clean against 8.8 s |
 
 Temporary storage was measured once with a counting Rust
 `#[global_allocator]`, at the flat `ERROR` at width 4 000 (twice the

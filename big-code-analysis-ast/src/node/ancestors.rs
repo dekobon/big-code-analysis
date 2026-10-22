@@ -109,6 +109,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             return fold_climbed(node, skip, init, step);
         };
         let end = chain.len().saturating_sub(skip);
+        // `folds: None`, unlike `AncestorIter`: `FoldCache::fold` holds
+        // the lanes' `borrow_mut` while it calls `step`, so a step that
+        // folded again through the same cache would panic.
         let step_at = |state: u8, depth: usize| {
             let outer = Ancestors {
                 chain: Some(&chain[..depth]),
@@ -128,9 +131,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
-    /// The walk's per-node memo, when it lent a [`FoldCache`].
-    pub(crate) fn node_memo(self) -> Option<&'chain NodeMemo> {
-        self.folds.map(|cache| &cache.nodes)
+    /// The walk's memo for `question`, when it lent a [`FoldCache`].
+    pub(crate) fn node_memo(self, question: MemoQuestion) -> Option<&'chain NodeMemo> {
+        self.folds.map(|cache| &cache.nodes[question as usize])
     }
 
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
@@ -296,7 +299,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     #[must_use]
     pub fn iter(self, node: &Node<'tree>) -> AncestorIter<'tree, 'chain> {
         match self.chain {
-            Some(chain) => AncestorIter::Chain(chain, self.siblings),
+            Some(chain) => AncestorIter::Chain(chain, self.siblings, self.folds),
             None => AncestorIter::Climb(node.parent()),
         }
     }
@@ -498,8 +501,27 @@ impl FoldLane {
     const COUNT: usize = 3;
 }
 
+/// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
+/// Two questions asked of the same node must not share a slot, so each
+/// has a memo of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MemoQuestion {
+    /// Doxygen: whether a preprocessor conditional holds an entry, in
+    /// any branch and at any depth (#1613).
+    ConditionalDeclares,
+    /// Tcl family: whether a `word_list`'s own slot sequence can be read
+    /// positionally — no `ERROR` or MISSING child of its own (#1686).
+    ArgumentSlotsReadable,
+}
+
+impl MemoQuestion {
+    /// How many memos a [`FoldCache`] holds; one per variant above.
+    const COUNT: usize = 2;
+}
+
 /// The per-depth states of the walk's memoised folds, for
-/// `Ancestors::fold_down` (#1597).
+/// `Ancestors::fold_down` (#1597), and the per-node memos for
+/// `Ancestors::node_memo`.
 ///
 /// One slot per depth and lane, keyed by the id of the ancestor at that
 /// depth: the state folded over every ancestor above it. Interior
@@ -509,16 +531,17 @@ impl FoldLane {
 #[derive(Debug, Default)]
 pub struct FoldCache {
     lanes: RefCell<[Vec<(usize, u8)>; FoldLane::COUNT]>,
-    nodes: NodeMemo,
+    nodes: [NodeMemo; MemoQuestion::COUNT],
 }
 
 /// Answers about a node's own subtree, memoised for one walk and keyed
 /// by node id, which is unique within a tree: Doxygen's "does this
 /// preprocessor conditional hold an entry", asked of every conditional
-/// a doc comment's stretch meets. Unlike a [`FoldLane`] it is not tied to
-/// the chain, so an answer stored for one sibling subtree serves every
-/// later question about it (#1613). It holds one question; a second
-/// would need a key of its own.
+/// a doc comment's stretch meets; the Tcl family's "can this argument
+/// list be read by position", asked by every braced word in it. Unlike
+/// a [`FoldLane`] it is not tied to the chain, so an answer stored for
+/// one sibling subtree serves every later question about it (#1613).
+/// Each holds one [`MemoQuestion`].
 #[derive(Debug, Default)]
 pub(crate) struct NodeMemo(RefCell<HashMap<usize, bool>>);
 
@@ -572,10 +595,21 @@ impl FoldCache {
 /// Ancestor iterator returned by [`Ancestors::iter`], nearest first.
 pub enum AncestorIter<'tree, 'chain> {
     /// The not-yet-yielded prefix of a known chain, and the walk's
-    /// [`SiblingCache`] if it lent one. The prefix's last element is
-    /// the next ancestor, and the prefix before it is that ancestor's
-    /// own chain — so splitting from the back hands out both at once.
-    Chain(&'chain [Node<'tree>], Option<&'chain SiblingCache<'tree>>),
+    /// [`SiblingCache`] and [`FoldCache`] if it lent them. The prefix's
+    /// last element is the next ancestor, and the prefix before it is
+    /// that ancestor's own chain — so splitting from the back hands out
+    /// both at once.
+    ///
+    /// The caches travel with each yielded chain, so a predicate asked
+    /// of an ancestor is memoised exactly as one asked of the node
+    /// itself. A braced Tcl word's role is asked of its *parent* through
+    /// this iterator, and dropping the [`FoldCache`] here left that
+    /// question unmemoised on every walk that lent one (#1686).
+    Chain(
+        &'chain [Node<'tree>],
+        Option<&'chain SiblingCache<'tree>>,
+        Option<&'chain FoldCache>,
+    ),
     /// The next ancestor to yield, reached by climbing.
     Climb(Option<Node<'tree>>),
 }
@@ -585,13 +619,13 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Chain(remaining, siblings) => {
+            Self::Chain(remaining, siblings, folds) => {
                 let (&nearest, above) = remaining.split_last()?;
                 *remaining = above;
                 let ancestors = Ancestors {
                     chain: Some(above),
                     siblings: *siblings,
-                    folds: None,
+                    folds: *folds,
                 };
                 Some((nearest, ancestors))
             }
@@ -840,5 +874,54 @@ mod tests {
             zero_width > 0,
             "fixture must hold an inserted zero-width child"
         );
+    }
+
+    /// A chain yielded by [`Ancestors::iter`] carries the walk's
+    /// [`FoldCache`], so a memo stored through the node's own chain is
+    /// read back through an ancestor's. The Tcl-family role question is
+    /// asked of a braced word's *parent* through this iterator, and an
+    /// iterator that dropped the cache left it unmemoised on every walk
+    /// that lent one (#1686). Restoring `folds: None` in
+    /// `AncestorIter::next` fails the last assertion.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn an_iterated_ancestor_keeps_the_walk_s_memo() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { g(1); }\n");
+        let root = tree.get_root();
+        // Root first, then the `function_item`, its block, and the
+        // expression statement in it: the parent of `g(1)`.
+        let mut chain = vec![root];
+        for kind in ["function_item", "block", "expression_statement"] {
+            let last = *chain.last().expect("the chain starts non-empty");
+            let child = last
+                .children()
+                .find(|child| child.kind() == kind)
+                .unwrap_or_else(|| panic!("the fixture nests a {kind}"));
+            chain.push(child);
+        }
+        let leaf = chain
+            .last()
+            .expect("the chain has a parent")
+            .child(0)
+            .expect("the statement holds the call");
+        assert_eq!(leaf.kind(), "call_expression");
+
+        let cache = FoldCache::default();
+        let walk = Ancestors::known(&chain).with_folds(&cache);
+        walk.node_memo(MemoQuestion::ArgumentSlotsReadable)
+            .expect("the chain lent a cache")
+            .set(&leaf, true);
+        assert!(
+            Ancestors::known(&chain)
+                .node_memo(MemoQuestion::ArgumentSlotsReadable)
+                .is_none(),
+            "a chain lent no cache has no memo"
+        );
+
+        let (_, above) = walk.iter(&leaf).next().expect("the leaf has a parent");
+        let memo = above
+            .node_memo(MemoQuestion::ArgumentSlotsReadable)
+            .expect("an iterated ancestor's chain keeps the lent cache");
+        assert_eq!(memo.get(&leaf), Some(true));
     }
 }

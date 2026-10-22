@@ -689,7 +689,7 @@ pub trait Getter {
             return false;
         };
         if parent.kind_id() != kinds.word_list
-            || !argument_slots_are_readable(&owner, &parent)
+            || !argument_slots_are_readable(&owner, &parent, ancestors)
             || Self::is_switch_arm(&owner, code, above_owner, kinds)
         {
             return false;

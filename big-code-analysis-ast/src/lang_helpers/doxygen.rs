@@ -7,7 +7,7 @@
 
 use crate::checker::Checker;
 use crate::lang_helpers::doc_comment::{node_bytes, outside_function_bodies};
-use crate::node::{Ancestors, Node, NodeMemo};
+use crate::node::{Ancestors, MemoQuestion, Node, NodeMemo};
 
 /// A Doxygen block written after the member it documents: `/**<`,
 /// `/*!<`, `///<` or `//!<`. It documents the code before it, so it never
@@ -239,7 +239,9 @@ crate::observation::counter!(conditionals_read);
 #[must_use]
 pub(crate) fn conditional_declares(node: &Node, ancestors: Ancestors) -> bool {
     let unshared = NodeMemo::default();
-    let memo = ancestors.node_memo().unwrap_or(&unshared);
+    let memo = ancestors
+        .node_memo(MemoQuestion::ConditionalDeclares)
+        .unwrap_or(&unshared);
     if let Some(answer) = memo.get(node) {
         return answer;
     }

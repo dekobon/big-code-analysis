@@ -233,7 +233,7 @@ value = 1411.0
 path = "big-code-analysis-ast/src/getter.rs"
 qualified = "Getter::is_braced_literal_slot"
 metric = "halstead.effort"
-value = 48009.70056636167
+value = 48814.4893649235
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/bash.rs"

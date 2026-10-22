@@ -8,6 +8,65 @@
 //! `exclude_tests` prune and the metric / suppression scans — are this
 //! crate's, so the assertions are too (#1376).
 
+/// Every seam that reaches a Tcl braced word's role lends its walk a
+/// `FoldCache`, so a wide erroring `eval` line's argument list is
+/// scanned once per walk rather than once per braced word (#1686).
+///
+/// The readings cannot see it: each word keeps the construct-wide
+/// script answer whether the list is scanned once or `width` times,
+/// so every metric, the Halstead vocabulary, the dump and the `string`
+/// count come out the same either way, and only the scan counter tells
+/// a memoised walk from the quadratic one. Dropping `.with_folds` from
+/// `metrics_inner` or `ops_inner` takes that seam's row to `width`; the
+/// dump and count seams are pinned the same way beside their walks in
+/// `big-code-analysis-ast`, and listed here so the four cannot drift
+/// apart.
+#[cfg(feature = "tcl")]
+#[test]
+fn every_seam_scans_an_erroring_tcl_argument_list_once() {
+    use crate::lang_helpers::argument_slot_scans;
+
+    type Seam<'a> = &'a dyn Fn(&crate::Ast);
+
+    let width = 200;
+    let source = big_code_analysis_ast::test_support::tcl_wide_erroring_eval(width);
+    let ast = crate::test_support::parse_named(crate::LANG::Tcl, "wide.tcl", &source);
+    let cfg = || crate::AstCfg {
+        id: String::new(),
+        language: String::new(),
+        comment: false,
+        span: false,
+    };
+    let seams: [(&str, Seam); 4] = [
+        ("Ast::metrics", &|ast| {
+            ast.metrics(crate::MetricsOptions::default())
+                .expect("the walk must yield a top-level space");
+        }),
+        ("Ast::ops", &|ast| {
+            ast.ops().expect("the walk must yield a top-level space");
+        }),
+        ("Ast::dump", &|ast| {
+            let _ = ast.dump(cfg());
+        }),
+        ("Ast::count", &|ast| {
+            let (strings, _) = ast.count(&["string".to_owned()]);
+            assert_eq!(
+                strings, 0,
+                "an unreadable `eval` list keeps every word a script"
+            );
+        }),
+    ];
+    for (name, run) in seams {
+        let before = argument_slot_scans::observed();
+        run(&ast);
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            1,
+            "{name} must lend its walk one FoldCache and scan the list once"
+        );
+    }
+}
+
 /// Under a parent narrow enough to read forward, the
 /// `exclude_tests` prune finds the run of `#[…]` siblings before an
 /// item through the walker's ancestor chain, never by resolving

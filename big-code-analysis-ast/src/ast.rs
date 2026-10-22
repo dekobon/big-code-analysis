@@ -322,6 +322,11 @@ struct Export<'a, 'code> {
     comment: bool,
     stack: Vec<Frame<'a>>,
     chain: Vec<crate::Node<'a>>,
+    /// The walk's memo, lent with the chain: Tcl's `keeps_children`
+    /// asks whether a braced word's argument list is readable, and
+    /// without this every word of a wide erroring line re-scanned the
+    /// list (#1686). `dump/tcl-wide-erroring-eval` prices it.
+    folds: FoldCache,
 }
 
 impl<'a, 'code> Export<'a, 'code> {
@@ -332,6 +337,7 @@ impl<'a, 'code> Export<'a, 'code> {
             comment,
             stack: vec![Frame::new(root, None)],
             chain: vec![root],
+            folds: FoldCache::default(),
         }
     }
 
@@ -357,7 +363,7 @@ impl<'a, 'code> Export<'a, 'code> {
             self.comment,
             frame.field,
             frame.children,
-            Ancestors::checked(&self.chain, &frame.node),
+            Ancestors::checked(&self.chain, &frame.node).with_folds(&self.folds),
         );
         match self.stack.last_mut() {
             Some(parent) => {
@@ -382,8 +388,8 @@ impl<'a, 'code> Export<'a, 'code> {
 /// — see [`build_indexed`] — and that difference is the whole reason
 /// there are two builders (#1684). What the alterator does per node is
 /// priced separately: `keeps_children` reads the ancestor chain, which
-/// `dump/tcl-nested-eval` covers, and its own predicates are the
-/// language's to keep linear — Tcl's is not yet (#1686).
+/// `dump/tcl-nested-eval` covers, and the memo the export lends with
+/// it, which `dump/tcl-wide-erroring-eval` covers (#1686).
 ///
 /// The cursor sits on the node of the top frame throughout. Each
 /// iteration descends as far as a first child exists, then finishes
@@ -1146,6 +1152,41 @@ mod tests {
                 "{name}"
             );
         });
+    }
+
+    /// Each builder lends `keeps_children` the export's `FoldCache`, so a
+    /// wide erroring `eval` line is scanned once per export rather than
+    /// once per braced word (#1686). The export is the same either way —
+    /// every word keeps its children, as the count pins — so only the
+    /// scan count can see the cache; dropping `.with_folds` from
+    /// `Export::finish` takes it to `width` for both strategies.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn each_strategy_scans_an_erroring_argument_list_once() {
+        use crate::lang_helpers::argument_slot_scans;
+
+        let width = 200;
+        let code = crate::test_support::tcl_wide_erroring_eval(width);
+        for (name, dump) in strategies::<crate::TclParser>() {
+            let before = argument_slot_scans::observed();
+            let root = build_ast_by(dump, code.as_bytes(), "wide.tcl", false, false);
+            assert_eq!(
+                argument_slot_scans::observed() - before,
+                1,
+                "{name}: the export lends one cache for the whole walk"
+            );
+            let kept = root
+                .children
+                .iter()
+                .flat_map(|command| command.children.iter())
+                .flat_map(|list| list.children.iter())
+                .filter(|word| word.r#type == "braced_word" && !word.children.is_empty())
+                .count();
+            assert_eq!(
+                kept, width,
+                "{name}: every `eval` argument keeps its children"
+            );
+        }
     }
 
     /// A file whose only child is a filtered comment: the cursor walk

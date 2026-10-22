@@ -40,6 +40,13 @@ pub(crate) mod tcl_family;
 /// so they normalise the `::` qualifier at their own call sites.
 pub use tcl_family::strip_global_qualifier;
 
+/// Re-exported so the root crate's tests can count the sibling scans a
+/// metric or `ops` walk runs on an erroring Tcl line: those walks lend
+/// the `FoldCache` that memoises the scan, and the count is the only
+/// thing that shows they did (#1686).
+#[doc(hidden)]
+pub use tcl_family::argument_slot_scans;
+
 /// Re-exported because the LOC metric bills documentation through them —
 /// Go, Ruby and Lua runs by position, and the doc comments a bound
 /// language's tool attaches — while the predicates beside them stay
