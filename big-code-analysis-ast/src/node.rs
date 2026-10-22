@@ -452,10 +452,12 @@ impl<'a> Node<'a> {
     /// Not constant: tree-sitter scans the child array from the front,
     /// skipping each hidden subtree by its cached child count. That is
     /// `O(log n)` into a list the grammar stores as a `repeat()` — a
-    /// balanced tree of hidden nodes — and `O(pos)` into a flat one,
-    /// which an `ERROR` built by skipping tokens always is. Indexing
-    /// every child in turn is therefore quadratic in the width of a
-    /// recovery node (#1684). Use [`children`](Self::children) or
+    /// balanced tree of hidden nodes — and `O(pos)` into a flat one.
+    /// The flat node that matters is the `ERROR` root recovery builds
+    /// when the file ends mid-parse: its children are spliced in as
+    /// one array. A mid-file `ERROR` is balanced like any `repeat()`.
+    /// Indexing every child of a flat node in turn is quadratic in its
+    /// width (#1684). Use [`children`](Self::children) or
     /// [`children_with`](Self::children_with) to enumerate; this is
     /// for picking one slot. A loop that needs repeated random access
     /// to a wide list should collect the children once and index the
@@ -791,8 +793,10 @@ impl<'a> Cursor<'a> {
 
     /// The grammar field through which the parent reaches the node the
     /// cursor currently sits on, or `None` when it occupies no field —
-    /// an anonymous token, an `extra` such as a comment, or the node the
-    /// cursor started on, whose parent it cannot see.
+    /// most punctuation, an `extra` such as a comment, or the node the
+    /// cursor started on, whose parent it cannot see. Anonymous tokens
+    /// can sit in a field: a `binary_expression`'s `+` is its
+    /// `operator`.
     ///
     /// Reflects the cursor's *position*: it is answered from the path
     /// the cursor descended, so a field inherited through a hidden
@@ -804,8 +808,7 @@ impl<'a> Cursor<'a> {
     /// descends and reads the field map at each hidden level. They
     /// agree wherever every `extra` is a leaf or a visible rule, which
     /// holds for every pinned grammar; a hidden `extra` wrapper with
-    /// visible children would be the shape to re-check against
-    /// `tests/parity/ast_export_parity.rs` after a grammar bump.
+    /// visible children is the one shape that could split them.
     #[inline]
     #[must_use]
     pub fn field_name(&self) -> Option<&'static str> {

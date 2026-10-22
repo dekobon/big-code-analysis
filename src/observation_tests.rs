@@ -169,20 +169,20 @@ fn the_metric_and_suppression_walks_scan_a_tree_on_one_cursor() {
     );
 }
 
+#[cfg(feature = "rust")]
+type Dump = fn(&crate::Ast, crate::AstCfg) -> crate::AstResponse;
+
 /// Which export builder each `Ast` entry point runs (#1684).
 ///
 /// `Ast::dump` and `Ast::dump_cursor` must enter only the cursor walk,
 /// and `Ast::dump_indexed` only the indexed one. Nothing in the output
 /// can say: the two walks produce the same tree, so a default re-routed
 /// to the indexed builder would pass every assertion on a dump and show
-/// up only as a quadratic `bca dump` over a flat recovery node. The
-/// AST crate pins its own `dump_inner`; this pins the dispatch above
-/// it, through `AnyParser`, which is what the web and Python surfaces
-/// reach. Each delta is taken against a seeded count, so a `record()`
-/// never wired up cannot pass either.
-#[cfg(feature = "rust")]
-type Dump = fn(&crate::Ast, crate::AstCfg) -> crate::AstResponse;
-
+/// up only as a quadratic `/ast` response over a flat recovery node.
+/// The AST crate pins its own `dump_inner`; this pins the three `Ast`
+/// forwarders above it, which the AST crate cannot see and which are
+/// what the web and Python surfaces reach. Each delta is taken against
+/// a seeded count, so a `record()` never wired up cannot pass either.
 #[cfg(feature = "rust")]
 #[test]
 fn each_ast_dump_entry_point_enters_exactly_its_own_builder() {

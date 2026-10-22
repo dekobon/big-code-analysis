@@ -6,9 +6,12 @@
 //! read grammar fields — which is where they can disagree: a cursor
 //! answers a field from the path it descended, an index lookup from the
 //! parent's field map, and the two resolve a field inherited through a
-//! hidden grammar node by different algorithms (#1684). A disagreement
-//! is a correctness finding to investigate, never something to
-//! normalise away.
+//! hidden grammar node by different algorithms (#1684). They agree
+//! wherever every `extra` is a leaf or a visible rule, which holds for
+//! every pinned grammar; a hidden `extra` wrapper with visible children
+//! is the one shape that could split them, so re-run this suite after
+//! any grammar bump. A disagreement is a correctness finding to
+//! investigate, never something to normalise away.
 //!
 //! The comparator is iterative: `AstNode` has no `PartialEq`, and a
 //! recursive one would reintroduce the depth-sensitive operation #1056
@@ -159,18 +162,25 @@ fn both_export_strategies_agree_in_every_language() {
             let cursor = ast.dump_cursor(cfg(span, comment));
             let indexed = ast.dump_indexed(cfg(span, comment));
             let compared = assert_same_export(&what, &cursor, &indexed);
-            assert_same_export(&what, &default, &cursor);
             // `Ccomment` / `Preproc` parse a non-trivial tree too; every
             // fixture has more than a root, or the comparison above
             // held over nothing.
             assert!(compared > 1, "{what}: fixture exported {compared} node(s)");
             // The fixtures are shallow, so the serialized form is a
             // second, independent comparison that also covers ordering
-            // of the keys the structural one reads field by field.
+            // of the keys the structural one reads field by field. The
+            // default is `dump_cursor` by dispatch (the observation
+            // counters pin that); its output is held to the same bytes.
+            let serialized = serde_json::to_string(&cursor).expect("serialize");
             assert_eq!(
-                serde_json::to_string(&cursor).expect("serialize"),
+                serialized,
                 serde_json::to_string(&indexed).expect("serialize"),
                 "{what}: serialized exports differ"
+            );
+            assert_eq!(
+                serialized,
+                serde_json::to_string(&default).expect("serialize"),
+                "{what}: the default export differs from the cursor export"
             );
         }
     }

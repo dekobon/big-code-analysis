@@ -1088,8 +1088,7 @@ impl Workload {
 /// How many nodes an export holds, counted on an explicit stack: the
 /// depth shapes export thousands of levels, which a recursive count
 /// would overflow on.
-#[must_use]
-pub fn exported_nodes(root: Option<&AstNode>) -> usize {
+fn exported_nodes(root: Option<&AstNode>) -> usize {
     let mut pending: Vec<&AstNode> = root.into_iter().collect();
     let mut count = 0;
     while let Some(node) = pending.pop() {
@@ -1097,18 +1096,6 @@ pub fn exported_nodes(root: Option<&AstNode>) -> usize {
         pending.extend(&node.children);
     }
     count
-}
-
-/// How deep an export nests, counted the same way.
-#[must_use]
-pub fn exported_depth(root: Option<&AstNode>) -> usize {
-    let mut pending: Vec<(&AstNode, usize)> = root.into_iter().map(|r| (r, 1)).collect();
-    let mut deepest = 0;
-    while let Some((node, depth)) = pending.pop() {
-        deepest = deepest.max(depth);
-        pending.extend(node.children.iter().map(|c| (c, depth + 1)));
-    }
-    deepest
 }
 
 /// The direction a probe's shape grows in.
@@ -1285,10 +1272,9 @@ pub const PROBES: &[Probe] = &[
         rationale: "The export must enumerate a flat recovery `ERROR`'s children \
                     without indexing each one: `Node::child` and \
                     `field_name_for_child` scan the child array to the index, \
-                    so an indexed export is quadratic in the node's width — \
-                    1.75 s against 1.2 ms for a cursor over 28 000 children. \
+                    so an indexed export is quadratic in the node's width. \
                     Routing `Ast::dump` back to the indexed builder takes this \
-                    probe past 1.9 (#1684).",
+                    probe from 1.02 to 1.98 (#1684).",
     },
     Probe {
         name: "dump/wide-distinct-fns",
@@ -1321,10 +1307,10 @@ pub const PROBES: &[Probe] = &[
         rationale: "The export's depth axis: every level is a script body the \
                     alterator keeps, which `keeps_children` decides off the \
                     ancestor chain the walk carries rather than by climbing \
-                    with `Node::parent`. Off an unknown chain the question is \
-                    `O(depth)` per node and took 8 KB of nested braces from \
-                    10 ms to 418 ms (#1381); the cursor walk must keep the \
-                    chain in step with its own climbs (#1684).",
+                    with `Node::parent`. Handing it `Ancestors::unknown()` \
+                    instead takes this probe from 0.75 to 2.00; the cursor \
+                    walk must keep the chain in step with its own climbs \
+                    (#1381, #1684).",
     },
     Probe {
         name: "halstead/csharp-qualified-generics",
@@ -2788,9 +2774,21 @@ pub const PROBES: &[Probe] = &[
 
 #[cfg(test)]
 mod tests {
-    use big_code_analysis::{Ast, AstCfg, Source};
+    use big_code_analysis::{Ast, AstCfg, AstNode, Source};
 
-    use super::{Axis, PROBES, Probe, Workload, exported_depth, exported_nodes};
+    use super::{Axis, PROBES, Probe, Workload, exported_nodes};
+
+    /// How deep an export nests, counted on an explicit stack like
+    /// [`exported_nodes`].
+    fn exported_depth(root: Option<&AstNode>) -> usize {
+        let mut pending: Vec<(&AstNode, usize)> = root.into_iter().map(|r| (r, 1)).collect();
+        let mut deepest = 0;
+        while let Some((node, depth)) = pending.pop() {
+            deepest = deepest.max(depth);
+            pending.extend(node.children.iter().map(|c| (c, depth + 1)));
+        }
+        deepest
+    }
 
     /// Probes whose shape deliberately fails to parse; see
     /// [`shapes_parse_without_error`].

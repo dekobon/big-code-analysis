@@ -461,48 +461,53 @@ The AST export reads the same flat `ERROR`, and until [#1684][dump-cursor]
 it did so by index: `Node::child` and `Node::field_name_for_child` both
 scan the parent's child array to the index, skipping hidden subtrees by
 their cached counts, which is `O(log n)` under a balanced `repeat()`
-and `O(index)` under a flat node. `Ast::dump` now walks one cursor,
-which steps to a sibling in `O(1)` whatever the parent's shape; the
+and `O(index)` under a flat node. Only the EOF-recovery root is flat —
+a mid-file `ERROR` is balanced like any `repeat()` — but that root is
+what every truncated file has. `Ast::dump` now walks one cursor, which
+steps to a sibling in amortised `O(1)` whatever the parent's shape and
+reads a node's field off the hidden levels above it, so the export is
+`O(n log n)` over a balanced list and `O(n)` over a flat one. The
 indexed walk stays reachable as `Ast::dump_indexed`, and routing the
-default back to it is what `dump/perl-error-tail-calls` prices. The
-`Dump` workload's reading is the exported node count, taken on a
+default back to it is what `dump/perl-error-tail-calls` prices; the
+export also carries the ancestor chain `keeps_children` reads, and
+handing that an unknown chain is what `dump/tcl-nested-eval` prices.
+The `Dump` workload's reading is the exported node count, taken on a
 second pass over the result before it is dropped, so each timing is
 construction + that count + teardown:
 
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
-| `Ast::dump` enumerates by index | `dump/perl-error-tail-calls` | 1.02 | 1.98 | 2 000 siblings |
+| `Ast::dump` enumerates by index | `dump/perl-error-tail-calls` | 1.02 | 1.98 | 14 003 children under the `ERROR` |
 | (same patch) | `dump/wide-distinct-fns` | 0.79 | 0.80 | unchanged, as the control should be |
-| (same patch) | `dump/tcl-nested-eval` | 0.75 | 0.85 | unchanged |
+| `finish` hands `keeps_children` an unknown chain | `dump/tcl-nested-eval` | 0.75 | 2.00 | 4 000 braces, 12 000 exported levels |
 
 Temporary storage was measured once with a counting Rust
-`#[global_allocator]`, at the ladder's top rung and on two corpus
-files, as peak live bytes during the export less the finished tree's
-own capacity. That counter sees the frame stack and the ancestor chain
-and **not** the `TreeCursor`'s own stack: the C library allocates that
-through `ts_current_malloc`, which is libc's `malloc` unless
-`ts_set_allocator` was called. Both walks share one `Frame` and one
-`Export`, so what it saw was byte-identical on both sides — 448 bytes
-on the flat `ERROR` at width 4 000, 896 on the wide list, 3.5 KB on
-`src/spaces/compute.rs`, 1.84 MB on the depth probe at 4 000 braces,
-where each walk holds one 80-byte frame and one 32-byte chain entry
-per exported level. The cursor's unmeasured stack is one 32-byte entry
-per *raw* level on the path to the current node, hidden nodes
+`#[global_allocator]`, at the ladder's top rung of each probe and on
+`src/spaces/compute.rs`, as peak live bytes during the export less the
+finished tree's own capacity. That counter sees the frame stack and the
+ancestor chain and **not** the `TreeCursor`'s own stack: the C library
+allocates that through `ts_current_malloc`, which is libc's `malloc`
+unless `ts_set_allocator` was called. Both walks share one `Frame` and
+one `Export`, so what it saw was byte-identical on both sides, and
+every figure is a `Vec` capacity after doubling rather than a live
+length — 448 bytes on the flat `ERROR` at width 4 000, 896 on the wide
+list, 3.5 KB on `compute.rs`, 1.84 MB on the depth probe, where
+16 384 slots of one 80-byte frame plus one 32-byte chain entry hold the
+12 000 exported levels. The cursor's unmeasured stack is one 32-byte
+entry per *raw* level on the path to the current node, hidden nodes
 included, so it is bounded by the raw depth and never by the width.
 Output capacity is identical by construction: both reserve each node's
-`children` from `child_count()`. Those are five inputs, not a proof
+`children` from `child_count()`. Those are four inputs, not a proof
 for all of them.
 
-These five are the probes whose shape is meant not to parse:
-`RECOVERY_PROBES` in `shapes.rs` exempts them from the parse check and
-asserts that each root is still an `ERROR`. `dump` probes have one
-more invariant of their own, `dump_probes_export_proportionally_to_their_size`:
-the raw-tree shape checks cannot see an exporter that collapses to a
-root, so the *exported* node count or depth must grow with the size
-too, on the ladder itself.
-
-Treat the linear bounds above as covering the walk's ancestor *chain*
-threading, not every `O(depth)` lookup in the crate.
+The probes whose shape is meant not to parse are listed in
+`RECOVERY_PROBES` in `shapes.rs`, which exempts them from the parse
+check and asserts that each root is still an `ERROR`. `dump` probes
+have one more invariant of their own,
+`dump_probes_export_proportionally_to_their_size`: the raw-tree shape
+checks cannot see an exporter that collapses to a root, so the
+*exported* node count or depth must grow with the size too, on the
+ladder itself.
 
 ### Child scans, and where the allocation actually was {#child-scans}
 

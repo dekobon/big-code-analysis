@@ -33,6 +33,8 @@ mod support;
     feature = "typescript",
 ))]
 mod abc_halstead_bracket_parity;
+// Reads `fixture` out of `ops_metrics_space_parity`, so it carries the
+// same gate as that group below.
 #[cfg(any(
     feature = "bash",
     feature = "c",
@@ -66,14 +68,15 @@ mod exit_cross_language_parity;
 mod halstead_set_target_parity;
 mod nargs_cross_language_parity;
 
-// The next three suites share `ops_metrics_space_parity::fixture`, an
-// exhaustive `match` on `LANG`, so each sweeps *every* language and each
-// asserts `checked > 0`. Their row set is therefore the whole roster,
-// and a build that compiled no grammar at all — the
-// `no-default-features (lib)` CI configuration — would fail all four of
-// their guards rather than skipping them. Gated as a group so that build
-// drops them together, which is also required: the other two read
-// `fixture` out of the middle one (`.claude/rules/testing.md`, #1286).
+// The next three suites, and `ast_export_parity` above, share
+// `ops_metrics_space_parity::fixture`, an exhaustive `match` on `LANG`,
+// so each sweeps *every* language and each asserts `checked > 0`.
+// Their row set is therefore the whole roster, and a build that
+// compiled no grammar at all — the `no-default-features (lib)` CI
+// configuration — would fail their guards rather than skipping them.
+// Gated as a group so that build drops them together, which is also
+// required: the others read `fixture` out of the middle one
+// (`.claude/rules/testing.md`, #1286).
 #[cfg(any(
     feature = "bash",
     feature = "c",

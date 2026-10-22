@@ -31,8 +31,10 @@ for historical reference.
   `Node::child` / `Node::field_name_for_child`. Both produce the same
   tree. `AnyParser` and the parser-generic `dump_cursor_inner` /
   `dump_indexed_inner` in `big-code-analysis-ast` carry the same pair,
-  and the `Cursor` wrapper there gains `goto_parent` and `field_name`.
-  Additive; recorded in `STABILITY.md` under `Ast`. (#1684)
+  and the `Cursor` wrapper there gains `goto_parent` and `field_name` —
+  all three in a crate `STABILITY.md` leaves outside the shape
+  contract. The `Ast` methods are additive and recorded in
+  `STABILITY.md` under `Ast`. (#1684)
 
 ### Changed
 
@@ -40,10 +42,11 @@ for historical reference.
   `bca dump` renders the raw tree through its own cursor walk and is
   unaffected) walks the tree with one cursor instead of indexing each
   child. The output is unchanged. The indexed lookups scan the parent's
-  child array, so the old walk was quadratic in the width of a flat
-  recovery `ERROR` node — 1.75 s against 1.2 ms over 28 000 children.
-  The `Node::child` and `Node::field_name_for_child` docs now state
-  that cost instead of calling it constant. (#1684)
+  child array, so the old walk was quadratic in the width of the flat
+  `ERROR` root that recovery builds when a file ends mid-parse:
+  enumerating 28 000 such children by index measured 1.75 s against a
+  cursor's 1.2 ms. `Node::child` and `Node::field_name_for_child` now
+  document that cost. (#1684)
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)

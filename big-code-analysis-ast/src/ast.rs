@@ -9,6 +9,8 @@
 //! The AST dump: [`AstNode`], [`Span`], [`AstCfg`], [`AstResponse`], and
 //! the walk that builds them.
 
+use std::ops::ControlFlow;
+
 use serde::{Deserialize, Serialize};
 
 use crate::*;
@@ -261,8 +263,8 @@ impl AstNode {
 // in its width, not because it answers differently — so no assertion
 // on a dump can tell which one `dump_inner` routed to. Rerouting the
 // default back to the indexed walk would pass every output test and
-// show up only as a slow `bca dump` on a recovery tree; the counters
-// are what make it a test failure instead (#1684).
+// show up only as a slow `/ast` response on a recovery tree; the
+// counters are what make it a test failure instead (#1684).
 crate::observation::counter!(cursor_builds, cfg(any(test, feature = "test-support")));
 crate::observation::counter!(indexed_builds, cfg(any(test, feature = "test-support")));
 
@@ -303,23 +305,22 @@ impl<'a> Frame<'a> {
 ///
 /// That swap is invisible to the test suite: an unknown chain answers
 /// identically and only costs more, so nothing here pins the chain by
-/// asserting on output. What pins it is `Ancestors::checked` in
-/// [`Export::finish`] — its `debug_assert!` catches a desynchronised
-/// pop/push on every fixture the dump walk sees, and `make chain-audit`
-/// upgrades that to the exact `chain.last() == node.parent()` check.
+/// asserting on output. Three things do. `Ancestors::checked` in
+/// [`Export::finish`] carries a `debug_assert!` that catches a dropped
+/// pop on every fixture the dump walk sees, and `make chain-audit`
+/// upgrades it to the exact `chain.last() == node.parent()` check —
+/// the only one that sees a dropped *push*, since a chain that never
+/// grows ends at the root, which contains every node. The default
+/// build pins the push through `keeps_children` instead, in
+/// `each_strategy_hands_the_alterator_the_real_parent` below. And the
+/// swap itself is priced by `dump/tcl-nested-eval` in the benchmark
+/// harness, which it takes from 0.75 to 2.00.
 struct Export<'a, 'code> {
     code: &'code [u8],
     span: bool,
     comment: bool,
     stack: Vec<Frame<'a>>,
     chain: Vec<crate::Node<'a>>,
-}
-
-/// What finishing a node left behind: either the walk continues under
-/// the node's parent, or the node was the root and the export is this.
-enum Finished {
-    Continue,
-    Root(Option<AstNode>),
 }
 
 impl<'a, 'code> Export<'a, 'code> {
@@ -341,7 +342,8 @@ impl<'a, 'code> Export<'a, 'code> {
 
     /// Exports the node on top of the stack — every child of it has
     /// been exported by now — and attaches it to its parent's frame.
-    fn finish<T: ParserTrait>(&mut self) -> Finished {
+    /// Breaks with the export once the node finished was the root.
+    fn finish<T: ParserTrait>(&mut self) -> ControlFlow<Option<AstNode>> {
         let frame = self
             .stack
             .pop()
@@ -356,12 +358,13 @@ impl<'a, 'code> Export<'a, 'code> {
             frame.children,
             Ancestors::checked(&self.chain, &frame.node),
         );
-        match (node, self.stack.last_mut()) {
-            (Some(ast), Some(parent)) => parent.children.push(ast),
-            (None, Some(_)) => {}
-            (root, None) => return Finished::Root(root),
+        match self.stack.last_mut() {
+            Some(parent) => {
+                parent.children.extend(node);
+                ControlFlow::Continue(())
+            }
+            None => ControlFlow::Break(node),
         }
-        Finished::Continue
     }
 }
 
@@ -372,10 +375,11 @@ impl<'a, 'code> Export<'a, 'code> {
 /// popped once — and reports the field of the node it sits on from the
 /// path it descended, at the cost of the hidden levels between the
 /// node and its visible parent: `O(log n)` under a balanced `repeat()`,
-/// `O(1)` under a flat node. The walk is therefore linear in the raw
-/// tree, hidden nodes included. Indexing the children instead is not on
-/// a flat node — see [`build_indexed`] — and that difference is the
-/// whole reason there are two builders (#1684).
+/// `O(1)` under a flat node. The walk is therefore `O(n log n)` over a
+/// wide balanced list and `O(n)` over a flat one, never quadratic.
+/// Indexing the children instead is quadratic on a flat node — see
+/// [`build_indexed`] — and that difference is the whole reason there
+/// are two builders (#1684).
 ///
 /// The cursor sits on the node of the top frame throughout. Each
 /// iteration descends as far as a first child exists, then finishes
@@ -395,7 +399,7 @@ fn build_cursor<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option
             export.enter(cursor.node(), cursor.field_name());
         }
         loop {
-            if let Finished::Root(root) = export.finish::<T>() {
+            if let ControlFlow::Break(root) = export.finish::<T>() {
                 return root;
             }
             if cursor.goto_next_sibling() {
@@ -418,13 +422,13 @@ fn build_cursor<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option
 /// Each frame also remembers the next child index to enter.
 /// `Node::child` and `Node::field_name_for_child` both scan the
 /// parent's child array to that index, skipping hidden subtrees by
-/// their cached counts — `O(log n)` under a `repeat()`, which the
-/// grammar stores balanced, and `O(index)` under a flat node, which a
-/// recovery `ERROR` is. Enumerating a flat node this way is quadratic
-/// in its width: 1.75 s against 1.2 ms for a cursor over 28 000
-/// children (#1684). This is kept as the explicit alternative for
-/// consumers that want index-addressed export, and as the second
-/// implementation the parity tests hold the default to.
+/// their cached counts; see the `# Cost` note on
+/// [`Node::child`](crate::Node::child) for which nodes are flat.
+/// Enumerating a flat node this way is quadratic in its width, which
+/// `dump/perl-error-tail-calls` in the benchmark harness prices
+/// (#1684). This is kept as the explicit alternative for consumers
+/// that want index-addressed export, and as the second implementation
+/// the parity tests hold the default to.
 fn build_indexed<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNode> {
     indexed_builds::record();
     let root = parser.root();
@@ -445,7 +449,7 @@ fn build_indexed<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Optio
                 u32::try_from(idx).expect("invariant: tree-sitter caps child indices at u32::MAX"),
             );
             export.enter(child, field);
-        } else if let Finished::Root(root) = export.finish::<T>() {
+        } else if let ControlFlow::Break(root) = export.finish::<T>() {
             return root;
         }
     }
@@ -537,10 +541,11 @@ mod tests {
         code: &[u8],
         filename: &str,
         span: bool,
+        comment: bool,
     ) -> AstNode {
         let path = PathBuf::from(filename);
         let parser = P::new(code.to_vec(), &path, None);
-        dump(&parser, cfg_with(span, false))
+        dump(&parser, cfg_with(span, comment))
             .root
             .expect("parser should produce a root AST node")
     }
@@ -555,23 +560,34 @@ mod tests {
         code: &[u8],
         filename: &str,
         span: bool,
-        check: impl Fn(&AstNode),
+        check: impl Fn(&str, &AstNode),
     ) {
         for (name, dump) in strategies::<P>() {
-            let root = build_ast_by(dump, code, filename, span);
-            eprintln!("strategy: {name}");
-            check(&root);
+            check(name, &build_ast_by(dump, code, filename, span, false));
         }
     }
 
     #[cfg(any(feature = "rust", feature = "tcl"))]
     fn build_ast<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
-        build_ast_by::<P>(dump_inner, code, filename, false)
+        build_ast_by::<P>(dump_inner, code, filename, false, false)
     }
 
     #[cfg(feature = "rust")]
     fn build_ast_with_span<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
-        build_ast_by::<P>(dump_inner, code, filename, true)
+        build_ast_by::<P>(dump_inner, code, filename, true, false)
+    }
+
+    /// How many nodes in `root`'s subtree have a type in `kinds`,
+    /// counted on an explicit stack.
+    #[cfg(feature = "rust")]
+    fn count_kinds(root: &AstNode, kinds: &[&str]) -> usize {
+        let mut pending = vec![root];
+        let mut found = 0;
+        while let Some(node) = pending.pop() {
+            found += usize::from(kinds.contains(&node.r#type));
+            pending.extend(&node.children);
+        }
+        found
     }
 
     #[cfg(any(feature = "cpp", feature = "rust"))]
@@ -590,8 +606,8 @@ mod tests {
     #[cfg(feature = "rust")]
     #[test]
     fn root_has_no_field_name() {
-        for_each_strategy::<crate::RustParser>(b"fn main() {}", "test.rs", false, |root| {
-            assert_eq!(root.field_name, None);
+        for_each_strategy::<crate::RustParser>(b"fn main() {}", "test.rs", false, |name, root| {
+            assert_eq!(root.field_name, None, "{name}");
         });
     }
 
@@ -603,20 +619,20 @@ mod tests {
         // downstream consumers cannot distinguish the two `identifier`
         // children. This is the canonical example from issue #244.
         let code = b"fn f() { let mut a = 0; a = a + 1; }";
-        for_each_strategy::<crate::RustParser>(code, "test.rs", false, |root| {
+        for_each_strategy::<crate::RustParser>(code, "test.rs", false, |name, root| {
             let assign = find_first(root, "assignment_expression")
                 .expect("expected an assignment_expression node");
             let left = find_child(assign, "left").expect("expected a `left` child");
             let right = find_child(assign, "right").expect("expected a `right` child");
-            assert_eq!(left.field_name, Some("left"));
-            assert_eq!(right.field_name, Some("right"));
+            assert_eq!(left.field_name, Some("left"), "{name}");
+            assert_eq!(right.field_name, Some("right"), "{name}");
             // Anonymous `=` token is a child too, with no field name.
             assert!(
                 assign
                     .children
                     .iter()
                     .any(|c| c.r#type == "=" && c.field_name.is_none()),
-                "expected the `=` token child to carry no field name; got {:?}",
+                "{name}: expected the `=` token child to carry no field name; got {:?}",
                 assign
                     .children
                     .iter()
@@ -634,20 +650,20 @@ mod tests {
         // misnames a field (e.g. always emits "body") fails even if
         // the target node kinds coincidentally line up.
         let code = b"fn greet(name: &str) -> &str { name }";
-        for_each_strategy::<crate::RustParser>(code, "test.rs", false, |root| {
+        for_each_strategy::<crate::RustParser>(code, "test.rs", false, |name, root| {
             let func = find_first(root, "function_item").expect("expected a function_item node");
             let name_child =
                 find_child(func, "name").expect("function_item should have a name child");
-            assert_eq!(name_child.field_name, Some("name"));
-            assert_eq!(name_child.r#type, "identifier");
+            assert_eq!(name_child.field_name, Some("name"), "{name}");
+            assert_eq!(name_child.r#type, "identifier", "{name}");
             let params_child = find_child(func, "parameters")
                 .expect("function_item should have a parameters child");
-            assert_eq!(params_child.field_name, Some("parameters"));
-            assert_eq!(params_child.r#type, "parameters");
+            assert_eq!(params_child.field_name, Some("parameters"), "{name}");
+            assert_eq!(params_child.r#type, "parameters", "{name}");
             let body_child =
                 find_child(func, "body").expect("function_item should have a body child");
-            assert_eq!(body_child.field_name, Some("body"));
-            assert_eq!(body_child.r#type, "block");
+            assert_eq!(body_child.field_name, Some("body"), "{name}");
+            assert_eq!(body_child.r#type, "block", "{name}");
         });
     }
 
@@ -657,16 +673,18 @@ mod tests {
         // Cross-language confirmation: the C/C++ grammar uses the same
         // `left`/`right` field names for `assignment_expression`.
         let code = b"int main(){ int x = 0; x = x + 1; }";
-        for_each_strategy::<crate::CppParser>(code, "test.cpp", false, |root| {
+        for_each_strategy::<crate::CppParser>(code, "test.cpp", false, |name, root| {
             let assign = find_first(root, "assignment_expression")
                 .expect("expected an assignment_expression node");
             assert_eq!(
                 find_child(assign, "left").map(|n| n.r#type),
-                Some("identifier")
+                Some("identifier"),
+                "{name}"
             );
             assert_eq!(
                 find_child(assign, "right").map(|n| n.r#type),
-                Some("binary_expression")
+                Some("binary_expression"),
+                "{name}"
             );
         });
     }
@@ -730,11 +748,11 @@ mod tests {
         // vocabulary matches /function and /metrics (#638).
         // `fn f(){}` is 8 bytes on one line, so the root spans the whole
         // half-open byte range [0, 8) (#727).
-        for_each_strategy::<crate::RustParser>(b"fn f(){}", "test.rs", true, |root| {
+        for_each_strategy::<crate::RustParser>(b"fn f(){}", "test.rs", true, |name, root| {
             let span = root
                 .span
                 .expect("root span present when span tracking is on");
-            assert_eq!(span, Span::new(1, 1, 1, 9, 0, 8));
+            assert_eq!(span, Span::new(1, 1, 1, 9, 0, 8), "{name}");
             let json = serde_json::to_string(&root.span).expect("serialize span");
             assert!(
                 json.contains("\"start_line\":1")
@@ -832,14 +850,7 @@ mod tests {
         // `eval` evaluates every argument, so each level keeps its
         // children rather than flattening to a verbatim leaf.
         let levels = 64;
-        let mut code = String::new();
-        for _ in 0..levels {
-            code.push_str("eval {");
-        }
-        code.push_str("puts hi");
-        for _ in 0..levels {
-            code.push('}');
-        }
+        let code = format!("{}puts hi{}", "eval {".repeat(levels), "}".repeat(levels));
 
         let root = build_ast::<crate::TclParser>(code.as_bytes(), "deep.tcl");
         let depth = ast_depth(&root);
@@ -873,8 +884,8 @@ mod tests {
     ///
     /// Nothing in the output can say: both builders produce the same
     /// tree, so routing `dump_inner` back to `build_indexed` would pass
-    /// every assertion on a dump and show up only as a quadratic
-    /// `bca dump` on a recovery tree. Each delta is asserted against a
+    /// every assertion on a dump and show up only as a quadratic `/ast`
+    /// response on a recovery tree. Each delta is asserted against a
     /// seeded count rather than zero, so a `record()` that was never
     /// wired up cannot pass either.
     #[cfg(feature = "rust")]
@@ -994,24 +1005,16 @@ mod tests {
     #[test]
     fn each_strategy_filters_comments_only_when_asked() {
         let code = b"// lead\nfn f() {\n    // inner\n    let a = 1; /* trail */\n}\n";
-        let parser = crate::RustParser::new(code.to_vec(), &PathBuf::from("c.rs"), None);
         for (name, dump) in strategies::<crate::RustParser>() {
             for (comment, expected) in [(false, 3), (true, 0)] {
-                let root = dump(&parser, cfg_with(true, comment)).root.expect("root");
-                let mut kinds = Vec::new();
-                let mut stack = vec![&root];
-                while let Some(node) = stack.pop() {
-                    kinds.push(node.r#type);
-                    stack.extend(node.children.iter());
-                }
-                let comments = kinds.iter().filter(|k| **k == "line_comment").count()
-                    + kinds.iter().filter(|k| **k == "block_comment").count();
+                let root = build_ast_by(dump, code, "c.rs", true, comment);
+                let comments = count_kinds(&root, &["line_comment", "block_comment"]);
                 // expected: the fixture spells two `//` and one `/* */`
                 // comment; with the filter on, none survives, and the
                 // retained content is untouched either way.
                 assert_eq!(comments, expected, "{name}, comment={comment}");
                 assert_eq!(
-                    kinds.iter().filter(|k| **k == "let_declaration").count(),
+                    count_kinds(&root, &["let_declaration"]),
                     1,
                     "{name}, comment={comment}: the `let` must survive the filter"
                 );
@@ -1065,7 +1068,7 @@ mod tests {
     #[test]
     fn each_strategy_hands_the_alterator_the_real_parent() {
         let code = b"{puts} hi\neval {puts a}\n";
-        for_each_strategy::<crate::TclParser>(code, "name.tcl", false, |root| {
+        for_each_strategy::<crate::TclParser>(code, "name.tcl", false, |name, root| {
             let braced: Vec<(&str, Vec<&str>)> = root
                 .children
                 .iter()
@@ -1086,7 +1089,8 @@ mod tests {
             // keeping `{`, the inner `command`, and `}`.
             assert_eq!(
                 braced,
-                [("{puts}", vec![]), ("", vec!["{", "command", "}"])]
+                [("{puts}", vec![]), ("", vec!["{", "command", "}"])],
+                "{name}"
             );
         });
     }
@@ -1097,23 +1101,15 @@ mod tests {
     #[cfg(feature = "rust")]
     #[test]
     fn a_comment_only_source_exports_a_childless_root_under_either_strategy() {
-        let parser = crate::RustParser::new(b"// only\n".to_vec(), &PathBuf::from("a.rs"), None);
-        let keep = dump_cursor_inner(&parser, cfg_with(false, false));
-        assert_eq!(
-            keep.root.as_ref().map(|r| r.children.len()),
-            Some(1),
-            "without the filter the root keeps its one comment child"
-        );
-        for (name, resp) in [
-            ("cursor", dump_cursor_inner(&parser, cfg_with(false, true))),
-            (
-                "indexed",
-                dump_indexed_inner(&parser, cfg_with(false, true)),
-            ),
-        ] {
-            let root = resp
-                .root
-                .expect("a filtered comment leaves the root itself");
+        let code = b"// only\n";
+        for (name, dump) in strategies::<crate::RustParser>() {
+            let keep = build_ast_by(dump, code, "a.rs", false, false);
+            assert_eq!(
+                keep.children.len(),
+                1,
+                "{name}: without the filter the root keeps its one comment child"
+            );
+            let root = build_ast_by(dump, code, "a.rs", false, true);
             assert!(
                 root.children.is_empty(),
                 "{name}: the comment child must be filtered, got {:?}",

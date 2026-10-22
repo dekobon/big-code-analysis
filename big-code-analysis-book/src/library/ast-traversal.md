@@ -308,8 +308,9 @@ above does. Two siblings name the strategy explicitly:
 instead. They produce the same tree; the difference is cost. Both
 index lookups scan the parent's child array to the index — `O(log n)`
 under a list the grammar stores as a balanced `repeat()`, `O(index)`
-under a flat node, which a recovery `ERROR` always is — so enumerating
-a wide flat node by index is quadratic in its width. Prefer the cursor
+under a flat node, which the `ERROR` root of a file that ends
+mid-parse is — so enumerating a wide flat node by index is quadratic
+in its width. Prefer the cursor
 walk for a whole-tree export, field lookup (`child_by_field_name`) for
 a grammatical role, and indexed access for picking one slot; a loop
 that needs repeated random access to a wide list should collect the
