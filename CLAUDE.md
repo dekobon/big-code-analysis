@@ -152,9 +152,9 @@ other skills may edit code as part of their workflow.
 
 ### Hooks
 
-`.claude/hooks/bca-check.sh` (the per-edit `bca check` feedback loop) is
-opt-in and **not registered by default** — to enable it, copy the
-`PostToolUse` registration snippet from
-[`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md)
-into your `.claude/settings.local.json`. It never blocks an edit and
-no-ops silently when no `bca` binary is available.
+`.claude/settings.json` registers the Node-based `.claude/hooks/bca-check.mjs`
+after Edit, Write and MultiEdit. It returns advisory context with exit 0;
+analyzer failures stay out of model context and appear in the debug log.
+Remove any duplicate local `bca-check.sh` registration when using this default.
+See [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md#claude-code)
+for dependencies, configuration discovery and verification.

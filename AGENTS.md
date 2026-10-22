@@ -743,9 +743,9 @@ Three things to know before quoting a number at anyone:
 ## Responding to bca metric feedback
 
 This repo dogfoods its own analyzer: a `bca check` threshold violation
-may surface mid-edit (via the optional Claude Code `PostToolUse` hook in
-`.claude/hooks/bca-check.sh`) or at the task boundary (`make self-scan`,
-`make pre-commit`). A violation (cognitive, cyclomatic, ABC, …) means
+may surface mid-edit (via the Claude Code `PostToolUse` hook in
+`.claude/hooks/bca-check.mjs`, enabled by `.claude/settings.json`) or at
+the task boundary (`make self-scan`, `make pre-commit`). A violation (cognitive, cyclomatic, ABC, …) means
 *this function is hard for a human to follow* — the number is a proxy
 for that, not the goal. Make the code genuinely simpler, not the number
 smaller.
@@ -778,10 +778,9 @@ smaller.
   [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
   and the full recipe at
   [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).
-- **Keep the fix where the violation is.** The flag is scoped to the
-  function you just edited. Fix it there, mention anything larger you
-  noticed, and do not widen the change into a module rewrite to bring
-  the number down.
+- **Keep the fix within the task.** Review findings relevant to the
+  current change. Findings may concern other functions or the whole
+  file; mention unrelated findings without expanding the edit.
 - **Attribute the score before sizing the fix, then size against every
   gated metric.** Re-derive the genuine decision count by hand and
   compare it to the measurement: part of the headline may be a metric

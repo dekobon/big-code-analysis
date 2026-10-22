@@ -26,6 +26,12 @@ for historical reference.
 
 ### Added
 
+- A project-level Claude Code `PostToolUse` hook delivers bounded advisory
+  context after Edit, Write and MultiEdit. It follows the event's working
+  directory into worktrees, handles tiered analyzer exits, rejects stale
+  findings after concurrent file changes, and shares the tested subprocess
+  and report helpers with the OpenCode V2 plugin. Both adapters run in CI.
+
 - **`metric_catalog::Scale` and `metric_catalog::Threshold`: one model
   of what a metric value means** (#1621). `MetricInfo` gains a `scale`
   field (and `metric_catalog::scale(id)`): `Scale::Ratio` for every
