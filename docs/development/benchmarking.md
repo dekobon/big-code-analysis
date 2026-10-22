@@ -461,19 +461,35 @@ The AST export reads the same flat `ERROR`, and until [#1684][dump-cursor]
 it did so by index: `Node::child` and `Node::field_name_for_child` both
 scan the parent's child array to the index, skipping hidden subtrees by
 their cached counts, which is `O(log n)` under a balanced `repeat()`
-and `O(index)` under a flat node. Only the EOF-recovery root is flat —
-a mid-file `ERROR` is balanced like any `repeat()` — but that root is
-what every truncated file has. `Ast::dump` now walks one cursor, which
+and `O(index)` under a flat node. Whether an `ERROR` is flat is a
+property of how recovery assembled it, not of where it sits: the Perl
+root here holds every skipped token as a direct child and is the
+measured flat case, but a root whose skipped run stayed under a hidden
+`_ERROR` repeat is balanced, and a nested `ERROR` wrapping a few popped
+tokens is flat. The probe shape is the one that is known to be wide
+and flat. `Ast::dump` now walks one cursor, which
 steps to a sibling in amortised `O(1)` whatever the parent's shape and
-reads a node's field off the hidden levels above it, so the export is
-`O(n log n)` over a balanced list and `O(n)` over a flat one. The
+reads a node's field off the hidden levels above it, so enumerating
+the tree is `O(n log n)` over a balanced list and `O(n)` over a flat
+one. That bounds the enumeration, not the alterator: Tcl's
+`keeps_children` still asks `argument_slots_are_readable` of every
+braced word under a `word_list` that holds an error, an `O(width)`
+sibling scan per word, so a wide erroring `eval` line is quadratic on
+either strategy and on `main` — pre-existing, tracked as [#1686][tcl-slots],
+and not something the depth probe below can see. The
 indexed walk stays reachable as `Ast::dump_indexed`, and routing the
 default back to it is what `dump/perl-error-tail-calls` prices; the
 export also carries the ancestor chain `keeps_children` reads, and
 handing that an unknown chain is what `dump/tcl-nested-eval` prices.
 The `Dump` workload's reading is the exported node count, taken on a
 second pass over the result before it is dropped, so each timing is
-construction + that count + teardown:
+construction + that count + teardown. The count is a constant factor —
+2-5 % of the region on the width shapes and real files, 8-11 % on the
+depth probe, where each level's two-element extend has poor locality.
+It is `O(nodes)`, so it preserves the walk's complexity class; on a
+three-rung ladder a constant-factor term can still nudge the fitted
+slope, which is why the share is recorded. The iterative drop is the
+larger share everywhere, 20-30 %:
 
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
@@ -482,16 +498,17 @@ construction + that count + teardown:
 | `finish` hands `keeps_children` an unknown chain | `dump/tcl-nested-eval` | 0.75 | 2.00 | 4 000 braces, 12 000 exported levels |
 
 Temporary storage was measured once with a counting Rust
-`#[global_allocator]`, at the ladder's top rung of each probe and on
-`src/spaces/compute.rs`, as peak live bytes during the export less the
-finished tree's own capacity. That counter sees the frame stack and the
+`#[global_allocator]`, at the flat `ERROR` at width 4 000 (twice the
+probe's top rung), the wide list at 2 000, the depth probe at 4 000 and
+on `src/spaces/compute.rs`, as peak live bytes during the export less
+the finished tree's own capacity. That counter sees the frame stack and the
 ancestor chain and **not** the `TreeCursor`'s own stack: the C library
 allocates that through `ts_current_malloc`, which is libc's `malloc`
 unless `ts_set_allocator` was called. Both walks share one `Frame` and
 one `Export`, so what it saw was byte-identical on both sides, and
 every figure is a `Vec` capacity after doubling rather than a live
-length — 448 bytes on the flat `ERROR` at width 4 000, 896 on the wide
-list, 3.5 KB on `compute.rs`, 1.84 MB on the depth probe, where
+length — 448 bytes on the flat `ERROR`, 896 on the wide list, 3.5 KB
+on `compute.rs`, 1.84 MB on the depth probe, where
 16 384 slots of one 80-byte frame plus one 32-byte chain entry hold the
 12 000 exported levels. The cursor's unmeasured stack is one 32-byte
 entry per *raw* level on the path to the current node, hidden nodes
@@ -606,6 +623,7 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
 [find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
 [dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
+[tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
 
 The twelve control probes are what make the other readings mean
 something.

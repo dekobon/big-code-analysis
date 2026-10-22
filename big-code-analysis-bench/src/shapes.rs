@@ -1289,9 +1289,9 @@ pub const PROBES: &[Probe] = &[
         max_exponent: LINEAR_BOUND,
         rationale: "The shape control for `dump/perl-error-tail-calls`: an \
                     ordinary wide list the grammar stores balanced, so both \
-                    builders are linear on it and a regression that moves the \
-                    recovery probe and not this one is in enumerating a flat \
-                    node rather than in the export itself (#1684).",
+                    builders are `O(n log n)` on it and a regression that moves \
+                    the recovery probe and not this one is in enumerating a \
+                    flat node rather than in the export itself (#1684).",
     },
     Probe {
         name: "dump/tcl-nested-eval",

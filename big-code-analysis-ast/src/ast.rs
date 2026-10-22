@@ -375,11 +375,14 @@ impl<'a, 'code> Export<'a, 'code> {
 /// popped once — and reports the field of the node it sits on from the
 /// path it descended, at the cost of the hidden levels between the
 /// node and its visible parent: `O(log n)` under a balanced `repeat()`,
-/// `O(1)` under a flat node. The walk is therefore `O(n log n)` over a
-/// wide balanced list and `O(n)` over a flat one, never quadratic.
-/// Indexing the children instead is quadratic on a flat node — see
-/// [`build_indexed`] — and that difference is the whole reason there
-/// are two builders (#1684).
+/// `O(1)` under a flat node. The enumeration is therefore `O(n log n)`
+/// over a wide balanced list and `O(n)` over a flat one, never
+/// quadratic. Indexing the children instead is quadratic on a flat node
+/// — see [`build_indexed`] — and that difference is the whole reason
+/// there are two builders (#1684). What the alterator does per node is
+/// priced separately: `keeps_children` reads the ancestor chain, which
+/// `dump/tcl-nested-eval` covers, and its own predicates are the
+/// language's to keep linear — Tcl's is not yet (#1686).
 ///
 /// The cursor sits on the node of the top frame throughout. Each
 /// iteration descends as far as a first child exists, then finishes
@@ -513,7 +516,7 @@ mod tests {
     use super::*;
 
     /// One export entry point, generic over the parser it dumps.
-    #[cfg(any(feature = "cpp", feature = "rust", feature = "tcl"))]
+    #[cfg(any(feature = "cpp", feature = "python", feature = "rust", feature = "tcl"))]
     type Dump<P> = fn(&P, AstCfg) -> AstResponse;
 
     /// The two explicit strategies, by name.
@@ -525,7 +528,7 @@ mod tests {
         ]
     }
 
-    #[cfg(any(feature = "cpp", feature = "rust", feature = "tcl"))]
+    #[cfg(any(feature = "cpp", feature = "python", feature = "rust", feature = "tcl"))]
     fn cfg_with(span: bool, comment: bool) -> AstCfg {
         AstCfg {
             id: String::new(),
@@ -575,6 +578,15 @@ mod tests {
     #[cfg(feature = "rust")]
     fn build_ast_with_span<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
         build_ast_by::<P>(dump_inner, code, filename, true, false)
+    }
+
+    /// Each direct child's `(type, field_name)`.
+    #[cfg(feature = "python")]
+    fn kinds_and_fields(node: &AstNode) -> Vec<(&'static str, Option<&'static str>)> {
+        node.children
+            .iter()
+            .map(|c| (c.r#type, c.field_name))
+            .collect()
     }
 
     /// How many nodes in `root`'s subtree have a type in `kinds`,
@@ -990,10 +1002,53 @@ mod tests {
         assert_eq!(from_parent.field_name(), Some("pattern"));
         cursor.reset(&from_parent.node());
         assert_eq!(
+            cursor.node().id(),
+            from_parent.node().id(),
+            "the reset must move the cursor before its answer means anything"
+        );
+        assert_eq!(
             cursor.field_name(),
             None,
             "after a reset the new start node hides its field exactly as the original did"
         );
+    }
+
+    /// A field a visible rule inherits from a hidden one is reported,
+    /// with the same name, by both strategies. The cursor reads it off
+    /// the token's hidden parent on the way up and the index lookup
+    /// carries it down through the same level, and the parity sweep's
+    /// fixtures name no such field, so a grammar that broke the
+    /// agreement would be caught only by accident there. Python's
+    /// `comparison_operator` reaches each operator token through
+    /// `operators`, an entry its `parser.c` marks `.inherited`; the
+    /// token sits one hidden `_repeat1` level down, so this pins the
+    /// propagation, not a multi-level climb.
+    #[cfg(feature = "python")]
+    #[test]
+    fn each_strategy_reports_a_field_inherited_through_a_hidden_rule() {
+        let code = b"a < b <= c\n";
+        let strategies: [(&str, Dump<crate::PythonParser>); 2] = [
+            ("cursor", dump_cursor_inner),
+            ("indexed", dump_indexed_inner),
+        ];
+        for (name, dump) in strategies {
+            let parser = crate::PythonParser::new(code.to_vec(), &PathBuf::from("c.py"), None);
+            let root = dump(&parser, cfg_with(false, false)).root.expect("root");
+            let comparison = kinds_and_fields(&root.children[0].children[0]);
+            // expected: the two operator tokens carry `operators`; the
+            // three operands sit in no field.
+            assert_eq!(
+                comparison,
+                [
+                    ("identifier", None),
+                    ("<", Some("operators")),
+                    ("identifier", None),
+                    ("<=", Some("operators")),
+                    ("identifier", None),
+                ],
+                "{name}"
+            );
+        }
     }
 
     /// The comment filter, asserted on each strategy against an
@@ -1030,7 +1085,9 @@ mod tests {
     fn each_strategy_echoes_the_request_metadata() {
         let parser = crate::RustParser::new(b"fn f() {}".to_vec(), &PathBuf::from("a.rs"), None);
         let default: (&str, Dump<crate::RustParser>) = ("default", dump_inner);
-        for (name, dump) in [default].into_iter().chain(strategies()) {
+        // The explicit strategies first, so a defect in one of them is
+        // reported under its own name rather than as `default`.
+        for (name, dump) in strategies().into_iter().chain([default]) {
             let resp = dump(
                 &parser,
                 AstCfg {

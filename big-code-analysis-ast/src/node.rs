@@ -452,12 +452,15 @@ impl<'a> Node<'a> {
     /// Not constant: tree-sitter scans the child array from the front,
     /// skipping each hidden subtree by its cached child count. That is
     /// `O(log n)` into a list the grammar stores as a `repeat()` — a
-    /// balanced tree of hidden nodes — and `O(pos)` into a flat one.
-    /// The flat node that matters is the `ERROR` root recovery builds
-    /// when the file ends mid-parse: its children are spliced in as
-    /// one array. A mid-file `ERROR` is balanced like any `repeat()`.
-    /// Indexing every child of a flat node in turn is quadratic in its
-    /// width (#1684). Use [`children`](Self::children) or
+    /// balanced tree of hidden nodes — and `O(pos)` into one whose
+    /// children sit in a single raw array. Whether an `ERROR` is flat
+    /// depends on how recovery assembled it, not on where it sits: the
+    /// Perl `my @r = ({…` root with every skipped token as a direct
+    /// child is the measured flat case, while a root whose skipped run
+    /// stayed under a hidden `_ERROR` repeat is balanced and a nested
+    /// `ERROR` wrapping a few popped tokens is flat. Indexing every
+    /// child of a flat node in turn is quadratic in its width (#1684).
+    /// Use [`children`](Self::children) or
     /// [`children_with`](Self::children_with) to enumerate; this is
     /// for picking one slot. A loop that needs repeated random access
     /// to a wide list should collect the children once and index the
@@ -471,11 +474,13 @@ impl<'a> Node<'a> {
     /// Returns the tree-sitter grammar field name through which this
     /// node reaches the child at `child_index`, if any.
     ///
-    /// Costs what [`child`](Self::child) costs: the same scan to the
-    /// index, so enumerating a flat node's fields this way is
-    /// quadratic in its width. A traversal takes the field off the
-    /// cursor it is already holding ([`Cursor::field_name`]) instead,
-    /// which is how the default AST export does it (#1684).
+    /// # Cost
+    ///
+    /// What [`child`](Self::child) costs: the same scan to the index,
+    /// so enumerating a flat node's fields this way is quadratic in
+    /// its width. A traversal takes the field off the cursor it is
+    /// already holding ([`Cursor::field_name`]) instead, which is how
+    /// the default AST export does it (#1684).
     #[inline]
     #[must_use]
     pub fn field_name_for_child(&self, child_index: u32) -> Option<&'static str> {

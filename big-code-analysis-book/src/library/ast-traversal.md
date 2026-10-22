@@ -308,9 +308,9 @@ above does. Two siblings name the strategy explicitly:
 instead. They produce the same tree; the difference is cost. Both
 index lookups scan the parent's child array to the index — `O(log n)`
 under a list the grammar stores as a balanced `repeat()`, `O(index)`
-under a flat node, which the `ERROR` root of a file that ends
-mid-parse is — so enumerating a wide flat node by index is quadratic
-in its width. Prefer the cursor
+under a node whose children sit in one raw array, which the `ERROR`
+recovery builds from a run of skipped tokens can be — so enumerating a
+wide flat node by index is quadratic in its width. Prefer the cursor
 walk for a whole-tree export, field lookup (`child_by_field_name`) for
 a grammatical role, and indexed access for picking one slot; a loop
 that needs repeated random access to a wide list should collect the
@@ -331,9 +331,10 @@ children once and index the `Vec`.
   directly via the re-exported `tree_sitter` and feed the result
   through
   [`Ast::from_tree_sitter`](parse-once.md#adopting-a-caller-built-tree).
-- **The crate-internal `big_code_analysis::Node` wrapper.** It is
-  exposed for the metric walker's traversal needs, but most of its
-  traversal methods (`kind`, `child_count`, `children`, `cursor`, …)
-  stay `pub(crate)`. Library consumers should reach the tree-sitter
-  `Node` through `as_tree_sitter().root_node()` — that is the
-  documented seam.
+- **Everything on `big_code_analysis::Node` that is not listed in
+  `STABILITY.md`.** The wrapper is re-exported, and its traversal
+  methods (`kind`, `child_count`, `children`, `cursor`, `preorder`,
+  `child`, `child_by_field_name`, …) are `pub`, but only the
+  `STABILITY.md` accessor list is shape-stable. For anything else,
+  reach the tree-sitter `Node` through `as_tree_sitter().root_node()`
+  — that is the documented seam.

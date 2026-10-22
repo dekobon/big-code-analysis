@@ -42,8 +42,8 @@ for historical reference.
   `bca dump` renders the raw tree through its own cursor walk and is
   unaffected) walks the tree with one cursor instead of indexing each
   child. The output is unchanged. The indexed lookups scan the parent's
-  child array, so the old walk was quadratic in the width of the flat
-  `ERROR` root that recovery builds when a file ends mid-parse:
+  child array, so the old walk was quadratic in the width of a flat
+  `ERROR` — one whose skipped tokens recovery left as direct children:
   enumerating 28 000 such children by index measured 1.75 s against a
   cursor's 1.2 ms. `Node::child` and `Node::field_name_for_child` now
   document that cost. (#1684)

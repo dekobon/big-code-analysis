@@ -193,7 +193,10 @@ fn each_ast_dump_entry_point_enters_exactly_its_own_builder() {
         comment: false,
         span: false,
     };
-    let _ = ast.dump_cursor(cfg());
+    // Seeded through `dump`, not `dump_cursor`, so a `dump_cursor`
+    // rerouted to the indexed builder is reported by its own row below
+    // rather than by the seed guard.
+    let _ = ast.dump(cfg());
     let _ = ast.dump_indexed(cfg());
     let mut cursor_total = crate::ast::cursor_builds::observed();
     let mut indexed_total = crate::ast::indexed_builds::observed();

@@ -255,8 +255,8 @@ impl Ast {
     ///
     /// Walks the tree with one cursor — the export [`dump_cursor`] names
     /// explicitly. A cursor steps between siblings in amortised constant
-    /// time whatever the parent's shape, so the walk is never quadratic;
-    /// [`dump_indexed`] is the explicit alternative that reaches each
+    /// time whatever the parent's shape, so enumerating the tree is never
+    /// quadratic; [`dump_indexed`] is the explicit alternative that reaches each
     /// child by index, which is the same tree at a cost that is quadratic
     /// in the width of a flat recovery `ERROR` node (#1684).
     ///
@@ -286,8 +286,8 @@ impl Ast {
 
     /// [`dump`](Self::dump), naming its strategy: the tree is walked
     /// with one cursor. Prefer this over [`dump_indexed`] for any whole-
-    /// tree export; the two agree on every node and this one is never
-    /// quadratic (#1684).
+    /// tree export; the two agree on every node and this one enumerates
+    /// children in amortised constant time each (#1684).
     ///
     /// [`dump_indexed`]: Self::dump_indexed
     ///
@@ -323,8 +323,8 @@ impl Ast {
     /// Produces the same tree as [`dump_cursor`]. The difference is
     /// cost: both index lookups scan the parent's child array, so
     /// enumerating a flat node this way is quadratic in its width,
-    /// and the `ERROR` root that recovery builds when a file ends
-    /// mid-parse is such a node (#1684; see the cost note on
+    /// and the `ERROR` recovery builds from a run of skipped tokens can
+    /// be such a node (#1684; see the cost note on
     /// [`Node::child`](crate::Node::child)). It is kept as a supported,
     /// explicit choice for a consumer that wants index-addressed
     /// export, and as the independent implementation the parity tests
