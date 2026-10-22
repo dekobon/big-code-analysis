@@ -300,6 +300,24 @@ For one-off in-process work, the `as_tree_sitter()` walker above is
 cheaper (no allocation per node). Reach for [`Ast::dump`] when you
 need a serializable owned tree.
 
+`Ast::dump` walks the tree with one cursor, the same way the walker
+above does. Two siblings name the strategy explicitly:
+[`Ast::dump_cursor`][dump_cursor] is that walk, and
+[`Ast::dump_indexed`][dump_indexed] reaches each child through
+`Node::child` and its field through `Node::field_name_for_child`
+instead. They produce the same tree; the difference is cost. Both
+index lookups scan the parent's child array to the index — `O(log n)`
+under a list the grammar stores as a balanced `repeat()`, `O(index)`
+under a flat node, which a recovery `ERROR` always is — so enumerating
+a wide flat node by index is quadratic in its width. Prefer the cursor
+walk for a whole-tree export, field lookup (`child_by_field_name`) for
+a grammatical role, and indexed access for picking one slot; a loop
+that needs repeated random access to a wide list should collect the
+children once and index the `Vec`.
+
+[dump_cursor]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_cursor
+[dump_indexed]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_indexed
+
 [ast_response]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstResponse.html
 [astnode]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstNode.html
 

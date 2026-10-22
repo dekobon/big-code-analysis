@@ -198,6 +198,9 @@ Read it as follows.
 | `cognitive/bash-test-connective-run` | Bash | depth | the comparison-run end of a `[ … -o … ]` test (#1536) | linear |
 | `abc/bash-arith-assign-chain` | Bash | depth | ABC's `=` comparison test on `(( a = … ))` (#1536) | linear |
 | `abc/bash-eq-and-test` | Bash | depth | the same test on a `[[ … = … && … ]]` run (#1536) | linear |
+| `dump/perl-error-tail-calls` | Perl | width | the AST export's child enumeration under the same `ERROR` (#1684) | linear |
+| `dump/wide-distinct-fns` | Rust | width | shape control for the row above: a balanced `repeat()` list | linear |
+| `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -454,9 +457,49 @@ one now, and `count/perl-error-tail-calls` prices it:
 |---|---|---|---|---|
 | `act_on_node` lends no cache | `count/perl-error-tail-calls` | 0.88 | 1.89 | 2.8 ms → 84.5 ms |
 
-These four are the probes whose shape is meant not to parse:
+The AST export reads the same flat `ERROR`, and until [#1684][dump-cursor]
+it did so by index: `Node::child` and `Node::field_name_for_child` both
+scan the parent's child array to the index, skipping hidden subtrees by
+their cached counts, which is `O(log n)` under a balanced `repeat()`
+and `O(index)` under a flat node. `Ast::dump` now walks one cursor,
+which steps to a sibling in `O(1)` whatever the parent's shape; the
+indexed walk stays reachable as `Ast::dump_indexed`, and routing the
+default back to it is what `dump/perl-error-tail-calls` prices. The
+`Dump` workload's reading is the exported node count, taken on a
+second pass over the result before it is dropped, so each timing is
+construction + that count + teardown:
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| `Ast::dump` enumerates by index | `dump/perl-error-tail-calls` | 1.02 | 1.98 | 2 000 siblings |
+| (same patch) | `dump/wide-distinct-fns` | 0.79 | 0.80 | unchanged, as the control should be |
+| (same patch) | `dump/tcl-nested-eval` | 0.75 | 0.85 | unchanged |
+
+Temporary storage was measured once with a counting Rust
+`#[global_allocator]`, at the ladder's top rung and on two corpus
+files, as peak live bytes during the export less the finished tree's
+own capacity. That counter sees the frame stack and the ancestor chain
+and **not** the `TreeCursor`'s own stack: the C library allocates that
+through `ts_current_malloc`, which is libc's `malloc` unless
+`ts_set_allocator` was called. Both walks share one `Frame` and one
+`Export`, so what it saw was byte-identical on both sides — 448 bytes
+on the flat `ERROR` at width 4 000, 896 on the wide list, 3.5 KB on
+`src/spaces/compute.rs`, 1.84 MB on the depth probe at 4 000 braces,
+where each walk holds one 80-byte frame and one 32-byte chain entry
+per exported level. The cursor's unmeasured stack is one 32-byte entry
+per *raw* level on the path to the current node, hidden nodes
+included, so it is bounded by the raw depth and never by the width.
+Output capacity is identical by construction: both reserve each node's
+`children` from `child_count()`. Those are five inputs, not a proof
+for all of them.
+
+These five are the probes whose shape is meant not to parse:
 `RECOVERY_PROBES` in `shapes.rs` exempts them from the parse check and
-asserts that each root is still an `ERROR`.
+asserts that each root is still an `ERROR`. `dump` probes have one
+more invariant of their own, `dump_probes_export_proportionally_to_their_size`:
+the raw-tree shape checks cannot see an exporter that collapses to a
+root, so the *exported* node count or depth must grow with the size
+too, on the ladder itself.
 
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
@@ -557,8 +600,9 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
 [find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
+[dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
 
-The eleven control probes are what make the other readings mean
+The twelve control probes are what make the other readings mean
 something.
 
 - `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
@@ -571,8 +615,9 @@ something.
   difference is the cost of `Loc`'s per-space row sets.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
-  `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`
-  and `loc/nested-fn` are **shape** controls: each is the same nesting as the ancestor-walk
+  `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
+  `loc/nested-fn` and `dump/wide-distinct-fns` are **shape** controls:
+  each is the same nesting — or, for the last, the same width — as the
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
   counterpart fitted near 2.0, which is what attributed the quadratic

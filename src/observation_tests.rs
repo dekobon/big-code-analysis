@@ -168,3 +168,57 @@ fn the_metric_and_suppression_walks_scan_a_tree_on_one_cursor() {
         "the suppression scan built {scans} cursors over {nodes} nodes (#1112)"
     );
 }
+
+/// Which export builder each `Ast` entry point runs (#1684).
+///
+/// `Ast::dump` and `Ast::dump_cursor` must enter only the cursor walk,
+/// and `Ast::dump_indexed` only the indexed one. Nothing in the output
+/// can say: the two walks produce the same tree, so a default re-routed
+/// to the indexed builder would pass every assertion on a dump and show
+/// up only as a quadratic `bca dump` over a flat recovery node. The
+/// AST crate pins its own `dump_inner`; this pins the dispatch above
+/// it, through `AnyParser`, which is what the web and Python surfaces
+/// reach. Each delta is taken against a seeded count, so a `record()`
+/// never wired up cannot pass either.
+#[cfg(feature = "rust")]
+type Dump = fn(&crate::Ast, crate::AstCfg) -> crate::AstResponse;
+
+#[cfg(feature = "rust")]
+#[test]
+fn each_ast_dump_entry_point_enters_exactly_its_own_builder() {
+    let ast = crate::test_support::parse_named(crate::LANG::Rust, "a.rs", "fn f() {}\n");
+    let cfg = || crate::AstCfg {
+        id: String::new(),
+        language: "rust".to_owned(),
+        comment: false,
+        span: false,
+    };
+    let _ = ast.dump_cursor(cfg());
+    let _ = ast.dump_indexed(cfg());
+    let mut cursor_total = crate::ast::cursor_builds::observed();
+    let mut indexed_total = crate::ast::indexed_builds::observed();
+    assert!(
+        cursor_total > 0 && indexed_total > 0,
+        "the seed calls must be counted"
+    );
+
+    let entries: [(&str, Dump, usize, usize); 3] = [
+        ("Ast::dump", crate::Ast::dump, 1, 0),
+        ("Ast::dump_cursor", crate::Ast::dump_cursor, 1, 0),
+        ("Ast::dump_indexed", crate::Ast::dump_indexed, 0, 1),
+    ];
+    for (name, dump, cursor_delta, indexed_delta) in entries {
+        let _ = dump(&ast, cfg());
+        cursor_total += cursor_delta;
+        indexed_total += indexed_delta;
+        assert_eq!(
+            (
+                crate::ast::cursor_builds::observed(),
+                crate::ast::indexed_builds::observed()
+            ),
+            (cursor_total, indexed_total),
+            "{name} must enter the cursor builder {cursor_delta} time(s) and the indexed \
+             builder {indexed_delta} time(s)"
+        );
+    }
+}

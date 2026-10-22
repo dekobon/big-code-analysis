@@ -446,6 +446,20 @@ impl<'a> Node<'a> {
     /// The direct child at index `pos`, counting named and anonymous
     /// children alike. Prefer [`child_by_field_name`](Self::child_by_field_name)
     /// for any slot the grammar can precede with an optional preamble.
+    ///
+    /// # Cost
+    ///
+    /// Not constant: tree-sitter scans the child array from the front,
+    /// skipping each hidden subtree by its cached child count. That is
+    /// `O(log n)` into a list the grammar stores as a `repeat()` — a
+    /// balanced tree of hidden nodes — and `O(pos)` into a flat one,
+    /// which an `ERROR` built by skipping tokens always is. Indexing
+    /// every child in turn is therefore quadratic in the width of a
+    /// recovery node (#1684). Use [`children`](Self::children) or
+    /// [`children_with`](Self::children_with) to enumerate; this is
+    /// for picking one slot. A loop that needs repeated random access
+    /// to a wide list should collect the children once and index the
+    /// `Vec`.
     #[inline]
     #[must_use]
     pub fn child(&self, pos: usize) -> Option<Node<'a>> {
@@ -453,9 +467,13 @@ impl<'a> Node<'a> {
     }
 
     /// Returns the tree-sitter grammar field name through which this
-    /// node reaches the child at `child_index`, if any. Used by the
-    /// AST builder to thread the parent's `field_name` into each child
-    /// without a parallel cursor walk.
+    /// node reaches the child at `child_index`, if any.
+    ///
+    /// Costs what [`child`](Self::child) costs: the same scan to the
+    /// index, so enumerating a flat node's fields this way is
+    /// quadratic in its width. A traversal takes the field off the
+    /// cursor it is already holding ([`Cursor::field_name`]) instead,
+    /// which is how the default AST export does it (#1684).
     #[inline]
     #[must_use]
     pub fn field_name_for_child(&self, child_index: u32) -> Option<&'static str> {
@@ -757,6 +775,41 @@ impl<'a> Cursor<'a> {
     #[inline]
     pub fn goto_first_child_for_byte(&mut self, byte: usize) -> Option<usize> {
         self.0.goto_first_child_for_byte(byte)
+    }
+
+    /// Moves to the parent; `false` when there is none.
+    ///
+    /// The node the cursor was built on ([`Node::cursor`]) or last
+    /// [`reset`](Self::reset) to is the ceiling: from there this returns
+    /// `false` and leaves the cursor where it is, even when the node has
+    /// a parent in the tree. A traversal that descends and climbs back
+    /// through one cursor therefore cannot wander above its subtree.
+    #[inline]
+    pub fn goto_parent(&mut self) -> bool {
+        self.0.goto_parent()
+    }
+
+    /// The grammar field through which the parent reaches the node the
+    /// cursor currently sits on, or `None` when it occupies no field —
+    /// an anonymous token, an `extra` such as a comment, or the node the
+    /// cursor started on, whose parent it cannot see.
+    ///
+    /// Reflects the cursor's *position*: it is answered from the path
+    /// the cursor descended, so a field inherited through a hidden
+    /// grammar node is resolved the same way [`Node::field_name_for_child`]
+    /// resolves it — both stop at the nearest visible ancestor and
+    /// both answer `None` for an `extra`. The two are different
+    /// algorithms, though: this one climbs the cursor's stack and
+    /// stops at the first `extra` entry, while the index lookup
+    /// descends and reads the field map at each hidden level. They
+    /// agree wherever every `extra` is a leaf or a visible rule, which
+    /// holds for every pinned grammar; a hidden `extra` wrapper with
+    /// visible children would be the shape to re-check against
+    /// `tests/parity/ast_export_parity.rs` after a grammar bump.
+    #[inline]
+    #[must_use]
+    pub fn field_name(&self) -> Option<&'static str> {
+        self.0.field_name()
     }
 
     /// The node the cursor currently sits on.

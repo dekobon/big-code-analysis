@@ -188,12 +188,6 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "big-code-analysis-ast/src/ast.rs"
-qualified = "build"
-metric = "halstead.effort"
-value = 92648.17221763342
-
-[[entry]]
 path = "big-code-analysis-ast/src/c_macro.rs"
 qualified = "replace"
 metric = "halstead.effort"

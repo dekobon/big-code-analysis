@@ -33,6 +33,32 @@ mod support;
     feature = "typescript",
 ))]
 mod abc_halstead_bracket_parity;
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+mod ast_export_parity;
 mod cognitive_cross_language_parity;
 mod cpp_mozcpp_parity;
 mod cyclomatic_cross_language_parity;

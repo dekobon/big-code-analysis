@@ -25,7 +25,9 @@
 use std::fmt::Write as _;
 use std::hint::black_box;
 
-use big_code_analysis::{Ast, CodeMetrics, LANG, Metric, MetricsError, MetricsOptions, Ops};
+use big_code_analysis::{
+    Ast, AstCfg, AstNode, CodeMetrics, LANG, Metric, MetricsError, MetricsOptions, Ops,
+};
 
 /// Renders a source shape at a given size — a nesting depth on
 /// [`Axis::Depth`], a sibling count on [`Axis::Width`].
@@ -960,12 +962,26 @@ pub fn cpp_plus_chain(depth: usize) -> String {
     format!("int f(int a){{ return {}a; }}\n", "a + ".repeat(depth))
 }
 
+/// Tcl: `eval {` nested `depth` times around `puts hi`.
+///
+/// `eval` evaluates every argument, so each level is a script body the
+/// alterator keeps rather than flattening to a verbatim leaf — a
+/// question `keeps_children` answers off the ancestor chain the export
+/// walk carries (#1381). One brace level costs three exported levels
+/// (`braced_word` → `command` → `word_list`), so the export nests
+/// three times deeper than the source.
+#[must_use]
+pub fn tcl_nested_eval(depth: usize) -> String {
+    format!("{}puts hi{}\n", "eval {".repeat(depth), "}".repeat(depth))
+}
+
 /// The walk a probe times.
 ///
-/// Three seams reach an AST walk — `Ast::metrics`, `Ast::ops` and the
-/// `Ast::count` walk `bca find` shares — and they share no options type,
-/// so the selection a metric probe needs lives on the variant that uses
-/// it rather than on every probe (#1110).
+/// Four seams reach an AST walk — `Ast::metrics`, `Ast::ops`, the
+/// `Ast::count` walk `bca find` shares, and the `Ast::dump` export —
+/// and they share no options type, so the selection a metric probe
+/// needs lives on the variant that uses it rather than on every probe
+/// (#1110).
 #[derive(Clone, Copy)]
 pub enum Workload {
     /// `Ast::metrics` under `selection`.
@@ -997,6 +1013,19 @@ pub enum Workload {
         /// The filter, as `bca count --type` spells it.
         filter: &'static str,
     },
+    /// `Ast::dump`, the AST export (#1684). Its reading is the number
+    /// of nodes exported, counted after the export and before its
+    /// teardown, so the timing is construction + that count + drop.
+    ///
+    /// Holds the two flags rather than an `AstCfg`, whose owned
+    /// strings would make the workload non-`Copy`; the config is built
+    /// at invocation with empty metadata.
+    Dump {
+        /// Whether each exported node carries its span.
+        span: bool,
+        /// Whether comment nodes are dropped from the export.
+        comment: bool,
+    },
 }
 
 impl Workload {
@@ -1013,7 +1042,7 @@ impl Workload {
             } => MetricsOptions::default()
                 .with_only(selection)
                 .with_exclude_tests(exclude_tests),
-            Self::Ops { .. } | Self::Count { .. } => MetricsOptions::default(),
+            Self::Ops { .. } | Self::Count { .. } | Self::Dump { .. } => MetricsOptions::default(),
         }
     }
 
@@ -1022,6 +1051,13 @@ impl Workload {
     /// The walk's product is `black_box`ed before the reading is taken,
     /// so an optimiser cannot narrow the walk to whatever the reading
     /// happens to touch.
+    ///
+    /// For [`Workload::Dump`] the reading is a second pass over the
+    /// exported tree, and the tree is dropped before this returns, so
+    /// the timed region is construction + that count + teardown. The
+    /// count is `O(nodes)` and iterative, a constant factor on a walk
+    /// that is itself `O(nodes)` at best, so it cannot move the fitted
+    /// exponent; the drop is `AstNode`'s iterative one (#1056).
     ///
     /// # Errors
     ///
@@ -1035,8 +1071,44 @@ impl Workload {
                 let (matching, _) = black_box(ast.count(&[filter.to_owned()]));
                 u64::try_from(matching).unwrap_or(u64::MAX)
             }
+            Self::Dump { span, comment } => {
+                let cfg = AstCfg {
+                    id: String::new(),
+                    language: String::new(),
+                    comment,
+                    span,
+                };
+                let response = black_box(ast.dump(cfg));
+                u64::try_from(exported_nodes(response.root.as_ref())).unwrap_or(u64::MAX)
+            }
         })
     }
+}
+
+/// How many nodes an export holds, counted on an explicit stack: the
+/// depth shapes export thousands of levels, which a recursive count
+/// would overflow on.
+#[must_use]
+pub fn exported_nodes(root: Option<&AstNode>) -> usize {
+    let mut pending: Vec<&AstNode> = root.into_iter().collect();
+    let mut count = 0;
+    while let Some(node) = pending.pop() {
+        count += 1;
+        pending.extend(&node.children);
+    }
+    count
+}
+
+/// How deep an export nests, counted the same way.
+#[must_use]
+pub fn exported_depth(root: Option<&AstNode>) -> usize {
+    let mut pending: Vec<(&AstNode, usize)> = root.into_iter().map(|r| (r, 1)).collect();
+    let mut deepest = 0;
+    while let Some((node, depth)) = pending.pop() {
+        deepest = deepest.max(depth);
+        pending.extend(node.children.iter().map(|c| (c, depth + 1)));
+    }
+    deepest
 }
 
 /// The direction a probe's shape grows in.
@@ -1199,6 +1271,61 @@ const LINEAR_BOUND: f64 = 1.5;
 ///
 /// See `docs/development/benchmarking.md` for the per-probe table.
 pub const PROBES: &[Probe] = &[
+    Probe {
+        name: "dump/perl-error-tail-calls",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Dump {
+            span: false,
+            comment: false,
+        },
+        render: perl_error_tail_calls,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The export must enumerate a flat recovery `ERROR`'s children \
+                    without indexing each one: `Node::child` and \
+                    `field_name_for_child` scan the child array to the index, \
+                    so an indexed export is quadratic in the node's width — \
+                    1.75 s against 1.2 ms for a cursor over 28 000 children. \
+                    Routing `Ast::dump` back to the indexed builder takes this \
+                    probe past 1.9 (#1684).",
+    },
+    Probe {
+        name: "dump/wide-distinct-fns",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Dump {
+            span: true,
+            comment: false,
+        },
+        render: wide_distinct_fns,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The shape control for `dump/perl-error-tail-calls`: an \
+                    ordinary wide list the grammar stores balanced, so both \
+                    builders are linear on it and a regression that moves the \
+                    recovery probe and not this one is in enumerating a flat \
+                    node rather than in the export itself (#1684).",
+    },
+    Probe {
+        name: "dump/tcl-nested-eval",
+        lang: LANG::Tcl,
+        axis: Axis::Depth,
+        workload: Workload::Dump {
+            span: true,
+            comment: false,
+        },
+        render: tcl_nested_eval,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The export's depth axis: every level is a script body the \
+                    alterator keeps, which `keeps_children` decides off the \
+                    ancestor chain the walk carries rather than by climbing \
+                    with `Node::parent`. Off an unknown chain the question is \
+                    `O(depth)` per node and took 8 KB of nested braces from \
+                    10 ms to 418 ms (#1381); the cursor walk must keep the \
+                    chain in step with its own climbs (#1684).",
+    },
     Probe {
         name: "halstead/csharp-qualified-generics",
         lang: LANG::Csharp,
@@ -2661,9 +2788,9 @@ pub const PROBES: &[Probe] = &[
 
 #[cfg(test)]
 mod tests {
-    use big_code_analysis::{Ast, Source};
+    use big_code_analysis::{Ast, AstCfg, Source};
 
-    use super::{Axis, PROBES, Probe, Workload};
+    use super::{Axis, PROBES, Probe, Workload, exported_depth, exported_nodes};
 
     /// Probes whose shape deliberately fails to parse; see
     /// [`shapes_parse_without_error`].
@@ -2672,6 +2799,7 @@ mod tests {
         "halstead/perl-error-tail-keys",
         "nexits/perl-error-tail-keys",
         "count/perl-error-tail-calls",
+        "dump/perl-error-tail-calls",
     ];
 
     /// Deepest `tree_sitter` node depth reachable from the root.
@@ -2882,6 +3010,51 @@ mod tests {
                 probe.name,
             );
         }
+    }
+
+    /// Every export probe's *exported* tree grows with its size, along
+    /// its own axis, at the sizes the gate measures.
+    ///
+    /// The two shape invariants above read the raw `tree_sitter` tree,
+    /// and [`probe_workload_is_exercised`] asks only for a non-zero
+    /// reading. Neither can see an export that collapsed: an exporter
+    /// that emitted one root would pass both while timing nothing, and
+    /// a Tcl alterator that stopped keeping script bodies would leave
+    /// the raw tree nesting while the export flattened to a leaf. So a
+    /// width probe must export proportionally more nodes, and a depth
+    /// probe must export proportionally deeper — on the ladder itself,
+    /// since a parser limit shows at scale and not on a toy input.
+    #[test]
+    fn dump_probes_export_proportionally_to_their_size() {
+        let mut checked = 0;
+        for probe in PROBES {
+            let Workload::Dump { span, comment } = probe.workload else {
+                continue;
+            };
+            checked += 1;
+            let cfg = || AstCfg {
+                id: String::new(),
+                language: String::new(),
+                comment,
+                span,
+            };
+            let [small, _, large] = probe.sizes;
+            let export = |size| parse(probe, size).dump(cfg());
+            let (narrow, wide) = (export(small), export(large));
+            let measure = match probe.axis {
+                Axis::Width => exported_nodes,
+                Axis::Depth => exported_depth,
+            };
+            let (a, b) = (measure(narrow.root.as_ref()), measure(wide.root.as_ref()));
+            assert!(
+                b >= a + (large - small),
+                "{}: {:?} export grew {a} -> {b} over sizes {small} -> {large}; \
+                 the export is not growing along the probe's axis",
+                probe.name,
+                probe.axis,
+            );
+        }
+        assert!(checked > 0, "PROBES must hold at least one Dump workload");
     }
 
     /// Every probe whose *shape* the exclusion hook prunes walks with
