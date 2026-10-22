@@ -58,9 +58,14 @@ for historical reference.
   The answer is now stored once per argument list in the memo each walk
   already lends with its ancestor chain, and the same input takes
   39 ms. The output is unchanged. The export walk and the `find` /
-  `count` walk now lend that memo too, and a chain reached through
-  `Ancestors::iter` keeps it. Three scaling probes pin the three walks.
-  (#1686)
+  `count` walk now lend that memo too, and a chain derived from the
+  walk's — through `Ancestors::iter`, or re-rooted on a child with the
+  new `Ancestors::below` — keeps it; in `big-code-analysis-ast`, which
+  `STABILITY.md` leaves outside the shape contract, `AncestorIter::Chain`
+  carries the lent `FoldCache` as a third field. Doxygen's conditionals
+  under a parse error are read once per walk through the same
+  re-rooting, where they were re-read on every ask. Four scaling probes
+  pin the four walks. (#1686)
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)

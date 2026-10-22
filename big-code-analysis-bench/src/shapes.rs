@@ -988,7 +988,10 @@ pub fn tcl_nested_eval(depth: usize) -> String {
 ///
 /// The `"x"` beside each braced word is the `string` filter's reading:
 /// a braced word of an unreadable list is a script, never a string, so
-/// without it the count probe would score zero on its own shape.
+/// without it the count probe would score zero on its own shape. It is
+/// the one difference from the same-named fixture in
+/// `big-code-analysis-ast`'s `test_support`, which the counter tests
+/// use and this crate cannot import; keep the two in step by hand.
 #[must_use]
 pub fn tcl_wide_erroring_eval(width: usize) -> String {
     let half = "{a b} \"x\" ".repeat(width / 2);
@@ -1214,14 +1217,19 @@ const LINEAR_WIDTHS: [usize; 3] = [500, 1_000, 2_000];
 /// than abandoning the probe as over budget.
 const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
-/// Sibling counts for the three `tcl-wide-erroring-eval` probes.
+/// Sibling counts for the four `tcl-wide-erroring-eval` probes.
 ///
-/// Set by measurement, as [`SPACE_MERGE_WIDTHS`] was: the quadratic
-/// term is one sibling scan per braced word, each a cheap `kind` read
-/// per slot, riding on a walk that classifies every token. On
-/// [`LINEAR_WIDTHS`] the scan is too small a share of the walk to move
-/// the fit; here the same ladder as the space-merge probes, and the
-/// clean / regressed readings in `docs/development/benchmarking.md`.
+/// Set by measurement, as [`SPACE_MERGE_WIDTHS`] was, and for the
+/// opposite reason: the quadratic term is not small on [`LINEAR_WIDTHS`]
+/// but the clean walk is. A clean cell there runs 0.2–1.8 ms, inside
+/// scheduling jitter on a shared host, and the regressed fits wandered
+/// with it — the export with its cache dropped fitted 2.08 on one run
+/// and 1.62 on the next, the metric walk 1.81–1.82, each with a
+/// neighbouring clean cell reading 2–3x its twin. On this ladder the
+/// clean cells are 2–17 ms, every clean fit is 0.98–1.03 and every
+/// regressed one 2.01–2.07 across three runs
+/// (`docs/development/benchmarking.md`). The cost is the same ~0.8 s of
+/// a `--gate` run the space-merge probes pay.
 const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 
 /// Depths for `nom/deep-attribute-run`, whose shape grows *two* axes
@@ -1379,6 +1387,25 @@ pub const PROBES: &[Probe] = &[
                     `Ancestors::iter`, and the walk must lend one. Each \
                     walk lends its own, so this probe cannot stand in for \
                     the dump or count probes on the same shape (#1686).",
+    },
+    Probe {
+        name: "ops/tcl-wide-erroring-eval",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Ops {
+            // Width-invariant on purpose: every `{a b}` and `"x"` repeats
+            // the same three operands, so the vocabulary is constant and
+            // here only to prove the walk ran. The width signal is in
+            // the timing column.
+            reading: |ops| ops.operands.len() as u64,
+        },
+        render: tcl_wide_erroring_eval,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`Ast::ops` reaches the same question through the same \
+                    `braced_word_op_type` as the metric walk, on a walk of \
+                    its own with a cache of its own (`ops_inner`), so the \
+                    `halstead/` probe cannot stand in for it (#1686).",
     },
     Probe {
         name: "count/tcl-wide-erroring-eval",
@@ -2890,6 +2917,7 @@ mod tests {
     const ARGUMENT_SLOT_ERROR_PROBES: &[&str] = &[
         "dump/tcl-wide-erroring-eval",
         "halstead/tcl-wide-erroring-eval",
+        "ops/tcl-wide-erroring-eval",
         "count/tcl-wide-erroring-eval",
     ];
 

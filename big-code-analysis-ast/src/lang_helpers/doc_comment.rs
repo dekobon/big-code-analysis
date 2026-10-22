@@ -597,10 +597,13 @@ fn read_past_error<'a, T: Checker>(
 /// declaration parsed amid code the grammar could not place, which the
 /// error then stands in for as Doxygen's `doxygen_target` reads one.
 /// `ancestors` is the error's chain. Errors are rare, so the copy of the
-/// chain its children are judged with costs nothing on the common path.
-/// Without a chain the children are judged with none, which a target
-/// test that climbs pays for at `O(depth)`; every production walk lends
-/// one, so only a test reaches that fallback.
+/// chain its children are judged with costs nothing on the common path;
+/// it is re-rooted with [`Ancestors::below`] so the walk's memo travels
+/// with it, and Doxygen's conditionals under the error are read once
+/// per walk like any other (#1686 review). Without a chain the children
+/// are judged with none, which a target test that climbs pays for at
+/// `O(depth)`; every production walk lends one, so only a test reaches
+/// that fallback.
 fn error_holds_target<'a, T: Checker>(
     error: &Node<'a>,
     code: &[u8],
@@ -609,7 +612,7 @@ fn error_holds_target<'a, T: Checker>(
     let chain = ancestors.children_chain(error);
     let inside = chain
         .as_deref()
-        .map_or_else(Ancestors::unknown, Ancestors::known);
+        .map_or_else(Ancestors::unknown, |chain| ancestors.below(chain));
     error
         .children()
         .any(|child| child.is_named() && T::is_doc_target(&child, code, inside))
@@ -1343,5 +1346,127 @@ mod tests {
         ] {
             assert!(!ruby_magic_comment(doc), "{}", String::from_utf8_lossy(doc));
         }
+    }
+
+    /// A wide parse `ERROR` holding a `package` — whose target test asks
+    /// for a *sibling* — is judged on a derived chain that lends no
+    /// `SiblingCache`, so the lookup seeks rather than asking a cache
+    /// that never recorded the error's children. Carrying the walk's
+    /// sibling cache onto the derived chain tripped the walk-must-record
+    /// assertion in `Ancestors::lookup` on this exact shape (#1686
+    /// review): a debug-build panic on malformed Java, where a release
+    /// build answered quietly. Discriminates only through that
+    /// `debug_assert!`, so it is meaningful under `make pre-commit`'s
+    /// debug build and vacuous under `--release` (lesson #80).
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache() {
+        use crate::langs::JavaCode;
+        use crate::node::{FoldCache, SiblingCache, Tree, WIDE_PARENT};
+        // `class {` opens a body the stray `@`s never close, so recovery
+        // gathers the package and every `@` into one flat `ERROR`.
+        let source = format!(
+            "/** d */\nclass {{\npackage a;\n{}",
+            "@ \n".repeat(WIDE_PARENT + 40)
+        );
+        let tree = Tree::new::<JavaCode>(source.as_bytes());
+        let root = tree.get_root();
+        let error = root
+            .children()
+            .find(Node::is_error)
+            .expect("recovery leaves an ERROR under the root");
+        assert!(
+            error.child_count() > WIDE_PARENT,
+            "the ERROR must be wide, or the assertion this guards cannot fire"
+        );
+        assert!(
+            error
+                .children()
+                .any(|child| child.kind() == "package_declaration"),
+            "the ERROR must hold the package, whose target test seeks a sibling"
+        );
+
+        // What the walk lends: the root recorded, the ERROR not yet.
+        let chain = [root];
+        let mut siblings = SiblingCache::default();
+        siblings.record(&root, 0, root.children());
+        let folds = FoldCache::default();
+        let walk = Ancestors::known(&chain)
+            .with_siblings(&siblings)
+            .with_folds(&folds);
+        assert!(
+            error_holds_target::<JavaCode>(&error, source.as_bytes(), walk),
+            "a package with no declaration after it is javadoc's target"
+        );
+    }
+
+    /// A nest of Doxygen conditionals under a parse `ERROR`, asked the
+    /// way a stretch asks — `read_past_error` judges the error's
+    /// children on a chain *derived* from the walk's — reads each
+    /// conditional once per walk, as the same nest does outside an
+    /// error. The derived chain used to be rebuilt with
+    /// `Ancestors::known`, which carries no cache, so the nest was read
+    /// `O(depth²)` on every walk despite the memo (#1686 review, lesson
+    /// 101). Rebuilding it that way again fails the memoised count.
+    #[cfg(feature = "c")]
+    #[test]
+    fn an_error_s_conditionals_are_read_through_the_walk_s_memo() {
+        use crate::lang_helpers::doxygen::conditionals_read;
+        use crate::langs::CCode;
+        use crate::node::{FoldCache, Tree};
+        const DEPTH: usize = 40;
+        // An unclosed anonymous `struct {` makes recovery wrap everything
+        // after it in one `ERROR` whose only named child is the outermost
+        // conditional — a tag name would be a second and make the error
+        // itself a target (`no_entry_inside`). The nest's bottom holds no
+        // declaration, so the error holds no target and is read past.
+        let source = format!(
+            "struct {{\n{}#include <x.h>\n{}",
+            "/** d */\n#ifdef A\n".repeat(DEPTH),
+            "#endif\n".repeat(DEPTH)
+        );
+        let tree = Tree::new::<CCode>(source.as_bytes());
+        let root = tree.get_root();
+        let error = root
+            .children()
+            .find(Node::is_error)
+            .expect("recovery leaves an ERROR under the root");
+        let nested = error
+            .children()
+            .filter(|child| crate::lang_helpers::doxygen::preproc_conditional(child))
+            .count();
+        assert_eq!(
+            nested, 1,
+            "the outermost conditional sits directly under the ERROR"
+        );
+
+        let cache = FoldCache::default();
+        let chain = [root];
+        let walk = Ancestors::known(&chain).with_folds(&cache);
+        let before = conditionals_read::observed();
+        for _ in 0..DEPTH {
+            assert!(
+                read_past_error::<CCode>(&error, source.as_bytes(), walk),
+                "an ERROR holding no target is read past"
+            );
+        }
+        assert_eq!(
+            conditionals_read::observed() - before,
+            DEPTH,
+            "each conditional under the ERROR is read once per walk, however \
+             often the error is asked about"
+        );
+
+        let before = conditionals_read::observed();
+        assert!(read_past_error::<CCode>(
+            &error,
+            source.as_bytes(),
+            Ancestors::known(&chain)
+        ));
+        assert_eq!(
+            conditionals_read::observed() - before,
+            DEPTH,
+            "one unmemoised ask reads the whole nest once"
+        );
     }
 }

@@ -69,6 +69,13 @@ pub fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
 /// it `width` times — the two answer identically, and only
 /// `lang_helpers::argument_slot_scans` tells them apart (#1686). Shared
 /// by one test per walk, in this crate and the root's.
+///
+/// The benchmark harness renders a same-named twin with a `"x"` quoted
+/// word beside each braced one, so its `count --type string` probe has
+/// a reading; its lists are therefore `2·width + 1` slots to this one's
+/// `width + 1`. The two cannot share a definition — the bench crate
+/// depends on the root, not on this crate's `test-support` — so a
+/// change to the shape here must be mirrored there by hand.
 #[must_use]
 pub fn tcl_wide_erroring_eval(width: usize) -> String {
     let half = "{a b} ".repeat(width / 2);

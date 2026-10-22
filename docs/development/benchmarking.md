@@ -203,6 +203,7 @@ Read it as follows.
 | `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
 | `dump/tcl-wide-erroring-eval` | Tcl | width | the argument-list readability scan under `keeps_children`, memoised through the cache the export lends (#1686) | linear |
 | `halstead/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, reached through an iterated ancestor on the metric walk (#1686) | linear |
+| `ops/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, on the `ops` walk (#1686) | linear |
 | `count/tcl-wide-erroring-eval` | Tcl | width | the same scan under the `string` filter, on the `find` / `count` walk (#1686) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
@@ -484,12 +485,12 @@ in its width on either strategy, and on every other walk that reaches
 a braced word's role (`Ast::metrics` through `braced_word_op_type`,
 `Ast::ops`, and `find` / `count --type string`). The scan's answer now
 rides in the `FoldCache` each walk lends with its chain, keyed by the
-list's id, so it runs once per list per walk. Three probes price it,
+list's id, so it runs once per list per walk. Four probes price it,
 one per walk, because each lends its cache independently and a
-regression in one is invisible from the others — and the metric walk's
-row has a second way to regress: it reaches the question through
-`Ancestors::iter`, which has to carry the cache onto the ancestor's
-chain. The
+regression in one is invisible from the others — and the two
+Halstead-shaped rows have a second way to regress: they reach the
+question through `Ancestors::iter`, which has to carry the cache onto
+the ancestor's chain. The
 indexed walk stays reachable as `Ast::dump_indexed`, and routing the
 default back to it is what `dump/perl-error-tail-calls` prices; the
 export also carries the ancestor chain `keeps_children` reads, and
@@ -509,10 +510,17 @@ larger share everywhere, 20-30 %:
 | `Ast::dump` enumerates by index | `dump/perl-error-tail-calls` | 1.02 | 1.98 | 14 003 children under the `ERROR` |
 | (same patch) | `dump/wide-distinct-fns` | 0.79 | 0.80 | unchanged, as the control should be |
 | `finish` hands `keeps_children` an unknown chain | `dump/tcl-nested-eval` | 0.75 | 2.00 | 4 000 braces, 12 000 exported levels |
-| `Export` lends no `FoldCache` | `dump/tcl-wide-erroring-eval` | 1.00-1.03 | 2.03-2.07 | 16 000 braced words, 17 ms clean against 9.1 s |
-| `metrics_inner` lends no `FoldCache` | `halstead/tcl-wide-erroring-eval` | 0.98-1.01 | 2.04-2.07 | 13 ms clean against 8.7 s |
-| `AncestorIter` drops the cache | `halstead/tcl-wide-erroring-eval` | (same) | 2.03-2.05 | the dump and count rows stay at 1.0: neither reaches the question through an ancestor |
-| `act_on_node` lends no `FoldCache` | `count/tcl-wide-erroring-eval` | 0.98-1.03 | 2.01-2.05 | 7.6 ms clean against 8.8 s |
+| `Export` lends no `FoldCache` | `dump/tcl-wide-erroring-eval` | 1.00-1.04 | 2.03-2.07 | 16 000 braced words; 15.5-17.5 ms clean against 8.7-9.4 s |
+| `metrics_inner` lends no `FoldCache` | `halstead/tcl-wide-erroring-eval` | 0.98-1.02 | 2.04-2.07 | 11.9-12.8 ms clean against 8.2-11.3 s |
+| `ops_inner` lends no `FoldCache` | `ops/tcl-wide-erroring-eval` | 0.99-1.01 | 2.01-2.22 | 10.3-10.4 ms clean against 7.8-16.2 s |
+| `AncestorIter` drops the cache | `halstead/tcl-wide-erroring-eval` | (same) | 2.03-2.05 | 7.6-8.9 s; the dump and count rows stay at 1.0, since neither reaches the question through an ancestor |
+| `act_on_node` lends no `FoldCache` | `count/tcl-wide-erroring-eval` | 0.98-1.03 | 2.01-2.05 | 6.9-7.7 ms clean against 8.1-8.8 s |
+
+Each band is three runs at the top rung; the regressed spreads are
+wide because a 9 s cell shares the host with whatever else is running.
+On `LINEAR_WIDTHS` the clean cells fall to 0.2-1.8 ms and the same
+regressions fit anywhere from 1.62 to 2.08 run to run, which is why
+these four probes take the space-merge ladder.
 
 Temporary storage was measured once with a counting Rust
 `#[global_allocator]`, at the flat `ERROR` at width 4 000 (twice the

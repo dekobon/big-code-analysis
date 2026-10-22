@@ -214,10 +214,46 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// The chain of `node`'s children, `self` being `node`'s own: a copy
     /// extended by `node`, for a predicate that looks into a node the walk
     /// has not descended into yet. `None` without a known chain, where
-    /// [`Ancestors::unknown`] gives the same answers by climbing.
+    /// [`Ancestors::unknown`] gives the same answers by climbing. Pair it
+    /// with [`Ancestors::below`], which keeps the walk's caches on the
+    /// derived chain.
     pub(crate) fn children_chain(self, node: &Node<'tree>) -> Option<Vec<Node<'tree>>> {
         self.chain
             .map(|chain| [chain, std::slice::from_ref(node)].concat())
+    }
+
+    /// `self` re-rooted on `chain`, a [`children_chain`](Self::children_chain)
+    /// the caller holds, with the walk's [`FoldCache`] carried over and
+    /// its [`SiblingCache`] deliberately not.
+    ///
+    /// The fold cache is per walk, not per chain, so a derived chain
+    /// reads and stores through the same one. Rebuilding with
+    /// [`Ancestors::known`] instead dropped it silently — the shape
+    /// lesson 101 is about — and left Doxygen's conditionals inside an
+    /// `ERROR` child unmemoised (#1686 review).
+    ///
+    /// The sibling cache is keyed by depth and holds only the nodes the
+    /// walk has pushed; the node this chain descends into is one the walk
+    /// has *not* reached, so its slot is empty and a lookup through it
+    /// would trip the walk-must-record assertion in [`lookup`](Self::lookup)
+    /// on a wide one. Java's `is_doc_target` asks for a sibling, and a
+    /// `class {` with a hundred stray `@` after it made exactly that
+    /// `ERROR` (#1686 review). Without the cache the lookup seeks, which
+    /// is what it did before and all an unrecorded node can offer.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn below<'below>(
+        self,
+        chain: &'below [Node<'tree>],
+    ) -> Ancestors<'tree, 'below>
+    where
+        'chain: 'below,
+    {
+        Ancestors {
+            chain: Some(chain),
+            siblings: None,
+            folds: self.folds,
+        }
     }
 
     /// `node`'s parent.
@@ -501,6 +537,11 @@ impl FoldLane {
     const COUNT: usize = 3;
 }
 
+// A lane past `COUNT` would index out of the array at run time, on the
+// first walk that folds on it; this makes a variant added without the
+// bump a build error instead.
+const _: () = assert!(FoldLane::BareStringClimb as usize + 1 == FoldLane::COUNT);
+
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each
 /// has a memo of its own.
@@ -518,6 +559,8 @@ impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
     const COUNT: usize = 2;
 }
+
+const _: () = assert!(MemoQuestion::ArgumentSlotsReadable as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), and the per-node memos for
@@ -923,5 +966,27 @@ mod tests {
             .node_memo(MemoQuestion::ArgumentSlotsReadable)
             .expect("an iterated ancestor's chain keeps the lent cache");
         assert_eq!(memo.get(&leaf), Some(true));
+
+        // The other derivation: a chain extended *downward* for a node
+        // the walk has not reached, re-rooted with `below`, reads the
+        // same memo. Rebuilding it with `Ancestors::known` instead
+        // answers `None` here, which is what `error_holds_target` did
+        // before #1686.
+        let children = walk
+            .children_chain(&leaf)
+            .expect("a known chain extends downward");
+        assert_eq!(children.len(), chain.len() + 1);
+        let below = walk.below(&children);
+        assert_eq!(below.depth(), Some(chain.len() + 1));
+        let memo = below
+            .node_memo(MemoQuestion::ArgumentSlotsReadable)
+            .expect("a chain re-rooted with `below` keeps the lent cache");
+        assert_eq!(memo.get(&leaf), Some(true));
+        assert!(
+            Ancestors::known(&children)
+                .node_memo(MemoQuestion::ArgumentSlotsReadable)
+                .is_none(),
+            "a chain rebuilt with `known` carries nothing, which is why `below` exists"
+        );
     }
 }

@@ -4259,7 +4259,9 @@ that could not fit a six-figure grid.
 down (`Ancestors` carrying a `FoldCache`), audit every place that
 *derives* a new instance of that value — an iterator over ancestors,
 a `children_chain`, a `..self` struct update, a fold's step closure —
-and make each one forward the cache or say why it must not. A
+and make each one forward the cache or say why it must not. Forward
+only the caches whose key survives the derivation: one keyed by node
+id does, one keyed by the walk's position does not. A
 derivation that rebuilds the value with the cache field `None` is
 type-correct, answers identically, and silently restores the cost the
 cache exists to remove, on exactly the call paths that reach the
@@ -4293,6 +4295,25 @@ other seam (dump, `find`/`count`) hands the predicate the original
 chain and would have memoised; the headline one would not. The
 iterator now forwards the cache, `an_iterated_ancestor_keeps_the_walk_s_memo`
 pins it, and the benchmark table records that dropping it moves only
-the `halstead/` probe to 2.03–2.05 while the other two stay at 1.0.
+the `halstead/` and `ops/` probes to 2.03–2.05 while the dump and
+count rows stay at 1.0.
+
+The audit the lesson prescribes found a second one in the same
+review: `children_chain`'s one caller rebuilt its derived chain with
+`Ancestors::known`, so Doxygen's `conditional_declares` memo (#1613)
+never reached a conditional under an `ERROR`; `Ancestors::below` now
+re-roots the chain with the fold cache carried.
+
+**And the fix's first draft carried one cache too many.** `below`
+forwarded the `SiblingCache` as well, which is keyed by depth over the
+nodes the walk has *pushed* — and the node a derived chain descends
+into is one it has not. Doxygen never asks that cache, but Java's
+`is_doc_target` seeks a sibling after a `package`, and on a wide
+`ERROR` holding one the lookup tripped `Ancestors::lookup`'s
+walk-must-record `debug_assert!`: a debug-build panic on malformed
+Java where `Ancestors::known` had seeked quietly, caught by the review
+of the review. So "forward the cache" is not "forward every cache": a
+memo keyed by node id survives any derivation, and one keyed by
+*walk position* is valid only on the chain the walk built.
 
 ---

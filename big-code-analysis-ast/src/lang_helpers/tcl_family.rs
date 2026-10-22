@@ -668,7 +668,7 @@ mod readable_slot_tests {
 
     use super::argument_slot_scans;
     use crate::getter::{BracedWordKinds, Getter};
-    use crate::node::{Ancestors, FoldCache, Node, Tree};
+    use crate::node::{Ancestors, FoldCache, MemoQuestion, Node, Tree};
     use crate::traits::LanguageInfo;
 
     /// Every `braced_word` of `root`'s tree, each with its ancestor
@@ -747,9 +747,68 @@ mod readable_slot_tests {
             width,
             "{label}: without a cache every word scans the list"
         );
+        // Both vectors are all-`false` by construction (every `eval`
+        // argument is a script), so this pins only that the two walks
+        // agree on the fixture; the answer dimension is the next test's.
         assert_eq!(
             cached, uncached,
-            "{label}: the memo must not change an answer"
+            "{label}: the cached and uncached walks must agree on the fixture"
+        );
+    }
+
+    /// A well-formed wide `eval` line never scans and never stores: the
+    /// `O(1)` `has_error` pre-filter answers before the memo is touched,
+    /// which is what keeps every command in a file that parses from
+    /// paying for the memo at all. Removing that early return changes no
+    /// answer and no error-path count, so only this row sees it — with a
+    /// lent cache, where the scan would also leave an entry behind, and
+    /// without one.
+    fn a_clean_list_is_never_scanned<L: LanguageInfo + Getter>(
+        label: &str,
+        kinds: &BracedWordKinds,
+    ) {
+        let width = 200;
+        let code = format!("eval {}\n", "{a b} ".repeat(width));
+        let code = code.as_bytes();
+        let tree = Tree::new::<L>(code);
+        let root = tree.get_root();
+        assert!(!root.has_error(), "{label}: the fixture must parse cleanly");
+        let words = braced_words(root, kinds.script);
+        assert_eq!(
+            words.len(),
+            width,
+            "{label}: the fixture must spell {width} words"
+        );
+        let list = words[0]
+            .1
+            .last()
+            .copied()
+            .expect("a braced argument sits under a word_list");
+
+        let cache = FoldCache::default();
+        let before = argument_slot_scans::observed();
+        for (word, chain) in &words {
+            let cached = Ancestors::known(chain).with_folds(&cache);
+            let uncached = Ancestors::known(chain);
+            assert!(
+                !L::is_braced_literal_slot(word, code, cached, kinds)
+                    && !L::is_braced_literal_slot(word, code, uncached, kinds),
+                "{label}: every `eval` argument is a script"
+            );
+        }
+        assert_eq!(
+            argument_slot_scans::observed() - before,
+            0,
+            "{label}: a list whose owner has no error is never scanned"
+        );
+        assert!(
+            Ancestors::known(&words[0].1)
+                .with_folds(&cache)
+                .node_memo(MemoQuestion::ArgumentSlotsReadable)
+                .expect("the chain lent a cache")
+                .get(&list)
+                .is_none(),
+            "{label}: a list that was never scanned has no stored answer"
         );
     }
 
@@ -824,6 +883,24 @@ mod readable_slot_tests {
         a_cached_answer_is_the_list_s_own::<crate::langs::TclCode>(
             "tcl",
             &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn tcl_a_clean_list_is_never_scanned() {
+        a_clean_list_is_never_scanned::<crate::langs::TclCode>(
+            "tcl",
+            &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "irules")]
+    fn irules_a_clean_list_is_never_scanned() {
+        a_clean_list_is_never_scanned::<crate::langs::IrulesCode>(
+            "irules",
+            &crate::lang_helpers::irules::BRACED_WORD_KINDS,
         );
     }
 
