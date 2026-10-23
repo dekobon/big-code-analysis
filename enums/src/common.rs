@@ -250,9 +250,81 @@ pub fn get_token_names(language: &Language) -> Vec<(String, bool, String)> {
     names
 }
 
+/// Each runtime kind id with whether the grammar marks it named and
+/// visible, in id order, with no entry for the generator's ERROR
+/// sentinel — which is not a runtime kind (see [`get_token_names`]).
+///
+/// Named and visible are tree-sitter's own flags: a named kind is a
+/// grammar rule rather than a literal token, and a visible one can
+/// appear in a parse tree at all (hidden `_rules` and the auxiliary
+/// `_repeatN` / `_tokenN` symbols cannot). The role-coverage gate reads
+/// these as labels for a kind id the enum already identifies; the enum's
+/// discriminants are the ids, and nothing here changes them.
+///
+/// # Panics
+///
+/// As [`get_token_names`]: a `node_kind_count` outside `u16` is a broken
+/// grammar.
+#[must_use]
+pub fn get_kind_flags(language: &Language) -> Vec<(u16, bool, bool)> {
+    let count = language.node_kind_count();
+    (0..count)
+        .map(|i| {
+            let Ok(id) = u16::try_from(i) else {
+                panic!("grammar node_kind_count {count} exceeds u16 id space");
+            };
+            (
+                id,
+                language.node_kind_is_named(id),
+                language.node_kind_is_visible(id),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The flags cover every runtime id and nothing else: one entry per
+    /// kind the grammar counts, in id order, and none for the sentinel
+    /// `get_token_names` appends.
+    #[test]
+    fn get_kind_flags_covers_each_runtime_id_once_in_order() {
+        for lang in crate::languages::Lang::into_enum_iter() {
+            let language = crate::languages::get_language(&lang);
+            let flags = get_kind_flags(&language);
+            assert_eq!(flags.len(), language.node_kind_count(), "{lang:?}");
+            assert_eq!(
+                flags.len() + 1,
+                get_token_names(&language).len(),
+                "{lang:?}"
+            );
+            for (i, (id, named, visible)) in flags.iter().enumerate() {
+                assert_eq!(usize::from(*id), i, "{lang:?}");
+                // The flags are tree-sitter's own, per id — not merely
+                // some mix of values.
+                assert_eq!(
+                    *named,
+                    language.node_kind_is_named(*id),
+                    "{lang:?} id {id} named"
+                );
+                assert_eq!(
+                    *visible,
+                    language.node_kind_is_visible(*id),
+                    "{lang:?} id {id} visible"
+                );
+            }
+            assert!(
+                flags.iter().any(|(_, named, _)| *named),
+                "{lang:?}: no named rule"
+            );
+            assert!(
+                flags.iter().any(|(_, named, _)| !*named),
+                "{lang:?}: no anonymous token"
+            );
+        }
+    }
 
     /// A render failure reaches the caller as an `io::Error` that still
     /// carries the `askama` cause, rather than panicking (#1227).

@@ -208,9 +208,31 @@
 // this allow.
 #![allow(dead_code)]
 
+pub(crate) mod bash;
+pub(crate) mod c;
+pub(crate) mod ccomment;
+pub(crate) mod cpp;
+pub(crate) mod csharp;
 pub(crate) mod elixir;
+pub(crate) mod go;
+pub(crate) mod groovy;
+pub(crate) mod irules;
 pub(crate) mod java;
+pub(crate) mod javascript;
+pub(crate) mod kotlin;
+pub(crate) mod lua;
+pub(crate) mod mozcpp;
+pub(crate) mod mozjs;
+pub(crate) mod objc;
+pub(crate) mod perl;
+pub(crate) mod php;
+pub(crate) mod preproc;
 pub(crate) mod python;
+pub(crate) mod ruby;
+pub(crate) mod rust;
+pub(crate) mod tcl;
+pub(crate) mod tsx;
+pub(crate) mod typescript;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -412,6 +434,17 @@ macro_rules! role_table {
     (lang: $lang:ident; $($role:ident { $($row:tt)* })*) => {
         $( $crate::role_table!(@row $lang $role { $($row)* }); )*
 
+        /// The whole table in the canonical form `utils/role_tables.py`
+        /// emits with `--dump`, one row per line in declaration order.
+        /// Test-only: the differential test is its one reader, and the
+        /// module's dead-code allow leaves with #1693.
+        #[cfg(test)]
+        pub(crate) fn canonical() -> String {
+            let mut out = format!("lang {}\n", stringify!($lang));
+            $( out.push_str(&$crate::role_table!(@canonical $role)); out.push('\n'); )*
+            out
+        }
+
         /// The `SpaceKind` `node` opens, folded over every `opens`
         /// annotation in this table; `Unknown` when it opens none. This
         /// is the one gated scan of the space-opening rows: a consumer
@@ -436,12 +469,22 @@ macro_rules! role_table {
         $crate::role_table!(@named $role {
             /// Why this language has no such construct.
             pub(crate) const ABSENT: &str = $why;
+            /// This row in the canonical form `utils/role_tables.py` emits.
+            #[cfg(test)]
+            pub(crate) fn canonical() -> String {
+                format!("{} absent {}", stringify!($role), ABSENT)
+            }
         });
     };
     (@row $lang:ident $role:ident { pending $package:ident }) => {
         $crate::role_table!(@named $role {
             /// The work package that fills this row in.
             pub(crate) const PENDING: &str = stringify!($package);
+            /// This row in the canonical form `utils/role_tables.py` emits.
+            #[cfg(test)]
+            pub(crate) fn canonical() -> String {
+                format!("{} pending {}", stringify!($role), PENDING)
+            }
         });
     };
     // The three paying shapes a row can take, told apart by what follows
@@ -487,6 +530,32 @@ macro_rules! role_table {
             // plain row, no once a `pays` list splits the token off, no
             // under `pays never`.
             const OWNERS_PAY: bool = $crate::role_table!(@mode $mode owners);
+
+            /// This row in the canonical form `utils/role_tables.py` emits:
+            /// kinds as ids, so the two sides compare without naming
+            /// variants. The Python reader is a second implementation of
+            /// the DSL; the differential test in `roles/mod.rs` holds it to
+            /// this.
+            #[cfg(test)]
+            pub(crate) fn canonical() -> String {
+                let ids = |kinds: &[u16]| {
+                    kinds.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
+                };
+                let excluded = EXCLUDED
+                    .iter()
+                    .map(|(k, why)| format!("{k}={why}"))
+                    .collect::<Vec<_>>()
+                    .join(";");
+                format!(
+                    "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] pays_never={}",
+                    stringify!($role),
+                    ids(OWNERS),
+                    ids(PAYERS),
+                    ids(WRAPS),
+                    excluded,
+                    PAYS_NEVER
+                )
+            }
 
             const _: () = assert!(
                 !$crate::roles::kinds_overlap(OWNERS, PAYERS),
@@ -671,6 +740,36 @@ macro_rules! role_table {
     // concatenation; a role not listed here is a compile error, which is
     // what fixes the role set.
 
+    (@canonical Call) => { call::canonical() };
+    (@canonical StringLit) => { string_lit::canonical() };
+    (@canonical Comparison) => { comparison::canonical() };
+    (@canonical ShortCircuit) => { short_circuit::canonical() };
+    (@canonical EagerLogical) => { eager_logical::canonical() };
+    (@canonical Ternary) => { ternary::canonical() };
+    (@canonical NullSafe) => { null_safe::canonical() };
+    (@canonical CaseArm) => { case_arm::canonical() };
+    (@canonical Guard) => { guard::canonical() };
+    (@canonical Branch) => { branch::canonical() };
+    (@canonical Switch) => { switch::canonical() };
+    (@canonical Loop) => { r#loop::canonical() };
+    (@canonical Catch) => { catch::canonical() };
+    (@canonical ElseIf) => { else_if::canonical() };
+    (@canonical Exit) => { exit::canonical() };
+    (@canonical Modifier) => { modifier::canonical() };
+    (@canonical DeclKeyword) => { decl_keyword::canonical() };
+    (@canonical Primitive) => { primitive::canonical() };
+    (@canonical FuncOpener) => { func_opener::canonical() };
+    (@canonical Closure) => { closure::canonical() };
+    (@canonical Container) => { container::canonical() };
+    (@canonical Member) => { member::canonical() };
+    (@canonical Comment) => { comment::canonical() };
+    (@canonical DocComment) => { doc_comment::canonical() };
+    (@canonical Docstring) => { docstring::canonical() };
+    (@canonical DocTarget) => { doc_target::canonical() };
+    (@canonical DocRunOpener) => { doc_run_opener::canonical() };
+    (@canonical DocRunDirective) => { doc_run_directive::canonical() };
+    (@canonical HoldsDocInBody) => { holds_doc_in_body::canonical() };
+
     (@named Call { $($b:tt)* }) => { pub(crate) mod call { $($b)* } };
     (@named StringLit { $($b:tt)* }) => { pub(crate) mod string_lit { $($b)* } };
     (@named Comparison { $($b:tt)* }) => { pub(crate) mod comparison { $($b)* } };
@@ -705,6 +804,81 @@ macro_rules! role_table {
 #[cfg(test)]
 mod tests {
     use crate::{Ancestors, Java, Node};
+
+    // `utils/role_tables.py` reads the declaration text for the three
+    // role gates, so it is a second implementation of this macro's
+    // meaning. This holds it to the compiled constants: every table's
+    // `canonical()` must equal what `--dump` prints for the same file.
+    // Every language's module is compiled unconditionally, so the
+    // comparison needs no grammar and runs in every build. A missing
+    // `python3` is a failure, not a skip: a pass that ran nothing would
+    // read as agreement. The table below is hand-listed like the `mod`
+    // lines above; the first assertion holds it to the `LANG` enum so a
+    // language added there cannot be forgotten here.
+    //
+    // Not on Windows: the test matrix installs no Python there, and the
+    // gates this test guards run in the Linux lint job. `--dump` writes
+    // LF bytes, so a Windows developer with python3 can still run it by
+    // hand.
+    type Canonical = fn() -> String;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn python_reader_agrees_with_the_compiled_tables() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the ast crate sits under the workspace root");
+        let tables: &[(&str, Canonical)] = &[
+            ("bash", super::bash::canonical),
+            ("c", super::c::canonical),
+            ("ccomment", super::ccomment::canonical),
+            ("cpp", super::cpp::canonical),
+            ("csharp", super::csharp::canonical),
+            ("elixir", super::elixir::canonical),
+            ("go", super::go::canonical),
+            ("groovy", super::groovy::canonical),
+            ("irules", super::irules::canonical),
+            ("java", super::java::canonical),
+            ("javascript", super::javascript::canonical),
+            ("kotlin", super::kotlin::canonical),
+            ("lua", super::lua::canonical),
+            ("mozcpp", super::mozcpp::canonical),
+            ("mozjs", super::mozjs::canonical),
+            ("objc", super::objc::canonical),
+            ("perl", super::perl::canonical),
+            ("php", super::php::canonical),
+            ("preproc", super::preproc::canonical),
+            ("python", super::python::canonical),
+            ("ruby", super::ruby::canonical),
+            ("rust", super::rust::canonical),
+            ("tcl", super::tcl::canonical),
+            ("tsx", super::tsx::canonical),
+            ("typescript", super::typescript::canonical),
+        ];
+        let listed: std::collections::BTreeSet<String> =
+            tables.iter().map(|(s, _)| (*s).to_owned()).collect();
+        let known: std::collections::BTreeSet<String> = crate::LANG::into_enum_iter()
+            .map(|l| format!("{l:?}").to_lowercase())
+            .collect();
+        pretty_assertions::assert_eq!(listed, known, "every LANG has a table listed here");
+        for (stem, canonical) in tables {
+            let path = root.join(format!("big-code-analysis-ast/src/roles/{stem}.rs"));
+            let out = std::process::Command::new("python3")
+                .arg("-B")
+                .arg(root.join("utils/role_tables.py"))
+                .arg("--dump")
+                .arg(&path)
+                .output()
+                .expect("python3 is on PATH: the role gates need it, so this test does too");
+            assert!(
+                out.status.success(),
+                "{stem}: role_tables.py --dump failed:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let printed = String::from_utf8(out.stdout).expect("dump is UTF-8");
+            pretty_assertions::assert_eq!(printed, canonical(), "{stem}");
+        }
+    }
 
     fn never<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
         false

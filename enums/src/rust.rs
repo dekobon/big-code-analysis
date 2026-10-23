@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::common::{camel_case, get_token_names, render_error};
+use crate::common::{camel_case, get_kind_flags, get_token_names, render_error};
 use crate::languages::{Lang, get_language, get_language_name};
 
 const MACROS_DEFINITION_DIR: &str = "data";
@@ -13,6 +13,12 @@ const MACROS_DEFINITION_DIR: &str = "data";
 struct RustTemplate {
     c_name: String,
     names: Vec<(String, bool, String)>,
+    // `(id, named, visible)` per runtime kind, rendered as `KIND_FLAGS`
+    // for the role-coverage gate (#1692); see `get_kind_flags`.
+    kind_flags: Vec<(u16, bool, bool)>,
+    // `<LANG>_KIND_FLAGS`: the language modules are glob re-exported from
+    // one `mod.rs`, so a shared name would be an ambiguous re-export.
+    flags_name: String,
     // Rust name of the tree-sitter ERROR sentinel, used as the `From<u16>`
     // fallback. It is usually `Error`, but when a grammar already defines an
     // `error` keyword (e.g. Tcl) the sentinel is renamed to `Error2`; the
@@ -45,7 +51,10 @@ pub fn generate_rust(output: &Path, file_template: &str) -> std::io::Result<()> 
 
 fn build_rust_template(lang: &Lang) -> RustTemplate {
     let c_name = camel_case(get_language_name(lang));
-    let names = get_token_names(&get_language(lang));
+    let language = get_language(lang);
+    let names = get_token_names(&language);
+    let kind_flags = get_kind_flags(&language);
+    let flags_name = format!("{}_KIND_FLAGS", c_name.to_uppercase());
 
     // `get_token_names` always appends the tree-sitter ERROR sentinel last
     // (pinned by its `get_token_names_appends_error_sentinel_last` test), so the
@@ -59,6 +68,8 @@ fn build_rust_template(lang: &Lang) -> RustTemplate {
     RustTemplate {
         c_name,
         names,
+        kind_flags,
+        flags_name,
         error_sentinel,
     }
 }

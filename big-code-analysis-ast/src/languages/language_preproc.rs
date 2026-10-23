@@ -50,6 +50,49 @@ pub enum Preproc {
     Error = 36,
 }
 
+/// Each runtime kind id of `Preproc` with tree-sitter's `named` and
+/// `visible` flags, in id order. A label for the id the enum identifies,
+/// read by the role-coverage gate; the generator's ERROR sentinel has no
+/// entry.
+pub const PREPROC_KIND_FLAGS: &[(u16, bool, bool)] = &[
+    (0, false, false),
+    (1, true, true),
+    (2, true, true),
+    (3, true, true),
+    (4, true, true),
+    (5, false, false),
+    (6, false, true),
+    (7, false, true),
+    (8, true, true),
+    (9, false, false),
+    (10, false, true),
+    (11, false, false),
+    (12, false, false),
+    (13, false, false),
+    (14, false, false),
+    (15, false, false),
+    (16, false, false),
+    (17, false, false),
+    (18, false, false),
+    (19, true, true),
+    (20, true, true),
+    (21, true, true),
+    (22, true, true),
+    (23, false, false),
+    (24, true, true),
+    (25, true, true),
+    (26, true, true),
+    (27, true, true),
+    (28, true, true),
+    (29, true, true),
+    (30, true, true),
+    (31, true, true),
+    (32, true, true),
+    (33, false, false),
+    (34, false, false),
+    (35, false, false),
+];
+
 impl From<Preproc> for &'static str {
     #[inline]
     fn from(tok: Preproc) -> Self {

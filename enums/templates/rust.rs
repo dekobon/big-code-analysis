@@ -16,6 +16,16 @@ pub enum {{ c_name }} {
     {% endfor %}
 }
 
+/// Each runtime kind id of `{{ c_name }}` with tree-sitter's `named` and
+/// `visible` flags, in id order. A label for the id the enum identifies,
+/// read by the role-coverage gate; the generator's ERROR sentinel has no
+/// entry.
+pub const {{ flags_name }}: &[(u16, bool, bool)] = &[
+{%- for (id, named, visible) in kind_flags %}
+    ({{ id }}, {{ named }}, {{ visible }}),
+{%- endfor %}
+];
+
 impl From<{{ c_name }}> for &'static str {
     #[inline]
     fn from(tok: {{ c_name }}) -> Self {

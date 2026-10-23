@@ -30,6 +30,29 @@ pub enum Ccomment {
     Error = 16,
 }
 
+/// Each runtime kind id of `Ccomment` with tree-sitter's `named` and
+/// `visible` flags, in id order. A label for the id the enum identifies,
+/// read by the role-coverage gate; the generator's ERROR sentinel has no
+/// entry.
+pub const CCOMMENT_KIND_FLAGS: &[(u16, bool, bool)] = &[
+    (0, false, false),
+    (1, true, true),
+    (2, true, true),
+    (3, true, true),
+    (4, false, false),
+    (5, false, false),
+    (6, false, false),
+    (7, true, true),
+    (8, true, true),
+    (9, true, true),
+    (10, false, false),
+    (11, true, true),
+    (12, true, true),
+    (13, true, true),
+    (14, false, false),
+    (15, false, false),
+];
+
 impl From<Ccomment> for &'static str {
     #[inline]
     fn from(tok: Ccomment) -> Self {
