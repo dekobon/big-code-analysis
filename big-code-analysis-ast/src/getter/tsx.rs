@@ -82,19 +82,13 @@ impl Getter for TsxCode {
     // with JSX, so the `.ts` invocation has no such variants to pass
     // (#1395), and the same holds for the `jsx:` text kinds (#1483).
     //
-    // `Interface` / `Enum` are the TS-only type-declaration keyword
-    // leaves, billed as the shared `class` is (#1552) and as C# and
-    // Java bill theirs; their `*_declaration` wrappers stay unlisted.
-    //
-    // `Type` / `Namespace` / `Module2` / `Declare` / `Global` and the
-    // `TypeIdentifier` operand: see the TS invocation (#1557), as for
-    // `export_type_name`.
+    // The type-declaration keywords, the member modifiers and
+    // `predefined_type` are the rows of `roles/tsx.rs` (#1693), a copy
+    // of TypeScript's; the `TypeIdentifier` operand: see the TS
+    // invocation (#1557).
     //
     // `Satisfies` / `Keyof` / `Infer` / `Is` / `Asserts2`, the type-level
     // operator keywords: see the TS invocation (#1561).
-    //
-    // `Public` through `Accessor`, the member modifiers: see the TS
-    // invocation (#1563).
     //
     // `generic_angles`: see the TS invocation (#1559). A JSX tag's `<` /
     // `>` hang from the JSX element nodes, not from a generic list, so

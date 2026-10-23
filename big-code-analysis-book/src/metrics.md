@@ -775,7 +775,12 @@ tokens involved the same way they spell real operators:
     (`open = !open` at the start of a statement, `val suspend = 1`, a
     parameter named `vararg`), the word bills nothing.
   - The `static` of `import static` and `requires static` bills
-    nothing, as `import` does not.
+    nothing, as `import` does not: Java and Groovy bill no directive
+    keyword (`package`, `import`, `module`, `requires`, `exports`),
+    and the word a directive qualifies follows it. C# is the outlier
+    here — it bills `using`, and so `using static` in full. Each
+    reading is consistent with the language's own directive rule, and
+    #1600 kept both rather than move one.
   - C++'s `auto` is a placeholder type and stays unbilled. Attributes,
     the MS calling conventions, the Gecko `MOZ_*` macros and the Apple
     SDK macros (`NS_INLINE`, `FOUNDATION_EXPORT`, `IBOutlet`) bill

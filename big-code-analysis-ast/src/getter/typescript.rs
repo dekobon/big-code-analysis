@@ -86,20 +86,12 @@ impl Getter for TypescriptCode {
     // No `jsx:` argument: the `.ts` grammar's enum carries `JsxText` in
     // its shared externals, but no production emits it (#1483).
     //
-    // `Interface` / `Enum` are the TS-only type-declaration keyword
-    // leaves, billed as the shared `class` is (#1552) and as C# and
-    // Java bill theirs; their `*_declaration` wrappers stay unlisted.
-    //
-    // #1557 adds the rest: `type`, `namespace`, `module`, `declare` and
-    // `global`. `Module2` is the `module` keyword leaf; the unsuffixed
-    // `Module` is the `module` declaration node that wraps it, so it
-    // stays unlisted. Each word is contextual, but used as a name
-    // (`let type = 1`, `module.exports`) the grammar emits an
-    // `identifier`, never the keyword leaf. The one exception is a
-    // binding named `type` in an export clause (`export { type }`),
-    // which the grammar recovers as the keyword leaf; `export_type_name`
-    // leaves that leaf unbilled. `type` also bills in `import type` /
-    // `export type`, where it is the same leaf.
+    // The type-declaration keywords (`interface`, `enum`, `type`,
+    // `namespace`, `module`, `declare`, `global`), the member modifiers
+    // (`public` … `accessor`) and `predefined_type`, with their gates,
+    // are the `DeclKeyword` / `Modifier` / `Primitive` rows of
+    // `roles/typescript.rs` (#1693), which carry the #1552 / #1557 /
+    // #1563 / #453 derivations; `roles:` names that module.
     //
     // `TypeIdentifier` is the operand extra: every type *name* — a
     // class, interface or alias name, a type parameter, an annotation
@@ -132,23 +124,6 @@ impl Getter for TypescriptCode {
     // a comparison's `<` / `>` sit under `binary_expression` and stay
     // their own operators.
     //
-    // #1563 bills the member modifiers, as C# and Kotlin bill theirs:
-    // `public`, `private`, `protected`, `override`, `readonly`,
-    // `abstract` and `accessor`, beside the `static` the macro bills for
-    // the whole family and the `declare` above. Each is its keyword
-    // leaf, one kind apiece. `public` / `private` / `protected` sit
-    // under an `accessibility_modifier` and `override` under an
-    // `override_modifier`; both wrappers stay unlisted, so a modifier
-    // bills once. The same leaves bill outside a class too: a parameter
-    // property (`constructor(private x)`), `readonly T[]`, a mapped
-    // type's `-readonly`, `abstract class` and `abstract new () => T`.
-    // Used as a name (`let readonly = 1`, `o.public`, `abstract()` in an
-    // expression, a field named `static`) the grammar emits an
-    // identifier. The pinned grammar misreads a few valid name
-    // spellings as the keyword under or beside an ERROR — a statement
-    // `abstract();`, a field `abstract;` or `accessor = 1`, and an
-    // object-type member `abstract: T` — so those bill the operator.
-    // They billed nothing before, and none occurs in the corpora.
     impl_js_family_get_op_type!(
         Typescript,
         roles: typescript,

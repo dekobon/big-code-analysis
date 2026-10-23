@@ -2600,7 +2600,8 @@ mod tests {
     //   annotation adds the `:` operator and one `void`, NOT two — the
     //   issue's "n1 = 6" target overlooked the annotation colon.)
     //
-    // Verified by test-via-revert: removing the `predefined_void` guard
+    // Verified by test-via-revert: removing the `names_a_type_not_void`
+    // gate from the TypeScript `Primitive` row (`roles/typescript.rs`)
     // restores the pre-fix `u_operators` 7 -> 8 with a duplicate `"void"`
     // (one kind_id-keyed, one in `primitive_operators`). Both `metrics()`
     // and the `ops`-list dedup invariant (`ts_void_return_and_expression_*`

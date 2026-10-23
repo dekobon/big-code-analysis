@@ -34,10 +34,14 @@ role_table! {
     // The item keywords (#394): each the leaf of an unlisted `*_item`
     // / `let_declaration` / `where_clause` wrapper.
     DeclKeyword { owns [Fn, Let, Enum, Struct, Union, Trait, Impl, Use, Mod, Type, Where] }
-    // tree-sitter-rust emits `primitive_type` under seventeen aliased
-    // ids, one per position the rule appears in; every one spells
-    // `primitive_type` and `Checker::is_primitive` keys each by text
-    // (grammar-dispatch section 1).
+    // tree-sitter-rust spells `primitive_type` as
+    // `alias(choice(u8, i8, …, char), $.primitive_type)`: one generated
+    // id per spelling, seventeen in all, every one named
+    // `primitive_type`. The parser canonicalises them, so written source
+    // reaches `kind_id()` as the base `PrimitiveType` and the sixteen
+    // suffixed ids are defensive (grammar-dispatch section 1;
+    // `rust_aliased_primitive_type_classification` records which is
+    // observed). `Checker::is_primitive` keys each by text.
     Primitive {
         owns [
             PrimitiveType, PrimitiveType2, PrimitiveType3, PrimitiveType4, PrimitiveType5,
