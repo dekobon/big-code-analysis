@@ -59,7 +59,8 @@ impl Getter for MozjsCode {
     // (#1563).
     impl_js_family_get_op_type!(
         Mozjs,
-        op_extras: [OptionalChain, LTSLASH, SLASHGT, Staticget],
+        roles: mozjs,
+        op_extras: [OptionalChain, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
         jsx: [JsxText, HtmlCharacterReference],
     );

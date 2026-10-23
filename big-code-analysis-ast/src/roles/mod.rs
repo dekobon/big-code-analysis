@@ -228,6 +228,7 @@ pub(crate) mod groovy;
 pub(crate) mod irules;
 pub(crate) mod java;
 pub(crate) mod javascript;
+pub(crate) mod js_family;
 pub(crate) mod kotlin;
 pub(crate) mod lua;
 pub(crate) mod mozcpp;
@@ -474,10 +475,36 @@ macro_rules! role_table {
 
     // ---- row shapes ------------------------------------------------------
 
+    // An `absent` row answers every membership question `false`, so a
+    // consumer shared by several languages reads it as it reads a
+    // declared row (JavaScript's `Primitive` under the JS-family
+    // keyword classifier). A `pending` row emits no predicate: a
+    // consumer that read one would silently miss what the row will
+    // declare, and the compile error says so.
     (@row $lang:ident $role:ident { absent $why:literal }) => {
         $crate::role_table!(@named $role {
             /// Why this language has no such construct.
             pub(crate) const ABSENT: &str = $why;
+            /// Nothing owns an absent construct.
+            #[inline]
+            pub(crate) fn owns_kind<'a>(
+                _kind: u16,
+                _node: &$crate::Node<'a>,
+                _code: &[u8],
+                _ancestors: $crate::Ancestors<'a, '_>,
+            ) -> bool {
+                false
+            }
+            /// Nothing pays for an absent construct.
+            #[inline]
+            pub(crate) fn pays_at_leaf_kind<'a>(
+                _kind: u16,
+                _node: &$crate::Node<'a>,
+                _code: &[u8],
+                _ancestors: $crate::Ancestors<'a, '_>,
+            ) -> bool {
+                false
+            }
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
             pub(crate) fn canonical() -> String {

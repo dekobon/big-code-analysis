@@ -212,6 +212,8 @@ macro_rules! impl_js_family_const_binding {
             }
             climb.next().is_some_and(|declaration| {
                 declaration.kind_id() == LexicalDeclaration
+                    // role-bypass: allow(DeclKeyword) — which declaration keyword, not whether
+                    // the token is one
                     && declaration
                         .child_by_field_name("kind")
                         .is_some_and(|keyword| keyword.kind_id() == Const)

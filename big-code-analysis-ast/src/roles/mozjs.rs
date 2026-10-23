@@ -1,8 +1,9 @@
-//! Mozjs's role rows. The dialect is declared through the JS-family
-//! template once R08 lands (contract 5 of #1690); until then its rows
-//! mirror Javascript's.
+//! Mozjs's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Mozjs;
 use crate::role_table;
+use crate::roles::js_family::{js_family_decl_keywords, js_family_modifiers};
 
 role_table! {
     lang: Mozjs;
@@ -21,8 +22,14 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
+    // The shared JS-family `static` (`roles/js_family.rs`) plus
+    // `Staticget`, one token spelling `static get` followed by a
+    // newline — the static getter whose name starts the next line —
+    // which these two grammars alone have. It is billed beside `static`
+    // (#1563) so that form bills a modifier rather than nothing; being
+    // one node it is one operator.
+    Modifier { owns [..js_family_modifiers!(), Staticget] }
+    DeclKeyword { owns [..js_family_decl_keywords!()] }
     Primitive { absent "JavaScript has no type names" }
     FuncOpener { pending R06 }
     Closure { pending R06 }

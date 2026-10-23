@@ -11,10 +11,8 @@
 // `$op_extras` per language:
 //   * JavaScript / MozJS: `OptionalChain` — the bare `?.` token (these
 //     grammars expose no `optional_chain` wrapper).
-//   * TypeScript / TSX:   `QMARKDOT`, `PredefinedType` — `QMARKDOT` is
-//     the bare `?.` token under the `optional_chain` wrapper (issue
-//     #281); `PredefinedType` is the TS type keyword set (`string`,
-//     `number`, `boolean`, …).
+//   * TypeScript / TSX:   `QMARKDOT`, the bare `?.` token under the
+//     `optional_chain` wrapper (issue #281).
 //   * JavaScript / MozJS / TSX: `LTSLASH`, `SLASHGT` — the JSX closing
 //     and self-closing tag delimiters, which these grammars spell as
 //     their own two-character tokens rather than as a `<` / `>` pair.
@@ -24,10 +22,15 @@
 //     are extras rather than members of the shared arm because
 //     TypeScript is the one grammar of the four with no JSX and
 //     therefore no such variants to name.
-//   * JavaScript / MozJS: `Staticget`, the one-token `static get`
-//     these grammars alone have (#1563).
-//   * TypeScript / TSX: the declaration keywords, type-level operator
-//     keywords and member modifiers listed at each invocation.
+//   * TypeScript / TSX: the type-level operator keywords listed at
+//     each invocation.
+//
+// `roles:` names the grammar's module under `crate::roles`, whose
+// `Modifier`, `DeclKeyword` and `Primitive` rows the emitted
+// `get_keyword_role` reads (#1693): `static` and `Staticget`, the
+// declaration keywords, and TypeScript's `predefined_type` with its
+// `void` gate and the `export { type }` gate all live there now, not
+// in the arm below.
 //
 // `$operand_extras` per language:
 //   * JavaScript / MozJS / TSX: `Identifier2`, `String2` — anonymous
@@ -117,13 +120,14 @@
 macro_rules! impl_js_family_get_op_type {
     (
         $lang:ident,
+        roles: $roles:ident,
         op_extras: [$($op_extra:ident),* $(,)?],
         operand_extras: [$($operand_extra:ident),* $(,)?]
-        $(, predefined_void: $predefined_type:ident)?
         $(, generic_angles: $generic_angles:ident)?
-        $(, export_type_name: [$type_keyword:ident, $export_clause:ident, $export_specifier:ident])?
         $(, jsx: [$jsx_text:ident, $jsx_entity:ident])? $(,)?
     ) => {
+        keywords_are_operators!($roles);
+
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;
 
@@ -133,55 +137,10 @@ macro_rules! impl_js_family_get_op_type {
                 }
             )?
 
-            // TS/TSX only: a binding *named* `type` in an export clause
-            // (`export { type }`, `export { type as kind }`). The grammar's
-            // `export_specifier` has no slot for that name, unlike
-            // `import_specifier`, so it recovers the keyword leaf under an
-            // `ERROR` in the clause, or beside one in the specifier, and
-            // the `type` operator would bill a binding name. A type-only
-            // specifier (`export { type Foo }`) parses cleanly and still
-            // bills, as does the `type` of `export type * from "m"`, whose
-            // `ERROR` hangs from the statement rather than the clause.
-            $(
-                if node.kind_id() == $type_keyword as u16 && {
-                    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-                    up.next().is_some_and(|parent| {
-                        if parent.is_error() {
-                            up.next()
-                                .is_some_and(|clause| clause.kind_id() == $export_clause as u16)
-                        } else {
-                            parent.kind_id() == $export_specifier as u16 && parent.has_error()
-                        }
-                    })
-                } {
-                    return TokenRole::Unknown;
-                }
-            )?
-
-            // TS/TSX only: a `void` return / parameter type is parsed as a
-            // `predefined_type` wrapper around an inner `void` token. Both
-            // the wrapper (routed through `is_primitive` into the text-keyed
-            // `primitive_operators` map as `"void"`) and the inner `Void`
-            // token (a standalone expression operator, e.g. `void 0`) would
-            // otherwise classify as operators, double-counting one source
-            // `void` as two Halstead operators (issue #453). Only `void` has
-            // an operator-kind child; the `string` keyword's child is an
-            // operand-kind alias, which collided in the other direction
-            // (operator + operand) until #1261 dropped it from the operand
-            // extras. Suppress the wrapper here and
-            // let the inner `Void` token carry the single operator, keeping
-            // the kind_id-keyed count consistent with expression `void 0`
-            // (the lesson-4 `n1 == dedupe(ops.operators)` invariant).
-            $(
-                if node.kind_id() == $predefined_type as u16
-                    && node
-                        .child(0)
-                        .is_some_and(|child| child.kind_id() == Void as u16)
-                {
-                    return TokenRole::Unknown;
-                }
-            )?
-
+            // The modifiers, the declaration keywords and TypeScript's
+            // `predefined_type` are not here: each grammar's rows in
+            // `roles/<lang>.rs` declare them and `get_keyword_role` bills
+            // them (#1693), gates included.
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real
@@ -223,17 +182,7 @@ macro_rules! impl_js_family_get_op_type {
                 | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ
                 | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
-                | QMARKQMARK | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-                | SEMI | Typeof | Instanceof | Void
-                // `Function` and `Class2` are the `function` / `class`
-                // keyword leaves (#1552). Their expression wrappers —
-                // `FunctionExpression` and the unsuffixed `Class` —
-                // stay unlisted, so `const f = function () {}` bills
-                // one `function`, not two (#1554). The leaf is the
-                // keeper because it exists in every spelling: the
-                // `async` and generator forms, and an ERROR-recovery
-                // parse that drops the wrapper.
-                | Class2
+                | QMARKQMARK | EQGT | DOTDOTDOT | New | SEMI | Typeof | Instanceof | Void
                 // `get`/`set` accessor keywords are operators, matching the
                 // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
                 // Before #695 the JS family classified them as operands, so
@@ -241,14 +190,6 @@ macro_rules! impl_js_family_get_op_type {
                 // groups across languages, skewing n1/n2 for accessor-heavy
                 // code (#695).
                 | Set | Get
-                // `static` is a class-member modifier, billed as C# and
-                // Kotlin bill theirs (#1563; Java's and Groovy's are
-                // #1565). It is the bare leaf in a field, a method and
-                // a `static { … }` block alike, with no modifier
-                // wrapper, and one kind in all four grammars. Used as a
-                // name (`obj.static`, `static()`, a field named
-                // `static`) the grammar emits an identifier instead.
-                | Static
                 $(| $op_extra)* => TokenRole::Operator,
                 // `Regex` is the literal's own node and contributes one
                 // operand, the way Ruby's `Regex` and Elixir's `Sigil`

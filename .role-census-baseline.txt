@@ -224,7 +224,6 @@ Javascript Closure R06
 Javascript Comment R09
 Javascript Comparison R05
 Javascript Container R06
-Javascript DeclKeyword R03
 Javascript DocComment R09
 Javascript DocRunDirective R09
 Javascript DocRunOpener R09
@@ -235,7 +234,6 @@ Javascript FuncOpener R06
 Javascript HoldsDocInBody R09
 Javascript Loop R07
 Javascript Member R06
-Javascript Modifier R03
 Javascript NullSafe R05
 Javascript ShortCircuit R05
 Javascript StringLit R08
@@ -316,7 +314,6 @@ Mozjs Closure R06
 Mozjs Comment R09
 Mozjs Comparison R05
 Mozjs Container R06
-Mozjs DeclKeyword R03
 Mozjs DocComment R09
 Mozjs DocRunDirective R09
 Mozjs DocRunOpener R09
@@ -327,7 +324,6 @@ Mozjs FuncOpener R06
 Mozjs HoldsDocInBody R09
 Mozjs Loop R07
 Mozjs Member R06
-Mozjs Modifier R03
 Mozjs NullSafe R05
 Mozjs ShortCircuit R05
 Mozjs StringLit R08
@@ -508,7 +504,6 @@ Tsx Closure R06
 Tsx Comment R09
 Tsx Comparison R05
 Tsx Container R06
-Tsx DeclKeyword R03
 Tsx DocComment R09
 Tsx DocRunDirective R09
 Tsx DocRunOpener R09
@@ -519,9 +514,7 @@ Tsx FuncOpener R06
 Tsx HoldsDocInBody R09
 Tsx Loop R07
 Tsx Member R06
-Tsx Modifier R03
 Tsx NullSafe R05
-Tsx Primitive R03
 Tsx ShortCircuit R05
 Tsx StringLit R08
 Tsx Switch R07
@@ -534,7 +527,6 @@ Typescript Closure R06
 Typescript Comment R09
 Typescript Comparison R05
 Typescript Container R06
-Typescript DeclKeyword R03
 Typescript DocComment R09
 Typescript DocRunDirective R09
 Typescript DocRunOpener R09
@@ -545,9 +537,7 @@ Typescript FuncOpener R06
 Typescript HoldsDocInBody R09
 Typescript Loop R07
 Typescript Member R06
-Typescript Modifier R03
 Typescript NullSafe R05
-Typescript Primitive R03
 Typescript ShortCircuit R05
 Typescript StringLit R08
 Typescript Switch R07

@@ -151,15 +151,10 @@ impl Getter for TypescriptCode {
     // They billed nothing before, and none occurs in the corpora.
     impl_js_family_get_op_type!(
         Typescript,
-        op_extras: [
-            QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
-            Satisfies, Keyof, Infer, Is, Asserts2, Public, Private, Protected, Override, Readonly,
-            Abstract, Accessor,
-        ],
+        roles: typescript,
+        op_extras: [QMARKDOT, Satisfies, Keyof, Infer, Is, Asserts2],
         operand_extras: [TypeIdentifier],
-        predefined_void: PredefinedType,
         generic_angles: GENERIC_ANGLES,
-        export_type_name: [Type, ExportClause, ExportSpecifier],
     );
 
     get_operator!(Typescript);

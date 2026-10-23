@@ -101,15 +101,10 @@ impl Getter for TsxCode {
     // they stay `<` and `>`.
     impl_js_family_get_op_type!(
         Tsx,
-        op_extras: [
-            QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
-            Satisfies, Keyof, Infer, Is, Asserts2, Public, Private, Protected, Override, Readonly,
-            Abstract, Accessor, LTSLASH, SLASHGT,
-        ],
+        roles: tsx,
+        op_extras: [QMARKDOT, Satisfies, Keyof, Infer, Is, Asserts2, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2, TypeIdentifier],
-        predefined_void: PredefinedType,
         generic_angles: GENERIC_ANGLES,
-        export_type_name: [Type, ExportClause, ExportSpecifier],
         jsx: [JsxText, HtmlCharacterReference],
     );
 

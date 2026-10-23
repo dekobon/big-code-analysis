@@ -81,6 +81,10 @@ impl Checker for TsxCode {
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        // role-bypass: allow(Primitive) — key selection after the row
+        // has classified the node: the wrapper is one kind for many
+        // spellings and so is keyed by text, not whether the node is a
+        // primitive
         node.kind_id() == Tsx::PredefinedType
     }
 }

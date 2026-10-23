@@ -63,7 +63,8 @@ impl Getter for JavascriptCode {
     // modifier rather than nothing; being one node it is one operator.
     impl_js_family_get_op_type!(
         Javascript,
-        op_extras: [OptionalChain, LTSLASH, SLASHGT, Staticget],
+        roles: javascript,
+        op_extras: [OptionalChain, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
         jsx: [JsxText, HtmlCharacterReference],
     );
