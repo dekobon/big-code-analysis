@@ -208,6 +208,26 @@ pub fn nested_quotes(depth: usize) -> String {
     )
 }
 
+/// Elixir: nested `if` blocks, each holding a `def`, none under a
+/// `quote`.
+///
+/// The complement of [`nested_quotes`]. There every `def` sits one step
+/// under a `quote`, so `elixir_is_inside_quote_block`'s short-circuit
+/// fires at once and the probe reads linear whatever the climb costs.
+/// Here no ancestor is a `quote`, so a climb runs to the root from every
+/// `def`: one per level is `O(depth²)` over the file, measured at
+/// exponent 2.0 (0.12 s / 0.47 s / 1.97 s at depths 1000 / 2000 / 4000)
+/// before the answer was folded down the walker's chain. The `def`s are
+/// counted by `nom`, so the reading grows with depth.
+#[must_use]
+pub fn nested_unquoted_defs(depth: usize) -> String {
+    format!(
+        "defmodule M do\n{}:ok\n{}end\n",
+        "if true do\ndef f do\n:ok\nend\n".repeat(depth),
+        "end\n".repeat(depth)
+    )
+}
+
 /// Rust: `fn f() { if a {} fn f() { … let x = 1; … } }`.
 ///
 /// Each level opens a `FuncSpace`, so this drives the space-nesting
@@ -1705,6 +1725,25 @@ pub const PROBES: &[Probe] = &[
                     predicate short-circuits on the first `quote` \
                     ancestor, and each step now indexes the walker's \
                     ancestor chain rather than calling `Node::parent`.",
+    },
+    Probe {
+        name: "nom/elixir-unquoted-def",
+        lang: LANG::Elixir,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_unquoted_defs,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1691: the same question as `nom/nested-quote` on the \
+                    shape its short-circuit cannot help — a `def` under no \
+                    `quote` at all climbed to the root, and one per level \
+                    measured quadratic while that probe read linear. The \
+                    answer is now folded down the walker's chain once per \
+                    ancestor (lesson 82).",
     },
     Probe {
         name: "cognitive/elixir-mixed-arguments",

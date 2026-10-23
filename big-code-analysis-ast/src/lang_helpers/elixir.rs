@@ -2,7 +2,7 @@
 //! and applied versus named operators.
 
 use crate::Elixir;
-use crate::node::{Ancestors, Node};
+use crate::node::{Ancestors, FoldLane, Node};
 
 /// Reads the text of the `target` field of an Elixir `Call` node.
 ///
@@ -56,11 +56,18 @@ pub fn elixir_is_class_macro(kw: &str) -> bool {
 /// quoted Calls as methods inflates `Wmc` and disagrees with `Npm`'s
 /// direct-children classification (#310).
 ///
-/// Walks the ancestor chain looking for a `quote` Call ancestor. Stops at
-/// the first match (true) or at the root (false). Each step is a single
-/// `child_by_field_name("target")` + identifier byte compare, so the cost
-/// is O(steps) when `ancestors` is known — with `Ancestors::unknown` each
-/// step additionally pays `Node::parent`'s O(depth) (#1084).
+/// Under a walk that lent a [`FoldCache`](crate::FoldCache), the answer
+/// is folded down the chain once per ancestor — "is this, or anything
+/// above it, a `quote`" — so each query is amortised `O(1)`. The climb
+/// it replaces stopped at the first `quote` ancestor and was `O(1)` for
+/// a `def` directly inside one, but a `def` under no `quote` at all
+/// climbed to the root: one such `def` per nesting level measured
+/// quadratic (0.12 s / 0.47 s / 1.97 s at depths 1000 / 2000 / 4000,
+/// exponent 2.0) through `is_func_space_with_code` alone, which the
+/// `nom/nested-quote` probe could not see because every `def` there sits
+/// one step under a `quote` (lesson 82). Without a lent cache the climb
+/// runs as before, each step `O(1)` on a known chain and `O(depth)` with
+/// `Ancestors::unknown` (#1084).
 #[inline]
 #[must_use]
 pub fn elixir_is_inside_quote_block<'a>(
@@ -68,6 +75,17 @@ pub fn elixir_is_inside_quote_block<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    if ancestors.memoises_folds() {
+        return ancestors.fold_down(
+            node,
+            0,
+            FoldLane::InsideQuote,
+            0,
+            |inside, ancestor, _, _| {
+                u8::from(inside == 1 || elixir_call_keyword(ancestor, code) == Some("quote"))
+            },
+        ) == 1;
+    }
     ancestors
         .iter(node)
         .any(|(n, _)| elixir_call_keyword(&n, code) == Some("quote"))
@@ -312,6 +330,56 @@ mod tests {
                 ("and".to_owned(), "(a, b)".to_owned()),
                 ("||".to_owned(), "(c, d)".to_owned())
             ]
+        );
+    }
+
+    // The memoised fold answers as the climb it replaced does, on every
+    // `call` of a fixture that has quoted and unquoted `def`s at several
+    // depths, a `quote` nested in a `quote`, and a `def` *after* a
+    // `quote` closes — where a fold that leaked state across siblings
+    // would still say "inside". Both spellings are asked through the
+    // walker's chain, one with a lent cache and one without. A fold that
+    // dropped the parent itself (`skip` of 1) is not observable here: a
+    // `def` is never a direct child of its `quote` call, since the
+    // grammar puts a `do_block` or an `arguments` list between them, so
+    // the two spellings agree on that perturbation by construction.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn inside_quote_fold_answers_as_the_climb_does() {
+        use crate::node::{FoldCache, Tree};
+        let source = b"defmodule M do\n  def a, do: 1\n  defmacro m do\n    quote do\n      def b, do: 2\n      quote do\n        def c, do: 3\n      end\n      if true do\n        def d, do: 4\n      end\n    end\n    def e, do: 5\n  end\n  if true do\n    if true do\n      def f, do: 6\n    end\n  end\nend\n";
+        let tree = Tree::new::<ElixirCode>(source);
+        assert!(!tree.get_root().has_error());
+        let cache = FoldCache::default();
+        let mut answers = Vec::new();
+        let mut stack = vec![(tree.get_root(), 0_usize)];
+        let mut chain: Vec<Node> = Vec::new();
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            if let Some(kw) = elixir_call_keyword(&node, source) {
+                let folded = elixir_is_inside_quote_block(
+                    &node,
+                    source,
+                    Ancestors::known(&chain).with_folds(&cache),
+                );
+                let climbed = elixir_is_inside_quote_block(&node, source, Ancestors::known(&chain));
+                assert_eq!(folded, climbed, "`{kw}` at depth {depth}");
+                if elixir_is_method_macro(kw) {
+                    answers.push((kw.to_owned(), folded));
+                }
+            }
+            chain.push(node);
+            let children: Vec<_> = node.children().collect();
+            stack.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
+        }
+        // Keyed on the `def`s only, so the expectation reads as the
+        // fixture does: `b`, `c`, `d` are quoted; `a`, `e`, `f` are not.
+        let defs: Vec<_> = answers.iter().map(|(_, inside)| *inside).collect();
+        assert_eq!(answers.len(), 7, "{answers:?}");
+        assert_eq!(
+            defs,
+            [false, false, true, true, true, false, false],
+            "{answers:?}"
         );
     }
 }

@@ -530,17 +530,20 @@ pub(crate) enum FoldLane {
     /// Python: the climb from a node through the parentheses above it to
     /// a bare string statement (#1610).
     BareStringClimb,
+    /// Elixir: whether an ancestor is a `quote do … end` call, under
+    /// which a `def` is a template rather than a definition.
+    InsideQuote,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 3;
+    const COUNT: usize = 4;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the
 // first walk that folds on it; this makes a variant added without the
 // bump a build error instead.
-const _: () = assert!(FoldLane::BareStringClimb as usize + 1 == FoldLane::COUNT);
+const _: () = assert!(FoldLane::InsideQuote as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each

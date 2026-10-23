@@ -49,6 +49,18 @@ for historical reference.
 
 ### Changed
 
+- An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
+  ancestor was quadratic in its nesting depth under every metric walk:
+  deciding whether the call is a definition or a quoted template climbed
+  the whole ancestor chain looking for a `quote`, so one `def` per level
+  of a nested `if` measured 0.12 s / 0.47 s / 1.97 s at depths 1000 /
+  2000 / 4000 (exponent 2.0). The `nom/nested-quote` scaling probe never
+  saw it, because every `def` there sits one step under a `quote` and
+  the climb stops at once. The answer is now folded down the walker's
+  chain once per ancestor, as the Python bare-string climb already was,
+  and the same input takes 0.05 s at depth 4000. The output is
+  unchanged; a `nom/elixir-unquoted-def` probe pins the shape. (#1691)
+
 - `Ast::dump` (and so the `/ast` endpoint and the Python `Ast.dump`;
   `bca dump` renders the raw tree through its own cursor walk and is
   unaffected) walks the tree with one cursor instead of indexing each
