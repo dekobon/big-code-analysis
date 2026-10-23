@@ -1,7 +1,9 @@
-//! C's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! C's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::C;
 use crate::role_table;
+use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
 
 role_table! {
     lang: C;
@@ -21,9 +23,12 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // The shared C-family lists (`roles/c_family.rs`) plus `auto`,
+    // which is a storage class in C — the only place this grammar emits
+    // it — and a placeholder type in C++, where the row leaves it out.
+    Modifier { owns [..c_family_modifiers!(), Auto] }
+    DeclKeyword { owns [..c_family_decl_keywords!()] }
+    Primitive { owns [..c_family_primitives!()] }
     FuncOpener { pending R06 }
     Closure { absent "C has no anonymous function" }
     Container { pending R06 }

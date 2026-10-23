@@ -128,6 +128,10 @@ impl Checker for ObjcCode {
     // (#1579).
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        // role-bypass: allow(Primitive, Modifier) — key selection after
+        // the rows have classified the node: which of their kinds is one
+        // kind for many spellings and so is keyed by text, not whether
+        // the node is a primitive or a modifier
         matches!(
             node.kind_id().into(),
             Objc::PrimitiveType | Objc::Identifier | Objc::Nullable

@@ -200,16 +200,21 @@
 //!   projection. Those are what the census, the parity suites and review
 //!   are for (#1690, "What this does and does not claim").
 //!
-//! The tables under this module are dead code until #1693 wires the
-//! first consumer; the module-level allow below says so.
+//! The first consumer is `Getter::get_keyword_role` (#1693), which
+//! reads the `Modifier`, `DeclKeyword` and `Primitive` rows through
+//! `pays_at_leaf`; every other emitted item is read by nothing until
+//! its package lands, and the module-level allow below says so.
 
-// Nothing reads these tables yet. #1693 wires `Getter::get_op_type`'s
-// modifier, declaration-keyword and primitive arms to them and removes
-// this allow.
+// Only the three keyword rows have a consumer (#1693). The rest of what
+// a table emits — `opens_space`, `pays_at_wrapper`, `project`, the
+// `ABSENT` / `PENDING` constants — waits on R05 through R09, which
+// narrow this allow as they land.
 #![allow(dead_code)]
+//!
 
 pub(crate) mod bash;
 pub(crate) mod c;
+pub(crate) mod c_family;
 pub(crate) mod ccomment;
 pub(crate) mod cpp;
 pub(crate) mod csharp;

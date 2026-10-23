@@ -50,6 +50,8 @@ impl Getter for CCode {
         }
     }
 
+    keywords_are_operators!(c);
+
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use C::*;
 
@@ -61,59 +63,17 @@ impl Getter for CCode {
         // there, since the runtime folds the template-list closer onto
         // `GT` (`cpp_template_closer_alias_never_reaches_kind_id`).
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
-        // `kind_id()`; #768, see the Cpp note).
+        // `kind_id()`; #768, see the Cpp note). The modifiers, the
+        // declaration keywords and the primitive types are not here:
+        // `roles/c.rs` declares them and `get_keyword_role` bills them
+        // (#1693).
         match node.kind_id().into() {
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
             | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
             | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType
-            | TypeSpecifier | Sizeof
-            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
-            // `short` modifiers as bare keyword tokens, not as `primitive_type`
-            // children (`unsigned int` is `unsigned` + `primitive_type int`;
-            // `signed long` and `long long` have no `primitive_type` at all).
-            // Without these arms the modifiers fall into `Unknown` and are
-            // dropped, so `unsigned int` collapses to just `int` and a standalone
-            // `signed long` contributes nothing to n1/N1 (issue #466). Each
-            // modifier has a distinct kind_id, so keying by kind_id (the default
-            // `operators` store) keeps them distinct in n1 while `long long`'s
-            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
-            | Signed | Unsigned | Long | Short
-            // `struct` / `union` / `enum`, which C++ bills since #1552,
-            // and `typedef` since #1557. They are C keywords, not
-            // C++-only forms, so leaving them out here would score a
-            // header differently by the grammar that parsed it. The
-            // derivation is on the Cpp arm.
-            | Struct | Union | Enum | Typedef
-            // Storage classes, function specifiers and type qualifiers,
-            // billed as every class language bills its modifiers
-            // (#1578). Each is the keyword leaf of an unclassified
-            // `storage_class_specifier` / `type_qualifier` /
-            // `alignas_qualifier`, so it bills once, as `const` does in
-            // a pointer declarator (`int * const p`). The vendor
-            // spellings (`__inline`, `__restrict__`, `__thread`,
-            // `__volatile__`, …) are kinds of their own and bill under
-            // their own name; `__volatile__` the grammar emits only as a
-            // GNU `asm` qualifier, where `volatile` bills too. `auto`
-            // is a storage class in C, the only place this grammar
-            // emits it. `__extension__` bills in an expression too,
-            // where it is the prefix of an `extension_expression`.
-            // Attributes (`__attribute__`, `__declspec`, `[[…]]`) and
-            // the MS calling conventions stay unbilled: they annotate a
-            // declaration rather than spell part of it. `cpp.rs` copies
-            // this list, though `restrict` and `noreturn` are no C++
-            // keywords: `int restrict = 0;` is a valid C++ variable, as
-            // `int noreturn = 1;` is in C without `<stdnoreturn.h>`. Both
-            // grammars still parse the name as the qualifier before a
-            // zero-width `identifier`, so the keyword bills and no
-            // operand does — the grammar decides that, not this arm, as
-            // `objc.rs` notes for `nullable`.
-            | Static | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline
-            | ThreadLocal | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2
-            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
-                => TokenRole::Operator,
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | Sizeof => TokenRole::Operator,
             // `CharLiteral` joins the operand list here for the whole
             // C family — `cpp.rs`, `mozcpp.rs` and `objc.rs` carry the
             // same arm and point back at this note (#1316). Before it a

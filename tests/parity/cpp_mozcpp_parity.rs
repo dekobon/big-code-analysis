@@ -30,6 +30,8 @@
 use big_code_analysis::LANG;
 
 use super::support::metrics_space;
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
+use super::support::ops_space;
 
 #[cfg(all(feature = "cpp", feature = "mozcpp"))]
 /// Headline integer metric sums for one parse of `source` as `lang`.
@@ -239,5 +241,140 @@ fn cpp_and_mozcpp_agree_on_modifiers() {
         get("halstead.operands"),
         7,
         "no modifier may bill as an operand: {cpp:?}"
+    );
+}
+
+/// The three keyword rows' spellings, one fixture line's worth each,
+/// written out rather than taken from a Cpp run so a kind dropped from
+/// *both* dialects' rows fails by name (#1693).
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
+const KEYWORD_ROWS: &[(&str, &[&str])] = &[
+    // Modifier: the 22 shared spellings plus the 12 C++ ones.
+    (
+        "Modifier",
+        &[
+            "static",
+            "extern",
+            "register",
+            "inline",
+            "__inline",
+            "__inline__",
+            "__forceinline",
+            "thread_local",
+            "__thread",
+            "const",
+            "constexpr",
+            "volatile",
+            "__volatile__",
+            "restrict",
+            "__restrict__",
+            "_Atomic",
+            "_Noreturn",
+            "noreturn",
+            "_Nonnull",
+            "alignas",
+            "_Alignas",
+            "__extension__",
+            "virtual",
+            "mutable",
+            "constinit",
+            "consteval",
+            "explicit",
+            "friend",
+            "public",
+            "private",
+            "protected",
+            "override",
+            "final",
+            "noexcept",
+        ],
+    ),
+    // DeclKeyword: the 4 shared spellings plus the 5 C++ ones.
+    (
+        "DeclKeyword",
+        &[
+            "struct",
+            "union",
+            "enum",
+            "typedef",
+            "class",
+            "namespace",
+            "template",
+            "typename",
+            "using",
+        ],
+    ),
+    // Primitive: `int` and `void` by text, the sized-type words by kind.
+    (
+        "Primitive",
+        &["int", "void", "unsigned", "long", "signed", "short"],
+    ),
+];
+
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
+#[test]
+fn cpp_and_mozcpp_agree_on_keyword_vocabularies() {
+    // #1693 moved the modifiers, the declaration keywords and the
+    // primitive types out of both getters into the `Modifier` /
+    // `DeclKeyword` / `Primitive` rows of `roles/cpp.rs` and
+    // `roles/mozcpp.rs`. Mozcpp's rows are a copy, and nothing routes to
+    // Mozcpp, so this is the whole coverage that copy has.
+    //
+    // One spelling per row entry that a plain declaration can carry;
+    // `__volatile__` only ever appears as a GNU `asm` qualifier, and the
+    // vendor spellings each have a kind of their own.
+    let source = "namespace N { template <typename T, class U> class C : public B { \
+                  public: virtual void f() const noexcept override final; \
+                  private: mutable int m; protected: static constexpr int k = 1; \
+                  friend class F; explicit C(int); consteval int g(); \
+                  constinit static int s; };\n\
+                  struct S { union U { enum class E { X } e; }; }; typedef int I; \
+                  using J = int; extern \"C\" int e; thread_local int t; \
+                  __thread int tt; inline int i; __inline int ii; __inline__ int iii; \
+                  __forceinline int iv; register int r; volatile int v; \
+                  restrict int *rp; __restrict__ int *rrp; _Atomic int at; \
+                  alignas(8) int al; _Alignas(8) int al2; __extension__ int ex; \
+                  _Noreturn void nr(); noreturn void nr2(); int * _Nonnull nn; \
+                  unsigned long long ull; signed short ss; \
+                  void a(void) { __asm__ __volatile__(\"nop\"); } }\n";
+
+    let cpp = ops_space(LANG::Cpp, source, "parity.cpp");
+    let mozcpp = ops_space(LANG::Mozcpp, source, "parity.cpp");
+    assert_eq!(
+        cpp.operators, mozcpp.operators,
+        "Cpp and Mozcpp must agree on the operator vocabulary"
+    );
+    assert_eq!(
+        cpp.operands, mozcpp.operands,
+        "Cpp and Mozcpp must agree on the operand vocabulary"
+    );
+
+    for (row, spellings) in KEYWORD_ROWS {
+        for spelling in *spellings {
+            assert!(
+                cpp.operators.iter().any(|o| o == spelling),
+                "{row}: `{spelling}` must be an operator; operators were {:?}",
+                cpp.operators
+            );
+            assert!(
+                !cpp.operands.iter().any(|o| o == spelling),
+                "{row}: `{spelling}` must not be an operand; operands were {:?}",
+                cpp.operands
+            );
+        }
+    }
+    // The fixture spells no control keyword, so its alphabetic
+    // operators are exactly the three rows: an operator outside them
+    // would be a keyword billed by the getter's own arm as well.
+    let keyword_operators = cpp
+        .operators
+        .iter()
+        .filter(|o| o.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .count();
+    assert_eq!(
+        keyword_operators,
+        KEYWORD_ROWS.iter().map(|(_, s)| s.len()).sum::<usize>(),
+        "an alphabetic operator outside the three rows: {:?}",
+        cpp.operators
     );
 }

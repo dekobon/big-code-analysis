@@ -211,7 +211,7 @@ impl Getter for JavaCode {
         if node.kind_id() == Java::TypeIdentifier && node_text(code, node) == Some("var") {
             return TokenRole::Unknown;
         }
-        Self::get_op_type(node, ancestors)
+        keyword_or_op_type::<Self>(node, code, ancestors)
     }
 
     fn get_operator_spelling<'a>(

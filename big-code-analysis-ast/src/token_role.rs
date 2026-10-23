@@ -16,6 +16,7 @@
 //! spelling as a deprecated alias.
 
 /// The role a node plays in an expression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenRole {
     /// The node acts as an operator (`+`, `&&`, a call, an index).
     Operator,

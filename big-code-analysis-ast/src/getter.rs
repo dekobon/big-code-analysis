@@ -68,6 +68,51 @@ macro_rules! get_operator {
     };
 }
 
+/// Emits a [`Getter::get_keyword_role`] that bills every keyword the
+/// language's `Modifier`, `DeclKeyword` and `Primitive` rows declare as
+/// an operator — the C-family, Java and TypeScript reading of a
+/// keyword. Takes the language's module under `crate::roles`.
+macro_rules! keywords_are_operators {
+    ($roles:ident) => {
+        #[inline]
+        fn get_keyword_role<'a>(
+            node: &Node<'a>,
+            code: &[u8],
+            ancestors: Ancestors<'a, '_>,
+        ) -> TokenRole {
+            use $crate::roles::$roles::{decl_keyword, modifier, primitive};
+            if modifier::pays_at_leaf(node, code, ancestors)
+                || decl_keyword::pays_at_leaf(node, code, ancestors)
+                || primitive::pays_at_leaf(node, code, ancestors)
+            {
+                TokenRole::Operator
+            } else {
+                TokenRole::Unknown
+            }
+        }
+    };
+}
+
+/// The keyword classification where it answers, otherwise the byte-less
+/// [`Getter::get_op_type`]: the one fallback every spelling of
+/// [`Getter::get_op_type_with_code`] ends in. An override of that
+/// method calls this, never `get_op_type` directly, so a keyword row is
+/// read on every path the walk takes. A free function rather than a
+/// provided method so no language can override the fallback and skip
+/// its rows.
+#[inline]
+#[must_use]
+pub(crate) fn keyword_or_op_type<'a, G: Getter + ?Sized>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> TokenRole {
+    match G::get_keyword_role(node, code, ancestors) {
+        TokenRole::Unknown => G::get_op_type(node, ancestors),
+        role => role,
+    }
+}
+
 /// The default space name: the node's `name` field, else `<anonymous>`.
 ///
 /// A free function as well as the trait default so a language that needs
@@ -297,9 +342,30 @@ pub trait Getter {
         TokenRole::Unknown
     }
 
-    /// Source-aware variant of [`get_op_type`]. The default forwards
-    /// to the byte-less classifier; languages whose Halstead operand
-    /// classification depends on token text override this. Kotlin uses
+    /// Classifies `node` when it is a keyword the language's role rows
+    /// declare — a `Modifier`, `DeclKeyword` or `Primitive` — and
+    /// answers [`TokenRole::Unknown`] for every other node (#1693).
+    ///
+    /// The rows in `crate::roles` say *which* kinds are those keywords;
+    /// this method says what Halstead makes of one, which is the
+    /// language's choice: the C family, Java and TypeScript bill a
+    /// primitive as an operator, PHP as an operand. A language whose
+    /// rows are still `pending` keeps the default and its keyword arms
+    /// in [`get_op_type`](Self::get_op_type).
+    #[inline]
+    #[must_use]
+    fn get_keyword_role<'a>(
+        _node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        TokenRole::Unknown
+    }
+
+    /// Source-aware variant of [`get_op_type`], and the spelling the
+    /// walk calls. The default forwards to [`keyword_or_op_type`];
+    /// languages whose Halstead operand classification depends on
+    /// token text override this and end in the same call. Kotlin uses
     /// it to recover the variable in a short-form string template
     /// (`"Hi $name"`), which the grammar emits as bare `string_content`
     /// tokens with no structured interpolation node — the distinction
@@ -311,10 +377,10 @@ pub trait Getter {
     #[must_use]
     fn get_op_type_with_code<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
-        Self::get_op_type(node, ancestors)
+        keyword_or_op_type::<Self>(node, code, ancestors)
     }
 
     /// The fixed spelling an operator `node` is keyed under in place of
@@ -897,9 +963,11 @@ pub trait Getter {
     /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
     /// [`is_braced_script_word`]: Self::is_braced_script_word
     /// [`is_switch_arm_body`]: Self::is_switch_arm_body
-    /// [`is_value_braced_word`]: Self::is_value_braced_word
+    /// The base answer the opener test revises is
+    /// [`keyword_or_op_type`], so a Tcl-family keyword row is read on
+    /// this path as on every other (#1693).
     ///
-    /// [`get_op_type`]: Self::get_op_type
+    /// [`is_value_braced_word`]: Self::is_value_braced_word
     #[must_use]
     fn braced_word_op_type<'a>(
         node: &Node<'a>,
@@ -907,7 +975,7 @@ pub trait Getter {
         ancestors: Ancestors<'a, '_>,
         kinds: &BracedWordKinds,
     ) -> TokenRole {
-        let base = Self::get_op_type(node, ancestors);
+        let base = keyword_or_op_type::<Self>(node, code, ancestors);
         // Only the opener can change answer, and the test has to say so
         // rather than infer it from the parent kind. A braced word's
         // operator children are the `{` *and* every `;` separating two
@@ -1432,5 +1500,141 @@ mod braced_slot_tests {
             WORD_LIST_OWNER_FIXTURE,
             &crate::lang_helpers::irules::BRACED_WORD_KINDS,
         );
+    }
+}
+
+#[cfg(test)]
+mod keyword_role_tests {
+    //! `get_keyword_role` is read on every path to a `TokenRole`, and
+    //! the byte-less `get_op_type` no longer knows a keyword (#1693).
+    //! Each language that migrated its rows is exercised through every
+    //! spelling the walk can call: the default forwarder, each
+    //! `get_op_type_with_code` override, and `braced_word_op_type`.
+
+    use super::{Getter, keyword_or_op_type};
+    use crate::node::{Ancestors, Node};
+    use crate::test_support::for_each_node_with_chain;
+    use crate::token_role::TokenRole;
+    use crate::traits::LanguageInfo;
+
+    /// The `(kind, role)` pairs `classify` answers for every leaf of
+    /// `source` that it does not call `Unknown`.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "java", feature = "tcl"))]
+    fn roles_of<L: LanguageInfo + Getter>(
+        source: &[u8],
+        classify: impl for<'a> Fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> TokenRole,
+    ) -> Vec<(&'static str, TokenRole)> {
+        let mut out = Vec::new();
+        for_each_node_with_chain::<L>(source, |node, chain| {
+            let role = classify(node, source, Ancestors::known(chain));
+            if role != TokenRole::Unknown {
+                out.push((node.kind(), role));
+            }
+        });
+        out
+    }
+
+    /// A C-family modifier, declaration keyword and primitive reach
+    /// `Operator` through `get_op_type_with_code` and through
+    /// `get_keyword_role` alone, and the byte-less `get_op_type` no
+    /// longer bills any of the three.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_keywords_are_billed_by_the_rows_not_the_byte_less_arm() {
+        use crate::CCode;
+        let source = b"static struct S { unsigned int a; } s;\n";
+        let via_walk = roles_of::<CCode>(source, CCode::get_op_type_with_code);
+        let via_rows = roles_of::<CCode>(source, CCode::get_keyword_role);
+        let via_byte_less = roles_of::<CCode>(source, |n, _, a| CCode::get_op_type(n, a));
+        let keywords = [
+            ("static", TokenRole::Operator),
+            ("struct", TokenRole::Operator),
+            ("unsigned", TokenRole::Operator),
+            ("primitive_type", TokenRole::Operator),
+        ];
+        assert_eq!(via_rows, keywords, "the rows bill exactly the keywords");
+        for keyword in &keywords {
+            assert!(
+                via_walk.contains(keyword),
+                "{keyword:?} missing from the walk: {via_walk:?}"
+            );
+            assert!(
+                !via_byte_less.contains(keyword),
+                "{keyword:?} is still billed by the byte-less arm: {via_byte_less:?}"
+            );
+        }
+        // Everything the byte-less arm answers, the walk answers too:
+        // the rows only add to it.
+        for pair in &via_byte_less {
+            assert!(
+                via_walk.contains(pair),
+                "{pair:?} lost on the walk: {via_walk:?}"
+            );
+        }
+        assert_eq!(via_walk.len(), via_byte_less.len() + keywords.len());
+    }
+
+    /// `keyword_or_op_type` prefers the row's answer and falls back to
+    /// the byte-less arm only on `Unknown`.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn keyword_or_op_type_prefers_the_row() {
+        use crate::CppCode;
+        let source = b"const int x = 1;\n";
+        let merged = roles_of::<CppCode>(source, keyword_or_op_type::<CppCode>);
+        assert_eq!(
+            merged,
+            [
+                ("const", TokenRole::Operator),
+                ("primitive_type", TokenRole::Operator),
+                ("identifier", TokenRole::Operand),
+                ("=", TokenRole::Operator),
+                ("number_literal", TokenRole::Operand),
+                (";", TokenRole::Operator),
+            ]
+        );
+    }
+
+    /// Every `get_op_type_with_code` override ends in
+    /// `keyword_or_op_type`, so a language reads its keyword rows on
+    /// the override's path too, pinned by comparing the walk's answer
+    /// against the fallback's on a fixture the override does not touch.
+    ///
+    /// Until the language's rows are declared `get_keyword_role` is
+    /// `Unknown` and this cannot fail — measured: reverting the Java
+    /// override to `Self::get_op_type` passed it. It is kept so the
+    /// first row a later package declares is read on this path, and
+    /// the comparison starts to bite then.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_override_reaches_the_fallback() {
+        use crate::JavaCode;
+        let source = b"class A { int f() { return 1; } }\n";
+        let walk = roles_of::<JavaCode>(source, JavaCode::get_op_type_with_code);
+        let fallback = roles_of::<JavaCode>(source, keyword_or_op_type::<JavaCode>);
+        assert_eq!(walk, fallback);
+        assert!(walk.contains(&("class", TokenRole::Operator)), "{walk:?}");
+    }
+
+    /// `braced_word_op_type` revises the fallback's answer rather than
+    /// the byte-less arm's. Same standing as the Java pin above: Tcl's
+    /// rows are pending, so the revision is observable and the
+    /// fallback is not, until a row lands.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_braced_word_path_reaches_the_fallback() {
+        use crate::TclCode;
+        let source = b"proc f {a} {\n    lappend x {b c}\n    return $x\n}\n";
+        let walk = roles_of::<TclCode>(source, TclCode::get_op_type_with_code);
+        let fallback = roles_of::<TclCode>(source, keyword_or_op_type::<TclCode>);
+        // The braced-word revision withdraws the `{` of `lappend`'s
+        // literal (#1318), and only that: the walk is the fallback
+        // minus one operator.
+        assert_eq!(
+            walk.len() + 1,
+            fallback.len(),
+            "walk {walk:?}\nfallback {fallback:?}"
+        );
+        assert!(walk.iter().all(|pair| fallback.contains(pair)));
     }
 }

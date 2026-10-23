@@ -618,27 +618,72 @@ mod tests {
         keywords: &[&str],
     ) {
         let ops = ops_of::<T>(source, file);
-
         for keyword in keywords {
-            assert!(
-                ops.operands.iter().any(|o| o == keyword),
-                "{file}: `{keyword}` must be an operand; operands were {:?}",
-                ops.operands
-            );
-            assert!(
-                !ops.operators.iter().any(|o| o == keyword),
-                "{file}: `{keyword}` must not be an operator; operators were {:?}",
-                ops.operators
-            );
+            assert_keyword_role(&ops, file, keyword, Role::OperandOnly);
         }
     }
 
+    /// Asserts `keyword` reaches exactly the vocabulary `want` names in
+    /// `ops`'s root space. The one check behind
+    /// `assert_keywords_are_operands_only` and
+    /// `assert_modifier_spellings_bill`, which walk the same two
+    /// vocabularies from opposite sides (#1598): a keyword in both is
+    /// billed twice, and one in neither is dropped, so each side's
+    /// absence is as load-bearing as the other's presence.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "groovy",
+        feature = "java",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "typescript"
+    ))]
+    #[track_caller]
+    fn assert_keyword_role(ops: &crate::ops::Ops, file: &str, keyword: &str, want: Role) {
+        assert_eq!(
+            Role::of(ops, keyword),
+            Some(want),
+            "{file}: `{keyword}` must be {want:?}; operators were {:?}, operands were {:?}",
+            ops.operators,
+            ops.operands
+        );
+    }
+
     /// How one space's vocabularies classify a single keyword.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Role {
         OperatorOnly,
         OperandOnly,
         Both,
+    }
+
+    impl Role {
+        /// `keyword`'s role in `ops`'s own vocabularies, `None` where it
+        /// reaches neither.
+        #[cfg(any(
+            feature = "c",
+            feature = "cpp",
+            feature = "csharp",
+            feature = "groovy",
+            feature = "java",
+            feature = "kotlin",
+            feature = "mozcpp",
+            feature = "objc",
+            feature = "typescript",
+        ))]
+        fn of(ops: &crate::ops::Ops, keyword: &str) -> Option<Self> {
+            let operator = ops.operators.iter().any(|o| o == keyword);
+            let operand = ops.operands.iter().any(|o| o == keyword);
+            match (operator, operand) {
+                (true, true) => Some(Self::Both),
+                (true, false) => Some(Self::OperatorOnly),
+                (false, true) => Some(Self::OperandOnly),
+                (false, false) => None,
+            }
+        }
     }
 
     /// Records `keyword`'s role in `ops` and in every space below it.
@@ -649,14 +694,7 @@ mod tests {
     /// inverse, and what the merged root vocabulary cannot show.
     #[cfg(feature = "csharp")]
     fn collect_keyword_roles(ops: &crate::ops::Ops, keyword: &str, out: &mut Vec<Role>) {
-        let operator = ops.operators.iter().any(|o| o == keyword);
-        let operand = ops.operands.iter().any(|o| o == keyword);
-        match (operator, operand) {
-            (true, true) => out.push(Role::Both),
-            (true, false) => out.push(Role::OperatorOnly),
-            (false, true) => out.push(Role::OperandOnly),
-            (false, false) => {}
-        }
+        out.extend(Role::of(ops, keyword));
         for space in &ops.spaces {
             collect_keyword_roles(space, keyword, out);
         }
@@ -7187,16 +7225,7 @@ end",
     fn assert_modifier_spellings_bill<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str)]) {
         for (spelling, source) in rows {
             let ops = ops_of::<T>(source, file);
-            assert!(
-                ops.operators.iter().any(|o| o == spelling),
-                "{file}: `{spelling}` must be an operator in {source:?}; operators were {:?}",
-                ops.operators
-            );
-            assert!(
-                !ops.operands.iter().any(|o| o == spelling),
-                "{file}: `{spelling}` must not be an operand; operands were {:?}",
-                ops.operands
-            );
+            assert_keyword_role(&ops, file, spelling, Role::OperatorOnly);
         }
     }
 

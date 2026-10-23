@@ -1,7 +1,26 @@
-//! Objc's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Objc's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
 use crate::role_table;
+use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+use crate::{Ancestors, Node, Objc};
+
+/// Whether `node` is the attribute word of `@property (nonatomic, copy,
+/// getter=isOn)`. The grammar has no keyword for any attribute: each is
+/// an `identifier`, the first child of its `property_attribute`, so the
+/// word is told from a name by position alone. The `isOn` of
+/// `getter=isOn` is a later child and stays an operand, the selector it
+/// names. `ObjcCode::is_primitive` keys the word by its text (#1579).
+fn property_attribute_name<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent(node).is_some_and(|attribute| {
+        attribute.kind_id() == Objc::PropertyAttribute as u16
+            && attribute.start_byte() == node.start_byte()
+    })
+}
 
 role_table! {
     lang: Objc;
@@ -21,9 +40,54 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // The shared C-family lists (`roles/c_family.rs`), so a `.m` scores
+    // a C declaration as a `.c` does, plus `auto` (a storage class here
+    // as in C) and ObjC's own (#1579): the ARC ownership qualifiers
+    // (`__weak`, `__strong`, `__block`, …) and `__bridge` casts, the
+    // nullability qualifiers in all three spellings (`nullable`,
+    // `_Nullable`, `__nullable`), `__kindof`, the `__covariant` /
+    // `__contravariant` variance of a generic parameter, the `out` /
+    // `inout` / `bycopy` / `byref` / `oneway` method-type qualifiers,
+    // the `@public` / `@private` / `@protected` / `@package` ivar
+    // visibility labels and the `@optional` / `@required` protocol
+    // section labels. Each is the keyword leaf of an unclassified
+    // `storage_class_specifier` / `type_qualifier` /
+    // `protocol_qualifier` / `visibility_specification` or sits bare in
+    // its parent, so it bills once; none has a numeric-suffix alias.
+    // `in` is the sixth method-type qualifier, but one kind with the
+    // fast-enumeration `in`, so it is not a modifier here. A property
+    // attribute has no keyword kind at all — its word is an
+    // `identifier` told by position, hence the gate.
+    //
+    // Not here: the Apple SDK macros this grammar also lists as storage
+    // classes and qualifiers (`NS_INLINE`, `FOUNDATION_EXPORT`,
+    // `IBOutlet`, `__unused`, `__ptrauth_objc_*`, …), as Mozcpp's
+    // `MOZ_*` macros are, since each annotates a declaration and a `.c`
+    // file parses the same spelling as a name; and GNU's `__real` /
+    // `__imag`, complex-part operators the grammar misfiles as
+    // qualifiers. A variable named `nullable` parses as the qualifier
+    // before a MISSING name and bills it, as C's `int noreturn = 1;`
+    // bills `noreturn`: the grammar decides that, not the row.
+    Modifier {
+        owns [
+            ..c_family_modifiers!(),
+            Auto, Const2, Nullable, Nullable2, Nullable3, NullableResult, NullUnspecified,
+            Nonnull2, Autoreleasing, Block, Strong, UnsafeUnretained, Weak, Bridge,
+            BridgeRetained, BridgeTransfer, Kindof, Covariant, Contravariant, Out, Inout,
+            Bycopy, Byref, Oneway, ATpublic, ATprivate, ATprotected, ATpackage, AToptional,
+            ATrequired, Identifier(gated_by property_attribute_name),
+        ]
+    }
+    // The shared list plus ObjC's class and protocol declarations
+    // (#1552), each the leaf of an unclassified `class_interface` /
+    // `class_implementation` / `protocol_declaration`. `@class Fwd;`
+    // needs no entry: it parses as an `@` token, billed on its own, and
+    // a separate `class` leaf, so the directive already bills one
+    // operator.
+    DeclKeyword { owns [..c_family_decl_keywords!(), ATinterface, ATimplementation, ATprotocol] }
+    // The shared list plus `_Complex` / `__complex`, a type keyword this
+    // grammar files as a qualifier.
+    Primitive { owns [..c_family_primitives!(), Complex, Complex2] }
     FuncOpener { pending R06 }
     Closure { pending R06 }
     Container { pending R06 }

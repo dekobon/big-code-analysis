@@ -355,7 +355,7 @@ impl Getter for GroovyCode {
         if spells_primitive_type(node, code, ancestors) {
             return TokenRole::Operator;
         }
-        Self::get_op_type(node, ancestors)
+        keyword_or_op_type::<Self>(node, code, ancestors)
     }
 
     fn get_operator_spelling<'a>(

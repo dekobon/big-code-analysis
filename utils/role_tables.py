@@ -411,7 +411,11 @@ def _split_list(text: str) -> list[str]:
 
 
 FRAGMENT_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
-FRAGMENT_LIST_RE = re.compile(r"@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]", re.S)
+FRAGMENT_LIST_RE = re.compile(
+    r"\(@splice\s+\$cont:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
+    r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
+    re.S,
+)
 
 
 def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, int]]:

@@ -84,6 +84,8 @@ impl Getter for MozcppCode {
         }
     }
 
+    keywords_are_operators!(mozcpp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Mozcpp::*;
 
@@ -93,6 +95,9 @@ impl Getter for MozcppCode {
 
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
+        // The modifiers, the declaration keywords and the primitive
+        // types are not here: `roles/mozcpp.rs` declares them and
+        // `get_keyword_role` bills them (#1693).
         match node.kind_id().into() {
             // Raw-string delimiter punctuation — the twin of the Cpp
             // arm, which carries the derivation (#1314). `.mozcpp` owns
@@ -111,39 +116,16 @@ impl Getter for MozcppCode {
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
-            | TypeSpecifier | Sizeof
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
             // The ISO alternative tokens (`not`, `and`, `not_eq`, …) —
             // the derivation is on the Cpp twin (#1522).
             | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
-            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
-            // `short` modifiers as bare keyword tokens, not as `primitive_type`
-            // children (`unsigned int` is `unsigned` + `primitive_type int`;
-            // `signed long` and `long long` have no `primitive_type` at all).
-            // Without these arms the modifiers fell into `Unknown` and were
-            // dropped, so `unsigned int` collapsed to just `int` and a standalone
-            // `signed long` contributed nothing to n1/N1 (issue #466). Each
-            // modifier has a distinct kind_id, so keying by kind_id (the default
-            // `operators` store) keeps them distinct in n1 while `long long`'s
-            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
-            | Signed | Unsigned | Long | Short
             // An overloaded operator's name, the `operator` keyword and
             // `co_await` — the derivation is on the Cpp twin (#1296).
             | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
             // `co_return` / `co_yield`, billed as `return` is — the
             // derivation is on the Cpp twin (#1547).
             | CoReturn | CoYield
-            // The type-declaration keywords — the derivation is on the
-            // Cpp twin (#1552, #1557).
-            | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
-            // The declaration modifiers — the derivation is on the Cpp
-            // twin (#1578). The Gecko `MOZ_*` annotation macros stay
-            // unbilled, as attributes do.
-            | Static | Extern | Register | Inline | Inline2 | Inline3 | Forceinline
-            | ThreadLocal | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2
-            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
-            | Virtual | Mutable | Constinit | Consteval | Explicit | Friend | Public | Private
-            | Protected | Override | Final | Noexcept2
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

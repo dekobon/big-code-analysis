@@ -33,6 +33,8 @@ impl Npm for CppCode {
         for child in node.children() {
             match child.kind_id().into() {
                 AccessSpecifier => {
+                    // role-bypass: allow(Modifier) — which access label, not
+                    // whether the token is a modifier
                     current_is_public = child
                         .first_child(|id| {
                             id == Cpp::Public || id == Cpp::Protected || id == Cpp::Private

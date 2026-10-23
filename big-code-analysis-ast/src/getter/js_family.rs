@@ -321,7 +321,7 @@ macro_rules! impl_js_family_get_op_type {
                 {
                     return TokenRole::Unknown;
                 }
-                Self::get_op_type(node, ancestors)
+                keyword_or_op_type::<Self>(node, code, ancestors)
             }
 
             fn get_operand_id<'a>(

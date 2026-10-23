@@ -3,7 +3,9 @@
 //! template once R04 lands. Until then every row is pending or absent as
 //! Cpp's is.
 
+use crate::Mozcpp;
 use crate::role_table;
+use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
 
 role_table! {
     lang: Mozcpp;
@@ -22,9 +24,20 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // Cpp's three keyword rows, verbatim. The dialect shares Cpp's
+    // grammar shape and owns no file extension, so nothing routes to it
+    // and no corpus snapshot reaches these rows;
+    // `tests/parity/cpp_mozcpp_parity.rs` holds the two vocabularies
+    // together. The derivations are on the Cpp rows.
+    Modifier {
+        owns [
+            ..c_family_modifiers!(),
+            Virtual, Mutable, Constinit, Consteval, Explicit, Friend, Public, Private,
+            Protected, Override, Final, Noexcept2,
+        ]
+    }
+    DeclKeyword { owns [..c_family_decl_keywords!(), Class, Namespace, Template, Typename, Using] }
+    Primitive { owns [..c_family_primitives!()] }
     FuncOpener { pending R06 }
     Closure { pending R06 }
     Container { pending R06 }

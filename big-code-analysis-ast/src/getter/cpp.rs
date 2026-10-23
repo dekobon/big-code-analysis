@@ -86,6 +86,8 @@ impl Getter for CppCode {
         }
     }
 
+    keywords_are_operators!(cpp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Cpp::*;
 
@@ -103,6 +105,9 @@ impl Getter for CppCode {
         // folding to its pair glyph in `get_operator_id_as_str`. The
         // invariant is pinned by `second_alias_opener_collapses_to_base_kind_id`
         // in `metrics/halstead.rs` (issue #768).
+        // The modifiers, the declaration keywords and the primitive
+        // types are not here: `roles/cpp.rs` declares them and
+        // `get_keyword_role` bills them (#1693).
         match node.kind_id().into() {
             // Raw-string delimiter punctuation. A `raw_string_literal`
             // carries its `R"(` opener as a bare `LPAREN` child — the
@@ -134,8 +139,7 @@ impl Getter for CppCode {
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
-            | TypeSpecifier | Sizeof
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
             // The ISO alternative tokens ([lex.digraph]): `not`, `compl`,
             // `and`, `or`, `bitand`, `bitor`, `xor`, `not_eq`, `and_eq`,
             // `or_eq`, `xor_eq` spell `!`, `~`, `&&`, `||`, `&`, `|`, `^`,
@@ -148,17 +152,6 @@ impl Getter for CppCode {
             // vocabulary names operators by kind, and folding the two in
             // the metric alone would make the two stores disagree.
             | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
-            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
-            // `short` modifiers as bare keyword tokens, not as `primitive_type`
-            // children (`unsigned int` is `unsigned` + `primitive_type int`;
-            // `signed long` and `long long` have no `primitive_type` at all).
-            // Without these arms the modifiers fell into `Unknown` and were
-            // dropped, so `unsigned int` collapsed to just `int` and a standalone
-            // `signed long` contributed nothing to n1/N1 (issue #466). Each
-            // modifier has a distinct kind_id, so keying by kind_id (the default
-            // `operators` store) keeps them distinct in n1 while `long long`'s
-            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
-            | Signed | Unsigned | Long | Short
             // An overloaded operator's name (#1296). `operator +` already
             // billed its `+` through the punctuation kind, but the grammar
             // spells four overloadable names as whole tokens of their own
@@ -184,53 +177,6 @@ impl Getter for CppCode {
             // `co_return_statement` / `co_yield_statement`, which no arm
             // classifies, so nothing bills one twice.
             | CoReturn | CoYield
-            // The type-declaration keywords, billed as Rust bills
-            // `struct` and C# its `class` / `struct` / `enum` (#1552).
-            // Each is the keyword leaf of a `class_specifier` /
-            // `struct_specifier` / `union_specifier` / `enum_specifier`,
-            // none of which is classified, so a specifier bills its
-            // keyword once — and `enum class` bills both of its two.
-            // The same leaf heads an elaborated type (`struct S s;`),
-            // where it is billed too, as `int` is in `int s;`.
-            //
-            // #1557 adds the remaining declaration keywords: `namespace`,
-            // `template`, `typename`, `typedef` and `using`, each the
-            // leaf of an unclassified wrapper (`namespace_definition`,
-            // `template_declaration`, `type_parameter_declaration`,
-            // `type_definition`, `alias_declaration` /
-            // `using_declaration`). A template-parameter `class` bills
-            // with them: it is the synonym of `typename`, so the two
-            // spellings of `template <class T>` still score alike, now
-            // both billed.
-            | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
-            // C's storage classes, function specifiers and type
-            // qualifiers (#1578; the derivation is on the C arm), plus
-            // C++'s own modifiers: `virtual`, `mutable`, `constinit`,
-            // `consteval`, `explicit`, `friend`, the access specifiers
-            // and the `override` / `final` virt-specifiers, and the
-            // `noexcept` of an exception specification. Each is the
-            // keyword leaf of an unclassified wrapper
-            // (`storage_class_specifier`, `type_qualifier`,
-            // `virtual_specifier`, `access_specifier`,
-            // `explicit_function_specifier`, the `noexcept` node that
-            // `Noexcept` names and `Noexcept2` is the leaf of) or sits
-            // bare in its declaration (`virtual`, `friend`), so each
-            // bills once. An access label bills as Java's `public` does,
-            // beside the `:` that already billed. `const` bills in a
-            // member-function trailer and a pointer declarator alike,
-            // and `constexpr` in `if constexpr`, which it qualifies.
-            //
-            // `override` and `final` are contextual: used as a name
-            // (`int override = 1;`) they parse as an `identifier` and
-            // stay operands, so they need no guard. `auto` is not here:
-            // in C++ it is a placeholder type, not a storage class, and
-            // the grammar emits it only under
-            // `placeholder_type_specifier`.
-            | Static | Extern | Register | Inline | Inline2 | Inline3 | Forceinline
-            | ThreadLocal | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2
-            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
-            | Virtual | Mutable | Constinit | Consteval | Explicit | Friend | Public | Private
-            | Protected | Override | Final | Noexcept2
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

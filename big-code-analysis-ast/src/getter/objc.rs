@@ -40,19 +40,6 @@ fn objc_argument_list_misparse(list: &Node, _ancestors: Ancestors) -> bool {
     list.kind_id() == Objc::ArgumentList2 as u16 && list.has_error()
 }
 
-// Whether `node` is the attribute word of `@property (nonatomic, copy,
-// getter=isOn)`. The grammar has no keyword for any attribute: each is
-// an `identifier`, the first child of its `property_attribute`, so the
-// word is told from a name by position alone. The `isOn` of
-// `getter=isOn` is a later child and stays an operand, the selector it
-// names. `ObjcCode::is_primitive` keys the word by its text (#1579).
-fn is_property_attribute_name(node: &Node, ancestors: Ancestors) -> bool {
-    ancestors.parent(node).is_some_and(|attribute| {
-        attribute.kind_id() == Objc::PropertyAttribute as u16
-            && attribute.start_byte() == node.start_byte()
-    })
-}
-
 impl Getter for ObjcCode {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -71,6 +58,8 @@ impl Getter for ObjcCode {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
+                // role-bypass: allow(Modifier) — naming: which declarator leaf is the name, not
+                // whether an identifier is a property-attribute word
                 if let Some(name) = declarator_name::<Self>(node)
                     && matches!(
                         name.kind_id().into(),
@@ -116,6 +105,8 @@ impl Getter for ObjcCode {
         }
     }
 
+    keywords_are_operators!(objc);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Objc::*;
 
@@ -145,75 +136,31 @@ impl Getter for ObjcCode {
             // §5, the compound-leaf guard).
             AT if ancestors.parent_has_kind(node, StringLiteral as u16) => TokenRole::Unknown,
             // The C operator set, then the ObjC-specific structural
-            // keywords / markers from `In` onwards.
-            //
-            // From `Struct` onwards come the type-declaration keywords
-            // (#1552): C's `struct` / `union` / `enum` and, since #1557,
-            // `typedef` (see `c.rs`), and ObjC's own class and protocol
-            // declarations. Each is the leaf of a `type_definition` /
-            // `class_interface` / `class_implementation` /
-            // `protocol_declaration`, none of which is classified, so a
-            // declaration bills its keyword once. `@class Fwd;` needs no
-            // arm: it parses as an `@` token, already billed here, and a
-            // separate `class` leaf, so the directive already bills one
-            // operator.
-            //
-            // From `Static` onwards come the declaration modifiers
-            // (#1579), billed as every class language bills its
-            // modifiers: first C's storage classes, function specifiers
-            // and type qualifiers, the same list as `c.rs` (#1578), so a
-            // `.m` scores a C declaration as a `.c` does; then ObjC's
-            // own. Those are the ARC ownership qualifiers (`__weak`,
-            // `__strong`, `__block`, …) and `__bridge` casts, the
-            // nullability qualifiers in all three spellings
-            // (`nullable`, `_Nullable`, `__nullable`), `__kindof`, the
-            // `__covariant` / `__contravariant` variance of a generic
-            // parameter, the `_Complex` type keyword, which this grammar
-            // files as a qualifier, the `in` / `out` / `inout` /
-            // `bycopy` / `byref` / `oneway` method-type qualifiers (`in`
-            // already billed above), the `@public` / `@private` /
-            // `@protected` / `@package` ivar visibility labels and the
-            // `@optional` / `@required` protocol section labels. Each is
-            // the keyword leaf of an unclassified `storage_class_specifier`
-            // / `type_qualifier` / `protocol_qualifier` /
-            // `visibility_specification` or sits bare in its parent, so
-            // it bills once. None has a numeric-suffix alias.
-            //
-            // Left unbilled: the Apple SDK macros this grammar also lists
-            // as storage classes and qualifiers (`NS_INLINE`,
-            // `FOUNDATION_EXPORT`, `IBOutlet`, `__unused`,
-            // `__ptrauth_objc_*`, …), as Mozcpp's `MOZ_*` macros are,
-            // since each annotates a declaration and a `.c` file parses
-            // the same spelling as a name; and GNU's `__real` /
-            // `__imag`, complex-part operators the grammar misfiles as
-            // qualifiers. A variable named `nullable` parses as the
-            // qualifier before a MISSING name and bills it, as C's
-            // `int noreturn = 1;` bills `noreturn`: the grammar decides
-            // that, not this arm. A property attribute has no keyword
-            // kind at all; see `is_property_attribute_name`.
+            // keywords / markers from `In` onwards. `in` is one kind for
+            // the fast-enumeration keyword and the method-type
+            // qualifier, so it bills here rather than on the `Modifier`
+            // row. The modifiers, the declaration keywords and the
+            // primitive types are not here: `roles/objc.rs` declares
+            // them and `get_keyword_role` bills them (#1693).
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
             | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
             | PIPE | AMP | LTLT | TILDE | LT | LT2 | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier
-            | Sizeof | Signed | Unsigned | Long | Short | In | AT | ATtry | ATcatch | ATfinally
-            | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode | Struct
-            | Union | Enum | Typedef | ATinterface | ATimplementation | ATprotocol | Static
-            | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline | ThreadLocal
-            | Thread | Const | Constexpr | Volatile | Volatile2 | Restrict | Restrict2 | Atomic
-            | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension | Const2
-            | Complex | Complex2 | Nullable | Nullable2 | Nullable3 | NullableResult
-            | NullUnspecified | Nonnull2 | Autoreleasing | Block | Strong | UnsafeUnretained
-            | Weak | Bridge | BridgeRetained | BridgeTransfer | Kindof | Covariant
-            | Contravariant | Out | Inout | Bycopy | Byref | Oneway | ATpublic | ATprivate
-            | ATprotected | ATpackage | AToptional | ATrequired => TokenRole::Operator,
-            Identifier if is_property_attribute_name(node, ancestors) => TokenRole::Operator,
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | Sizeof | In | AT | ATtry | ATcatch
+            | ATfinally | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode => {
+                TokenRole::Operator
+            }
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one
             // operand per literal, keyed by text, and `Checker::is_string`
             // deliberately stays without a `CharLiteral` arm.
+            //
+            // An `identifier` is an operand unless it is a property
+            // attribute's word, which the `Modifier` row claims under
+            // its gate and `get_keyword_role` bills first.
+            // role-bypass: allow(Modifier) — the operand classification of the ungated spelling
             Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | CharLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => TokenRole::Operand,
             _ => TokenRole::Unknown,

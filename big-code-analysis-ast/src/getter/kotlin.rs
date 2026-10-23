@@ -465,7 +465,7 @@ impl Getter for KotlinCode {
                     TokenRole::Operand
                 }
             }
-            _ => Self::get_op_type(node, ancestors),
+            _ => keyword_or_op_type::<Self>(node, code, ancestors),
         }
     }
 

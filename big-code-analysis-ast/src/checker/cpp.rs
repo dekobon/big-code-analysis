@@ -122,6 +122,10 @@ impl Checker for CppCode {
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        // role-bypass: allow(Primitive) — key selection after the row
+        // has classified the node: which of the row's kinds is one kind
+        // for many spellings and so is keyed by text, not whether the
+        // node is a primitive
         node.kind_id() == Cpp::PrimitiveType
     }
 }

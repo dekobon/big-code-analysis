@@ -301,7 +301,7 @@ impl Getter for CsharpCode {
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
         if !crate::checker::csharp_is_aliased_modifier(node) {
-            return Self::get_op_type(node, ancestors);
+            return keyword_or_op_type::<Self>(node, code, ancestors);
         }
         match node_text(code, node) {
             Some("this") => TokenRole::Operand,

@@ -41,7 +41,6 @@ C Catch R07
 C Comment R09
 C Comparison R05
 C Container R06
-C DeclKeyword R03
 C DocComment R09
 C DocRunDirective R09
 C DocRunOpener R09
@@ -52,8 +51,6 @@ C FuncOpener R06
 C HoldsDocInBody R09
 C Loop R07
 C Member R06
-C Modifier R03
-C Primitive R03
 C ShortCircuit R05
 C StringLit R08
 C Switch R07
@@ -69,7 +66,6 @@ Cpp Closure R06
 Cpp Comment R09
 Cpp Comparison R04
 Cpp Container R06
-Cpp DeclKeyword R03
 Cpp DocComment R09
 Cpp DocRunDirective R09
 Cpp DocRunOpener R09
@@ -80,8 +76,6 @@ Cpp FuncOpener R06
 Cpp HoldsDocInBody R09
 Cpp Loop R07
 Cpp Member R06
-Cpp Modifier R03
-Cpp Primitive R03
 Cpp ShortCircuit R04
 Cpp StringLit R08
 Cpp Switch R07
@@ -300,7 +294,6 @@ Mozcpp Closure R06
 Mozcpp Comment R09
 Mozcpp Comparison R04
 Mozcpp Container R06
-Mozcpp DeclKeyword R03
 Mozcpp DocComment R09
 Mozcpp DocRunDirective R09
 Mozcpp DocRunOpener R09
@@ -311,8 +304,6 @@ Mozcpp FuncOpener R06
 Mozcpp HoldsDocInBody R09
 Mozcpp Loop R07
 Mozcpp Member R06
-Mozcpp Modifier R03
-Mozcpp Primitive R03
 Mozcpp ShortCircuit R04
 Mozcpp StringLit R08
 Mozcpp Switch R07
@@ -350,7 +341,6 @@ Objc Closure R06
 Objc Comment R09
 Objc Comparison R05
 Objc Container R06
-Objc DeclKeyword R03
 Objc DocComment R09
 Objc DocRunDirective R09
 Objc DocRunOpener R09
@@ -361,8 +351,6 @@ Objc FuncOpener R06
 Objc HoldsDocInBody R09
 Objc Loop R07
 Objc Member R06
-Objc Modifier R03
-Objc Primitive R03
 Objc ShortCircuit R05
 Objc StringLit R08
 Objc Switch R07
