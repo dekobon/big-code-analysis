@@ -60,7 +60,10 @@ RUNNABLE_EXAMPLES = frozenset(
 # Non-``.py`` example artifacts that are exercised by a different gate
 # (the notebook runs under CI's ``python-examples-nbconvert`` step, with
 # only an existence smoke check here). Listed so a future ``*.py``
-# companion is not accidentally waived.
+# companion is not accidentally waived, and reconciled against the
+# directory's ``*.ipynb`` files by ``test_every_example_is_covered``:
+# the nbconvert job names its notebook by path, so a second notebook
+# would otherwise exist without anything executing it.
 NON_PY_EXAMPLES = frozenset({"jupyter_quickstart.ipynb"})
 
 
@@ -346,6 +349,18 @@ def test_every_example_is_covered() -> None:
     # would otherwise leave its existence gate silently green-on-nothing.
     for artifact in NON_PY_EXAMPLES:
         assert (EXAMPLES_DIR / artifact).is_file(), f"missing waived example {artifact}"
+
+    # And the other direction for notebooks. The ``*.py`` reconciliation
+    # above would let a new ``examples/foo.ipynb`` through untouched,
+    # and the CI nbconvert job executes one notebook by name, so an
+    # unlisted notebook is one nothing runs.
+    on_disk_nb = {p.name for p in EXAMPLES_DIR.glob("*.ipynb")}
+    unclaimed_nb = on_disk_nb - NON_PY_EXAMPLES
+    assert not unclaimed_nb, (
+        f"notebooks nothing executes: {sorted(unclaimed_nb)} — add each to "
+        "NON_PY_EXAMPLES and to the `python-examples-nbconvert` job in "
+        ".github/workflows/ci.yml"
+    )
 
 
 @pytest.mark.parametrize("name", sorted(RUNNABLE_EXAMPLES))
