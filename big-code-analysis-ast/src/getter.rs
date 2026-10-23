@@ -364,9 +364,11 @@ pub trait Getter {
     }
 
     /// Source-aware variant of [`get_op_type`], and the spelling the
-    /// walk calls. The default forwards to [`keyword_or_op_type`];
-    /// languages whose Halstead operand classification depends on
-    /// token text override this and end in the same call. Kotlin uses
+    /// walk calls. The default forwards to the crate-private
+    /// `keyword_or_op_type`, which reads [`get_keyword_role`] and falls
+    /// back to [`get_op_type`]; languages whose Halstead operand
+    /// classification depends on token text override this and end in
+    /// the same call. Kotlin uses
     /// it to recover the variable in a short-form string template
     /// (`"Hi $name"`), which the grammar emits as bare `string_content`
     /// tokens with no structured interpolation node — the distinction
@@ -374,6 +376,7 @@ pub trait Getter {
     /// visible in the source bytes (#454).
     ///
     /// [`get_op_type`]: Self::get_op_type
+    /// [`get_keyword_role`]: Self::get_keyword_role
     #[inline]
     #[must_use]
     fn get_op_type_with_code<'a>(
@@ -964,8 +967,9 @@ pub trait Getter {
     /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
     /// [`is_braced_script_word`]: Self::is_braced_script_word
     /// [`is_switch_arm_body`]: Self::is_switch_arm_body
-    /// The base answer the opener test revises is
-    /// [`keyword_or_op_type`], so a Tcl-family keyword row is read on
+    /// The base answer the opener test revises is the one
+    /// [`get_op_type_with_code`](Self::get_op_type_with_code)'s default
+    /// gives — the keyword rows first — so a Tcl-family row is read on
     /// this path as on every other (#1693).
     ///
     /// [`is_value_braced_word`]: Self::is_value_braced_word
