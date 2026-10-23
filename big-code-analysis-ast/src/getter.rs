@@ -1611,23 +1611,30 @@ mod keyword_role_tests {
     /// A getter whose row and byte-less arm disagree on every node: the
     /// row says `Operand`, the arm `Operator`. No shipped language has
     /// such a node, so only a synthetic one can show which answer wins.
+    /// Built through the macro rather than a hand-written `impl` so the
+    /// per-language test gate does not read the C test's `CCode::`
+    /// calls as calls to these methods.
     struct Conflict;
 
-    impl Getter for Conflict {
-        #[cfg(feature = "c")]
-        fn get_keyword_role<'a>(
-            _node: &Node<'a>,
-            _code: &[u8],
-            _ancestors: Ancestors<'a, '_>,
-        ) -> TokenRole {
-            TokenRole::Operand
-        }
+    macro_rules! conflicting_getter {
+        ($name:ident, $row:ident, $arm:ident) => {
+            impl Getter for $name {
+                fn get_keyword_role<'a>(
+                    _node: &Node<'a>,
+                    _code: &[u8],
+                    _ancestors: Ancestors<'a, '_>,
+                ) -> TokenRole {
+                    TokenRole::$row
+                }
 
-        #[cfg(feature = "c")]
-        fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
-            TokenRole::Operator
-        }
+                fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
+                    TokenRole::$arm
+                }
+            }
+        };
     }
+
+    conflicting_getter!(Conflict, Operand, Operator);
 
     /// Where the row and the byte-less arm both answer, the row wins:
     /// swapping the two in `keyword_or_op_type` fails here.
