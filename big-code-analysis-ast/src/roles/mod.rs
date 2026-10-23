@@ -127,6 +127,10 @@
 //! - `pays_at_leaf(node, code, ancestors)`: with a `pays` list, the gated
 //!   payer test plus every `pays_itself` owner — where a token-counting
 //!   arm fires; without one, the owner test; under `pays never`, false.
+//! - `owns_kind` / `pays_at_leaf_kind`: the same two with the node's
+//!   kind id passed in, for a consumer that asks several rows about one
+//!   node — `kind_id()` is an FFI call per read, and a classifier on
+//!   the walk's hot path reading three rows paid six of them (#1693).
 //! - `pays_at_wrapper(node, code, ancestors)`: the owner test, for a
 //!   consumer that pays at the owning node; false under `pays never`.
 //!   A row with no `pays` list answers both projections identically, so
@@ -531,8 +535,10 @@ macro_rules! role_table {
     // ```
     //
     // The two arms carry the same list once each (one for the row, one
-    // for the `opens_space` fold); `utils/role_tables.py` reads the
-    // first and the differential test holds the compiled row to it. A
+    // for the `opens_space` fold). Nothing compiled compares them —
+    // `OWNERS` comes from the first and `opens_space` from the second
+    // — so `utils/role_tables.py` reads both and fails on a difference,
+    // and the differential test holds the compiled row to the first. A
     // fragment contributes kinds only; a dialect-specific gate stays on
     // the dialect's row, beside its reason.
 
@@ -623,12 +629,25 @@ macro_rules! role_table {
             };
 
             /// Whether `node` owns the construct.
+            #[inline]
             pub(crate) fn owns<'a>(
                 node: &Node<'a>,
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
-                let kind = node.kind_id();
+                owns_kind(node.kind_id(), node, code, ancestors)
+            }
+
+            /// [`owns`] with `node`'s kind id already read, for a caller
+            /// that asks several rows about one node: `kind_id()` is an
+            /// FFI call per read.
+            #[inline]
+            pub(crate) fn owns_kind<'a>(
+                kind: u16,
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
                 $( $crate::role_table!(
                     @scan owner_done [] [$lang kind node code ancestors] $owner
                         [] [] [] $($($owner_attr)*)?
@@ -641,12 +660,23 @@ macro_rules! role_table {
             /// declared payer, or an owner that pays for itself. With no
             /// `pays` list the owners are the paying nodes; with `pays
             /// never`, nothing is.
+            #[inline]
             pub(crate) fn pays_at_leaf<'a>(
                 node: &Node<'a>,
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
-                let kind = node.kind_id();
+                pays_at_leaf_kind(node.kind_id(), node, code, ancestors)
+            }
+
+            /// [`pays_at_leaf`] with `node`'s kind id already read.
+            #[inline]
+            pub(crate) fn pays_at_leaf_kind<'a>(
+                kind: u16,
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
                 $( $crate::role_table!(
                     @clause [$lang kind node code ancestors] $payer $(gated_by $payer_gate)?
                 ); )*
@@ -654,8 +684,7 @@ macro_rules! role_table {
                     @scan self_payer_done [$mode] [$lang kind node code ancestors] $owner
                         [] [] [] $($($owner_attr)*)?
                 ); )*
-                let _ = kind;
-                OWNERS_PAY && owns(node, code, ancestors)
+                OWNERS_PAY && owns_kind(kind, node, code, ancestors)
             }
 
             /// Whether `node` is the owning node, for a consumer that

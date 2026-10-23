@@ -81,9 +81,10 @@ macro_rules! keywords_are_operators {
             ancestors: Ancestors<'a, '_>,
         ) -> TokenRole {
             use $crate::roles::$roles::{decl_keyword, modifier, primitive};
-            if modifier::pays_at_leaf(node, code, ancestors)
-                || decl_keyword::pays_at_leaf(node, code, ancestors)
-                || primitive::pays_at_leaf(node, code, ancestors)
+            let kind = node.kind_id();
+            if modifier::pays_at_leaf_kind(kind, node, code, ancestors)
+                || decl_keyword::pays_at_leaf_kind(kind, node, code, ancestors)
+                || primitive::pays_at_leaf_kind(kind, node, code, ancestors)
             {
                 TokenRole::Operator
             } else {

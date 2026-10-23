@@ -411,31 +411,54 @@ def _split_list(text: str) -> list[str]:
 
 
 FRAGMENT_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
-FRAGMENT_LIST_RE = re.compile(
+# The two arms of a fragment, each carrying the kind list once: the row
+# arm feeds `OWNERS` and the compiled predicates, the opens arm feeds
+# `opens_space`. Nothing in the compiled crate compares the two, so the
+# reader does.
+FRAGMENT_ROW_ARM_RE = re.compile(
     r"\(@splice\s+\$cont:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
     r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
+    re.S,
+)
+FRAGMENT_OPENS_ARM_RE = re.compile(
+    r"\(@opens_splice\s+\$ctx:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
+    r"\$crate::role_table!\(\s*@opens_owners\s+\$ctx\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
     re.S,
 )
 
 
 def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, int]]:
     """Every shared kind fragment in ``paths``: ``name → (entry list
-    text, file, line)``, read from the `@splice` arm's accumulator
-    append — the one place a fragment spells its kinds for the row. A
-    `macro_rules!` without that arm is not a fragment and is skipped."""
+    text, file, line)``. A fragment is a `macro_rules!` with a `@splice`
+    arm; it must also carry the `@opens_splice` arm with the same
+    entries, since the compiled crate reads the two independently and
+    holds neither to the other."""
     out: dict[str, tuple[str, pathlib.Path, int]] = {}
     for path in paths:
         source = path.read_text(encoding="utf-8")
         masked = mask_dead(source)
         for m in FRAGMENT_RE.finditer(masked):
             body = masked[m.end() : _balanced(masked, m.end() - 1)]
-            lm = FRAGMENT_LIST_RE.search(body)
-            if not lm:
+            rm = FRAGMENT_ROW_ARM_RE.search(body)
+            if not rm:
                 continue
             name = m.group(1)
+            line = _line_of(source, m.start())
             if name in out:
                 raise RoleTableError(f"{path}: fragment `{name}` is defined twice (first in {out[name][1]})")
-            out[name] = (lm.group(1), path, _line_of(source, m.start()))
+            om = FRAGMENT_OPENS_ARM_RE.search(body)
+            if not om:
+                raise RoleTableError(
+                    f"{path}:{line}: fragment `{name}` has a `@splice` arm and no `@opens_splice` arm"
+                )
+            row_entries = [e.strip() for e in _split_list(rm.group(1))]
+            opens_entries = [e.strip() for e in _split_list(om.group(1))]
+            if row_entries != opens_entries:
+                raise RoleTableError(
+                    f"{path}:{line}: fragment `{name}` spells different kinds in its two arms: "
+                    f"`@splice` has {row_entries}, `@opens_splice` has {opens_entries}"
+                )
+            out[name] = (rm.group(1), path, line)
     return out
 
 

@@ -62,7 +62,21 @@ for historical reference.
   sidecar of tree-sitter's named / visible flags per kind id. Nothing
   reads the tables in production, so no output changes. (#1692)
 
+- `TokenRole` (re-exported as `metrics::halstead::TokenRole`) derives
+  `Clone`, `Copy`, `Debug`, `PartialEq` and `Eq`. Additive; the
+  variants are unchanged. (#1693)
+
 ### Changed
+
+- The `Modifier`, `DeclKeyword` and `Primitive` roles are the first
+  the classifiers read from a role table rather than restate: C, C++,
+  Mozcpp and Objective-C declare theirs in `roles/<lang>.rs`, sharing
+  the kinds all four bill through one `roles/c_family.rs` list, and
+  `Getter::get_op_type` in those languages no longer lists a keyword.
+  Every `bca ops` vocabulary and every metric is byte-identical on
+  the integration corpora and a keyword fixture per language; the
+  change is where the membership is written, not what it says. The
+  crate is outside `STABILITY.md`'s shape contract. (#1693)
 
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
   ancestor was quadratic in its nesting depth under every metric walk:

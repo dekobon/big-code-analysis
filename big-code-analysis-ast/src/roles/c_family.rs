@@ -9,14 +9,14 @@
 //!
 //! The four grammars assign these kinds different ids, so a fragment
 //! can only spell variant *names*; `role_table!` resolves each against
-//! the dialect enum the row names. Every variant below exists in all
-//! four enums under the same name — `c_family_fragments_resolve_in_every_dialect`
-//! pins that by compiling the rows.
+//! the dialect enum the row names, and a variant missing from one enum
+//! fails to compile there.
 //!
 //! Each fragment carries its list twice, once per arm, because `$$`
-//! meta-variables are unstable (see the fragment note in `mod.rs`);
-//! `utils/role_tables.py` reads the first arm and the compiled
-//! constants hold it to the second.
+//! meta-variables are unstable (see the fragment note in `mod.rs`).
+//! The compiled crate reads the arms independently, so
+//! `utils/role_tables.py` is what holds the two to each other: the
+//! role gates fail on a fragment whose arms differ.
 
 /// Storage classes, function specifiers and type qualifiers every
 /// dialect bills (#1578). Each is the keyword leaf of an unclassified
