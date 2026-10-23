@@ -493,15 +493,55 @@ macro_rules! role_table {
     // list means the owners are the only paying nodes, so both
     // projections are the owner test; `pays never` means neither pays.
     (@row $lang:ident $role:ident { owns $owners:tt pays never $($tail:tt)* }) => {
-        $crate::role_table!(@row_body $lang $role [never] { owns $owners pays [] $($tail)* });
+        $crate::role_table!(@splice $lang $role [never] [] $owners { pays [] $($tail)* });
     };
     (@row $lang:ident $role:ident { owns $owners:tt pays [ $($payer:tt)* ] $($tail:tt)* }) => {
-        $crate::role_table!(@row_body $lang $role [split] {
-            owns $owners pays [ $($payer)* ] $($tail)*
-        });
+        $crate::role_table!(@splice $lang $role [split] [] $owners { pays [ $($payer)* ] $($tail)* });
     };
     (@row $lang:ident $role:ident { owns $owners:tt $($tail:tt)* }) => {
-        $crate::role_table!(@row_body $lang $role [owners] { owns $owners pays [] $($tail)* });
+        $crate::role_table!(@splice $lang $role [owners] [] $owners { pays [] $($tail)* });
+    };
+
+    // ---- shared kind fragments ------------------------------------------
+    //
+    // An `owns` list may hold `..name!()` entries, each a `macro_rules!`
+    // that expands to a kind list shared by several languages (the
+    // C-family modifiers, say). `role_table!` cannot expand a macro in
+    // matcher position, so the list is walked here, entry by entry, into
+    // an accumulator, and a fragment is given the accumulator to append
+    // to and the rest of the list to continue with (continuation
+    // passing). A fragment is written by hand in this exact shape —
+    // `$$` meta-variables, which would let a macro generate it, are
+    // unstable:
+    //
+    // ```text
+    // macro_rules! c_family_modifiers {
+    //     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+    //         $crate::role_table!(@owners $cont [$($acc)* Static, Extern,] $($rest)*);
+    //     };
+    //     (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
+    //         $crate::role_table!(@opens_owners $ctx [$($acc)* Static, Extern,] $($rest)*);
+    //     };
+    // }
+    // ```
+    //
+    // The two arms carry the same list once each (one for the row, one
+    // for the `opens_space` fold); `utils/role_tables.py` reads the
+    // first and the differential test holds the compiled row to it. A
+    // fragment contributes kinds only; a dialect-specific gate stays on
+    // the dialect's row, beside its reason.
+
+    (@splice $lang:ident $role:ident $mode:tt [$($acc:tt)*] [ $($entries:tt)* ] $tail:tt) => {
+        $crate::role_table!(@owners [$lang $role $mode $tail] [$($acc)*] $($entries)*);
+    };
+    (@owners $cont:tt [$($acc:tt)*] ..$frag:ident!() $(, $($rest:tt)*)?) => {
+        $frag!(@splice $cont [$($acc)*] $($($rest)*)?);
+    };
+    (@owners $cont:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@owners $cont [$($acc)* $k $(( $($attr)* ))?,] $($($rest)*)?);
+    };
+    (@owners [$lang:ident $role:ident $mode:tt { $($tail:tt)* }] [$($acc:tt)*]) => {
+        $crate::role_table!(@row_body $lang $role $mode { owns [ $($acc)* ] $($tail)* });
     };
     (@row_body $lang:ident $role:ident [$mode:ident] {
         owns [ $($owner:ident $(( $($owner_attr:tt)* ))?),* $(,)? ]
@@ -697,7 +737,19 @@ macro_rules! role_table {
 
     (@opens $ctx:tt { absent $why:literal }) => {};
     (@opens $ctx:tt { pending $package:ident }) => {};
-    (@opens $ctx:tt { owns [ $($owner:ident $(( $($owner_attr:tt)* ))?),* $(,)? ] $($r:tt)* }) => {
+    (@opens $ctx:tt { owns $owners:tt $($r:tt)* }) => {
+        $crate::role_table!(@opens_splice $ctx [] $owners);
+    };
+    (@opens_splice $ctx:tt [$($acc:tt)*] [ $($entries:tt)* ]) => {
+        $crate::role_table!(@opens_owners $ctx [$($acc)*] $($entries)*);
+    };
+    (@opens_owners $ctx:tt [$($acc:tt)*] ..$frag:ident!() $(, $($rest:tt)*)?) => {
+        $frag!(@opens_splice $ctx [$($acc)*] $($($rest)*)?);
+    };
+    (@opens_owners $ctx:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@opens_owners $ctx [$($acc)* $k $(( $($attr)* ))?,] $($($rest)*)?);
+    };
+    (@opens_owners $ctx:tt [ $($owner:ident $(( $($owner_attr:tt)* ))?,)* ]) => {
         $( $crate::role_table!(
             @scan opens_done [] $ctx $owner [] [] [] $($($owner_attr)*)?
         ); )*
@@ -898,6 +950,77 @@ mod tests {
                 pays [EQEQ]
             }
         }
+    }
+
+    // A fragment splices its kinds into the row in list order, before
+    // the dialect's own entries, in both the row and the `opens_space`
+    // fold; the dialect's attributes stay on its own entries.
+    mod spliced {
+        use crate::Java;
+
+        macro_rules! jvm_openers {
+            (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+                $crate::role_table!(
+                    @owners $cont [$($acc)* MethodDeclaration(opens Function), ConstructorDeclaration(opens Function),]
+                    $($rest)*
+                );
+            };
+            (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
+                $crate::role_table!(
+                    @opens_owners $ctx [$($acc)* MethodDeclaration(opens Function), ConstructorDeclaration(opens Function),]
+                    $($rest)*
+                );
+            };
+        }
+
+        role_table! {
+            lang: Java;
+            FuncOpener { owns [..jvm_openers!(), StaticInitializer(opens Function)] }
+            Exit { owns [..jvm_openers!()] pays [ReturnStatement] }
+        }
+    }
+
+    #[test]
+    fn a_fragment_splices_its_kinds_before_the_rows_own() {
+        assert_eq!(
+            spliced::func_opener::OWNERS,
+            &[
+                Java::MethodDeclaration as u16,
+                Java::ConstructorDeclaration as u16,
+                Java::StaticInitializer as u16
+            ]
+        );
+        assert_eq!(
+            spliced::exit::OWNERS,
+            &[
+                Java::MethodDeclaration as u16,
+                Java::ConstructorDeclaration as u16
+            ]
+        );
+        assert_eq!(spliced::exit::PAYERS, &[Java::ReturnStatement as u16]);
+    }
+
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_fragment_reaches_the_opens_space_fold() {
+        use crate::test_support::for_each_node_with_chain;
+        use crate::{JavaCode, SpaceKind};
+        let source = b"class A { A() { } void m() { } static { } }\n";
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let k = spliced::opens_space(node, source, Ancestors::known(chain));
+            if k != SpaceKind::Unknown {
+                seen.push((node.kind(), k));
+            }
+        });
+        assert_eq!(
+            seen,
+            [
+                ("constructor_declaration", SpaceKind::Function),
+                ("method_declaration", SpaceKind::Function),
+                ("static_initializer", SpaceKind::Function),
+            ]
+        );
     }
 
     #[cfg(feature = "java")]

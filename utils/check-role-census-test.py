@@ -95,6 +95,17 @@ class Tree:
         return code, out.getvalue()
 
 
+FRAGMENT_RS = """\
+macro_rules! jvm_calls {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)* MethodInvocation, ExplicitConstructorInvocation(gated_by in_body),] $($rest)*);
+    };
+    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@opens_owners $ctx [$($acc)* MethodInvocation, ExplicitConstructorInvocation(gated_by in_body),] $($rest)*);
+    };
+}
+"""
+
 JAVA_FULL = "    lang: Java;\n    Call { owns [MethodInvocation] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n"
 PY_FULL = "    lang: Python;\n    Call { owns [Call] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n"
 
@@ -285,6 +296,53 @@ class CensusTests(unittest.TestCase):
         self.t.write("python", PY_FULL)
         code, out = self.t.run()
         self.assertEqual(code, 2)
+
+    def test_a_fragment_splices_its_kinds_in_place(self) -> None:
+        # The fragment's kinds land where `..name!()` sits, in list
+        # order, and the row's own entries keep their attributes.
+        (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
+        self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!(), ObjectCreation(opens Function)] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        self.t.write("python", PY_FULL)
+        table = rt.parse_table(self.t.roles / "java.rs")
+        owners = table.rows["Call"].owners
+        self.assertEqual([o.kind for o in owners], ["MethodInvocation", "ExplicitConstructorInvocation", "ObjectCreation"])
+        self.assertEqual(owners[1].gate, "in_body")
+        self.assertEqual(owners[2].opens, "Function")
+        self.t.run("--bootstrap")
+        code, out = self.t.run()
+        self.assertEqual(code, 0, out)
+
+    def test_a_fragment_is_shared_across_tables(self) -> None:
+        (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
+        self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        self.t.write("python", "    lang: Python;\n    Call { owns [Call, ..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        tables = rt.load_tables(self.t.roles, rt.languages(self.t.langs))
+        self.assertEqual([o.kind for o in tables["Java"].rows["Call"].owners], ["MethodInvocation", "ExplicitConstructorInvocation"])
+        self.assertEqual([o.kind for o in tables["Python"].rows["Call"].owners], ["Call", "MethodInvocation", "ExplicitConstructorInvocation"])
+
+    def test_an_unknown_fragment_is_an_error_not_an_empty_splice(self) -> None:
+        self.t.write("java", "    lang: Java;\n    Call { owns [..no_such!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        self.t.write("python", PY_FULL)
+        code, out = self.t.run()
+        self.assertEqual(code, 1)
+        self.assertIn("`..no_such!()` names no fragment", out)
+
+    def test_a_fragment_defined_twice_is_an_error(self) -> None:
+        (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
+        (self.t.roles / "jvm2.rs").write_text(FRAGMENT_RS)
+        self.t.write("java", JAVA_FULL)
+        self.t.write("python", PY_FULL)
+        code, out = self.t.run()
+        self.assertEqual(code, 1)
+        self.assertIn("fragment `jvm_calls` is defined twice", out)
+
+    def test_a_macro_without_a_splice_arm_is_not_a_fragment(self) -> None:
+        (self.t.roles / "helper.rs").write_text("macro_rules! jvm_calls {\n    ($x:ident) => { $x };\n}\n")
+        self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        self.t.write("python", PY_FULL)
+        code, out = self.t.run()
+        self.assertEqual(code, 1)
+        self.assertIn("`..jvm_calls!()` names no fragment", out)
 
     def test_output_is_deterministic_across_row_order(self) -> None:
         # The same cells declared in a different row order, and the

@@ -410,6 +410,46 @@ def _split_list(text: str) -> list[str]:
     return [e for e in out if e.strip()]
 
 
+FRAGMENT_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
+FRAGMENT_LIST_RE = re.compile(r"@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]", re.S)
+
+
+def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, int]]:
+    """Every shared kind fragment in ``paths``: ``name → (entry list
+    text, file, line)``, read from the `@splice` arm's accumulator
+    append — the one place a fragment spells its kinds for the row. A
+    `macro_rules!` without that arm is not a fragment and is skipped."""
+    out: dict[str, tuple[str, pathlib.Path, int]] = {}
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        masked = mask_dead(source)
+        for m in FRAGMENT_RE.finditer(masked):
+            body = masked[m.end() : _balanced(masked, m.end() - 1)]
+            lm = FRAGMENT_LIST_RE.search(body)
+            if not lm:
+                continue
+            name = m.group(1)
+            if name in out:
+                raise RoleTableError(f"{path}: fragment `{name}` is defined twice (first in {out[name][1]})")
+            out[name] = (lm.group(1), path, _line_of(source, m.start()))
+    return out
+
+
+def _expand_fragments(entries: list[str], frags: dict[str, tuple[str, pathlib.Path, int]], line: int, path: pathlib.Path) -> list[str]:
+    """``..name!()`` entries replaced by the fragment's own entries."""
+    out: list[str] = []
+    for e in entries:
+        fm = re.fullmatch(r"\.\.(" + IDENT + r")!\(\)", e.strip())
+        if not fm:
+            out.append(e)
+            continue
+        name = fm.group(1)
+        if name not in frags:
+            raise RoleTableError(f"{path}:{line}: `..{name}!()` names no fragment the reader knows; fragments are `macro_rules!` with an `@splice` arm in the roles directory")
+        out.extend(_split_list(frags[name][0]))
+    return out
+
+
 def _parse_row_body(
     role: str,
     source: str,
@@ -418,6 +458,7 @@ def _parse_row_body(
     body_start: int,
     body_end: int,
     path: pathlib.Path,
+    frags: dict[str, tuple[str, pathlib.Path, int]] | None = None,
 ) -> Row:
     line = _line_of(source, body_start)
     body = masked[body_start:body_end]
@@ -460,7 +501,9 @@ def _parse_row_body(
         raise RoleTableError(
             f"{path}:{line}: `{role}`: expected `owns [..]`, `absent \"..\"` or `pending Rnn`"
         )
-    row.owners = [_parse_owner(e, line, path) for e in _split_list(owns[0])]
+    row.owners = [
+        _parse_owner(e, line, path) for e in _expand_fragments(_split_list(owns[0]), frags or {}, line, path)
+    ]
     if re.match(r"\s*pays\s+never\b", body[pos:]):
         pos += re.match(r"\s*pays\s+never\b", body[pos:]).end()
         row.pays_mode = "never"
@@ -508,8 +551,12 @@ def _parse_row_body(
     return row
 
 
-def parse_table(path: pathlib.Path) -> Table:
-    """The one ``role_table!`` invocation in ``path``."""
+def parse_table(path: pathlib.Path, frags: dict[str, tuple[str, pathlib.Path, int]] | None = None) -> Table:
+    """The one ``role_table!`` invocation in ``path``. ``frags`` are the
+    shared kind fragments its rows may splice; by default every
+    fragment defined in the file's own directory."""
+    if frags is None:
+        frags = fragments(sorted(path.parent.glob("*.rs")))
     source = path.read_text(encoding="utf-8")
     masked = mask_dead(source)
     spans = literal_spans(source)
@@ -542,7 +589,7 @@ def parse_table(path: pathlib.Path) -> Table:
         role = hm.group(1)
         body_open = hm.end() - 1
         body_close = _balanced(masked, body_open)
-        row = _parse_row_body(role, source, masked, spans, body_open + 1, body_close - 1, path)
+        row = _parse_row_body(role, source, masked, spans, body_open + 1, body_close - 1, path, frags)
         if role in rows:
             raise RoleTableError(
                 f"{path}:{row.line}: `{role}` declared twice (first at line {rows[role].line})"
@@ -558,9 +605,10 @@ def load_tables(roles_dir: pathlib.Path = ROLES_DIR, langs: list[Language] | Non
     its file name is the census's check, reported with the rest of its
     diagnostics rather than raised here."""
     out: dict[str, Table | None] = {}
+    frags = fragments(sorted(roles_dir.glob("*.rs")))
     for lang in langs if langs is not None else languages():
         path = roles_dir / f"{lang.stem}.rs"
-        out[lang.variant] = parse_table(path) if path.exists() else None
+        out[lang.variant] = parse_table(path, frags) if path.exists() else None
     return out
 
 
