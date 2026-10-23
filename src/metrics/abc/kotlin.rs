@@ -50,6 +50,7 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
     ) {
         return false;
     }
+    // role-bypass: allow(DeclKeyword) — which declaration keyword, not whether the node is one
     parent.children().any(|child| child.kind_id() == Val)
 }
 

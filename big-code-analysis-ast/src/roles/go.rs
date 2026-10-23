@@ -1,6 +1,7 @@
-//! Go's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Go's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Go;
 use crate::role_table;
 
 role_table! {
@@ -21,8 +22,12 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     Modifier { absent "Go has no modifier keywords; visibility is the identifier's case" }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // Each the leaf of an unlisted `*_declaration`; `package` and
+    // `import` bill, as C# bills `using`. `map` and `chan` are type
+    // constructors, not declarations, and bill with the operators.
+    DeclKeyword { owns [Func, Type, Struct, Interface, Const, Var, Package, Import] }
+    Primitive { absent "Go's built-in types (`int`, `string`) are ordinary `type_identifier`s, \
+         operands like every other type name" }
     FuncOpener { pending R06 }
     Closure { pending R06 }
     Container { pending R06 }

@@ -31,14 +31,17 @@ impl Getter for BashCode {
         }
     }
 
+    keywords_are_operators!(bash);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
-            // Control flow and declaration keywords
+            // Control flow keywords and the undeclaring builtins. The
+            // declaration keywords are not here: `roles/bash.rs`
+            // declares them and `get_keyword_role` bills them (#1693).
             Bash::If | Bash::Then | Bash::Fi | Bash::Elif | Bash::Else
             | Bash::For | Bash::In | Bash::While | Bash::Until | Bash::Do | Bash::Done
             | Bash::Case | Bash::Esac
-            | Bash::Function | Bash::Local | Bash::Declare | Bash::Typeset
-            | Bash::Export | Bash::Readonly | Bash::Unset | Bash::Unsetenv
+            | Bash::Unset | Bash::Unsetenv
             // Punctuation acting as operators. Only the *opening*
             // delimiter counts — `get_operator_id_as_str` folds
             // `LPAREN`/`LBRACK`/`LBRACE` to the pair glyph, so a balanced

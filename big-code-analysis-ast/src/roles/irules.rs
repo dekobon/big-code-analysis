@@ -1,6 +1,7 @@
 //! iRules' role rows; declared through the Tcl template once R06 lands
 //! (contract 5 of #1690).
 
+use crate::Irules;
 use crate::role_table;
 
 role_table! {
@@ -21,7 +22,10 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     Modifier { absent "Tcl has no modifier keywords" }
-    DeclKeyword { pending R03 }
+    // Tcl's keywords (`Proc`, `Namespace2`, `Set2`, `Global2`) plus
+    // `when`, which opens an event handler — the F5 construct the
+    // dialect exists for.
+    DeclKeyword { owns [Proc, When, Namespace2, Set2, Global2] }
     Primitive { absent "Tcl has no type names" }
     FuncOpener { pending R06 }
     Closure { absent "Tcl has no anonymous function kind; `apply` takes a list" }

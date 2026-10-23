@@ -1,6 +1,7 @@
-//! Ruby's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Ruby's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Ruby;
 use crate::role_table;
 
 role_table! {
@@ -22,7 +23,12 @@ role_table! {
     Exit { pending R07 }
     Modifier { absent "Ruby's `private` / `protected` are method calls, declared text-gated under \
          `Member`, not keywords" }
-    DeclKeyword { pending R03 }
+    // `def`, `class` and `module` as keyword tokens: `Class2` /
+    // `Module2` are the anonymous keyword kinds, `Class` / `Module` the
+    // named constructs the space walk opens. `alias` and `undef` are
+    // declarations too (`Alias2` / `Undef2` the keywords). `end` is the
+    // closer every construct shares and bills with the control tokens.
+    DeclKeyword { owns [Def, Class2, Module2, Alias2, Undef2] }
     Primitive { absent "Ruby has no type names" }
     FuncOpener { pending R06 }
     Closure { pending R06 }

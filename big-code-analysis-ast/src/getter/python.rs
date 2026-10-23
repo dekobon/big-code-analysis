@@ -41,6 +41,8 @@ impl Getter for PythonCode {
         }
     }
 
+    keywords_are_operators!(python);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Python::*;
 
@@ -72,7 +74,7 @@ impl Getter for PythonCode {
                 Some(Notin | Isnot) => TokenRole::Unknown,
                 _ => TokenRole::Operator,
             },
-            Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return | Def
+            Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return
             | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
             | While | Try | Except | Finally | With | DASHGT | Global | Nonlocal | Exec
             | AT | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
@@ -95,14 +97,10 @@ impl Getter for PythonCode {
             // double-counted, mirroring how `yield` counts only the Yield
             // node and not its keyword leaf (#413).
             | Await
-            // `lambda`: count only the keyword token (Lambda3=73), not the
-            // Lambda/Lambda2 expression nodes that wrap it, to avoid the same
-            // node+keyword double count fixed for await (#413).
-            | Lambda3
-            // `class`, the declaration keyword beside `def`. Only the leaf:
-            // its `ClassDefinition` wrapper is not listed, so the pair
-            // cannot double-count (#1550).
-            | Class => {
+            // `def`, `class` and `lambda`'s keyword token are not here:
+            // `roles/python.rs` declares them and `get_keyword_role`
+            // bills them (#1693).
+            => {
                 TokenRole::Operator
             }
             Identifier | Integer | Float | True | False | None => TokenRole::Operand,

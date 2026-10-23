@@ -18,6 +18,8 @@ impl Getter for RubyCode {
         }
     }
 
+    keywords_are_operators!(ruby);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Ruby as R;
 
@@ -98,15 +100,17 @@ impl Getter for RubyCode {
             | R::Case2 | R::When2 | R::Elsif2 | R::Else2 | R::Then2
             | R::Begin2 | R::Ensure2 | R::Rescue2
             | R::Return3 | R::Yield3 | R::Break3 | R::Next3 | R::Redo2 | R::Retry2
-            // Declaration keywords. `End`/`End2` are the two aliased
-            // visible kinds for the `end` block closer (kind_ids 0 and
-            // 13) that every `def`/`class`/`module`/`begin`/`if`/loop
-            // construct emits; `BEGIN`/`END` are the special `BEGIN { }`
-            // / `END { }` block-form keywords (kinds 4 / 7) and are
-            // distinct from the lowercase `end` closer.
-            | R::Def | R::End | R::End2 | R::Class2 | R::Module2
+            // `End`/`End2` are the two aliased visible kinds for the
+            // `end` block closer (kind_ids 0 and 13) that every
+            // `def`/`class`/`module`/`begin`/`if`/loop construct emits;
+            // `BEGIN`/`END` are the special `BEGIN { }` / `END { }`
+            // block-form keywords (kinds 4 / 7) and are distinct from
+            // the lowercase `end` closer. The declaration keywords
+            // (`def`, `class`, `module`, `alias`, `undef`) are not here:
+            // `roles/ruby.rs` declares them and `get_keyword_role` bills
+            // them (#1693).
+            | R::End | R::End2
             | R::BEGIN | R::END
-            | R::Undef2 | R::Alias2
             // Logical / definedness keywords
             | R::And | R::Or | R::Not | R::DefinedQMARK
             // Structural punctuation acting as operators. `HASHLBRACE`

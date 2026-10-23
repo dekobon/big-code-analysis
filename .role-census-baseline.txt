@@ -19,7 +19,6 @@ Bash CaseArm R05
 Bash Comment R09
 Bash Comparison R05
 Bash Container R06
-Bash DeclKeyword R03
 Bash DocComment R09
 Bash DocRunDirective R09
 Bash DocRunOpener R09
@@ -88,7 +87,6 @@ Csharp Closure R06
 Csharp Comment R09
 Csharp Comparison R05
 Csharp Container R06
-Csharp DeclKeyword R03
 Csharp DocComment R09
 Csharp DocRunDirective R09
 Csharp DocRunOpener R09
@@ -101,9 +99,7 @@ Csharp Guard R05
 Csharp HoldsDocInBody R09
 Csharp Loop R07
 Csharp Member R06
-Csharp Modifier R03
 Csharp NullSafe R05
-Csharp Primitive R03
 Csharp ShortCircuit R05
 Csharp StringLit R08
 Csharp Switch R07
@@ -113,7 +109,6 @@ Elixir CaseArm R05
 Elixir Catch R07
 Elixir Comment R09
 Elixir Comparison R05
-Elixir DeclKeyword R03
 Elixir DocRunDirective R09
 Elixir DocRunOpener R09
 Elixir DocTarget R09
@@ -133,7 +128,6 @@ Go Closure R06
 Go Comment R09
 Go Comparison R05
 Go Container R06
-Go DeclKeyword R03
 Go DocComment R09
 Go DocRunDirective R09
 Go DocRunOpener R09
@@ -144,7 +138,6 @@ Go FuncOpener R06
 Go HoldsDocInBody R09
 Go Loop R07
 Go Member R06
-Go Primitive R03
 Go ShortCircuit R05
 Go StringLit R08
 Go Switch R07
@@ -156,7 +149,6 @@ Groovy Closure R06
 Groovy Comment R09
 Groovy Comparison R05
 Groovy Container R06
-Groovy DeclKeyword R03
 Groovy DocComment R09
 Groovy DocRunDirective R09
 Groovy DocRunOpener R09
@@ -169,9 +161,7 @@ Groovy Guard R05
 Groovy HoldsDocInBody R09
 Groovy Loop R07
 Groovy Member R06
-Groovy Modifier R03
 Groovy NullSafe R05
-Groovy Primitive R03
 Groovy ShortCircuit R05
 Groovy StringLit R08
 Groovy Switch R07
@@ -183,7 +173,6 @@ Irules Catch R07
 Irules Comment R09
 Irules Comparison R05
 Irules Container R06
-Irules DeclKeyword R03
 Irules DocComment R09
 Irules DocRunDirective R09
 Irules DocRunOpener R09
@@ -201,7 +190,6 @@ Java Branch R07
 Java CaseArm R05
 Java Catch R07
 Java Comment R09
-Java DeclKeyword R03
 Java DocComment R09
 Java DocRunDirective R09
 Java DocRunOpener R09
@@ -211,8 +199,6 @@ Java ElseIf R07
 Java HoldsDocInBody R09
 Java Loop R07
 Java Member R06
-Java Modifier R03
-Java Primitive R03
 Java ShortCircuit R04
 Java Switch R07
 Java Ternary R05
@@ -247,7 +233,6 @@ Kotlin Closure R06
 Kotlin Comment R09
 Kotlin Comparison R05
 Kotlin Container R06
-Kotlin DeclKeyword R03
 Kotlin DocComment R09
 Kotlin DocRunDirective R09
 Kotlin DocRunOpener R09
@@ -260,9 +245,7 @@ Kotlin Guard R05
 Kotlin HoldsDocInBody R09
 Kotlin Loop R07
 Kotlin Member R06
-Kotlin Modifier R03
 Kotlin NullSafe R05
-Kotlin Primitive R03
 Kotlin ShortCircuit R05
 Kotlin StringLit R08
 Kotlin Switch R07
@@ -272,7 +255,6 @@ Lua Closure R06
 Lua Comment R09
 Lua Comparison R05
 Lua Container R06
-Lua DeclKeyword R03
 Lua DocComment R09
 Lua DocRunDirective R09
 Lua DocRunOpener R09
@@ -358,7 +340,6 @@ Perl Closure R06
 Perl Comment R09
 Perl Comparison R05
 Perl Container R06
-Perl DeclKeyword R03
 Perl DocComment R09
 Perl DocRunDirective R09
 Perl DocRunOpener R09
@@ -383,7 +364,6 @@ Php Closure R06
 Php Comment R09
 Php Comparison R05
 Php Container R06
-Php DeclKeyword R03
 Php DocComment R09
 Php DocRunDirective R09
 Php DocRunOpener R09
@@ -395,9 +375,7 @@ Php FuncOpener R06
 Php HoldsDocInBody R09
 Php Loop R07
 Php Member R06
-Php Modifier R03
 Php NullSafe R05
-Php Primitive R03
 Php ShortCircuit R05
 Php StringLit R08
 Php Switch R07
@@ -409,7 +387,6 @@ Python Branch R07
 Python CaseArm R05
 Python Catch R07
 Python Comment R09
-Python DeclKeyword R03
 Python DocRunDirective R09
 Python DocRunOpener R09
 Python DocTarget R09
@@ -430,7 +407,6 @@ Ruby Closure R06
 Ruby Comment R09
 Ruby Comparison R05
 Ruby Container R06
-Ruby DeclKeyword R03
 Ruby DocComment R09
 Ruby DocRunDirective R09
 Ruby DocRunOpener R09
@@ -456,7 +432,6 @@ Rust Closure R06
 Rust Comment R09
 Rust Comparison R05
 Rust Container R06
-Rust DeclKeyword R03
 Rust DocComment R09
 Rust DocRunDirective R09
 Rust DocRunOpener R09
@@ -469,8 +444,6 @@ Rust Guard R05
 Rust HoldsDocInBody R09
 Rust Loop R07
 Rust Member R06
-Rust Modifier R03
-Rust Primitive R03
 Rust ShortCircuit R05
 Rust StringLit R08
 Rust Switch R07
@@ -482,7 +455,6 @@ Tcl Closure R06
 Tcl Comment R09
 Tcl Comparison R05
 Tcl Container R06
-Tcl DeclKeyword R03
 Tcl DocComment R09
 Tcl DocRunDirective R09
 Tcl DocRunOpener R09

@@ -20,75 +20,6 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     is_misparse: never_misparsed,
 };
 
-/// Whether a contextual keyword leaf (`trait`, `record`, `sealed`,
-/// `permits`) sits directly under the construct it introduces.
-///
-/// Valid Groovy may use any of the four as a name. Inside a class the
-/// grammar parses that name as an `identifier`, but a script-level
-/// statement that opens with one (`record = 3`, `String record`,
-/// `void record() {}`, `sealed.call()`) fails into an `ERROR` holding
-/// the keyword leaf. Billing the leaf there would make a variable an
-/// operator (#1552, #1565). The pinned grammar also misreads a *nested*
-/// `sealed class` as a field typed `sealed`, so that `sealed` bills as
-/// a type-name operand.
-fn contextual_keyword_owns<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    use Groovy::*;
-
-    ancestors.parent(node).is_some_and(|parent| {
-        matches!(
-            (node.kind_id().into(), parent.kind_id().into()),
-            (Trait, TraitDeclaration)
-                | (Record, RecordDeclaration)
-                | (Permits, PermitsClause)
-                | (
-                    Sealed,
-                    ClassDeclaration | InterfaceDeclaration | TraitDeclaration
-                )
-        )
-    })
-}
-
-/// Java's eight primitive type keywords and `void`, which Groovy
-/// reserves as Java does.
-const PRIMITIVE_TYPES: &[&str] = &[
-    "boolean", "byte", "char", "double", "float", "int", "long", "short", "void",
-];
-
-/// Whether `node` spells a primitive type, which bills as a text-keyed
-/// operator as Java's primitive keywords do (#1568).
-///
-/// The pinned grammar has no primitive node: a declared type is a
-/// `type_identifier` (`int x = 1`, `void m()`), and a class literal's
-/// receiver (`int.class`) or an uninitialised local (`int t`, which
-/// parses as two expression statements) is a plain `identifier`. Groovy
-/// reserves these keywords, so a name can spell one only as a member
-/// selector after a `.`-family operator (`x.int`, `x?.int`, `x::int`) or
-/// as a map or named-argument label (`[int: 1]`, `f(int: 1)`); those
-/// stay operands.
-fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    use Groovy::*;
-
-    if !matches!(node.kind_id().into(), Identifier | TypeIdentifier)
-        || !node_text(code, node).is_some_and(|text| PRIMITIVE_TYPES.contains(&text))
-    {
-        return false;
-    }
-    ancestors.parent(node).is_none_or(|parent| {
-        let is_first_child = parent.child(0).is_some_and(|first| first.id() == node.id());
-        match parent.kind_id().into() {
-            FieldAccess
-            | SafeNavigationExpression
-            | SafeChainDotExpression
-            | SpreadDotExpression
-            | DirectFieldAccessExpression
-            | MethodPointerExpression
-            | MethodReferenceExpression => is_first_child,
-            MapEntry | NamedArgument => !is_first_child,
-            _ => true,
-        }
-    })
-}
-
 impl Getter for GroovyCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -166,21 +97,17 @@ impl Getter for GroovyCode {
         }
     }
 
+    keywords_are_operators!(groovy);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;
 
         if GENERIC_ANGLES.is_closer(node, ancestors) {
             return TokenRole::Unknown;
         }
-        // Mirrors `JavaCode`'s classification: modifiers are billed
-        // (#1565) and module keywords (`Package`, `Import`, …) are
-        // excluded. The grammar has no `modifiers` wrapper — each
-        // modifier leaf sits directly under its declaration — so each
-        // bills once. The type-declaration keywords
-        // (`class`, `interface`, `trait`, `enum`, `record`) are billed,
-        // as Java's are since #1552: no `*Declaration` wrapper is
-        // classified, so the keyword leaf is the only node that can
-        // bill one. The dekobon Groovy grammar (#246, #247)
+        // Mirrors `JavaCode`'s classification: module keywords
+        // (`Package`, `Import`, …) are excluded. The dekobon Groovy
+        // grammar (#246, #247)
         // emits a distinct named node for every Groovy-specific
         // operator (Elvis `?:`, safe-nav `?.`, identity `===`/`!==`,
         // regex `=~`/`==~`, spaceship `<=>`, exclusive ranges
@@ -249,35 +176,15 @@ impl Getter for GroovyCode {
             Super if ancestors.parent_has_kind(node, Wildcard as u16) => TokenRole::Operator,
             Super => TokenRole::Operand,
 
-            // `trait`, `record`, `sealed` and `permits` are contextual
-            // keywords, so each bills only under the construct it
-            // introduces (`contextual_keyword_owns`); elsewhere it falls
-            // through to `Unknown`.
-            Trait | Record | Sealed | Permits if contextual_keyword_owns(node, ancestors) => {
-                TokenRole::Operator
-            }
-            // `import static`'s `static` bills nothing, as `import` does
-            // not; Java makes the same call.
-            Static if ancestors.parent_has_kind(node, ImportDeclaration as u16) => {
-                TokenRole::Unknown
-            }
-
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar
-            // — `This`, `VoidType`, `Throws2`).
+            // — `This`, `VoidType`, `Throws2`). The modifiers, the
+            // declaration keywords and the primitive types are not
+            // here: `roles/groovy.rs` declares them, gates included, and
+            // `get_keyword_role` bills them (#1693).
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
-            | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
-            | Extends | Final | Implements | Transient | Synchronized | Def | In | As
-            // The rest of the modifiers (#1565). `non-sealed` cannot be
-            // spelled as a name; `non-sealed` as a subtraction parses as
-            // `non`, `-` and an identifier `sealed`.
-            | Public | Private | Protected | Static | Native | Strictfp | Volatile
-            | NonDASHsealed
-            // Type-declaration keywords (#1552). Unlike Java's, `class`
-            // needs no class-literal guard: `String.class` parses as a
-            // `field_access` whose `class` is a plain `identifier`.
-            // `trait` and `record` are the gated arms above.
-            | Class | Interface | Enum
+            | Break | Do | Finally | New | Return | Default | Assert | Instanceof
+            | Extends | Implements | Def | In | As
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, comparison, assignment).
@@ -318,6 +225,8 @@ impl Getter for GroovyCode {
             // (grammar-dispatch section 6): `import java` still nests an
             // `identifier`, and a single-segment type is a bare
             // `type_identifier` the grammar does not wrap at all.
+            // role-bypass: allow(Primitive) — the operand classification of a name the row's
+            // text gate did not claim as a primitive
             Identifier | TypeIdentifier | NullLiteral | True | False | NumberLiteral => {
                 TokenRole::Operand
             }
@@ -342,20 +251,6 @@ impl Getter for GroovyCode {
 
             _ => TokenRole::Unknown,
         }
-    }
-
-    // Only the bytes tell `int` from `Integer`, so the byte-less
-    // `get_op_type` above still answers `Operand` for a primitive; the
-    // walk calls this spelling (grammar-dispatch section 7).
-    fn get_op_type_with_code<'a>(
-        node: &Node<'a>,
-        code: &[u8],
-        ancestors: Ancestors<'a, '_>,
-    ) -> TokenRole {
-        if spells_primitive_type(node, code, ancestors) {
-            return TokenRole::Operator;
-        }
-        keyword_or_op_type::<Self>(node, code, ancestors)
     }
 
     fn get_operator_spelling<'a>(

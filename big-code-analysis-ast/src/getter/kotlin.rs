@@ -122,56 +122,6 @@ fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
     })
 }
 
-// Whether `node`, a modifier keyword leaf, sits in a modifier list the
-// grammar built (#1558), rather than in the recovery of a soft-keyword
-// *name* it failed to parse. Two recoveries strand the leaf:
-//
-// - an `ERROR` holds it, usually still wrapped in its `*_modifier`
-//   node (`open = !open` at statement start, `val suspend = 1`), so the
-//   first ancestor above the wrappers is the `ERROR`;
-// - a modifier list is followed by an inserted, zero-width name
-//   (`fun f(vararg: Int)`, `class C(open: Int)`).
-//
-// Kinds are compared by name: `*_modifier` covers every wrapper, and
-// `user_type` is where recovery can hang `type_modifiers`. The inserted
-// name is found by width, not `is_missing()` (grammar-dispatch).
-fn kotlin_modifier_was_written_as_one<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    let host = ancestors
-        .iter(node)
-        .map(|(ancestor, _)| ancestor)
-        .find(|ancestor| {
-            let kind = ancestor.kind();
-            !(kind.ends_with("_modifier") || kind == "type_modifiers" || kind == "user_type")
-        });
-    host.is_some_and(|host| !host.is_error()) && !kotlin_next_token_is_inserted(node, ancestors)
-}
-
-// Whether the first token after `node`, comments aside, is zero-width:
-// one error recovery inserted where the source has none. A comment
-// between the two is a sibling extra, so `vararg /*c*/: Int` must step
-// over it to reach the inserted name, as `vararg: Int` does. A node
-// never opens with an extra, which the parser hangs on the level above,
-// so the descent takes each first child as it is.
-//
-// Every parameter's modifier asks, and the climb reaches
-// `function_value_parameters`, so the sibling is found without a scan
-// from the list's start: that made a long parameter list quadratic.
-fn kotlin_next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    std::iter::once((*node, ancestors))
-        .chain(ancestors.iter(node))
-        .find_map(|(level, level_ancestors)| {
-            level_ancestors
-                .siblings_after(&level)
-                .find(|sibling| !sibling.as_tree_sitter().is_extra())
-        })
-        .is_some_and(|mut next| {
-            while let Some(first) = next.child(0) {
-                next = first;
-            }
-            next.start_byte() == next.end_byte()
-        })
-}
-
 // A qualified `super<A>` (a `super_expression`) encloses the supertype
 // it names (#1567).
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
@@ -273,6 +223,8 @@ impl Getter for KotlinCode {
         }
     }
 
+    keywords_are_operators!(kotlin);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Kotlin::*;
 
@@ -280,66 +232,10 @@ impl Getter for KotlinCode {
             return TokenRole::Unknown;
         }
 
-        // Modifier keywords, billed as C# bills all of its own (#1558;
-        // Java and Groovy bill only some, #1565). Each is the keyword
-        // leaf; its `*_modifier` / `modifiers` wrappers stay unlisted, so
-        // one modifier bills once (grammar-dispatch section 5). Every
-        // keyword has exactly one kind, so `kind_id` keys it without
-        // splitting it across the two `n1` maps. `Annotation2` is the
-        // `annotation` of `annotation class`; `Annotation` is an `@N` use,
-        // which is no keyword. `in` already bills as a variance modifier
-        // through `In` below, so `out` joins it. `reified` has only the
-        // `ReificationModifier` kind, which `KotlinCode::is_primitive`
-        // keys by its text. An early return rather than an arm, because
-        // the match below is one rustfmt declines to format.
-        //
-        // Each word is a soft keyword that valid Kotlin may use as a name,
-        // and where kotlin-ng fails to parse that name the leaf survives
-        // in its recovery (`open = !open` at statement start,
-        // `val suspend = 1`, a parameter named `vararg`). Such a leaf is
-        // no modifier and bills nothing; see
-        // `kotlin_modifier_was_written_as_one`. `companion` is left out
-        // of that gate: it never parses as a name, and gating it would
-        // only drop a real `companion object` from a class body that
-        // failed to parse.
+        // The modifiers, the declaration keywords and `reified` are not
+        // here: `roles/kotlin.rs` declares them, gate included, and
+        // `get_keyword_role` bills them (#1693).
         let kind: Kotlin = node.kind_id().into();
-        if matches!(
-            kind,
-            Enum | Sealed
-                | Annotation2
-                | Data
-                | Inner
-                | Value
-                | Public
-                | Private
-                | Protected
-                | Internal
-                | Abstract
-                | Final
-                | Open
-                | Override
-                | Lateinit
-                | Const
-                | Tailrec
-                | Kotlin::Operator
-                | Infix
-                | Inline
-                | External
-                | Suspend
-                | Vararg
-                | Noinline
-                | Crossinline
-                | ReificationModifier
-                | Out
-                | Expect
-                | Actual
-        ) {
-            return if kotlin_modifier_was_written_as_one(node, ancestors) {
-                TokenRole::Operator
-            } else {
-                TokenRole::Unknown
-            };
-        }
 
         // The accessor keywords, billed as C# bills its `get` / `set`
         // (#1564), but only directly under their `getter` / `setter`,
@@ -370,19 +266,15 @@ impl Getter for KotlinCode {
             // Operator: control flow keywords
             If | Else | When | For | While | Do | Try | Catch | Finally | Throw | Return
             | ReturnAT
-            // Operator: other keywords. `interface` is the declaration
-            // keyword leaf beside `class` and `object` (#1556); its
-            // `class_declaration` wrapper stays unlisted. `companion` is
-            // the one modifier billed here; see the early return above.
-            // `typealias`, `init`, `where` and `by` bill as C# bills
-            // `where` and TypeScript `type` (#1564), each the leaf of its
-            // `type_alias` / `anonymous_initializer` / `type_constraints`
-            // / `property_delegate` or `explicit_delegation` wrapper.
-            // `typealias` is a hard keyword; the other three, used as
-            // names (`val by = 1`, `where(x)`, `init.f()`), parse as
-            // identifiers, so the leaf exists only in its construct.
-            | Class | Interface | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis
-            | BANGin | Constructor | Companion | Typealias | Init | Where | By
+            // Operator: other keywords. `init`, `where` and `by` bill as
+            // C# bills `where` and TypeScript `type` (#1564), each the
+            // leaf of its `anonymous_initializer` / `type_constraints` /
+            // `property_delegate` or `explicit_delegation` wrapper; used
+            // as names (`val by = 1`, `where(x)`, `init.f()`) they parse
+            // as identifiers, so the leaf exists only in its construct.
+            // `in` is the variance modifier and the operator of `for` /
+            // `x in y` in one kind, billed here; `out` is the row's.
+            | In | Is | As | AsQMARK | BANGis | BANGin | Constructor | Init | Where | By
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic

@@ -1,6 +1,7 @@
-//! Lua's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Lua's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Lua;
 use crate::role_table;
 
 role_table! {
@@ -21,7 +22,9 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     Modifier { absent "Lua has no modifier keywords; `local` is a declaration" }
-    DeclKeyword { pending R03 }
+    // `local` and `function`, each a leaf under an unlisted
+    // `function_declaration` / `variable_declaration` / `function_definition`.
+    DeclKeyword { owns [Local, Function] }
     Primitive { absent "Lua has no type names" }
     FuncOpener { pending R06 }
     Closure { pending R06 }

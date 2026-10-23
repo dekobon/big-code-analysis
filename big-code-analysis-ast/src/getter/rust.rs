@@ -54,6 +54,8 @@ impl Getter for RustCode {
         }
     }
 
+    keywords_are_operators!(rust);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Rust::*;
 
@@ -85,24 +87,15 @@ impl Getter for RustCode {
             // (`std::collections::HashMap`, `Vec::new`, `T::method`) into
             // TokenRole::Unknown, deflating n1/N1 for path-heavy code.
             //
-            // The 14 declaration/visibility keywords (Const, Static, Enum,
-            // Struct, Trait, Impl, Use, Mod, Pub, Type, Union, Where,
-            // Extern, Dyn) were inconsistently absent — the impl already
-            // accepted 17 other keywords (As, Async, Await, Break, …, Fn).
-            // Including them brings declaration-heavy code in line with
-            // statement-heavy code.
-            LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Async | Await | Break
-            | Continue | Else | For | If | In | Let | Loop | Match | Return | Unsafe | While
-            | EQ | COMMA | DASHGT | QMARK | LT | LT2 | GT | AMP | MutableSpecifier | DOTDOT
-            | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT
-            | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ
-            | CARETEQ | LTLTEQ | GTGTEQ | Move | DOT | PrimitiveType | PrimitiveType2
-            | PrimitiveType3 | PrimitiveType4 | PrimitiveType5 | PrimitiveType6
-            | PrimitiveType7 | PrimitiveType8 | PrimitiveType9 | PrimitiveType10
-            | PrimitiveType11 | PrimitiveType12 | PrimitiveType13 | PrimitiveType14
-            | PrimitiveType15 | PrimitiveType16 | PrimitiveType17 | Fn | SEMI | COLON
-            | COLONCOLON | Const | Static | Enum | Struct | Trait | Impl | Use | Mod | Pub
-            | Type | Union | Where | Extern | Dyn => TokenRole::Operator,
+            // The declaration and visibility keywords and the primitive
+            // types are not here: `roles/rust.rs` declares them and
+            // `get_keyword_role` bills them (#1693; #394 added them).
+            LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break | Continue
+            | Else | For | If | In | Loop | Match | Return | While | EQ | COMMA | DASHGT
+            | QMARK | LT | LT2 | GT | AMP | DOTDOT | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET
+            | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ
+            | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | DOT | SEMI
+            | COLON | COLONCOLON => TokenRole::Operator,
             // FieldIdentifier (e.g. `p.x`) and TypeIdentifier (e.g. `Vec`,
             // `HashMap`) are operand-class names — C++ and Go classify them
             // the same way (see arms ~588 and ~862 below). Omitting them

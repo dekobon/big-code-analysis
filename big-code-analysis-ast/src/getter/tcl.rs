@@ -14,6 +14,8 @@ impl Getter for TclCode {
         }
     }
 
+    keywords_are_operators!(tcl);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // The braced-word rule (#1354 / #1317), whose two halves
@@ -128,16 +130,15 @@ impl Getter for TclCode {
             _ if Self::is_subsumed_braced_word(node, ancestors, &BRACED_WORD_KINDS) => {
                 TokenRole::Unknown
             }
-            // Anonymous keyword tokens (control-flow and declaration keywords).
-            Tcl::Proc
-            | Tcl::If2
+            // Anonymous keyword tokens (control-flow keywords). The
+            // declaration keywords (`proc`, `namespace`, `set`, `global`)
+            // are not here: `roles/tcl.rs` declares them and
+            // `get_keyword_role` bills them (#1693).
+            Tcl::If2
             | Tcl::Elseif2
             | Tcl::Else2
             | Tcl::While2
             | Tcl::Foreach2
-            | Tcl::Set2
-            | Tcl::Global2
-            | Tcl::Namespace2
             | Tcl::Try2
             | Tcl::Catch2
             | Tcl::Finally2

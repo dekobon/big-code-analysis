@@ -19,6 +19,8 @@ impl Getter for IrulesCode {
         }
     }
 
+    keywords_are_operators!(irules);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // The braced-word rule (#1314, #1354 / #1317) — the twin of
@@ -34,10 +36,11 @@ impl Getter for IrulesCode {
             }
             // Anonymous keyword tokens (the `*2` aliases are the keyword
             // literals; the unsuffixed high-id variants are the statement
-            // nodes counted by the branching metrics, not here).
-            Irules::Proc
-            | Irules::When
-            | Irules::On
+            // nodes counted by the branching metrics, not here). The
+            // declaration keywords (`proc`, `when`, `namespace`, `set`,
+            // `global`) are not here: `roles/irules.rs` declares them
+            // and `get_keyword_role` bills them (#1693).
+            Irules::On
             | Irules::Off
             | Irules::Trap
             | Irules::If2
@@ -47,9 +50,6 @@ impl Getter for IrulesCode {
             | Irules::For2
             | Irules::Foreach2
             | Irules::Switch2
-            | Irules::Set2
-            | Irules::Global2
-            | Irules::Namespace2
             | Irules::Try2
             | Irules::Catch2
             | Irules::Finally2

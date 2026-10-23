@@ -242,6 +242,7 @@ fn csharp_eq_initializes_const_binding<'a>(
         ) && statement
             .children()
             .take_while(|child| !is_declaration(child))
+            // role-bypass: allow(Modifier) — which modifier, not whether the node is one
             .any(|child| child.kind_id() == Modifier && child.is_child(Const as u16))
     })
 }

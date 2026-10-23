@@ -537,6 +537,7 @@ mod tests {
         feature = "mozjs",
         feature = "objc",
         feature = "perl",
+        feature = "php",
         feature = "ruby",
         feature = "tcl",
         feature = "typescript",
@@ -639,6 +640,7 @@ mod tests {
         feature = "kotlin",
         feature = "mozcpp",
         feature = "objc",
+        feature = "php",
         feature = "typescript"
     ))]
     #[track_caller]
@@ -672,6 +674,7 @@ mod tests {
             feature = "kotlin",
             feature = "mozcpp",
             feature = "objc",
+            feature = "php",
             feature = "typescript",
         ))]
         fn of(ops: &crate::ops::Ops, keyword: &str) -> Option<Self> {
@@ -8344,6 +8347,22 @@ f() {
         );
     }
 
+    /// `fn` is the one declaration keyword Elixir spells as a token of
+    /// its own; the `DeclKeyword` row owns it (#1693). `def` and its
+    /// siblings are `call` identifiers and are not keywords here.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_fn_is_an_operator() {
+        // Operators: `=`, `fn`, `->`, `+`, `end` ⇒ n1 = 5, N1 = 5.
+        // Operands: `f`, `x` x2, `1` ⇒ n2 = 3, N2 = 4.
+        assert_halstead_counts::<ElixirParser>(
+            "f = fn x -> x + 1 end\n",
+            "foo.ex",
+            [5, 5, 3, 4],
+            "elixir fn",
+        );
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_reserved_word_after_a_dot_stays_an_operand() {
@@ -10633,6 +10652,28 @@ f() {
                 assert_eq!(metric.halstead.unique_operands(), 12);
                 assert_eq!(metric.halstead.total_operands(), 12);
             },
+        );
+    }
+
+    /// `never` is a `bottom_type` leaf of its own, not a
+    /// `primitive_type`, so the `Primitive` row lists it beside the
+    /// wrapper (#1693); dropping it scores a `: never` return type zero.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_bottom_type_is_an_operand() {
+        // Operators: `function`, `()` x2, `:`, `{}`, `exit`, `;` ⇒ n1 = 6,
+        // N1 = 7. Operands: `f`, `never`, `1` ⇒ n2 = 3, N2 = 3.
+        assert_halstead_counts::<PhpParser>(
+            "<?php function f(): never { exit(1); }\n",
+            "foo.php",
+            [6, 7, 3, 3],
+            "php bottom type",
+        );
+        assert_keyword_role(
+            &ops_of::<PhpParser>("<?php function f(): never { exit(1); }\n", "foo.php"),
+            "foo.php",
+            "never",
+            Role::OperandOnly,
         );
     }
 

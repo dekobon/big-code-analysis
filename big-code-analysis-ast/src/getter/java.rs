@@ -87,6 +87,8 @@ impl Getter for JavaCode {
         }
     }
 
+    keywords_are_operators!(java);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;
 
@@ -96,49 +98,16 @@ impl Getter for JavaCode {
         // Some guides that informed grammar choice for Halstead
         // keywords, operators, literals: https://docs.oracle.com/javase/specs/jls/se18/html/jls-3.html#jls-3.12
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
+        // The modifiers, the declaration keywords and the primitive
+        // types are not here: `roles/java.rs` declares them, gates
+        // included, and `get_keyword_role` bills them (#1693).
         match node.kind_id().into() {
-            // `class` declares a class (billed below, #1552) except as the
-            // tail of a class literal (`C.class`), where it is an operand:
-            // JLS §15.8.2 makes the literal a primary expression, not a
-            // literal (§3.10), so its parts bill as they would anywhere
-            // else — the type name an operand, the primitive or `void`
-            // and the `.` / `[]` operators — and the `class` tail is the
-            // operand they act on, as Kotlin's and PHP's `Foo::class` and
-            // Groovy's `Foo.class` bill theirs (#1566).
-            Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Operand,
-            // `static` is a modifier (below, #1565) except in an import
-            // or module directive (`import static`, `requires static`),
-            // whose own keyword — `import`, `requires` — bills nothing
-            // here, so neither does the word it qualifies.
-            Static
-                if ancestors.parent(node).is_some_and(|p| {
-                    matches!(p.kind_id().into(), ImportDeclaration | RequiresModifier)
-                }) =>
-            {
-                TokenRole::Unknown
-            }
             // Operator: control flow
-            | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
+            If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
-            // Operator: keywords
-            | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final
-            | Implements | Transient | Synchronized | VoidType
-            // Operator: the rest of the modifiers, billed as C# and Kotlin
-            // bill theirs (#1565). Each is its keyword leaf, one kind
-            // apiece; the `modifiers` wrapper stays unlisted, so a
-            // modifier bills once and an annotation inside it adds only
-            // its own tokens. `default` above is one kind for a `switch`
-            // label and an interface method's modifier. `sealed` and
-            // `permits` (`Permits2`; `Permits` is the clause) are
-            // contextual, and the grammar parses each used as a name
-            // (`var sealed = 1`, `int permits`) as an `identifier`, so
-            // they need no guard; `non-sealed` cannot be a name.
-            | Public | Private | Protected | Static | Native | Strictfp | Volatile | Sealed
-            | NonDASHsealed | Permits2
-            // Operator: type-declaration keywords, billed as C# bills
-            // its own (#1552). Only the leaves: no `*_declaration`
-            // wrapper is listed, so a declaration bills its keyword once.
-            | Class | Interface | Enum | Record | ATinterface
+            // Operator: keywords. `default` is one kind for a `switch`
+            // label and an interface method's modifier.
+            | New | Return | Default | Assert | Instanceof | Extends | Implements
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators
@@ -147,8 +116,6 @@ impl Getter for JavaCode {
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ
             | LTLTEQ | GTGTEQ | GTGTGTEQ
-            // primitive types
-            | Byte | Short | Int | Long | Char | Float | Double | BooleanType
             => {
                 TokenRole::Operator
             },
@@ -163,6 +130,11 @@ impl Getter for JavaCode {
                 Some(Wildcard) => TokenRole::Operator,
                 _ => TokenRole::Operand,
             },
+            // `class` as the tail of a class literal (`C.class`) is the
+            // operand the `.` acts on (#1566); the `DeclKeyword` row's
+            // gate leaves it to this arm, and carries the derivation.
+            // role-bypass: allow(DeclKeyword) — the operand classification of the gated-out spelling
+            Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Operand,
             // Operands: variables, constants, literals. `This` joined
             // them in #1380: a self-reference names the receiver a `.`
             // or `::` acts on, so billing it as an operator made
@@ -227,9 +199,11 @@ impl Getter for JavaCode {
             Java::LPAREN => "()",
             Java::LBRACK => "[]",
             Java::LBRACE => "{}",
+            // role-bypass: allow(Primitive) — naming: how the kind renders, not whether it is one
             Java::VoidType => "void",
             // The kind is `boolean_type`; spelled as written, as Groovy's
             // text-keyed primitives are (#1568).
+            // role-bypass: allow(Primitive) — naming, as above
             Java::BooleanType => "boolean",
             _ => typ.into(),
         }

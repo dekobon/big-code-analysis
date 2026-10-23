@@ -229,6 +229,10 @@ impl Checker for CsharpCode {
         // receiver, which `get_op_type_with_code` bills as an operand.
         // That is no disagreement, because `compute_halstead` consults
         // this method only under its `Operator` arm.
+        // role-bypass: allow(Primitive, Modifier) — key selection after
+        // the rows have classified the node: which of their kinds has two
+        // spellings for one operator and so is keyed by text, not whether
+        // the node is a primitive or a modifier
         matches!(
             node.kind_id().into(),
             Csharp::PredefinedType

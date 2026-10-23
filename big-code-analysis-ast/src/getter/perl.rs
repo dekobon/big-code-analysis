@@ -18,6 +18,8 @@ impl Getter for PerlCode {
         }
     }
 
+    keywords_are_operators!(perl);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Perl as P;
 
@@ -57,15 +59,12 @@ impl Getter for PerlCode {
             _ if ancestors.parent_has_kind(node, P::RegexPatternContent as u16) => {
                 TokenRole::Unknown
             }
-            // Control-flow and declaration keywords. `Perl::Sub` is the
-            // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
-            // literal (token id 7) — that one is an operand, not an
-            // operator. Same split for `Package` (keyword) vs `PACKAGE`
-            // (`__PACKAGE__` literal).
+            // Control-flow keywords. The declaration keywords (`sub`,
+            // `package`, `my`, …) are not here: `roles/perl.rs` declares
+            // them and `get_keyword_role` bills them (#1693).
             P::If | P::Unless | P::Else | P::Elsif | P::While | P::Until | P::For
             | P::Foreach | P::When | P::Continue | P::Next | P::Last | P::Redo | P::Goto
-            | P::Return | P::Sub | P::Package | P::My | P::Our
-            | P::Local | P::State | P::Use | P::No | P::Require | P::Bless | P::And | P::Or
+            | P::Return | P::Use | P::No | P::Require | P::Bless | P::And | P::Or
             | P::Xor | P::Not | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
             // Punctuation acting as operators
             | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK

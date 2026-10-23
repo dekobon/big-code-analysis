@@ -62,7 +62,12 @@ role_table! {
     Loop { pending R07 }
     Catch { pending R07 }
     Exit { pending R07 }
-    DeclKeyword { pending R03 }
+    // `fn` is the one declaration keyword the grammar gives a kind of
+    // its own. `def` / `defp` / `defmodule` / `defmacro` are not
+    // keywords: each is the `identifier` target of a `Call`, told from
+    // any other call by its text, and is `FuncOpener` / `Container`
+    // territory (R06); the `Call` row (R08) bills the call.
+    DeclKeyword { owns [Fn] }
     Member { pending R06 }
     Comment { pending R09 }
     Docstring { pending R09 }

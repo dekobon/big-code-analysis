@@ -170,6 +170,7 @@ fn groovy_eq_initializes_final_binding<'a>(
             ) && declaration
                 .children()
                 .take_while(|child| child.kind_id() != VariableDeclarator)
+                // role-bypass: allow(Modifier) — which modifier, not whether the node is one
                 .any(|child| child.kind_id() == Final)
         },
     )

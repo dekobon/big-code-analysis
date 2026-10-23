@@ -107,6 +107,8 @@ impl Checker for GroovyCode {
     // one only for a primitive spelling, so the kind alone suffices to
     // key each primitive by its text.
     fn is_primitive(node: &Node) -> bool {
+        // role-bypass: allow(Primitive) — key selection after the row has
+        // classified the node, under which both kinds are keyed by text
         matches!(
             node.kind_id().into(),
             Groovy::Identifier | Groovy::TypeIdentifier

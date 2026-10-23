@@ -1,6 +1,7 @@
-//! Bash's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Bash's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Bash;
 use crate::role_table;
 
 role_table! {
@@ -23,7 +24,12 @@ role_table! {
     Exit { pending R07 }
     Modifier { absent "Bash declares with builtins (`local`, `readonly`), which are commands, not \
          modifier keywords" }
-    DeclKeyword { pending R03 }
+    // The declaration builtins the grammar gives a kind of their own:
+    // `function`, and `local` / `declare` / `typeset` / `export` /
+    // `readonly`, each the leaf of a `declaration_command` or a
+    // `function_definition`, neither listed. `unset` / `unsetenv` are
+    // the inverse and bill with the commands.
+    DeclKeyword { owns [Function, Local, Declare, Typeset, Export, Readonly] }
     Primitive { absent "Bash has no type names" }
     FuncOpener { pending R06 }
     Closure { absent "Bash has no anonymous function" }

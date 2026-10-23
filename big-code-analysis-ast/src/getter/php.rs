@@ -28,6 +28,27 @@ impl Getter for PhpCode {
         }
     }
 
+    // PHP bills a primitive type as an operand (#1293): the row says
+    // which nodes name a type, and this says what Halstead makes of
+    // one here, where the C family, Java and TypeScript say operator.
+    fn get_keyword_role<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        use crate::roles::php::{decl_keyword, modifier, primitive};
+        let kind = node.kind_id();
+        if modifier::pays_at_leaf_kind(kind, node, code, ancestors)
+            || decl_keyword::pays_at_leaf_kind(kind, node, code, ancestors)
+        {
+            TokenRole::Operator
+        } else if primitive::pays_at_leaf_kind(kind, node, code, ancestors) {
+            TokenRole::Operand
+        } else {
+            TokenRole::Unknown
+        }
+    }
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Php::*;
         match node.kind_id().into() {
@@ -92,13 +113,11 @@ impl Getter for PhpCode {
             | Echo | Exit | Print
             | Include | IncludeOnce | Require | RequireOnce
 
-            // Operator: declaration keywords
-            | Function | Class | Interface | Trait | Enum | Namespace
-            | Use | Const | Global | Static | VarModifier
-            | Public | Protected | Private
-            | Final | Abstract | Readonly
+            // Operator: expression keywords. The modifiers and the
+            // declaration keywords are not here: `roles/php.rs`
+            // declares them and `get_keyword_role` bills them (#1693).
             | New | Clone | Instanceof | As | Insteadof | Extends | Implements
-            | Fn | Declare | Enddeclare | Unset | List
+            | Enddeclare | Unset | List
             | Zelf | Parent
 
             // Operator: structural punctuation. Only the *opening*
@@ -248,6 +267,8 @@ impl Getter for PhpCode {
             // The *span* keeps its operand either way: the enclosing
             // `primitive_type` carries it, and only the node it is
             // attributed to moved.
+            // role-bypass: allow(Primitive) — the operand classification of a leaf under the
+            // row's wrapper, which carries the operand; not whether the leaf is a primitive
             Int | Bool | Array | Object | String2 | Float2 | Null2 => {
                 match ancestors.parent(node).map(|p| p.kind_id().into()) {
                     Some(PrimitiveType) => TokenRole::Unknown,
@@ -255,20 +276,18 @@ impl Getter for PhpCode {
                 }
             }
 
-            // Operands: literals and the type nodes that are leaves or
-            // carry the operand themselves. `String` (368) is the
-            // single-quoted string literal and `String3` the hidden
-            // `_string` supertype — the `string` *type* keyword is
-            // `String2` (25), handled above. Neither `String` nor
-            // `Nowdoc` ever interpolates, so both are always one
-            // operand. `bottom_type` (`never`) and `cast_type`
-            // (`(int)`) are leaves with no inner node to double-count.
+            // Operands: literals. `String` (368) is the single-quoted
+            // string literal and `String3` the hidden `_string`
+            // supertype — the `string` *type* keyword is `String2`
+            // (25), handled above. Neither `String` nor `Nowdoc` ever
+            // interpolates, so both are always one operand. The type
+            // nodes that carry the operand themselves (`primitive_type`,
+            // `bottom_type`, `cast_type`) are the `Primitive` row's,
+            // billed as operands by `get_keyword_role`.
             Integer | Float
             | String | String3
             | Nowdoc
             | Boolean | Null
-            | BottomType
-            | PrimitiveType | CastType
                 => TokenRole::Operand,
 
             // `EncapsedString` (double-quoted), `Heredoc`, and

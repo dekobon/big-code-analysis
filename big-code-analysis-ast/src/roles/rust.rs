@@ -1,6 +1,7 @@
-//! Rust's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Rust's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Rust;
 use crate::role_table;
 
 role_table! {
@@ -20,9 +21,31 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // `pub` is the leaf of an unlisted `visibility_modifier`, so it
+    // bills once whatever the `(crate)` / `(super)` qualifier; `mut` is
+    // the grammar's `mutable_specifier` node, one kind for a binding,
+    // a reference and a `self` receiver. `const` and `static` are each
+    // one kind for the item and the qualifier (`const fn`, `static
+    // ref`), as `unsafe`, `async`, `extern` and `move` are for theirs;
+    // all bill once per spelling.
+    Modifier {
+        owns [Pub, MutableSpecifier, Const, Static, Unsafe, Async, Extern, Move, Dyn]
+    }
+    // The item keywords (#394): each the leaf of an unlisted `*_item`
+    // / `let_declaration` / `where_clause` wrapper.
+    DeclKeyword { owns [Fn, Let, Enum, Struct, Union, Trait, Impl, Use, Mod, Type, Where] }
+    // tree-sitter-rust emits `primitive_type` under seventeen aliased
+    // ids, one per position the rule appears in; every one spells
+    // `primitive_type` and `Checker::is_primitive` keys each by text
+    // (grammar-dispatch section 1).
+    Primitive {
+        owns [
+            PrimitiveType, PrimitiveType2, PrimitiveType3, PrimitiveType4, PrimitiveType5,
+            PrimitiveType6, PrimitiveType7, PrimitiveType8, PrimitiveType9, PrimitiveType10,
+            PrimitiveType11, PrimitiveType12, PrimitiveType13, PrimitiveType14, PrimitiveType15,
+            PrimitiveType16, PrimitiveType17,
+        ]
+    }
     FuncOpener { pending R06 }
     Closure { pending R06 }
     Container { pending R06 }

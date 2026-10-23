@@ -16,15 +16,18 @@ impl Getter for GoCode {
         }
     }
 
+    keywords_are_operators!(go);
+
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Go as G;
 
+        // The declaration keywords are not here: `roles/go.rs` declares
+        // them and `get_keyword_role` bills them (#1693).
         match node.kind_id().into() {
-            // Control flow and declaration keywords
+            // Control flow keywords and the `map` / `chan` type constructors
             G::If | G::Else | G::Switch | G::Case | G::Default | G::For | G::Range
             | G::Continue | G::Break | G::Fallthrough | G::Goto | G::Return | G::Select
-            | G::Defer | G::Go | G::Func | G::Type | G::Struct | G::Interface | G::Map
-            | G::Chan | G::Const | G::Var | G::Package | G::Import
+            | G::Defer | G::Go | G::Map | G::Chan
             // Punctuation acting as operators
             | G::SEMI | G::COMMA | G::COLON | G::LBRACE | G::LBRACK | G::LPAREN
             | G::DOT | G::DOTDOTDOT

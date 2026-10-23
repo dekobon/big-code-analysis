@@ -1,6 +1,7 @@
-//! Perl's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Perl's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Perl;
 use crate::role_table;
 
 role_table! {
@@ -22,7 +23,11 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     Modifier { absent "Perl has no modifier keywords; `my` / `our` are declarators" }
-    DeclKeyword { pending R03 }
+    // `sub` and `package` (the keyword kinds; `SUB` / `PACKAGE` are the
+    // `__SUB__` / `__PACKAGE__` literals, operands) and the four
+    // declarators `my` / `our` / `local` / `state`, each the leaf of an
+    // unlisted `*_declaration` / `variable_declaration`.
+    DeclKeyword { owns [Sub, Package, My, Our, Local, State] }
     Primitive { absent "Perl has no type names" }
     FuncOpener { pending R06 }
     Closure { pending R06 }

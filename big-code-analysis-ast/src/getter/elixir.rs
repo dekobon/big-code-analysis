@@ -143,6 +143,8 @@ impl Getter for ElixirCode {
         Some("<anonymous>")
     }
 
+    keywords_are_operators!(elixir);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Elixir as E;
 
@@ -180,12 +182,14 @@ impl Getter for ElixirCode {
                 TokenRole::Unknown
             }
             // Reserved-word keywords that have dedicated token kinds in
-            // the grammar — block delimiters, exception clauses, the
-            // `fn` keyword, and word-form logical / membership operators.
+            // the grammar — block delimiters, exception clauses, and
+            // word-form logical / membership operators. `fn` is not
+            // here: `roles/elixir.rs` declares it and `get_keyword_role`
+            // bills it (#1693).
             // (Macro-shaped keywords like `def`/`defp`/`if`/`case`/`cond`
             // are NOT here: they surface as `Identifier` tokens in a
             // `Call`'s `target` field and are counted as operands below.)
-            E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue | E::Fn
+            E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue
             | E::When | E::Not | E::Or | E::And | E::In | E::Notin
             // Structural punctuation acting as operators. Only the
             // *opening* delimiter counts (the pair folds to one glyph in

@@ -181,6 +181,8 @@ impl Checker for KotlinCode {
     // other kind, so nothing splits across the two `n1` maps.
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        // role-bypass: allow(Modifier) — key selection after the row has
+        // classified the node: the one modifier keyed by text
         node.kind_id() == Kotlin::ReificationModifier
     }
 }

@@ -132,6 +132,8 @@ impl Getter for CsharpCode {
         }
     }
 
+    keywords_are_operators!(csharp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Csharp::*;
 
@@ -145,14 +147,12 @@ impl Getter for CsharpCode {
             // Control-flow keywords
             If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
             | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
-            // Declaration / namespace keywords
-            | Class | Struct | Interface | Enum | Record | Delegate | Namespace | Using
-            // Modifiers
-            | Public | Private | Protected | Internal | Static | Abstract | Virtual
-            | Override | Sealed | Partial | Readonly | Const | Extern | Unsafe
-            | Volatile | Async | Required | File | New | Fixed | Implicit | Explicit
-            // Expression-keyword operators
-            | Await | Is | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
+            // Expression-keyword operators. `new` is the allocation
+            // keyword and the hiding modifier in one kind. The
+            // modifiers, the declaration keywords and `predefined_type`
+            // are not here: `roles/csharp.rs` declares them and
+            // `get_keyword_role` bills them (#1693).
+            | New | Await | Is | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
             | Params | Lock | Stackalloc | Where | With | When | Operator
             | Scoped | Not | And | Or
             // Property/event accessor keywords
@@ -169,8 +169,6 @@ impl Getter for CsharpCode {
             | PLUSPLUS | DASHDASH
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
             | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | QMARKQMARKEQ
-            // Predefined / primitive types
-            | PredefinedType
                 => TokenRole::Operator,
             // `boolean_literal: choice('true', 'false')` wraps the
             // keyword leaf, so a literal reaches the walker twice;
@@ -258,39 +256,24 @@ impl Getter for CsharpCode {
     // grammar's `_parameter_type_with_modifiers` rule aliases the bare
     // tokens `this scoped ref out in readonly` to `$.modifier`, so in
     // that one position each is a **childless** `modifier` node rather
-    // than the kind its own arm above lists. Nothing billed them, so an
-    // extension receiver, a `ref` parameter and an `out` parameter each
+    // than the kind its own arm above lists; `_lambda_expression_init`
+    // and `anonymous_method_expression` alias a bare `static` / `async`
+    // the same way (#1482). Nothing billed them, so an extension
+    // receiver, a `ref` parameter and an `out` parameter each
     // contributed to neither Halstead half.
     //
-    // A blanket `Modifier` arm is not available: the `modifier` *rule*
-    // is a wrapper around a `public` / `static` / `async` /
-    // field-`readonly` keyword leaf this match already classifies, so
-    // listing the wrapper too would bill those twice (grammar-dispatch
-    // section 5). The gate is child-presence, which section 6 prescribes
-    // over deleting either side, and which
-    // `csharp_is_aliased_modifier` reads as "aliased bare token" rather
-    // than "parameter modifier" — see its doc for the second alias site.
-    //
-    // `Checker::is_bare_param` deliberately refuses to infer from
-    // `child_count() == 0`, and this is the case that refusal excludes
-    // rather than a contradiction of it: there, childlessness would be
-    // a *guess* that a MISSING or zero-width ERROR node is a real
-    // parameter. Here the grammar aliases a bare token onto this named
-    // kind, so having no children is the shape the alias produces, not
-    // evidence about a broken parse.
-    //
     // The role follows the text, never the position: each keyword keeps
-    // the role its own kind carries elsewhere in this match, so
-    // `M(ref Foo f)` and `f(ref x)` agree, and `this` stays the operand
-    // #1380 made it. That decision's `IndexerDeclaration` carve-out
-    // cannot arise here — an indexer declarator is not a parameter, and
-    // this arm is reached only from `_parameter_type_with_modifiers`.
+    // the role its own kind carries elsewhere, so `M(ref Foo f)` and
+    // `f(ref x)` agree, and `this` stays the operand #1380 made it. The
+    // keyword spellings are the `Modifier` row's text-gated entry in
+    // `roles/csharp.rs` (#1693), which carries the child-presence
+    // argument; this override keeps only the operand half, which no
+    // row expresses. That decision's `IndexerDeclaration` carve-out
+    // cannot arise here — an indexer declarator is not a parameter.
     //
     // Reading the bytes needs this spelling, which is the one the walk
     // calls (`compute_halstead` -> `get_op_type_with_code`), so the
-    // classification reaches every count; `get_op_type` above stays the
-    // byte-less answer for the callers that have no source to offer
-    // (grammar-dispatch section 7).
+    // classification reaches every count (grammar-dispatch section 7).
     //
     // `CsharpCode::is_primitive` routes the operator half through the
     // lexeme-keyed map, because these seven keywords have two kind
@@ -300,24 +283,15 @@ impl Getter for CsharpCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
-        if !crate::checker::csharp_is_aliased_modifier(node) {
-            return keyword_or_op_type::<Self>(node, code, ancestors);
+        // The aliased `this` is the operand `this` is everywhere; the
+        // keyword spellings are the `Modifier` row's text-gated
+        // `Modifier` entry, which `get_keyword_role` bills first, so a
+        // spelling the row does not name falls through here to
+        // `Unknown` — `get_op_type` lists no `Modifier` arm.
+        if csharp_is_aliased_modifier(node) && node_text(code, node) == Some("this") {
+            return TokenRole::Operand;
         }
-        match node_text(code, node) {
-            Some("this") => TokenRole::Operand,
-            // `_lambda_expression_init` and `anonymous_method_expression`
-            // alias a bare `static` / `async` onto `modifier` too, so
-            // `static (int x) => x` arrives here. The declaration spelling
-            // of both keywords is billed as an operator through its leaf,
-            // so the lambda spelling is billed the same way (#1482).
-            Some("ref" | "out" | "in" | "scoped" | "readonly" | "static" | "async") => {
-                TokenRole::Operator
-            }
-            // A grammar bump that adds another aliased spelling lands
-            // here unclassified rather than billed as whichever arm
-            // happened to be last.
-            _ => TokenRole::Unknown,
-        }
+        keyword_or_op_type::<Self>(node, code, ancestors)
     }
 
     fn get_operator_spelling<'a>(

@@ -1072,6 +1072,7 @@ pub(crate) fn cpp_specifier_has_body(node: &Node) -> bool {
 /// [`CsharpCode::is_primitive`]: Checker::is_primitive
 #[must_use]
 pub(crate) fn csharp_is_aliased_modifier(node: &Node) -> bool {
+    // role-bypass: allow(Modifier) — the shape test the row's own text gate is built on
     node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0
 }
 

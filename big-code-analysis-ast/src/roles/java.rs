@@ -1,8 +1,9 @@
 //! Java's role rows: one row of each shape the macro accepts, so the
 //! shapes are proven against a real grammar before any consumer reads
-//! them (#1691). The membership below restates what `checker/java.rs`,
-//! `getter/java.rs` and the root crate's per-language Java dispatch arms
-//! currently hold; those stay the live classifiers until #1693 onward.
+//! them (#1691). The Halstead keyword rows are read by `getter/java.rs`
+//! (#1693); the rest restate what `checker/java.rs`, `getter/java.rs`
+//! and the root crate's per-language Java dispatch arms currently hold,
+//! and those stay the live classifiers until their package lands.
 
 use crate::checker::java_anonymous_class_body;
 use crate::role_table;
@@ -37,6 +38,33 @@ fn under_binary_expression<'a>(
 /// makes it an anonymous class rather than a plain `new Foo()` (#463).
 fn has_class_body<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     java_anonymous_class_body(node).is_some()
+}
+
+/// Whether a `static` qualifies a declaration rather than a directive:
+/// the `static` of `import static` and `requires static` bills nothing,
+/// because its own keyword — `import`, `requires` — bills nothing here.
+/// Java and Groovy bill no directive keyword at all (`package`,
+/// `import`, `module`, `requires`, `exports`, `transitive`), measured
+/// on a fixture of each; C# bills `using` and so `using static` in
+/// full. The two readings are each consistent and #1600 keeps both,
+/// recording C# as the outlier in the book's Halstead rules: dropping
+/// this guard would bill one directive word and no other.
+fn not_in_a_directive<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    !ancestors.parent(node).is_some_and(|p| {
+        matches!(
+            p.kind_id().into(),
+            Java::ImportDeclaration | Java::RequiresModifier
+        )
+    })
+}
+
+/// Whether a `class` keyword declares a class rather than ending a
+/// class literal (`C.class`), where it is the operand the `.` acts on:
+/// JLS §15.8.2 makes the literal a primary expression, not a literal
+/// (§3.10), so its parts bill as they would anywhere else, as Kotlin's
+/// and PHP's `Foo::class` and Groovy's `Foo.class` bill theirs (#1566).
+fn not_a_class_literal<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    !ancestors.parent_has_kind(node, Java::ClassLiteral as u16)
 }
 
 role_table! {
@@ -153,9 +181,31 @@ role_table! {
     Loop { pending R07 }
     Catch { pending R07 }
     ElseIf { pending R07 }
-    Modifier { pending R03 }
-    DeclKeyword { pending R03 }
-    Primitive { pending R03 }
+    // Every modifier, billed as C# and Kotlin bill theirs (#1565). Each
+    // is its keyword leaf, one kind apiece; the `modifiers` wrapper
+    // stays unlisted, so a modifier bills once and an annotation inside
+    // it adds only its own tokens. `default` is not here: it is one
+    // kind for a `switch` label and an interface method's modifier, and
+    // bills with the control keywords. `sealed` and `permits`
+    // (`Permits2`; `Permits` is the clause) are contextual, and the
+    // grammar parses each used as a name (`var sealed = 1`,
+    // `int permits`) as an `identifier`, so they need no gate.
+    Modifier {
+        owns [
+            Public, Private, Protected, Static(gated_by not_in_a_directive), Abstract, Final,
+            Native, Strictfp, Synchronized, Transient, Volatile, Sealed, NonDASHsealed, Permits2,
+        ]
+    }
+    // The type-declaration keywords, billed as C# bills its own
+    // (#1552). Only the leaves: no `*_declaration` wrapper is listed, so
+    // a declaration bills its keyword once.
+    DeclKeyword {
+        owns [Class(gated_by not_a_class_literal), Interface, Enum, Record, ATinterface]
+    }
+    // Each primitive is a kind of its own (`int`, `boolean_type`, …), so
+    // none is keyed by text and `Checker::is_primitive` stays the
+    // default. `void` bills with them.
+    Primitive { owns [Byte, Short, Int, Long, Char, Float, Double, BooleanType, VoidType] }
     Member { pending R06 }
     Comment { pending R09 }
     DocComment { pending R09 }

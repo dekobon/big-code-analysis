@@ -1,6 +1,7 @@
-//! Tcl's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Tcl's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
+use crate::Tcl;
 use crate::role_table;
 
 role_table! {
@@ -21,7 +22,11 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     Modifier { absent "Tcl has no modifier keywords" }
-    DeclKeyword { pending R03 }
+    // `proc` and `namespace` as keyword tokens (`Namespace2`; the
+    // unsuffixed `Namespace` is the command node). `set` and `global`
+    // declare a variable, as `local` does in Bash; `Set2` / `Global2`
+    // are the keyword kinds.
+    DeclKeyword { owns [Proc, Namespace2, Set2, Global2] }
     Primitive { absent "Tcl has no type names" }
     FuncOpener { pending R06 }
     Closure { pending R06 }

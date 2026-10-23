@@ -227,7 +227,7 @@ value = 584.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1411.0
+value = 1412.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -245,37 +245,37 @@ value = 48814.4893649235
 path = "big-code-analysis-ast/src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 57299.9090179332
+value = 53908.30132600384
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 76840.62078430264
+value = 76163.33479442904
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
-value = 51477.285144213616
+value = 48556.8881128996
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 131000.62269483795
+value = 126064.0172578382
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 92711.94569253008
+value = 87140.52449699795
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 120642.89096069236
+value = 117042.31541645825
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"

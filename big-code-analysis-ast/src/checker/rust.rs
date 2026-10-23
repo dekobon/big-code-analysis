@@ -183,28 +183,12 @@ impl Checker for RustCode {
     // `if_statement`) sitting directly inside the `else_clause`.
     impl_is_else_if_parent_clause!(Rust, IfExpression, ElseClause);
 
+    // Every kind the `Primitive` row owns is one `primitive_type` alias
+    // keyed by text, so the row's own test is the key selection; the
+    // seventeen aliases are listed once, in `roles/rust.rs` (#1693).
     #[inline]
     fn is_primitive(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Rust::PrimitiveType
-                | Rust::PrimitiveType2
-                | Rust::PrimitiveType3
-                | Rust::PrimitiveType4
-                | Rust::PrimitiveType5
-                | Rust::PrimitiveType6
-                | Rust::PrimitiveType7
-                | Rust::PrimitiveType8
-                | Rust::PrimitiveType9
-                | Rust::PrimitiveType10
-                | Rust::PrimitiveType11
-                | Rust::PrimitiveType12
-                | Rust::PrimitiveType13
-                | Rust::PrimitiveType14
-                | Rust::PrimitiveType15
-                | Rust::PrimitiveType16
-                | Rust::PrimitiveType17
-        )
+        crate::roles::rust::primitive::OWNERS.contains(&node.kind_id())
     }
 
     /// Skip the subtree when `node` is a `mod`, `fn`, `impl`,

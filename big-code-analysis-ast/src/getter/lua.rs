@@ -15,9 +15,13 @@ impl Getter for LuaCode {
         }
     }
 
+    keywords_are_operators!(lua);
+
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
-            // Control-flow and declaration keywords
+            // Control-flow keywords. `local` and `function` are not
+            // here: `roles/lua.rs` declares them and `get_keyword_role`
+            // bills them (#1693).
             Lua::If
             | Lua::Then
             | Lua::Else
@@ -31,8 +35,6 @@ impl Getter for LuaCode {
             | Lua::Until
             | Lua::Return
             | Lua::Goto
-            | Lua::Local
-            | Lua::Function
             // Logical operators (keywords in Lua)
             | Lua::And
             | Lua::Or

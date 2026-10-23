@@ -65,7 +65,11 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Modifier { absent "Python has no modifier keywords" }
-    DeclKeyword { pending R03 }
+    // `def` and `class` (#1550), the leaves of `function_definition` /
+    // `class_definition`, neither listed, and `lambda`'s keyword token
+    // `Lambda3` (#413): `Lambda` / `Lambda2` are the expression nodes
+    // that wrap it and bill nothing, so the leaf is one operator.
+    DeclKeyword { owns [Def, Class, Lambda3] }
     Primitive { absent "Python's built-in types are ordinary identifiers" }
     Member { pending R06 }
     Comment { pending R09 }

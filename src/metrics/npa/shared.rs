@@ -59,6 +59,7 @@ pub(crate) fn groovy_has_explicit_public(declaration: &Node) -> bool {
 // one did arrive.
 pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
     declaration.children().any(|child| {
+        // role-bypass: allow(Modifier) — which modifier, not whether the node is one
         matches!(child.kind_id().into(), Csharp::Modifier)
             && child.first_child(|id| id == Csharp::Public).is_some()
     })
@@ -70,6 +71,7 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
 // npm accessor gate (`csharp_member_public_method_count`).
 pub(crate) fn csharp_node_has_private_or_protected_modifier(node: &Node) -> bool {
     node.children().any(|child| {
+        // role-bypass: allow(Modifier) — which modifier, not whether the node is one
         matches!(child.kind_id().into(), Csharp::Modifier)
             && child
                 .first_child(|id| id == Csharp::Private || id == Csharp::Protected)
@@ -731,6 +733,7 @@ pub(crate) fn kotlin_is_public(decl: &Node) -> bool {
     // an explicit `public` both mean public.
     visibility
         .first_child(|id| {
+            // role-bypass: allow(Modifier) — which visibility, not whether the token is a modifier
             matches!(
                 id.into(),
                 Kotlin::Private | Kotlin::Protected | Kotlin::Internal
