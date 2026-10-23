@@ -143,7 +143,7 @@ impl Getter for ElixirCode {
         Some("<anonymous>")
     }
 
-    keywords_are_operators!(elixir);
+    keyword_roles!(elixir);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Elixir as E;

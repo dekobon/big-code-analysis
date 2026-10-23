@@ -132,7 +132,7 @@ impl Getter for CsharpCode {
         }
     }
 
-    keywords_are_operators!(csharp);
+    keyword_roles!(csharp);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Csharp::*;

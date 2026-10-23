@@ -553,19 +553,17 @@ macro_rules! role_table {
     //     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
     //         $crate::role_table!(@owners $cont [$($acc)* Static, Extern,] $($rest)*);
     //     };
-    //     (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-    //         $crate::role_table!(@opens_owners $ctx [$($acc)* Static, Extern,] $($rest)*);
-    //     };
     // }
     // ```
     //
-    // The two arms carry the same list once each (one for the row, one
-    // for the `opens_space` fold). Nothing compiled compares them —
-    // `OWNERS` comes from the first and `opens_space` from the second
-    // — so `utils/role_tables.py` reads both and fails on a difference,
-    // and the differential test holds the compiled row to the first. A
-    // fragment contributes kinds only; a dialect-specific gate stays on
-    // the dialect's row, beside its reason.
+    // The same walk serves the row and the `opens_space` fold: the two
+    // continuations differ in shape (`[lang role mode { tail }]` against
+    // `[lang kind node code ancestors]`), so the walk's two terminal
+    // arms tell them apart and a fragment carries its list once.
+    // `utils/role_tables.py` reads that one arm, and the differential
+    // test holds the compiled row to it. A fragment contributes kinds
+    // only; a dialect-specific gate stays on the dialect's row, beside
+    // its reason.
 
     (@splice $lang:ident $role:ident $mode:tt [$($acc:tt)*] [ $($entries:tt)* ] $tail:tt) => {
         $crate::role_table!(@owners [$lang $role $mode $tail] [$($acc)*] $($entries)*);
@@ -578,6 +576,12 @@ macro_rules! role_table {
     };
     (@owners [$lang:ident $role:ident $mode:tt { $($tail:tt)* }] [$($acc:tt)*]) => {
         $crate::role_table!(@row_body $lang $role $mode { owns [ $($acc)* ] $($tail)* });
+    };
+    (@owners [$l:ident $k:ident $n:ident $c:ident $a:ident]
+        [ $($owner:ident $(( $($owner_attr:tt)* ))?,)* ]) => {
+        $( $crate::role_table!(
+            @scan opens_done [] [$l $k $n $c $a] $owner [] [] [] $($($owner_attr)*)?
+        ); )*
     };
     (@row_body $lang:ident $role:ident [$mode:ident] {
         owns [ $($owner:ident $(( $($owner_attr:tt)* ))?),* $(,)? ]
@@ -796,22 +800,8 @@ macro_rules! role_table {
 
     (@opens $ctx:tt { absent $why:literal }) => {};
     (@opens $ctx:tt { pending $package:ident }) => {};
-    (@opens $ctx:tt { owns $owners:tt $($r:tt)* }) => {
-        $crate::role_table!(@opens_splice $ctx [] $owners);
-    };
-    (@opens_splice $ctx:tt [$($acc:tt)*] [ $($entries:tt)* ]) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)*] $($entries)*);
-    };
-    (@opens_owners $ctx:tt [$($acc:tt)*] ..$frag:ident!() $(, $($rest:tt)*)?) => {
-        $frag!(@opens_splice $ctx [$($acc)*] $($($rest)*)?);
-    };
-    (@opens_owners $ctx:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)* $k $(( $($attr)* ))?,] $($($rest)*)?);
-    };
-    (@opens_owners $ctx:tt [ $($owner:ident $(( $($owner_attr:tt)* ))?,)* ]) => {
-        $( $crate::role_table!(
-            @scan opens_done [] $ctx $owner [] [] [] $($($owner_attr)*)?
-        ); )*
+    (@opens $ctx:tt { owns [ $($entries:tt)* ] $($r:tt)* }) => {
+        $crate::role_table!(@owners $ctx [] $($entries)*);
     };
 
     // ---- the emitted clauses ----------------------------------------------
@@ -1021,12 +1011,6 @@ mod tests {
             (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
                 $crate::role_table!(
                     @owners $cont [$($acc)* MethodDeclaration(opens Function), ConstructorDeclaration(opens Function),]
-                    $($rest)*
-                );
-            };
-            (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-                $crate::role_table!(
-                    @opens_owners $ctx [$($acc)* MethodDeclaration(opens Function), ConstructorDeclaration(opens Function),]
                     $($rest)*
                 );
             };

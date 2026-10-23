@@ -18,7 +18,7 @@ impl Getter for RubyCode {
         }
     }
 
-    keywords_are_operators!(ruby);
+    keyword_roles!(ruby);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Ruby as R;

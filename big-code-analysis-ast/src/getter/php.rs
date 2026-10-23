@@ -31,23 +31,7 @@ impl Getter for PhpCode {
     // PHP bills a primitive type as an operand (#1293): the row says
     // which nodes name a type, and this says what Halstead makes of
     // one here, where the C family, Java and TypeScript say operator.
-    fn get_keyword_role<'a>(
-        node: &Node<'a>,
-        code: &[u8],
-        ancestors: Ancestors<'a, '_>,
-    ) -> TokenRole {
-        use crate::roles::php::{decl_keyword, modifier, primitive};
-        let kind = node.kind_id();
-        if modifier::pays_at_leaf_kind(kind, node, code, ancestors)
-            || decl_keyword::pays_at_leaf_kind(kind, node, code, ancestors)
-        {
-            TokenRole::Operator
-        } else if primitive::pays_at_leaf_kind(kind, node, code, ancestors) {
-            TokenRole::Operand
-        } else {
-            TokenRole::Unknown
-        }
-    }
+    keyword_roles!(php, primitive: Operand);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Php::*;

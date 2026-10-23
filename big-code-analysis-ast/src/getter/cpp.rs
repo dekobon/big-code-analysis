@@ -86,7 +86,7 @@ impl Getter for CppCode {
         }
     }
 
-    keywords_are_operators!(cpp);
+    keyword_roles!(cpp);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Cpp::*;

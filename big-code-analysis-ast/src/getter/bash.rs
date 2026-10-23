@@ -31,7 +31,7 @@ impl Getter for BashCode {
         }
     }
 
-    keywords_are_operators!(bash);
+    keyword_roles!(bash);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {

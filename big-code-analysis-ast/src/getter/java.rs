@@ -87,7 +87,7 @@ impl Getter for JavaCode {
         }
     }
 
-    keywords_are_operators!(java);
+    keyword_roles!(java);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;

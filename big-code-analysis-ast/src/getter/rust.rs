@@ -54,7 +54,7 @@ impl Getter for RustCode {
         }
     }
 
-    keywords_are_operators!(rust);
+    keyword_roles!(rust);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Rust::*;

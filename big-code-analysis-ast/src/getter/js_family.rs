@@ -126,7 +126,7 @@ macro_rules! impl_js_family_get_op_type {
         $(, generic_angles: $generic_angles:ident)?
         $(, jsx: [$jsx_text:ident, $jsx_entity:ident])? $(,)?
     ) => {
-        keywords_are_operators!($roles);
+        keyword_roles!($roles);
 
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;

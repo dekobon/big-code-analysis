@@ -105,7 +105,7 @@ impl Getter for ObjcCode {
         }
     }
 
-    keywords_are_operators!(objc);
+    keyword_roles!(objc);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Objc::*;

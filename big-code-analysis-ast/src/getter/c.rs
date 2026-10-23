@@ -50,7 +50,7 @@ impl Getter for CCode {
         }
     }
 
-    keywords_are_operators!(c);
+    keyword_roles!(c);
 
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use C::*;

@@ -100,9 +100,6 @@ macro_rules! jvm_calls {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)* MethodInvocation, ExplicitConstructorInvocation(gated_by in_body),] $($rest)*);
     };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)* MethodInvocation, ExplicitConstructorInvocation(gated_by in_body),] $($rest)*);
-    };
 }
 """
 
@@ -335,25 +332,6 @@ class CensusTests(unittest.TestCase):
         code, out = self.t.run()
         self.assertEqual(code, 1)
         self.assertIn("fragment `jvm_calls` is defined twice", out)
-
-    def test_a_fragment_whose_two_arms_disagree_is_an_error(self) -> None:
-        # The compiled crate reads the row arm and the opens arm
-        # independently and compares neither to the other; the reader is
-        # the only place the two lists meet.
-        (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS.replace("@opens_owners $ctx [$($acc)* MethodInvocation, ", "@opens_owners $ctx [$($acc)* "))
-        self.t.write("java", JAVA_FULL)
-        self.t.write("python", PY_FULL)
-        code, out = self.t.run()
-        self.assertEqual(code, 1)
-        self.assertIn("fragment `jvm_calls` spells different kinds in its two arms", out)
-
-    def test_a_fragment_missing_its_opens_arm_is_an_error(self) -> None:
-        (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS[: FRAGMENT_RS.index("    (@opens_splice")] + "}\n")
-        self.t.write("java", JAVA_FULL)
-        self.t.write("python", PY_FULL)
-        code, out = self.t.run()
-        self.assertEqual(code, 1)
-        self.assertIn("has a `@splice` arm and no `@opens_splice` arm", out)
 
     def test_a_fragment_inside_a_test_module_is_not_visible_to_a_row(self) -> None:
         # rustc rejects a production row splicing a `#[cfg(test)]`

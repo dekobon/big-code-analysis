@@ -19,7 +19,7 @@ impl Getter for IrulesCode {
         }
     }
 
-    keywords_are_operators!(irules);
+    keyword_roles!(irules);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {

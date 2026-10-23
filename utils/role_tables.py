@@ -411,25 +411,18 @@ def _split_list(text: str) -> list[str]:
 
 
 FRAGMENT_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
-# The two arms of a fragment, each carrying the kind list once: the row
-# arm feeds `OWNERS` and the compiled predicates, the opens arm feeds
-# `opens_space`. Nothing in the compiled crate compares the two, so the
-# reader does.
-FRAGMENT_ROW_ARM_RE = re.compile(
+# A fragment's one arm, carrying its kind list in the accumulator append.
+FRAGMENT_ARM_RE = re.compile(
     r"\(@splice\s+\$cont:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
     r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
     re.S,
 )
-FRAGMENT_OPENS_ARM_RE = re.compile(
-    r"\(@opens_splice\s+\$ctx:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
-    r"\$crate::role_table!\(\s*@opens_owners\s+\$ctx\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
-    re.S,
-)
-
-
 TEST_MOD_RE = re.compile(
     r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+" + IDENT + r"\s*\{"
 )
+
+# ``name → (entries, file, line)`` for every shared kind fragment.
+Fragments = dict[str, tuple[list[str], pathlib.Path, int]]
 
 
 def _test_module_spans(masked: str) -> list[tuple[int, int]]:
@@ -438,15 +431,13 @@ def _test_module_spans(masked: str) -> list[tuple[int, int]]:
     return [(m.start(), _balanced(masked, m.end() - 1)) for m in TEST_MOD_RE.finditer(masked)]
 
 
-def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, int]]:
-    """Every shared kind fragment in ``paths``: ``name → (entry list
-    text, file, line)``. A fragment is a `macro_rules!` with a `@splice`
-    arm; it must also carry the `@opens_splice` arm with the same
-    entries, since the compiled crate reads the two independently and
-    holds neither to the other. One inside a ``#[cfg(test)]`` module is
-    skipped: rustc would reject a production row that spliced it, and
-    the reader must not accept what the compiler does not."""
-    out: dict[str, tuple[str, pathlib.Path, int]] = {}
+def fragments(paths: list[pathlib.Path]) -> Fragments:
+    """Every shared kind fragment in ``paths``: a `macro_rules!` with a
+    `@splice` arm, read from that arm's accumulator append — the one
+    place a fragment spells its kinds. One inside a ``#[cfg(test)]``
+    module is skipped: rustc would reject a production row that spliced
+    it, and the reader must not accept what the compiler does not."""
+    out: Fragments = {}
     for path in paths:
         source = path.read_text(encoding="utf-8")
         masked = mask_dead(source)
@@ -455,30 +446,19 @@ def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, i
             if any(s <= m.start() < e for s, e in test_spans):
                 continue
             body = masked[m.end() : _balanced(masked, m.end() - 1)]
-            rm = FRAGMENT_ROW_ARM_RE.search(body)
-            if not rm:
+            am = FRAGMENT_ARM_RE.search(body)
+            if not am:
                 continue
             name = m.group(1)
-            line = _line_of(source, m.start())
             if name in out:
-                raise RoleTableError(f"{path}: fragment `{name}` is defined twice (first in {out[name][1]})")
-            om = FRAGMENT_OPENS_ARM_RE.search(body)
-            if not om:
                 raise RoleTableError(
-                    f"{path}:{line}: fragment `{name}` has a `@splice` arm and no `@opens_splice` arm"
+                    f"{path}: fragment `{name}` is defined twice (first in {out[name][1]})"
                 )
-            row_entries = [e.strip() for e in _split_list(rm.group(1))]
-            opens_entries = [e.strip() for e in _split_list(om.group(1))]
-            if row_entries != opens_entries:
-                raise RoleTableError(
-                    f"{path}:{line}: fragment `{name}` spells different kinds in its two arms: "
-                    f"`@splice` has {row_entries}, `@opens_splice` has {opens_entries}"
-                )
-            out[name] = (rm.group(1), path, line)
+            out[name] = (_split_list(am.group(1)), path, _line_of(source, m.start()))
     return out
 
 
-def _expand_fragments(entries: list[str], frags: dict[str, tuple[str, pathlib.Path, int]], line: int, path: pathlib.Path) -> list[str]:
+def _expand_fragments(entries: list[str], frags: Fragments, line: int, path: pathlib.Path) -> list[str]:
     """``..name!()`` entries replaced by the fragment's own entries."""
     out: list[str] = []
     for e in entries:
@@ -488,8 +468,11 @@ def _expand_fragments(entries: list[str], frags: dict[str, tuple[str, pathlib.Pa
             continue
         name = fm.group(1)
         if name not in frags:
-            raise RoleTableError(f"{path}:{line}: `..{name}!()` names no fragment the reader knows; fragments are `macro_rules!` with an `@splice` arm in the roles directory")
-        out.extend(_split_list(frags[name][0]))
+            raise RoleTableError(
+                f"{path}:{line}: `..{name}!()` names no fragment the reader knows; fragments are "
+                "`macro_rules!` with an `@splice` arm in the roles directory"
+            )
+        out.extend(frags[name][0])
     return out
 
 
@@ -501,7 +484,7 @@ def _parse_row_body(
     body_start: int,
     body_end: int,
     path: pathlib.Path,
-    frags: dict[str, tuple[str, pathlib.Path, int]] | None = None,
+    frags: Fragments,
 ) -> Row:
     line = _line_of(source, body_start)
     body = masked[body_start:body_end]
@@ -545,7 +528,8 @@ def _parse_row_body(
             f"{path}:{line}: `{role}`: expected `owns [..]`, `absent \"..\"` or `pending Rnn`"
         )
     row.owners = [
-        _parse_owner(e, line, path) for e in _expand_fragments(_split_list(owns[0]), frags or {}, line, path)
+        _parse_owner(e, line, path)
+        for e in _expand_fragments(_split_list(owns[0]), frags, line, path)
     ]
     if re.match(r"\s*pays\s+never\b", body[pos:]):
         pos += re.match(r"\s*pays\s+never\b", body[pos:]).end()
@@ -594,7 +578,7 @@ def _parse_row_body(
     return row
 
 
-def parse_table(path: pathlib.Path, frags: dict[str, tuple[str, pathlib.Path, int]] | None = None) -> Table:
+def parse_table(path: pathlib.Path, frags: Fragments | None = None) -> Table:
     """The one ``role_table!`` invocation in ``path``. ``frags`` are the
     shared kind fragments its rows may splice; by default every
     fragment defined in the file's own directory."""

@@ -41,7 +41,7 @@ impl Getter for PythonCode {
         }
     }
 
-    keywords_are_operators!(python);
+    keyword_roles!(python);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Python::*;

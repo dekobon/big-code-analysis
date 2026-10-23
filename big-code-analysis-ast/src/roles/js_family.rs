@@ -18,9 +18,6 @@ macro_rules! js_family_modifiers {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)* Static,] $($rest)*);
     };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)* Static,] $($rest)*);
-    };
 }
 
 /// The declaration keywords every JS grammar has: `function` and
@@ -35,11 +32,6 @@ macro_rules! js_family_modifiers {
 macro_rules! js_family_decl_keywords {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)* Function, Class2, Let, Var, Const,] $($rest)*);
-    };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(
-            @opens_owners $ctx [$($acc)* Function, Class2, Let, Var, Const,] $($rest)*
-        );
     };
 }
 

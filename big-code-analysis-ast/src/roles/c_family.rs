@@ -44,13 +44,6 @@ macro_rules! c_family_modifiers {
             Noreturn, Noreturn2, Nonnull, Alignas, Alignas2, Extension,
         ] $($rest)*);
     };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)*
-            Static, Extern, Register, Inline, Inline2, Inline3, Forceinline, ThreadLocal,
-            Thread, Const, Constexpr, Volatile, Volatile2, Restrict, Restrict2, Atomic,
-            Noreturn, Noreturn2, Nonnull, Alignas, Alignas2, Extension,
-        ] $($rest)*);
-    };
 }
 
 /// The type-declaration keywords every dialect bills: `struct`, `union`
@@ -62,9 +55,6 @@ macro_rules! c_family_modifiers {
 macro_rules! c_family_decl_keywords {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)* Struct, Union, Enum, Typedef,] $($rest)*);
-    };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)* Struct, Union, Enum, Typedef,] $($rest)*);
     };
 }
 
@@ -82,11 +72,6 @@ macro_rules! c_family_decl_keywords {
 macro_rules! c_family_primitives {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
-            PrimitiveType, TypeSpecifier, Signed, Unsigned, Long, Short,
-        ] $($rest)*);
-    };
-    (@opens_splice $ctx:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@opens_owners $ctx [$($acc)*
             PrimitiveType, TypeSpecifier, Signed, Unsigned, Long, Short,
         ] $($rest)*);
     };

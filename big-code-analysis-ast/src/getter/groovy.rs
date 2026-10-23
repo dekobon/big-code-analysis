@@ -97,7 +97,7 @@ impl Getter for GroovyCode {
         }
     }
 
-    keywords_are_operators!(groovy);
+    keyword_roles!(groovy);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;

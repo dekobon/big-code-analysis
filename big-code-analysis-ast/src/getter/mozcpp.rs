@@ -84,7 +84,7 @@ impl Getter for MozcppCode {
         }
     }
 
-    keywords_are_operators!(mozcpp);
+    keyword_roles!(mozcpp);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Mozcpp::*;

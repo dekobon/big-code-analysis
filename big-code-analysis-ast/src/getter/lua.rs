@@ -15,7 +15,7 @@ impl Getter for LuaCode {
         }
     }
 
-    keywords_are_operators!(lua);
+    keyword_roles!(lua);
 
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {

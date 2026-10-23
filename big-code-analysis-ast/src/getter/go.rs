@@ -16,7 +16,7 @@ impl Getter for GoCode {
         }
     }
 
-    keywords_are_operators!(go);
+    keyword_roles!(go);
 
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Go as G;

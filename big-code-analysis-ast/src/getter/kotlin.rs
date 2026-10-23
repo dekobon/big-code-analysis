@@ -223,7 +223,7 @@ impl Getter for KotlinCode {
         }
     }
 
-    keywords_are_operators!(kotlin);
+    keyword_roles!(kotlin);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Kotlin::*;

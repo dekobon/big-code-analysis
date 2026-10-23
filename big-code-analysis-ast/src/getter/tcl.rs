@@ -14,7 +14,7 @@ impl Getter for TclCode {
         }
     }
 
-    keywords_are_operators!(tcl);
+    keyword_roles!(tcl);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {

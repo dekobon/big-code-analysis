@@ -68,12 +68,17 @@ macro_rules! get_operator {
     };
 }
 
-/// Emits a [`Getter::get_keyword_role`] that bills every keyword the
-/// language's `Modifier`, `DeclKeyword` and `Primitive` rows declare as
-/// an operator — the C-family, Java and TypeScript reading of a
-/// keyword. Takes the language's module under `crate::roles`.
-macro_rules! keywords_are_operators {
+/// Emits a [`Getter::get_keyword_role`] from the language's `Modifier`,
+/// `DeclKeyword` and `Primitive` rows. A modifier or declaration
+/// keyword is an operator everywhere; a primitive is the operator the
+/// C family, Java and TypeScript make it unless the invocation says
+/// `primitive: Operand`, the PHP reading. Takes the language's module
+/// under `crate::roles`.
+macro_rules! keyword_roles {
     ($roles:ident) => {
+        keyword_roles!($roles, primitive: Operator);
+    };
+    ($roles:ident, primitive: $primitive_role:ident) => {
         #[inline]
         fn get_keyword_role<'a>(
             node: &Node<'a>,
@@ -84,9 +89,10 @@ macro_rules! keywords_are_operators {
             let kind = node.kind_id();
             if modifier::pays_at_leaf_kind(kind, node, code, ancestors)
                 || decl_keyword::pays_at_leaf_kind(kind, node, code, ancestors)
-                || primitive::pays_at_leaf_kind(kind, node, code, ancestors)
             {
                 TokenRole::Operator
+            } else if primitive::pays_at_leaf_kind(kind, node, code, ancestors) {
+                TokenRole::$primitive_role
             } else {
                 TokenRole::Unknown
             }

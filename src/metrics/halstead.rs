@@ -525,6 +525,7 @@ mod tests {
     /// merged vocabulary, with every nested space still reachable
     /// through [`crate::ops::Ops::spaces`].
     #[cfg(any(
+        feature = "bash",
         feature = "c",
         feature = "cpp",
         feature = "csharp",
@@ -539,6 +540,7 @@ mod tests {
         feature = "perl",
         feature = "php",
         feature = "ruby",
+        feature = "rust",
         feature = "tcl",
         feature = "typescript",
     ))]
@@ -627,21 +629,26 @@ mod tests {
     /// Asserts `keyword` reaches exactly the vocabulary `want` names in
     /// `ops`'s root space. The one check behind
     /// `assert_keywords_are_operands_only` and
-    /// `assert_modifier_spellings_bill`, which walk the same two
+    /// `assert_spellings_bill_as_operators`, which walk the same two
     /// vocabularies from opposite sides (#1598): a keyword in both is
     /// billed twice, and one in neither is dropped, so each side's
     /// absence is as load-bearing as the other's presence.
     #[cfg(any(
+        feature = "bash",
         feature = "c",
         feature = "cpp",
         feature = "csharp",
         feature = "groovy",
+        feature = "irules",
         feature = "java",
         feature = "kotlin",
         feature = "mozcpp",
         feature = "objc",
         feature = "php",
-        feature = "typescript"
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
     ))]
     #[track_caller]
     fn assert_keyword_role(ops: &crate::ops::Ops, file: &str, keyword: &str, want: Role) {
@@ -666,15 +673,20 @@ mod tests {
         /// `keyword`'s role in `ops`'s own vocabularies, `None` where it
         /// reaches neither.
         #[cfg(any(
+            feature = "bash",
             feature = "c",
             feature = "cpp",
             feature = "csharp",
             feature = "groovy",
+            feature = "irules",
             feature = "java",
             feature = "kotlin",
             feature = "mozcpp",
             feature = "objc",
             feature = "php",
+            feature = "ruby",
+            feature = "rust",
+            feature = "tcl",
             feature = "typescript",
         ))]
         fn of(ops: &crate::ops::Ops, keyword: &str) -> Option<Self> {
@@ -7220,13 +7232,29 @@ end",
         assert_keywords_are_operands_only::<MozcppParser>(NAMES, "foo.cpp", &["override", "final"]);
     }
 
-    /// #1578: every modifier spelling the arms list bills under its own
-    /// name, one fixture line apiece, so dropping any one kind from an
-    /// arm fails its own entry. The row tests above pin the counts; this
-    /// one pins the spellings they leave out.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    /// Every `(spelling, source)` row bills its spelling as an operator
+    /// and nowhere as an operand, one fixture line apiece, so dropping
+    /// any one kind from a role row fails its own entry (#1578). The
+    /// count tests pin the totals; this pins the spellings they leave
+    /// out.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "php",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl"
+    ))]
     #[track_caller]
-    fn assert_modifier_spellings_bill<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str)]) {
+    fn assert_spellings_bill_as_operators<T: crate::MetricSuite>(
+        file: &str,
+        rows: &[(&str, &str)],
+    ) {
         for (spelling, source) in rows {
             let ops = ops_of::<T>(source, file);
             assert_keyword_role(&ops, file, spelling, Role::OperatorOnly);
@@ -7270,9 +7298,9 @@ end",
     #[cfg(feature = "c")]
     #[test]
     fn c_modifier_spellings_bill_1578() {
-        assert_modifier_spellings_bill::<CParser>("foo.c", C_FAMILY_MODIFIER_SPELLINGS);
+        assert_spellings_bill_as_operators::<CParser>("foo.c", C_FAMILY_MODIFIER_SPELLINGS);
         // C's storage class `auto`; C++ has none (see the Cpp arm).
-        assert_modifier_spellings_bill::<CParser>("foo.c", &[("auto", "auto int a;\n")]);
+        assert_spellings_bill_as_operators::<CParser>("foo.c", &[("auto", "auto int a;\n")]);
     }
 
     #[cfg(all(feature = "cpp", feature = "mozcpp"))]
@@ -7293,8 +7321,8 @@ end",
             ("noexcept", "void f() noexcept;\n"),
         ];
         for rows in [C_FAMILY_MODIFIER_SPELLINGS, CPP_ONLY] {
-            assert_modifier_spellings_bill::<CppParser>("foo.cpp", rows);
-            assert_modifier_spellings_bill::<MozcppParser>("foo.cpp", rows);
+            assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
+            assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
         }
     }
 
@@ -7476,8 +7504,8 @@ end",
                 "@interface C\n@property (setter=sY:) id y;\n@end\n",
             ),
         ];
-        assert_modifier_spellings_bill::<ObjcParser>("foo.m", C_FAMILY_MODIFIER_SPELLINGS);
-        assert_modifier_spellings_bill::<ObjcParser>("foo.m", OBJC_ONLY);
+        assert_spellings_bill_as_operators::<ObjcParser>("foo.m", C_FAMILY_MODIFIER_SPELLINGS);
+        assert_spellings_bill_as_operators::<ObjcParser>("foo.m", OBJC_ONLY);
     }
 
     /// #1579: the plain-word modifiers stay operands where they name a
@@ -10673,69 +10701,44 @@ f() {
     ))]
     #[test]
     fn every_row_kind_without_another_fixture_bills() {
-        for (spelling, source) in [
-            ("declare", "declare -i n=1\n"),
-            ("typeset", "typeset -r m=2\n"),
-            ("readonly", "readonly k=3\n"),
-        ] {
-            assert_keyword_role(
-                &ops_of::<BashParser>(source, "a.sh"),
-                "a.sh",
-                spelling,
-                Role::OperatorOnly,
-            );
-        }
-        assert_keyword_role(
-            &ops_of::<RubyParser>("undef foo\n", "a.rb"),
-            "a.rb",
-            "undef",
-            Role::OperatorOnly,
+        assert_spellings_bill_as_operators::<BashParser>(
+            "a.sh",
+            &[
+                ("declare", "declare -i n=1\n"),
+                ("typeset", "typeset -r m=2\n"),
+                ("readonly", "readonly k=3\n"),
+            ],
         );
-        for (spelling, source) in [
-            ("dyn", "fn f(x: &dyn T) {}\n"),
-            ("async", "async fn g() {}\n"),
-        ] {
-            assert_keyword_role(
-                &ops_of::<RustParser>(source, "a.rs"),
-                "a.rs",
-                spelling,
-                Role::OperatorOnly,
-            );
-        }
-        for (spelling, source) in [
-            ("global", "<?php function f() { global $x; }\n"),
-            ("var_modifier", "<?php class C { var $v; }\n"),
-        ] {
-            assert_keyword_role(
-                &ops_of::<PhpParser>(source, "a.php"),
-                "a.php",
-                spelling,
-                Role::OperatorOnly,
-            );
-        }
-        assert_keyword_role(
-            &ops_of::<TclParser>("proc f {} { global g }\n", "a.tcl"),
+        assert_spellings_bill_as_operators::<RubyParser>("a.rb", &[("undef", "undef foo\n")]);
+        assert_spellings_bill_as_operators::<RustParser>(
+            "a.rs",
+            &[
+                ("dyn", "fn f(x: &dyn T) {}\n"),
+                ("async", "async fn g() {}\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<PhpParser>(
+            "a.php",
+            &[
+                ("global", "<?php function f() { global $x; }\n"),
+                ("var_modifier", "<?php class C { var $v; }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<TclParser>(
             "a.tcl",
-            "global",
-            Role::OperatorOnly,
+            &[("global", "proc f {} { global g }\n")],
         );
-        assert_keyword_role(
-            &ops_of::<IrulesParser>("proc f {} { global g }\n", "a.tcl"),
+        assert_spellings_bill_as_operators::<IrulesParser>(
             "a.tcl",
-            "global",
-            Role::OperatorOnly,
+            &[("global", "proc f {} { global g }\n")],
         );
-        for (spelling, source) in [
-            ("unsafe", "unsafe class C { }\n"),
-            ("record", "public record R(int X);\n"),
-        ] {
-            assert_keyword_role(
-                &ops_of::<CsharpParser>(source, "a.cs"),
-                "a.cs",
-                spelling,
-                Role::OperatorOnly,
-            );
-        }
+        assert_spellings_bill_as_operators::<CsharpParser>(
+            "a.cs",
+            &[
+                ("unsafe", "unsafe class C { }\n"),
+                ("record", "public record R(int X);\n"),
+            ],
+        );
     }
 
     /// `never` is a `bottom_type` leaf of its own, not a

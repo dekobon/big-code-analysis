@@ -18,7 +18,7 @@ impl Getter for PerlCode {
         }
     }
 
-    keywords_are_operators!(perl);
+    keyword_roles!(perl);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Perl as P;
