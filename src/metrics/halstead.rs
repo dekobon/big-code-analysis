@@ -644,6 +644,7 @@ mod tests {
         feature = "kotlin",
         feature = "mozcpp",
         feature = "objc",
+        feature = "perl",
         feature = "php",
         feature = "ruby",
         feature = "rust",
@@ -683,6 +684,7 @@ mod tests {
             feature = "kotlin",
             feature = "mozcpp",
             feature = "objc",
+            feature = "perl",
             feature = "php",
             feature = "ruby",
             feature = "rust",
@@ -1288,12 +1290,11 @@ mod tests {
     fn rust_aliased_primitive_type_classification() {
         // Regression for issue #95 (lesson #2): the Rust grammar emits 17
         // distinct `kind_id`s for `primitive_type` (one base plus 16
-        // numeric-suffixed alias variants). `RustCode::is_primitive` in
-        // `big-code-analysis-ast/src/checker.rs` must list every variant;
-        // if a future regression omits one, primitive type names emitted
-        // in that aliased position silently drop into the kind_id-keyed
-        // operators bucket instead of the text-keyed primitive_operators
-        // map, miscounting Halstead n1.
+        // numeric-suffixed alias variants). The `Primitive` row in
+        // `big-code-analysis-ast/src/roles/rust.rs` must list every
+        // variant — `RustCode::is_primitive` reads the row's `OWNERS` —
+        // or a primitive emitted under an omitted id bills nothing at
+        // all, since `get_keyword_role` no longer owns it either.
         //
         // The snippet exercises every primitive scalar type across many
         // syntactic positions (function parameter types, return types,
@@ -1304,7 +1305,7 @@ mod tests {
         // all of these positions; the 16 suffixed alias variants are
         // produced by specific grammar productions not reachable from
         // user-written code. Mutation-verified: dropping
-        // `Rust::PrimitiveType` from `is_primitive` fails this test
+        // `PrimitiveType` from the row fails this test
         // (u_operators 30→15). Dropping any single suffixed variant
         // currently leaves the test passing; if a future grammar bump
         // makes any suffixed variant reachable from idiomatic source,
@@ -4869,6 +4870,48 @@ mod tests {
         );
     }
 
+    /// `type_specifier` is the hidden supertype of every C-family
+    /// type node: the variant exists in all four enums and the shared
+    /// `Primitive` fragment lists it defensively, so a grammar bump that
+    /// promotes the rule changes a count in four languages at once
+    /// (lesson 34). The positive half checks the fixture's declaration
+    /// reached a `primitive_type`, so the absence is the grammar's.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    #[test]
+    fn c_family_type_specifier_is_hidden() {
+        fn check<P: crate::ParserTrait>(primitive: u16, hidden: u16, file: &str, label: &str) {
+            let parser = P::new(b"int a = 1;\n".to_vec(), &PathBuf::from(file), None);
+            assert!(
+                ast_has_kind_id(&parser, primitive),
+                "{label}: fixture lost `int`"
+            );
+            assert!(
+                !ast_has_kind_id(&parser, hidden),
+                "{label}: the grammar now emits `type_specifier`; decide whether \
+                 `c_family_primitives!` should bill it beside `primitive_type`"
+            );
+        }
+        check::<CParser>(C::PrimitiveType as u16, C::TypeSpecifier as u16, "a.c", "C");
+        check::<CppParser>(
+            Cpp::PrimitiveType as u16,
+            Cpp::TypeSpecifier as u16,
+            "a.cpp",
+            "Cpp",
+        );
+        check::<MozcppParser>(
+            Mozcpp::PrimitiveType as u16,
+            Mozcpp::TypeSpecifier as u16,
+            "a.cpp",
+            "Mozcpp",
+        );
+        check::<ObjcParser>(
+            Objc::PrimitiveType as u16,
+            Objc::TypeSpecifier as u16,
+            "a.m",
+            "Objc",
+        );
+    }
+
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_closer_alias_never_reaches_kind_id() {
@@ -7245,10 +7288,11 @@ end",
         feature = "irules",
         feature = "mozcpp",
         feature = "objc",
+        feature = "perl",
         feature = "php",
         feature = "ruby",
         feature = "rust",
-        feature = "tcl"
+        feature = "tcl",
     ))]
     #[track_caller]
     fn assert_spellings_bill_as_operators<T: crate::MetricSuite>(
@@ -7299,7 +7343,8 @@ end",
     #[test]
     fn c_modifier_spellings_bill_1578() {
         assert_spellings_bill_as_operators::<CParser>("foo.c", C_FAMILY_MODIFIER_SPELLINGS);
-        // C's storage class `auto`; C++ has none (see the Cpp arm).
+        // C's storage class `auto`; C++ has none (see the Cpp `Modifier`
+        // row).
         assert_spellings_bill_as_operators::<CParser>("foo.c", &[("auto", "auto int a;\n")]);
     }
 
@@ -10710,12 +10755,13 @@ f() {
 
     #[cfg(feature = "rust")]
     #[test]
-    fn rust_dyn_and_async_bill() {
+    fn rust_dyn_async_and_move_bill() {
         assert_spellings_bill_as_operators::<RustParser>(
             "a.rs",
             &[
                 ("dyn", "fn f(x: &dyn T) {}\n"),
                 ("async", "async fn g() {}\n"),
+                ("move", "fn f() { let c = move || 1; }\n"),
             ],
         );
     }
@@ -10758,7 +10804,28 @@ f() {
             &[
                 ("unsafe", "unsafe class C { }\n"),
                 ("record", "public record R(int X);\n"),
+                (
+                    "required",
+                    "class C { public required int X { get; set; } }\n",
+                ),
+                (
+                    "fixed",
+                    "class C { unsafe void F() { fixed (int* p = a) { } } }\n",
+                ),
+                (
+                    "implicit",
+                    "class C { public static implicit operator int(C c) => 1; }\n",
+                ),
             ],
+        );
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_state_bills() {
+        assert_spellings_bill_as_operators::<PerlParser>(
+            "a.pl",
+            &[("state", "use feature \"state\"; sub f { state $n = 0; }\n")],
         );
     }
 

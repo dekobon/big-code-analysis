@@ -68,7 +68,8 @@ macro_rules! c_family_decl_keywords {
 /// `primitive_type` at all), so each word is listed under its own kind
 /// (#466): `long long`'s two tokens fold to one `n1` entry and two `N1`
 /// hits. `type_specifier` is the hidden supertype; it exists in every
-/// enum and reaches no node.
+/// enum and reaches no node, which `c_family_type_specifier_is_hidden`
+/// in `metrics/halstead.rs` pins for all four dialects.
 macro_rules! c_family_primitives {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
