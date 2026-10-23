@@ -3897,6 +3897,18 @@ mod tests {
             "the declarator and the receiver must disagree in the two outer spaces \
              and the accessor must bill `this` as an operand alone",
         );
+
+        // The fixture spells no `base`, so no space bills it in either
+        // vocabulary and the walk contributes no row at all — the
+        // `None` of `Role::of`, which is what keeps a space that merely
+        // lacks a keyword from reading as a classification of it.
+        let mut absent = Vec::new();
+        collect_keyword_roles(
+            &ops_of::<CsharpParser>(source, "foo.cs"),
+            "base",
+            &mut absent,
+        );
+        assert!(absent.is_empty(), "{absent:?}");
     }
 
     /// One `this` and one `base` per container the pinned

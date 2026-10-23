@@ -220,9 +220,11 @@ pub struct BracedWordKinds {
 /// the function or space name, the [`SpaceKind`] a node opens, and the
 /// [`TokenRole`] of a leaf.
 ///
-/// Every method has a default that answers "nothing" (`None`,
-/// [`SpaceKind::Unknown`], [`TokenRole::Unknown`]); a language
-/// overrides only the ones its grammar expresses.
+/// Every method but [`get_keyword_role`](Self::get_keyword_role) has a
+/// default that answers "nothing" (`None`, [`SpaceKind::Unknown`],
+/// [`TokenRole::Unknown`]); a language overrides only the ones its
+/// grammar expresses. The keyword classifier is required, so a language
+/// says through its rows — declared or `absent` — which keywords it has.
 pub trait Getter {
     /// Names the function `node` declares. Defaults to
     /// [`get_func_space_name`](Self::get_func_space_name).
@@ -359,15 +361,16 @@ pub trait Getter {
     /// primitive as an operator, PHP as an operand. Every language's
     /// three rows are declared or `absent`, and
     /// [`get_op_type`](Self::get_op_type) lists no keyword a row owns.
-    #[inline]
+    /// Required rather than defaulted: a language that inherited
+    /// `Unknown` here would bill no keyword and nothing would say so,
+    /// where `keyword_roles!` over three `absent` rows says the same
+    /// thing on purpose.
     #[must_use]
     fn get_keyword_role<'a>(
-        _node: &Node<'a>,
-        _code: &[u8],
-        _ancestors: Ancestors<'a, '_>,
-    ) -> TokenRole {
-        TokenRole::Unknown
-    }
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole;
 
     /// Source-aware variant of [`get_op_type`], and the spelling the
     /// walk calls. The default forwards to the crate-private
