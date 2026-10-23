@@ -6,16 +6,17 @@ use crate::role_table;
 use crate::{Ancestors, Groovy, Node};
 
 /// Whether a contextual keyword leaf (`trait`, `record`, `sealed`,
-/// `permits`) sits directly under the construct it introduces.
+/// `permits`, `var`) sits directly under the construct it introduces.
 ///
-/// Valid Groovy may use any of the four as a name. Inside a class the
+/// Valid Groovy may use any of the five as a name. Inside a class the
 /// grammar parses that name as an `identifier`, but a script-level
 /// statement that opens with one (`record = 3`, `String record`,
 /// `void record() {}`, `sealed.call()`) fails into an `ERROR` holding
-/// the keyword leaf. Billing the leaf there would make a variable an
-/// operator (#1552, #1565). The pinned grammar also misreads a *nested*
-/// `sealed class` as a field typed `sealed`, so that `sealed` bills as
-/// a type-name operand.
+/// the keyword leaf, and so does a statement opening with `var` as a
+/// name anywhere (`var = 4`, `var++`). Billing the leaf there would make
+/// a variable an operator (#1552, #1565, #1704). The pinned grammar also
+/// misreads a *nested* `sealed class` as a field typed `sealed`, so that
+/// `sealed` bills as a type-name operand.
 fn contextual_keyword_owns<'a>(
     node: &Node<'a>,
     _code: &[u8],
@@ -33,6 +34,7 @@ fn contextual_keyword_owns<'a>(
                     Sealed,
                     ClassDeclaration | InterfaceDeclaration | TraitDeclaration
                 )
+                | (Var, LocalVariableDeclaration)
         )
     })
 }
@@ -123,15 +125,19 @@ role_table! {
     // `identifier`. `trait` and `record` are contextual, as `sealed` is.
     // `def` declares a method, a field or a local, as Kotlin's `fun` /
     // `val` and Perl's `my` do; it is one kind in every position. `var`
-    // is the same kind of leaf under a `local_variable_declaration` and
-    // belongs here too, but no arm ever billed it, so claiming it moves
-    // Groovy's `n1`: that is #1704's fix, not this row's.
+    // is the same kind of leaf under a `local_variable_declaration`, as
+    // Kotlin's `var` is, and bills with it (#1704) — gated, as `trait`
+    // and `record` are, because a statement that opens with `var` as a
+    // name (`var = 4`) fails into an `ERROR` holding the same leaf. Only
+    // that leaf: a field's `var field = 1` and a `final var q = 5` parse
+    // the word as a `type_identifier`, where the grammar reads it as a
+    // type name, and a `var` used as a name elsewhere (`def var = 3`,
+    // `[var: 1]`) is an `identifier`.
     DeclKeyword {
         owns [
-            Class, Interface, Enum, Def, Trait(gated_by contextual_keyword_owns),
-            Record(gated_by contextual_keyword_owns),
+            Class, Interface, Enum, Def, Var(gated_by contextual_keyword_owns),
+            Trait(gated_by contextual_keyword_owns), Record(gated_by contextual_keyword_owns),
         ]
-        excludes [Var "unbilled today; claiming it moves Halstead output, so it is #1704's"]
     }
     // The pinned grammar has no primitive node (#1568): a primitive is
     // an `identifier` or `type_identifier` spelling one of Java's eight

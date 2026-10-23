@@ -6777,6 +6777,51 @@ end",
         assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
     }
 
+    /// #1704: Groovy's `var` bills as `def` does — the keyword leaf of a
+    /// `local_variable_declaration`, once per declaration however many
+    /// declarators follow it. Before the fix every row billed one fewer
+    /// per `var`. The rows from "named var" on are controls: a `var`
+    /// used as a name is an `identifier` and stays an operand; a
+    /// statement opening with that name (`var = 4`, `var++`) fails into
+    /// an `ERROR` holding the keyword leaf, which the row's gate leaves
+    /// unbilled as it does `record = 3`; and the `var` of a field or of
+    /// `final var`, which the grammar reads as a `type_identifier`, is
+    /// not the keyword leaf and bills as it did.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_var_is_a_declaration_keyword_1704() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `def`, `()`, `{}`, `var`, `=`
+            ("local", "def f() { var x = 1 }\n", [5, 5]),
+            // `def`, `()`, `{}`, `var` x2, `=` x2, `;`
+            ("two locals", "def f() { var x = 1; var y = 2 }\n", [6, 8]),
+            // `def`, `()`, `{}`, `var`, `,`, `=`: one `var`, two declarators
+            ("two declarators", "def f() { var x, y = 2 }\n", [6, 6]),
+            // `def`, `()`, `{}`, `var`: no initializer
+            ("uninitialised", "def f() { var x }\n", [4, 4]),
+            // `var`, `=`: script level
+            ("script", "var x = 1\n", [2, 2]),
+            // `def` x2, `()`, `{}`, `=`: `var` named, not declared
+            ("named var", "def f() { def var = 3 }\n", [4, 5]),
+            // `def` x2, `()`, `{}`, `=` x2, `;`: the assignment's `var` is
+            // the keyword leaf under an `ERROR`, and bills nothing
+            ("assigned var", "def f() { def var = 3; var = 4 }\n", [5, 7]),
+            // `def`, `()`, `{}`, `++`: the same leaf, the same `ERROR`
+            ("incremented var", "def f() { var++ }\n", [4, 4]),
+            // `class`, `{}`, `=`: the field's `var` is a `type_identifier`
+            ("field", "class C { var field = 1 }\n", [3, 3]),
+        ];
+        assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
+
+        let ops = ops_of::<GroovyParser>("def f() { var x = 1 }\n", "foo.groovy");
+        assert_keyword_role(&ops, "foo.groovy", "var", Role::OperatorOnly);
+        let ops = ops_of::<GroovyParser>(
+            "def f() { def var = 3; var = 4; println(var); def o = [var: 1]; o.var }\n",
+            "foo.groovy",
+        );
+        assert_keyword_role(&ops, "foo.groovy", "var", Role::OperandOnly);
+    }
+
     /// #1565: Java bills every modifier, as C# and Kotlin do, each as
     /// its keyword leaf and never as the `modifiers` wrapper. Before the
     /// fix only `abstract`, `final`, `transient`, `synchronized` and
