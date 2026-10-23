@@ -36,6 +36,17 @@ for historical reference.
   contract. The `Ast` methods are additive and recorded in
   `STABILITY.md` under `Ast`. (#1684)
 
+- `big-code-analysis-ast` gains a `roles` module: the `role_table!`
+  macro, the fixed set of twenty-nine roles a classifier or metric
+  dispatcher can ask of a node, and one table each for Java, Python and
+  Elixir proving every row shape (plain, gated, projected, self-paying,
+  text-gated, space-mapping, `wraps`, `excludes`, `pays never`,
+  `absent`, `pending`) against the pinned grammars. Nothing reads the
+  tables yet — they are the representation the role-declaration series
+  (#1690) migrates `Checker`, `Getter` and the per-language metric arms
+  onto, starting with #1693 — so no output changes. The crate is outside
+  `STABILITY.md`'s shape contract. (#1691)
+
 ### Changed
 
 - `Ast::dump` (and so the `/ast` endpoint and the Python `Ast.dump`;

@@ -108,6 +108,7 @@ pub mod observation;
 pub mod parser;
 pub mod preproc;
 pub mod recursion;
+pub mod roles;
 pub mod space_kind;
 pub mod token_role;
 pub mod tools;
