@@ -483,32 +483,42 @@ macro_rules! role_table {
         $crate::role_table!(@named $role {
             /// Why this language has no such construct.
             pub(crate) const ABSENT: &str = $why;
-            /// Nothing owns an absent construct.
-            #[inline]
-            pub(crate) fn owns_kind<'a>(
-                _kind: u16,
-                _node: &$crate::Node<'a>,
-                _code: &[u8],
-                _ancestors: $crate::Ancestors<'a, '_>,
-            ) -> bool {
-                false
-            }
-            /// Nothing pays for an absent construct.
-            #[inline]
-            pub(crate) fn pays_at_leaf_kind<'a>(
-                _kind: u16,
-                _node: &$crate::Node<'a>,
-                _code: &[u8],
-                _ancestors: $crate::Ancestors<'a, '_>,
-            ) -> bool {
-                false
-            }
+            $crate::role_table!(@absent_predicate owns);
+            $crate::role_table!(@absent_predicate pays_at_leaf);
+            $crate::role_table!(@absent_predicate pays_at_wrapper);
+            $crate::role_table!(@absent_predicate_kind owns_kind);
+            $crate::role_table!(@absent_predicate_kind pays_at_leaf_kind);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
             pub(crate) fn canonical() -> String {
                 format!("{} absent {}", stringify!($role), ABSENT)
             }
         });
+    };
+    // The five predicates a declared row emits, each answering `false`
+    // for an absent one.
+    (@absent_predicate $name:ident) => {
+        /// Nothing is an absent construct.
+        #[inline]
+        pub(crate) fn $name<'a>(
+            _node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            false
+        }
+    };
+    (@absent_predicate_kind $name:ident) => {
+        /// Nothing is an absent construct.
+        #[inline]
+        pub(crate) fn $name<'a>(
+            _kind: u16,
+            _node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            false
+        }
     };
     (@row $lang:ident $role:ident { pending $package:ident }) => {
         $crate::role_table!(@named $role {
@@ -1021,6 +1031,30 @@ mod tests {
             FuncOpener { owns [..jvm_openers!(), StaticInitializer(opens Function)] }
             Exit { owns [..jvm_openers!()] pays [ReturnStatement] }
         }
+    }
+
+    // An absent row answers every predicate a declared row has, so a
+    // consumer shared across languages compiles against either.
+    #[cfg(feature = "javascript")]
+    #[test]
+    fn an_absent_row_answers_every_predicate_false() {
+        use crate::JavascriptCode;
+        use crate::roles::javascript::primitive;
+        use crate::test_support::for_each_node_with_chain;
+        let source = b"let x = 1;\n";
+        let mut asked = 0;
+        for_each_node_with_chain::<JavascriptCode>(source, |node, chain| {
+            let a = Ancestors::known(chain);
+            let kind = node.kind_id();
+            assert!(!primitive::owns(node, source, a));
+            assert!(!primitive::pays_at_leaf(node, source, a));
+            assert!(!primitive::pays_at_wrapper(node, source, a));
+            assert!(!primitive::owns_kind(kind, node, source, a));
+            assert!(!primitive::pays_at_leaf_kind(kind, node, source, a));
+            asked += 1;
+        });
+        assert!(asked > 1);
+        assert_eq!(primitive::ABSENT, "JavaScript has no type names");
     }
 
     #[test]

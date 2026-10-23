@@ -3,8 +3,8 @@
 //! grammar's row splices with `..name!()`; TypeScript and TSX add their
 //! type-system keywords beside it. The lists are what the shared
 //! `impl_js_family_get_op_type!` arm billed for all four, so nothing is
-//! promoted into a grammar that did not bill it. The fragment shape and
-//! the reason it carries its list twice are on `roles/c_family.rs`.
+//! promoted into a grammar that did not bill it. The fragment shape is
+//! on `roles/c_family.rs`.
 
 /// `static`, the one class-member modifier every JS grammar has (#1563;
 /// C# and Kotlin bill theirs the same way). It is the bare leaf in a

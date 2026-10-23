@@ -12,11 +12,11 @@
 //! the dialect enum the row names, and a variant missing from one enum
 //! fails to compile there.
 //!
-//! Each fragment carries its list twice, once per arm, because `$$`
-//! meta-variables are unstable (see the fragment note in `mod.rs`).
-//! The compiled crate reads the arms independently, so
-//! `utils/role_tables.py` is what holds the two to each other: the
-//! role gates fail on a fragment whose arms differ.
+//! Each fragment is one `@splice` arm appending its list to the
+//! accumulator `role_table!` hands it (the fragment note in `mod.rs`
+//! has the shape); the row and the `opens_space` fold both walk that
+//! one arm. `utils/role_tables.py` reads the same arm, and the
+//! differential test in `mod.rs` holds the compiled rows to it.
 
 /// Storage classes, function specifiers and type qualifiers every
 /// dialect bills (#1578). Each is the keyword leaf of an unclassified

@@ -1586,9 +1586,8 @@ mod keyword_role_tests {
     }
 
     /// `keyword_or_op_type` merges the row's answer with the byte-less
-    /// arm's: on a real language no node answers both, so the fixture
-    /// pins the merged stream and the `Conflict` getter below pins the
-    /// order.
+    /// arm's. On this fixture no node answers both, so it pins the
+    /// merged stream; the `Conflict` getter below pins the order.
     #[cfg(feature = "cpp")]
     #[test]
     fn keyword_or_op_type_merges_the_row_with_the_byte_less_arm() {
@@ -1609,8 +1608,13 @@ mod keyword_role_tests {
     }
 
     /// A getter whose row and byte-less arm disagree on every node: the
-    /// row says `Operand`, the arm `Operator`. No shipped language has
-    /// such a node, so only a synthetic one can show which answer wins.
+    /// row says `Operand`, the arm `Operator`. Shipped languages do
+    /// conflict on a few nodes — a Groovy `int` is a `Primitive` row
+    /// operator and a `type_identifier` operand to the arm, an ObjC
+    /// property-attribute word a `Modifier` row operator and an
+    /// `identifier` operand — and their Halstead tests pin each
+    /// outcome; this pins the rule those outcomes follow from, on every
+    /// node of a fixture rather than one spelling per language.
     /// Built through the macro rather than a hand-written `impl` so the
     /// per-language test gate does not read the C test's `CCode::`
     /// calls as calls to these methods.

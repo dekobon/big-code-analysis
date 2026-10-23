@@ -31,8 +31,12 @@ rg 'Lang::([A-Za-z]+)\b' big-code-analysis-ast/src/getter/ big-code-analysis-ast
 
 The bug class reaches every match on a grammar rule — `alterator.rs`,
 `spaces.rs`, and `src/metrics/*` are as susceptible as `getter.rs` and
-`checker.rs`. Centralised alias sets live in `big-code-analysis-ast/src/macros/kind_sets.rs`;
-prefer extending those over open-coding a list. When a rule has many
+`checker.rs`. A kind list a role owns belongs on its row in
+`big-code-analysis-ast/src/roles/<lang>.rs`, and a list several
+languages share is a `..name!()` fragment there (`roles/c_family.rs`,
+`roles/js_family.rs`); the alias unions no row owns yet live in
+`big-code-analysis-ast/src/macros/kind_sets.rs`. Prefer extending either
+over open-coding a list. When a rule has many
 aliases, prefer one `node.kind()` string comparison over enumerating
 seventeen variants — pay the small runtime cost for forward
 compatibility.

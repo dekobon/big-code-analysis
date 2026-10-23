@@ -417,8 +417,12 @@ FRAGMENT_ARM_RE = re.compile(
     r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
     re.S,
 )
+# Rust admits whitespace inside the attribute (`#[cfg ( test )]`); the
+# predicate must be exactly `test`, so `cfg(any(test, …))` is not one.
 TEST_MOD_RE = re.compile(
-    r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+" + IDENT + r"\s*\{"
+    r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+"
+    + IDENT
+    + r"\s*\{"
 )
 
 # ``name → (entries, file, line)`` for every shared kind fragment.
