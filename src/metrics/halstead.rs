@@ -10684,23 +10684,14 @@ f() {
         );
     }
 
-    /// Every row kind no other fixture spells, one declaration apiece,
-    /// so dropping it from the row fails here by name (#1693). Rust's
-    /// `dyn` / `async`, Bash's `declare` / `typeset` / `readonly`, PHP's
-    /// `global` / `var`, Tcl's and iRules' `global`, Ruby's `undef` and
-    /// C#'s `unsafe` / `record` appear in no corpus file and no other
-    /// test.
-    #[cfg(all(
-        feature = "bash",
-        feature = "csharp",
-        feature = "irules",
-        feature = "php",
-        feature = "ruby",
-        feature = "rust",
-        feature = "tcl"
-    ))]
+    // Every row kind no other Halstead test spells, one declaration
+    // apiece, so dropping it from its row fails here by name (#1693).
+    // One test per language, so a single-language build still checks
+    // its own rows and one failure hides no other.
+
+    #[cfg(feature = "bash")]
     #[test]
-    fn every_row_kind_without_another_fixture_bills() {
+    fn bash_declaration_keywords_bill() {
         assert_spellings_bill_as_operators::<BashParser>(
             "a.sh",
             &[
@@ -10709,7 +10700,17 @@ f() {
                 ("readonly", "readonly k=3\n"),
             ],
         );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_undef_bills() {
         assert_spellings_bill_as_operators::<RubyParser>("a.rb", &[("undef", "undef foo\n")]);
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_dyn_and_async_bill() {
         assert_spellings_bill_as_operators::<RustParser>(
             "a.rs",
             &[
@@ -10717,6 +10718,11 @@ f() {
                 ("async", "async fn g() {}\n"),
             ],
         );
+    }
+
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_global_and_var_bill() {
         assert_spellings_bill_as_operators::<PhpParser>(
             "a.php",
             &[
@@ -10724,14 +10730,29 @@ f() {
                 ("var_modifier", "<?php class C { var $v; }\n"),
             ],
         );
+    }
+
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_global_bills() {
         assert_spellings_bill_as_operators::<TclParser>(
             "a.tcl",
             &[("global", "proc f {} { global g }\n")],
         );
+    }
+
+    #[cfg(feature = "irules")]
+    #[test]
+    fn irules_global_bills() {
         assert_spellings_bill_as_operators::<IrulesParser>(
             "a.tcl",
             &[("global", "proc f {} { global g }\n")],
         );
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_unsafe_and_record_bill() {
         assert_spellings_bill_as_operators::<CsharpParser>(
             "a.cs",
             &[

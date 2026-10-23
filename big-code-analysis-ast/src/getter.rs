@@ -1530,7 +1530,7 @@ mod keyword_role_tests {
 
     /// The `(kind, role)` pairs `classify` answers for every leaf of
     /// `source` that it does not call `Unknown`.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "java", feature = "tcl"))]
+    #[cfg(any(feature = "c", feature = "cpp", feature = "java"))]
     fn roles_of<L: LanguageInfo + Getter>(
         source: &[u8],
         classify: impl for<'a> Fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> TokenRole,
@@ -1585,11 +1585,13 @@ mod keyword_role_tests {
         assert_eq!(via_walk.len(), via_byte_less.len() + keywords.len());
     }
 
-    /// `keyword_or_op_type` prefers the row's answer and falls back to
-    /// the byte-less arm only on `Unknown`.
+    /// `keyword_or_op_type` merges the row's answer with the byte-less
+    /// arm's: on a real language no node answers both, so the fixture
+    /// pins the merged stream and the `Conflict` getter below pins the
+    /// order.
     #[cfg(feature = "cpp")]
     #[test]
-    fn keyword_or_op_type_prefers_the_row() {
+    fn keyword_or_op_type_merges_the_row_with_the_byte_less_arm() {
         use crate::CppCode;
         let source = b"const int x = 1;\n";
         let merged = roles_of::<CppCode>(source, keyword_or_op_type::<CppCode>);
@@ -1602,6 +1604,47 @@ mod keyword_role_tests {
                 ("=", TokenRole::Operator),
                 ("number_literal", TokenRole::Operand),
                 (";", TokenRole::Operator),
+            ]
+        );
+    }
+
+    /// A getter whose row and byte-less arm disagree on every node: the
+    /// row says `Operand`, the arm `Operator`. No shipped language has
+    /// such a node, so only a synthetic one can show which answer wins.
+    struct Conflict;
+
+    impl Getter for Conflict {
+        #[cfg(feature = "c")]
+        fn get_keyword_role<'a>(
+            _node: &Node<'a>,
+            _code: &[u8],
+            _ancestors: Ancestors<'a, '_>,
+        ) -> TokenRole {
+            TokenRole::Operand
+        }
+
+        #[cfg(feature = "c")]
+        fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
+            TokenRole::Operator
+        }
+    }
+
+    /// Where the row and the byte-less arm both answer, the row wins:
+    /// swapping the two in `keyword_or_op_type` fails here.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn keyword_or_op_type_prefers_the_row_on_a_conflict() {
+        use crate::CppCode;
+        let roles = roles_of::<CppCode>(b"x;\n", keyword_or_op_type::<Conflict>);
+        // Every node — the unit, the statement, `x` and `;` — answers
+        // both ways, and the row's way is the one that comes out.
+        assert_eq!(
+            roles,
+            [
+                ("translation_unit", TokenRole::Operand),
+                ("expression_statement", TokenRole::Operand),
+                ("identifier", TokenRole::Operand),
+                (";", TokenRole::Operand),
             ]
         );
     }
@@ -1628,22 +1671,40 @@ mod keyword_role_tests {
     /// `braced_word_op_type` revises the fallback's answer rather than
     /// the byte-less arm's: Tcl's `proc` reaches `Operator` only through
     /// its `DeclKeyword` row, so a revision built on `Self::get_op_type`
-    /// loses it and the `+ 1` below no longer balances.
+    /// loses it and the one withdrawn operator below is no longer the
+    /// literal's brace alone.
     #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_path_reaches_the_fallback() {
         use crate::TclCode;
         let source = b"proc f {a} {\n    lappend x {b c}\n    return $x\n}\n";
-        let walk = roles_of::<TclCode>(source, TclCode::get_op_type_with_code);
-        let fallback = roles_of::<TclCode>(source, keyword_or_op_type::<TclCode>);
+        let offsets = |classify: fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> TokenRole| {
+            let mut out = Vec::new();
+            for_each_node_with_chain::<TclCode>(source, |node, chain| {
+                if classify(node, source, Ancestors::known(chain)) != TokenRole::Unknown {
+                    out.push((node.start_byte(), node.kind()));
+                }
+            });
+            out
+        };
+        let walk = offsets(TclCode::get_op_type_with_code);
+        let fallback = offsets(keyword_or_op_type::<TclCode>);
         // The braced-word revision withdraws the `{` of `lappend`'s
         // literal (#1318), and only that: the walk is the fallback
-        // minus one operator.
+        // minus the one operator at that byte.
+        let literal = source
+            .windows(5)
+            .position(|w| w == b"{b c}")
+            .expect("fixture spells the literal");
+        let withdrawn: Vec<_> = fallback
+            .iter()
+            .filter(|pair| !walk.contains(pair))
+            .collect();
         assert_eq!(
-            walk.len() + 1,
-            fallback.len(),
+            withdrawn,
+            [&(literal, "{")],
             "walk {walk:?}\nfallback {fallback:?}"
         );
-        assert!(walk.iter().all(|pair| fallback.contains(pair)));
+        assert_eq!(walk.len() + 1, fallback.len());
     }
 }
