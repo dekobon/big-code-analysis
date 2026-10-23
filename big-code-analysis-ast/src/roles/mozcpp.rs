@@ -1,7 +1,8 @@
 //! Mozcpp's role rows. The dialect owns no file extension and shares
 //! Cpp's grammar shape; contract 5 of #1690 declares it through Cpp's
-//! template once R04 lands. Until then every row is pending or absent as
-//! Cpp's is.
+//! template once R04 lands. Until then its rows are Cpp's, copied: the
+//! Halstead keyword rows are declared (#1693) and the rest are pending
+//! or absent as Cpp's are.
 
 use crate::Mozcpp;
 use crate::role_table;

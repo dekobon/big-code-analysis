@@ -355,6 +355,18 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("has a `@splice` arm and no `@opens_splice` arm", out)
 
+    def test_a_fragment_inside_a_test_module_is_not_visible_to_a_row(self) -> None:
+        # rustc rejects a production row splicing a `#[cfg(test)]`
+        # fragment; the reader must reject it too, or the differential
+        # test — which compares only rows that compile — cannot see the
+        # disagreement.
+        (self.t.roles / "jvm.rs").write_text("#[cfg(test)]\nmod tests {\n" + FRAGMENT_RS + "}\n")
+        self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")
+        self.t.write("python", PY_FULL)
+        code, out = self.t.run()
+        self.assertEqual(code, 1)
+        self.assertIn("`..jvm_calls!()` names no fragment", out)
+
     def test_a_macro_without_a_splice_arm_is_not_a_fragment(self) -> None:
         (self.t.roles / "helper.rs").write_text("macro_rules! jvm_calls {\n    ($x:ident) => { $x };\n}\n")
         self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")

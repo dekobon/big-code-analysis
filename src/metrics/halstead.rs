@@ -10656,6 +10656,88 @@ f() {
         );
     }
 
+    /// Every row kind no other fixture spells, one declaration apiece,
+    /// so dropping it from the row fails here by name (#1693). Rust's
+    /// `dyn` / `async`, Bash's `declare` / `typeset` / `readonly`, PHP's
+    /// `global` / `var`, Tcl's and iRules' `global`, Ruby's `undef` and
+    /// C#'s `unsafe` / `record` appear in no corpus file and no other
+    /// test.
+    #[cfg(all(
+        feature = "bash",
+        feature = "csharp",
+        feature = "irules",
+        feature = "php",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl"
+    ))]
+    #[test]
+    fn every_row_kind_without_another_fixture_bills() {
+        for (spelling, source) in [
+            ("declare", "declare -i n=1\n"),
+            ("typeset", "typeset -r m=2\n"),
+            ("readonly", "readonly k=3\n"),
+        ] {
+            assert_keyword_role(
+                &ops_of::<BashParser>(source, "a.sh"),
+                "a.sh",
+                spelling,
+                Role::OperatorOnly,
+            );
+        }
+        assert_keyword_role(
+            &ops_of::<RubyParser>("undef foo\n", "a.rb"),
+            "a.rb",
+            "undef",
+            Role::OperatorOnly,
+        );
+        for (spelling, source) in [
+            ("dyn", "fn f(x: &dyn T) {}\n"),
+            ("async", "async fn g() {}\n"),
+        ] {
+            assert_keyword_role(
+                &ops_of::<RustParser>(source, "a.rs"),
+                "a.rs",
+                spelling,
+                Role::OperatorOnly,
+            );
+        }
+        for (spelling, source) in [
+            ("global", "<?php function f() { global $x; }\n"),
+            ("var_modifier", "<?php class C { var $v; }\n"),
+        ] {
+            assert_keyword_role(
+                &ops_of::<PhpParser>(source, "a.php"),
+                "a.php",
+                spelling,
+                Role::OperatorOnly,
+            );
+        }
+        assert_keyword_role(
+            &ops_of::<TclParser>("proc f {} { global g }\n", "a.tcl"),
+            "a.tcl",
+            "global",
+            Role::OperatorOnly,
+        );
+        assert_keyword_role(
+            &ops_of::<IrulesParser>("proc f {} { global g }\n", "a.tcl"),
+            "a.tcl",
+            "global",
+            Role::OperatorOnly,
+        );
+        for (spelling, source) in [
+            ("unsafe", "unsafe class C { }\n"),
+            ("record", "public record R(int X);\n"),
+        ] {
+            assert_keyword_role(
+                &ops_of::<CsharpParser>(source, "a.cs"),
+                "a.cs",
+                spelling,
+                Role::OperatorOnly,
+            );
+        }
+    }
+
     /// `never` is a `bottom_type` leaf of its own, not a
     /// `primitive_type`, so the `Primitive` row lists it beside the
     /// wrapper (#1693); dropping it scores a `: never` return type zero.

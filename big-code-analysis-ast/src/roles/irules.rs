@@ -1,5 +1,5 @@
 //! iRules' role rows; declared through the Tcl template once R06 lands
-//! (contract 5 of #1690).
+//! (contract 5 of #1690). The Halstead keyword role is declared (#1693).
 
 use crate::Irules;
 use crate::role_table;

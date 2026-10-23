@@ -214,7 +214,6 @@
 // `ABSENT` / `PENDING` constants — waits on R05 through R09, which
 // narrow this allow as they land.
 #![allow(dead_code)]
-//!
 
 pub(crate) mod bash;
 pub(crate) mod c;
@@ -446,8 +445,7 @@ macro_rules! role_table {
 
         /// The whole table in the canonical form `utils/role_tables.py`
         /// emits with `--dump`, one row per line in declaration order.
-        /// Test-only: the differential test is its one reader, and the
-        /// module's dead-code allow leaves with #1693.
+        /// Test-only: the differential test is its one reader.
         #[cfg(test)]
         pub(crate) fn canonical() -> String {
             let mut out = format!("lang {}\n", stringify!($lang));

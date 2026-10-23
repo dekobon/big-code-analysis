@@ -264,9 +264,7 @@ impl Getter for TclCode {
     // grammar spells both the same, so only the enclosing command's
     // leading word tells them apart (grammar-dispatch §9). This is the
     // spelling the walk calls (`compute_halstead` →
-    // `get_op_type_with_code`), so the revision reaches every count;
-    // `get_op_type` above stays the byte-less answer for the two
-    // callers that have no source to offer.
+    // `get_op_type_with_code`), so the revision reaches every count.
     fn get_op_type_with_code<'a>(
         node: &Node<'a>,
         code: &[u8],

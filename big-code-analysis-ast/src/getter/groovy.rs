@@ -184,7 +184,7 @@ impl Getter for GroovyCode {
             // `get_keyword_role` bills them (#1693).
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Assert | Instanceof
-            | Extends | Implements | Def | In | As
+            | Extends | Implements | In | As
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, comparison, assignment).

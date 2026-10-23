@@ -121,9 +121,11 @@ role_table! {
     // one. Unlike Java's, `class` needs no class-literal gate:
     // `String.class` parses as a `field_access` whose `class` is a plain
     // `identifier`. `trait` and `record` are contextual, as `sealed` is.
+    // `def` declares a method, a field or a local, as Kotlin's `fun` /
+    // `val` and Perl's `my` do; it is one kind in every position.
     DeclKeyword {
         owns [
-            Class, Interface, Enum, Trait(gated_by contextual_keyword_owns),
+            Class, Interface, Enum, Def, Trait(gated_by contextual_keyword_owns),
             Record(gated_by contextual_keyword_owns),
         ]
     }

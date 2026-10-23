@@ -2107,7 +2107,6 @@
 34 anon visible '&'
 35 anon visible 'implements'
 48 anon visible '@'
-49 anon visible 'def'
 50 anon visible '<'
 51 anon visible 'throws'
 52 anon visible '...'

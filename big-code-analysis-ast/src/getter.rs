@@ -350,9 +350,9 @@ pub trait Getter {
     /// The rows in `crate::roles` say *which* kinds are those keywords;
     /// this method says what Halstead makes of one, which is the
     /// language's choice: the C family, Java and TypeScript bill a
-    /// primitive as an operator, PHP as an operand. A language whose
-    /// rows are still `pending` keeps the default and its keyword arms
-    /// in [`get_op_type`](Self::get_op_type).
+    /// primitive as an operator, PHP as an operand. Every language's
+    /// three rows are declared or `absent`, and
+    /// [`get_op_type`](Self::get_op_type) lists no keyword a row owns.
     #[inline]
     #[must_use]
     fn get_keyword_role<'a>(
@@ -964,14 +964,14 @@ pub trait Getter {
     /// ancestor scan would have been `O(depth)` per node and quadratic
     /// on a deeply nested `expr`, the shape #1122 warns about.
     ///
-    /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
-    /// [`is_braced_script_word`]: Self::is_braced_script_word
-    /// [`is_switch_arm_body`]: Self::is_switch_arm_body
     /// The base answer the opener test revises is the one
     /// [`get_op_type_with_code`](Self::get_op_type_with_code)'s default
     /// gives — the keyword rows first — so a Tcl-family row is read on
     /// this path as on every other (#1693).
     ///
+    /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
+    /// [`is_braced_script_word`]: Self::is_braced_script_word
+    /// [`is_switch_arm_body`]: Self::is_switch_arm_body
     /// [`is_value_braced_word`]: Self::is_value_braced_word
     #[must_use]
     fn braced_word_op_type<'a>(
@@ -1512,9 +1512,9 @@ mod braced_slot_tests {
 mod keyword_role_tests {
     //! `get_keyword_role` is read on every path to a `TokenRole`, and
     //! the byte-less `get_op_type` no longer knows a keyword (#1693).
-    //! Each language that migrated its rows is exercised through every
-    //! spelling the walk can call: the default forwarder, each
-    //! `get_op_type_with_code` override, and `braced_word_op_type`.
+    //! Each spelling the walk can call is exercised on one language:
+    //! the default forwarder, a `get_op_type_with_code` override, and
+    //! `braced_word_op_type`.
 
     use super::{Getter, keyword_or_op_type};
     use crate::node::{Ancestors, Node};
@@ -1605,11 +1605,9 @@ mod keyword_role_tests {
     /// the override's path too, pinned by comparing the walk's answer
     /// against the fallback's on a fixture the override does not touch.
     ///
-    /// Until the language's rows are declared `get_keyword_role` is
-    /// `Unknown` and this cannot fail — measured: reverting the Java
-    /// override to `Self::get_op_type` passed it. It is kept so the
-    /// first row a later package declares is read on this path, and
-    /// the comparison starts to bite then.
+    /// Java's `class` and `int` reach `Operator` only through its rows,
+    /// so an override reverted to `Self::get_op_type` drops both and
+    /// fails here.
     #[cfg(feature = "java")]
     #[test]
     fn java_override_reaches_the_fallback() {
@@ -1622,9 +1620,9 @@ mod keyword_role_tests {
     }
 
     /// `braced_word_op_type` revises the fallback's answer rather than
-    /// the byte-less arm's. Same standing as the Java pin above: Tcl's
-    /// rows are pending, so the revision is observable and the
-    /// fallback is not, until a row lands.
+    /// the byte-less arm's: Tcl's `proc` reaches `Operator` only through
+    /// its `DeclKeyword` row, so a revision built on `Self::get_op_type`
+    /// loses it and the `+ 1` below no longer balances.
     #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_path_reaches_the_fallback() {

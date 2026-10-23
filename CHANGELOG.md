@@ -69,12 +69,23 @@ for historical reference.
 ### Changed
 
 - The `Modifier`, `DeclKeyword` and `Primitive` roles are the first
-  the classifiers read from a role table rather than restate: C, C++,
-  Mozcpp and Objective-C declare theirs in `roles/<lang>.rs`, sharing
-  the kinds all four bill through one `roles/c_family.rs` list, and
-  `Getter::get_op_type` in those languages no longer lists a keyword.
-  Every `bca ops` vocabulary and every metric is byte-identical on
-  the integration corpora and a keyword fixture per language; the
+  the classifiers read from a role table rather than restate. Every
+  language declares its three rows in `roles/<lang>.rs` — or marks one
+  `absent` with a reason — and the kinds a family shares live once, in
+  `roles/c_family.rs` (C, C++, Mozcpp, Objective-C) and
+  `roles/js_family.rs` (JavaScript, MozJS, TypeScript, TSX), spliced
+  into each dialect's row. `Getter::get_keyword_role` is the new
+  classifier a row feeds, read ahead of the byte-less `get_op_type` on
+  every path the walk takes, including each `get_op_type_with_code`
+  override and the Tcl-family braced-word revision; no `get_op_type`
+  lists a keyword a row owns, and every gate those arms carried (Java's
+  `import static`, Groovy's contextual keywords and text-told
+  primitives, C#'s aliased parameter modifiers, Kotlin's soft-keyword
+  recovery, TypeScript's `void` wrapper and `export { type }`) is a
+  `gated_by` function beside its row. Twenty-three languages bill a
+  row keyword as an operator; PHP bills its primitives as operands, as
+  before. Every `bca ops` vocabulary and every metric is byte-identical
+  on the integration corpora and a keyword fixture per language; the
   change is where the membership is written, not what it says. The
   crate is outside `STABILITY.md`'s shape contract. (#1693)
 

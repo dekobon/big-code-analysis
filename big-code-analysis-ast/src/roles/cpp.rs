@@ -1,5 +1,5 @@
-//! Cpp's role rows: every role pending the package that declares it
-//! (#1692). The census reads this file; nothing else does until then.
+//! Cpp's role rows. The Halstead keyword roles are declared (#1693);
+//! every other role is pending the package that declares it (#1692).
 
 use crate::Cpp;
 use crate::role_table;

@@ -427,17 +427,33 @@ FRAGMENT_OPENS_ARM_RE = re.compile(
 )
 
 
+TEST_MOD_RE = re.compile(
+    r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+" + IDENT + r"\s*\{"
+)
+
+
+def _test_module_spans(masked: str) -> list[tuple[int, int]]:
+    """``#[cfg(test)] mod … { … }`` extents: what is defined there does
+    not exist for a production row."""
+    return [(m.start(), _balanced(masked, m.end() - 1)) for m in TEST_MOD_RE.finditer(masked)]
+
+
 def fragments(paths: list[pathlib.Path]) -> dict[str, tuple[str, pathlib.Path, int]]:
     """Every shared kind fragment in ``paths``: ``name → (entry list
     text, file, line)``. A fragment is a `macro_rules!` with a `@splice`
     arm; it must also carry the `@opens_splice` arm with the same
     entries, since the compiled crate reads the two independently and
-    holds neither to the other."""
+    holds neither to the other. One inside a ``#[cfg(test)]`` module is
+    skipped: rustc would reject a production row that spliced it, and
+    the reader must not accept what the compiler does not."""
     out: dict[str, tuple[str, pathlib.Path, int]] = {}
     for path in paths:
         source = path.read_text(encoding="utf-8")
         masked = mask_dead(source)
+        test_spans = _test_module_spans(masked)
         for m in FRAGMENT_RE.finditer(masked):
+            if any(s <= m.start() < e for s, e in test_spans):
+                continue
             body = masked[m.end() : _balanced(masked, m.end() - 1)]
             rm = FRAGMENT_ROW_ARM_RE.search(body)
             if not rm:
