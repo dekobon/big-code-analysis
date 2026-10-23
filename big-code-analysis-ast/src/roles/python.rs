@@ -69,7 +69,16 @@ role_table! {
     // `class_definition`, neither listed, and `lambda`'s keyword token
     // `Lambda3` (#413): `Lambda` / `Lambda2` are the expression nodes
     // that wrap it and bill nothing, so the leaf is one operator.
-    DeclKeyword { owns [Def, Class, Lambda3] }
+    // `global` / `nonlocal` are not here: each rebinds the scope of a
+    // name declared elsewhere rather than declaring one, so they bill
+    // with the statement keywords (`pass`, `del`) in `getter/python.rs`.
+    DeclKeyword {
+        owns [Def, Class, Lambda3]
+        excludes [
+            Global "scopes a name declared elsewhere; bills as a statement keyword",
+            Nonlocal "scopes a name declared elsewhere; bills as a statement keyword",
+        ]
+    }
     Primitive { absent "Python's built-in types are ordinary identifiers" }
     Member { pending R06 }
     Comment { pending R09 }

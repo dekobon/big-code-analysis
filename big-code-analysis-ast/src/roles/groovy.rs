@@ -122,12 +122,16 @@ role_table! {
     // `String.class` parses as a `field_access` whose `class` is a plain
     // `identifier`. `trait` and `record` are contextual, as `sealed` is.
     // `def` declares a method, a field or a local, as Kotlin's `fun` /
-    // `val` and Perl's `my` do; it is one kind in every position.
+    // `val` and Perl's `my` do; it is one kind in every position. `var`
+    // is the same kind of leaf under a `local_variable_declaration` and
+    // belongs here too, but no arm ever billed it, so claiming it moves
+    // Groovy's `n1`: that is #1704's fix, not this row's.
     DeclKeyword {
         owns [
             Class, Interface, Enum, Def, Trait(gated_by contextual_keyword_owns),
             Record(gated_by contextual_keyword_owns),
         ]
+        excludes [Var "unbilled today; claiming it moves Halstead output, so it is #1704's"]
     }
     // The pinned grammar has no primitive node (#1568): a primitive is
     // an `identifier` or `type_identifier` spelling one of Java's eight
