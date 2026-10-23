@@ -38,11 +38,21 @@ env:
 
 jobs:
   # Path-filter detection. Outputs `py: true` when the change set
-  # touches the bindings crate, the workflow file itself, mise.toml
-  # (toolchain pins), or the root Cargo.toml / Cargo.lock (PyO3 /
-  # workspace dep bumps must re-run the python-test matrix even on a
-  # Rust-only PR title). On Rust-only PRs the python jobs below are
-  # `skipped`, which satisfies the `ci` aggregator's `needs:` without
+  # touches the bindings crate or anything the extension and the
+  # examples are built from: the workflow file itself, mise.toml
+  # (toolchain pins), the root Cargo.toml / Cargo.lock (PyO3 /
+  # workspace dep bumps), and the Rust the bindings link. The
+  # bindings crate path-depends on the root crate
+  # (`big-code-analysis-py/Cargo.toml`), which pulls in the parse
+  # layer and the five vendored grammars, so a metric or grammar
+  # change moves what `maturin develop` builds and what the example
+  # tests assert on. `examples/cli_parity.py` and `tests/test_smoke.py`
+  # go one step further and byte-compare the bindings against the
+  # `bca` CLI, so the CLI crate is an input too. Before these entries
+  # a lib-, CLI- or grammar-only change left every python-* job
+  # `skipped` while it could have broken the examples. PRs that touch
+  # only docs, the book, the web crate or the integration tests still
+  # skip; `skipped` satisfies the `ci` aggregator's `needs:` without
   # being `failure` or `cancelled`.
   changes:
     name: detect path changes
@@ -61,6 +71,14 @@ jobs:
           filters: |
             py:
               - 'big-code-analysis-py/**'
+              - 'src/**'
+              - 'big-code-analysis-ast/**'
+              - 'big-code-analysis-cli/**'
+              - 'tree-sitter-ccomment/**'
+              - 'tree-sitter-mozcpp/**'
+              - 'tree-sitter-mozjs/**'
+              - 'tree-sitter-preproc/**'
+              - 'tree-sitter-tcl/**'
               - '.github/workflows/ci.yml'
               - '.pre-commit-config.yaml'
               - 'Makefile'
@@ -935,7 +953,8 @@ jobs:
 
   # Python bindings — lint + type-check. Single Linux job; the heavier
   # cross-platform matrix lives in `python-test` below. Both jobs are
-  # gated by `needs.changes.outputs.py == 'true'` so Rust-only PRs skip
+  # gated by `needs.changes.outputs.py == 'true'` so PRs that touch
+  # nothing the bindings are built from (see the `changes` job) skip
   # them entirely (verified by the `ci` aggregator job's tolerance for
   # `skipped` results).
   python-lint:
@@ -1101,6 +1120,24 @@ jobs:
         run: |
           .venv\Scripts\Activate.ps1
           maturin develop
+      # The CLI-parity examples (`examples/cli_parity.py`, and the
+      # `test_smoke.py` parity rows) byte-compare the bindings against
+      # a `bca` built from this same checkout. The `bca_binary` fixture
+      # in tests/conftest.py builds one itself when `$BCA_BINARY` is
+      # unset, but that in-process `cargo build` carries no `--locked`
+      # and is invisible in the job log. Build it here with `--locked`
+      # instead and hand the path over; the fixture `pytest.fail`s
+      # on a path that is not a file, so a wrong value cannot degrade
+      # into a silently skipped parity suite. `$GITHUB_ENV` rather than
+      # a shell `export` because the value has to reach the next step,
+      # which on Windows is PowerShell.
+      - name: Build bca CLI for the parity examples
+        shell: bash
+        run: |
+          cargo build -p big-code-analysis-cli --locked
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          echo "BCA_BINARY=${GITHUB_WORKSPACE}/target/debug/bca${suffix}" >> "$GITHUB_ENV"
       - name: pytest (Unix)
         if: runner.os != 'Windows'
         working-directory: big-code-analysis-py
@@ -1140,8 +1177,9 @@ jobs:
   # A second matrix axis would only re-prove pandas works on Windows.
   #
   # Gated by `needs.changes.outputs.py == 'true'` same as the other
-  # python-* jobs; Rust-only PRs see `skipped` (not `failure`) so the
-  # aggregator's tolerance for skipped dependents continues to hold.
+  # python-* jobs; PRs outside the `changes` filter see `skipped` (not
+  # `failure`) so the aggregator's tolerance for skipped dependents
+  # continues to hold.
   python-examples-nbconvert:
     name: python-examples-nbconvert
     needs: changes
@@ -1183,8 +1221,18 @@ jobs:
         run: |
           source .venv/bin/activate
           maturin develop
+      # `BCA_NOTEBOOK_FIXTURES` is the contract the notebook's first
+      # code cell documents for CI: the env var is read first, and the
+      # fallback (`Path.cwd().parent / "tests/fixtures"`) only works
+      # because nbconvert sets the kernel cwd to the notebook's own
+      # directory. Setting the env var here keeps the job correct if
+      # that cwd behaviour ever changes; the cell then asserts
+      # `hello.rs` is present under the path, so a wrong value fails
+      # rather than analysing an empty tree.
       - name: Execute jupyter_quickstart.ipynb
         working-directory: big-code-analysis-py
+        env:
+          BCA_NOTEBOOK_FIXTURES: ${{ github.workspace }}/big-code-analysis-py/tests/fixtures
         run: |
           source .venv/bin/activate
           # `--inplace` writes the executed outputs back to the file,
