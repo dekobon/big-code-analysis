@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: role-census role-census-test role-coverage role-coverage-test role-coverage-observe role-bypass role-bypass-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 .PHONY: plugin-test _pc-plugin-test _ci-plugin-test
 
@@ -134,6 +134,13 @@ help:
 	@echo "  snapshot-anchors-test                Self-tests for the snapshot-anchors gate"
 	@echo "  rustfmt-bail                         Block new match arms rustfmt refuses to format"
 	@echo "  rustfmt-bail-test                    Self-tests for the rustfmt-bail gate"
+	@echo "  role-census                          Every (language, role) cell declared, absent or pending (#1692)"
+	@echo "  role-census-test                     Self-tests for the role-census gate"
+	@echo "  role-coverage                        Every runtime kind id claimed, excluded or baselined (#1692)"
+	@echo "  role-coverage-test                   Self-tests for the role-coverage gate"
+	@echo "  role-coverage-observe                Record which kinds the integration corpus emits (slow; builds bca)"
+	@echo "  role-bypass                          No role-claimed kind restated inside the consumer boundary (#1692)"
+	@echo "  role-bypass-test                     Self-tests for the role-bypass gate"
 	@echo "  grammar-marker-sync                  Block grammar-marker bumps without source regen"
 	@echo "  grammar-marker-sync-test             Self-tests for the grammar-marker-sync gate"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
@@ -358,9 +365,16 @@ insta-accept:
 # ---------------------------------------------------------------------------
 # Formatting
 # ---------------------------------------------------------------------------
+# `cargo fmt --all` formats workspace members only. `enums/` and `fuzz/`
+# root their own workspaces, so each is formatted by manifest path; the
+# five vendored `tree-sitter-*` crates are generated binding boilerplate
+# and stay out on purpose (see "Rust conventions" in AGENTS.md).
+EXCLUDED_RUST_MANIFESTS := $(BASE_DIR)enums/Cargo.toml $(BASE_DIR)fuzz/Cargo.toml
+
 fmt:
 	@echo "Formatting Rust code..."
 	@cargo fmt --all
+	@for m in $(EXCLUDED_RUST_MANIFESTS); do cargo fmt --manifest-path "$$m"; done
 	@echo "Formatting Markdown files..."
 	@$(MAKE) --no-print-directory markdown-fmt
 	@echo "Formatting bash scripts..."
@@ -371,6 +385,10 @@ fmt:
 fmt-check:
 	@echo "Checking Rust code formatting..."
 	@cargo fmt --all --check || { echo "Rust code is not formatted (run 'make fmt')"; exit 1; }
+	@for m in $(EXCLUDED_RUST_MANIFESTS); do \
+	  cargo fmt --manifest-path "$$m" --check \
+	    || { echo "$$m: Rust code is not formatted (run 'make fmt')"; exit 1; }; \
+	done
 	@echo "Checking Markdown formatting..."
 	@$(MAKE) --no-print-directory markdown-lint
 	@echo "Checking bash script formatting..."
@@ -463,6 +481,41 @@ rustfmt-bail:
 rustfmt-bail-test:
 	@echo "Running rustfmt-bail self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-rustfmt-bail-test.py)
+
+# The three role-table gates (#1692). Each reads the role_table!
+# declarations through utils/role_tables.py — the one reader — and
+# keeps a ratchet file it may only shrink: `.role-census-baseline.txt`,
+# `.role-coverage-baseline.txt`, `.role-bypass-baseline.txt`. None
+# needs a Rust build. `--require-observations` makes a missing or stale
+# `.role-coverage-observed.txt` fail here as it does in CI; refresh it
+# with `make role-coverage-observe`, which builds `bca` and walks the
+# corpora.
+role-census:
+	@echo "Checking the role census..."
+	@python3 $(BASE_DIR)utils/check-role-census.py
+
+role-census-test:
+	@echo "Running role-census self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-role-census-test.py)
+
+role-coverage:
+	@echo "Checking role kind coverage..."
+	@python3 $(BASE_DIR)utils/check-role-coverage.py --require-observations
+
+role-coverage-test:
+	@echo "Running role-coverage self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-role-coverage-test.py)
+
+role-coverage-observe:
+	@python3 $(BASE_DIR)utils/check-role-coverage.py --observe
+
+role-bypass:
+	@echo "Checking for role bypasses..."
+	@python3 $(BASE_DIR)utils/check-role-bypass.py
+
+role-bypass-test:
+	@echo "Running role-bypass self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-role-bypass-test.py)
 
 # Grammar-marker-sync gate. Blocks the failure mode from #400:
 # bumping the notification-only `tree-sitter-{javascript,cpp}`
@@ -1448,7 +1501,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy _ci-plugin-test \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1620,7 +1673,7 @@ _pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test _pc-plugin-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1630,7 +1683,7 @@ _ci-all:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline _ci-plugin-test \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # ---------------------------------------------------------------------------
@@ -1662,6 +1715,12 @@ _ci-all:
 #    ├── _pc-snapshot-anchors-test
 #    ├── _pc-rustfmt-bail
 #    ├── _pc-rustfmt-bail-test
+#    ├── _pc-role-census
+#    ├── _pc-role-census-test
+#    ├── _pc-role-coverage
+#    ├── _pc-role-coverage-test
+#    ├── _pc-role-bypass
+#    ├── _pc-role-bypass-test
 #    ├── _pc-grammar-marker-sync
 #    ├── _pc-grammar-marker-sync-test
 #    ├── _pc-check-versions
@@ -1754,6 +1813,24 @@ _pc-rustfmt-bail: _pc-fmt
 
 _pc-rustfmt-bail-test: _pc-fmt
 	$(MAKE) rustfmt-bail-test
+
+_pc-role-census: _pc-fmt
+	$(MAKE) role-census
+
+_pc-role-census-test: _pc-fmt
+	$(MAKE) role-census-test
+
+_pc-role-coverage: _pc-fmt
+	$(MAKE) role-coverage
+
+_pc-role-coverage-test: _pc-fmt
+	$(MAKE) role-coverage-test
+
+_pc-role-bypass: _pc-fmt
+	$(MAKE) role-bypass
+
+_pc-role-bypass-test: _pc-fmt
+	$(MAKE) role-bypass-test
 
 _pc-grammar-marker-sync: _pc-fmt
 	$(MAKE) grammar-marker-sync
@@ -1970,6 +2047,24 @@ _ci-rustfmt-bail:
 
 _ci-rustfmt-bail-test:
 	$(MAKE) rustfmt-bail-test
+
+_ci-role-census:
+	$(MAKE) role-census
+
+_ci-role-census-test:
+	$(MAKE) role-census-test
+
+_ci-role-coverage:
+	$(MAKE) role-coverage
+
+_ci-role-coverage-test:
+	$(MAKE) role-coverage-test
+
+_ci-role-bypass:
+	$(MAKE) role-bypass
+
+_ci-role-bypass-test:
+	$(MAKE) role-bypass-test
 
 _ci-grammar-marker-sync:
 	$(MAKE) grammar-marker-sync

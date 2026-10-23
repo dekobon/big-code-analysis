@@ -6,6 +6,9 @@ use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 
 /// A declaration javac attaches a doc comment to, the package aside.
 fn java_declaration(node: &Node) -> bool {
+    // role-bypass: allow(FuncOpener, Container) — doc attachment, not
+    // membership: what a doc comment binds to is `DocTarget`'s own row
+    // (R09), which overlaps the space openers without being them.
     matches!(
         node.kind_id().into(),
         Java::ModuleDeclaration
@@ -85,6 +88,8 @@ impl Checker for JavaCode {
             || Self::is_closure(ancestor, ancestors)
             || matches!(
                 ancestor.kind_id().into(),
+                // role-bypass: allow(FuncOpener) — doc-comment context, not whether the node opens
+                // a space (`HoldsDocInBody`'s own row, R09)
                 Java::StaticInitializer | Java::Block | Java::SwitchBlock
             )
     }

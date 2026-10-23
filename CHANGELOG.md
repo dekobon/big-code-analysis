@@ -47,6 +47,21 @@ for historical reference.
   onto, starting with #1693 — so no output changes. The crate is outside
   `STABILITY.md`'s shape contract. (#1691)
 
+- Three role-table gates in `make pre-commit` and `make ci`, each with
+  self-tests and a ratchet it may only shrink: `make role-census` (every
+  language × role cell declared, `absent` or `pending`;
+  `.role-census-baseline.txt`), `make role-coverage` (every runtime kind
+  id of every generated enum claimed by a row, excluded with a reason,
+  or baselined; `.role-coverage-baseline.txt`, keyed by id under the
+  pinned grammar version, with `.role-coverage-observed.txt` recording
+  what the integration corpus emits and its provenance) and `make
+  role-bypass` (no row-claimed kind restated as classification inside
+  the consumer boundary; `.role-bypass-baseline.txt`). Every language
+  now has a `roles/<lang>.rs`, pending the package that declares it, and
+  each generated `language_<lang>.rs` carries a `<LANG>_KIND_FLAGS`
+  sidecar of tree-sitter's named / visible flags per kind id. Nothing
+  reads the tables in production, so no output changes. (#1692)
+
 ### Changed
 
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`

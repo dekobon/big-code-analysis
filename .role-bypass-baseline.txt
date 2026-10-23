@@ -1,0 +1,144 @@
+# Role-bypass baseline: role-claimed kinds still restated as
+# classification inside the consumer boundary (#1692).
+# Maintained by check-role-bypass.py; see AGENTS.md "Validation gates".
+#
+# An entry is one site a migration package will replace with a call to
+# the row. The gate fails on a site not listed here; `--update` only
+# removes entries. Sites that are not membership — a naming rule, a
+# traversal step — take a `// role-bypass: allow(<Role>) — <reason>`
+# exemption instead of an entry.
+#
+# What the lint cannot see: a restatement outside the boundary or in a
+# test module, a kind reached through a helper function, a `kind_id()`
+# held in a local and compared later, a `kind()` compared to a
+# variable, and which projection a consumer reads. A macro shape it
+# does not resolve is reported as unsupported, not missed.
+#
+# One entry per line, tab-separated and sorted:
+#   <file> <item> <language> <kind> <shape>#<n>
+# where <n> numbers the sites of one kind and shape within the item.
+big-code-analysis-ast/src/checker/elixir.rs	fn is_call	Elixir	Call	kind_id#1
+big-code-analysis-ast/src/checker/elixir.rs	fn is_closure	Elixir	AnonymousFunction	kind_id#1
+big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	AnonymousFunction	matches#1
+big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	Source	matches#1
+big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Charlist	macro_arg#1
+big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Sigil	macro_arg#1
+big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	String	macro_arg#1
+big-code-analysis-ast/src/checker/java.rs	fn is_call	Java	MethodInvocation	kind_id#1
+big-code-analysis-ast/src/checker/java.rs	fn is_closure	Java	LambdaExpression	kind_id#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	CompactConstructorDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	ConstructorDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	MethodDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	AnnotationTypeDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	ClassDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	EnumDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	InterfaceDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	ObjectCreationExpression	kind_id#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	Program	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	RecordDeclaration	matches#1
+big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	StaticInitializer	matches#1
+big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	MultilineStringLiteral	macro_arg#1
+big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	StringLiteral	macro_arg#1
+big-code-analysis-ast/src/checker/python.rs	fn is_call	Python	Call	kind_id#1
+big-code-analysis-ast/src/checker/python.rs	fn is_func	Python	FunctionDefinition	kind_id#1
+big-code-analysis-ast/src/checker/python.rs	fn is_func_space	Python	ClassDefinition	matches#1
+big-code-analysis-ast/src/checker/python.rs	fn is_func_space	Python	FunctionDefinition	matches#1
+big-code-analysis-ast/src/checker/python.rs	fn is_func_space	Python	Module	matches#1
+big-code-analysis-ast/src/checker/python.rs	impl_simple_is_string!	Python	ConcatenatedString	macro_arg#1
+big-code-analysis-ast/src/checker/python.rs	impl_simple_is_string!	Python	String	macro_arg#1
+big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	Charlist	arm#1
+big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	Sigil	arm#1
+big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	String	arm#1
+big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	AnonymousFunction	arm#1
+big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	Source	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	BANGEQ	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	EQEQ	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	GT	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	GTEQ	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	LT	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	LTEQ	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	StringLiteral	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	AnnotationTypeDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ClassDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	CompactConstructorDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ConstructorDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	EnumDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	InterfaceDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	LambdaExpression	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	MethodDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ObjectCreationExpression	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	Program	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	RecordDeclaration	arm#1
+big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	StaticInitializer	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	BANGEQ	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	EQEQ	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	GT	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	GTEQ	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	In	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Is	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Isnot	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Isnot	arm#2
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	LT	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	LTEQ	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	LTGT	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Notin	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Notin	arm#2
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	String	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Yield	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	ClassDefinition	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	FunctionDefinition	arm#1
+big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	Module	arm#1
+src/metrics/abc/elixir.rs	fn compute	Elixir	Call	arm#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	BANGEQ	matches#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	BinaryExpression	arm#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	EQEQ	matches#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	GT	matches#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	GTEQ	matches#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	InstanceofExpression	arm#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	LT	matches#1
+src/metrics/abc/java.rs	fn java_condition_scores_itself	Java	LTEQ	matches#1
+src/metrics/abc/java.rs	fn java_count_token_branch	Java	MethodInvocation	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	BANGEQ	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	BinaryExpression	matches#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	EQEQ	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	GT	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	GTEQ	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	InstanceofExpression	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	LT	arm#1
+src/metrics/abc/java.rs	fn java_count_token_condition	Java	LTEQ	arm#1
+src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	BinaryExpression	kind_id#1
+src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	Guard	arm#1
+src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	LambdaExpression	arm#1
+src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	ReturnStatement	arm#1
+src/metrics/abc/python.rs	fn compute	Python	Call	arm#1
+src/metrics/abc/python.rs	fn compute	Python	ComparisonOperator	arm#1
+src/metrics/abc/python.rs	fn python_condition_scores_itself	Python	ComparisonOperator	matches#1
+src/metrics/cognitive/elixir.rs	fn compute	Elixir	AnonymousFunction	arm#1
+src/metrics/cognitive/elixir.rs	fn compute	Elixir	Call	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	BinaryExpression	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	CompactConstructorDeclaration	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	ConstructorDeclaration	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	LambdaExpression	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	MethodDeclaration	arm#1
+src/metrics/cognitive/java.rs	fn compute	Java	StaticInitializer	arm#1
+src/metrics/cognitive/python.rs	fn compute	Python	FunctionDefinition	arm#1
+src/metrics/cognitive/python.rs	fn compute	Python	Lambda	arm#1
+src/metrics/cognitive/python.rs	fn compute	Python	Lambda2	arm#1
+src/metrics/cyclomatic/elixir.rs	fn compute	Elixir	Call	arm#1
+src/metrics/cyclomatic/java.rs	impl_cyclomatic_java_like!	Java	Guard	macro_arg#1
+src/metrics/nexits.rs	fn compute	Elixir	Call	kind_id#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ReturnStatement	macro_arg#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ThrowStatement	macro_arg#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Java	YieldStatement	macro_arg#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Python	RaiseStatement	macro_arg#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Python	ReturnStatement	macro_arg#1
+src/metrics/nexits.rs	impl_exit_match_kinds!	Python	Yield	macro_arg#1
+src/metrics/npa/python.rs	fn compute	Python	ClassDefinition	matches#1
+src/metrics/npa/python.rs	fn python_collect_self_attrs_in_subtree	Python	ClassDefinition	matches#1
+src/metrics/npa/python.rs	fn python_collect_self_attrs_in_subtree	Python	FunctionDefinition	matches#1
+src/metrics/npa/python.rs	fn python_collect_self_attrs_in_subtree	Python	Lambda	matches#1
+src/metrics/npa/python.rs	fn python_unwrap_function	Python	FunctionDefinition	arm#1
+src/metrics/npa/python.rs	fn python_unwrap_function	Python	FunctionDefinition	kind_id#1
+src/metrics/npm/python.rs	fn compute	Python	ClassDefinition	matches#1
+src/metrics/npm/python.rs	fn compute	Python	FunctionDefinition	arm#1
+src/metrics/npm/python.rs	fn compute	Python	FunctionDefinition	kind_id#1

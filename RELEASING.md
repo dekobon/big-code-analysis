@@ -608,6 +608,25 @@ edit these in lockstep:
    alongside the workspace bump, never on its own.
 4. Each `tree-sitter-<lang>/Cargo.toml` (also excluded). Same
    discipline as `enums/`: bump in lockstep with the workspace.
+5. The role-coverage baseline and observation (#1692). The five
+   vendored grammars are pinned at the workspace version, so this bump
+   moves their pin and `make role-coverage` fails for Mozcpp, Mozjs,
+   Ccomment, Preproc and Tcl until the baseline sections and the
+   observation record the new version. The grammars themselves did not
+   change, so every baselined id still spells the same kind and the
+   migration is mechanical:
+
+   ```bash
+   python3 utils/check-role-coverage.py --migrate-pin all
+   make role-coverage-observe   # builds release bca, walks the corpora
+   make role-coverage
+   ```
+
+   `--migrate-pin` refuses if any baselined id came to spell a
+   different kind — which a version-only bump cannot cause, so a
+   refusal here means the vendored sources were regenerated too and
+   that entry needs a deliberate decision. Commit the two files with
+   the bump.
 
 After editing, regenerate the lockfile and sanity-check the bump:
 

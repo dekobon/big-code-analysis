@@ -20,6 +20,8 @@ fn elixir_extract_head_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> 
     let text = |n: &Node| node_text(code, n);
     match node.kind_id().into() {
         E::Identifier | E::Alias => text(node),
+        // role-bypass: allow(FuncOpener, Container, Call) — naming, not membership: where a head's
+        // text sits
         E::Call => text(&node.child_by_field_name("target")?),
         E::Arguments
         | E::Arguments2
@@ -117,6 +119,8 @@ impl Getter for ElixirCode {
         // than at the walk's per-node sites — but `bca function` and the
         // suppression scan reach it through `get_func_name` on every
         // function node, where the climb was `O(depth)` apiece.
+        // role-bypass: allow(FuncOpener, Container, Call) — naming, not membership: the space name
+        // of a keyword call
         if node.kind_id() == E::Call as u16
             && let Some(kw) = elixir_call_keyword(node, code)
             && (elixir_is_class_macro(kw)

@@ -37,6 +37,8 @@ impl Getter for JavaCode {
         code: &'a [u8],
         ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
+        // role-bypass: allow(FuncOpener) — naming, not membership: which opener gets the synthetic
+        // name
         if node.kind_id() == Java::StaticInitializer as u16 {
             return Some("<static-init>");
         }

@@ -22,6 +22,8 @@ fn replacement_field_role(kind: Python, parent: Option<Python>) -> TokenRole {
     use Python::*;
 
     match (kind, parent) {
+        // role-bypass: allow(StringLit) — token role under an interpolation, not whether the node
+        // is a literal
         (LBRACE | EQ, Some(Interpolation | FormatExpression)) | (COLON, Some(FormatSpecifier)) => {
             TokenRole::Unknown
         }

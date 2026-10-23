@@ -83,8 +83,10 @@ and `cargo run -p big-code-analysis-web --`.
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
   `check-publish-metadata.py`, `check-test-lang-gates.py`,
-  `verify-name-only-churn.py`, and each
-  gate's `*-test.py` self-tests.
+  `check-role-census.py`, `check-role-coverage.py`,
+  `check-role-bypass.py` (the three role-table gates, all reading
+  declarations through `role_tables.py`), `verify-name-only-churn.py`,
+  and each gate's `*-test.py` self-tests.
   Each resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
@@ -282,7 +284,9 @@ already matches and the re-run is a silent no-op (#1171).
 
 Before considering a change done, run `make pre-commit` from the repo
 root. It is the canonical entry point for the full validation gate
-and runs, in one parallel pass: the cargo trio (`cargo fmt --check`,
+and runs, in one parallel pass: the cargo trio (`cargo fmt --check` —
+over the workspace and, by manifest path, the excluded `enums/` and
+`fuzz/` crates that `--all` does not reach,
 `cargo clippy --workspace --all-targets -- -D warnings` in both
 default-features and `--all-features` flavours, the full test suite
 via `make test` + `make test-doc` — `make test` runs `cargo nextest
@@ -651,6 +655,37 @@ lifetime (`'a`, `'outer:`) read as a literal swallows the rest of the
 file the other way. Both failure modes make the gate report a clean
 file — the outcome it exists to prevent — so neither may be left to
 inspection.
+
+**The role-table gates (#1692).** `big-code-analysis-ast/src/roles/`
+holds one `role_table!` per language (#1691), and three gates in `make
+pre-commit` / `make ci` keep it honest, each reading the declarations
+through `utils/role_tables.py` — the one reader, held to the compiled
+constants by `python_reader_agrees_with_the_compiled_tables` in
+`roles/mod.rs`. `make role-census`: every (language, role) cell is
+declared rows, `absent "why"` or `pending Rnn`; the pending set is a
+ratchet in `.role-census-baseline.txt`. `make role-coverage`: every
+runtime kind id of every generated enum is claimed by some row,
+excluded with a reason, or debt in `.role-coverage-baseline.txt`, keyed
+by `(language, id)` under the pinned grammar version — never by
+spelling, and with no kind category forgiven. A moved pin fails until
+`--migrate-pin <lang>` confirms the baselined ids still spell the same
+kinds. `.role-coverage-observed.txt` records which kinds the
+integration corpus emits, with provenance; refresh it with `make
+role-coverage-observe` (builds `bca`, walks the corpora) when the
+corpus submodules or a grammar pin move, since `--require-observations`
+fails on a stale file. `make role-bypass`: inside the consumer boundary
+(the per-language dispatch files, their dispatcher modules and
+macros), a kind a row claims must not be restated as classification;
+`.role-bypass-baseline.txt` holds the pre-migration sites, and a site
+that is not membership — naming, traversal — takes a `// role-bypass:
+allow(<Role>) — <reason>` exemption on the line above, which must name
+the role that claims the kind. All three baselines are exact record
+sets (the bypass one numbers repeated sites within an item):
+`--update` only removes, `--bootstrap` refuses a file that exists or is
+tracked at `HEAD`, so a swap cannot hide behind an unchanged count. Each
+gate prints what it cannot see with every run: none judges whether a
+row's membership is right, which role should claim a kind, or whether
+a consumer reads the right projection.
 
 **`cargo fmt --check` is not the whole formatting gate.** A comment
 inside a match *pattern* makes rustfmt emit the enclosing match

@@ -127,6 +127,50 @@ repos:
         entry: python3 -m unittest -q utils/check-rustfmt-bail-test.py
         pass_filenames: false
 
+      # The three role-table gates (#1692). The census needs every
+      # (language, role) cell declared; the coverage ratchet needs every
+      # runtime kind claimed, excluded or baselined; the bypass lint
+      # needs no claimed kind restated inside the consumer boundary.
+      # All three read the declarations through utils/role_tables.py,
+      # so an edit to it, a table, a generated enum, a baseline or a
+      # boundary file re-runs them.
+      - id: role-census
+        name: role-census
+        language: system
+        files: '^(big-code-analysis-ast/src/(roles/.*|langs)\.rs|\.role-census-baseline\.txt|utils/(check-role-census|role_tables)\.py)$'
+        entry: python3 utils/check-role-census.py
+        pass_filenames: false
+      - id: role-census-test
+        name: role-census-test
+        language: system
+        files: '^utils/(check-role-census(-test)?|role_tables)\.py$'
+        entry: python3 -m unittest -q utils/check-role-census-test.py
+        pass_filenames: false
+      - id: role-coverage
+        name: role-coverage
+        language: system
+        files: '^(big-code-analysis-ast/src/(roles|languages)/.*\.rs|big-code-analysis-ast/src/langs\.rs|Cargo\.toml|\.role-coverage-(baseline|observed)\.txt|utils/(check-role-coverage|role_tables)\.py)$'
+        entry: python3 utils/check-role-coverage.py --require-observations
+        pass_filenames: false
+      - id: role-coverage-test
+        name: role-coverage-test
+        language: system
+        files: '^utils/(check-role-coverage(-test)?|role_tables)\.py$'
+        entry: python3 -m unittest -q utils/check-role-coverage-test.py
+        pass_filenames: false
+      - id: role-bypass
+        name: role-bypass
+        language: system
+        files: '^(.*\.rs|\.role-bypass-baseline\.txt|utils/(check-role-bypass|role_tables)\.py)$'
+        entry: python3 utils/check-role-bypass.py
+        pass_filenames: false
+      - id: role-bypass-test
+        name: role-bypass-test
+        language: system
+        files: '^utils/(check-role-bypass(-test)?|role_tables)\.py$'
+        entry: python3 -m unittest -q utils/check-role-bypass-test.py
+        pass_filenames: false
+
       # Block grammar-marker bumps in tree-sitter-{mozjs,mozcpp}
       # without a matching source regen (see #400). The marker is
       # a Dependabot notification hook only — Cargo never compiles

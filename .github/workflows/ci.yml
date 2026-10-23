@@ -775,6 +775,23 @@ jobs:
       # gate without surfacing the regression in CI.
       - name: rustfmt-bail self-tests (explicit)
         run: python3 -m unittest -q utils/check-rustfmt-bail-test.py
+      # Defensive twins for the three role-table gates (#1692), for the
+      # same reason: `make lint` runs them, and pinning them here keeps
+      # each enforced if a refactor drops it from the aggregate recipe.
+      # `--require-observations` makes a missing or stale
+      # `.role-coverage-observed.txt` a failure rather than a note.
+      - name: role-census (explicit)
+        run: python3 utils/check-role-census.py
+      - name: role-census self-tests (explicit)
+        run: python3 -m unittest -q utils/check-role-census-test.py
+      - name: role-coverage (explicit)
+        run: python3 utils/check-role-coverage.py --require-observations
+      - name: role-coverage self-tests (explicit)
+        run: python3 -m unittest -q utils/check-role-coverage-test.py
+      - name: role-bypass (explicit)
+        run: python3 utils/check-role-bypass.py
+      - name: role-bypass self-tests (explicit)
+        run: python3 -m unittest -q utils/check-role-bypass-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future
