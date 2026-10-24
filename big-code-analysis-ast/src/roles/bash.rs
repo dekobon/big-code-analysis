@@ -116,12 +116,21 @@ role_table! {
         pays [AMPAMP, PIPEPIPE, TestOperator text_gated_by is_test_connective]
         project "operator"
     }
-    // `-a` / `-o` inside `[ ]` are the `test` spelling of `&&` / `||`,
-    // scored as such by every consumer (#1536), so they are the
-    // `ShortCircuit` row's text-gated payer above, not an eager form;
-    // `&` / `|` / `^` inside `(( … ))` are bitwise.
-    EagerLogical { absent "Bash's `&&` / `||` and the `-a` / `-o` of `[ ]` are lazy; `&` / `|` / `^` \
-         inside `(( … ))` are bitwise" }
+    // `-a` / `-o` inside `[ ]` are arguments to the `test` builtin,
+    // which evaluates both sides (`[ 1 -eq 2 -a nope -eq 1 ]` still
+    // complains about `nope`), so by the language they are eager. Every
+    // consumer scores them as the `[[ … && … ]]` twin they spell
+    // (#1536), so they are the `ShortCircuit` row's text-gated payer
+    // above: a policy this package records and does not move. The
+    // bitwise `&` / `|` / `^` inside `(( … ))` are the only other
+    // candidates, and are integral.
+    EagerLogical {
+        owns []
+        excludes [
+            TestOperator "`-a` / `-o` are scored as the `&&` / `||` they spell (#1536), so the \
+                 `ShortCircuit` row claims them; the builtin's eager evaluation is recorded here",
+        ]
+    }
     Ternary { pending R05 }
     NullSafe { absent "Bash has no optional navigation or null coalescing" }
     CaseArm { pending R05 }

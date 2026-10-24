@@ -65,14 +65,18 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 
 /// Whether an `infix_expression` applies one of the eager boolean
 /// functions `and` / `or` / `xor`. tree-sitter-kotlin-ng gives an infix
-/// call no field and no operator kind: it is three children, the
-/// middle an `identifier` leaf spelling the function's name, so only
-/// the bytes tell `a and b` from `a shl b` or `a to b`. Comments aside,
-/// the name is the second child.
+/// call no field and no operator kind: it is three children — the left
+/// operand, which may be any expression, an `identifier` leaf spelling
+/// the function's name, and the right operand — so only the bytes tell
+/// `a and b` from `a shl b` or `a to b`, and the name is the second
+/// child that is not a comment. The name is all that is read: a user
+/// `infix fun and` on another type, or `Int.and`, spells the same call,
+/// which no syntax can tell from `Boolean.and`.
 fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     node.children()
-        .filter(|child| child.kind_id() == Kotlin::Identifier as u16)
+        .filter(|child| !child.as_tree_sitter().is_extra())
         .nth(1)
+        .filter(|name| name.kind_id() == Kotlin::Identifier as u16)
         .and_then(|name| node_text(code, &name))
         .is_some_and(|name| matches!(name, "and" | "or" | "xor"))
 }
@@ -260,7 +264,7 @@ mod tests {
     #[cfg(feature = "kotlin")]
     #[test]
     fn eager_infix_is_told_by_its_name() {
-        let source = b"fun f(a: Boolean, b: Boolean, x: Int) { val c = a and b; val d = a or b; val e = a xor b; val s = x shl 1; val p = 1 to 2; val m = a myInfix b }\n";
+        let source = b"fun f(a: Boolean, b: Boolean, x: Int) { val c = a and b; val d = a or b; val e = a xor b; val s = x shl 1; val p = 1 to 2; val m = a myInfix b; val n = (a && b) xor a; val o = a and /* c */ b and a; val q = (a) to and }\n";
         let (mut owned, mut paid) = (Vec::new(), Vec::new());
         for_each_node_with_chain::<KotlinCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
@@ -272,7 +276,20 @@ mod tests {
                 paid.push(text());
             }
         });
-        assert_eq!(owned, ["a and b", "a or b", "a xor b"]);
+        // A compound left operand, a comment before the name, a nested
+        // chain (each `and` owns its own node) and a right operand
+        // *named* `and`, which is no function.
+        assert_eq!(
+            owned,
+            [
+                "a and b",
+                "a or b",
+                "a xor b",
+                "(a && b) xor a",
+                "a and /* c */ b and a",
+                "a and /* c */ b",
+            ]
+        );
         assert_eq!(paid, owned);
         assert_eq!(eager_logical::PAYERS, &[] as &[u16]);
     }

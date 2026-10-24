@@ -139,3 +139,42 @@ role_table! {
     DocRunDirective { pending R09 }
     HoldsDocInBody { pending R09 }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PerlCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    // The `EagerLogical` row owns an expression exactly when its
+    // operator is `xor`, projects to that token, and pays at it — and
+    // the chain operators beside it are the `ShortCircuit` row's alone
+    // (#1695).
+    #[cfg(feature = "perl")]
+    #[test]
+    fn eager_logical_owns_xor_and_nothing_beside_it() {
+        // `xor` binds looser than `=`, so the owner is the assignment.
+        let source = b"my $c = $a xor $b; my $d = $a or $b; my %h = (xor => 1);\n";
+        let (mut owned, mut paid) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<PerlCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if eager_logical::owns(node, source, ancestors) {
+                let op = eager_logical::project(node).expect("an owner projects to its token");
+                assert_eq!(op.utf8_text(source), Some("xor"), "{}", text());
+                owned.push(text());
+            }
+            if eager_logical::pays_at_leaf(node, source, ancestors) {
+                paid.push(text());
+            }
+            assert!(
+                !(eager_logical::owns(node, source, ancestors)
+                    && short_circuit::owns(node, source, ancestors)),
+                "{}",
+                text()
+            );
+        });
+        assert_eq!(owned, ["my $c = $a xor $b"]);
+        assert_eq!(paid, ["xor"]);
+    }
+}

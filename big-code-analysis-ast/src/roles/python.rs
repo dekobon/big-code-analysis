@@ -62,7 +62,21 @@ role_table! {
     ShortCircuit { owns [BooleanOperator] pays [And, Or] }
 
     NullSafe { absent "Python has no `?.` or `??`" }
-    EagerLogical { absent "Python's `and` / `or` are lazy; `&` / `|` are bitwise" }
+    // `and` / `or` are lazy. `&` / `|` / `^` on two `bool`s evaluate
+    // both sides and return a `bool`, but the grammar emits them as the
+    // same `binary_operator` as the integral forms, so the syntax alone
+    // cannot tell them apart; no consumer treats them as a decision,
+    // and the tokens bill as the operators they are. A recognition
+    // boundary, recorded as the kinds considered rather than as an
+    // absence.
+    EagerLogical {
+        owns []
+        excludes [
+            AMP "a boolean `&` is the integral `&`'s kind, which the grammar does not tell apart",
+            PIPE "a boolean `|` is the integral `|`'s kind, which the grammar does not tell apart",
+            CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
+        ]
+    }
     Guard { pending R05 }
     Ternary { pending R05 }
     CaseArm { pending R05 }
