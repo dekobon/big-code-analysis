@@ -337,7 +337,6 @@ Php CaseArm R05
 Php Catch R07
 Php Closure R06
 Php Comment R09
-Php Comparison R05
 Php Container R06
 Php DocComment R09
 Php DocRunDirective R09
@@ -351,7 +350,6 @@ Php HoldsDocInBody R09
 Php Loop R07
 Php Member R06
 Php NullSafe R05
-Php ShortCircuit R05
 Php StringLit R08
 Php Switch R07
 Php Ternary R05
@@ -379,7 +377,6 @@ Ruby CaseArm R05
 Ruby Catch R07
 Ruby Closure R06
 Ruby Comment R09
-Ruby Comparison R05
 Ruby Container R06
 Ruby DocComment R09
 Ruby DocRunDirective R09
@@ -394,7 +391,6 @@ Ruby HoldsDocInBody R09
 Ruby Loop R07
 Ruby Member R06
 Ruby NullSafe R05
-Ruby ShortCircuit R05
 Ruby StringLit R08
 Ruby Switch R07
 Ruby Ternary R05

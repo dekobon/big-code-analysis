@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
     wrapped_operand,
 };
+use crate::roles::php::{comparison, short_circuit};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -46,37 +47,17 @@ fn php_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a ternary (its own arm), a comparison or `instanceof`
-// (the token arm), or an `&&` / `||` / `and` / `or` chain, whose
-// operands each pay through `php_count_condition`. `??` is no condition
-// token in PHP, so a slot holding one pays for it.
-fn php_condition_scores_itself(expr: &Node) -> bool {
-    use Php::*;
-
-    match expr.kind_id().into() {
-        ConditionalExpression => true,
-        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind_id().into(),
-                EQEQ | EQEQEQ
-                    | BANGEQ
-                    | BANGEQEQ
-                    | LT
-                    | GT
-                    | LTEQ
-                    | GTEQ
-                    | LTEQGT
-                    | LTGT
-                    | Instanceof
-                    | AMPAMP
-                    | PIPEPIPE
-                    | And
-                    | Or
-            )
-        }),
-        _ => false,
-    }
+// Whether an arm of `compute` already charges `expr` (already peeled)
+// as a condition: a comparison or `instanceof` (the `Comparison` row's
+// owner, paid by its token), a ternary (its node), or an `&&` / `||` /
+// `and` / `or` chain (the `ShortCircuit` row's owner), whose operands
+// each pay through `php_count_condition`. Neither owner gate reads
+// ancestors, so the peeled descendant is asked with none.
+fn php_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Php::ConditionalExpression as u16
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` / `do` / `for`
@@ -85,11 +66,11 @@ fn php_condition_scores_itself(expr: &Node) -> bool {
 // so `if (-$x)`, `if ($x + 1)`, `if ($y = $x)`, `if (A::B)` and
 // `if ($a ?? $b)` are each a decision, and each scored 0 while the slot
 // paid only for a fixed list of terminal kinds (#1526).
-fn php_count_condition(condition: &Node, conditions: &mut f64) {
+fn php_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         php_wrapper_operand,
-        php_condition_scores_itself,
+        |expr| php_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -98,18 +79,18 @@ fn php_count_condition(condition: &Node, conditions: &mut f64) {
 // argument, a ternary branch — scores only when a `!` proves it boolean
 // (see `count_negated_operand`), which keeps `($a > 0) ? $b : -$b` at 2
 // (the ternary node and the `>`).
-fn php_count_negated(operand: &Node, conditions: &mut f64) {
+fn php_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         php_wrapper_operand,
-        php_condition_scores_itself,
+        |expr| php_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn php_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn php_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        php_count_condition(&condition, conditions);
+        php_count_condition(&condition, code, conditions);
     }
 }
 
@@ -122,11 +103,11 @@ fn php_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // the consequence `body` (not `consequence`) and marks it OPTIONAL to
 // admit the short ternary `$a ?: $b`, which shifts the alternative from
 // child(4) to child(3).
-fn php_walk_ternary(node: &Node, conditions: &mut f64) {
-    php_count_slot(node.child_by_field_name("condition"), conditions);
+fn php_walk_ternary(node: &Node, code: &[u8], conditions: &mut f64) {
+    php_count_slot(node.child_by_field_name("condition"), code, conditions);
     for field in ["body", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            php_count_negated(&branch, conditions);
+            php_count_negated(&branch, code, conditions);
         }
     }
 }
@@ -145,7 +126,7 @@ fn php_argument_value<'a>(argument: &Node<'a>) -> Option<Node<'a>> {
 // each call argument in an `argument` node; for a named argument
 // `m(name: !$a)` the value is its LAST named child, for a positional one
 // its only child.
-fn php_count_arguments(arguments: &Node, conditions: &mut f64) {
+fn php_count_arguments(arguments: &Node, code: &[u8], conditions: &mut f64) {
     for argument in arguments.children() {
         let value = if argument.kind_id() == Php::Argument {
             php_argument_value(&argument)
@@ -153,7 +134,7 @@ fn php_count_arguments(arguments: &Node, conditions: &mut f64) {
             Some(argument).filter(is_operand)
         };
         if let Some(value) = value {
-            php_count_negated(&value, conditions);
+            php_count_negated(&value, code, conditions);
         }
     }
 }
@@ -161,13 +142,19 @@ fn php_count_arguments(arguments: &Node, conditions: &mut f64) {
 impl Abc for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the PHP grammar can hand us, not
+        // branching a reader must hold; the two row reads (#1695) are
+        // arms like the token arms they replaced.
         use Php::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Assignments: explicit assignment expressions and augmented forms,
             // plus pre/post increment and decrement. `const_declaration` and
             // `enum_case` use their own `const_element` / value-assignment
@@ -202,22 +189,12 @@ impl Abc for PhpCode {
             // only). Dropping both Default kinds keeps ABC conditions equal
             // to the cyclomatic decision count (issue #473, mirroring the
             // #469 C-family fix and #456 Kotlin/C# fixes).
-            EQEQ
-            | EQEQEQ
-            | BANGEQ
-            | BANGEQEQ
-            | LT
-            | GT
-            | LTEQ
-            | GTEQ
-            | LTEQGT
-            | LTGT
-            | Instanceof
-            | ElseClause
-            | ElseClause2
-            | CaseStatement
-            | MatchConditionalExpression
-            | CatchClause => {
+            ElseClause | ElseClause2 | CaseStatement | MatchConditionalExpression | CatchClause => {
+                stats.conditions += 1.;
+            }
+            // The comparison tokens and `instanceof`, the `Comparison`
+            // row's payers (`roles/php.rs`).
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9: each operand of a `&&` / `||` / `and`
@@ -231,12 +208,13 @@ impl Abc for PhpCode {
             // the same as `connect() || die();`. `$a && $b || $c` is a
             // left-nested chain of `binary_expression`s, so an operand
             // that is itself a chain is paid by its own operator's visit.
-            AMPAMP | PIPEPIPE | And | Or => {
-                if let Some(chain) = ancestors
-                    .parent(node)
-                    .filter(|p| p.kind_id() == BinaryExpression)
-                {
-                    count_field_operands(&chain, php_count_condition, &mut stats.conditions);
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                if let Some(chain) = ancestors.parent(node) {
+                    count_field_operands(
+                        &chain,
+                        |operand, conds| php_count_condition(operand, code, conds),
+                        &mut stats.conditions,
+                    );
                 }
             }
             // An `elseif` is Java's `else if` — and PHP's own two-word
@@ -245,7 +223,11 @@ impl Abc for PhpCode {
             // `elseif ($b)` scored one below `else if ($b)` (#1526).
             ElseIfClause | ElseIfClause2 => {
                 stats.conditions += 1.;
-                php_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                php_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             // Phase-2B (issue #403): condition slots. PHP wraps
             // `if (...)` / `while (...)` / `do {…} while (...)` in a
@@ -258,15 +240,19 @@ impl Abc for PhpCode {
             // `return value;` names no field; its value is its only
             // operand.
             IfStatement | WhileStatement | DoStatement | ForStatement => {
-                php_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                php_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
                 if let Some(value) = wrapped_operand(node) {
-                    php_count_negated(&value, &mut stats.conditions);
+                    php_count_negated(&value, code, &mut stats.conditions);
                 }
             }
             // `f(!$a, !$b)` — argument list walker.
-            Arguments => php_count_arguments(node, &mut stats.conditions),
+            Arguments => php_count_arguments(node, code, &mut stats.conditions),
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but
             // the `conditional_expression` node is what carries the
@@ -274,7 +260,7 @@ impl Abc for PhpCode {
             // and adds the three operand slots (issue #1102).
             ConditionalExpression => {
                 stats.conditions += 1.;
-                php_walk_ternary(node, &mut stats.conditions);
+                php_walk_ternary(node, code, &mut stats.conditions);
             }
             _ => {}
         }

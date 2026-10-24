@@ -263,13 +263,13 @@ value = 126064.0172578382
 path = "big-code-analysis-ast/src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 87140.52449699795
+value = 84251.51576699129
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 117042.31541645825
+value = 114173.5054931161
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -1044,6 +1044,12 @@ path = "src/metrics/cognitive/perl.rs"
 qualified = "PerlCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/cognitive/php.rs"
+qualified = "PhpCode::compute"
+metric = "halstead.effort"
+value = 48398.686832978485
 
 [[entry]]
 path = "src/metrics/cognitive/php.rs"

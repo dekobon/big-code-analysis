@@ -40,7 +40,9 @@ use crate::{LANG, Metric, MetricsOptions};
     feature = "mozcpp",
     feature = "mozjs",
     feature = "objc",
+    feature = "php",
     feature = "python",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
     feature = "typescript",
@@ -571,6 +573,59 @@ fn csharp_rows_feed_each_abc_path_independently() {
         &[
             ("return x switch { > 5 => 1, _ => 0 };", 1, 1),
             ("return x switch { 5 => 1, _ => 0 };", 1, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "php")]
+fn php_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Php,
+        "<?php\nfunction f($a, $b, $x, $y, $o) { BODY }\n",
+        &[
+            ("if ($a) { } return $a;", 1, 1),
+            ("if ($x < $y) { } return $a;", 1, 1),
+            ("if ($x <> $y) { } return $a;", 1, 1),
+            ("if ($x <=> $y) { } return $a;", 1, 1),
+            ("if ($o instanceof C) { } return $a;", 1, 1),
+            ("$c = $x < $y; return $c;", 1, 0),
+            ("$c = $x !== $y; return $c;", 1, 0),
+            ("$c = $o instanceof C; return $c;", 1, 0),
+            ("return $a && $b;", 2, 1),
+            ("return $a || $b;", 2, 1),
+            ("return $a and $b;", 2, 1),
+            ("return $a or $b;", 2, 1),
+            // `xor` evaluates both operands: no chain, the slot pays once
+            ("if ($a xor $b) { } return $a;", 1, 1),
+            ("if ($a and $b || $x > 1) { } return $a;", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "ruby")]
+fn ruby_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Ruby,
+        "def f(a, b, x, y, o)\n  BODY\nend\n",
+        &[
+            ("if a then end; a", 1, 1),
+            ("if x < y then end; a", 1, 1),
+            ("if x <=> y then end; a", 1, 1),
+            ("if o =~ /x/ then end; a", 1, 1),
+            ("if o !~ /x/ then end; a", 1, 1),
+            ("if a === b then end; a", 1, 1),
+            ("c = x < y; c", 1, 0),
+            ("c = x >= y; c", 1, 0),
+            ("c = o =~ /x/; c", 1, 0),
+            // an operator method's name is no comparison
+            ("def ==(o); end; a", 0, 0),
+            ("a && b", 2, 1),
+            ("a || b", 2, 1),
+            ("a and b", 2, 1),
+            ("a or b", 2, 1),
+            ("if a and b || x > 1 then end; a", 3, 3),
         ],
     );
 }

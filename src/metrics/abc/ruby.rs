@@ -12,6 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
 };
+use crate::roles::ruby::{comparison, short_circuit};
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -101,54 +102,33 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // list until #1529, so `a && self` scored one below `a && b`. #1526
 // moved the rule into `count_boolean_slot` and ported it to every
 // sibling.
-fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
+fn ruby_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         ruby_wrapper_operand,
-        ruby_condition_scores_itself,
+        |expr| ruby_condition_scores_itself(expr, code),
         conditions,
     );
-}
-
-// The comparison / equality tokens that are one condition each inside a
-// `binary`. Shared by the token arm in `compute` and by
-// `ruby_condition_scores_itself`, which must agree with that arm on
-// exactly which operators it charges.
-macro_rules! ruby_comparison_kinds {
-    () => {
-        Ruby::EQEQ
-            | Ruby::BANGEQ
-            | Ruby::EQEQEQ
-            | Ruby::LT
-            | Ruby::GT
-            | Ruby::LTEQ
-            | Ruby::GTEQ
-            | Ruby::LTEQGT
-            | Ruby::EQTILDE
-            | Ruby::BANGTILDE
-    };
 }
 
 // Whether another arm of `compute` already charges `expr` (already
 // peeled through the wrappers `ruby_wrapper_operand` descends, which add
 // no decision of their own) as a condition. True for a comparison (the
-// token arm), a
-// one-line pattern test (the `TestPattern` arm), a ternary (the `?` arm
-// plus `ruby_walk_ternary`) and an `&&` / `||` / `and` / `or` chain:
-// the chain walker scores each operand through `ruby_count_condition`,
-// so every operand either pays there or is one of these, and a chain
-// always carries at least one condition of its own.
-fn ruby_condition_scores_itself(expr: &Node) -> bool {
+// `Comparison` row's owner, paid by its token), a one-line pattern test
+// (the `TestPattern` arm), a ternary (the `?` arm plus
+// `ruby_walk_ternary`) and an `&&` / `||` / `and` / `or` chain (the
+// `ShortCircuit` row's owner): the chain walker scores each operand
+// through `ruby_count_condition`, so every operand either pays there or
+// is one of these, and a chain always carries at least one condition of
+// its own. Neither owner gate reads ancestors, so the peeled descendant
+// is asked with none.
+fn ruby_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Ruby::*;
 
-    match expr.kind_id().into() {
-        Binary | Binary2 | Binary3 => expr.child_by_field_name("operator").is_some_and(|op| {
-            let kind: Ruby = op.kind_id().into();
-            matches!(kind, ruby_comparison_kinds!()) || matches!(kind, AMPAMP | PIPEPIPE | And | Or)
-        }),
-        TestPattern | Conditional => true,
-        _ => false,
-    }
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || matches!(expr.kind_id().into(), TestPattern | Conditional)
 }
 
 // Scores one `when` clause (#1453, transferring #1421's Kotlin rule).
@@ -178,7 +158,12 @@ fn ruby_condition_scores_itself(expr: &Node) -> bool {
 //
 // A `when` whose parent is not a `case` occurs only under error
 // recovery; it keeps the per-clause count rather than guessing.
-fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions: &mut f64) {
+fn ruby_count_when<'a>(
+    when: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    conditions: &mut f64,
+) {
     let subject_less = ancestors.parent(when).is_some_and(|case| {
         case.kind_id() == Ruby::Case && case.child_by_field_name("value").is_none()
     });
@@ -190,7 +175,7 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
     // sit beside it under the `when` but never inside it.
     for pattern in when.children().filter(|c| c.kind_id() == Ruby::Pattern) {
         if let Some(expr) = pattern.child(0) {
-            ruby_count_condition(&expr, conditions);
+            ruby_count_condition(&expr, code, conditions);
         }
     }
 }
@@ -213,16 +198,16 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
 // proves it one — a `!` / `not` layer. Keying on the `unary` kind instead
 // would also take `-b` (the same kind, a different operator), moving the
 // control case `(a > 0) ? b : -b` from 2 to 3.
-fn ruby_walk_ternary(node: &Node, conditions: &mut f64) {
+fn ruby_walk_ternary(node: &Node, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        ruby_count_condition(&condition, conditions);
+        ruby_count_condition(&condition, code, conditions);
     }
     for field in ["consequence", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
             count_negated_operand(
                 &branch,
                 ruby_wrapper_operand,
-                ruby_condition_scores_itself,
+                |expr| ruby_condition_scores_itself(expr, code),
                 conditions,
             );
         }
@@ -236,15 +221,17 @@ impl Abc for RubyCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the Ruby grammar can hand us, not
-        // branching a reader must hold. The `Elsif` slot arm took it past
+        // branching a reader must hold, and the effort is the table's
+        // vocabulary. The `Elsif` slot arm took it past
         // the limit; each arm is independent and there is no semantic
         // boundary to split this lookup on.
         use Ruby::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             Assignment | Assignment2 | OperatorAssignment | OperatorAssignment2 => {
                 stats.assignments += 1.;
             }
@@ -280,29 +267,17 @@ impl Abc for RubyCode {
             If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
             | UntilModifier | Guard | IfGuard | UnlessGuard => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    ruby_count_condition(&cond, &mut stats.conditions);
+                    ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
             }
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
                 stats.branches += 1.;
             }
-            // A comparison / equality token is a condition only inside a
-            // `binary` node. Every one of them doubles as a *method name*
-            // in a `def` (`def <(other)`, `def ==(other)`, …), where the
-            // grammar parents it under `operator`; `<` additionally spells
-            // a class's superclass clause (`class Foo < Bar`, parent
-            // `superclass`). Neither is a condition — the positive
-            // `binary` guard is the polarity Rust / Go / C / C++ already
-            // use, and stays correct for any future non-comparison
-            // spelling (#1280). `a < b` emits the `Binary2` alias; the two
-            // siblings are listed defensively per grammar-dispatch §1.
-            // `<<` is the distinct `LTLT` token and heredoc openers are
-            // their own tokens, so neither is affected.
-            ruby_comparison_kinds!()
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3)) =>
-            {
+            // The ten comparison tokens, the `Comparison` row's payers
+            // (`roles/ruby.rs`), each gated to a `binary` parent: every
+            // one doubles as a method name in a `def`, and `<` as a
+            // superclass clause (#1280) — the derivation is on the row.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Ruby 3.0's one-line pattern test (`a in Integer`) joins
@@ -335,12 +310,12 @@ impl Abc for RubyCode {
             Elsif => {
                 stats.conditions += 1.;
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    ruby_count_condition(&cond, &mut stats.conditions);
+                    ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
             }
             // A subject-less `case` can already have paid for its clause
             // through the clause's own operators (#1453).
-            When => ruby_count_when(node, ancestors, &mut stats.conditions),
+            When => ruby_count_when(node, code, ancestors, &mut stats.conditions),
             // A `case … in` pattern-match arm is a branch condition exactly
             // when it counts toward cyclomatic — a non-wildcard pattern or
             // a guarded arm. The bare `in _` default arm is filtered out,
@@ -359,19 +334,23 @@ impl Abc for RubyCode {
             // `a && b || c` as a left-nested chain of `binary` nodes
             // (aliased `Binary`..`Binary3`, lesson #2), so an operand that
             // is itself a chain is paid by its own operator's visit.
-            AMPAMP | PIPEPIPE | And | Or => {
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(chain) = ancestors
                     .parent(node)
-                    .filter(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3))
+                    .filter(|p| short_circuit::owns(p, code, Ancestors::unknown()))
                 {
-                    count_field_operands(&chain, ruby_count_condition, &mut stats.conditions);
+                    count_field_operands(
+                        &chain,
+                        |operand, conds| ruby_count_condition(operand, code, conds),
+                        &mut stats.conditions,
+                    );
                 }
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the token arm above; this walks the three
             // operand slots (issue #1161).
             Conditional => {
-                ruby_walk_ternary(node, &mut stats.conditions);
+                ruby_walk_ternary(node, code, &mut stats.conditions);
             }
             _ => {}
         }

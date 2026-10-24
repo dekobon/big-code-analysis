@@ -20,6 +20,8 @@ impl Getter for RubyCode {
 
     keyword_roles!(ruby);
 
+    paying_roles!(ruby);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Ruby as R;
 
@@ -111,8 +113,9 @@ impl Getter for RubyCode {
             // them (#1693).
             | R::End | R::End2
             | R::BEGIN | R::END
-            // Logical / definedness keywords
-            | R::And | R::Or | R::Not | R::DefinedQMARK
+            // Definedness and negation keywords; `and` / `or` are the
+            // `ShortCircuit` row's and `get_paying_role` bills them (#1695)
+            | R::Not | R::DefinedQMARK
             // Structural punctuation acting as operators. `HASHLBRACE`
             // — the `#{` interpolation opener — was here until #1314
             // and is deliberately gone: an interpolation opener is
@@ -149,12 +152,19 @@ impl Getter for RubyCode {
             | R::PLUS | R::DASH | R::DASH2 | R::DASH3 | R::DASH4 | R::STAR | R::STAR2 | R::STAR3
             | R::SLASH | R::PERCENT
             | R::STARSTAR | R::STARSTAR2 | R::STARSTAR3
-            // Comparison
+            // The comparison tokens for the spellings the `Comparison`
+            // row's `under_binary` gate leaves out — an operator method's
+            // name (`def ==(o)`), a superclass clause's `<`, a recovered
+            // token — which billed before the row existed; `&&` / `||`
+            // are the `ShortCircuit` row's and `get_paying_role` bills
+            // them (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary` gate leaves out
             | R::EQEQ | R::BANGEQ | R::EQEQEQ
             | R::LT | R::GT | R::LTEQ | R::GTEQ | R::LTEQGT
             | R::EQTILDE | R::BANGTILDE
             // Logical / unary
-            | R::AMPAMP | R::PIPEPIPE | R::BANG | R::TILDE
+            | R::BANG | R::TILDE
             // Bitwise / shift
             | R::AMP | R::AMP2 | R::PIPE | R::CARET | R::LTLT | R::LTLT2 | R::GTGT
             // Assignment

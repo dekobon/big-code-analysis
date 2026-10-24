@@ -14,10 +14,13 @@
 use super::*;
 use crate::checker::ruby::is_stabby_lambda_body;
 
-/// Folds a Ruby `binary`'s short-circuit operator children into the
-/// boolean-sequence counter — Ruby has four (`&&`, `||`, word-form
-/// `and`, word-form `or`). Each word form is keyed to its symbol (see
-/// [`compute_booleans_keyed`]).
+/// Folds a Ruby `binary`'s short-circuit operator children — the
+/// `ShortCircuit` row's four payers (`&&`, `||`, word-form `and`,
+/// word-form `or`) — into the boolean-sequence counter. Each word form
+/// is keyed to its symbol (see [`compute_booleans_keyed`]); which payers
+/// share a key is this consumer's reading of the row.
+// role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not membership:
+// the row is read on the arm's guard
 fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
     compute_booleans_keyed(node, stats, |id| match id.into() {
         Ruby::AMPAMP | Ruby::And => Some(Ruby::AMPAMP as u16),
@@ -29,11 +32,12 @@ fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
 impl Cognitive for RubyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::ruby::short_circuit;
         use Ruby as R;
 
         // bca: suppress(halstead) — exhaustive one-arm-per-grammar-kind
@@ -127,11 +131,10 @@ impl Cognitive for RubyCode {
             R::Redo | R::Retry => {
                 increment_by_one(stats);
             }
-            R::Binary | R::Binary2 | R::Binary3 => {
-                // Ruby has four short-circuit forms (`&&`, `||`, `and`,
-                // `or`); use the dedicated helper rather than the
-                // two-operator `compute_booleans` so word-form
-                // operators land in the sequence too.
+            // A `binary` the `ShortCircuit` row owns (#1695). Ruby has
+            // four short-circuit forms (`&&`, `||`, `and`, `or`); the
+            // dedicated helper keys the word forms to their symbols.
+            _ if short_circuit::owns(node, code, ancestors) => {
                 compute_ruby_booleans(node, stats);
             }
             R::Method | R::SingletonMethod => {

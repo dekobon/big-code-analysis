@@ -1,15 +1,64 @@
 //! Php's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
-use crate::Php;
 use crate::role_table;
+use crate::{Ancestors, Node, Php};
+
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers; the one kind carries every binary operator,
+/// `instanceof` included.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is a short-circuit
+/// payer.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a bare `<` / `>` is the operator of a `binary_expression`
+/// rather than a token error recovery strands. PHP has no generic
+/// brackets; the pinned grammar spells the two nowhere else.
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Php::BinaryExpression as u16)
+}
 
 role_table! {
     lang: Php;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The one `binary_expression` kind carries every binary operator,
+    // `instanceof` included; its `operator` field says which, so the
+    // owner is gated on the field. The ten comparison tokens are the
+    // four equalities, `<>` (the second spelling of `!=`), the four
+    // orderings and the spaceship `<=>`, plus the `instanceof`
+    // keyword; `<` / `>` are gated to the parent for a recovered token.
+    Comparison {
+        owns [BinaryExpression(gated_by comparison_operator)]
+        pays [
+            EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTGT, LTEQ, GTEQ, LTEQGT, Instanceof,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+        ]
+        project "operator"
+    }
+    // The punctuation forms `&&` / `||` and the low-precedence keyword
+    // forms `and` / `or`, each a token of its own inside a
+    // `binary_expression`. `xor` is `EagerLogical`'s: it evaluates both
+    // operands (#1536). `??` is `NullSafe`'s.
+    ShortCircuit {
+        owns [BinaryExpression(gated_by short_circuit_operator)]
+        pays [AMPAMP, PIPEPIPE, And, Or]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { pending R05 }
     NullSafe { pending R05 }

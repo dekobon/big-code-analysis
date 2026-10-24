@@ -12,12 +12,21 @@ impl Cyclomatic for RubyCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Ruby as R;
 
-        match node.kind_id().into() {
+        use crate::roles::ruby::short_circuit;
+        let kind = node.kind_id();
+        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers
+        // (#1695); `&.` stays below until its `NullSafe` row.
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             // Standard-only: each `when` arm of an ordinary `case … when`.
             R::When => {
                 stats.cyclomatic += 1.;
@@ -74,10 +83,6 @@ impl Cyclomatic for RubyCode {
             | R::RescueModifier2
             | R::RescueModifier3
             | R::Conditional
-            | R::AMPAMP
-            | R::PIPEPIPE
-            | R::And
-            | R::Or
             // Safe-navigation `&.` (`AMPDOT`) is short-circuit — it
             // skips the method call when the receiver is nil — so each
             // occurrence is one decision point, mirroring the

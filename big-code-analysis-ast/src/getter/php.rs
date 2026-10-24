@@ -33,6 +33,8 @@ impl Getter for PhpCode {
     // one here, where the C family, Java and TypeScript say operator.
     keyword_roles!(php, primitive: Operand);
 
+    paying_roles!(php);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Php::*;
         match node.kind_id().into() {
@@ -100,7 +102,7 @@ impl Getter for PhpCode {
             // Operator: expression keywords. The modifiers and the
             // declaration keywords are not here: `roles/php.rs`
             // declares them and `get_keyword_role` bills them (#1693).
-            | New | Clone | Instanceof | As | Insteadof | Extends | Implements
+            | New | Clone | As | Insteadof | Extends | Implements
             | Enddeclare | Unset | List
             | Zelf | Parent
 
@@ -121,13 +123,18 @@ impl Getter for PhpCode {
             | PLUS | DASH | STAR | SLASH | PERCENT | STARSTAR
             | PLUSPLUS | DASHDASH
 
-            // Operator: comparison
-            | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTGT
-            | LT | GT | LTEQ | GTEQ | LTEQGT
+            // `<` / `>` for the spelling the `Comparison` row's parent
+            // gate leaves out — a token error recovery strands — which
+            // billed before the row existed; the other comparison
+            // tokens, `instanceof`, `&&`, `||`, `and` and `or` are the
+            // `Comparison` and `ShortCircuit` rows' and `get_paying_role`
+            // bills them (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spelling the
+            // row's `under_binary_expression` gate leaves out: a recovered token
+            | LT | GT
 
-            // Operator: logical
-            | AMPAMP | PIPEPIPE | BANG
-            | And | Or | Xor | QMARKQMARK
+            // Operator: logical (`xor` evaluates both operands)
+            | BANG | Xor | QMARKQMARK
 
             // Operator: bitwise
             | AMP | PIPE | CARET | TILDE | LTLT | GTGT

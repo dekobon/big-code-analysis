@@ -7681,6 +7681,58 @@ end",
         }
     }
 
+    /// #1695: PHP's and Ruby's `Comparison` / `ShortCircuit` rows'
+    /// payers bill as operators, one spelling apiece; Ruby's gated-out
+    /// spellings (an operator method's name, a superclass `<`) and
+    /// PHP's eager `xor` bill as they did before the rows.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "<?php $c = $a < 1;\n"),
+            (">", "<?php $c = $a > 1;\n"),
+            ("<=", "<?php $c = $a <= 1;\n"),
+            (">=", "<?php $c = $a >= 1;\n"),
+            ("==", "<?php $c = $a == 1;\n"),
+            ("!=", "<?php $c = $a != 1;\n"),
+            ("<>", "<?php $c = $a <> 1;\n"),
+            ("===", "<?php $c = $a === 1;\n"),
+            ("!==", "<?php $c = $a !== 1;\n"),
+            ("<=>", "<?php $c = $a <=> 1;\n"),
+            ("instanceof", "<?php $c = $a instanceof B;\n"),
+            ("&&", "<?php $c = $a && $b;\n"),
+            ("||", "<?php $c = $a || $b;\n"),
+            ("and", "<?php $c = $a and $b;\n"),
+            ("or", "<?php $c = $a or $b;\n"),
+            ("xor", "<?php $c = $a xor $b;\n"),
+        ];
+        assert_spellings_bill_as_operators::<PhpParser>("foo.php", ROWS);
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "c = a < 1\n"),
+            (">", "c = a > 1\n"),
+            ("<=", "c = a <= 1\n"),
+            (">=", "c = a >= 1\n"),
+            ("==", "c = a == 1\n"),
+            ("!=", "c = a != 1\n"),
+            ("===", "c = a === 1\n"),
+            ("<=>", "c = a <=> 1\n"),
+            ("=~", "c = a =~ /x/\n"),
+            ("!~", "c = a !~ /x/\n"),
+            ("&&", "c = a && b\n"),
+            ("||", "c = a || b\n"),
+            ("and", "c = a and b\n"),
+            ("or", "c = a or b\n"),
+            ("==", "def ==(o)\nend\n"),
+            ("<", "class A < B\nend\n"),
+        ];
+        assert_spellings_bill_as_operators::<RubyParser>("foo.rb", ROWS);
+    }
+
     /// #1695: C#'s `Comparison` / `ShortCircuit` rows' payers bill as
     /// operators, one spelling apiece; the gated-out spellings (an
     /// operator declaration's name, a relational pattern, a generic

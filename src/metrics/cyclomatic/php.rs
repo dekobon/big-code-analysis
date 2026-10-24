@@ -11,13 +11,23 @@ use super::*;
 impl Cyclomatic for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Php::*;
 
-        match node.kind_id().into() {
+        use crate::roles::php::short_circuit;
+        let kind = node.kind_id();
+        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers
+        // (#1695); `??` / `??=` / `?->` stay below until their `NullSafe`
+        // row.
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             // Standard-only: individual case arms in switch/match.
             CaseStatement | MatchConditionalExpression => {
                 stats.cyclomatic += 1.;
@@ -39,10 +49,6 @@ impl Cyclomatic for PhpCode {
             | DoStatement
             | ConditionalExpression
             | CatchClause
-            | AMPAMP
-            | PIPEPIPE
-            | And
-            | Or
             | QMARKQMARK
             | QMARKQMARKEQ
             // Nullsafe operator `?->` (`QMARKDASHGT`) is short-circuit — it
