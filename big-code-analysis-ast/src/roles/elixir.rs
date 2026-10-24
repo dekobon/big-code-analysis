@@ -333,4 +333,45 @@ mod tests {
             &[Elixir::Source as u16, Elixir::Call as u16]
         );
     }
+
+    // The `Guard` row's owner is every `when` operator by kind, and its
+    // `when` token pays only in a guard position: a typespec's `when a:
+    // var` is the same operator and token, told apart by position alone
+    // (#1454). The consumers read the row at the token, so only this
+    // pins the owner side — and that the two projections sit on the
+    // same nodes, the operator owning and its token paying.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn guard_operators_own_and_their_tokens_pay_in_guard_position_only() {
+        let source = b"defmodule M do\n  @spec f(a) :: a when a: var\n  def f(x) when is_integer(x), do: x\n  def g(x) do\n    case x do\n      y when y > 0 -> 1\n      _ -> 0\n    end\n  end\nend\n";
+        let (mut owned, mut paid, mut tokens) = (Vec::new(), Vec::new(), Vec::new());
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if guard::owns(node, source, ancestors) {
+                owned.push(text());
+            }
+            if node.kind_id() == Elixir::When as u16 {
+                tokens.push(node.start_byte());
+                if guard::pays_at_leaf(node, source, ancestors) {
+                    paid.push(node.start_byte());
+                    let operator = ancestors.parent(node).expect("a `when` has a parent");
+                    assert!(guard::owns(&operator, source, ancestors), "{}", text());
+                }
+            }
+        });
+        // Every `when` operator owns — the typespec's included, since the
+        // kind alone cannot tell it apart — and `y > 0` owns nothing.
+        assert_eq!(
+            owned,
+            [
+                "f(a) :: a when a: var",
+                "f(x) when is_integer(x)",
+                "y when y > 0"
+            ]
+        );
+        // Three `when` tokens; the typespec's, first, pays nothing.
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(paid, tokens[1..]);
+    }
 }

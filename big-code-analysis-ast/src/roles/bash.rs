@@ -211,4 +211,55 @@ mod tests {
         assert_eq!(owned, ["a ? b : x"]);
         assert_eq!(paid, [(8, "?".to_owned())]);
     }
+
+    // The `Comparison` and `ShortCircuit` owner gates read the one
+    // `test_operator` kind for its bytes, as the payer gates do: a
+    // `binary_expression` holding `-lt` / `-gt` owns a comparison and
+    // one holding `-a` / `-o` owns a chain, never both. The consumers
+    // read these rows at the token, so only this pins the owner side.
+    // tree-sitter-bash nests every operator left: `$a -lt $b -a $c -gt
+    // 1` is `(($a -lt $b) -a $c) -gt 1`, so the outermost node holds
+    // `-gt` and the chain is its left operand. The `=` of `[ "$s" = x ]`
+    // is the `EQ` kind, which the row leaves to the consumer (#1536), so
+    // that node owns nothing.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn test_operators_sort_their_owners_by_their_bytes() {
+        let source = b"if [[ $a -lt $b -a $c -gt 1 ]]; then :; fi\n\
+if [ \"$s\" = x -o \"$t\" != y ]; then :; fi\n";
+        let (mut comparisons, mut chains) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<BashCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            let (comparison, chain) = (
+                comparison::owns(node, source, ancestors),
+                short_circuit::owns(node, source, ancestors),
+            );
+            assert!(!(comparison && chain), "{}", text());
+            if comparison {
+                comparisons.push(text());
+            }
+            if chain {
+                chains.push(text());
+            }
+            // An owner is the parent of the token that pays for it, and
+            // a payer's parent owns: the two projections agree per node.
+            if comparison::pays_at_leaf(node, source, ancestors)
+                || short_circuit::pays_at_leaf(node, source, ancestors)
+            {
+                let parent = ancestors.parent(node).expect("a payer has a parent");
+                assert!(
+                    comparison::owns(&parent, source, ancestors)
+                        || short_circuit::owns(&parent, source, ancestors),
+                    "{}",
+                    text()
+                );
+            }
+        });
+        assert_eq!(
+            comparisons,
+            ["$a -lt $b -a $c -gt 1", "$a -lt $b", "x -o \"$t\" != y"]
+        );
+        assert_eq!(chains, ["$a -lt $b -a $c", "x -o \"$t\""]);
+    }
 }
