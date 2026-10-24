@@ -46,7 +46,9 @@ role_table! {
     // a match, a test or a rewrite — the rewrite (`$x =~ s///`) is an
     // edit and no test, a reading the ABC consumer keeps as its own
     // extra (#1540), as it keeps the bare `/re/` match against `$_`
-    // (#1467), which has no token at all.
+    // (#1467), which has no token at all. The ABC consumer's
+    // `perl_condition_scores_itself` reads this owner's projection
+    // directly, so a gate added here must be read there too.
     Comparison {
         owns [BinaryExpression(holds_payer)]
         pays [

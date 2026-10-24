@@ -1751,12 +1751,13 @@ pub const PROBES: &[Probe] = &[
         render: nested_ands,
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "Every `boolean_operator` of a left-nested chain asks \
-                    whether an enclosing one already paid the structural \
-                    cost; counting every enclosing one, as the arm did until \
-                    #1695, was quadratic in the chain (204 ms at 8,000 \
-                    operands), where stopping at the first is linear. The \
-                    reading is the chain's one increment.",
+        rationale: "Every `boolean_operator` of a nested chain asks whether \
+                    an enclosing one already paid the structural cost; \
+                    counting every enclosing one, as the arm did until \
+                    #1695, was quadratic in the chain (377 ms at depth 8,000 \
+                    on this shape, 204 ms on the flat `a and a and …` the \
+                    parser nests the same way), where stopping at the first \
+                    is linear. The reading is the chain's one increment.",
     },
     Probe {
         name: "cyclomatic/nested-ternary",

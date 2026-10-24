@@ -13,6 +13,13 @@ use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
 use crate::node::MemoQuestion;
 use crate::{Ancestors, Elixir, Node};
 
+// The guard-position checks `elixir_when_is_guard` reaches, counted so
+// a test can see that a walk lending a `FoldCache` reaches it once per
+// repeated-guard chain whichever order it visits the tokens in (#1695):
+// the answers are identical either way, and only the count tells the
+// two apart.
+crate::observation::counter!(guard_position_checks, cfg(test));
+
 /// Whether `child` can occupy an operand slot: named, and not an
 /// `extra`. The root's `metrics::abc::is_operand`, which the rows
 /// cannot reach.
@@ -148,9 +155,9 @@ pub fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>>
 /// single guard pays no extra step and a chain pays one per alternative
 /// it lists — a bound set by the guard, not by the tree's depth. Asked
 /// once per token, that is quadratic in a chain's length; a walk that
-/// lends a memo records the answer per `when` operator, and a nested
-/// operator's answer is its parent operator's, so a chain is climbed
-/// once (#1695).
+/// lends a memo records the answer for every `when` operator the climb
+/// passes, and a nested operator's answer is its parent operator's, so
+/// a chain is climbed once however its tokens are visited (#1695).
 ///
 /// Both `None`s the climb answers `false` to are unreachable at the
 /// pin: a `when` *token*'s chain always holds at least the
@@ -175,18 +182,29 @@ pub(crate) fn elixir_when_is_guard<'a>(
         let memo = ancestors.node_memo(MemoQuestion::GuardOperator);
         let mut operator = operator;
         let mut above = chain.next();
-        while let Some((enclosing, _)) = above.filter(|(up, _)| elixir_is_when_operator(up)) {
-            // The enclosing operator's answer is this one's; a walk that
-            // already asked it stops the climb here.
+        // The operators the climb passes, to record the answer on each:
+        // the enclosing operator's answer is every nested one's.
+        let mut passed = Vec::new();
+        let answer = loop {
+            let Some((enclosing, _)) = above.filter(|(up, _)| elixir_is_when_operator(up)) else {
+                guard_position_checks::record();
+                break above.is_some_and(|(parent, _)| {
+                    elixir_is_guard_position(&operator, &parent, chain.map(|(up, _)| up), code)
+                });
+            };
             if let Some(known) = memo.and_then(|memo| memo.get(&enclosing)) {
-                return known;
+                break known;
             }
+            passed.push(enclosing);
             operator = enclosing;
             above = chain.next();
+        };
+        if let Some(memo) = memo {
+            for operator in passed {
+                memo.set(&operator, answer);
+            }
         }
-        above.is_some_and(|(parent, _)| {
-            elixir_is_guard_position(&operator, &parent, chain.map(|(up, _)| up), code)
-        })
+        answer
     })
 }
 
@@ -731,6 +749,70 @@ mod tests {
     use super::*;
     use crate::ElixirCode;
     use crate::test_support::for_each_node_with_chain;
+
+    // A repeated guard's `when` tokens each ask whether their operator
+    // sits in a guard position; a walk lending a `FoldCache` reaches
+    // the position check once per chain, in whichever order the tokens
+    // are asked — innermost first here, the order that leaves nothing
+    // memoised above the first asker, so only recording the answer on
+    // every operator the climb passes keeps it to one. Dropping that
+    // record makes the first assertion read the chain's length.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn a_repeated_guard_chain_is_climbed_once_whichever_token_asks_first() {
+        use crate::node::FoldCache;
+        let depth = 32;
+        let guards = (0..depth).fold(String::new(), |mut s, i| {
+            use std::fmt::Write as _;
+            let _ = write!(s, " when is_integer(x{i})");
+            s
+        });
+        let source = format!("def f(x){guards}, do: x\n");
+        let source = source.as_bytes();
+        let tree = crate::node::Tree::new::<ElixirCode>(source);
+        let root = tree.get_root();
+        assert!(!root.has_error());
+        // Every `when` token with its ancestor chain, root first.
+        let mut tokens = Vec::new();
+        let mut stack = vec![(root, Vec::new())];
+        while let Some((node, chain)) = stack.pop() {
+            if node.kind_id() == Elixir::When as u16 {
+                tokens.push((node, chain.clone()));
+            }
+            let mut below = chain;
+            below.push(node);
+            stack.extend(node.children().map(|child| (child, below.clone())));
+        }
+        assert_eq!(tokens.len(), depth);
+        // Innermost first.
+        tokens.sort_by_key(|(token, _)| std::cmp::Reverse(token.start_byte()));
+
+        let cache = FoldCache::default();
+        let before = guard_position_checks::observed();
+        let cached: Vec<bool> = tokens
+            .iter()
+            .map(|(token, chain)| {
+                elixir_when_is_guard(token, source, Ancestors::known(chain).with_folds(&cache))
+            })
+            .collect();
+        assert_eq!(
+            guard_position_checks::observed() - before,
+            1,
+            "a walk lending a FoldCache checks the chain's position once"
+        );
+
+        let before = guard_position_checks::observed();
+        let uncached: Vec<bool> = tokens
+            .iter()
+            .map(|(token, chain)| elixir_when_is_guard(token, source, Ancestors::known(chain)))
+            .collect();
+        assert_eq!(guard_position_checks::observed() - before, depth);
+        assert_eq!(cached, uncached);
+        assert!(
+            cached.iter().all(|&guard| guard),
+            "every `when` of the chain is a guard"
+        );
+    }
 
     #[cfg(feature = "elixir")]
     #[test]

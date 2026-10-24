@@ -198,7 +198,8 @@ fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
             }
             perl_is_logical_chain(expr, code)
         }
-        _ => rows_own!(expr, code; ternary) || perl_is_logical_chain(expr, code),
+        P::UnaryExpression => perl_is_logical_chain(expr, code),
+        _ => rows_own!(expr, code; ternary),
     }
 }
 
