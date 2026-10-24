@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
+use crate::roles::java::{comparison, short_circuit};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`): a parenthesis, a cast
@@ -39,9 +40,15 @@ fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 }
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a comparison, a ternary (its `?`), an `instanceof` test
-// (their token arms) or an `&&` / `||` chain, whose operands each pay
-// through `java_count_condition`.
+// a condition: a comparison or `instanceof` test (the `Comparison`
+// row's owners, whose token pays through the token arm), a ternary (its
+// `?`) or an `&&` / `||` chain (the `ShortCircuit` row's owner, whose
+// operands each pay through `java_count_condition`).
+//
+// The rows are asked with no ancestor chain: `expr` is a descendant the
+// peel reached from the walked node, so the walk's chain is not its
+// own, and neither Java owner gate reads ancestors — each reads the
+// node's `operator` field. (`roles/java.rs` says so on the gates.)
 //
 // An assignment is not peeled, because the `AssignmentExpression` arm
 // already scores its right-hand side as a negated operand: peeling
@@ -49,23 +56,20 @@ fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // counts. So it scores itself exactly when its value does — through that
 // arm, or through its own operator's arm (`if (y = x > 1)`) — and a bare
 // `if ((y = b))` pays through the slot.
-fn java_condition_scores_itself(expr: &Node) -> bool {
+fn java_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Java::*;
 
-    match expr.kind_id().into() {
-        TernaryExpression | InstanceofExpression => true,
-        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind_id().into(),
-                EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | AMPAMP | PIPEPIPE
-            )
-        }),
-        AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
-            let (value, proves_boolean) = peel(&right, java_wrapper_operand);
-            proves_boolean || java_condition_scores_itself(&value)
-        }),
-        _ => false,
-    }
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || match expr.kind_id().into() {
+            TernaryExpression => true,
+            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+                let (value, proves_boolean) = peel(&right, java_wrapper_operand);
+                proves_boolean || java_condition_scores_itself(&value, code)
+            }),
+            _ => false,
+        }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
@@ -76,11 +80,11 @@ fn java_condition_scores_itself(expr: &Node) -> bool {
 // boolean `switch` expression each scored 0 conditions against a
 // cyclomatic decision of 1 (#1526). It also pays for an ill-typed
 // `if (-x)`, which no valid program can tell apart (grammar-dispatch §6).
-fn java_count_condition(condition: &Node, conditions: &mut f64) {
+fn java_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         java_wrapper_operand,
-        java_condition_scores_itself,
+        |expr| java_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -88,24 +92,24 @@ fn java_count_condition(condition: &Node, conditions: &mut f64) {
 // An operand outside a boolean slot — a `return` value, an argument, a
 // declarator or assignment value, a lambda body, a ternary branch —
 // scores only when a `!` proves it boolean (see `count_negated_operand`).
-fn java_count_negated(operand: &Node, conditions: &mut f64) {
+fn java_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         java_wrapper_operand,
-        java_condition_scores_itself,
+        |expr| java_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn java_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn java_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        java_count_condition(&condition, conditions);
+        java_count_condition(&condition, code, conditions);
     }
 }
 
-fn java_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
+fn java_count_negated_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(operand) = slot {
-        java_count_negated(&operand, conditions);
+        java_count_negated(&operand, code, conditions);
     }
 }
 
@@ -219,10 +223,12 @@ fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     is_branch
 }
 
-// Counts condition tokens: comparison operators, control-flow keywords,
-// and the two tokens Java's generic syntax shares with an operator —
-// `<` / `>` count only in comparison position and `?` only as a ternary
-// head, each gated on its parent kind. The `default` arm of a
+// Counts condition tokens: the `Comparison` row's paying tokens — the
+// six comparison operators, with `<` / `>` gated to comparison position
+// since the grammar also spells them as generic-type brackets (#1274),
+// and the `instanceof` keyword, one per type test whether plain or the
+// Java 16 pattern form (#1461) — the control-flow keywords, and `?`,
+// which counts only as a ternary head. The `default` arm of a
 // `switch` is excluded: it is the unconditional fallthrough, so
 // cyclomatic counts only the `Case` arms (issue #469). Java's classic
 // statement switch (`default:`) and arrow switch (`default ->`) both
@@ -230,29 +236,22 @@ fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 // here covers both forms.
 fn java_count_token_condition<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) -> bool {
     use Java::*;
-    match node.kind_id().into() {
-        // `x instanceof Foo` joins them in #1461, scored by use rather
-        // than by slot.
-        // It sat in `java_bool_terminal_kinds!()` until then, which
-        // counts only inside a boolean slot: `boolean b = x instanceof
-        // String;` scored zero where the `boolean b = x == 1;` beside it
-        // scored one, because `EQEQ` is a token arm and `instanceof` was
-        // not. Fitzpatrick Rule 5 scores a relational operator wherever
-        // it is written.
-        //
-        // Matched as the node rather than as the `instanceof` token
-        // because one node spans both spellings — the plain test and
-        // Java 16's pattern form `x instanceof String s` — and no arm
-        // counts the keyword, so exactly one fires per test (§5).
-        //
-        // It shares the arm rather than sitting beside it because the
-        // arm's meaning is "this node is a condition, with nothing to
-        // gate on" — which is as true of a production as of a token.
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch | InstanceofExpression => {
+    let kind = node.kind_id();
+    // Fitzpatrick Rule 5 scores a relational operator wherever it is
+    // written — inside a slot or in `boolean b = x < y;` alike — so the
+    // leaf projection is read here, and `java_condition_scores_itself`
+    // reads the owner so the slot holding one does not pay again.
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+        stats.conditions += 1.;
+        return true;
+    }
+    match kind.into() {
+        Else | Case | Try | Catch => {
             stats.conditions += 1.;
         }
         // `?` opens a ternary, but tree-sitter-java also emits it bare
@@ -260,32 +259,12 @@ fn java_count_token_condition<'a>(
         // (`List<? extends T>`), which is type syntax and no more a
         // decision than the `<` / `>` around it (#1274). Those two
         // productions are the only ones that emit a bare `?`, so the
-        // same allowlist polarity used below settles it.
+        // same allowlist polarity the row's `<` / `>` gate uses settles
+        // it.
         QMARK => {
             if ancestors
                 .parent(node)
                 .is_some_and(|parent| matches!(parent.kind_id().into(), TernaryExpression))
-            {
-                stats.conditions += 1.;
-            }
-        }
-        // Counts `<` / `>` only as the operator token of a
-        // `binary_expression` — the polarity C / C++ / Rust / Go use.
-        // tree-sitter-java emits a bare `<` / `>` from exactly three
-        // productions (`binary_expression`, `type_arguments`,
-        // `type_parameters`), so this is the inverse of denying the two
-        // generic-type contexts, and it does not have to be revisited
-        // when a grammar bump adds a fourth type-syntax one. The
-        // previous denylist named only `type_arguments`, leaving every
-        // generic *declaration* — `class Gen<T>`, `<T> void m()`, both
-        // `type_parameters` — worth two conditions (#1274). A nested
-        // generic (`Map<String, List<T>>`) closes with two separate `>`
-        // tokens under their own `type_arguments`, not one `>>`; the
-        // shifts are distinct tokens and never reach this arm.
-        GT | LT => {
-            if ancestors
-                .parent(node)
-                .is_some_and(|parent| matches!(parent.kind_id().into(), BinaryExpression))
             {
                 stats.conditions += 1.;
             }
@@ -295,32 +274,46 @@ fn java_count_token_condition<'a>(
     true
 }
 
-fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+fn java_walk_for_conditions<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
     use Java::*;
     let conds = &mut stats.conditions;
-    match node.kind_id().into() {
-        // Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain
-        // is a boolean slot. `a && b || c` is a left-nested chain of
-        // `binary_expression`s, so an operand that is itself a chain is
-        // paid by its own operator's visit.
-        AMPAMP | PIPEPIPE => {
-            if let Some(chain) = ancestors
-                .parent(node)
-                .filter(|p| p.kind_id() == BinaryExpression)
-            {
-                count_field_operands(&chain, java_count_condition, conds);
-            }
+    let kind = node.kind_id();
+    // Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain
+    // is a boolean slot. `a && b || c` is a left-nested chain of
+    // `binary_expression`s, so an operand that is itself a chain is
+    // paid by its own operator's visit. The chain is the token's parent
+    // — the `ShortCircuit` row projects the owner to this token through
+    // its `operator` field, and the walk arrives at the token.
+    if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        if let Some(chain) = ancestors.parent(node) {
+            count_field_operands(
+                &chain,
+                |operand, conds| java_count_condition(operand, code, conds),
+                conds,
+            );
         }
+        return;
+    }
+    match kind.into() {
         // Negated operands among method arguments.
-        ArgumentList => count_each_operand(node, java_count_negated, conds),
+        ArgumentList => count_each_operand(
+            node,
+            |operand, conds| java_count_negated(operand, code, conds),
+            conds,
+        ),
         // `if (cond)`, `while (cond)`, `do … while (cond);`, by grammar
         // field: a fixed index lands on a comment before the slot
         // (`if /*c*/ (b)`) and scores the condition zero (#1455).
         IfStatement | WhileStatement | DoStatement => {
-            java_count_slot(node.child_by_field_name("condition"), conds);
+            java_count_slot(node.child_by_field_name("condition"), code, conds);
         }
         // `return value;` names no field; the value is its only operand.
-        ReturnStatement => java_count_negated_slot(wrapped_operand(node), conds),
+        ReturnStatement => java_count_negated_slot(wrapped_operand(node), code, conds),
         // The Java 21 pattern-switch guard (`case Integer i when g ->`),
         // modelled as a condition slot exactly like the `if` / `while`
         // slots above (#1454, transferring #1422's C# rule). Before
@@ -337,19 +330,25 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
         // it no field, so the expression is the clause's first operand
         // that is not an `extra` — `when /*c*/ g` puts a comment before
         // it, which would pay as a slot of its own.
-        Guard => java_count_slot(wrapped_operand(node), conds),
+        Guard => java_count_slot(wrapped_operand(node), code, conds),
         // Declarator / assignment RHS and lambda body (`params -> body`),
         // by field for the same reason as the condition slots above.
-        VariableDeclarator => java_count_negated_slot(node.child_by_field_name("value"), conds),
-        AssignmentExpression => java_count_negated_slot(node.child_by_field_name("right"), conds),
-        LambdaExpression => java_count_negated_slot(node.child_by_field_name("body"), conds),
-        TernaryExpression => java_walk_ternary(node, stats),
-        ForStatement => java_walk_for_statement(node, stats),
+        VariableDeclarator => {
+            java_count_negated_slot(node.child_by_field_name("value"), code, conds);
+        }
+        AssignmentExpression => {
+            java_count_negated_slot(node.child_by_field_name("right"), code, conds);
+        }
+        LambdaExpression => {
+            java_count_negated_slot(node.child_by_field_name("body"), code, conds);
+        }
+        TernaryExpression => java_walk_ternary(node, code, stats),
+        ForStatement => java_walk_for_statement(node, code, stats),
         _ => {}
     }
 }
 
-fn java_walk_ternary(node: &Node, stats: &mut Stats) {
+fn java_walk_ternary(node: &Node, code: &[u8], stats: &mut Stats) {
     let conds = &mut stats.conditions;
     // Slots are addressed by grammar FIELD, not by index. The positional
     // form read children 0 / 2 / 4, and tree-sitter counts comments among
@@ -359,10 +358,10 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     // That is the mirror image of the over-count the token-based seed
     // produced in the C family, from the same cause.
     if let Some(condition) = node.child_by_field_name("condition") {
-        java_count_condition(&condition, conds);
+        java_count_condition(&condition, code, conds);
     }
     for field in ["consequence", "alternative"] {
-        java_count_negated_slot(node.child_by_field_name(field), conds);
+        java_count_negated_slot(node.child_by_field_name(field), code, conds);
     }
 }
 
@@ -379,9 +378,9 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
 //     vacuously-true condition, so `for (;;)` scored one. Java and
 //     Groovy were the only two impls doing that; see the `Stats` doc
 //     comment's cross-language empty-`for`-condition policy.
-fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
+fn java_walk_for_statement(node: &Node, code: &[u8], stats: &mut Stats) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        java_count_condition(&condition, &mut stats.conditions);
+        java_count_condition(&condition, code, &mut stats.conditions);
     }
 }
 
@@ -401,7 +400,7 @@ impl Abc for JavaCode {
     // hide it — split the kinds across helpers explicitly instead.
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -411,9 +410,9 @@ impl Abc for JavaCode {
         if java_count_token_branch(node, stats) {
             return;
         }
-        if java_count_token_condition(node, ancestors, stats) {
+        if java_count_token_condition(node, code, ancestors, stats) {
             return;
         }
-        java_walk_for_conditions(node, ancestors, stats);
+        java_walk_for_conditions(node, code, ancestors, stats);
     }
 }

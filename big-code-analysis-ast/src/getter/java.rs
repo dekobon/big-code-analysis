@@ -89,6 +89,8 @@ impl Getter for JavaCode {
 
     keyword_roles!(java);
 
+    paying_roles!(java);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;
 
@@ -100,25 +102,38 @@ impl Getter for JavaCode {
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
         // The modifiers, the declaration keywords and the primitive
         // types are not here: `roles/java.rs` declares them, gates
-        // included, and `get_keyword_role` bills them (#1693).
+        // included, and `get_keyword_role` bills them (#1693). Nor are
+        // the comparison operators, `instanceof`, `&&` and `||`: the
+        // `Comparison` and `ShortCircuit` rows declare them and
+        // `get_paying_role` bills them (#1694).
         match node.kind_id().into() {
             // Operator: control flow
             If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
             // Operator: keywords. `default` is one kind for a `switch`
             // label and an interface method's modifier.
-            | New | Return | Default | Assert | Instanceof | Extends | Implements
+            | New | Return | Default | Assert | Extends | Implements
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators
-            | EQ | LT | GT | BANG | TILDE | QMARK | COLON
-            | EQEQ | LTEQ | GTEQ | BANGEQ | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH
+            | EQ | BANG | TILDE | QMARK | COLON | PLUSPLUS | DASHDASH
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ
             | LTLTEQ | GTGTEQ | GTGTGTEQ
             => {
                 TokenRole::Operator
             },
+            // The `<` that opens a generic list — `List<String>`, `<T>
+            // void m()` — is a bracket pair billed as `<>`
+            // (`get_operator_spelling`, #1559); its closer returned
+            // `Unknown` above. The `Comparison` row gates `<` / `>` to a
+            // `binary_expression`, where they compare, so the opener is
+            // the one spelling of the token the row leaves to this arm.
+            // role-bypass: allow(Comparison) — the operator classification of the gated-out generic
+            // opener, the complement of the row's `under_binary_expression`
+            LT | GT if GENERIC_ANGLES.opener_spelling(node, ancestors).is_some() => {
+                TokenRole::Operator
+            }
             // `super` is the receiver of `super.f()` / `super(x)` /
             // `super::f` everywhere except a wildcard type bound, where
             // `? super String` denotes no value and is the mirror image

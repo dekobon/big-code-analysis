@@ -10,16 +10,21 @@ use crate::role_table;
 use crate::{Ancestors, Java, Node};
 
 /// Whether a `binary_expression`'s `operator` field is an equality or
-/// ordering token. The same node kind carries `&&` / `||`, which belong
-/// to `ShortCircuit`, and the arithmetic operators, which belong to no
-/// role here; the field is the one place the grammar says which.
+/// ordering token — one of the `Comparison` payers. The same node kind
+/// carries `&&` / `||`, which belong to `ShortCircuit`, and the
+/// arithmetic operators, which belong to no role here; the field is the
+/// one place the grammar says which.
 fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| {
-        matches!(
-            op.kind_id().into(),
-            Java::EQEQ | Java::BANGEQ | Java::LT | Java::GT | Java::LTEQ | Java::GTEQ
-        )
-    })
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
 }
 
 /// Whether a bare `<` / `>` token is the operator of a
@@ -76,16 +81,18 @@ role_table! {
     // Projected and gated. A `binary_expression` owns a comparison only
     // when its `operator` field holds one; the equality and ordering
     // tokens pay unconditionally except `<` / `>`, which the grammar also
-    // emits as generic-type brackets. An `instanceof_expression` has no
-    // token of its own — one node spans both the plain test and the Java
-    // 16 pattern form, and nothing lists the keyword — so it pays for
-    // itself. `?` is excluded here rather than left unmentioned: a
-    // ternary's `?` is a `Ternary` matter, a wildcard bound's is type
-    // syntax, and neither is a comparison.
+    // emits as generic-type brackets. An `instanceof_expression` owns
+    // the type test — one node spans both the plain test and the Java
+    // 16 pattern form `x instanceof String s` — and its `instanceof`
+    // keyword pays: the grammar spells that keyword in no other
+    // production, so one pays per test (#1461). `?` is excluded here
+    // rather than left unmentioned: a ternary's `?` is a `Ternary`
+    // matter, a wildcard bound's is type syntax, and neither is a
+    // comparison.
     Comparison {
         owns [
             BinaryExpression(gated_by comparison_operator),
-            InstanceofExpression(pays_itself),
+            InstanceofExpression,
         ]
         pays [
             EQEQ,
@@ -94,9 +101,20 @@ role_table! {
             GTEQ,
             LT gated_by under_binary_expression,
             GT gated_by under_binary_expression,
+            Instanceof,
         ]
         project "operator"
         excludes [QMARK "a `?` is a ternary's decision or a wildcard bound; `Ternary` owns it"]
+    }
+
+    // The same `binary_expression` owns an `&&` / `||` chain when its
+    // `operator` field holds one; the two tokens occur in no other
+    // production, so they pay ungated. `a && b || c` is a left-nested
+    // chain of these nodes, each owning one operator.
+    ShortCircuit {
+        owns [BinaryExpression(gated_by short_circuit_operator)]
+        pays [AMPAMP, PIPEPIPE]
+        project "operator"
     }
 
     // `wraps`: a `string_literal` holding a `string_interpolation`
@@ -171,7 +189,6 @@ role_table! {
     EagerLogical { pending R05 }
 
     // Filled in by the packages that migrate their consumers.
-    ShortCircuit { pending R04 }
     Ternary { pending R05 }
     CaseArm { pending R05 }
     Branch { pending R07 }
@@ -232,6 +249,7 @@ mod tests {
                 kind,
                 Java::BinaryExpression
                     | Java::InstanceofExpression
+                    | Java::Instanceof
                     | Java::LT
                     | Java::GT
                     | Java::EQEQ
@@ -429,10 +447,10 @@ mod tests {
 
     // The owner is the `binary_expression`, the payer its `<` token;
     // `List<T>` emits the same token where nothing owns or pays. The
-    // `instanceof` test owns and pays at both projections because it
-    // has no token. The `&&` chain is a `binary_expression` too, and
-    // the gate keeps it out: it is `ShortCircuit`'s, not a comparison.
-    // A `?` reaches neither.
+    // `instanceof` test is owned by its expression node and paid by its
+    // keyword, one per test. The `&&` chain is a `binary_expression`
+    // too, and the gate keeps it out: it is `ShortCircuit`'s, not a
+    // comparison. A `?` reaches neither.
     #[cfg(feature = "java")]
     #[test]
     fn comparison_row_separates_the_owner_from_its_token() {
@@ -452,9 +470,10 @@ mod tests {
                 Java::InstanceofExpression,
                 "x instanceof String s",
                 true,
-                true,
+                false,
                 true,
             ),
+            (Java::Instanceof, "instanceof", false, true, false),
             (Java::BinaryExpression, "a < b", true, false, true),
             (Java::LT, "<", false, true, false),
             (Java::QMARK, "?", false, false, false),

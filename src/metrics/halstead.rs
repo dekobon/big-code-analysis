@@ -7093,6 +7093,40 @@ end",
         );
     }
 
+    /// #1694: every payer of Java's `Comparison` and `ShortCircuit`
+    /// rows bills as an operator, one fixture line apiece, so dropping
+    /// any one kind from a row fails its own entry — the rows are read
+    /// by `get_paying_role` ahead of the byte-less arm, which keeps only
+    /// the generic-bracket spelling of `<` / `>`.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_comparison_and_short_circuit_spellings_bill_1694() {
+        const ROWS: &[(&str, &str)] = &[
+            ("==", "class C { boolean f(int a) { return a == 1; } }\n"),
+            ("!=", "class C { boolean f(int a) { return a != 1; } }\n"),
+            ("<=", "class C { boolean f(int a) { return a <= 1; } }\n"),
+            (">=", "class C { boolean f(int a) { return a >= 1; } }\n"),
+            ("<", "class C { boolean f(int a) { return a < 1; } }\n"),
+            (">", "class C { boolean f(int a) { return a > 1; } }\n"),
+            (
+                "instanceof",
+                "class C { boolean f(Object o) { return o instanceof C; } }\n",
+            ),
+            (
+                "&&",
+                "class C { boolean f(boolean a) { return a && a; } }\n",
+            ),
+            (
+                "||",
+                "class C { boolean f(boolean a) { return a || a; } }\n",
+            ),
+        ];
+        for (spelling, source) in ROWS {
+            let ops = ops_of::<JavaParser>(source, "Foo.java");
+            assert_keyword_role(&ops, "Foo.java", spelling, Role::OperatorOnly);
+        }
+    }
+
     /// #1565: Groovy bills every modifier, as Java now does. Its grammar
     /// has no `modifiers` wrapper, so each leaf sits directly under its
     /// declaration. The rows declare with `def`, so the only primitive

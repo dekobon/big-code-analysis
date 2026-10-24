@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for JavaCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::java::short_circuit;
         use Java::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -28,6 +29,12 @@ impl Cognitive for JavaCode {
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
+            }
+            // A `binary_expression` the `ShortCircuit` row owns: its
+            // `&&` / `||` token — the row's payer — joins or opens a
+            // boolean sequence (#1694).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
             | CatchClause | TernaryExpression => {
@@ -44,9 +51,6 @@ impl Cognitive for JavaCode {
             // control flow. Plain `break;` / `continue;` are not penalized.
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);
-            }
-            BinaryExpression => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
                 nesting.lambda += 1;

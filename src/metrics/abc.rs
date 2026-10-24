@@ -47,6 +47,8 @@ mod objc;
 mod perl;
 mod php;
 mod python;
+#[cfg(test)]
+mod role_rows_tests;
 mod ruby;
 mod rust;
 #[cfg(test)]
@@ -518,7 +520,7 @@ pub(super) fn count_boolean_slot<'a>(
 pub(super) fn count_negated_operand<'a>(
     operand: &Node<'a>,
     step: PeelStep<'a>,
-    scores_itself: fn(&Node<'a>) -> bool,
+    scores_itself: impl Fn(&Node<'a>) -> bool,
     conditions: &mut f64,
 ) {
     let (node, proves_boolean) = peel(operand, step);

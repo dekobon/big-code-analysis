@@ -29,4 +29,13 @@ use super::*;
 // the only keyword token inside it is whatever the guard itself spells,
 // and `If` / `For` / `While` / `Catch` cannot appear in an expression
 // position.
-impl_cyclomatic_java_like!(JavaCode, Java, [Guard]);
+//
+// `&&` / `||` are read from the `ShortCircuit` row of `roles/java.rs`
+// (#1694), the same declaration ABC's chain walker and cognitive's
+// boolean-sequence arm read.
+impl_cyclomatic_java_like_rows!(
+    JavaCode,
+    Java,
+    [Guard],
+    short_circuit = crate::roles::java::short_circuit
+);

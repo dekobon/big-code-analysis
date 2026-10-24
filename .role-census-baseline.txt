@@ -199,7 +199,6 @@ Java ElseIf R07
 Java HoldsDocInBody R09
 Java Loop R07
 Java Member R06
-Java ShortCircuit R04
 Java Switch R07
 Java Ternary R05
 Javascript Branch R07
