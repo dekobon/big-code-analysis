@@ -5287,23 +5287,29 @@ g() {
         // context the grammar admits: `$(( … ))` expansion, bare
         // `(( … ))` statement, a c-style `for ((…))` header, `let`, an
         // array subscript, an `if (( … ))` condition, and a `declare -i`
-        // initializer. Both cyclomatic and cognitive list the alias
-        // anyway; if a grammar bump starts emitting it, this assertion
-        // fails loudly rather than the metric silently doubling.
+        // initializer. The `Ternary` row lists the alias as an owner
+        // anyway (#1695), and excludes the second `?` id, `QMARK2`, which
+        // the same sweep — plus an expansion's `${y?msg}` and `$?` —
+        // never emits either; if a grammar bump starts emitting one,
+        // this assertion fails loudly rather than the metric silently
+        // doubling or the row silently missing a payer.
         let src = "for ((i = a ? b : c; i < 10; i++)); do :; done\n\
                    let \"y = a ? b : c\"\n\
                    arr[$(( a ? b : c ))]=1\n\
                    if (( a ? b : c )); then :; fi\n\
                    declare -i z=$(( a ? b : c ))\n\
                    w=$(( a ? b : c ))\n\
-                   (( v = a ? b : c ))\n";
+                   (( v = a ? b : c ))\n\
+                   echo ${y?msg} ${z:?msg} $?\n";
         let parser = BashParser::new(
             src.as_bytes().to_vec(),
             &std::path::PathBuf::from("foo.sh"),
             None,
         );
         assert!(ast_has_kind_id(&parser, Bash::TernaryExpression as u16));
+        assert!(ast_has_kind_id(&parser, Bash::QMARK as u16));
         assert!(!ast_has_kind_id(&parser, Bash::TernaryExpression2 as u16));
+        assert!(!ast_has_kind_id(&parser, Bash::QMARK2 as u16));
     }
 
     #[cfg(feature = "bash")]

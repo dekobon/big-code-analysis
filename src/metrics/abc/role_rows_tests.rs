@@ -609,6 +609,9 @@ fn php_rows_feed_each_abc_path_independently() {
             ("if ($x <=> $y) { } return $a;", 1, 1),
             ("if ($o instanceof C) { } return $a;", 1, 1),
             ("$c = $x < $y; return $c;", 1, 0),
+            // a `<` error recovery strands pays, as it always did: the
+            // grammar spells it nowhere but as a comparison
+            ("if ($x <", 1, 0),
             ("$c = $x !== $y; return $c;", 1, 0),
             ("$c = $o instanceof C; return $c;", 1, 0),
             ("return $a && $b;", 2, 1),
@@ -849,16 +852,29 @@ fn assert_js_ternary(lang: LANG) {
     );
 }
 
+// A `?` error recovery strands under an `ERROR` (its ternary lost at end
+// of input) has always paid in the JavaScript grammars, whose only `?`
+// is the ternary's; the TypeScript grammars gate theirs and it pays
+// nothing there, as before.
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_js_recovered_question_mark(lang: LANG, conditions: u64) {
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(lang, b"let c = a ?\n", options);
+    assert_eq!(root.metrics.abc.conditions(), conditions, "{lang:?}");
+}
+
 #[test]
 #[cfg(feature = "javascript")]
 fn javascript_ternary_row_pays_once() {
     assert_js_ternary(LANG::Javascript);
+    assert_js_recovered_question_mark(LANG::Javascript, 1);
 }
 
 #[test]
 #[cfg(feature = "mozjs")]
 fn mozjs_ternary_row_pays_once() {
     assert_js_ternary(LANG::Mozjs);
+    assert_js_recovered_question_mark(LANG::Mozjs, 1);
 }
 
 #[test]
@@ -866,6 +882,8 @@ fn mozjs_ternary_row_pays_once() {
 fn typescript_ternary_row_pays_once_and_type_syntax_nothing() {
     assert_js_ternary(LANG::Typescript);
     assert_js_ternary(LANG::Tsx);
+    assert_js_recovered_question_mark(LANG::Typescript, 0);
+    assert_js_recovered_question_mark(LANG::Tsx, 0);
     // Three of the ten type productions that spell `?` (#1275): an
     // optional parameter and member, an optional tuple member, a
     // conditional type.

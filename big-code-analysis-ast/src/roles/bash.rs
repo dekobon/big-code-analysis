@@ -146,10 +146,11 @@ role_table! {
     // id carrying the kind, listed per grammar-dispatch §1 and
     // unreachable at the pinned grammar) and its `?` pays, gated to that
     // owner since `${y?msg}` spells the same token. `QMARK2` is the
-    // grammar's second `?` id, which a `bca dump` of every spelling
-    // never emits; it bills as the operator it names and is excluded
-    // rather than paid so a reachable spelling fails the coverage gate
-    // loudly.
+    // grammar's second `?` id, which no spelling at the pinned grammar
+    // emits — `bash_ternary_expression_alias_is_unreachable` in the
+    // cyclomatic tests pins that beside the owner alias — so it is
+    // recorded as considered rather than paid; the getter still bills
+    // it as the operator it names, should a bump start emitting it.
     Ternary {
         owns [TernaryExpression, TernaryExpression2]
         pays [QMARK gated_by under_ternary]

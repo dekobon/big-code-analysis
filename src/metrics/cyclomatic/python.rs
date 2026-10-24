@@ -15,14 +15,19 @@ impl Cyclomatic for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::python::short_circuit;
+        use crate::roles::python::{short_circuit, ternary};
         use Python::*;
 
         let kind = node.kind_id();
         // `and` / `or`, the `ShortCircuit` row's payers: cyclomatic counts
         // the token, which ABC deliberately does not (#395) — the same
-        // row, two policies (#1694).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // row, two policies (#1694). The `conditional_expression` the
+        // `Ternary` row owns is one decision, read at the node: its `if`
+        // is the statement keyword's kind, so the keyword arm below
+        // declines the one the ternary spells (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -45,6 +50,9 @@ impl Cyclomatic for PythonCode {
         // `with` and `async with` surface the same `with` keyword
         // token (`With`), so omitting it stops counting both. See #418.
         match kind.into() {
+            If if ancestors
+                .parent(node)
+                .is_some_and(|p| ternary::owns(&p, code, ancestors)) => {}
             If | Elif | For | While | Except | Assert => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;

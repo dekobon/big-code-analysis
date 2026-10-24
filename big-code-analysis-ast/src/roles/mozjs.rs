@@ -29,12 +29,14 @@ role_table! {
         project "operator"
     }
     EagerLogical { absent "JavaScript's `&` / `|` / `^` are bitwise" }
-    // The `ternary_expression` owns it and its `?` pays, gated to that
-    // owner (`roles/js_family.rs` says which other productions spell
-    // the token).
+    // The `ternary_expression` owns it and its `?` pays, ungated: the
+    // JavaScript grammars spell the bare token nowhere else, and a `?`
+    // error recovery strands under an `ERROR` (`let c = a ?` at end of
+    // input) has always paid (the TypeScript grammars gate theirs, for
+    // the ten type productions `roles/js_family.rs` names).
     Ternary {
         owns [TernaryExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK]
         project "operator"
     }
     NullSafe { pending R05 }

@@ -453,7 +453,8 @@ macro_rules! js_abc_compute {
                     stats.conditions += 1.;
                 }
                 // The `Ternary` row's `?`: plain JS spells the bare token
-                // nowhere else, so the row's gate admits every one.
+                // nowhere else, so the row pays it ungated — a recovered
+                // `?` with its ternary lost still pays, as it always did.
                 _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }

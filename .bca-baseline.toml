@@ -263,7 +263,7 @@ value = 124424.52920800987
 path = "big-code-analysis-ast/src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 84035.0200995642
+value = 83604.71759221925
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"

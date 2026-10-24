@@ -32,17 +32,6 @@ fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '
     eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
 }
 
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`
-/// rather than a token error recovery strands. PHP has no generic
-/// brackets; the pinned grammar spells the two nowhere else.
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Php::BinaryExpression as u16)
-}
-
 role_table! {
     lang: Php;
     Call { pending R08 }
@@ -52,13 +41,13 @@ role_table! {
     // owner is gated on the field. The ten comparison tokens are the
     // four equalities, `<>` (the second spelling of `!=`), the four
     // orderings and the spaceship `<=>`, plus the `instanceof`
-    // keyword; `<` / `>` are gated to the parent for a recovered token.
+    // keyword, every one ungated: PHP has no generic brackets, and
+    // the pinned grammar spells each only as a `binary_expression`'s
+    // operator, so a token error recovery strands under an `ERROR`
+    // pays as it always did.
     Comparison {
         owns [BinaryExpression(gated_by comparison_operator)]
-        pays [
-            EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTGT, LTEQ, GTEQ, LTEQGT, Instanceof,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
-        ]
+        pays [EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTGT, LTEQ, GTEQ, LTEQGT, Instanceof, LT, GT]
         project "operator"
     }
     // The punctuation forms `&&` / `||` and the low-precedence keyword

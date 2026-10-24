@@ -150,13 +150,14 @@ macro_rules! js_family_short_circuit_payers {
 /// kind ids.
 macro_rules! js_family_operator_gates {
     ($lang:ident) => {
-        /// Whether a `?` is a ternary's. The JavaScript grammars spell
-        /// the bare token nowhere else; the TypeScript grammars spell it
-        /// in ten type productions — an optional parameter, property,
-        /// method or tuple member, `optional_type`, `flow_maybe_type`,
+        /// Whether a `?` is a ternary's, the gate the TypeScript rows
+        /// read: those grammars spell the bare token in ten type
+        /// productions — an optional parameter, property, method or
+        /// tuple member, `optional_type`, `flow_maybe_type`,
         /// `conditional_type` (`T extends U ? X : Y`, resolved by the
         /// type checker and erased before runtime) — none a decision
-        /// (#1275). `?.` and `??` are distinct tokens.
+        /// (#1275). The JavaScript grammars spell it nowhere else and
+        /// pay it ungated. `?.` and `??` are distinct tokens.
         fn under_ternary<'a>(
             node: &$crate::Node<'a>,
             _code: &[u8],
