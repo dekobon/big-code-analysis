@@ -80,8 +80,11 @@ fn python_comprehension_clause_nesting(
 /// Complexity → Per-language deviations* in
 /// `big-code-analysis-book/src/metrics.md`.
 ///
-/// The outermost test asks the `ShortCircuit` row whether each
-/// ancestor owns a chain. An ancestor is handed over without its own
+/// The outermost test asks the `ShortCircuit` row whether an ancestor
+/// owns a chain, stopping at the first that does: a left-nested chain
+/// `a and a and … and a` nests one operator per operand, so counting
+/// every enclosing one was quadratic in the chain where only "is there
+/// one" is asked (#1695). An ancestor is handed over without its own
 /// chain — the walk's chain is `node`'s — and the row's owner has no
 /// gate, so `Ancestors::unknown()` is exact there.
 fn python_apply_boolean_operator<'a>(
@@ -92,12 +95,11 @@ fn python_apply_boolean_operator<'a>(
 ) {
     use crate::roles::python::short_circuit;
     use Python::*;
-    if node.count_specific_ancestors::<PythonCode>(
-        ancestors,
-        |ancestor| short_circuit::owns(ancestor, code, Ancestors::unknown()),
-        python_is_lambda,
-    ) == 0
-    {
+    let nested_in_a_chain = ancestors
+        .iter(node)
+        .take_while(|(ancestor, _)| !python_is_lambda(ancestor))
+        .any(|(ancestor, _)| short_circuit::owns(&ancestor, code, Ancestors::unknown()));
+    if !nested_in_a_chain {
         stats.structural +=
             node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
                 // Only `ExpressionList` can change the count: a lambda

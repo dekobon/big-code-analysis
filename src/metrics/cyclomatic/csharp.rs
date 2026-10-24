@@ -62,7 +62,6 @@ impl Cyclomatic for CsharpCode {
             // nodes and the token is excluded. `??=` is the compound form
             // the `NullSafe` row excludes as the consumers' own: one
             // decision edge, as the bare operator (#236).
-            // role-bypass: allow(NullSafe) — the compound `??=`, excluded on the row
             IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
             | CatchClause | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;

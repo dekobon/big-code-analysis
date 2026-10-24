@@ -443,6 +443,23 @@ impl<'a> Node<'a> {
         self.0.child_by_field_name(name).map(Node)
     }
 
+    /// [`child_by_field_name`](Self::child_by_field_name) through the
+    /// field's grammar id, which `tree_sitter` resolves from the name by
+    /// a linear string compare over the grammar's field table on every
+    /// call. A caller asking the same field of many nodes resolves it
+    /// once with [`field_id`](Self::field_id) and reads through this.
+    #[inline]
+    pub fn child_by_field_id(&self, field: u16) -> Option<Node<'a>> {
+        self.0.child_by_field_id(field).map(Node)
+    }
+
+    /// The grammar's id for `name` in the language this node was parsed
+    /// with, or `None` where that grammar names no such field.
+    #[inline]
+    pub fn field_id(&self, name: &str) -> Option<u16> {
+        self.0.language().field_id_for_name(name).map(u16::from)
+    }
+
     /// The direct child at index `pos`, counting named and anonymous
     /// children alike. Prefer [`child_by_field_name`](Self::child_by_field_name)
     /// for any slot the grammar can precede with an optional preamble.

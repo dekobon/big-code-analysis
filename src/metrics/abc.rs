@@ -4941,7 +4941,7 @@ mod tests {
     //
     // The census also pins §2: every `binary_expression` here carries the
     // `BinaryExpression2` id and the pre-alias `BinaryExpression` is never
-    // emitted. `cpp_operator_is_applied` matches the kind *name*, which
+    // emitted. `cpp_family_operator_is_applied` matches the kind *name*, which
     // covers both, so a grammar that starts emitting the pre-alias id
     // changes nothing — this census is what would notice it.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]

@@ -10,6 +10,7 @@
 //! `src/metrics/elixir_decisions.rs` in the root until then).
 
 use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
+use crate::node::MemoQuestion;
 use crate::{Ancestors, Elixir, Node};
 
 /// Whether `child` can occupy an operand slot: named, and not an
@@ -145,7 +146,11 @@ pub fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>>
 ///
 /// The climb stops at the first non-`when` ancestor, so an ordinary
 /// single guard pays no extra step and a chain pays one per alternative
-/// it lists — a bound set by the guard, not by the tree's depth.
+/// it lists — a bound set by the guard, not by the tree's depth. Asked
+/// once per token, that is quadratic in a chain's length; a walk that
+/// lends a memo records the answer per `when` operator, and a nested
+/// operator's answer is its parent operator's, so a chain is climbed
+/// once (#1695).
 ///
 /// Both `None`s the climb answers `false` to are unreachable at the
 /// pin: a `when` *token*'s chain always holds at least the
@@ -159,17 +164,29 @@ pub(crate) fn elixir_when_is_guard<'a>(
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let mut chain = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+    let mut chain = ancestors.iter(node);
     // The token's parent is the `when` operator node itself; the first
     // ancestor above the chain of `when` operators is the position that
     // decides.
-    chain.next().is_some_and(|mut operator| {
+    let Some((operator, _)) = chain.next() else {
+        return false;
+    };
+    ancestors.memoised(MemoQuestion::GuardOperator, &operator, || {
+        let memo = ancestors.node_memo(MemoQuestion::GuardOperator);
+        let mut operator = operator;
         let mut above = chain.next();
-        while let Some(enclosing) = above.filter(elixir_is_when_operator) {
+        while let Some((enclosing, _)) = above.filter(|(up, _)| elixir_is_when_operator(up)) {
+            // The enclosing operator's answer is this one's; a walk that
+            // already asked it stops the climb here.
+            if let Some(known) = memo.and_then(|memo| memo.get(&enclosing)) {
+                return known;
+            }
             operator = enclosing;
             above = chain.next();
         }
-        above.is_some_and(|parent| elixir_is_guard_position(&operator, &parent, chain, code))
+        above.is_some_and(|(parent, _)| {
+            elixir_is_guard_position(&operator, &parent, chain.map(|(up, _)| up), code)
+        })
     })
 }
 

@@ -153,10 +153,13 @@ impl Getter for ElixirCode {
     /// builds: asked once per token, that is quadratic in the chain,
     /// and the answer cannot move this reading — a `when` the gate
     /// leaves out (a typespec's `when a: integer`) bills as an operator
-    /// through the byte-less arm all the same. The counting consumers
-    /// pay that climb once per guard, where it decides something.
+    /// through the byte-less arm all the same, and the one position
+    /// where it does not, inside an `operator_identifier` (`&when/2`),
+    /// is `get_op_type`'s first test, repeated here since this reading
+    /// comes first. The counting consumers pay that climb once per
+    /// guard, where it decides something.
     // role-bypass: allow(Guard) — the Halstead reading of the row's one payer, which bills as
-    // an operator in every position and so skips the row's position gate
+    // an operator in every position but a name's and so skips the row's position gate
     fn get_paying_role<'a>(
         node: &Node<'a>,
         code: &[u8],
@@ -165,7 +168,11 @@ impl Getter for ElixirCode {
         use crate::roles::elixir::{case_arm, comparison, guard, short_circuit};
         let kind = node.kind_id();
         if guard::PAYERS.contains(&kind) {
-            return TokenRole::Operator;
+            return if ancestors.parent_has_kind(node, Elixir::OperatorIdentifier as u16) {
+                TokenRole::Unknown
+            } else {
+                TokenRole::Operator
+            };
         }
         if comparison::pays_at_token_kind(kind, node, code, ancestors)
             || short_circuit::pays_at_token_kind(kind, node, code, ancestors)

@@ -317,7 +317,7 @@ value = 6.0
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
-value = 42.0
+value = 44.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
@@ -359,7 +359,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 565.0
+value = 567.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"

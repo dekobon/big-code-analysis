@@ -8035,7 +8035,13 @@ end",
         // an `operator_identifier`, where it billed as an operand before
         // the rows and still does — the rows' `applied` gate leaves both
         // out, and the remote call is the counting consumers' extra.
-        for (token, source) in [("==", "c = &==/2\n"), ("||", "c = Kernel.||(a, b)\n")] {
+        // `when` is the one payer billed without its row's gate, so its
+        // name position is tested here by hand.
+        for (token, source) in [
+            ("==", "c = &==/2\n"),
+            ("||", "c = Kernel.||(a, b)\n"),
+            ("when", "c = &when/2\n"),
+        ] {
             let ops = ops_of::<ElixirParser>(source, "foo.ex");
             assert_keyword_role(&ops, "foo.ex", token, Role::OperandOnly);
         }
@@ -8233,7 +8239,8 @@ end",
     /// as operators, one spelling apiece, and the negated membership
     /// forms — which carry no token — bill nothing, as before; the
     /// gated-out spellings (a `for` header's `in`, a generic opener as
-    /// the `<>` pair) bill as they did before the rows.
+    /// the `<>` pair, an `instanceof` error recovery strands under
+    /// `ERROR`) bill as they did before the rows.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_comparison_and_short_circuit_spellings_bill_1695() {
@@ -8251,6 +8258,9 @@ end",
             ("==~", "def c = a ==~ /x/\n"),
             ("in", "def c = a in b\n"),
             ("instanceof", "def c = a instanceof B\n"),
+            // stranded under `ERROR` only inside a block the recovery
+            // cannot close; at top level the type is a zero-width node
+            ("instanceof", "def f(o) { o instanceof }\n"),
             ("&&", "def c = a && b\n"),
             ("||", "def c = a || b\n"),
             ("in", "for (x in xs) { }\n"),

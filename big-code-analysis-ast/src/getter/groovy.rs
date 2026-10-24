@@ -185,17 +185,18 @@ impl Getter for GroovyCode {
             // here: `roles/groovy.rs` declares them, gates included, and
             // `get_keyword_role` bills them (#1693).
             // The comparison and short-circuit tokens — including the
-            // identity, regex and spaceship ones and `instanceof` — are
-            // not here: the `Comparison` and `ShortCircuit` rows of
-            // `roles/groovy.rs` pay them and `get_paying_role` bills them
-            // (#1695). `<` / `>` and `in` stay for the spellings the rows'
+            // identity, regex and spaceship ones — are not here: the
+            // `Comparison` and `ShortCircuit` rows of `roles/groovy.rs`
+            // pay them and `get_paying_role` bills them (#1695). `<` /
+            // `>`, `in` and `instanceof` stay for the spellings the rows'
             // gates leave out — a generic bracket (`LT2` is the opener's
-            // alias), a recovered token, the `in` of a `for (x in xs)`
-            // header — which billed before the rows existed.
+            // alias), a recovered token (`o instanceof` at end of input
+            // strands the keyword under `ERROR`), the `in` of a `for (x
+            // in xs)` header — which billed before the rows existed.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
             // spellings the rows' `under BinaryExpression` / `under MembershipExpression` /
-            // `under TernaryExpression` gates leave out
-            LT | LT2 | GT | In
+            // `under InstanceofExpression` / `under TernaryExpression` gates leave out
+            LT | LT2 | GT | In | Instanceof
             // `case` is the `CaseArm` row's and `get_paying_role` bills it
             // (#1695); `default` is the fallback label's and stays.
             | If | Else | Switch | Try | Catch | Throw | Throws | For | While | Continue

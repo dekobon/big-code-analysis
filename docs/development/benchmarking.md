@@ -205,6 +205,10 @@ Read it as follows.
 | `halstead/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, reached through an iterated ancestor on the metric walk (#1686) | linear |
 | `ops/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, on the `ops` walk (#1686) | linear |
 | `count/tcl-wide-erroring-eval` | Tcl | width | the same scan under the `string` filter, on the `find` / `count` walk (#1686) | linear |
+| `cyclomatic/tcl-wide-switch` | Tcl | width | the `CaseArm` row's arm-list test, memoised per `word_list` through the walk's `FoldCache` so `A` arms over `W` options is not `A × W` (#1695) | linear |
+| `halstead/elixir-repeated-guards` | Elixir | depth | `ElixirCode::get_paying_role` billing `when` without the `Guard` row's position climb, which is per token and quadratic on a nested-`when` chain (#1695) | linear |
+| `cyclomatic/elixir-repeated-guards` | Elixir | depth | the `Guard` row's position climb, memoised per `when` operator under `MemoQuestion::GuardOperator` so a nested-`when` chain is climbed once per walk rather than once per token (#1695) | linear |
+| `cognitive/nested-and` | Python | depth | `python_apply_boolean_operator` asking whether *any* enclosing `boolean_operator` already paid, stopping at the first, where counting them all was quadratic in the chain (#1695) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`

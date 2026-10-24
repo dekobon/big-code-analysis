@@ -409,8 +409,9 @@ macro_rules! impl_cyclomatic_js_family {
                 }
                 match kind.into() {
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    // role-bypass: allow(NullSafe) — the compound forms, excluded on the row as the
-                    // consumers' own: one decision edge each, as the bare operator (#248)
+                    // The compound forms, excluded on the `NullSafe` row as
+                    // the consumers' own: one decision edge each, as the
+                    // bare operator (#248).
                     If | For | While | Catch | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;

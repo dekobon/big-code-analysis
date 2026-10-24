@@ -506,8 +506,15 @@ fn groovy_rows_feed_each_abc_path_independently() {
             ("if (a && b || x > 1) { }; return a", 3, 3),
         ],
     );
+    // Java's twin: an `instanceof` keyword error recovery strands under
+    // an `ERROR` (the type lost at end of input) pays for no type test,
+    // since the payer is gated to its owner. Ungated, it paid one.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(LANG::Groovy, b"def f(o) { o instanceof }\n", options);
+    assert_eq!(root.metrics.abc.conditions_sum(), 0);
 }
 
+#[cfg(all(feature = "groovy", feature = "kotlin"))]
 #[test]
 #[cfg(feature = "kotlin")]
 fn kotlin_rows_feed_each_abc_path_independently() {
@@ -549,6 +556,12 @@ fn kotlin_rows_feed_each_abc_path_independently() {
             ("if (a && b || x > 1) { }; return a", 3, 3),
         ],
     );
+    // Java's twin: an `instanceof` keyword error recovery strands under
+    // an `ERROR` (the type lost at end of input) pays for no type test,
+    // since the payer is gated to its owner. Ungated, it paid one.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(LANG::Groovy, b"def f(o) { o instanceof }\n", options);
+    assert_eq!(root.metrics.abc.conditions_sum(), 0);
 }
 
 #[test]

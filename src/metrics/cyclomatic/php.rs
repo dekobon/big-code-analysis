@@ -49,7 +49,6 @@ impl Cyclomatic for PhpCode {
             // it is a value, not a decision (#1536). `??=` is the compound
             // form the `NullSafe` row excludes as the consumers' own: one
             // decision edge, as the bare operator.
-            // role-bypass: allow(NullSafe) — the compound `??=`, excluded on the row
             IfStatement | ElseIfClause | ElseIfClause2 | ForStatement | ForeachStatement
             | WhileStatement | DoStatement | CatchClause | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;

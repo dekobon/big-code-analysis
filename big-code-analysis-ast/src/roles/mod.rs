@@ -117,8 +117,9 @@
 //! and no paying node at all — a shape the macro keeps for a construct
 //! every consumer recognises and none counts, which no row declares
 //! today (Java's `Guard` was its proof row until #1695 found cyclomatic
-//! pays the node); neither means the owners are the paying nodes. `project "field"` names the child field holding an owner's
-//! paying token; `wraps [..]` lists the interpolation kinds a
+//! pays the node); neither means the owners are the paying nodes.
+//! `project "field"` names the child field holding an owner's paying
+//! token; `wraps [..]` lists the interpolation kinds a
 //! `StringLit` can hold; `excludes [K "why"]` records a kind the row's
 //! author considered and rejected, for the coverage ratchet. Row
 //! attributes are written in that order — `pays`, `project`, `wraps`,
@@ -181,10 +182,15 @@
 //! `..name!()` (`roles/c_family.rs`, `roles/js_family.rs`); the
 //! fragment note on the macro below has the shape.
 //!
-//! What a row must not say is which consumer reads which projection, or
-//! why: that is policy, and it lives with the consumer in
-//! `big-code-analysis`. A row's comment describes the grammar — what
-//! the construct's nodes are and how they nest — and nothing else.
+//! What a row must not *decide* is which consumer reads which
+//! projection, or why: that is policy, and it lives with the consumer
+//! in `big-code-analysis`. A row's comment describes the grammar — what
+//! the construct's nodes are and how they nest — and may cross-reference
+//! the consumers' readings where that explains a declaration (why a
+//! kind is excluded as "the consumers' own", which projection a gate
+//! serves), since the reader deciding whether a row is right needs to
+//! know who reads it; the decision itself stays at the consumer, and
+//! nothing a row *emits* names a metric (#1690).
 //!
 //! # Decision note
 //!
@@ -482,7 +488,7 @@ macro_rules! role_table {
         /// emits with `--dump`, one row per line in declaration order.
         /// Test-only: the differential test is its one reader.
         #[cfg(test)]
-        pub fn canonical() -> String {
+        pub(crate) fn canonical() -> String {
             let mut out = format!("lang {}\n", stringify!($lang));
             $( out.push_str(&$crate::role_table!(@canonical $role)); out.push('\n'); )*
             out
@@ -531,7 +537,7 @@ macro_rules! role_table {
             $crate::role_table!(@absent_predicate_kind pays_at_token_kind);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
-            pub fn canonical() -> String {
+            pub(crate) fn canonical() -> String {
                 format!("{} absent {}", stringify!($role), ABSENT)
             }
         });
@@ -567,7 +573,7 @@ macro_rules! role_table {
             pub const PENDING: &str = stringify!($package);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
-            pub fn canonical() -> String {
+            pub(crate) fn canonical() -> String {
                 format!("{} pending {}", stringify!($role), PENDING)
             }
         });
@@ -699,7 +705,7 @@ macro_rules! role_table {
             /// the DSL; the differential test in `roles/mod.rs` holds it to
             /// this.
             #[cfg(test)]
-            pub fn canonical() -> String {
+            pub(crate) fn canonical() -> String {
                 let ids = |kinds: &[u16]| {
                     kinds.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
                 };
@@ -835,9 +841,16 @@ macro_rules! role_table {
             /// bare child) — its first child whose kind is a declared
             /// payer. `None` when neither holds, which for a declared
             /// owner is a row defect.
+            ///
+            /// The field is read by grammar id, resolved once per row:
+            /// `tree_sitter` resolves a name by a string compare over
+            /// the grammar's field table on every call, and a row's
+            /// gate asks this of every owner-kind node (#1695).
             pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
+                static FIELD: std::sync::OnceLock<Option<u16>> = std::sync::OnceLock::new();
                 PROJECT
-                    .and_then(|field| owner.child_by_field_name(field))
+                    .and_then(|field| *FIELD.get_or_init(|| owner.field_id(field)))
+                    .and_then(|field| owner.child_by_field_id(field))
                     .or_else(|| {
                         owner
                             .children()

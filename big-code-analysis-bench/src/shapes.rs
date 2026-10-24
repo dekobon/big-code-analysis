@@ -1468,6 +1468,27 @@ pub const PROBES: &[Probe] = &[
                     beside each braced one (#1686).",
     },
     Probe {
+        name: "cyclomatic/elixir-repeated-guards",
+        lang: LANG::Elixir,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
+        render: elixir_repeated_guards,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Every `when` of a repeated guard is the `Guard` row's \
+                    payer and cyclomatic pays each, so each asks whether its \
+                    operator sits in a guard position — a climb through the \
+                    nested `when` operators above it, quadratic per token \
+                    (881 ms at 8,000 guards) until the answer was memoised \
+                    per operator on the walk's `FoldCache` under \
+                    `MemoQuestion::GuardOperator` (#1695). The reading is \
+                    one decision per guard.",
+    },
+    Probe {
         name: "halstead/elixir-repeated-guards",
         lang: LANG::Elixir,
         axis: Axis::Depth,
@@ -1717,6 +1738,25 @@ pub const PROBES: &[Probe] = &[
         rationale: "Shape control for `cyclomatic/nested-ternary`: the \
                     same nesting through an arm that counts the token \
                     from its own kind and never looks up.",
+    },
+    Probe {
+        name: "cognitive/nested-and",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: nested_ands,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Every `boolean_operator` of a left-nested chain asks \
+                    whether an enclosing one already paid the structural \
+                    cost; counting every enclosing one, as the arm did until \
+                    #1695, was quadratic in the chain (204 ms at 8,000 \
+                    operands), where stopping at the first is linear. The \
+                    reading is the chain's one increment.",
     },
     Probe {
         name: "cyclomatic/nested-ternary",
@@ -2875,7 +2915,7 @@ pub const PROBES: &[Probe] = &[
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1533: every C++ `&&` / `||` asks \
-                    `cpp_operator_is_applied` whether it applies the \
+                    `cpp_family_operator_is_applied` whether it applies the \
                     operator. Asking whether the chain sits in a \
                     `requires` clause by climbing to it costs the \
                     chain's depth per operator, so the first \
@@ -2919,7 +2959,7 @@ pub const PROBES: &[Probe] = &[
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1533: ABC's `&&` / `||` arm shares \
-                    `cpp_operator_is_applied` with cyclomatic, so it \
+                    `cpp_family_operator_is_applied` with cyclomatic, so it \
                     inherits any climb added there. The reading is the \
                     chain's operand count.",
     },
@@ -3309,8 +3349,8 @@ mod tests {
         }
     }
 
-    /// The two #1695 probes read a count that *grows* with the shape —
-    /// one decision per `switch` arm, one operator per repeated guard —
+    /// The #1695 probes that read a count *growing* with the shape — one
+    /// decision per `switch` arm or guard, one operator per guard —
     /// so a shape that lost the construct it times is caught here,
     /// where [`probe_workload_is_exercised`] would not see it: a
     /// cyclomatic reading floors at one per space, and a Halstead one
@@ -3322,6 +3362,7 @@ mod tests {
         for name in [
             "cyclomatic/tcl-wide-switch",
             "halstead/elixir-repeated-guards",
+            "cyclomatic/elixir-repeated-guards",
         ] {
             let probe = PROBES
                 .iter()

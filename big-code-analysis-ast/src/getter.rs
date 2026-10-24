@@ -415,18 +415,17 @@ pub trait Getter {
     ) -> TokenRole;
 
     /// The Halstead role of a node some *paying-construct* row of
-    /// `crate::roles` declares — the operator token of a `Comparison`
-    /// or `ShortCircuit` — and [`TokenRole::Unknown`] for every other
-    /// node (#1694). Read after [`get_keyword_role`](Self::get_keyword_role)
+    /// `crate::roles` declares — the paying token of a `Comparison`,
+    /// `ShortCircuit`, `EagerLogical`, `Ternary`, `CaseArm`, `Guard` or
+    /// `NullSafe` row — and [`TokenRole::Unknown`] for every other node
+    /// (#1694, #1695). Read after [`get_keyword_role`](Self::get_keyword_role)
     /// and before the byte-less [`get_op_type`](Self::get_op_type) on
     /// every path the walk takes.
     ///
-    /// Defaulted to `Unknown`, unlike the keyword hook, because the
-    /// rows it reads are being declared one package at a time (#1694
-    /// declares three languages, #1695 the rest): a language whose rows
-    /// are still `pending` bills these tokens through `get_op_type`,
-    /// which is what it did before. Once every language's rows are
-    /// declared the default goes, as `get_keyword_role`'s did.
+    /// Every language with a grammar of its own overrides it, through
+    /// `paying_roles!` or by hand; the `Unknown` default serves the two
+    /// whose rows are all `absent` — `ccomment` and `preproc`, which
+    /// have no operators to bill.
     ///
     /// A row gates its payers on *application* — Java's `<` under a
     /// `binary_expression`, C++'s `&&` not in a reference declarator —

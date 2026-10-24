@@ -72,8 +72,8 @@ impl Cognitive for CsharpCode {
                     short_circuit::PAYERS.contains(&id) || id == QMARKQMARK as u16
                 });
             }
-            // role-bypass: allow(NullSafe) — the `??=` arm: excluded on the row as the
-            // consumers' own, a sequence decision here (#236)
+            // The `??=` arm: excluded on the `NullSafe` row as the
+            // consumers' own, a sequence decision here (#236).
             AssignmentExpression => {
                 // C#'s compound null-coalescing assignment `??=` is
                 // semantically `x = x ?? y` and carries one boolean-

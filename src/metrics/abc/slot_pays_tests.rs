@@ -479,7 +479,7 @@ fn assert_cpp_slots(lang: LANG) {
         ],
     );
     // A fold over a comparison is counted by its operator, as
-    // `cpp_operator_is_applied` decides; the slot must not pay again.
+    // `cpp_family_operator_is_applied` decides; the slot must not pay again.
     // A fold over `&&` / `||` applies its operator once, so it scores
     // one application, each row level with the spelled twin below it —
     // a unary fold's unwritten side is one more operand (#1533).

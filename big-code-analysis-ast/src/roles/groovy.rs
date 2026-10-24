@@ -110,10 +110,11 @@ role_table! {
     // `===` and `!==`, `regex_find_expression` / `=~`,
     // `regex_match_expression` / `==~`, `membership_expression` /
     // `in` (gated: the same keyword opens a `for (x in xs)` header) and
-    // `instanceof_expression` / `instanceof`. The negated forms `!in`
-    // and `!instanceof` emit no token at all, so those two owners pay
-    // for themselves exactly when they hold no keyword, and once per
-    // test either way.
+    // `instanceof_expression` / `instanceof` (gated: a keyword error
+    // recovery strands under `ERROR` is under no test). The negated
+    // forms `!in` and `!instanceof` emit no token at all, so those two
+    // owners pay for themselves exactly when they hold no keyword, and
+    // once per test either way.
     Comparison {
         owns [
             BinaryExpression(holds_payer),
@@ -125,7 +126,7 @@ role_table! {
             EQEQ, BANGEQ, LTEQ, GTEQ,
             LT under BinaryExpression, GT under BinaryExpression,
             LTEQGT, EQEQEQ, BANGEQEQ, EQTILDE, EQEQTILDE,
-            In under MembershipExpression, Instanceof,
+            In under MembershipExpression, Instanceof under InstanceofExpression,
         ]
         project "operator"
     }

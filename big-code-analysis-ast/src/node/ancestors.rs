@@ -580,14 +580,19 @@ pub(crate) enum MemoQuestion {
     /// exactly one `braced_word`, the arm list — asked once per arm by
     /// the `CaseArm` row (#1695).
     SwitchArmList,
+    /// Elixir: whether a `when` operator sits in a guard position — the
+    /// outermost of a repeated-guard chain decides for every nested one,
+    /// so each is asked once rather than climbing the chain per token
+    /// (#1695).
+    GuardOperator,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 3;
+    const COUNT: usize = 4;
 }
 
-const _: () = assert!(MemoQuestion::SwitchArmList as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::GuardOperator as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), and the per-node memos for
