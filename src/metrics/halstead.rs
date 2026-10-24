@@ -5365,6 +5365,73 @@ mod tests {
         );
     }
 
+    /// #1644: `__END__` / `__DATA__` and the data section after them
+    /// bill nothing, and the four compile-time constants bill once each.
+    /// The grammar wraps both in one `special_literal` kind, which the
+    /// getter billed by text: the data section was one operand spelling
+    /// its whole contents, and `__FILE__` was two — the wrapper and the
+    /// keyword leaf inside it. Two files that differ only in their data
+    /// section now score alike.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_data_section_and_special_literals_1644() {
+        // expected: [n1, N1, n2, N2] identical with and without the data
+        // section — operators `package`, `;` × 3, `my`, `$`, `=`;
+        // operands `P`, `$f`, `__FILE__`, `1`.
+        for (name, source) in [
+            ("no data section", "package P;\nmy $f = __FILE__;\n1;\n"),
+            (
+                "__END__",
+                "package P;\nmy $f = __FILE__;\n1;\n__END__\naaa\nbbb\n",
+            ),
+            (
+                "__DATA__",
+                "package P;\nmy $f = __FILE__;\n1;\n__DATA__\naaa\n",
+            ),
+            (
+                "__END__ with POD",
+                "package P;\nmy $f = __FILE__;\n1;\n__END__\n\n=head1 NAME\n\nP\n\n=cut\n",
+            ),
+        ] {
+            assert_halstead_counts::<PerlParser>(source, "foo.pl", [5, 7, 4, 4], name);
+        }
+        assert_ops_operands::<PerlParser>(
+            "package P;\nmy $f = __FILE__;\n1;\n__END__\naaa\n",
+            "foo.pl",
+            4,
+            vec!["P", "$f", "__FILE__", "1"],
+        );
+        // A bare marker is a program of nothing: no vocabulary at all.
+        assert_halstead_counts::<PerlParser>("__END__\naaa\n", "foo.pl", [0, 0, 0, 0], "bare");
+
+        // Each constant is one operand billed once, wherever it sits —
+        // including `__SUB__->(1)`, where the grammar emits the bare
+        // keyword with no `special_literal` around it.
+        // expected: operators `my` × 4, `$` × 4, `=` × 4, `;` × 5, `->`,
+        // `()`, `.` → n1 7, N1 20; operands `$a`, `$b`, `$c`, `$r`,
+        // `__FILE__` × 2, `__LINE__`, `__PACKAGE__`, `__SUB__` × 2, `1`
+        // → n2 9, N2 11. Before #1644 each of the five wrapped
+        // constants billed twice — the `__SUB__` of `__SUB__->(1)` is
+        // the one with no wrapper — for N2 16.
+        assert_halstead_counts::<PerlParser>(
+            "my $a = __FILE__;\nmy $b = __LINE__;\nmy $c = __PACKAGE__ . __FILE__;\n\
+             my $r = __SUB__->(1);\n__SUB__;\n",
+            "foo.pl",
+            [7, 20, 9, 11],
+            "constants",
+        );
+        let ops = ops_of::<PerlParser>("my $f = __FILE__;\n__END__\naaa\n", "foo.pl");
+        assert_keyword_role(&ops, "foo.pl", "__FILE__", Role::OperandOnly);
+        for gone in ["__END__", "__END__\naaa\n", "aaa", "aaa\n"] {
+            assert_eq!(
+                Role::of(&ops, gone),
+                None,
+                "`{gone:?}` reaches neither vocabulary; operands were {:?}",
+                ops.operands
+            );
+        }
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_qualified_name_leaves_still_count_elsewhere_1355() {

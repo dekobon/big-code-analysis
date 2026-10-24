@@ -914,6 +914,16 @@ tokens involved the same way they spell real operators:
   call `M(ref x)`, and `static (int x) => x` bills the same `static`
   as `static void M()`. A repeated operator keyword adds to
   `total_operators` but not to `unique_operators` (#1418, #1482).
+- **Perl's `__END__` and `__DATA__` end the program.** Neither marker
+  nor the data section after it is an operator or an operand, so two
+  files that differ only in their data section score alike. The
+  grammar holds the marker and every byte after it in the same
+  `special_literal` node it uses for `__FILE__`, which until #1644
+  billed the whole section as one operand spelling its contents — and
+  billed each of `__FILE__`, `__LINE__`, `__PACKAGE__` and `__SUB__`
+  twice, once as that wrapper and once as the keyword inside it. Each
+  constant is now one operand, billed once. The marker and the opaque
+  data leaf are still leaves, so `tokens` still counts them.
 - **JSX element text is an operand.** In JavaScript, Mozjs and TSX,
   the `hi` of `<p>hi</p>` counts the way a string's contents do. It is
   keyed on its text with leading and trailing whitespace trimmed, so a

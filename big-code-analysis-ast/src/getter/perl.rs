@@ -192,11 +192,25 @@ impl Getter for PerlCode {
             // arm, so `my @a = qw(a b c)` billed `@a` alone while its
             // synonym `("a", "b", "c")` billed four operands. The
             // wrapper is gated below, the Ruby `%w[]` shape of #1353.
+            //
+            // `__FILE__`, `__LINE__`, `__PACKAGE__` and `__SUB__` are
+            // the keyword leaves, each billed once as the constant it
+            // names. Their `special_literal` wrapper is not listed
+            // (#1644): it is one kind for two things — a wrapper around
+            // one of those four, and the `__END__` / `__DATA__` marker
+            // together with the `data_not_for_compiler` leaf holding
+            // every byte after it — and billing it by text made the
+            // constant two operands and the whole data section one. The
+            // leaf is the keeper (grammar-dispatch §6): it is the node
+            // present in every spelling, since `__SUB__->(1)` emits the
+            // bare token under `call_expression_recursive` with no
+            // wrapper at all. `__END__`, `__DATA__` and the section
+            // after them end the program and bill nothing.
             P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
             | P::PackageVariable | P::SpecialScalarVariable | P::PackageName | P::ModuleName
             | P::BarewordImport | P::Typeglob | P::FileHandle | P::ListItem
             | P::Integer | P::FloatingPoint | P::ScientificNotation | P::Hexadecimal | P::Octal
-            | P::True | P::False | P::SpecialLiteral
+            | P::True | P::False
             | P::StringSingleQuoted | P::StringQQuoted
             | P::FILE | P::LINE | P::SUB | P::PACKAGE
                 => TokenRole::Operand,
