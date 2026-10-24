@@ -141,7 +141,6 @@ Groovy CaseArm R05
 Groovy Catch R07
 Groovy Closure R06
 Groovy Comment R09
-Groovy Comparison R05
 Groovy Container R06
 Groovy DocComment R09
 Groovy DocRunDirective R09
@@ -156,7 +155,6 @@ Groovy HoldsDocInBody R09
 Groovy Loop R07
 Groovy Member R06
 Groovy NullSafe R05
-Groovy ShortCircuit R05
 Groovy StringLit R08
 Groovy Switch R07
 Groovy Ternary R05

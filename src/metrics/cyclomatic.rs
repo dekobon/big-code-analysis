@@ -401,7 +401,7 @@ macro_rules! impl_cyclomatic_js_family {
 // Java and Groovy share the same decision-kind set for cyclomatic
 // complexity; Groovy adds `Assert` as an extra branch (its `assert`
 // keyword is a runtime check that branches on its condition,
-// matching Sonar's standard-CCN treatment). `impl_cyclomatic_java_like!`
+// matching Sonar's standard-CCN treatment). `impl_cyclomatic_java_like_rows!`
 // emits the same match body against each enum, with an
 // `[$($extra:ident),*]` list for any language-specific decision kinds
 // (issue #300; mirrors `impl_npm_java_like!` / `impl_npa_java_like!`).
@@ -435,14 +435,9 @@ macro_rules! impl_cyclomatic_js_family {
 // the per-call rationale at that invocation). This differs from
 // amaanq's grammar, which emitted ERROR nodes for those constructs.
 //
-// Two macros for one body. `impl_cyclomatic_java_like_rows!` reads the
-// language's `ShortCircuit` row at its leaf projection — the `&&` /
-// `||` token — instead of naming the two kinds (#1694);
-// `impl_cyclomatic_java_like!` keeps the kind list for a language whose
-// row is still `pending` (Groovy, until #1695). Two names rather than
-// two arms of one macro because the bypass gate attributes a macro
-// body's kinds to every language that invokes the macro, so Java would
-// read as restating `AMPAMP` through Groovy's arm.
+// The `&&` / `||` arm reads the language's `ShortCircuit` row at its
+// leaf projection — the token — instead of naming the two kinds
+// (#1694, #1695).
 macro_rules! impl_cyclomatic_java_like_rows {
     ($code:ty, $lang:ident, [$($extra:ident),* $(,)?], short_circuit = $row:path) => {
         impl Cyclomatic for $code {
@@ -469,36 +464,6 @@ macro_rules! impl_cyclomatic_java_like_rows {
                         stats.cyclomatic_modified += 1.;
                     }
                     If | For | While | Catch | TernaryExpression $(| $extra)* => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_cyclomatic_java_like {
-    ($code:ty, $lang:ident, [$($extra:ident),* $(,)?]) => {
-        impl Cyclomatic for $code {
-            fn compute<'a>(
-                node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
-                stats: &mut Stats,
-            ) {
-                use $lang::*;
-
-                match node.kind_id().into() {
-                    Case => {
-                        stats.cyclomatic += 1.;
-                    }
-                    Switch => {
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE
-                    $(| $extra)* => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
@@ -7791,7 +7756,7 @@ f() {
         );
     }
 
-    /// Parity gate for the `impl_cyclomatic_java_like!` macro (#300):
+    /// Parity gate for the `impl_cyclomatic_java_like_rows!` macro (#300):
     /// every decision kind shared by Java and Groovy must produce the
     /// same per-function cyclomatic score for a common decision-rich
     /// method body. Dropping a kind from the macro body (e.g.,
@@ -7861,7 +7826,7 @@ f() {
         });
     }
 
-    /// Groovy-only delta in `impl_cyclomatic_java_like!`: the `Assert`
+    /// Groovy-only delta in `impl_cyclomatic_java_like_rows!`: the `Assert`
     /// extra-kind invocation must keep Groovy's `assert` branching at
     /// +1 while Java does not count anything for an identical-looking
     /// construct (Java has no `assert`-as-branch token; its `assert`
@@ -7893,7 +7858,7 @@ f() {
     /// occurrence in a chain adds +1 to cyclomatic complexity. The
     /// dekobon Groovy grammar models Elvis as a distinct
     /// `elvis_expression` node with a real `QMARKCOLON` token, so the
-    /// `impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert,
+    /// `impl_cyclomatic_java_like_rows!(GroovyCode, Groovy, [Assert,
     /// QMARKCOLON])` invocation picks it up directly.
     #[cfg(feature = "groovy")]
     #[test]

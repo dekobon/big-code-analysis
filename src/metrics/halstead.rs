@@ -7589,6 +7589,7 @@ end",
         feature = "cpp",
         feature = "csharp",
         feature = "go",
+        feature = "groovy",
         feature = "irules",
         feature = "javascript",
         feature = "lua",
@@ -7676,6 +7677,44 @@ end",
         for rows in [C_FAMILY_MODIFIER_SPELLINGS, CPP_ONLY] {
             assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
             assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
+        }
+    }
+
+    /// #1695: Groovy's `Comparison` / `ShortCircuit` rows' payers bill
+    /// as operators, one spelling apiece, and the negated membership
+    /// forms — which carry no token — bill nothing, as before; the
+    /// gated-out spellings (a `for` header's `in`, a generic opener as
+    /// the `<>` pair) bill as they did before the rows.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "def c = a < 1\n"),
+            (">", "def c = a > 1\n"),
+            ("<=", "def c = a <= 1\n"),
+            (">=", "def c = a >= 1\n"),
+            ("==", "def c = a == 1\n"),
+            ("!=", "def c = a != 1\n"),
+            ("<=>", "def c = a <=> 1\n"),
+            ("===", "def c = a === b\n"),
+            ("!==", "def c = a !== b\n"),
+            ("=~", "def c = a =~ /x/\n"),
+            ("==~", "def c = a ==~ /x/\n"),
+            ("in", "def c = a in b\n"),
+            ("instanceof", "def c = a instanceof B\n"),
+            ("&&", "def c = a && b\n"),
+            ("||", "def c = a || b\n"),
+            ("in", "for (x in xs) { }\n"),
+            ("<>", "List<String> l = null\n"),
+        ];
+        assert_spellings_bill_as_operators::<GroovyParser>("foo.groovy", ROWS);
+        for source in ["def c = a !in b\n", "def c = a !instanceof B\n"] {
+            let ops = ops_of::<GroovyParser>(source, "foo.groovy");
+            assert!(
+                !ops.operators.iter().any(|o| o == "in" || o == "instanceof"),
+                "{source}: a tokenless negated test bills no keyword; operators were {:?}",
+                ops.operators
+            );
         }
     }
 

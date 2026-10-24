@@ -30,6 +30,7 @@ use crate::{LANG, Metric, MetricsOptions};
     feature = "c",
     feature = "cpp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
     feature = "java",
     feature = "javascript",
@@ -455,5 +456,41 @@ fn typescript_and_tsx_rows_feed_each_abc_path_independently() {
         LANG::Typescript,
         "function f<T>(a: boolean, x: number, l: Array<Map<string, T>>): boolean { BODY }\n",
         &[("let v: Array<Array<T>> = []; return a;", 0, 0)],
+    );
+}
+
+#[test]
+#[cfg(feature = "groovy")]
+fn groovy_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Groovy,
+        "class C { boolean f(boolean a, boolean b, int x, int y, Object o, List<String> l) { BODY } }\n",
+        &[
+            ("if (a) { }; return a", 1, 1),
+            ("if (x < y) { }; return a", 1, 1),
+            ("if (x <=> y) { }; return a", 1, 1),
+            ("if (o === o) { }; return a", 1, 1),
+            ("if (o =~ /x/) { }; return a", 1, 1),
+            ("if (x in l) { }; return a", 1, 1),
+            ("if (x !in l) { }; return a", 1, 1),
+            ("if (o instanceof String) { }; return a", 1, 1),
+            ("if (o !instanceof String) { }; return a", 1, 1),
+            // outside any slot: only the token (or the tokenless node) pays
+            ("def c = x < y; return c", 1, 0),
+            ("def c = x <=> y; return c", 1, 0),
+            ("def c = o ==~ /x/; return c", 1, 0),
+            ("def c = x in l; return c", 1, 0),
+            ("def c = x !in l; return c", 1, 0),
+            ("def c = o !instanceof String; return c", 1, 0),
+            // a generic bracket and a `for` header's `in` pay nothing
+            (
+                "List<Map<String, Integer>> m = null; for (i in l) { }; return a",
+                0,
+                1,
+            ),
+            ("return a && b", 2, 1),
+            ("return a || b", 2, 1),
+            ("if (a && b || x > 1) { }; return a", 3, 3),
+        ],
     );
 }

@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::groovy::short_circuit;
         use Groovy::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -49,8 +50,9 @@ impl Cognitive for GroovyCode {
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);
             }
-            BinaryExpression => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             // Groovy's Elvis `?:` is a short-circuit nullish operator
             // analogous to Kotlin's `?:` (#239) and JS `??`. Per

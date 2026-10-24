@@ -39,6 +39,54 @@ fn contextual_keyword_owns<'a>(
     })
 }
 
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers; the one kind carries every Java-style binary
+/// operator.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a bare `<` / `>` is the operator of a `binary_expression`.
+/// The grammar emits the tokens from four productions —
+/// `binary_expression`, `type_arguments`, `type_parameters` and, unlike
+/// tree-sitter-java, a separate `method_type_parameters` for
+/// `def <U> U m(U x)` — and error recovery strands either (#1274).
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Groovy::BinaryExpression as u16)
+}
+
+/// Whether an `in` keyword is a membership test rather than the `in`
+/// of a `for (x in xs)` loop header, where it is a loop keyword.
+fn under_membership_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Groovy::MembershipExpression as u16)
+}
+
+/// Whether a `membership_expression` or `instanceof_expression` spells
+/// its keyword as a token. The negated forms `a !in b` and
+/// `o !instanceof T` emit no operator token at all — the node holds its
+/// two operands and nothing between them — so the owner pays for
+/// itself there and the positive form's keyword pays otherwise.
+fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_none()
+}
+
 /// Java's eight primitive type keywords and `void`, which Groovy
 /// reserves as Java does.
 const PRIMITIVE_TYPES: &[&str] = &[
@@ -90,8 +138,41 @@ role_table! {
     lang: Groovy;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The worked example of a node / token pairing (#1695). A
+    // `binary_expression` owns a comparison through its `operator`
+    // field, where `<` / `>` are gated to that parent (the grammar
+    // also spells them as generic brackets). The dekobon grammar gives
+    // Groovy's own comparisons nodes of their own, each wrapping its
+    // token: `spaceship_expression` / `<=>`, `identity_expression` /
+    // `===` and `!==`, `regex_find_expression` / `=~`,
+    // `regex_match_expression` / `==~`, `membership_expression` /
+    // `in` (gated: the same keyword opens a `for (x in xs)` header) and
+    // `instanceof_expression` / `instanceof`. The negated forms `!in`
+    // and `!instanceof` emit no token at all, so those two owners pay
+    // for themselves exactly when they hold no keyword, and once per
+    // test either way.
+    Comparison {
+        owns [
+            BinaryExpression(gated_by comparison_operator),
+            SpaceshipExpression, IdentityExpression, RegexFindExpression, RegexMatchExpression,
+            MembershipExpression(pays_itself_when has_no_keyword_token),
+            InstanceofExpression(pays_itself_when has_no_keyword_token),
+        ]
+        pays [
+            EQEQ, BANGEQ, LTEQ, GTEQ,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LTEQGT, EQEQEQ, BANGEQEQ, EQTILDE, EQEQTILDE,
+            In gated_by under_membership_expression, Instanceof,
+        ]
+        project "operator"
+    }
+    // `&&` / `||`, which the grammar emits only under a
+    // `binary_expression`. The elvis `?:` is `NullSafe`'s.
+    ShortCircuit {
+        owns [BinaryExpression(gated_by short_circuit_operator)]
+        pays [AMPAMP, PIPEPIPE]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { pending R05 }
     NullSafe { pending R05 }
@@ -163,4 +244,33 @@ role_table! {
     DocRunOpener { pending R09 }
     DocRunDirective { pending R09 }
     HoldsDocInBody { pending R09 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::GroovyCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    // A node / token pairing with a negated spelling that has no token
+    // (#1695): `a in b` is owned by its node and paid by its `in`;
+    // `a !in b` is owned and paid by the node, since nothing else is
+    // there to pay. One pays per test either way, and the `in` of a
+    // `for` header pays nothing.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn membership_pays_at_its_keyword_or_at_itself_when_negated() {
+        let source = b"def f(a, b, o, xs) { def n = a in b; def nn = a !in b; def i = o instanceof String; def ni = o !instanceof String; for (x in xs) { } }\n";
+        let mut paid = Vec::new();
+        for_each_node_with_chain::<GroovyCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if comparison::pays_at_leaf(node, source, ancestors) {
+                paid.push(node.utf8_text(source).expect("fixture is UTF-8").to_owned());
+            }
+        });
+        assert_eq!(
+            paid,
+            ["in", "a !in b", "instanceof", "o !instanceof String"]
+        );
+    }
 }

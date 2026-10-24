@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
+use crate::roles::groovy::{comparison, short_circuit};
 use crate::*;
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
@@ -69,32 +70,31 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
 // a condition: a comparison, identity, regex, spaceship, membership or
-// `instanceof` test, a ternary (its `?`) or an elvis (its `?:`) — each
-// its own token or node arm — or an `&&` / `||` chain, whose operands
-// each pay through `groovy_count_condition`.
+// `instanceof` test (the `Comparison` row's owners, paid at their
+// token or, for the negated membership forms, at the node), a ternary
+// (its `?`) or an elvis (its `?:`, pending `NullSafe`), or an `&&` /
+// `||` chain (the `ShortCircuit` row's owner), whose operands each pay
+// through `groovy_count_condition`. Neither owner gate reads ancestors,
+// so the peeled descendant is asked with none.
 //
 // An assignment is not peeled, because the `AssignmentExpression` arm
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
 // counts. It scores itself exactly when its value does, as Java's does.
-fn groovy_condition_scores_itself(expr: &Node) -> bool {
+fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Groovy::*;
 
-    match expr.kind_id().into() {
-        IdentityExpression | RegexFindExpression | RegexMatchExpression | SpaceshipExpression
-        | MembershipExpression | InstanceofExpression | TernaryExpression | ElvisExpression => true,
-        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind_id().into(),
-                EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | AMPAMP | PIPEPIPE
-            )
-        }),
-        AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
-            let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
-            proves_boolean || groovy_condition_scores_itself(&value)
-        }),
-        _ => false,
-    }
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || match expr.kind_id().into() {
+            TernaryExpression | ElvisExpression => true,
+            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+                let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
+                proves_boolean || groovy_condition_scores_itself(&value, code)
+            }),
+            _ => false,
+        }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do-while` / `for`
@@ -103,11 +103,11 @@ fn groovy_condition_scores_itself(expr: &Node) -> bool {
 // so `if (-x)`, `if (x + 1)`, `if ((y = x))` and `if (a ==> b)` are each
 // a decision, and each scored 0 while the slot paid only for a fixed
 // list of terminal kinds (#1526).
-fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
+fn groovy_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         groovy_wrapper_operand,
-        groovy_condition_scores_itself,
+        |expr| groovy_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -115,24 +115,24 @@ fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
 // An operand outside a boolean slot — a `return` value, an argument, a
 // declarator or assignment value, a ternary branch — scores only when a
 // `!` proves it boolean (see `count_negated_operand`).
-fn groovy_count_negated(operand: &Node, conditions: &mut f64) {
+fn groovy_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         groovy_wrapper_operand,
-        groovy_condition_scores_itself,
+        |expr| groovy_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn groovy_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn groovy_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        groovy_count_condition(&condition, conditions);
+        groovy_count_condition(&condition, code, conditions);
     }
 }
 
-fn groovy_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
+fn groovy_count_negated_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(operand) = slot {
-        groovy_count_negated(&operand, conditions);
+        groovy_count_negated(&operand, code, conditions);
     }
 }
 
@@ -239,15 +239,37 @@ fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 
 // The `default` arm of a `switch` is excluded (issue #469): it is the
 // unconditional fallthrough, so cyclomatic counts only the `Case` arms
-// (Groovy shares Java's `impl_cyclomatic_java_like!`, which matches
+// (Groovy shares Java's `impl_cyclomatic_java_like_rows!`, which matches
 // `Case` and never `Default`).
 fn groovy_count_token_condition<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) -> bool {
     use Groovy::*;
-    match node.kind_id().into() {
+    let kind = node.kind_id();
+    // The `Comparison` row's payers (`roles/groovy.rs`): the six
+    // Java-style tokens, with `<` / `>` gated to a `binary_expression`
+    // — the dekobon grammar emits a bare `<` / `>` from four
+    // productions (`binary_expression`, `type_arguments`,
+    // `type_parameters` and `method_type_parameters` for `def <U> U
+    // m(U x)`), the previous denylist named only the first type one
+    // (#1274), and an explicit type witness
+    // (`Collections.<String>emptyList()`) the grammar cannot parse puts
+    // its `<` under an `ERROR` only the positive form copes with — the
+    // identity `===` / `!==`, regex `=~` / `==~` and spaceship `<=>`
+    // tokens, each emitted by exactly one production (#1461), the `in`
+    // of a membership test and `instanceof`, and the negated `!in` /
+    // `!instanceof` nodes, which carry no token to pay (#1461). One pays
+    // per test (§5). Fitzpatrick Rule 5 scores a relational operator
+    // wherever it is written, so `def r = a <=> b` and
+    // `def b = a in l` score as `def r = a == b` does.
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+        stats.conditions += 1.;
+        return true;
+    }
+    match kind.into() {
         // `QMARKCOLON` is the elvis operator `a ?: c`, a short-circuit
         // decision Groovy cyclomatic already counts
         // (`src/metrics/cyclomatic/groovy.rs`) and the Kotlin ABC arm
@@ -256,68 +278,9 @@ fn groovy_count_token_condition<'a>(
         // conditions. One per token, the Kotlin reading, rather than the
         // C / PHP short-ternary reading that also walks the left operand
         // as a unary condition — it keeps `abc.conditions` equal to
-        // `cyclomatic() - 1` on the chain (grammar-dispatch §8).
-        // `EQEQEQ` / `BANGEQEQ` (`===`, `!==`) and `EQTILDE` /
-        // `EQEQTILDE` (`=~`, `==~`) are Groovy's identity and regex
-        // comparisons. They sit in this ungated arm beside `==` / `!=`
-        // for the reason those do, and a `grammar.json` sweep of
-        // dekobon-tree-sitter-groovy 0.2.2 is what makes ungating
-        // safe: each of the four tokens is emitted by exactly one
-        // production — `identity_expression` for the first pair,
-        // `regex_find_expression` / `regex_match_expression` for the
-        // second — so unlike `GT` / `LT` there is no type-argument or
-        // loop-header spelling to exclude.
-        //
-        // Their own expression kinds are therefore **not** counted as
-        // nodes; counting both would score each twice (§5). The token is
-        // the better half of that choice
-        // because it scores outside a boolean slot as well, where
-        // `def r = (a == b)` already scored 1 and `def r = (a === b)`
-        // scored 0 — a within-language asymmetry between two
-        // equality operators. It is also how every other language here
-        // spells these: `EQEQEQ | BANGEQEQ` are token arms in Kotlin,
-        // the JS family, PHP and Elixir, and `EQTILDE` in Perl, Ruby
-        // and Bash. `getter/groovy.rs` already classifies all four as
-        // Halstead operators.
-        //
-        // `LTEQGT` is the spaceship `<=>`, added in #1461. It yields
-        // -1 / 0 / 1 rather than a boolean, which is why it was not
-        // listed in the boolean-operand kind set the slots paid for
-        // until #1526 — that set held operands, and `<=>` is not one —
-        // but it *is* a relational
-        // operator, and Fitzpatrick Rule 5 counts those by use
-        // regardless of result type — and `<=>` is the whole of a
-        // three-way decision, not a fragment of one. Every sibling
-        // language with a spaceship already counted it: `LTEQGT` is a
-        // condition token in Ruby, PHP, C++ and Mozcpp, and Perl adds
-        // its word spelling `cmp` beside it. Groovy was the outlier,
-        // scoring `def r = a <=> b` zero against `a == b`'s one. The
-        // same dekobon-tree-sitter-groovy 0.2.2 `grammar.json` sweep
-        // finds `<=>` in `spaceship_expression` alone, so it is ungated
-        // for the reason `EQEQEQ` is, and the expression node itself is
-        // counted nowhere (§5).
-        // Groovy's two relational forms with no usable operator token
-        // join them in #1461,
-        // scored by use rather than by slot (#1461). Both sat in the
-        // slots' boolean-operand kind set until then, which counted only
-        // inside a boolean slot: `def b = a in l` and
-        // `def b = a instanceof String` scored zero where the
-        // `def b = a == 1` beside them scored one.
-        //
-        // Matched as nodes rather than as tokens because neither
-        // construct has a token this arm could use: `in` is shared with
-        // the `for (x in l)` header, and the negated spellings `!in` /
-        // `!instanceof` emit no operator token at all — `bca dump`
-        // shows `membership_expression` with two `identifier` children
-        // and nothing between them. One node covers both spellings of
-        // each construct, and neither token is counted anywhere, so
-        // exactly one arm fires per test (§5).
-        //
-        // They share the arm rather than sitting beside it because the
-        // arm's meaning is "this node is a condition, with nothing to
-        // gate on" — which is as true of a production as of a token.
-        GTEQ | LTEQ | LTEQGT | EQEQ | BANGEQ | EQEQEQ | BANGEQEQ | EQTILDE | EQEQTILDE | Else
-        | Case | Try | Catch | QMARKCOLON | MembershipExpression | InstanceofExpression => {
+        // `cyclomatic() - 1` on the chain (grammar-dispatch §8). It is
+        // `NullSafe`'s, pending that row.
+        Else | Case | Try | Catch | QMARKCOLON => {
             stats.conditions += 1.;
         }
         // As in Java: a bare `?` is either a ternary head or the head of
@@ -331,30 +294,6 @@ fn groovy_count_token_condition<'a>(
                 stats.conditions += 1.;
             }
         }
-        // Counts `<` / `>` only as the operator token of a
-        // `binary_expression` — see `java_count_token_condition` for
-        // the polarity rationale. The dekobon Groovy grammar emits a
-        // bare `<` / `>` from four productions: `binary_expression`,
-        // `type_arguments`, `type_parameters`, and — unlike
-        // tree-sitter-java — a separate `method_type_parameters` for
-        // `def <U> U m(U x)`. The previous denylist named only
-        // `type_arguments`, leaving both generic-declaration forms
-        // worth two conditions (#1274). The positive form also copes
-        // with a construct this grammar cannot parse: an explicit type
-        // witness (`Collections.<String>emptyList()`) puts its `<`
-        // under an `ERROR` node that no denylist can name, so only the
-        // trailing `>` — which error recovery does hang off a
-        // `binary_expression` — is still counted. Groovy's `<=>` is a
-        // `spaceship_expression` carrying its own token, so it never
-        // reaches this arm.
-        GT | LT => {
-            if ancestors
-                .parent(node)
-                .is_some_and(|parent| matches!(parent.kind_id().into(), BinaryExpression))
-            {
-                stats.conditions += 1.;
-            }
-        }
         _ => return false,
     }
     true
@@ -362,25 +301,37 @@ fn groovy_count_token_condition<'a>(
 
 fn groovy_walk_for_conditions<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
     use Groovy::*;
     let conds = &mut stats.conditions;
-    match node.kind_id().into() {
-        // Each operand of an `&&` / `||` chain is a boolean slot.
-        AMPAMP | PIPEPIPE => {
-            if let Some(chain) = ancestors
-                .parent(node)
-                .filter(|p| p.kind_id() == BinaryExpression)
-            {
-                count_field_operands(&chain, groovy_count_condition, conds);
-            }
+    let kind = node.kind_id();
+    // Each operand of an `&&` / `||` chain is a boolean slot; the
+    // `ShortCircuit` row is read at its leaf only to find the chain,
+    // the token's parent.
+    if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        if let Some(chain) = ancestors.parent(node) {
+            count_field_operands(
+                &chain,
+                |operand, conds| groovy_count_condition(operand, code, conds),
+                conds,
+            );
         }
-        ArgumentList => count_each_operand(node, groovy_count_negated, conds),
-        VariableDeclarator => groovy_count_negated_slot(node.child_by_field_name("value"), conds),
+        return;
+    }
+    match kind.into() {
+        ArgumentList => count_each_operand(
+            node,
+            |operand, conds| groovy_count_negated(operand, code, conds),
+            conds,
+        ),
+        VariableDeclarator => {
+            groovy_count_negated_slot(node.child_by_field_name("value"), code, conds);
+        }
         AssignmentExpression => {
-            groovy_count_negated_slot(node.child_by_field_name("right"), conds);
+            groovy_count_negated_slot(node.child_by_field_name("right"), code, conds);
         }
         // The dekobon grammar inlines the parens of `if` / `while` /
         // `do … while` as anonymous tokens (tree-sitter-java wraps them
@@ -388,24 +339,24 @@ fn groovy_walk_for_conditions<'a>(
         // condition. Read by grammar field: the fixed index it replaced
         // landed on a comment in `if (/*c*/ b)` (#1455).
         IfStatement | WhileStatement | DoWhileStatement => {
-            groovy_count_slot(node.child_by_field_name("condition"), conds);
+            groovy_count_slot(node.child_by_field_name("condition"), code, conds);
         }
         // `return value` names no field; the value is its only operand.
-        ReturnStatement => groovy_count_negated_slot(wrapped_operand(node), conds),
-        TernaryExpression => groovy_walk_ternary(node, stats),
-        ForStatement => groovy_walk_for_statement(node, stats),
+        ReturnStatement => groovy_count_negated_slot(wrapped_operand(node), code, conds),
+        TernaryExpression => groovy_walk_ternary(node, code, stats),
+        ForStatement => groovy_walk_for_statement(node, code, stats),
         _ => {}
     }
 }
 
-fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
+fn groovy_walk_ternary(node: &Node, code: &[u8], stats: &mut Stats) {
     let conds = &mut stats.conditions;
     // By grammar FIELD, not index — see `java_walk_ternary` for why the
     // positional form dropped a negated branch operand behind a comment
     // (#1181).
-    groovy_count_slot(node.child_by_field_name("condition"), conds);
+    groovy_count_slot(node.child_by_field_name("condition"), code, conds);
     for field in ["consequence", "alternative"] {
-        groovy_count_negated_slot(node.child_by_field_name(field), conds);
+        groovy_count_negated_slot(node.child_by_field_name(field), code, conds);
     }
 }
 
@@ -421,8 +372,12 @@ fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
 //     vacuously-true condition, so `for (;;)` scored one; see the
 //     `Stats` doc comment's cross-language empty-`for`-condition
 //     policy.
-fn groovy_walk_for_statement(node: &Node, stats: &mut Stats) {
-    groovy_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+fn groovy_walk_for_statement(node: &Node, code: &[u8], stats: &mut Stats) {
+    groovy_count_slot(
+        node.child_by_field_name("condition"),
+        code,
+        &mut stats.conditions,
+    );
 }
 
 impl Abc for GroovyCode {
@@ -430,7 +385,7 @@ impl Abc for GroovyCode {
     // and the cross-helper-exclusivity invariant.
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -440,9 +395,9 @@ impl Abc for GroovyCode {
         if groovy_count_token_branch(node, stats) {
             return;
         }
-        if groovy_count_token_condition(node, ancestors, stats) {
+        if groovy_count_token_condition(node, code, ancestors, stats) {
             return;
         }
-        groovy_walk_for_conditions(node, ancestors, stats);
+        groovy_walk_for_conditions(node, code, ancestors, stats);
     }
 }

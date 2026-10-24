@@ -36,8 +36,13 @@ use super::*;
 //   is one wrapper inside another), so the token counts each operator
 //   once and the wrapper would not. No §5 double count — that wrapper
 //   node reaches no cyclomatic arm; it is an ABC bool-terminal only.
-impl_cyclomatic_java_like!(
+//
+// `&&` / `||` are read from the `ShortCircuit` row of `roles/groovy.rs`
+// (#1695); the elvis and safe-navigation forms stay in the extras list
+// until their `NullSafe` row lands.
+impl_cyclomatic_java_like_rows!(
     GroovyCode,
     Groovy,
-    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK]
+    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK],
+    short_circuit = crate::roles::groovy::short_circuit
 );

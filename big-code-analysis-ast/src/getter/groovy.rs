@@ -99,6 +99,8 @@ impl Getter for GroovyCode {
 
     keyword_roles!(groovy);
 
+    paying_roles!(groovy);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;
 
@@ -182,14 +184,25 @@ impl Getter for GroovyCode {
             // declaration keywords and the primitive types are not
             // here: `roles/groovy.rs` declares them, gates included, and
             // `get_keyword_role` bills them (#1693).
-            If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
-            | Break | Do | Finally | New | Return | Default | Assert | Instanceof
-            | Extends | Implements | In | As
+            // The comparison and short-circuit tokens — including the
+            // identity, regex and spaceship ones and `instanceof` — are
+            // not here: the `Comparison` and `ShortCircuit` rows of
+            // `roles/groovy.rs` pay them and `get_paying_role` bills them
+            // (#1695). `<` / `>` and `in` stay for the spellings the rows'
+            // gates leave out — a generic bracket (`LT2` is the opener's
+            // alias), a recovered token, the `in` of a `for (x in xs)`
+            // header — which billed before the rows existed.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` / `under_membership_expression` gates leave out
+            LT | LT2 | GT | In
+            | If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
+            | Break | Do | Finally | New | Return | Default | Assert
+            | Extends | Implements | As
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
-            // Java-compatible operators (arithmetic, bitwise, comparison, assignment).
-            | EQ | LT | LT2 | GT | BANG | TILDE | QMARK | COLON | EQEQ | LTEQ | GTEQ | BANGEQ
-            | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH | PLUS | DASH | STAR | SLASH | AMP
+            // Java-compatible operators (arithmetic, bitwise, assignment).
+            | EQ | BANG | TILDE | QMARK | COLON
+            | PLUSPLUS | DASHDASH | PLUS | DASH | STAR | SLASH | AMP
             | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT | PLUSEQ | DASHEQ | STAREQ
             | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ | LTLTEQ | GTGTEQ | GTGTGTEQ
             | STARSTAR | STARSTAREQ
@@ -197,12 +210,12 @@ impl Getter for GroovyCode {
             // grammar (closes #247): ranges `..` / `..<` / `<..` /
             // `<..<`, Elvis `?:` and Elvis-assign `?=`, safe-nav `?.`,
             // safe-chain `??.`, spread-dot `*.`, method-pointer `.&`,
-            // direct-field `.@`, safe-index `?[`, identity `===` /
-            // `!==`, spaceship `<=>`, regex `=~` / `==~`, logical
-            // implication `==>`, and spread-map `*:`.
+            // direct-field `.@`, safe-index `?[`, logical implication
+            // `==>`, and spread-map `*:` (the identity, spaceship and
+            // regex tokens are the `Comparison` row's).
             | DOTDOT | DOTDOTLT | LTDOTDOT | LTDOTDOTLT | QMARKCOLON | QMARKEQ | QMARKDOT
-            | QMARKQMARKDOT | STARDOT | DOTAMP | DOTAT | QMARKLBRACK | EQEQEQ | BANGEQEQ
-            | LTEQGT | EQTILDE | EQEQTILDE | EQEQGT | STARCOLON => TokenRole::Operator,
+            | QMARKQMARKDOT | STARDOT | DOTAMP | DOTAT | QMARKLBRACK
+            | EQEQGT | STARCOLON => TokenRole::Operator,
 
             // `QualifiedName` (a `package` / `import` path) and
             // `QualifiedType` (`java.util.Map` in type position) were

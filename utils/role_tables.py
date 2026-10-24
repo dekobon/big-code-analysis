@@ -378,6 +378,11 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
                 raise RoleTableError(f"{path}:{line}: `{kind}` repeats `pays_itself`")
             pays_itself = True
             i += 1
+        elif a == "pays_itself_when":
+            if pays_itself or i + 1 >= len(attrs):
+                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `pays_itself_when`")
+            pays_itself = True
+            i += 2
         elif a == "opens":
             if opens is not None or i + 1 >= len(attrs):
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `opens`")

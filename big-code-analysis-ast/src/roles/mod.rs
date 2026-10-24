@@ -101,8 +101,10 @@
 //! `f(node, code, ancestors)` says so; `text_gated_by f` is the same
 //! with a name that says the gate reads source bytes; `pays_itself`
 //! marks a kind the grammar gives no token for, so the owner is also the
-//! payer (Python's `comparison_operator` wrapper, where ABC pays);
-//! `opens K` records the `SpaceKind` the owner opens. A payer takes `gated_by f` bare, after its kind. Per
+//! payer, and `pays_itself_when f` one the grammar gives a token in some
+//! spellings and none in others, so the owner pays only where `f` says
+//! it holds none (Groovy's `a !in b` beside `a in b`); `opens K` records
+//! the `SpaceKind` the owner opens. A payer takes `gated_by f` bare, after its kind. Per
 //! row: `pays [..]` splits the paying occurrences from the owners (see
 //! the projections below); `pays never` says the construct has owners
 //! and no paying node at all; neither means the owners are the paying
@@ -815,6 +817,9 @@ macro_rules! role_table {
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt pays_itself $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $($r)*);
     };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt pays_itself_when $w:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself $w] $s $($r)*);
+    };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] opens $s:ident $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $($r)*);
     };
@@ -825,18 +830,25 @@ macro_rules! role_table {
     (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
     };
-    // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate.
-    // The attribute is only meaningful on a split row — on a plain row
-    // every owner already pays, and under `pays never` it would
-    // contradict the row — so the other two modes reject it.
+    // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate,
+    // and a `pays_itself_when w` owner under its gate *and* `w` — the
+    // owner whose grammar gives it a token in one spelling and none in
+    // another (Groovy's `a in b` / `a !in b`), so the token pays where
+    // there is one and the owner where there is not. The attribute is
+    // only meaningful on a split row — on a plain row every owner
+    // already pays, and under `pays never` it would contradict the row
+    // — so the other two modes reject it.
     (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt) => {};
     (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself] $s:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
     };
-    (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself] $s:tt) => {
+    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself $w:ident] $s:tt) => {
+        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g)?);
+    };
+    (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt) => {
         compile_error!("`pays_itself` contradicts `pays never`: the row says nothing pays");
     };
-    (@self_payer_done [owners] $ctx:tt $k:ident $g:tt [pays_itself] $s:tt) => {
+    (@self_payer_done [owners] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt) => {
         compile_error!(
             "`pays_itself` is redundant without a `pays` list: every owner already pays"
         );
@@ -871,6 +883,18 @@ macro_rules! role_table {
     (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident gated_by $g:ident) => {
         if $kind == $l::$k as u16 {
             return $g($n, $c, $a);
+        }
+    };
+    (@clause_when [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident) => {
+        if $kind == $l::$k as u16 {
+            return $w($n, $c, $a);
+        }
+    };
+    (@clause_when
+        [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident gated_by $g:ident
+    ) => {
+        if $kind == $l::$k as u16 {
+            return $g($n, $c, $a) && $w($n, $c, $a);
         }
     };
     (@space_clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident) => {
