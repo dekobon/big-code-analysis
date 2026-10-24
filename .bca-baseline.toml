@@ -245,7 +245,7 @@ value = 48814.4893649235
 path = "big-code-analysis-ast/src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 53908.30132600384
+value = 49990.646744445316
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/elixir.rs"

@@ -16,6 +16,7 @@ use super::{
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
 };
+use crate::roles::perl::{comparison, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -117,6 +118,8 @@ fn perl_unparenthesized(node: Node<'_>) -> Node<'_> {
 //
 // No operand is read by index: a comment may sit before or after it
 // (`(# c` / `! # c`, #1455).
+// role-bypass: allow(Comparison, ShortCircuit) — the value peel: which wrapper evaluates to
+// which operand, not whether a node is a comparison or a chain
 fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Perl as P;
 
@@ -152,44 +155,25 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a comparison or match operator (the token arms), a bare
-// `/re/` match (its own arm — a peeled slot occupant is never a bound
-// pattern or a `split` delimiter, the two shapes that arm skips), a
-// ternary (its own arm) or a logical chain, whose operands each pay
-// through `perl_count_condition`. The operator is found among the node's
-// tokens rather than through its `operator` field, which tree-sitter-perl
-// leaves off every comparison and off the `and` it parses as a
-// `unary_expression`.
-fn perl_condition_scores_itself(expr: &Node) -> bool {
+// Whether an arm of `compute` already charges `expr` (already peeled)
+// as a condition: a comparison or binding (the `Comparison` row's
+// owner, paid by its token — except a `=~` / `!~` binding a rewrite,
+// which the row cannot see and the consumer declines, #1540), a bare
+// `/re/` match (its own arm; no token), a ternary (its node), or a
+// logical chain — the `ShortCircuit` row's owner, or the defined-or
+// `//` chain pending `NullSafe` — whose operands each pay through
+// `perl_count_condition`. The owner gates read only the node's
+// children, so the peeled descendant is asked with no ancestor chain.
+fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Perl as P;
 
     match expr.kind_id().into() {
         P::TernaryExpression | P::PatternMatcher | P::PatternMatcherM => true,
-        P::BinaryExpression | P::UnaryExpression => {
-            perl_is_logical_chain(expr)
-                || expr.children().any(|token| match token.kind_id().into() {
-                    P::EQTILDE | P::BANGTILDE => !perl_binding_rewrites(expr),
-                    kind => matches!(
-                        kind,
-                        P::EQEQ
-                            | P::BANGEQ
-                            | P::LT
-                            | P::GT
-                            | P::LTEQ
-                            | P::GTEQ
-                            | P::LTEQGT
-                            | P::Eq
-                            | P::Ne
-                            | P::Lt
-                            | P::Gt
-                            | P::Le
-                            | P::Ge
-                            | P::Cmp
-                    ),
-                })
+        _ => {
+            perl_is_logical_chain(expr, code)
+                || (comparison::owns(expr, code, Ancestors::unknown())
+                    && !perl_binding_rewrites(expr))
         }
-        _ => false,
     }
 }
 
@@ -212,6 +196,8 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
 // parent can be an `ERROR` holding the whole file, whose last operand is
 // no right operand, and reading it per token was quadratic.
 fn perl_binding_rewrites(binding: &Node) -> bool {
+    // role-bypass: allow(Comparison) — the rewrite reading of a binding the row owns: what its
+    // right operand is, not whether it is a comparison
     binding.kind_id() == Perl::BinaryExpression as u16
         && perl_last_operand(binding).is_some_and(|rhs| {
             matches!(
@@ -228,11 +214,11 @@ fn perl_binding_rewrites(binding: &Node) -> bool {
 // `if ($x + 1)` and `if (my $y = $x)` are each a decision, and each
 // scored 0 while the slot paid only for a fixed list of terminal kinds
 // (#1526).
-fn perl_count_condition(condition: &Node, conditions: &mut f64) {
+fn perl_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         perl_wrapper_operand,
-        perl_condition_scores_itself,
+        |expr| perl_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -241,18 +227,18 @@ fn perl_count_condition(condition: &Node, conditions: &mut f64) {
 // a ternary branch — scores only when a `!` / `not` proves it boolean
 // (see `count_negated_operand`), which keeps `($a > 0) ? $b : -$b` at 2
 // (the ternary node and the `>`).
-fn perl_count_negated(operand: &Node, conditions: &mut f64) {
+fn perl_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         perl_wrapper_operand,
-        perl_condition_scores_itself,
+        |expr| perl_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn perl_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        perl_count_condition(&condition, conditions);
+        perl_count_condition(&condition, code, conditions);
     }
 }
 
@@ -291,23 +277,26 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // the children the walk recorded (#1584).
 fn perl_misparse_absorbs_leading_operand<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
     use Perl as P;
 
-    if perl_leading_slot(node)
-        .is_none_or(|lead| perl_condition_scores_itself(&peel(&lead, perl_wrapper_operand).0))
+    if perl_leading_slot(node, code)
+        .is_none_or(|lead| perl_condition_scores_itself(&peel(&lead, perl_wrapper_operand).0, code))
     {
         return false;
     }
     let (mut child, mut child_ancestors) = (*node, ancestors);
     let spine_parent = ancestors.iter(node).find(|(parent, above)| {
-        let on_spine = perl_leading_slot(parent).is_some_and(|lead| lead.id() == child.id());
+        let on_spine = perl_leading_slot(parent, code).is_some_and(|lead| lead.id() == child.id());
         if on_spine {
             (child, child_ancestors) = (*parent, *above);
         }
         !on_spine
     });
+    // role-bypass: allow(Comparison) — the upstream misparse's shape (FIXME #1273): which
+    // operator token precedes the absorbed spine, not whether the node is a comparison
     spine_parent.is_some_and(|(parent, _)| {
         (parent.kind_id() == P::BinaryExpression as u16 || parent.is_error())
             && child_ancestors
@@ -335,30 +324,34 @@ fn perl_misparse_absorbs_leading_operand<'a>(
 
 // The leading boolean slot of a spine node — a ternary's condition or a
 // logical chain's first operand — or `None` for any other node.
-fn perl_leading_slot<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+fn perl_leading_slot<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
     if node.kind_id() == Perl::TernaryExpression as u16 {
         node.child_by_field_name("condition")
-    } else if perl_is_logical_chain(node) {
+    } else if perl_is_logical_chain(node, code) {
         wrapped_operand(node)
     } else {
         None
     }
 }
 
-// A `&&` / `||` / `//` / `and` / `or` chain. tree-sitter-perl spells
-// `and` as a two-operand `unary_expression`. `xor` is left out: it does
-// not short-circuit, so it is a value, as `^` is (#1536).
-fn perl_is_logical_chain(node: &Node) -> bool {
+// A `&&` / `||` / `and` / `or` chain — the `ShortCircuit` row's owner,
+// whose gate already declines an auto-quoted `and` key (#1539) — or a
+// defined-or `//` chain, which stays named here until its `NullSafe`
+// row. `xor` is left out: it does not short-circuit, so it is a value,
+// as `^` is (#1536). The owner gate reads only the node's children, so
+// a node reached without its chain is asked with none.
+fn perl_is_logical_chain(node: &Node, code: &[u8]) -> bool {
     use Perl as P;
 
-    matches!(
-        node.kind_id().into(),
-        P::BinaryExpression | P::UnaryExpression
-    ) && node.children().any(|token| match token.kind_id().into() {
-        P::And => perl_and_is_operator(&token, node),
-        P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::Or => true,
-        _ => false,
-    })
+    short_circuit::owns(node, code, Ancestors::unknown())
+        // role-bypass: allow(ShortCircuit) — the defined-or chain, which the `NullSafe` row
+        // of #1695 takes over; the row is read above
+        || (matches!(
+            node.kind_id().into(),
+            P::BinaryExpression | P::UnaryExpression
+        ) && node
+            .children()
+            .any(|token| token.kind_id() == P::SLASHSLASH as u16))
 }
 
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
@@ -372,13 +365,13 @@ fn perl_is_logical_chain(node: &Node) -> bool {
 // mandatory — Perl has no short-ternary elision.
 //
 // `condition_absorbed`: see `perl_misparse_absorbs_leading_operand`.
-fn perl_walk_ternary(node: &Node, condition_absorbed: bool, conditions: &mut f64) {
+fn perl_walk_ternary(node: &Node, code: &[u8], condition_absorbed: bool, conditions: &mut f64) {
     if !condition_absorbed {
-        perl_count_slot(node.child_by_field_name("condition"), conditions);
+        perl_count_slot(node.child_by_field_name("condition"), code, conditions);
     }
     for field in ["true", "false"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            perl_count_negated(&branch, conditions);
+            perl_count_negated(&branch, code, conditions);
         }
     }
 }
@@ -394,14 +387,19 @@ fn perl_walk_ternary(node: &Node, condition_absorbed: bool, conditions: &mut f64
 // `leading_absorbed`: see `perl_misparse_absorbs_leading_operand`. The
 // `chain` is the operator token's parent, which is no chain when the
 // token sits in an `ERROR` or is an auto-quoted `and` key (#1539).
-fn perl_count_chain_operands(chain: &Node, leading_absorbed: bool, conditions: &mut f64) {
-    if perl_is_logical_chain(chain) {
+fn perl_count_chain_operands(
+    chain: &Node,
+    code: &[u8],
+    leading_absorbed: bool,
+    conditions: &mut f64,
+) {
+    if perl_is_logical_chain(chain, code) {
         for operand in chain
             .children()
             .filter(perl_is_operand)
             .skip(usize::from(leading_absorbed))
         {
-            perl_count_condition(&operand, conditions);
+            perl_count_condition(&operand, code, conditions);
         }
     }
 }
@@ -449,6 +447,8 @@ fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: An
         owner = above;
         above = up.next();
     }
+    // role-bypass: allow(Comparison) — whether a pattern is a binding's *right* operand, a
+    // traversal step the row's owner cannot answer
     owner.is_some_and(|owner| match owner.kind_id().into() {
         P::BinaryExpression => {
             owner
@@ -533,7 +533,8 @@ impl Abc for PerlCode {
         // is no semantic boundary to split this lookup on.
         use Perl as P;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Plain `=` and every compound assignment operator. The
             // grammar tokenises each operator separately, so one
             // textual `+=` produces exactly one token and there is no
@@ -581,53 +582,27 @@ impl Abc for PerlCode {
             P::CallExpressionWithBareword if perl_bareword_is_call(node, ancestors) => {
                 stats.branches += 1.;
             }
-            // Numeric, string, and pattern-match comparison operators
-            // plus the spaceship / `cmp` three-way comparisons, and each
-            // `elsif` / `else` clause of an `if` / `unless` chain.
-            P::EQEQ
-            | P::BANGEQ
-            | P::LTEQ
-            | P::GTEQ
-            | P::LTEQGT
-            | P::Eq
-            | P::Ne
-            | P::Lt
-            | P::Gt
-            | P::Le
-            | P::Ge
-            | P::Cmp
-            | P::ElseClause => {
+            // Each `elsif` / `else` clause of an `if` / `unless` chain.
+            P::ElseClause => {
                 stats.conditions += 1.;
             }
-            // `=~` / `!~` bind a match, a test, or a rewrite, an edit
-            // that scores only in a slot (see `perl_binding_rewrites`).
-            P::EQTILDE | P::BANGTILDE
-                if !ancestors
-                    .parent(node)
-                    .is_some_and(|binding| perl_binding_rewrites(&binding)) =>
+            // The comparison tokens, the `Comparison` row's payers
+            // (`roles/perl.rs`): numeric, string, the spaceship / `cmp`
+            // three-way comparisons, `<` / `>` gated to a
+            // `binary_expression` (a readline's brackets are the same
+            // tokens), and the bindings `=~` / `!~`. A binding that
+            // applies a rewrite (`$x =~ s///`) is an edit and no test,
+            // which only the binding's right operand says — the row's
+            // named extra, read here and in `perl_condition_scores_itself`
+            // alike (#1540).
+            // role-bypass: allow(Comparison) — the rewrite reading of a binding the row pays:
+            // which bound right operand makes `=~` an edit rather than a test
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+                && !(matches!(kind.into(), P::EQTILDE | P::BANGTILDE)
+                    && ancestors
+                        .parent(node)
+                        .is_some_and(|binding| perl_binding_rewrites(&binding))) =>
             {
-                stats.conditions += 1.;
-            }
-            // Counts `<` / `>` only as the operator token of a
-            // `binary_expression`, the allowlist polarity the rest of
-            // the workspace uses. Ungated, a readline scored two
-            // conditions: `<FH>` and `<$fh>` are
-            // `standard_input_to_identifier` and
-            // `standard_input_to_variable`, each a plain three-token
-            // sequence whose brackets are the same bare `<` / `>` a
-            // comparison uses. A `grammar.json` sweep of
-            // tree-sitter-perl 1.1.2 finds them in exactly three
-            // productions — `binary_expression` plus those two — so the
-            // gate is closed (`.claude/rules/grammar-dispatch.md` §1).
-            //
-            // `<STDIN>` is *not* among them: the grammar lexes it as a
-            // single `standard_input` token, which is why #1297's sweep
-            // measured Perl at 0 and wrongly cleared it. The filehandle
-            // and lexical-handle forms are the reachable ones.
-            // `<=` / `>=`, the spaceship `<=>` and the word-form `lt` /
-            // `gt` are distinct tokens counted above, and a heredoc
-            // opener is its own token, so none reaches this arm.
-            P::LT | P::GT if ancestors.parent_has_kind(node, P::BinaryExpression as u16) => {
                 stats.conditions += 1.;
             }
             // A bare `/re/` or `m{re}` (sibling kinds, not aliases)
@@ -647,12 +622,19 @@ impl Abc for PerlCode {
             }
             // Fitzpatrick Rule 9 walker: each operand of a Perl
             // short-circuit / low-precedence logical chain is one
-            // condition (issue #403). Covers `&&`, `||`, `//`,
-            // `and`, `or` — not `xor`, which is a value (#1536).
-            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or => {
+            // condition (issue #403). Covers the `ShortCircuit` row's
+            // `&&`, `||`, `and`, `or` and the defined-or `//` (pending
+            // `NullSafe`) — not `xor`, which is a value (#1536). The
+            // chain is the token's parent, which `perl_count_chain_operands`
+            // asks the row about.
+            // role-bypass: allow(ShortCircuit) — the defined-or token, which the `NullSafe` row of
+            // #1695 takes over; the row is read on the arm's guard
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                || kind == P::SLASHSLASH as u16 =>
+            {
                 if let Some((chain, above)) = ancestors.iter(node).next() {
-                    let absorbed = perl_misparse_absorbs_leading_operand(&chain, above);
-                    perl_count_chain_operands(&chain, absorbed, &mut stats.conditions);
+                    let absorbed = perl_misparse_absorbs_leading_operand(&chain, code, above);
+                    perl_count_chain_operands(&chain, code, absorbed, &mut stats.conditions);
                 }
             }
             // An `elsif` is Java's `else if`: the `else` (+1, Rule 5) and
@@ -661,13 +643,17 @@ impl Abc for PerlCode {
             // `elsif ($x > 1)` (#1526).
             P::ElsifClause => {
                 stats.conditions += 1.;
-                perl_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                perl_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             // `return value` names no field; its value is its only
             // operand.
             P::ReturnExpression => {
                 if let Some(value) = wrapped_operand(node) {
-                    perl_count_negated(&value, &mut stats.conditions);
+                    perl_count_negated(&value, code, &mut stats.conditions);
                 }
             }
             // `call(!$a, !$b)` — argument list walker. Perl wraps
@@ -682,7 +668,11 @@ impl Abc for PerlCode {
                     .parent(node)
                     .is_some_and(perl_is_call_argument_parent) =>
             {
-                count_each_operand(node, perl_count_negated, &mut stats.conditions);
+                count_each_operand(
+                    node,
+                    |operand, conds| perl_count_negated(operand, code, conds),
+                    &mut stats.conditions,
+                );
             }
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but
@@ -691,8 +681,8 @@ impl Abc for PerlCode {
             // and adds the three operand slots (issue #1102).
             P::TernaryExpression => {
                 stats.conditions += 1.;
-                let absorbed = perl_misparse_absorbs_leading_operand(node, ancestors);
-                perl_walk_ternary(node, absorbed, &mut stats.conditions);
+                let absorbed = perl_misparse_absorbs_leading_operand(node, code, ancestors);
+                perl_walk_ternary(node, code, absorbed, &mut stats.conditions);
             }
             // Phase-2B (issue #403): condition slots, each read by the
             // grammar's `condition` field, not at child(1): a comment
@@ -730,7 +720,11 @@ impl Abc for PerlCode {
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::WhenSimpleStatement => {
-                perl_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                perl_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             _ => {}
         }

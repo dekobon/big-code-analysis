@@ -7,18 +7,28 @@
 )]
 
 use super::*;
-use crate::lang_helpers::perl::perl_and_is_operator;
 
 impl Cyclomatic for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::perl::short_circuit;
         use Perl as P;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // `&&` / `||` / `or`, and an `and` that is the operator rather
+        // than an auto-quoted key (#1539): the `ShortCircuit` row's
+        // payers (#1695). The defined-or `//` and the compound forms
+        // stay below until their `NullSafe` row.
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             P::IfStatement
             | P::UnlessStatement
             | P::ElsifClause
@@ -32,8 +42,6 @@ impl Cyclomatic for PerlCode {
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::ForSimpleStatement
-            | P::AMPAMP
-            | P::PIPEPIPE
             | P::SLASHSLASH
             // Compound short-circuit assignments `&&=`, `||=`, `//=`
             // are semantically `x = x op y` and each carries one short-
@@ -42,19 +50,7 @@ impl Cyclomatic for PerlCode {
             | P::AMPAMPEQ
             | P::PIPEPIPEEQ
             | P::SLASHSLASHEQ
-            | P::Or
             | P::TernaryExpression => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            // FIXME(#1539 upstream): an auto-quoted `and` key lexes as
-            // the operator token; only one with a left operand is a
-            // decision.
-            P::And
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
-            {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

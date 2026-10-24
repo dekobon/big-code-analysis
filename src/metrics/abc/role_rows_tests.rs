@@ -27,9 +27,11 @@ use crate::{LANG, Metric, MetricsOptions};
 /// into the template and asserts the function named `f` scores
 /// `conditions` ABC conditions and `decisions` cyclomatic decisions.
 #[cfg(any(
+    feature = "bash",
     feature = "c",
     feature = "cpp",
     feature = "csharp",
+    feature = "elixir",
     feature = "go",
     feature = "groovy",
     feature = "irules",
@@ -40,6 +42,7 @@ use crate::{LANG, Metric, MetricsOptions};
     feature = "mozcpp",
     feature = "mozjs",
     feature = "objc",
+    feature = "perl",
     feature = "php",
     feature = "python",
     feature = "ruby",
@@ -626,6 +629,94 @@ fn ruby_rows_feed_each_abc_path_independently() {
             ("a and b", 2, 1),
             ("a or b", 2, 1),
             ("if a and b || x > 1 then end; a", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "elixir")]
+fn elixir_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Elixir,
+        "defmodule M do\n  def f(a, b, x, y, l) do\n    BODY\n  end\nend\n",
+        &[
+            ("if a, do: 1", 1, 1),
+            ("if x < y, do: 1", 1, 1),
+            ("if x === y, do: 1", 1, 1),
+            ("if x in l, do: 1", 1, 1),
+            ("if x not in l, do: 1", 1, 1),
+            ("c = x < y", 1, 0),
+            ("c = x >= y", 1, 0),
+            ("c = x not in l", 1, 0),
+            // a capture names the operator and applies nothing
+            ("c = &==/2", 0, 0),
+            ("a && b", 2, 1),
+            ("a || b", 2, 1),
+            ("a and b", 2, 1),
+            ("a or b", 2, 1),
+            // the row's named extra: a `Kernel` remote call applies it
+            ("Kernel.||(a, b)", 2, 1),
+            ("if a and b || x > 1, do: 1", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "perl")]
+fn perl_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Perl,
+        "sub f { my ($a, $b, $x, $y, $s) = @_; BODY }\n",
+        &[
+            ("if ($a) { }", 1, 1),
+            ("if ($x < $y) { }", 1, 1),
+            ("if ($x <=> $y) { }", 1, 1),
+            ("if ($s eq \"x\") { }", 1, 1),
+            ("if ($s cmp \"x\") { }", 1, 1),
+            ("if ($s =~ /x/) { }", 1, 1),
+            ("my $c = $x < $y;", 1, 0),
+            ("my $c = $s ne \"x\";", 1, 0),
+            ("my $c = $s !~ /x/;", 1, 0),
+            // a binding that rewrites is an edit, no test (#1540)
+            ("my $c = $s =~ s/a/b/;", 0, 0),
+            // a readline's brackets are no comparison
+            ("my $l = <$s>;", 0, 0),
+            ("my $c = $a && $b;", 2, 1),
+            ("my $c = $a || $b;", 2, 1),
+            ("my $c = $a and $b;", 2, 1),
+            ("my $c = $a or $b;", 2, 1),
+            // an auto-quoted `and` key is no operator (#1539)
+            ("my %h = (and => 1);", 0, 0),
+            // `xor` evaluates both operands: the slot pays once
+            ("if ($a xor $b) { }", 1, 1),
+            ("if ($a and $b || $x > 1) { }", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "bash")]
+fn bash_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Bash,
+        "f() {\n    BODY\n}\n",
+        &[
+            // an `if` is the condition; its command is a branch
+            ("if cmd; then :; fi", 1, 1),
+            ("if [[ $a == x ]]; then :; fi", 2, 1),
+            ("if [[ $a =~ x ]]; then :; fi", 2, 1),
+            ("if (( a < b )); then :; fi", 2, 1),
+            ("if [ \"$a\" -lt \"$b\" ]; then :; fi", 2, 1),
+            ("if [ -z \"$a\" ]; then :; fi", 2, 1),
+            // outside any slot: a comparison in arithmetic
+            ("x=$(( a <= b ))", 1, 0),
+            // a redirection's `>` pays nothing
+            ("echo a > out", 0, 0),
+            // `&&` / `||` are decisions to cyclomatic and nothing to ABC
+            // (#1536); `-a` / `-o` likewise
+            ("cmd1 && cmd2 || cmd3", 0, 2),
+            ("if [[ $a == x && $b != y ]]; then :; fi", 3, 2),
+            ("if [ -n \"$a\" -a -n \"$b\" ]; then :; fi", 3, 2),
         ],
     );
 }

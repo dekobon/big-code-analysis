@@ -10,7 +10,8 @@
 )]
 
 use super::{Abc, Stats};
-use crate::lang_helpers::bash::{bash_test_connective, bash_test_eq_count};
+use crate::lang_helpers::bash::bash_test_eq_count;
+use crate::roles::bash::comparison;
 use crate::*;
 
 impl Abc for BashCode {
@@ -20,7 +21,8 @@ impl Abc for BashCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Each `variable_assignment` is one assignment regardless of
             // operator (`=`, `+=`, `-=`, …) — counting the parent node
             // avoids double-counting `Bash::EQ`, which is also produced
@@ -34,14 +36,8 @@ impl Abc for BashCode {
             Bash::Command => {
                 stats.branches += 1.;
             }
-            // Three condition signals share this arm:
+            // Two condition signals share this arm:
             //
-            // - Comparison operators inside `[[ … ]]` and `(( … ))`, plus
-            //   the test operators `-z`, `-n`, `-eq`, `-lt`, … which the
-            //   grammar emits as `Bash::TestOperator`. The `-a` / `-o`
-            //   connectives share that kind and are excluded: they join
-            //   two tests the way `&&` / `||` do, and neither pays
-            //   (#1536).
             // - Control-flow branches (`if`/`elif`/`while`). A Bash predicate
             //   is a command, so the branch keyword itself is the only
             //   condition signal. These branch keywords mirror the matching
@@ -52,23 +48,25 @@ impl Abc for BashCode {
             //   cyclomatic / cognitive arms that count it (#1268).
             //   `TernaryExpression2` is listed defensively per
             //   grammar-dispatch §1, as it is in those two siblings.
-            Bash::EQEQ
-            | Bash::BANGEQ
-            | Bash::LTEQ
-            | Bash::GTEQ
-            | Bash::EQTILDE
-            | Bash::IfStatement
+            Bash::IfStatement
             | Bash::ElifClause
             | Bash::WhileStatement
             | Bash::TernaryExpression
             | Bash::TernaryExpression2 => {
                 stats.conditions += 1.;
             }
-            Bash::TestOperator
-                if ancestors
-                    .parent(node)
-                    .is_none_or(|parent| bash_test_connective(node, &parent, code).is_none()) =>
-            {
+            // The comparison operators, the `Comparison` row's payers
+            // (`roles/bash.rs`): the symbols inside `[[ … ]]` and
+            // `(( … ))`, `<` / `>` gated to a `binary_expression` since
+            // the same tokens spell a redirection (#1280), and the test
+            // operators `-z`, `-n`, `-eq`, `-lt`, … which the grammar
+            // emits as one `test_operator` kind shared with the `-a` /
+            // `-o` connectives — those join two tests the way `&&` /
+            // `||` do, and the row's text gate leaves them out (#1536).
+            // `&&` / `||` themselves are command-list separators, so
+            // Fitzpatrick Rule 9 does not map onto this grammar and ABC
+            // reads the `ShortCircuit` row for nothing.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // `=` compares strings inside `[ … ]` / `[[ … ]]`, exactly as
@@ -76,29 +74,6 @@ impl Abc for BashCode {
             // counts its own, once, from the top.
             Bash::TestCommand => {
                 stats.conditions += bash_test_eq_count(node) as f64;
-            }
-            // `<` and `>` are comparisons only inside a `binary_expression`.
-            // The same two tokens spell an I/O redirection (`cmd > out`,
-            // `read x < in`), which the grammar parents under
-            // `file_redirect` — so ungated they scored every redirect in a
-            // script as a condition. This is the Bash instance of the
-            // positive-parent gate #1280 applied to Ruby, and the polarity
-            // Rust / Go / C / C++ already use. At tree-sitter-bash 0.25.1
-            // only `BinaryExpression3` wraps a comparison; the four
-            // siblings are listed defensively per grammar-dispatch §1.
-            Bash::LT | Bash::GT
-                if ancestors.parent(node).is_some_and(|p| {
-                    matches!(
-                        p.kind_id().into(),
-                        Bash::BinaryExpression
-                            | Bash::BinaryExpression2
-                            | Bash::BinaryExpression3
-                            | Bash::BinaryExpression4
-                            | Bash::BinaryExpression5
-                    )
-                }) =>
-            {
-                stats.conditions += 1.;
             }
             // Case arms are conditions too, but counted per-arm like
             // cyclomatic, excluding the bare-`*)` wildcard (the Bash analogue

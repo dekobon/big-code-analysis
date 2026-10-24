@@ -7,7 +7,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_applying_remote_call};
+use crate::lang_helpers::elixir::elixir_applying_remote_call;
 use crate::metrics::elixir_decisions::{
     elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_receive_dispatches,
     elixir_receive_timeout_clause, elixir_when_is_guard, elixir_with_else_dispatches,
@@ -34,6 +34,7 @@ impl Cyclomatic for ElixirCode {
         stats: &mut Stats,
     ) {
         // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
+        use crate::roles::elixir::short_circuit;
         use Elixir as E;
 
         match node.kind_id().into() {
@@ -124,8 +125,13 @@ impl Cyclomatic for ElixirCode {
             // `a || b`; a user module's `Foo.||(a, b)` is an ordinary
             // call and does not. ABC and cognitive score the `Kernel`
             // call through the same predicate (#1574).
+            // The `ShortCircuit` row's payers (#1695), or the row's named
+            // extra: a `Kernel` remote call applying the operator, told
+            // by the receiver's text.
+            // role-bypass: allow(ShortCircuit) — the remote-call extra beside the row read: which
+            // kinds can name a `Kernel` short-circuit call
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or
-                if elixir_applying_operator(node, ancestors).is_some()
+                if short_circuit::pays_at_leaf_kind(node.kind_id(), node, code, ancestors)
                     || elixir_applying_remote_call(node, code, ancestors).is_some() =>
             {
                 stats.cyclomatic += 1.;

@@ -351,7 +351,7 @@ IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
 ROW_HEAD_RE = re.compile(rf"\b([A-Z][A-Za-z]*)\s*\{{")
 LANG_RE = re.compile(rf"lang\s*:\s*({IDENT})\s*;")
 OWNER_RE = re.compile(rf"({IDENT})\s*(\(([^()]*)\))?")
-PAYER_RE = re.compile(rf"({IDENT})(?:\s+gated_by\s+({IDENT}))?\s*$")
+PAYER_RE = re.compile(rf"({IDENT})(?:\s+(?:text_)?gated_by\s+({IDENT}))?\s*$")
 
 
 def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:

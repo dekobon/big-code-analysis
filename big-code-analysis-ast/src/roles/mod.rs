@@ -104,7 +104,8 @@
 //! payer, and `pays_itself_when f` one the grammar gives a token in some
 //! spellings and none in others, so the owner pays only where `f` says
 //! it holds none (Groovy's `a !in b` beside `a in b`); `opens K` records
-//! the `SpaceKind` the owner opens. A payer takes `gated_by f` bare, after its kind. Per
+//! the `SpaceKind` the owner opens. A payer takes `gated_by f` or
+//! `text_gated_by f` bare, after its kind. Per
 //! row: `pays [..]` splits the paying occurrences from the owners (see
 //! the projections below); `pays never` says the construct has owners
 //! and no paying node at all; neither means the owners are the paying
@@ -602,6 +603,11 @@ macro_rules! role_table {
         $frag!(@splice $cont [$($acc)*] $($($rest)*)?);
     };
     (@owners $cont:tt [$($acc:tt)*] $k:ident gated_by $g:ident $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@owners $cont [$($acc)* $k gated_by $g,] $($($rest)*)?);
+    };
+    // A payer's `text_gated_by` is the same expansion as `gated_by`; the
+    // distinct keyword is documentation at the row, as it is on an owner.
+    (@owners $cont:tt [$($acc:tt)*] $k:ident text_gated_by $g:ident $(, $($rest:tt)*)?) => {
         $crate::role_table!(@owners $cont [$($acc)* $k gated_by $g,] $($($rest)*)?);
     };
     (@owners $cont:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {

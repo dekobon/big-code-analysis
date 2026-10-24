@@ -1,15 +1,121 @@
 //! Bash's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
-use crate::Bash;
+use crate::lang_helpers::bash::bash_test_connective;
 use crate::role_table;
+use crate::{Ancestors, Bash, Node};
+
+/// Whether a `test_operator` is a comparison rather than one of the
+/// `-a` / `-o` connectives: the grammar gives `-z`, `-n`, `-eq`, `-lt`,
+/// `-a`, `-o`, … one kind, so only the bytes tell them apart (#1536).
+fn is_test_comparison<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .parent(node)
+        .is_none_or(|parent| bash_test_connective(node, &parent, code).is_none())
+}
+
+/// Whether a `test_operator` is an `-a` / `-o` connective.
+fn is_test_connective<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| bash_test_connective(node, &parent, code).is_some())
+}
+
+/// Whether a bare `<` / `>` is the operator of a `binary_expression`
+/// (any alias). The same two tokens spell an I/O redirection (`cmd >
+/// out`, `read x < in`), which the grammar parents under
+/// `file_redirect` (#1280). At tree-sitter-bash 0.25.1 only
+/// `BinaryExpression3` wraps a comparison; the four siblings are listed
+/// defensively (grammar-dispatch §1).
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent(node).is_some_and(|p| {
+        matches!(
+            p.kind_id().into(),
+            Bash::BinaryExpression
+                | Bash::BinaryExpression2
+                | Bash::BinaryExpression3
+                | Bash::BinaryExpression4
+                | Bash::BinaryExpression5
+        )
+    })
+}
+
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers, with a `test_operator` read for its bytes.
+fn comparison_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| {
+        comparison::PAYERS.contains(&op.kind_id())
+            && (op.kind_id() != Bash::TestOperator as u16
+                || bash_test_connective(&op, node, code).is_none())
+    })
+}
+
+/// Whether a `binary_expression`'s `operator` field is a short-circuit
+/// payer, with a `test_operator` read for its bytes.
+fn short_circuit_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    short_circuit::project(node).is_some_and(|op| {
+        let kind = op.kind_id();
+        if kind == Bash::TestOperator as u16 {
+            bash_test_connective(&op, node, code).is_some()
+        } else {
+            short_circuit::PAYERS.contains(&kind)
+        }
+    })
+}
 
 role_table! {
     lang: Bash;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // A comparison inside `[[ … ]]` / `(( … ))` is a `binary_expression`
+    // (`BinaryExpression3` at the pinned grammar; the four siblings are
+    // listed defensively) owning one of `==` `!=` `<=` `>=` `=~`, or `<`
+    // / `>` gated to that parent since the same tokens spell a
+    // redirection. Inside `[ … ]` the comparison is a `test_operator` —
+    // `-eq`, `-lt`, `-z`, `-n`, … — one kind the grammar shares with the
+    // `-a` / `-o` connectives, so that payer is text-gated: a
+    // `test_operator` pays as a comparison exactly when its bytes are
+    // not a connective. `=` compares inside a test and assigns inside
+    // `(( … ))`, which only the test's descent can tell (#1536); the
+    // ABC consumer counts it from the test, as its own extra.
+    Comparison {
+        owns [
+            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression2(gated_by comparison_operator),
+            BinaryExpression3(gated_by comparison_operator),
+            BinaryExpression4(gated_by comparison_operator),
+            BinaryExpression5(gated_by comparison_operator),
+        ]
+        pays [
+            EQEQ, BANGEQ, LTEQ, GTEQ, EQTILDE,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            TestOperator text_gated_by is_test_comparison,
+        ]
+        project "operator"
+    }
+    // `&&` / `||` join two commands in a `list` and two tests inside
+    // `[[ … ]]` / `(( … ))` in a `binary_expression`; inside `[ … ]` the
+    // same join is the `-a` / `-o` spelling of `test_operator`, read by
+    // text. Bash's `&&` / `||` are command-list separators, so the ABC
+    // consumer reads this row for nothing (#1536 — Fitzpatrick Rule 9
+    // does not map onto its grammar) where cyclomatic and cognitive
+    // read it.
+    ShortCircuit {
+        owns [
+            List,
+            BinaryExpression(gated_by short_circuit_operator),
+            BinaryExpression2(gated_by short_circuit_operator),
+            BinaryExpression3(gated_by short_circuit_operator),
+            BinaryExpression4(gated_by short_circuit_operator),
+            BinaryExpression5(gated_by short_circuit_operator),
+        ]
+        pays [AMPAMP, PIPEPIPE, TestOperator text_gated_by is_test_connective]
+        project "operator"
+    }
     EagerLogical { absent "Bash's `&&` / `||` are lazy; `-a` / `-o` inside `[ ]` are test \
          operators the grammar does not split out" }
     Ternary { pending R05 }

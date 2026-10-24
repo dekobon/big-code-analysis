@@ -17,7 +17,6 @@ Bash Branch R07
 Bash Call R08
 Bash CaseArm R05
 Bash Comment R09
-Bash Comparison R05
 Bash Container R06
 Bash DocComment R09
 Bash DocRunDirective R09
@@ -29,7 +28,6 @@ Bash FuncOpener R06
 Bash Guard R05
 Bash HoldsDocInBody R09
 Bash Loop R07
-Bash ShortCircuit R05
 Bash StringLit R08
 Bash Switch R07
 Bash Ternary R05
@@ -102,7 +100,6 @@ Elixir Branch R07
 Elixir CaseArm R05
 Elixir Catch R07
 Elixir Comment R09
-Elixir Comparison R05
 Elixir DocRunDirective R09
 Elixir DocRunOpener R09
 Elixir DocTarget R09
@@ -113,7 +110,6 @@ Elixir Guard R05
 Elixir HoldsDocInBody R09
 Elixir Loop R07
 Elixir Member R06
-Elixir ShortCircuit R05
 Elixir Switch R07
 Go Branch R07
 Go Call R08
@@ -313,7 +309,6 @@ Perl Call R08
 Perl CaseArm R05
 Perl Closure R06
 Perl Comment R09
-Perl Comparison R05
 Perl Container R06
 Perl DocComment R09
 Perl DocRunDirective R09
@@ -327,7 +322,6 @@ Perl HoldsDocInBody R09
 Perl Loop R07
 Perl Member R06
 Perl NullSafe R05
-Perl ShortCircuit R05
 Perl StringLit R08
 Perl Switch R07
 Perl Ternary R05

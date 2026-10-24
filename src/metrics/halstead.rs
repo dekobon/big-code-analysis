@@ -529,6 +529,7 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "elixir",
         feature = "go",
         feature = "groovy",
         feature = "irules",
@@ -641,6 +642,7 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "elixir",
         feature = "go",
         feature = "groovy",
         feature = "irules",
@@ -686,6 +688,7 @@ mod tests {
             feature = "c",
             feature = "cpp",
             feature = "csharp",
+            feature = "elixir",
             feature = "go",
             feature = "groovy",
             feature = "irules",
@@ -7588,6 +7591,7 @@ end",
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "elixir",
         feature = "go",
         feature = "groovy",
         feature = "irules",
@@ -7679,6 +7683,96 @@ end",
             assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
             assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
         }
+    }
+
+    /// #1695: Elixir's, Perl's and Bash's `Comparison` / `ShortCircuit`
+    /// rows' payers bill as operators, one applied spelling apiece, and
+    /// the gated-out spellings — a capture's name, a `Kernel.||` call's,
+    /// a readline's brackets, an auto-quoted `and` key, a redirection —
+    /// bill as they did before the rows. A Bash `test_operator` bills
+    /// nothing, as before.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "c = a < 1\n"),
+            (">", "c = a > 1\n"),
+            ("<=", "c = a <= 1\n"),
+            (">=", "c = a >= 1\n"),
+            ("==", "c = a == 1\n"),
+            ("!=", "c = a != 1\n"),
+            ("===", "c = a === 1\n"),
+            ("!==", "c = a !== 1\n"),
+            ("in", "c = a in b\n"),
+            ("not in", "c = a not in b\n"),
+            ("&&", "c = a && b\n"),
+            ("||", "c = a || b\n"),
+            ("and", "c = a and b\n"),
+            ("or", "c = a or b\n"),
+        ];
+        assert_spellings_bill_as_operators::<ElixirParser>("foo.ex", ROWS);
+        // A capture and a `Kernel` remote call name the operator inside
+        // an `operator_identifier`, where it billed as an operand before
+        // the rows and still does — the rows' `applied` gate leaves both
+        // out, and the remote call is the counting consumers' extra.
+        for (token, source) in [("==", "c = &==/2\n"), ("||", "c = Kernel.||(a, b)\n")] {
+            let ops = ops_of::<ElixirParser>(source, "foo.ex");
+            assert_keyword_role(&ops, "foo.ex", token, Role::OperandOnly);
+        }
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "my $c = $a < 1;\n"),
+            (">", "my $c = $a > 1;\n"),
+            ("<=", "my $c = $a <= 1;\n"),
+            (">=", "my $c = $a >= 1;\n"),
+            ("==", "my $c = $a == 1;\n"),
+            ("!=", "my $c = $a != 1;\n"),
+            ("<=>", "my $c = $a <=> 1;\n"),
+            ("eq", "my $c = $a eq 'x';\n"),
+            ("ne", "my $c = $a ne 'x';\n"),
+            ("lt", "my $c = $a lt 'x';\n"),
+            ("gt", "my $c = $a gt 'x';\n"),
+            ("le", "my $c = $a le 'x';\n"),
+            ("ge", "my $c = $a ge 'x';\n"),
+            ("cmp", "my $c = $a cmp 'x';\n"),
+            ("=~", "my $c = $a =~ /x/;\n"),
+            ("!~", "my $c = $a !~ /x/;\n"),
+            ("&&", "my $c = $a && $b;\n"),
+            ("||", "my $c = $a || $b;\n"),
+            ("and", "my $c = $a and $b;\n"),
+            ("or", "my $c = $a or $b;\n"),
+            ("<", "my $l = <$fh>;\n"),
+        ];
+        assert_spellings_bill_as_operators::<PerlParser>("foo.pl", ROWS);
+    }
+
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "if (( a < b )); then :; fi\n"),
+            (">", "if (( a > b )); then :; fi\n"),
+            ("<=", "if (( a <= b )); then :; fi\n"),
+            (">=", "if (( a >= b )); then :; fi\n"),
+            ("==", "if [[ $a == x ]]; then :; fi\n"),
+            ("!=", "if [[ $a != x ]]; then :; fi\n"),
+            ("=~", "if [[ $a =~ x ]]; then :; fi\n"),
+            ("&&", "cmd1 && cmd2\n"),
+            ("||", "cmd1 || cmd2\n"),
+            ("&&", "if [[ $a == x && $b == y ]]; then :; fi\n"),
+            (">", "echo a > out\n"),
+        ];
+        assert_spellings_bill_as_operators::<BashParser>("foo.sh", ROWS);
+        let ops = ops_of::<BashParser>("if [ -n \"$a\" -a \"$a\" -lt 3 ]; then :; fi\n", "foo.sh");
+        assert!(
+            !ops.operators.iter().any(|o| o.starts_with('-')),
+            "a test operator bills nothing; operators were {:?}",
+            ops.operators
+        );
     }
 
     /// #1695: PHP's and Ruby's `Comparison` / `ShortCircuit` rows'

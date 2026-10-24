@@ -247,17 +247,6 @@ fn compute_booleans_by_node<F: Fn(&Node) -> Option<u16>>(
     }
 }
 
-/// Two-operator specialization. Most call sites match exactly two
-/// enum variants (`&&` + `||`, or `and` + `or`); this signature
-/// keeps those call sites as plain `(node, stats, A, B)` rather than
-/// forcing a closure.
-fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
-    compute_booleans_with(node, stats, |id| {
-        let converted: T = id.into();
-        typs1 == converted || typs2 == converted
-    });
-}
-
 #[derive(Debug, Default, Clone, PartialEq)]
 struct BoolSequence {
     boolean_op: Option<(u16, usize)>,

@@ -7,7 +7,6 @@
 )]
 
 use super::*;
-use crate::lang_helpers::bash::bash_test_connective;
 
 impl Cyclomatic for BashCode {
     fn compute<'a>(
@@ -16,7 +15,9 @@ impl Cyclomatic for BashCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
+        use crate::roles::bash::short_circuit;
+        let kind = node.kind_id();
+        match kind.into() {
             // Standard-only: individual case arms (matches C-family `case:`
             // treatment — only arms contribute, not the container). The
             // bare-wildcard arm `*)` is Bash's analogue of the C-family
@@ -46,19 +47,15 @@ impl Cyclomatic for BashCode {
             | Bash::CStyleForStatement
             | Bash::WhileStatement
             | Bash::TernaryExpression
-            | Bash::TernaryExpression2
-            | Bash::AMPAMP
-            | Bash::PIPEPIPE => {
+            | Bash::TernaryExpression2 => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
-            // `[ … ]` spells `&&` / `||` as `-a` / `-o`, a decision each
-            // like the `[ … ] && [ … ]` and `[[ … && … ]]` twins (#1536).
-            Bash::TestOperator
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| bash_test_connective(node, &parent, code).is_some()) =>
-            {
+            // `&&` / `||`, and the `-a` / `-o` that `[ … ]` spells them
+            // as — a decision each like the `[ … ] && [ … ]` and
+            // `[[ … && … ]]` twins (#1536): the `ShortCircuit` row's
+            // payers, the test spelling read for its bytes by the row.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

@@ -33,6 +33,34 @@ impl Getter for BashCode {
 
     keyword_roles!(bash);
 
+    /// The `Comparison` and `ShortCircuit` rows' payers bill as
+    /// operators (#1695), except a `test_operator`: the grammar gives
+    /// `-z`, `-eq`, `-lt`, `-a`, `-o`, … one kind that this getter has
+    /// never billed — a test operator names a predicate as a `test`
+    /// builtin's flag does — and the rows' text gates split it for the
+    /// counting consumers only. That reading stays here, where the
+    /// macro cannot express it.
+    // role-bypass: allow(Comparison, ShortCircuit) — the Halstead reading of a payer the rows
+    // text-gate: a test operator bills nothing, as before the rows
+    fn get_paying_role<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        use crate::roles::bash::{comparison, short_circuit};
+        let kind = node.kind_id();
+        if kind == Bash::TestOperator as u16 {
+            return TokenRole::Unknown;
+        }
+        if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+            || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+        {
+            TokenRole::Operator
+        } else {
+            TokenRole::Unknown
+        }
+    }
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // Control flow keywords and the undeclaring builtins. The
@@ -60,10 +88,16 @@ impl Getter for BashCode {
             | Bash::AMPEQ | Bash::CARETEQ | Bash::PIPEEQ
             | Bash::PLUS | Bash::DASH | Bash::STAR | Bash::SLASH | Bash::PERCENT | Bash::STARSTAR
             | Bash::PLUSPLUS | Bash::DASHDASH
-            | Bash::EQEQ | Bash::BANGEQ | Bash::LT | Bash::GT | Bash::LTEQ | Bash::GTEQ
-            | Bash::EQTILDE
-            // Logical and bitwise operators
-            | Bash::AMPAMP | Bash::PIPEPIPE | Bash::PIPE | Bash::PIPEAMP
+            // `<` / `>` for the spelling the `Comparison` row's parent
+            // gate leaves out — a redirection (`cmd > out`) — which billed
+            // before the row existed; the other comparison tokens and
+            // `&&` / `||` are the rows' and `get_paying_role` bills them
+            // (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spelling the
+            // row's `under_binary_expression` gate leaves out: a redirection
+            | Bash::LT | Bash::GT
+            // Bitwise operators
+            | Bash::PIPE | Bash::PIPEAMP
             | Bash::AMP | Bash::CARET | Bash::TILDE | Bash::BANG
             | Bash::LTLT | Bash::GTGT
             // Test operators (prefix)

@@ -20,6 +20,8 @@ impl Getter for PerlCode {
 
     keyword_roles!(perl);
 
+    paying_roles!(perl);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Perl as P;
 
@@ -59,26 +61,38 @@ impl Getter for PerlCode {
             _ if ancestors.parent_has_kind(node, P::RegexPatternContent as u16) => {
                 TokenRole::Unknown
             }
+            // The comparison and short-circuit tokens — numeric, string,
+            // the bindings and the word forms — sit in this arm for the
+            // spellings the `Comparison` / `ShortCircuit` rows' gates
+            // leave out: a readline's `<FH>` brackets, an auto-quoted
+            // `and` key (#1539), a recovered token. Those billed before
+            // the rows existed; the rows pay the applied spellings
+            // through `get_paying_role` (#1695), so for these kinds the
+            // vocabulary is the union of the two.
+            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
+            // spellings the rows' gates leave out
+            P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
+            | P::LTEQ | P::GTEQ | P::LTEQGT | P::AMPAMP | P::PIPEPIPE | P::And | P::Or
+            | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
             // Control-flow keywords. The declaration keywords (`sub`,
             // `package`, `my`, …) are not here: `roles/perl.rs` declares
             // them and `get_keyword_role` bills them (#1693).
-            P::If | P::Unless | P::Else | P::Elsif | P::While | P::Until | P::For
+            | P::If | P::Unless | P::Else | P::Elsif | P::While | P::Until | P::For
             | P::Foreach | P::When | P::Continue | P::Next | P::Last | P::Redo | P::Goto
-            | P::Return | P::Use | P::No | P::Require | P::Bless | P::And | P::Or
-            | P::Xor | P::Not | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
+            | P::Return | P::Use | P::No | P::Require | P::Bless
+            | P::Xor | P::Not
             // Punctuation acting as operators
             | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK
             | P::LPAREN | P::DOT | P::DOTDOT | P::DOTDOTDOT | P::FatComma | P::DASHGT
             | P::QMARK | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT
-            // Arithmetic / comparison / logical / bitwise / assignment operators
+            // Arithmetic / logical / bitwise / assignment operators
             | P::EQ | P::PLUS | P::DASH | P::STAR | P::SLASH | P::STARSTAR | P::BANG
-            | P::TILDE | P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
-            | P::LTEQ | P::GTEQ | P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::PIPE
+            | P::TILDE | P::SLASHSLASH | P::PIPE
             | P::CARET | P::LTLT | P::GTGT | P::TILDETILDE | P::PLUSPLUS | P::DASHDASH
             | P::PLUSEQ | P::DASHEQ | P::STAREQ | P::SLASHEQ | P::PERCENTEQ | P::STARSTAREQ
             | P::AMPEQ | P::PIPEEQ | P::CARETEQ | P::LTLTEQ | P::GTGTEQ | P::AMPAMPEQ
             | P::PIPEPIPEEQ | P::SLASHSLASHEQ | P::DOTEQ | P::XEQ
-            | P::LTEQGT | P::AMPDOTEQ | P::PIPEDOTEQ | P::CARETDOTEQ | P::Isa
+            | P::AMPDOTEQ | P::PIPEDOTEQ | P::CARETDOTEQ | P::Isa
             // Substitution and transliteration. These are *operations
             // applied to a target*, not pattern values, so they are
             // operators while the three pattern spellings below are
@@ -292,6 +306,8 @@ impl Getter for PerlCode {
                     .count();
                 &code[start..=start + word]
             }
+            // role-bypass: allow(ShortCircuit) — naming: how an auto-quoted `and` key spells
+            // its operand, not whether the token is an operator
             Perl::And if perl_key_is_signed(node, ancestors) => b"-and",
             Perl::Not if perl_key_is_signed(node, ancestors) => b"-not",
             Perl::Identifier => perl_bareword_key_sign(node, ancestors)
@@ -341,7 +357,10 @@ fn auto_quoted_key_role<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Op
         // `(and => 1)`) lexes as the operator keyword. It is a
         // string key, so it bills what `$h{or}` bills: the
         // `identifier` operand the grammar gives every other
-        // bareword key.
+        // bareword key. The `ShortCircuit` row's `applied_and` gate is
+        // what leaves it to this arm.
+        // role-bypass: allow(ShortCircuit) — the operand classification of the spelling the row's
+        // `applied_and` gate leaves out
         P::And
             if !ancestors
                 .parent(node)

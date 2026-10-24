@@ -145,6 +145,8 @@ impl Getter for ElixirCode {
 
     keyword_roles!(elixir);
 
+    paying_roles!(elixir);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Elixir as E;
 
@@ -176,6 +178,8 @@ impl Getter for ElixirCode {
             // operator arm and need no guard. Same-kind tokens outside
             // a sigil (division `a / b`, comparison `<`, pipe `|`) fall
             // through to the operator arm and still count.
+            // role-bypass: allow(Comparison) — a sigil delimiter's suppression, not whether `<` is a
+            // comparison: the row's `applied` gate already leaves it out
             E::SLASH | E::LPAREN | E::LBRACE | E::LBRACK | E::LT | E::GT | E::PIPE
                 if ancestors.parent_has_kind(node, E::Sigil as u16) =>
             {
@@ -189,6 +193,17 @@ impl Getter for ElixirCode {
             // (Macro-shaped keywords like `def`/`defp`/`if`/`case`/`cond`
             // are NOT here: they surface as `Identifier` tokens in a
             // `Call`'s `target` field and are counted as operands below.)
+            //
+            // The comparison and short-circuit tokens sit in this arm for
+            // the spellings the `Comparison` / `ShortCircuit` rows'
+            // `applied` gate leaves out — a capture (`&==/2`, `&and/2`),
+            // a `Kernel.||(a, b)` call's name, a single-token atom or
+            // keyword, a recovered token — which bill as the operators
+            // they spell, as they did before the rows; the rows pay the
+            // applied spellings through `get_paying_role` (#1695), so
+            // for these kinds the vocabulary is the union of the two.
+            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
+            // spellings the rows' `applied` gate leaves out
             E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue
             | E::When | E::Not | E::Or | E::And | E::In | E::Notin
             // Structural punctuation acting as operators. Only the

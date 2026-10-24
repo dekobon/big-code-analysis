@@ -12,6 +12,7 @@
 )]
 
 use super::*;
+use crate::Bash;
 use crate::lang_helpers::bash::bash_test_connective;
 
 // FIXME(#1536 upstream): tree-sitter-bash 0.25.1 lets a test's
@@ -101,6 +102,7 @@ impl Cognitive for BashCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::bash::short_circuit;
         use Bash::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -136,18 +138,34 @@ impl Cognitive for BashCode {
             // Inside `[ … ]` the same expression joins two tests with
             // `-a` / `-o`, keyed to the symbol it stands for so the
             // three spellings score alike (#1536).
+            // A command list the `ShortCircuit` row owns: the row's two
+            // symbol payers, which the list spells and no test can.
+            // role-bypass: allow(ShortCircuit) — which of the row's owners is the command-level
+            // one, whose sequence has no comparison run to extend; the row owns both
             List => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             UnaryExpression | UnaryExpression2 | UnaryExpression3 => {
                 stats.bash_runs.sequence_end(node, ancestors.parent(node));
             }
+            // Every `binary_expression` extends or ends a comparison run
+            // (`sequence_end`), whether or not it joins two tests; the
+            // ones the `ShortCircuit` row owns also fold their operator —
+            // read for its bytes where it is a `test_operator` — into the
+            // sequence, `-a` / `-o` keyed onto `&&` / `||`.
+            // role-bypass: allow(Comparison, ShortCircuit) — the comparison-run bookkeeping every
+            // binary expression feeds, and the sequence key the row's payers share; the row is
+            // read inside
             BinaryExpression3 => {
                 let end = stats.bash_runs.sequence_end(node, ancestors.parent(node));
-                compute_booleans_by_node(node, end, stats, |child| match child.kind_id().into() {
-                    AMPAMP | PIPEPIPE => Some(child.kind_id()),
-                    _ => bash_test_connective(child, node, code).map(|op| op as u16),
-                });
+                if short_circuit::owns(node, code, ancestors) {
+                    compute_booleans_by_node(node, end, stats, |child| {
+                        match child.kind_id().into() {
+                            AMPAMP | PIPEPIPE => Some(child.kind_id()),
+                            _ => bash_test_connective(child, node, code).map(|op| op as u16),
+                        }
+                    });
+                }
             }
             FunctionDefinition => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);

@@ -5,11 +5,42 @@
 //! `quote do … end` template reads the ancestor chain (#275, #310).
 
 use crate::lang_helpers::elixir::{
-    elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
-    elixir_is_method_macro,
+    elixir_applying_operator, elixir_call_keyword, elixir_is_class_macro,
+    elixir_is_inside_quote_block, elixir_is_method_macro,
 };
 use crate::role_table;
 use crate::{Ancestors, Elixir, Node};
+
+/// Whether an operator token applies its operator: its parent is a
+/// `binary_operator`. A token also *names* the operator — `&==/2`,
+/// `&and/2` and `Kernel.||(a, b)` hold it inside an
+/// `operator_identifier`, and a single-token `atom` / `keyword` spells
+/// it too — and under error recovery its parent can be an `ERROR` with
+/// no operands, so every decision metric keys on the parent (#1531,
+/// #1534). A `Kernel` remote call that names a short-circuit operator
+/// applies it too, but has no `binary_operator`: that spelling is
+/// text-keyed on the receiver and stays the consumers' named extra
+/// (#1574, #1582).
+fn applied<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_applying_operator(node, ancestors).is_some()
+}
+
+/// Whether a `binary_operator`'s `operator` field is one of the
+/// `Comparison` payers; the three aliased ids carry every binary
+/// operator.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_operator`'s `operator` field is a short-circuit
+/// payer.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
 
 /// A `call` whose target spells a method-defining macro, outside any
 /// `quote` block — `ElixirCode::is_func_with_code`'s rule.
@@ -51,8 +82,47 @@ role_table! {
     Modifier { absent "Elixir's `defp` is a declaration keyword, not a modifier" }
     Primitive { absent "Elixir has no built-in type names in syntax" }
     DocComment { absent "Elixir documents with `@doc` attributes, not comments" }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The `binary_operator` node — three aliased ids — carries every
+    // binary operator; its `operator` field says which, so each row's
+    // owner is gated on the field, and every payer on applying its
+    // operator under one (`applied`), since a token also names the
+    // operator in a capture, an atom or a `Kernel.op(a, b)` call. The
+    // comparison payers are the four equalities, the four orderings
+    // and the membership tests `in` / `not in` (the compound is one
+    // token).
+    Comparison {
+        owns [
+            BinaryOperator(gated_by comparison_operator),
+            BinaryOperator2(gated_by comparison_operator),
+            BinaryOperator3(gated_by comparison_operator),
+        ]
+        pays [
+            EQEQ gated_by applied, EQEQEQ gated_by applied,
+            BANGEQ gated_by applied, BANGEQEQ gated_by applied,
+            LTEQ gated_by applied, GTEQ gated_by applied,
+            LT gated_by applied, GT gated_by applied,
+            In gated_by applied, Notin gated_by applied,
+        ]
+        project "operator"
+    }
+    // `&&` / `||` and the strict-boolean `and` / `or`, each a kind of
+    // its own. A `Kernel.||(a, b)` / `Kernel.and(a, b)` remote call
+    // applies the same macro and decides as the operator does; it has
+    // no `binary_operator` and its `and` / `or` are a plain
+    // `identifier`, so it is the consumers' text-keyed extra, not this
+    // row's.
+    ShortCircuit {
+        owns [
+            BinaryOperator(gated_by short_circuit_operator),
+            BinaryOperator2(gated_by short_circuit_operator),
+            BinaryOperator3(gated_by short_circuit_operator),
+        ]
+        pays [
+            AMPAMP gated_by applied, PIPEPIPE gated_by applied,
+            And gated_by applied, Or gated_by applied,
+        ]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { absent "Elixir has no ternary operator" }
     CaseArm { pending R05 }

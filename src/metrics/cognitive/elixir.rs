@@ -134,6 +134,7 @@ impl Cognitive for ElixirCode {
         nesting_map: &mut NestingMap,
     ) {
         // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
+        use crate::roles::elixir::short_circuit;
         use Elixir as E;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -240,7 +241,8 @@ impl Cognitive for ElixirCode {
             // kinds in one walk of `node.children()` — the previous
             // shape called `compute_booleans` twice, walking children
             // twice per BinaryOperator.
-            E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3 => {
+            // A `binary_operator` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
                 compute_elixir_booleans(node, stats);
             }
             // A short-circuit `Kernel` remote call applies the operator
@@ -251,6 +253,8 @@ impl Cognitive for ElixirCode {
             // token inside a `binary_operator` is the arm above's.
             // `Kernel.and` / `Kernel.or` name the operator with an
             // `identifier` instead of a token (#1582).
+            // role-bypass: allow(ShortCircuit) — the remote-call extra: which kinds can name a
+            // `Kernel` short-circuit call, decided on the receiver's text, not membership
             E::AMPAMP | E::PIPEPIPE | E::Identifier => {
                 compute_elixir_remote_booleans(node, code, ancestors, stats);
             }

@@ -16,14 +16,17 @@ use crate::lang_helpers::perl::perl_is_and_key_misparse;
 
 /// Folds a Perl `binary_expression`'s (or, for low-precedence `and`,
 /// `unary_expression`'s) short-circuit operator children
-/// into the boolean-sequence counter — Perl has five bare forms (`&&`,
-/// `||`, `//`, `and`, `or`) plus three compound short-circuit
-/// assignments (`&&=`, `||=`, `//=`). The grammar exposes each `op=`
+/// into the boolean-sequence counter — the `ShortCircuit` row's four
+/// bare forms (`&&`, `||`, `and`, `or`), the defined-or `//` and three
+/// compound short-circuit assignments (`&&=`, `||=`, `//=`), the last
+/// four pending their `NullSafe` row. The grammar exposes each `op=`
 /// as a distinct operator token inside the same `binary_expression`,
 /// so they fold into the same predicate (issue #249). The word forms
 /// `and` / `or` are keyed to their symbols (see
 /// [`compute_booleans_keyed`]); `//` and each compound assignment keep
-/// keys of their own.
+/// keys of their own. Which payers share a key is this consumer's
+/// reading of the row.
+// role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not membership
 fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
     compute_booleans_keyed(node, stats, |id| match id.into() {
         Perl::AMPAMP | Perl::And => Some(Perl::AMPAMP as u16),
@@ -95,7 +98,12 @@ impl Cognitive for PerlCode {
             // scored nothing here while cyclomatic and ABC counted it
             // (#1530). FIXME(#1539 upstream): an auto-quoted `and` key
             // (`(and => 1)`) is a `unary_expression` led by that token,
-            // and holds no operator.
+            // and holds no operator. The `ShortCircuit` row owns the
+            // four bare forms; the defined-or and compound forms, which
+            // the same two kinds carry, are the `NullSafe` row's, so
+            // until that lands the arm is reached by kind.
+            // role-bypass: allow(ShortCircuit) — the `//` / `op=` owners, which the `NullSafe` row of
+            // #1695 takes over; the row's owners are the same two kinds
             P::BinaryExpression | P::UnaryExpression if !perl_is_and_key_misparse(node) => {
                 compute_perl_booleans(node, stats);
             }

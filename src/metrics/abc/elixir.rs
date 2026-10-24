@@ -14,13 +14,13 @@ use super::{
     wrapped_operand,
 };
 use crate::lang_helpers::elixir::{
-    elixir_applying_operator, elixir_applying_remote_call, elixir_call_keyword,
-    elixir_kernel_short_circuit_name,
+    elixir_applying_remote_call, elixir_call_keyword, elixir_kernel_short_circuit_name,
 };
 use crate::metrics::elixir_decisions::{
     Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_clause_is_decision,
     elixir_sole_unguarded_pattern, elixir_when_alternative, elixir_when_is_guard,
 };
+use crate::roles::elixir::{comparison, short_circuit};
 use crate::*;
 
 /// The grammar rule an applied binary operator hangs off. Matched by
@@ -73,41 +73,22 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 
 // Whether another arm of `compute` already charges `expr` (already
 // peeled through the wrappers `elixir_wrapper_operand` descends) as a
-// condition. True for a comparison or membership test (the two token
-// arms) and for an `&&` / `||` / `and` / `or` chain, whose walker scores
-// each operand through `elixir_count_condition` — so every operand
-// either pays there or is one of these, and a chain always carries at
-// least one condition of its own. A short-circuit `Kernel` remote call
+// condition. True for a comparison or membership test (the `Comparison`
+// row's owner, paid by its token) and for an `&&` / `||` / `and` / `or`
+// chain (the `ShortCircuit` row's owner), whose walker scores each
+// operand through `elixir_count_condition` — so every operand either
+// pays there or is one of these, and a chain always carries at least
+// one condition of its own. A short-circuit `Kernel` remote call
 // (`Kernel.||(a, b)`, `Kernel.or(a, b)`) is that chain spelled as a
-// call, and its operands pay through `elixir_count_remote_chain` in the
-// same way (#1574, #1582).
-//
-// The operator list must agree with the token arms in `compute`: an
-// operator listed here and counted nowhere would leave its slot at zero,
-// and one counted there but missing here would pay twice.
+// call — the named extra beyond the rows — and its operands pay through
+// `elixir_count_remote_chain` in the same way (#1574, #1582). Neither
+// owner gate reads ancestors, so the peeled descendant is asked with
+// none.
 fn elixir_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    use Elixir as E;
-
+    let unknown = Ancestors::unknown();
     elixir_kernel_short_circuit_name(expr, code).is_some()
-        || elixir_binary_operator_is(expr, |op| {
-            matches!(
-                op,
-                E::EQEQ
-                    | E::EQEQEQ
-                    | E::BANGEQ
-                    | E::BANGEQEQ
-                    | E::LTEQ
-                    | E::GTEQ
-                    | E::LT
-                    | E::GT
-                    | E::In
-                    | E::Notin
-                    | E::AMPAMP
-                    | E::PIPEPIPE
-                    | E::And
-                    | E::Or
-            )
-        })
+        || comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
 }
 
 // Scores one boolean slot — an `if` / `unless` predicate, a `cond`
@@ -323,13 +304,16 @@ impl Abc for ElixirCode {
         // independent and there is no boundary to split on.
         use Elixir as E;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // A `BinaryOperator` whose operator token is `EQ` is a
             // pattern-match assignment. Read through the `operator`
             // field rather than at child index 1, where a comment
             // before the operator (`a # c⏎ = 1`) sits instead (#1455);
             // a field read also avoids an `any()` scan of all children
             // on an arm that fires on every Elixir binary op.
+            // role-bypass: allow(Comparison, ShortCircuit) — the assignment reading of the operator
+            // node: whether its operator is `=`, not a comparison or a chain
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
                 if node
                     .child_by_field_name("operator")
@@ -464,18 +448,11 @@ impl Abc for ElixirCode {
             // The runtime cost that trade buys there is not paid here:
             // the guard runs only for one of these four tokens, not for
             // every node.
-            E::EQEQ
-            | E::EQEQEQ
-            | E::BANGEQ
-            | E::BANGEQEQ
-            | E::LTEQ
-            | E::GTEQ
-            | E::LT
-            | E::GT
-            | E::In
-            | E::Notin
-                if elixir_applying_operator(node, ancestors).is_some() =>
-            {
+            // The ten comparison tokens, the `Comparison` row's payers
+            // (`roles/elixir.rs`), each gated to a `binary_operator`
+            // parent so a capture, an atom or a remote call's name pays
+            // nothing (#1531, #1534).
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||` /
@@ -488,8 +465,17 @@ impl Abc for ElixirCode {
             // paid by its own operator's visit. A short-circuit `Kernel`
             // remote call applies the operator too, as `Cyclomatic`
             // counts it through the same predicate (§7, #1574).
+            // The `ShortCircuit` row is read at its leaf only to find the
+            // chain, the token's parent; a token the row's `applied` gate
+            // leaves out may still be a `Kernel` remote call's name,
+            // the row's named extra, which `elixir_count_remote_chain`
+            // decides by the receiver's text.
+            // role-bypass: allow(ShortCircuit) — the remote-call extra: which kinds can name a
+            // `Kernel` short-circuit call, decided on the receiver's text, not membership
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
-                if let Some(chain) = elixir_applying_operator(node, ancestors) {
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                    && let Some(chain) = ancestors.parent(node)
+                {
                     count_field_operands(
                         &chain,
                         |operand, conditions| elixir_count_condition(operand, code, conditions),
