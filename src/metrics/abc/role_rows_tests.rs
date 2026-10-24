@@ -81,6 +81,17 @@ fn java_rows_feed_each_abc_path_independently() {
             ("if (a && b || x > 1) { } return a;", 3, 3),
         ],
     );
+    // An `instanceof` keyword error recovery strands under an `ERROR`
+    // (the expression lost at end of input) pays for no type test, as
+    // the expression node it replaced scored nothing there: the payer
+    // is gated to its owner.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(
+        LANG::Java,
+        b"class T { boolean f(){ return x instanceof\n",
+        options,
+    );
+    assert_eq!(root.metrics.abc.conditions(), 0);
 }
 
 // Python pays the `Comparison` row at its wrapper, so a chained

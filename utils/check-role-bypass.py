@@ -456,6 +456,24 @@ class Macro:
     inner_calls: list[str]  # other macros the body invokes
 
 
+def _only_forwards_its_kind(body: str) -> bool:
+    """Whether a macro body's only use of a kind is to hand it to a
+    row: exactly one `let <k> = <node>.kind_id();`, no other
+    `kind_id()`, `kind()`, `match` or `matches!`, and every later
+    mention of `<k>` the first argument of a `…_kind(` call."""
+    bound = re.search(r"\blet\s+(" + IDENT + r")\s*=\s*\$?\w+\.kind_id\(\)\s*;", body)
+    if bound is None:
+        return False
+    rest = body[bound.end() :]
+    if re.search(r"kind_id\(\)|\.kind\(\)|matches!|\bmatch\b", body[: bound.start()] + rest):
+        return False
+    name = re.escape(bound.group(1))
+    for m in re.finditer(r"\b" + name + r"\b", rest):
+        if not re.search(r"_kind\s*\(\s*$", rest[: m.start()]):
+            return False
+    return True
+
+
 MACRO_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
 # The language parameter, under any of the names the tree uses.
 LANG_PARAM_RE = re.compile(r"\$(lang|language|Lang)\s*:\s*ident")
@@ -486,20 +504,16 @@ def parse_macros(src: Source) -> dict[str, Macro]:
         )
         expands = re.findall(r"\$crate::(" + CAMEL + r")::(" + CAMEL + r")", body)
         # A body that reads `kind_id()` only to hand it to a row
-        # (`roles::$lang::<role>::…_kind(kind, …)`) and never compares
-        # it, matches on it (`match` or `matches!`) or reads `kind()`
         # restates no membership — it is the shape the rows exist for
-        # (`keyword_roles!`, `paying_roles!` in `getter.rs`). Any
-        # classification beside the row read keeps the body a
-        # classifier, so a half-migrated macro is still reported.
-        reads_rows = bool(re.search(r"roles::\$" + IDENT + r"::", body))
-        classifies = bool(
-            re.search(
-                r"\bmatch\b|matches!|\.kind\(\)|kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=|[!=]=\s*\$?\w+\.kind_id\(\)",
-                body,
-            )
-        )
-        touches = classifies or (not reads_rows and "kind_id()" in body)
+        # (`keyword_roles!`, `paying_roles!` in `getter.rs`). The test
+        # is positive: the body binds the kind once (`let kind =
+        # node.kind_id();`), and every later use of that name is the
+        # first argument of a `<row>::…_kind(` call. Any other use — a
+        # comparison, a `match`, a `matches!`, a `kind()` read — keeps
+        # the body a classifier, so a half-migrated macro is reported.
+        touches = bool(re.search(r"kind_id\(\)|matches!|\.kind\(\)", body))
+        if touches and re.search(r"roles::\$" + IDENT + r"::", body):
+            touches = not _only_forwards_its_kind(body)
         inner = sorted({c for c in re.findall(r"\b(" + IDENT + r")!\s*[\(\[{]", body) if c != name})
         out[name] = Macro(name, lang_arg, globs_lang, [f"{a}::{b}" for a, b in expands], touches, inner)
     return out

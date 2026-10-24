@@ -304,6 +304,25 @@ mixed!(java, LT);
         self.assertEqual(code, 1)
         self.assertIn("`macro_rules! mixed` reads kinds but no language reaches it", out)
 
+    def test_macro_that_reads_a_row_and_compares_the_cached_kind_is_unsupported(self) -> None:
+        # The cached-kind comparison the lint cannot resolve, beside a
+        # row read: still a classifier, still reported.
+        self.t.src("a.rs", """
+macro_rules! mixed {
+    ($roles:ident, $kind:ident) => {
+        fn classify(node: &Node, code: &[u8], a: Ancestors) -> bool {
+            use crate::roles::$roles::comparison;
+            let kind = node.kind_id();
+            kind == $kind || comparison::owns_kind(kind, node, code, a)
+        }
+    };
+}
+mixed!(java, LT);
+""")
+        code, out = self.t.run("--bootstrap")
+        self.assertEqual(code, 1)
+        self.assertIn("`macro_rules! mixed` reads kinds but no language reaches it", out)
+
     def test_uninvoked_kind_set_macro_is_not_an_unsupported_problem(self) -> None:
         self.t.src("a.rs", "macro_rules! java_calls {\n    () => { $crate::Java::MethodInvocation | $crate::Java::Other };\n}\n")
         code, out = self.t.run("--bootstrap")

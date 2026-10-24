@@ -6431,11 +6431,12 @@ end",
     }
 
     /// #1694: every payer of Python's `Comparison` and `ShortCircuit`
-    /// rows bills as an operator, one fixture line apiece, so dropping
-    /// any one kind from a row fails its own entry. The compounds bill
-    /// as one operator and their inner leaves as none (#413), and the
-    /// `in` of a `for` clause — which the row's `under_comparison` gate
-    /// leaves out — still bills through the byte-less arm.
+    /// rows bills as an operator, one fixture line apiece. Dropping a
+    /// symbol, a compound, `and` or `or` from a row fails its own entry;
+    /// `in` and `is` stay in the byte-less arm for the spellings the
+    /// row's `under_comparison` gate leaves out (a loop's `in`), so
+    /// their entries pin the vocabulary, not the row. The compounds
+    /// bill as one operator and their inner leaves as none (#413).
     #[cfg(feature = "python")]
     #[test]
     fn python_comparison_and_short_circuit_spellings_bill_1694() {
@@ -7130,10 +7131,12 @@ end",
     }
 
     /// #1694: every payer of Java's `Comparison` and `ShortCircuit`
-    /// rows bills as an operator, one fixture line apiece, so dropping
-    /// any one kind from a row fails its own entry — the rows are read
-    /// by `get_paying_role` ahead of the byte-less arm, which keeps only
-    /// the generic-bracket spelling of `<` / `>`.
+    /// rows bills as an operator, one fixture line apiece. The rows are
+    /// read by `get_paying_role` ahead of the byte-less arm, so dropping
+    /// `==`, `!=`, `<=`, `>=`, `&&` or `||` from a row fails its own
+    /// entry; `<`, `>` and `instanceof` stay in the byte-less arm for
+    /// the spellings the rows gate out, so their entries pin the
+    /// vocabulary, not the row.
     #[cfg(feature = "java")]
     #[test]
     fn java_comparison_and_short_circuit_spellings_bill_1694() {
@@ -7161,14 +7164,17 @@ end",
             let ops = ops_of::<JavaParser>(source, "Foo.java");
             assert_keyword_role(&ops, "Foo.java", spelling, Role::OperatorOnly);
         }
-        // A `<` error recovery reparents under `ERROR` is not under a
-        // `binary_expression`, so the row's gate leaves it out; it billed
-        // before the row existed, and the byte-less arm keeps billing it.
+        // A `<` or `instanceof` error recovery reparents under `ERROR` is
+        // under no `binary_expression` / `instanceof_expression`, so the
+        // row's gate leaves it out; each billed before the row existed,
+        // and the byte-less arm keeps billing it.
         let ops = ops_of::<JavaParser>(
             "class C { boolean f(int a) { return a < ; } }\n",
             "Foo.java",
         );
         assert_keyword_role(&ops, "Foo.java", "<", Role::OperatorOnly);
+        let ops = ops_of::<JavaParser>("class T { boolean f(){ return x instanceof\n", "Foo.java");
+        assert_keyword_role(&ops, "Foo.java", "instanceof", Role::OperatorOnly);
     }
 
     /// #1565: Groovy bills every modifier, as Java now does. Its grammar

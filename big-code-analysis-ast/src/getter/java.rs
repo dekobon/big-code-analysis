@@ -124,18 +124,21 @@ impl Getter for JavaCode {
                 TokenRole::Operator
             },
             // The `Comparison` row pays `<` / `>` only under a
-            // `binary_expression`, the gate ABC needs (#1274). Halstead
+            // `binary_expression` and `instanceof` only under its
+            // expression, the gates ABC needs (#1274, #1461). Halstead
             // bills every other spelling too: the opener of a generic
             // list (`List<String>`, as the `<>` pair — #1559; its closer
             // returned `Unknown` above) and a token error recovery
-            // reparents under `ERROR` (`return a < ;`), which billed
-            // before the row existed and must not stop. So this arm is
-            // unconditional, and for these two kinds the row is not what
-            // makes Halstead bill them — the perturbation evidence for
-            // the Halstead path is the other seven payers.
+            // reparents under `ERROR` (`return a < ;`, `x instanceof` at
+            // end of input), which billed before the row existed and
+            // must not stop. So this arm is unconditional, and for these
+            // three kinds the row is not what makes Halstead bill them —
+            // the perturbation evidence for the Halstead path is the
+            // other six payers.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the row's
-            // `under_binary_expression` gate leaves out: a generic opener and a recovered token
-            LT | GT => TokenRole::Operator,
+            // `under_binary_expression` / `under_instanceof_expression` gates leave out: a generic
+            // opener and a recovered token
+            LT | GT | Instanceof => TokenRole::Operator,
             // `super` is the receiver of `super.f()` / `super(x)` /
             // `super::f` everywhere except a wildcard type bound, where
             // `? super String` denotes no value and is the mirror image

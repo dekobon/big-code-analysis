@@ -27,6 +27,19 @@ fn short_circuit_operator<'a>(
     short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
 }
 
+/// Whether an `instanceof` keyword sits under its `instanceof_expression`.
+/// The grammar spells the keyword in no other production, but error
+/// recovery keeps a keyword whose expression it lost
+/// (`return x instanceof` at end of input) as a bare child of an
+/// `ERROR`, where no type test exists for it to pay for.
+fn under_instanceof_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Java::InstanceofExpression as u16)
+}
+
 /// Whether a bare `<` / `>` token is the operator of a
 /// `binary_expression`. tree-sitter-java emits the same tokens from
 /// `type_arguments` and `type_parameters`, where they are type syntax
@@ -84,8 +97,10 @@ role_table! {
     // emits as generic-type brackets. An `instanceof_expression` owns
     // the type test — one node spans both the plain test and the Java
     // 16 pattern form `x instanceof String s` — and its `instanceof`
-    // keyword pays: the grammar spells that keyword in no other
-    // production, so one pays per test (#1461). `?` is excluded here
+    // keyword pays, gated to that owner: the grammar spells the keyword
+    // in no other production, so one pays per test (#1461), and a
+    // keyword error recovery strands under an `ERROR` pays for no
+    // test. `?` is excluded here
     // rather than left unmentioned: a ternary's `?` is a `Ternary`
     // matter, a wildcard bound's is type syntax, and neither is a
     // comparison.
@@ -101,7 +116,7 @@ role_table! {
             GTEQ,
             LT gated_by under_binary_expression,
             GT gated_by under_binary_expression,
-            Instanceof,
+            Instanceof gated_by under_instanceof_expression,
         ]
         project "operator"
         excludes [QMARK "a `?` is a ternary's decision or a wildcard bound; `Ternary` owns it"]
