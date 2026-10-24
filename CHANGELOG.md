@@ -116,6 +116,52 @@ for historical reference.
   and `Node::count_specific_ancestors` takes `impl Fn` — both in or
   on items outside `STABILITY.md`'s shape contract. (#1694)
 
+- Every paying construct is now a declared row in every language:
+  `Comparison` and `ShortCircuit` for the twenty languages #1694 left
+  pending, then `EagerLogical`, `Ternary`, `CaseArm`, `Guard` and
+  `NullSafe` across all of them — no cell of the seven roles is
+  `pending` anywhere — and every consumer of each (ABC, cyclomatic,
+  cognitive, Halstead through `get_paying_role`) reads the row in place
+  of its own kind list. Each row records the policy the consumers
+  already had rather than moving it: Kotlin's infix `and` / `or` /
+  `xor` and Perl's / PHP's `xor` are `EagerLogical` (a value, no chain
+  increment); a `?` pays the ternary only under its node where a grammar
+  spells `?` elsewhere (Java / Groovy wildcards, TypeScript's ten type
+  productions, C#'s nullable type, PHP's `?int`, Bash's `${y?msg}`) and
+  ungated where it does not; a `default` / `_` / `else ->` / `*)` arm
+  pays nothing, with the lesson-11 reason on each row's `excludes`; a
+  guard is the node (Java, C#, Ruby) or the token (Rust's `if`,
+  Elixir's `when`) its counting consumers pay; the elvis and every
+  optional navigation are `NullSafe`, once per token, with the
+  compound `??=` / `//=` excluded as the consumers' own. Four
+  specification corrections were found by writing the rows and are
+  recorded on them: Python's `&` / `|` / `^` on `bool`s and Bash's
+  `-a` / `-o` are eager, not absent; Java's `Guard` pays at its node
+  (R01's `pays never` was the Halstead reading); C#'s `when` is also a
+  reserved identifier at the pin, so the clause nodes own the guard.
+  The gate predicates the rows read moved into the parse crate —
+  `src/metrics/elixir_decisions.rs` is now
+  `lang_helpers/elixir_decisions.rs`, and the new
+  `lang_helpers/case_arms.rs` holds the bare-default predicates that
+  were in `npa/shared.rs` and `cyclomatic.rs` — and `role_table!`
+  gained `pays_itself_when f` (Groovy's tokenless `a !in b`), a payer
+  `text_gated_by f` (Bash's one `test_operator` kind), a payer-child
+  fallback for `project` where the grammar names no field, and empty
+  `OWNERS` / `PAYERS` on an `absent` row. Tcl's `switch` arms are read
+  per arm through a `MemoQuestion::SwitchArmList` memo, so a switch
+  with many options and many arms stays linear
+  (`cyclomatic/tcl-wide-switch`). Every `bca ops` vocabulary and every
+  metric is byte-identical on the integration corpora and on a fixture
+  per language spelling every row kind (6,638 outputs), and on a sweep
+  of every fixture truncated at each line, sixteen offsets and after
+  every operator punctuation (4,388 outputs); eight drifts that sweep
+  or review found in flight — a macro `&&` reaching Rust's ABC chain
+  walker, a `pays_itself` owner billed to Halstead, Perl's rewrite
+  exception on `$a == s/x/y/`, C#'s `is` and JS's `?` and PHP's `<`
+  stranded under an `ERROR`, Tcl arms named `for`, iRules arms with
+  their `switch` lost, and C#'s negated `!(a?.b)` — were each fixed
+  before landing, so no output moves. (#1695)
+
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
   ancestor was quadratic in its nesting depth under every metric walk:
   deciding whether the call is a definition or a quoted template climbed
