@@ -89,6 +89,33 @@ for historical reference.
   change is where the membership is written, not what it says. The
   crate is outside `STABILITY.md`'s shape contract. (#1693)
 
+- The `Comparison` and `ShortCircuit` roles are declared for Java,
+  Python, C++ and Mozcpp, and every consumer of either reads the row:
+  ABC's token arm, its slot predicate (`scores_itself`) and its `&&` /
+  `||` chain walker; cyclomatic's short-circuit arm; cognitive's
+  boolean-sequence arm; and Halstead, through the new
+  `Getter::get_paying_role`, read between `get_keyword_role` and the
+  byte-less `get_op_type`. A row names the construct's *owners* (the
+  `binary_expression`, gated on its `operator` field) and its *payers*
+  (the token), with a projection from one to the other; a consumer
+  states which it reads — Python's ABC pays a comparison at the
+  `comparison_operator` wrapper where Halstead pays each operator leaf,
+  and never pays an `and` / `or` token where cyclomatic does. Java's
+  `instanceof` keyword is the payer of its type test, C++'s eight
+  comparison and four short-circuit tokens pay only where they apply
+  their operator (not in `operator<`, `int&& x` or a `requires`
+  clause's conjunction — the gate that was `cpp_operator_is_applied`,
+  now beside the rows as `cpp_family_operator_is_applied`), a fold
+  applies its operator once, and a `requires` clause's subtree still
+  decides nothing. The C++ dialects and the TS/TSX keyword rows now
+  splice shared fragments instead of carrying copies. Every `bca ops`
+  vocabulary and every metric is byte-identical on the integration
+  corpora (1,048 C++ files run as both dialects, 73 Python, 12 Java,
+  6 TS/TSX run as both) and a fixture per language spelling every row
+  kind. `role_table!` output is `pub` so the root crate can read it,
+  and `Node::count_specific_ancestors` takes `impl Fn` — both in or
+  on items outside `STABILITY.md`'s shape contract. (#1694)
+
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
   ancestor was quadratic in its nesting depth under every metric walk:
   deciding whether the call is a definition or a quoted template climbed
