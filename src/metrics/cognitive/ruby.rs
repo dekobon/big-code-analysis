@@ -47,7 +47,9 @@ impl Cognitive for RubyCode {
         // the row reads (#1695) are arms like the kind arms they replaced.
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // Nesting-increasing constructs. tree-sitter-ruby models
             // `elsif` as its own `Elsif` clause (handled in the
             // branch-extension arm below) rather than nesting a second
@@ -58,7 +60,7 @@ impl Cognitive for RubyCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             R::Unless
@@ -138,7 +140,7 @@ impl Cognitive for RubyCode {
             // A `binary` the `ShortCircuit` row owns (#1695). Ruby has
             // four short-circuit forms (`&&`, `||`, `and`, `or`); the
             // dedicated helper keys the word forms to their symbols.
-            _ if short_circuit::owns(node, code, ancestors) => {
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_ruby_booleans(node, stats);
             }
             R::Method | R::SingletonMethod => {

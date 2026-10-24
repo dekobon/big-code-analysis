@@ -28,31 +28,4 @@ macro_rules! tcl_family_short_circuit_payers {
     };
 }
 
-/// The two gates the Tcl-family rows read, per dialect because each
-/// reads the dialect's kind ids: a `binop_expr` owns a comparison or a
-/// chain when one of the row's payers is among its children — the
-/// grammar names no operator field, so the row's projection is the
-/// lookup.
-macro_rules! tcl_family_gates {
-    () => {
-        /// Whether a `binop_expr` holds a `Comparison` payer.
-        fn comparison_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            comparison::project(node).is_some()
-        }
-
-        /// Whether a `binop_expr` holds a `ShortCircuit` payer.
-        fn short_circuit_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            short_circuit::project(node).is_some()
-        }
-    };
-}
-
-pub(crate) use {tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers};
+pub(crate) use {tcl_family_comparison_payers, tcl_family_short_circuit_payers};

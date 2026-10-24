@@ -38,7 +38,7 @@ use crate::{Ancestors, Csharp, Irules, Node, Python, Ruby, Tcl};
 /// is an `if_clause` sibling on the enclosing `case_clause`, which
 /// [`python_case_clause_counts`] reads.
 #[must_use]
-pub fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
+pub(crate) fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
     let mut found_underscore = false;
     for child in pat.children() {
         if child.kind_id() == underscore_id {
@@ -58,7 +58,7 @@ pub fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
 /// wildcard without a guard is Python's `default:` and pays nothing,
 /// as Rust's bare-`_` arm and Java's / C#'s `default:` do.
 #[must_use]
-pub fn python_case_clause_counts(node: &Node) -> bool {
+pub(crate) fn python_case_clause_counts(node: &Node) -> bool {
     let mut bare_underscore = false;
     for child in node.children() {
         match child.kind_id().into() {
@@ -84,7 +84,7 @@ pub fn python_case_clause_counts(node: &Node) -> bool {
 /// from the bytes. The pattern is the first *named* child; the `in`
 /// keyword is anonymous and the guard and body follow it.
 #[must_use]
-pub fn ruby_in_clause_counts(in_clause: &Node, code: &[u8]) -> bool {
+pub(crate) fn ruby_in_clause_counts(in_clause: &Node, code: &[u8]) -> bool {
     let mut pattern: Option<Node> = None;
     for child in in_clause.children() {
         match child.kind_id().into() {
@@ -110,7 +110,7 @@ pub fn ruby_in_clause_counts(in_clause: &Node, code: &[u8]) -> bool {
 /// rather than a `var_pattern`; a declared type (`int _`) is a type
 /// test and still counts.
 #[must_use]
-pub fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
+pub(crate) fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
     use Csharp::*;
 
     fn is_bare_discard(child: &Node) -> bool {
@@ -143,7 +143,10 @@ pub fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
 /// production and is an unconditional jump (#1450). `goto default;`
 /// needs no twin: `default` is a distinct token no arm counts.
 #[must_use]
-pub fn csharp_case_token_is_switch_arm<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+pub(crate) fn csharp_case_token_is_switch_arm<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     ancestors.parent_has_kind(node, Csharp::SwitchSection as u16)
 }
 
@@ -151,7 +154,7 @@ pub fn csharp_case_token_is_switch_arm<'a>(node: &Node<'a>, ancestors: Ancestors
 /// attaches a `condition` field to every case-style entry; the `else`
 /// arm has only its anonymous keyword child.
 #[must_use]
-pub fn kotlin_when_entry_is_else(node: &Node) -> bool {
+pub(crate) fn kotlin_when_entry_is_else(node: &Node) -> bool {
     node.child_by_field_name("condition").is_none()
 }
 
@@ -164,7 +167,7 @@ pub fn kotlin_when_entry_is_else(node: &Node) -> bool {
 /// cursor and `goto_next_sibling()` is `O(1)` — rather than through
 /// `Node::child(i)`, which is `O(i)` per call.
 #[must_use]
-pub fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
+pub(crate) fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
     let mut cursor = node.as_tree_sitter().walk();
     if !cursor.goto_first_child() {
         return false;
@@ -221,7 +224,7 @@ pub fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// memo it is answered once per switch, so a switch with `W` options
 /// and `A` arms costs `O(A + W)` and not `O(A × W)`.
 #[must_use]
-pub fn tcl_command_is_switch_arm<'a>(
+pub(crate) fn tcl_command_is_switch_arm<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
@@ -279,7 +282,7 @@ fn tcl_word_list_holds_sole_braced_word(
 /// recovery strands under an `ERROR` with its `switch` lost has no
 /// switch to be an arm of, and never counted.
 #[must_use]
-pub fn irules_switch_arm_is_decision<'a>(
+pub(crate) fn irules_switch_arm_is_decision<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,

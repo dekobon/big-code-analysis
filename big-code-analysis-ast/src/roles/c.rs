@@ -1,15 +1,15 @@
-//! C's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! C's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::C;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_case_arm_gate, c_family_comparison_owners, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_gates, c_family_modifiers, c_family_primitives,
-    c_family_short_circuit_owners, c_family_short_circuit_payers,
+    c_family_binary_owners, c_family_case_arm_gate, c_family_comparison_payers,
+    c_family_decl_keywords, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
 };
 
-c_family_gates!(C);
 c_family_case_arm_gate!(C);
 
 role_table! {
@@ -24,12 +24,12 @@ role_table! {
     // `#if A <= B` operand is a `preproc_binary_expression` aliased onto
     // the same node and pays alike.
     Comparison {
-        owns [..c_family_comparison_owners!()]
+        owns [..c_family_binary_owners!()]
         pays [..c_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [..c_family_short_circuit_owners!()]
+        owns [..c_family_binary_owners!()]
         pays [..c_family_short_circuit_payers!()]
         project "operator"
     }

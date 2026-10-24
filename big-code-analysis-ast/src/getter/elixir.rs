@@ -167,12 +167,9 @@ impl Getter for ElixirCode {
         if guard::PAYERS.contains(&kind) {
             return TokenRole::Operator;
         }
-        if (comparison::PAYERS.contains(&kind)
-            && comparison::pays_at_leaf_kind(kind, node, code, ancestors))
-            || (short_circuit::PAYERS.contains(&kind)
-                && short_circuit::pays_at_leaf_kind(kind, node, code, ancestors))
-            || (case_arm::PAYERS.contains(&kind)
-                && case_arm::pays_at_leaf_kind(kind, node, code, ancestors))
+        if comparison::pays_at_token_kind(kind, node, code, ancestors)
+            || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
+            || case_arm::pays_at_token_kind(kind, node, code, ancestors)
         {
             TokenRole::Operator
         } else {

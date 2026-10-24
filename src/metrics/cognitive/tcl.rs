@@ -12,7 +12,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::case_arms::tcl_switch_arm_list;
+use crate::lang_helpers::tcl_switch_arm_list;
 
 impl Cognitive for TclCode {
     fn compute<'a>(
@@ -32,7 +32,9 @@ impl Cognitive for TclCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // Guard kept for defensive consistency with sibling impls; Tcl's dedicated
             // Elseif node means this guard is always true in practice.
             If if !Self::is_else_if(node, ancestors) => {
@@ -49,7 +51,7 @@ impl Cognitive for TclCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expr` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; only executes when the body errors.
@@ -104,8 +106,8 @@ impl Cognitive for TclCode {
                 _ => {}
             },
             // A `binop_expr` the `ShortCircuit` row owns (#1695).
-            _ if short_circuit::owns(node, code, ancestors) => {
-                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             Procedure => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[Procedure]);

@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, last_operand, peel, wrapped_operand,
+    count_negated_operand, last_operand, peel, rows_own, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
 use crate::roles::csharp::{case_arm, comparison, guard, null_safe, short_circuit, ternary};
@@ -118,15 +118,10 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Csharp::*;
 
-    let unknown = Ancestors::unknown();
     // role-bypass: allow(NullSafe) — which of the row's owners this consumer scores itself
     // by, told by the projected token: the coalescing, not the access
-    let coalescing = null_safe::owns(expr, code, unknown)
-        && null_safe::project(expr).is_some_and(|op| op.kind_id() == QMARKQMARK as u16);
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
-        || coalescing
+    rows_own!(expr, code; comparison, short_circuit, ternary)
+        || null_safe::owns_via(QMARKQMARK as u16, expr, code, Ancestors::unknown())
         || match expr.kind_id().into() {
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);

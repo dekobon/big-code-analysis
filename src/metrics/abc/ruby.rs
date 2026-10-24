@@ -11,6 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
+    rows_own,
 };
 use crate::roles::ruby::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
@@ -125,10 +126,7 @@ fn ruby_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
 fn ruby_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Ruby::*;
 
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
         || expr.kind_id() == TestPattern as u16
 }
 

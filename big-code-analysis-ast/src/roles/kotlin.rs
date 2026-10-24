@@ -1,5 +1,7 @@
-//! Kotlin's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Kotlin's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::kotlin_when_entry_is_else;
@@ -82,37 +84,6 @@ fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) 
         .is_some_and(|name| matches!(name, "and" | "or" | "xor"))
 }
 
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers; the one kind carries every binary operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`.
-/// tree-sitter-kotlin-ng 1.1.0 emits the tokens from four productions —
-/// `binary_expression`, `super_expression` (`super<A>.g()`),
-/// `type_arguments` and `type_parameters` (#1297) — and error recovery
-/// strands either. The enumeration is a claim about the grammar, not
-/// about every parse it produces: the grammar resolves a generic
-/// *call* the wrong way, so `id<Int>(a)` comes back as nested
-/// `binary_expression`s and both brackets pass (#1394).
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Kotlin::BinaryExpression as u16)
-}
-
 /// Whether a `navigation_expression` is the safe `a?.b` rather than
 /// the plain `a.b`: it holds a `?.` token (the grammar names no
 /// operator field; the row's payer fallback finds it).
@@ -131,20 +102,6 @@ fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_
     !kotlin_when_entry_is_else(node)
 }
 
-/// Whether an `is` / `!is` keyword is the operator of an
-/// `is_expression`: the same tokens open a `when` entry's `type_test`,
-/// where the entry pays.
-fn under_is_expression<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Kotlin::IsExpression as u16)
-}
-
-/// Whether an `in` / `!in` keyword is the operator of an
-/// `in_expression`: the same tokens open a `for (x in xs)` header and
-/// a `when` entry's `range_test`, where the entry pays.
-fn under_in_expression<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Kotlin::InExpression as u16)
-}
-
 role_table! {
     lang: Kotlin;
     Call { pending R08 }
@@ -160,14 +117,14 @@ role_table! {
     // counts beside these, but no comparison; it stays its own arm.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression(holds_payer),
             IsExpression, InExpression,
         ]
         pays [
             EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTEQ, GTEQ,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
-            Is gated_by under_is_expression, BANGis gated_by under_is_expression,
-            In gated_by under_in_expression, BANGin gated_by under_in_expression,
+            LT under BinaryExpression, GT under BinaryExpression,
+            Is under IsExpression, BANGis under IsExpression,
+            In under InExpression, BANGin under InExpression,
         ]
         project "operator"
     }
@@ -175,7 +132,7 @@ role_table! {
     // `binary_expression`. The elvis `?:` is `NullSafe`'s, and the
     // infix `and` / `or` / `xor` are `EagerLogical`'s.
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }

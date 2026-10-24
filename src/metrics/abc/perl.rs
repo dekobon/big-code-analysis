@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand, peel,
-    wrapped_operand,
+    rows_own, wrapped_operand,
 };
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
@@ -167,13 +167,12 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Perl as P;
 
-    let unknown = Ancestors::unknown();
     match expr.kind_id().into() {
         P::PatternMatcher | P::PatternMatcherM => true,
         _ => {
-            ternary::owns(expr, code, unknown)
+            rows_own!(expr, code; ternary)
                 || perl_is_logical_chain(expr, code)
-                || (comparison::owns(expr, code, unknown) && !perl_binding_rewrites(expr))
+                || (rows_own!(expr, code; comparison) && !perl_binding_rewrites(expr))
         }
     }
 }
@@ -349,8 +348,7 @@ fn perl_leading_slot<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
 // is a value, as `^` is (#1536). Neither owner gate reads ancestors,
 // so a node reached without its chain is asked with none.
 fn perl_is_logical_chain(node: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    short_circuit::owns(node, code, unknown) || null_safe::owns(node, code, unknown)
+    rows_own!(node, code; short_circuit, null_safe)
 }
 
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean

@@ -12,8 +12,8 @@ use crate::Mozcpp;
 use crate::role_table;
 use crate::roles::c_family::{
     c_family_case_arm_gate, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
-    cpp_family_comparison_owners, cpp_family_comparison_payers, cpp_family_gates,
-    cpp_family_short_circuit_owners, cpp_family_short_circuit_payers,
+    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_gates,
+    cpp_family_short_circuit_payers,
 };
 
 cpp_family_gates!(Mozcpp);
@@ -36,12 +36,12 @@ role_table! {
     // `ConstraintReach` can see the clause above it. The consumers read
     // the rows *under* that reach.
     Comparison {
-        owns [..cpp_family_comparison_owners!()]
+        owns [..cpp_family_binary_owners!()]
         pays [..cpp_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [..cpp_family_short_circuit_owners!()]
+        owns [..cpp_family_binary_owners!()]
         pays [..cpp_family_short_circuit_payers!()]
         project "operator"
     }

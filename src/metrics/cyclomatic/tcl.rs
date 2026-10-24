@@ -7,7 +7,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::case_arms::tcl_switch_arm_list;
+use crate::lang_helpers::tcl_switch_arm_list;
 
 impl Cyclomatic for TclCode {
     fn compute<'a>(
@@ -27,14 +27,15 @@ impl Cyclomatic for TclCode {
             stats.cyclomatic_modified += 1.;
             return;
         }
-        // Standard-only: each arm of a brace-list `switch` the `CaseArm`
-        // row owns — a nested `command` told by its position and its
-        // parent's leading word, the `default` arm left out (lesson 11),
-        // and the unsupported split form owning nothing (#467). An arm
-        // is a command too, so the command dispatch below still reads
-        // its leading word: an arm whose pattern spells `for` or
-        // `switch` pays as that command as well, as it always has — a
-        // reading the grammar cannot tell from the command, left as is.
+        // No `return` here, deliberately. Standard-only: each arm of a
+        // brace-list `switch` the `CaseArm` row owns — a nested `command`
+        // told by its position and its parent's leading word, the
+        // `default` arm left out (lesson 11), and the unsupported split
+        // form owning nothing (#467). An arm is a command too, so the
+        // command dispatch below still reads its leading word: an arm
+        // whose pattern spells `for` or `switch` pays as that command as
+        // well, as it always has — a reading the grammar cannot tell
+        // from the command, left as is.
         if case_arm::owns_kind(kind, node, code, ancestors) {
             stats.cyclomatic += 1.;
         }

@@ -26,7 +26,9 @@ impl Cognitive for GoCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             G::IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -43,8 +45,8 @@ impl Cognitive for GoCode {
                 increment_by_one(stats);
             }
             // A `binary_expression` the `ShortCircuit` row owns (#1695).
-            _ if short_circuit::owns(node, code, ancestors) => {
-                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             G::FunctionDeclaration | G::MethodDeclaration => {
                 enter_function_boundary(

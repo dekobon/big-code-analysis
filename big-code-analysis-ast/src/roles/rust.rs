@@ -1,24 +1,11 @@
-//! Rust's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Rust's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::pattern_is_bare_underscore;
 use crate::role_table;
 use crate::{Ancestors, Node, Rust};
-
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers. The one kind carries every binary operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
 
 /// Whether a `match_arm` is a decision: its `pattern` is not a bare `_`
 /// (lesson 11, #469). `Some(_)`, `(_, x)` and `_ if g` are not bare and
@@ -36,23 +23,6 @@ fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -
     node.child_by_field_name("condition").is_some()
 }
 
-/// Whether an `if` keyword is a match guard's rather than an `if`
-/// expression's: its parent is a `match_pattern`.
-fn under_match_pattern<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Rust::MatchPattern as u16)
-}
-
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`
-/// rather than a generic bracket (`Vec<T>`, a turbofish) or a token
-/// error recovery strands.
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Rust::BinaryExpression as u16)
-}
-
 role_table! {
     lang: Rust;
     Call { pending R08 }
@@ -62,10 +32,10 @@ role_table! {
     // field and `<` / `>` on the parent: a generic list and a turbofish
     // spell the same tokens. The four other tokens occur nowhere else.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under BinaryExpression, GT under BinaryExpression,
         ]
         project "operator"
     }
@@ -81,7 +51,7 @@ role_table! {
     // `closure_parameters`, not this kind).
     ShortCircuit {
         owns [
-            BinaryExpression(gated_by short_circuit_operator),
+            BinaryExpression(holds_payer),
             LetChain, LetChain2,
         ]
         pays [AMPAMP, PIPEPIPE]
@@ -116,7 +86,7 @@ role_table! {
     // walks the field as a boolean slot.
     Guard {
         owns [MatchPattern(gated_by has_guard)]
-        pays [If gated_by under_match_pattern]
+        pays [If under MatchPattern]
     }
     Branch { pending R07 }
     Switch { pending R07 }

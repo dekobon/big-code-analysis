@@ -131,7 +131,7 @@ macro_rules! js_family_comparison_payers {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
             EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTEQ, GTEQ, Instanceof,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under [BinaryExpression], GT under [BinaryExpression],
         ] $($rest)*);
     };
 }
@@ -142,74 +142,6 @@ macro_rules! js_family_comparison_payers {
 macro_rules! js_family_short_circuit_payers {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)* AMPAMP, PIPEPIPE,] $($rest)*);
-    };
-}
-
-/// The four gates the JS-family `Comparison` / `ShortCircuit` /
-/// `Ternary` rows read, per grammar because each reads the grammar's
-/// kind ids.
-macro_rules! js_family_operator_gates {
-    ($lang:ident) => {
-        /// Whether a `?` is a ternary's, the gate the TypeScript rows
-        /// read: those grammars spell the bare token in ten type
-        /// productions — an optional parameter, property, method or
-        /// tuple member, `optional_type`, `flow_maybe_type`,
-        /// `conditional_type` (`T extends U ? X : Y`, resolved by the
-        /// type checker and erased before runtime) — none a decision
-        /// (#1275). The JavaScript grammars spell it nowhere else and
-        /// pay it ungated. `?.` and `??` are distinct tokens.
-        fn under_ternary<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            ancestors.parent_has_kind(node, $lang::TernaryExpression as u16)
-        }
-
-        /// Whether a bare `<` / `>` is the operator of a
-        /// `binary_expression` rather than a generic bracket, a JSX tag
-        /// delimiter or a token error recovery strands.
-        fn under_binary_expression<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            ancestors.parent_has_kind(node, $lang::BinaryExpression as u16)
-        }
-
-        /// Whether a `binary_expression`'s `operator` field is a
-        /// `Comparison` payer.
-        fn comparison_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-        }
-
-        /// Whether a `binary_expression`'s `operator` field is `&&` / `||`.
-        fn short_circuit_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            short_circuit::project(node)
-                .is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-        }
-    };
-}
-
-/// Whether a `binary_expression`'s `operator` field is `??`.
-macro_rules! js_family_null_safe_gate {
-    () => {
-        /// Whether a `binary_expression` applies `??`.
-        fn null_coalescing_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            null_safe::project(node).is_some_and(|op| null_safe::PAYERS.contains(&op.kind_id()))
-        }
     };
 }
 
@@ -231,7 +163,6 @@ macro_rules! js_family_case_arm_gate {
 }
 
 pub(crate) use {
-    js_family_case_arm_gate, js_family_comparison_payers, js_family_null_safe_gate,
-    js_family_operator_gates, js_family_short_circuit_payers, ts_family_decl_keywords,
-    ts_family_gates, ts_family_modifiers,
+    js_family_case_arm_gate, js_family_comparison_payers, js_family_short_circuit_payers,
+    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };

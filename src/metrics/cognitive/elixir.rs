@@ -139,7 +139,9 @@ impl Cognitive for ElixirCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             E::Call => match elixir_call_keyword(node, code) {
                 Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
                     increase_nesting(stats, &mut nesting);
@@ -242,7 +244,7 @@ impl Cognitive for ElixirCode {
             // shape called `compute_booleans` twice, walking children
             // twice per BinaryOperator.
             // A `binary_operator` the `ShortCircuit` row owns (#1695).
-            _ if short_circuit::owns(node, code, ancestors) => {
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_elixir_booleans(node, stats);
             }
             // A short-circuit `Kernel` remote call applies the operator

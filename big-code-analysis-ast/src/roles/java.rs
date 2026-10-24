@@ -9,61 +9,11 @@ use crate::checker::java_anonymous_class_body;
 use crate::role_table;
 use crate::{Ancestors, Java, Node};
 
-/// Whether a `binary_expression`'s `operator` field is an equality or
-/// ordering token — one of the `Comparison` payers. The same node kind
-/// carries `&&` / `||`, which belong to `ShortCircuit`, and the
-/// arithmetic operators, which belong to no role here; the field is the
-/// one place the grammar says which.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `?` is a ternary's rather than a wildcard bound's
-/// (`List<? extends T>`), the one other production tree-sitter-java
-/// spells the token in (#1274).
-fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Java::TernaryExpression as u16)
-}
-
 /// Whether a `switch_label` is a `case X` label rather than `default`:
 /// the grammar gives both one kind, and only the first is a decision
 /// (lesson 11, #469).
 fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     node.is_child(Java::Case as u16)
-}
-
-/// Whether an `instanceof` keyword sits under its `instanceof_expression`.
-/// The grammar spells the keyword in no other production, but error
-/// recovery keeps a keyword whose expression it lost
-/// (`return x instanceof` at end of input) as a bare child of an
-/// `ERROR`, where no type test exists for it to pay for.
-fn under_instanceof_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Java::InstanceofExpression as u16)
-}
-
-/// Whether a bare `<` / `>` token is the operator of a
-/// `binary_expression`. tree-sitter-java emits the same tokens from
-/// `type_arguments` and `type_parameters`, where they are type syntax
-/// and pay nothing (#1274).
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Java::BinaryExpression as u16)
 }
 
 /// Whether an `object_creation_expression` carries a `class_body`, which
@@ -120,7 +70,7 @@ role_table! {
     // comparison.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression(holds_payer),
             InstanceofExpression,
         ]
         pays [
@@ -128,9 +78,9 @@ role_table! {
             BANGEQ,
             LTEQ,
             GTEQ,
-            LT gated_by under_binary_expression,
-            GT gated_by under_binary_expression,
-            Instanceof gated_by under_instanceof_expression,
+            LT under BinaryExpression,
+            GT under BinaryExpression,
+            Instanceof under InstanceofExpression,
         ]
         project "operator"
         excludes [QMARK "a `?` is a ternary's decision or a wildcard bound; `Ternary` owns it"]
@@ -141,7 +91,7 @@ role_table! {
     // production, so they pay ungated. `a && b || c` is a left-nested
     // chain of these nodes, each owning one operator.
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }
@@ -235,7 +185,7 @@ role_table! {
     // the same.
     Ternary {
         owns [TernaryExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under TernaryExpression]
         project "operator"
     }
     // A `switch_label` is the grammar's node for `case X` and `default`

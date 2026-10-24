@@ -261,12 +261,18 @@ class Owner:
     text_gated: bool = False
     pays_itself: bool = False
     opens: str | None = None
+    # `holds_payer`: the owner's projection lands on one of the row's
+    # payers (#1695); a gate may sit beside it.
+    holds_payer: bool = False
 
 
 @dataclass(frozen=True)
 class Payer:
     kind: str
     gate: str | None = None
+    # `under P` / `under [P, Q]`: the parent kinds the payer is gated to
+    # (#1695); exclusive with `gate`.
+    under: tuple[str, ...] = ()
 
 
 @dataclass
@@ -351,7 +357,10 @@ IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
 ROW_HEAD_RE = re.compile(rf"\b([A-Z][A-Za-z]*)\s*\{{")
 LANG_RE = re.compile(rf"lang\s*:\s*({IDENT})\s*;")
 OWNER_RE = re.compile(rf"({IDENT})\s*(\(([^()]*)\))?")
-PAYER_RE = re.compile(rf"({IDENT})(?:\s+(?:text_)?gated_by\s+({IDENT}))?\s*$")
+PAYER_RE = re.compile(
+    rf"({IDENT})"
+    rf"(?:\s+(?:text_)?gated_by\s+({IDENT})|\s+under\s+(?:({IDENT})|\[([^\]]*)\]))?\s*$"
+)
 
 
 def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
@@ -363,11 +372,17 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
     text_gated = False
     pays_itself = False
     opens = None
+    holds_payer = False
     attrs = (m.group(3) or "").split()
     i = 0
     while i < len(attrs):
         a = attrs[i]
-        if a in ("gated_by", "text_gated_by"):
+        if a == "holds_payer":
+            if holds_payer:
+                raise RoleTableError(f"{path}:{line}: `{kind}` repeats `holds_payer`")
+            holds_payer = True
+            i += 1
+        elif a in ("gated_by", "text_gated_by"):
             if gate is not None or i + 1 >= len(attrs):
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated gate")
             gate = attrs[i + 1]
@@ -390,19 +405,20 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
             i += 2
         else:
             raise RoleTableError(f"{path}:{line}: unknown owner attribute `{a}` on `{kind}`")
-    return Owner(kind, gate, text_gated, pays_itself, opens)
+    return Owner(kind, gate, text_gated, pays_itself, opens, holds_payer)
 
 
 def _split_list(text: str) -> list[str]:
     """Comma-separated entries of a bracket list body, respecting
-    parentheses, with a trailing comma allowed."""
+    parentheses and a payer's `under [..]` brackets, with a trailing
+    comma allowed."""
     out: list[str] = []
     depth = 0
     cur = []
     for ch in text:
-        if ch == "(":
+        if ch in "([":
             depth += 1
-        elif ch == ")":
+        elif ch in ")]":
             depth -= 1
         if ch == "," and depth == 0:
             out.append("".join(cur))
@@ -417,9 +433,12 @@ def _split_list(text: str) -> list[str]:
 
 FRAGMENT_RE = re.compile(r"macro_rules!\s*(" + IDENT + r")\s*\{")
 # A fragment's one arm, carrying its kind list in the accumulator append.
+# The list runs to the `]` that closes the accumulator — the one
+# followed by `$($rest)*` — since a payer's `under [..]` closes a
+# bracket of its own inside it.
 FRAGMENT_ARM_RE = re.compile(
     r"\(@splice\s+\$cont:tt\s+\[\$\(\$acc:tt\)\*\]\s+\$\(\$rest:tt\)\*\)\s*=>\s*\{\s*"
-    r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]",
+    r"\$crate::role_table!\(\s*@owners\s+\$cont\s+\[\s*\$\(\$acc\)\*\s*(.*?)\]\s*\$\(\$rest\)\*",
     re.S,
 )
 # Rust admits whitespace inside the attribute (`#[cfg ( test )]`); the
@@ -551,7 +570,14 @@ def _parse_row_body(
                 pm = PAYER_RE.fullmatch(e.strip())
                 if not pm:
                     raise RoleTableError(f"{path}:{line}: `{role}`: unreadable payer `{e.strip()}`")
-                row.payers.append(Payer(pm.group(1), pm.group(2)))
+                under: tuple[str, ...] = ()
+                if pm.group(3):
+                    under = (pm.group(3),)
+                elif pm.group(4) is not None:
+                    under = tuple(p.strip() for p in pm.group(4).split(",") if p.strip())
+                    if not under or any(not re.fullmatch(IDENT, p) for p in under):
+                        raise RoleTableError(f"{path}:{line}: `{role}`: unreadable `under` list on `{pm.group(1)}`")
+                row.payers.append(Payer(pm.group(1), pm.group(2), under))
     pm = re.match(r"\s*project\s+", body[pos:])
     if pm:
         # The field name is a string literal the mask blanked; it runs

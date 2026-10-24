@@ -10,7 +10,7 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    Abc, ScoresItself, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, last_operand, wrapped_operand,
 };
 use crate::*;
@@ -59,9 +59,9 @@ fn js_family_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // slot holding one pays for it.
 //
 // Each grammar supplies its own, reading its rows, through
-// `js_family_scores_itself!`; the helpers below take it as a parameter
-// so the slot rule has this one home for all four.
-type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
+// `js_family_scores_itself!`; the helpers below take it as a
+// `ScoresItself` parameter so the slot rule has this one home for all
+// four.
 
 // The row-keyed `ScoresItself` of one JS grammar. Neither owner gate
 // reads ancestors, so the peeled descendant is asked with none.

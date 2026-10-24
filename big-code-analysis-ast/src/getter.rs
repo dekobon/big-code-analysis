@@ -103,14 +103,14 @@ macro_rules! keyword_roles {
 /// Emits a [`Getter::get_paying_role`] that bills the paying token of
 /// each listed row as an operator: the `Comparison`, `ShortCircuit`,
 /// `EagerLogical`, `Ternary`, `CaseArm`, `Guard` and `NullSafe` rows
-/// of the language's module under `crate::roles` (#1694, #1695). Each row is read at its leaf
-/// projection — the operator token, which is what Halstead counts — so
-/// an owning `binary_expression` bills nothing here and its `<` bills
-/// once. A `pays_itself` owner pays the counting consumers at the leaf
-/// too, but it is a node with no token to bill (Groovy's `a !in b`),
-/// so only a kind the row lists as a payer bills here; an owner-only
-/// row (Kotlin's infix `and`, whose name is an `identifier`) lists
-/// none and bills nothing.
+/// of the language's module under `crate::roles` (#1694, #1695). Each
+/// row is read at its token projection (`pays_at_token_kind`) — the
+/// operator token, which is what Halstead counts — so an owning
+/// `binary_expression` bills nothing here and its `<` bills once, and a
+/// `pays_itself` owner, which pays the counting consumers at the leaf
+/// but is a node with no token to bill (Groovy's `a !in b`), bills
+/// nothing; an owner-only row (Kotlin's infix `and`, whose name is an
+/// `identifier`) lists no payer and bills nothing.
 macro_rules! paying_roles {
     ($roles:ident) => {
         #[inline]
@@ -123,20 +123,13 @@ macro_rules! paying_roles {
                 case_arm, comparison, eager_logical, guard, null_safe, short_circuit, ternary,
             };
             let kind = node.kind_id();
-            if (comparison::PAYERS.contains(&kind)
-                && comparison::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (short_circuit::PAYERS.contains(&kind)
-                    && short_circuit::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (eager_logical::PAYERS.contains(&kind)
-                    && eager_logical::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (ternary::PAYERS.contains(&kind)
-                    && ternary::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (case_arm::PAYERS.contains(&kind)
-                    && case_arm::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (guard::PAYERS.contains(&kind)
-                    && guard::pays_at_leaf_kind(kind, node, code, ancestors))
-                || (null_safe::PAYERS.contains(&kind)
-                    && null_safe::pays_at_leaf_kind(kind, node, code, ancestors))
+            if comparison::pays_at_token_kind(kind, node, code, ancestors)
+                || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
+                || eager_logical::pays_at_token_kind(kind, node, code, ancestors)
+                || ternary::pays_at_token_kind(kind, node, code, ancestors)
+                || case_arm::pays_at_token_kind(kind, node, code, ancestors)
+                || guard::pays_at_token_kind(kind, node, code, ancestors)
+                || null_safe::pays_at_token_kind(kind, node, code, ancestors)
             {
                 TokenRole::Operator
             } else {

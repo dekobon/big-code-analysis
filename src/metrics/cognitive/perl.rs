@@ -67,12 +67,14 @@ impl Cognitive for PerlCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::perl::{null_safe, short_circuit, ternary};
+        use crate::roles::perl::ternary;
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // tree-sitter-perl parses `elsif_clause` as a direct child of
             // the surrounding `if_statement` (not as a nested `if`), so the
             // `IfStatement` arm here always increases nesting and the
@@ -94,7 +96,7 @@ impl Cognitive for PerlCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `else` and `elsif` each contribute a flat +1.
@@ -119,29 +121,20 @@ impl Cognitive for PerlCode {
             P::LoopControlStatement if node.is_child(P::Identifier as u16) => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` or `unary_expression` the
-            // `ShortCircuit` row owns — tree-sitter-perl files
+            // The two kinds the `ShortCircuit` and `NullSafe` rows own
+            // through their operators — tree-sitter-perl files
             // low-precedence `and` under `unary_expression` (with `not`),
             // while `or` / `xor` are a `binary_expression`; without the
             // second kind every `and` scored nothing here while
-            // cyclomatic and ABC counted it (#1530), and the row's gate
-            // leaves out the `unary_expression` an auto-quoted `and` key
-            // (`(and => 1)`) is parsed as (FIXME #1539 upstream) — or one
-            // the `NullSafe` row owns through the defined-or `//`, or one
-            // carrying the compound forms the same two kinds spell, which
-            // the rows exclude as the consumers' own.
-            // role-bypass: allow(ShortCircuit, NullSafe) — the `op=` owners, excluded on the rows
-            // as the consumers' own; the rows are read on the arm's guard
-            P::BinaryExpression | P::UnaryExpression
-                if short_circuit::owns(node, code, ancestors)
-                    || null_safe::owns(node, code, ancestors)
-                    || node.children().any(|c| {
-                        matches!(
-                            c.kind_id().into(),
-                            P::AMPAMPEQ | P::PIPEPIPEEQ | P::SLASHSLASHEQ
-                        )
-                    }) =>
-            {
+            // cyclomatic and ABC counted it (#1530) — and that spell the
+            // compound forms the rows exclude as the consumers' own.
+            // Unguarded: `compute_perl_booleans` asks the rows of each
+            // child and folds nothing for a node holding no payer (an
+            // auto-quoted `and` key included, #1539), so a guard here
+            // would only scan the children a second time.
+            // role-bypass: allow(ShortCircuit, NullSafe) — the rows' owner kinds, read per child
+            // inside for the keys their payers share
+            P::BinaryExpression | P::UnaryExpression => {
                 compute_perl_booleans(node, code, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {

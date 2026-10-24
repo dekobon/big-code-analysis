@@ -31,7 +31,9 @@ impl Cognitive for PhpCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // The two-word `else if` form parses as `else_clause →
             // if_statement`; `Self::is_else_if` flags that nested
             // `IfStatement` so it is not counted again against the wrapping
@@ -47,7 +49,7 @@ impl Cognitive for PhpCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
@@ -75,8 +77,8 @@ impl Cognitive for PhpCode {
             // consumer's reading of the rows; the `NullSafe` row's other
             // owners, the nullsafe accesses, are no `binary_expression`
             // and never reach the key.
-            _ if short_circuit::owns(node, code, ancestors)
-                || null_safe::owns(node, code, ancestors) =>
+            _ if short_circuit::owns_kind(kind, node, code, ancestors)
+                || null_safe::owns_kind(kind, node, code, ancestors) =>
             {
                 // role-bypass: allow(ShortCircuit, NullSafe) — the sequence key the rows' payers
                 // share, not membership

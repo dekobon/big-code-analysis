@@ -10,10 +10,10 @@
 )]
 
 use super::cpp::{
-    ScoresItself, cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot,
-    cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
+    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
+    cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, Stats};
+use super::{Abc, ScoresItself, Stats, rows_own};
 use crate::roles::c::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
@@ -22,10 +22,7 @@ use crate::*;
 // ternary. Neither owner gate reads ancestors, so the peeled descendant
 // is asked with none.
 fn c_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
 }
 
 impl Abc for CCode {

@@ -332,6 +332,32 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(row.pays_mode, "split")
         self.assertEqual([(p.kind, p.gate) for p in row.payers], [("EQEQ", None), ("BANGEQ", "applied"), ("LT", "under_binary")])
 
+    def test_holds_payer_and_under_are_read(self) -> None:
+        # `holds_payer` on an owner and `under P` / `under [P, Q]` on a
+        # payer (#1695) — the second inside a fragment, whose `]` must not
+        # end the fragment's list early.
+        (self.t.roles / "jvm.rs").write_text(
+            "macro_rules! ordering_tokens {\n"
+            "    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {\n"
+            "        $crate::role_table!(@owners $cont [$($acc)* LT under [BinaryExpression, Fold], GT under Fold,] $($rest)*);\n"
+            "    };\n"
+            "}\n"
+        )
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    Call { owns [MethodInvocation(holds_payer), Lambda(holds_payer gated_by applied)] "
+            "pays [EQEQ, ..ordering_tokens!(), Instanceof under Call] project \"operator\" }\n"
+            "    Modifier { absent \"none\" }\n    Exit { pending R07 }\n",
+        )
+        self.t.write("python", PY_FULL)
+        row = rt.parse_table(self.t.roles / "java.rs").rows["Call"]
+        self.assertEqual([(o.kind, o.holds_payer, o.gate) for o in row.owners], [("MethodInvocation", True, None), ("Lambda", True, "applied")])
+        self.assertEqual(
+            [(p.kind, p.gate, p.under) for p in row.payers],
+            [("EQEQ", None, ()), ("LT", None, ("BinaryExpression", "Fold")), ("GT", None, ("Fold",)), ("Instanceof", None, ("Call",))],
+        )
+
     def test_a_fragment_is_shared_across_tables(self) -> None:
         (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
         self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")

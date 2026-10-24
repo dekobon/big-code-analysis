@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_field_operands, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, count_field_operands, rows_own, wrapped_operand};
 use crate::roles::kotlin::{case_arm, comparison, null_safe, short_circuit};
 use crate::*;
 
@@ -148,17 +148,13 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn kotlin_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Kotlin::*;
 
-    let unknown = Ancestors::unknown();
     // The elvis owner, asked of the row's projection; the row's other
     // owner, a safe navigation, is no boolean test and scores itself
     // nowhere.
     // role-bypass: allow(NullSafe) — which of the row's two owners this consumer scores, told
     // by the projected token: the elvis, not the safe navigation
-    let elvis = null_safe::owns(expr, code, unknown)
-        && null_safe::project(expr).is_some_and(|op| op.kind_id() == QMARKCOLON as u16);
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || elvis
+    rows_own!(expr, code; comparison, short_circuit)
+        || null_safe::owns_via(QMARKCOLON as u16, expr, code, Ancestors::unknown())
         || match expr.kind_id().into() {
             IfExpression | TryExpression => true,
             AsExpression => expr.is_child(AsQMARK as u16),

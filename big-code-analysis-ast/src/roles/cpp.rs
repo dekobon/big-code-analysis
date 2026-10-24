@@ -1,12 +1,14 @@
-//! Cpp's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Cpp's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::Cpp;
 use crate::role_table;
 use crate::roles::c_family::{
     c_family_case_arm_gate, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
-    cpp_family_comparison_owners, cpp_family_comparison_payers, cpp_family_gates,
-    cpp_family_short_circuit_owners, cpp_family_short_circuit_payers,
+    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_gates,
+    cpp_family_short_circuit_payers,
 };
 
 cpp_family_gates!(Cpp);
@@ -29,12 +31,12 @@ role_table! {
     // `ConstraintReach` can see the clause above it. The consumers read
     // the rows *under* that reach.
     Comparison {
-        owns [..cpp_family_comparison_owners!()]
+        owns [..cpp_family_binary_owners!()]
         pays [..cpp_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [..cpp_family_short_circuit_owners!()]
+        owns [..cpp_family_binary_owners!()]
         pays [..cpp_family_short_circuit_payers!()]
         project "operator"
     }

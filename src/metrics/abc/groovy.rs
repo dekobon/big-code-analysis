@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, peel, wrapped_operand,
+    count_negated_operand, peel, rows_own, wrapped_operand,
 };
 use crate::roles::groovy::{case_arm, comparison, null_safe, short_circuit, ternary};
 use crate::*;
@@ -88,22 +88,17 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // role-bypass: allow(NullSafe) — which of the row's four owners this consumer scores, told by
 // the projected token: the elvis, not the safe navigations
 fn groovy_is_elvis(expr: &Node, code: &[u8]) -> bool {
-    null_safe::owns(expr, code, Ancestors::unknown())
-        && null_safe::project(expr).is_some_and(|op| op.kind_id() == Groovy::QMARKCOLON as u16)
+    null_safe::owns_via(Groovy::QMARKCOLON as u16, expr, code, Ancestors::unknown())
 }
 
 fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Groovy::*;
 
-    let unknown = Ancestors::unknown();
     // The elvis owner is the one `NullSafe` owner that is a boolean
     // test; the three safe navigations never reach a slot as a value
     // that proves boolean, and score nothing if one does.
-    let elvis = groovy_is_elvis(expr, code);
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
-        || elvis
+    rows_own!(expr, code; comparison, short_circuit, ternary)
+        || groovy_is_elvis(expr, code)
         || match expr.kind_id().into() {
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);

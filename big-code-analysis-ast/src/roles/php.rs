@@ -1,31 +1,10 @@
-//! Php's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Php's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::role_table;
 use crate::{Ancestors, Node, Php};
-
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers; the one kind carries every binary operator,
-/// `instanceof` included.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is a short-circuit
-/// payer.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `?` is the ternary's rather than an `optional_type`'s
-/// (`?int $a`), the one other production the grammar spells it in.
-fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Php::ConditionalExpression as u16)
-}
 
 /// Whether a `binary_expression`'s `operator` field is `??`.
 fn null_coalescing_operator<'a>(
@@ -34,11 +13,6 @@ fn null_coalescing_operator<'a>(
     _ancestors: Ancestors<'a, '_>,
 ) -> bool {
     null_safe::project(node).is_some_and(|op| op.kind_id() == Php::QMARKQMARK as u16)
-}
-
-/// Whether a `binary_expression`'s `operator` field is `xor`.
-fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
 }
 
 role_table! {
@@ -55,7 +29,7 @@ role_table! {
     // operator, so a token error recovery strands under an `ERROR`
     // pays as it always did.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTGT, LTEQ, GTEQ, LTEQGT, Instanceof, LT, GT]
         project "operator"
     }
@@ -64,7 +38,7 @@ role_table! {
     // `binary_expression`. `xor` is `EagerLogical`'s: it evaluates both
     // operands (#1536). `??` is `NullSafe`'s.
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [AMPAMP, PIPEPIPE, And, Or]
         project "operator"
     }
@@ -76,7 +50,7 @@ role_table! {
     // are a `name` — and Halstead bills it as the operator it is, as
     // before the row.
     EagerLogical {
-        owns [BinaryExpression(gated_by eager_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [Xor]
         project "operator"
     }
@@ -86,7 +60,7 @@ role_table! {
     // empty, and pays once as the long form does; `??` is `NullSafe`'s.
     Ternary {
         owns [ConditionalExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under ConditionalExpression]
         project "operator"
     }
     // Two structural forms, each one decision per token (#436): the

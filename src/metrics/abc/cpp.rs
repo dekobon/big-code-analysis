@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, is_operand, last_operand, wrapped_operand,
+    Abc, ScoresItself, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, is_operand, last_operand, rows_own, wrapped_operand,
 };
 use crate::roles::cpp::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
@@ -84,8 +84,8 @@ fn sole_operand<'a>(list: &Node<'a>) -> Option<Node<'a>> {
 //
 // Each dialect supplies its own, reading its `Comparison` and
 // `ShortCircuit` rows (#1694, #1695); the helpers below take it as a
-// parameter so the slot rule has this one home for all four.
-pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
+// `ScoresItself` parameter so the slot rule has this one home for all
+// four.
 
 // The row-keyed `ScoresItself` of C++: a `binary_expression` or fold
 // the `Comparison` or `ShortCircuit` row owns, or a ternary. The rows
@@ -93,10 +93,7 @@ pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 // reached from the walked node — and neither owner gate reads one:
 // each reads the node's `operator` field.
 fn cpp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,

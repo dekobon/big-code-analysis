@@ -26,7 +26,9 @@ impl Cognitive for IrulesCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // Defensive guard for parity with sibling impls; iRules' dedicated
             // `Elseif` node means `is_else_if` is never true for an `If`.
             If if !Self::is_else_if(node, ancestors) => {
@@ -45,7 +47,7 @@ impl Cognitive for IrulesCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expr` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; its body only runs when
@@ -76,7 +78,7 @@ impl Cognitive for IrulesCode {
             // its payers share a key is this consumer's reading.
             // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
             // membership: the row is read on the arm's guard
-            _ if short_circuit::owns(node, code, ancestors) => {
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

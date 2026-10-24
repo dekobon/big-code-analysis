@@ -103,13 +103,21 @@
 //! marks a kind the grammar gives no token for, so the owner is also the
 //! payer, and `pays_itself_when f` one the grammar gives a token in some
 //! spellings and none in others, so the owner pays only where `f` says
-//! it holds none (Groovy's `a !in b` beside `a in b`); `opens K` records
-//! the `SpaceKind` the owner opens. A payer takes `gated_by f` or
-//! `text_gated_by f` bare, after its kind. Per
+//! it holds none (Groovy's `a !in b` beside `a in b`); `holds_payer`
+//! gates the owner on its projection landing on one of the row's payers
+//! — the one gate every field-projected owner of a shared kind reads,
+//! so a `binary_expression` owns a comparison when its `operator` is a
+//! comparison token; `opens K` records the `SpaceKind` the owner opens.
+//! A payer takes `gated_by f` or `text_gated_by f` bare, after its
+//! kind, or `under P` / `under [P, Q]`, which gates it on its parent's
+//! kind — the one gate a token the grammar spells in several
+//! productions reads (`?` under the ternary and not a wildcard). Per
 //! row: `pays [..]` splits the paying occurrences from the owners (see
 //! the projections below); `pays never` says the construct has owners
-//! and no paying node at all; neither means the owners are the paying
-//! nodes. `project "field"` names the child field holding an owner's
+//! and no paying node at all — a shape the macro keeps for a construct
+//! every consumer recognises and none counts, which no row declares
+//! today (Java's `Guard` was its proof row until #1695 found cyclomatic
+//! pays the node); neither means the owners are the paying nodes. `project "field"` names the child field holding an owner's
 //! paying token; `wraps [..]` lists the interpolation kinds a
 //! `StringLit` can hold; `excludes [K "why"]` records a kind the row's
 //! author considered and rejected, for the coverage ratchet. Row
@@ -126,7 +134,10 @@
 //! - `OWNERS`, `PAYERS`, `EXCLUDED`, `WRAPS`: the kinds the row names,
 //!   verbatim, for the coverage ratchet. `OWNERS` and `PAYERS` are the
 //!   *declared* lists and are disjoint by construction (see below).
-//! - `owns(node, code, ancestors)`: the gated owner test.
+//! - `owns(node, code, ancestors)`: the gated owner test. A
+//!   `holds_payer` owner's gate is `project(node)` landing on a payer, so
+//!   the row must declare `project` (the field, or the payer-child
+//!   fallback).
 //! - `pays_at_leaf(node, code, ancestors)`: with a `pays` list, the gated
 //!   payer test plus every `pays_itself` owner — where a token-counting
 //!   arm fires; without one, the owner test; under `pays never`, false.
@@ -134,6 +145,9 @@
 //!   kind id passed in, for a consumer that asks several rows about one
 //!   node — `kind_id()` is an FFI call per read, and a classifier on
 //!   the walk's hot path reading three rows paid six of them (#1693).
+//! - `pays_at_token_kind`: `pays_at_leaf_kind` restricted to the
+//!   declared payers — a `pays_itself` owner pays at the leaf but has no
+//!   token, so a token-billing consumer (Halstead) reads this one.
 //! - `pays_at_wrapper(node, code, ancestors)`: the owner test, for a
 //!   consumer that pays at the owning node; false under `pays never`.
 //!   A row with no `pays` list answers both projections identically, so
@@ -143,7 +157,10 @@
 //! - `project(owner) -> Option<Node>`: the owner's paying child, when a
 //!   `project` field is declared — the field where the owner has it,
 //!   else the first child whose kind is a declared payer, for an owner
-//!   whose grammar names no field (Java's `instanceof_expression`).
+//!   whose grammar names no field (Java's `instanceof_expression`); and
+//!   beside it `owns_via(payer, node, …)`, the owner test narrowed to
+//!   one payer, for a consumer that scores some of a row's payers and
+//!   not others.
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
@@ -220,15 +237,17 @@
 //!   projection. Those are what the census, the parity suites and review
 //!   are for (#1690, "What this does and does not claim").
 //!
-//! The first consumer is `Getter::get_keyword_role` (#1693), which
-//! reads the `Modifier`, `DeclKeyword` and `Primitive` rows through
-//! `pays_at_leaf`; every other emitted item is read by nothing until
-//! its package lands, and the module-level allow below says so.
+//! `Getter::get_keyword_role` reads the `Modifier`, `DeclKeyword` and
+//! `Primitive` rows through `pays_at_leaf` (#1693), and ABC, cyclomatic,
+//! cognitive and `Getter::get_paying_role` read the seven paying-construct
+//! rows through `owns` / `owns_kind`, `pays_at_leaf_kind`, `project`
+//! and `PAYERS` (#1694, #1695); the items no package reads yet are what
+//! the module-level allow below is for.
 
-// Only the three keyword rows have a consumer (#1693). The rest of what
-// a table emits — `opens_space`, `pays_at_wrapper`, `project`, the
-// `ABSENT` / `PENDING` constants — waits on R05 through R09, which
-// narrow this allow as they land.
+// The keyword and paying-construct rows have consumers (#1693–#1695).
+// The rest of what a table emits — `opens_space`, `pays_at_wrapper`
+// (one reader), `WRAPS`, `EXCLUDED`, the `ABSENT` / `PENDING` constants
+// — waits on R06 through R09, which narrow this allow as they land.
 #![allow(dead_code)]
 
 pub mod bash;
@@ -510,6 +529,7 @@ macro_rules! role_table {
             $crate::role_table!(@absent_predicate pays_at_wrapper);
             $crate::role_table!(@absent_predicate_kind owns_kind);
             $crate::role_table!(@absent_predicate_kind pays_at_leaf_kind);
+            $crate::role_table!(@absent_predicate_kind pays_at_token_kind);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
             pub fn canonical() -> String {
@@ -615,6 +635,14 @@ macro_rules! role_table {
     (@owners $cont:tt [$($acc:tt)*] $k:ident text_gated_by $g:ident $(, $($rest:tt)*)?) => {
         $crate::role_table!(@owners $cont [$($acc)* $k gated_by $g,] $($($rest)*)?);
     };
+    // A payer's `under P` / `under [P, Q]` is carried as a bracketed
+    // parent list, so the row body's payer pattern needs one shape.
+    (@owners $cont:tt [$($acc:tt)*] $k:ident under [ $($p:ident),* $(,)? ] $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@owners $cont [$($acc)* $k under [$($p),*],] $($($rest)*)?);
+    };
+    (@owners $cont:tt [$($acc:tt)*] $k:ident under $p:ident $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@owners $cont [$($acc)* $k under [$p],] $($($rest)*)?);
+    };
     (@owners $cont:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {
         $crate::role_table!(@owners $cont [$($acc)* $k $(( $($attr)* ))?,] $($($rest)*)?);
     };
@@ -640,7 +668,7 @@ macro_rules! role_table {
     };
     (@row_body $lang:ident $role:ident [$mode:ident] {
         owns [ $($owner:ident $(( $($owner_attr:tt)* ))?),* $(,)? ]
-        pays [ $($payer:ident $(gated_by $payer_gate:ident)?),* $(,)? ]
+        pays [ $($payer:ident $(gated_by $payer_gate:ident)? $(under [$($payer_parent:ident),*])?),* $(,)? ]
         $(project $field:literal)?
         $(wraps [ $($wrapped:ident),* $(,)? ])?
         $(excludes [ $($excluded:ident $excluded_why:literal),* $(,)? ])?
@@ -762,13 +790,28 @@ macro_rules! role_table {
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
                 $( $crate::role_table!(
-                    @clause [$lang kind node code ancestors] $payer $(gated_by $payer_gate)?
+                    @clause [$lang kind node code ancestors] $payer
+                        $(gated_by $payer_gate)? $(under [$($payer_parent),*])?
                 ); )*
                 $( $crate::role_table!(
                     @scan self_payer_done [$mode] [$lang kind node code ancestors] $owner
                         [] [] [] $($($owner_attr)*)?
                 ); )*
                 OWNERS_PAY && owns_kind(kind, node, code, ancestors)
+            }
+
+            /// Whether `node` is a *declared payer* paying for the
+            /// construct — [`pays_at_leaf_kind`] without the `pays_itself`
+            /// owners, which pay at the leaf but have no token to bill.
+            /// What a token-billing consumer (Halstead) reads.
+            #[inline]
+            pub fn pays_at_token_kind<'a>(
+                kind: u16,
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
+                PAYERS.contains(&kind) && pays_at_leaf_kind(kind, node, code, ancestors)
             }
 
             /// Whether `node` is the owning node, for a consumer that
@@ -796,6 +839,20 @@ macro_rules! role_table {
                             .find(|child| PAYERS.contains(&child.kind_id()))
                     })
                 }
+
+                /// Whether `node` owns the construct *through* the payer
+                /// of kind `payer`: for a consumer that scores only one
+                /// of a row's payers (C#'s `??` but not its conditional
+                /// access), asked of the projection once.
+                pub fn owns_via<'a>(
+                    payer: u16,
+                    node: &Node<'a>,
+                    code: &[u8],
+                    ancestors: Ancestors<'a, '_>,
+                ) -> bool {
+                    owns(node, code, ancestors)
+                        && project(node).is_some_and(|child| child.kind_id() == payer)
+                }
             )?
         });
     };
@@ -819,6 +876,20 @@ macro_rules! role_table {
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt) => {
         $crate::role_table!(@$d $m $ctx $k $g $p $s);
     };
+    // `holds_payer` is a gate of its own, carried in the gate slot as
+    // `[holds_payer]` or, with a gate beside it, `[holds_payer g]`.
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer text_gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer] $p $s $($r)*);
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident] $p:tt $s:tt holds_payer $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt gated_by $g:ident $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $($r)*);
     };
@@ -838,6 +909,9 @@ macro_rules! role_table {
     // ---- the scan's terminals ----------------------------------------------
 
     // In `owns`: the owner's clause, gated or not.
+    (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt) => {
+        $crate::role_table!(@clause_payer $ctx $k $(gated_by $g)?);
+    };
     (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
     };
@@ -894,6 +968,28 @@ macro_rules! role_table {
     (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident gated_by $g:ident) => {
         if $kind == $l::$k as u16 {
             return $g($n, $c, $a);
+        }
+    };
+    // A payer `under [P, Q]`: its parent is one of the listed kinds.
+    (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident under [$($p:ident),*]) => {
+        if $kind == $l::$k as u16 {
+            return $a.parent($n).is_some_and(|parent| {
+                let parent = parent.kind_id();
+                false $(|| parent == $l::$p as u16)*
+            });
+        }
+    };
+    // A `holds_payer` owner: its projection lands on one of the row's
+    // payers, under its gate if it has one.
+    (@clause_payer [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident) => {
+        if $kind == $l::$k as u16 {
+            return project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
+        }
+    };
+    (@clause_payer [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident gated_by $g:ident) => {
+        if $kind == $l::$k as u16 {
+            return $g($n, $c, $a)
+                && project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
         }
     };
     (@clause_when [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident) => {
@@ -1174,6 +1270,29 @@ mod tests {
         }
     }
 
+    // The two gates the DSL spells itself (#1695): an owner that
+    // `holds_payer` — its projection lands on one of the row's payers,
+    // optionally under a gate of its own — and a payer `under` one or
+    // several parent kinds.
+    mod dsl_gates {
+        use super::never;
+        use crate::Java;
+
+        role_table! {
+            lang: Java;
+            Comparison {
+                owns [BinaryExpression(holds_payer)]
+                pays [EQEQ, LT under BinaryExpression, GT under [BinaryExpression, TernaryExpression]]
+                project "operator"
+            }
+            ShortCircuit {
+                owns [BinaryExpression(holds_payer gated_by never)]
+                pays [AMPAMP under TernaryExpression]
+                project "operator"
+            }
+        }
+    }
+
     // A fragment splices its kinds into the row in list order, before
     // the dialect's own entries, in both the row and the `opens_space`
     // fold; the dialect's attributes stay on its own entries.
@@ -1317,5 +1436,38 @@ mod tests {
         // The gate says no, so the owner neither owns nor pays; an
         // ungated clause would have paid at the leaf.
         assert_eq!(seen, [(false, false)]);
+    }
+
+    #[cfg(feature = "java")]
+    #[test]
+    fn holds_payer_and_under_gate_through_the_projection_and_the_parent() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::{comparison, short_circuit};
+        // Two `binary_expression`s: `a < b` holds a payer, `a + b` does
+        // not; the `<` under the first is under its parent, the `>` of
+        // `List<String>` is not (a type argument list); `&&`'s row owns
+        // through `never` and pays `&&` only under a ternary.
+        let source = b"class A { boolean f(int a, int b, java.util.List<String> l) { return a < b && a + b > 0; } }\n";
+        let (mut owns, mut pays) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = node.utf8_text(source).expect("fixture is UTF-8");
+            if comparison::owns(node, source, ancestors) {
+                owns.push(text.to_owned());
+            }
+            if comparison::pays_at_leaf(node, source, ancestors)
+                || short_circuit::pays_at_leaf(node, source, ancestors)
+            {
+                pays.push(text.to_owned());
+            }
+            assert!(!short_circuit::owns(node, source, ancestors), "{text}");
+        });
+        // `a < b` and `a + b > 0` hold a payer; `a < b && a + b > 0` holds
+        // `&&`, which is not a `Comparison` payer.
+        assert_eq!(owns, ["a < b", "a + b > 0"]);
+        // The generic `>` is under a `type_arguments`, not a listed
+        // parent, and `&&` is under a `binary_expression`, not a ternary.
+        assert_eq!(pays, ["<", ">"]);
     }
 }

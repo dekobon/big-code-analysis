@@ -1,33 +1,32 @@
-//! Javascript's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Javascript's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::Javascript;
 use crate::role_table;
 use crate::roles::js_family::{
     js_family_case_arm_gate, js_family_comparison_payers, js_family_decl_keywords,
-    js_family_modifiers, js_family_null_safe_gate, js_family_operator_gates,
-    js_family_short_circuit_payers,
+    js_family_modifiers, js_family_short_circuit_payers,
 };
 
-js_family_operator_gates!(Javascript);
 js_family_case_arm_gate!(Javascript);
-js_family_null_safe_gate!();
 
 role_table! {
     lang: Javascript;
     Call { pending R08 }
     StringLit { pending R08 }
     // The one `binary_expression` kind carries every binary operator;
-    // its `operator` field says which, so each row's owner is gated on
-    // the field holding one of its payers (`roles/js_family.rs` has the
-    // lists). `??` is `NullSafe`'s and `&&=` / `||=` are assignments.
+    // its `operator` field says which, so each row's owner holds its
+    // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s
+    // and `&&=` / `||=` are assignments.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [..js_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [..js_family_short_circuit_payers!()]
         project "operator"
     }
@@ -55,7 +54,7 @@ role_table! {
     // cyclomatic (#236, #248): it stays the consumers' own, recorded
     // here as considered.
     NullSafe {
-        owns [BinaryExpression(gated_by null_coalescing_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [QMARKQMARK, OptionalChain]
         project "operator"
         excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236, #248)"]

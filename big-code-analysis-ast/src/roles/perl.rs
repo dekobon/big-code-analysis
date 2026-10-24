@@ -1,19 +1,11 @@
-//! Perl's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Perl's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::perl::perl_and_is_operator;
 use crate::role_table;
 use crate::{Ancestors, Node, Perl};
-
-/// Whether an expression holds one of the `Comparison` payers among its
-/// tokens. tree-sitter-perl names an `operator` field on some binary
-/// expressions and none on a comparison, so the row's projection reads
-/// the field where there is one — holding whatever operator the node
-/// applies — and the first payer child otherwise; the gate asks whether
-/// what it finds is a payer.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
 
 /// Whether an expression holds one of the `ShortCircuit` payers among
 /// its tokens, with an `and` counted only where it is the operator and
@@ -36,28 +28,6 @@ fn short_circuit_operator<'a>(
 /// Whether an expression holds the defined-or `//` among its tokens.
 fn defined_or_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     null_safe::project(node).is_some_and(|op| op.kind_id() == Perl::SLASHSLASH as u16)
-}
-
-/// Whether an expression holds the `EagerLogical` payer among its
-/// tokens — `xor`, which tree-sitter-perl spells only as an operator.
-fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`. A
-/// `grammar.json` sweep of tree-sitter-perl 1.1.2 finds the two tokens
-/// in exactly three productions — `binary_expression` and the readlines
-/// `standard_input_to_identifier` (`<FH>`) and
-/// `standard_input_to_variable` (`<$fh>`), each a plain three-token
-/// sequence whose brackets are the same bare tokens — so the gate is
-/// closed. `<STDIN>` is a single `standard_input` token, which is why
-/// #1297's sweep measured Perl at 0 and wrongly cleared it.
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Perl::BinaryExpression as u16)
 }
 
 /// Whether an `and` token is the operator of its chain rather than an
@@ -83,10 +53,10 @@ role_table! {
     // extra (#1540), as it keeps the bare `/re/` match against `$_`
     // (#1467), which has no token at all.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ, LTEQGT, Eq, Ne, Lt, Gt, Le, Ge, Cmp, EQTILDE, BANGTILDE,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under BinaryExpression, GT under BinaryExpression,
         ]
         project "operator"
     }
@@ -110,7 +80,7 @@ role_table! {
     // `(xor => 1)` or `$h{xor}` is a bareword `identifier` — and Halstead
     // bills it as the operator it is, as before the row.
     EagerLogical {
-        owns [BinaryExpression(gated_by eager_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [Xor]
         project "operator"
     }

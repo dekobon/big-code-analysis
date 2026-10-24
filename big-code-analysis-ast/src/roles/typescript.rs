@@ -1,44 +1,48 @@
-//! Typescript's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Typescript's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::Typescript;
 use crate::role_table;
 use crate::roles::js_family::{
     js_family_case_arm_gate, js_family_comparison_payers, js_family_decl_keywords,
-    js_family_modifiers, js_family_null_safe_gate, js_family_operator_gates,
-    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_modifiers, js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates,
+    ts_family_modifiers,
 };
 
 ts_family_gates!(Typescript);
-js_family_operator_gates!(Typescript);
 js_family_case_arm_gate!(Typescript);
-js_family_null_safe_gate!();
 
 role_table! {
     lang: Typescript;
     Call { pending R08 }
     StringLit { pending R08 }
     // The one `binary_expression` kind carries every binary operator;
-    // its `operator` field says which, so each row's owner is gated on
-    // the field holding one of its payers (`roles/js_family.rs` has the
-    // lists). `??` is `NullSafe`'s and `&&=` / `||=` are assignments.
+    // its `operator` field says which, so each row's owner holds its
+    // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s
+    // and `&&=` / `||=` are assignments.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [..js_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [..js_family_short_circuit_payers!()]
         project "operator"
     }
     EagerLogical { absent "TypeScript's `&` / `|` / `^` are bitwise" }
     // The `ternary_expression` owns it and its `?` pays, gated to that
-    // owner (`roles/js_family.rs` says which other productions spell
-    // the token).
+    // owner: the TypeScript grammars spell the bare token in ten type
+    // productions — an optional parameter, property, method or tuple
+    // member, `optional_type`, `flow_maybe_type`, `conditional_type`
+    // (`T extends U ? X : Y`, resolved by the type checker and erased
+    // before runtime) — none a decision (#1275). `?.` and `??` are
+    // distinct tokens.
     Ternary {
         owns [TernaryExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under TernaryExpression]
         project "operator"
     }
     // Two structural forms, each one decision per token (#281, #248):
@@ -54,7 +58,7 @@ role_table! {
     // assignment to ABC, a sequence to cognitive and a decision to
     // cyclomatic (#236, #248): the consumers' own, recorded here.
     NullSafe {
-        owns [BinaryExpression(gated_by null_coalescing_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [QMARKQMARK, QMARKDOT]
         project "operator"
         excludes [

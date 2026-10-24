@@ -21,6 +21,12 @@ impl Cognitive for MozcppCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`'s ABC twin:
+        // the count is the number of node kinds the grammar can hand us,
+        // not branching a reader must hold, and the effort is the
+        // table's vocabulary; the row reads (#1695) are arms like the
+        // kind arms they replaced.
         use crate::roles::mozcpp::{short_circuit, ternary};
         use Mozcpp::*;
 
@@ -30,7 +36,9 @@ impl Cognitive for MozcppCode {
         let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
         let in_constraint = stats.constraint.covers(node, opens);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             _ if in_constraint => {}
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
@@ -40,7 +48,7 @@ impl Cognitive for MozcppCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar
@@ -54,7 +62,7 @@ impl Cognitive for MozcppCode {
             // sequence — see the Cpp twin (#1522, #1533).
             // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
             // membership: the row is read on the arm's guard
-            _ if short_circuit::owns(node, code, ancestors) => {
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

@@ -107,7 +107,9 @@ impl Cognitive for BashCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // `WhileStatement` covers both `while` and `until`; `ForStatement`
             // covers both `for` and `select`. `CStyleForStatement` is the
             // `for ((…))` arithmetic form. `ElifClause` is a dedicated node,
@@ -120,7 +122,7 @@ impl Cognitive for BashCode {
             // nests like the C-family `conditional_expression`, so a
             // ternary inside a ternary charges the inner one at +2
             // (#1268).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             ElifClause | ElseClause => {
@@ -141,7 +143,7 @@ impl Cognitive for BashCode {
             // role-bypass: allow(ShortCircuit) — which of the row's owners is the command-level
             // one, whose sequence has no comparison run to extend; the row owns both
             List => {
-                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             UnaryExpression | UnaryExpression2 | UnaryExpression3 => {
                 stats.bash_runs.sequence_end(node, ancestors.parent(node));
@@ -156,7 +158,7 @@ impl Cognitive for BashCode {
             // read inside
             BinaryExpression3 => {
                 let end = stats.bash_runs.sequence_end(node, ancestors.parent(node));
-                if short_circuit::owns(node, code, ancestors) {
+                if short_circuit::owns_kind(kind, node, code, ancestors) {
                     compute_booleans_by_node(node, end, stats, |child| {
                         match child.kind_id().into() {
                             AMPAMP | PIPEPIPE => Some(child.kind_id()),

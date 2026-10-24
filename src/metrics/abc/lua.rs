@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, wrapped_operand,
+    count_negated_operand, rows_own, wrapped_operand,
 };
 use crate::roles::lua::{comparison, short_circuit};
 use crate::*;
@@ -61,8 +61,7 @@ fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // `lua_count_condition`. Neither owner gate reads ancestors, so the
 // peeled descendant is asked with none.
 fn lua_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown) || short_circuit::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit)
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` / `repeat …

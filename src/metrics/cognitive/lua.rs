@@ -26,7 +26,9 @@ impl Cognitive for LuaCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // `is_else_if` returns true for `ElseifStatement`, but Lua's
             // grammar makes that node a child field of `IfStatement` rather
             // than a nested `if_statement`, so the guard is defensive only.
@@ -51,8 +53,8 @@ impl Cognitive for LuaCode {
                 increment_by_one(stats);
             }
             // A `binary_expression` the `ShortCircuit` row owns (#1695).
-            _ if short_circuit::owns(node, code, ancestors) => {
-                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
                 enter_function_boundary(

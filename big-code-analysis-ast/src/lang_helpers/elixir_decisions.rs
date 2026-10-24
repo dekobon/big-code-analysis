@@ -36,7 +36,7 @@ fn elixir_is_binary_operator(node: &Node, operator: Elixir) -> bool {
 /// Whether `node` is a `when` `binary_operator` — the shape a repeated
 /// guard's alternatives nest through.
 #[must_use]
-pub fn elixir_is_when_operator(node: &Node) -> bool {
+pub(crate) fn elixir_is_when_operator(node: &Node) -> bool {
     elixir_is_binary_operator(node, Elixir::When)
 }
 
@@ -154,7 +154,7 @@ pub fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>>
 /// operator can be it. They are `is_some_and`s rather than `expect`s
 /// because `AGENTS.md` bans the `expect` outside tests.
 #[must_use]
-pub fn elixir_when_is_guard<'a>(
+pub(crate) fn elixir_when_is_guard<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -398,7 +398,7 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// both score a clause construct per clause and must agree on which
 /// clauses those are (grammar-dispatch §7, #1531).
 #[must_use]
-pub fn elixir_clause_is_decision<'a>(
+pub(crate) fn elixir_clause_is_decision<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -441,7 +441,7 @@ pub fn elixir_clause_is_decision<'a>(
 ///
 /// In a `with`'s `else` the default-clause rule reduces to the bare
 /// `_`: `true ->` is free only under a `cond`, and the head skip only
-/// under a `fn` or `reduce:`, so [`elixir_clause_is_decision`] agrees
+/// under a `fn` or `reduce:`, so `elixir_clause_is_decision` agrees
 /// clause by clause with the test below.
 #[must_use]
 pub fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
@@ -459,7 +459,7 @@ fn elixir_is_catch_all(clause: &Node, code: &[u8]) -> bool {
 /// A `receive`'s `after` clause when it is a decision: when its `do`
 /// section already holds the free bare `_ ->`, leaving the timeout as a
 /// path of its own. Without one the timeout is the construct's single
-/// free arm ([`elixir_clause_is_decision`]).
+/// free arm (`elixir_clause_is_decision`).
 /// Called once per receive, not once per timeout clause.
 #[must_use]
 pub fn elixir_receive_timeout_clause<'a>(receive: &Node<'a>, code: &'a [u8]) -> Option<Node<'a>> {
@@ -563,7 +563,7 @@ fn elixir_section_holder<'a>(
 /// The keyword spellings of the clause sections whose clauses are
 /// decisions, which a `do … end` block spells as `do_block` /
 /// `else_block` / `rescue_block` / `catch_block`. Not `after`: see
-/// [`elixir_clause_is_decision`].
+/// `elixir_clause_is_decision`.
 const DECISION_SECTION_KEYS: &[&str] = &["do", "else", "rescue", "catch"];
 
 /// The key a keyword-list `pair` spells, without its colon: `do` for

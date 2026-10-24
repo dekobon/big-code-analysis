@@ -31,7 +31,9 @@ impl Cognitive for CsharpCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -40,7 +42,7 @@ impl Cognitive for CsharpCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `else` is an anonymous keyword token. Each occurrence carries
@@ -63,8 +65,8 @@ impl Cognitive for CsharpCode {
             // sequences alongside them (#1695). Mirrors the C# cyclomatic
             // operator set; the row's other owner, a conditional access,
             // is no `binary_expression` and never reaches the key.
-            _ if short_circuit::owns(node, code, ancestors)
-                || null_safe::owns(node, code, ancestors) =>
+            _ if short_circuit::owns_kind(kind, node, code, ancestors)
+                || null_safe::owns_kind(kind, node, code, ancestors) =>
             {
                 compute_booleans_with(node, stats, |id| {
                     short_circuit::PAYERS.contains(&id) || id == QMARKQMARK as u16

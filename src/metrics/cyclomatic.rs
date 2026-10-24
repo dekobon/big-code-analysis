@@ -7749,9 +7749,9 @@ f() {
     /// short-circuit nullish operator that introduces a branch — each
     /// occurrence in a chain adds +1 to cyclomatic complexity. The
     /// dekobon Groovy grammar models Elvis as a distinct
-    /// `elvis_expression` node with a real `QMARKCOLON` token, so the
-    /// `impl_cyclomatic_java_like_rows!(GroovyCode, Groovy, [Assert,
-    /// QMARKCOLON])` invocation picks it up directly.
+    /// `elvis_expression` node with a real `QMARKCOLON` token, which the
+    /// `NullSafe` row of `roles/groovy.rs` pays and
+    /// `impl_cyclomatic_java_like_rows!` reads at its leaf.
     #[cfg(feature = "groovy")]
     #[test]
     fn cyclomatic_groovy_elvis_chain_246() {

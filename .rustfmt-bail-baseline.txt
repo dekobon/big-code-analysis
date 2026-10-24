@@ -143,11 +143,9 @@ big-code-analysis-ast/src/getter/ruby.rs 4
 big-code-analysis-ast/src/getter/tcl.rs 6
 big-code-analysis-ast/src/macros/mod.rs 14
 enums/src/macros.rs 1
-src/metrics/cognitive/perl.rs 8
-src/metrics/cyclomatic.rs 8
+src/metrics/cognitive/perl.rs 9
+src/metrics/cyclomatic.rs 6
 src/metrics/cyclomatic/irules.rs 2
 src/metrics/cyclomatic/perl.rs 2
-src/metrics/cyclomatic/php.rs 4
-src/metrics/cyclomatic/ruby.rs 5
 src/vcs/error.rs 12
 tests/common/mod.rs 2

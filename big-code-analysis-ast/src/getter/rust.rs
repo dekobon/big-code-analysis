@@ -81,8 +81,8 @@ impl Getter for RustCode {
         {
             return TokenRole::Unknown;
         }
-        if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
-            || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+        if comparison::pays_at_token_kind(kind, node, code, ancestors)
+            || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
         {
             TokenRole::Operator
         } else {

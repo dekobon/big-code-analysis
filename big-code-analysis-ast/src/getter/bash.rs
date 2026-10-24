@@ -52,9 +52,9 @@ impl Getter for BashCode {
         if kind == Bash::TestOperator as u16 {
             return TokenRole::Unknown;
         }
-        if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
-            || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+        if comparison::pays_at_token_kind(kind, node, code, ancestors)
+            || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
+            || ternary::pays_at_token_kind(kind, node, code, ancestors)
         {
             TokenRole::Operator
         } else {

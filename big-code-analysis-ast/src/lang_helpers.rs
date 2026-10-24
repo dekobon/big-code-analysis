@@ -14,7 +14,10 @@
 //! on the metric layer, the inversion #1376 exists to remove.
 
 pub mod bash;
-pub mod case_arms;
+// Crate-private: the arm and guard predicates are read by this crate's
+// `CaseArm` / `Guard` rows; the one the root's Tcl metrics also need is
+// re-exported below rather than by widening the module (#1695).
+pub(crate) mod case_arms;
 // Crate-private: the doc-comment predicates are read by this crate's
 // `Checker` impls; only the run walk the LOC metric drives is
 // re-exported below.
@@ -41,6 +44,12 @@ pub(crate) mod tcl_family;
 /// leading word themselves rather than through `tcl::tcl_command_name`,
 /// so they normalise the `::` qualifier at their own call sites.
 pub use tcl_family::strip_global_qualifier;
+
+/// Re-exported because Tcl's cyclomatic and cognitive metrics locate a
+/// brace-list `switch`'s arm list themselves — the one is the modified
+/// count's container, the other a nesting structure — while the arm
+/// predicates beside it stay crate-private (#1695).
+pub use case_arms::tcl_switch_arm_list;
 
 /// Re-exported so the root crate's tests can count the sibling scans a
 /// metric or `ops` walk runs on an erroring Tcl line: those walks lend

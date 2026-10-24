@@ -28,23 +28,6 @@ fn applied<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> b
     elixir_applying_operator(node, ancestors).is_some()
 }
 
-/// Whether a `binary_operator`'s `operator` field is one of the
-/// `Comparison` payers; the three aliased ids carry every binary
-/// operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_operator`'s `operator` field is a short-circuit
-/// payer.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
 /// A `call` whose target spells a method-defining macro, outside any
 /// `quote` block — `ElixirCode::is_func_with_code`'s rule.
 fn method_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
@@ -120,9 +103,9 @@ role_table! {
     // token).
     Comparison {
         owns [
-            BinaryOperator(gated_by comparison_operator),
-            BinaryOperator2(gated_by comparison_operator),
-            BinaryOperator3(gated_by comparison_operator),
+            BinaryOperator(holds_payer),
+            BinaryOperator2(holds_payer),
+            BinaryOperator3(holds_payer),
         ]
         pays [
             EQEQ gated_by applied, EQEQEQ gated_by applied,
@@ -141,9 +124,9 @@ role_table! {
     // row's.
     ShortCircuit {
         owns [
-            BinaryOperator(gated_by short_circuit_operator),
-            BinaryOperator2(gated_by short_circuit_operator),
-            BinaryOperator3(gated_by short_circuit_operator),
+            BinaryOperator(holds_payer),
+            BinaryOperator2(holds_payer),
+            BinaryOperator3(holds_payer),
         ]
         pays [
             AMPAMP gated_by applied, PIPEPIPE gated_by applied,

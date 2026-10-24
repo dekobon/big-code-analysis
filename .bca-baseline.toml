@@ -356,6 +356,12 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/roles/mod.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 562.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
 qualified = "read_gated"
 metric = "nexits"

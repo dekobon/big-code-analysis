@@ -50,9 +50,11 @@ impl Cyclomatic for PythonCode {
         // `with` and `async with` surface the same `with` keyword
         // token (`With`), so omitting it stops counting both. See #418.
         match kind.into() {
+            // The owner gate reads no ancestors, so the parent is asked
+            // with none rather than with the keyword's own chain.
             If if ancestors
                 .parent(node)
-                .is_some_and(|p| ternary::owns(&p, code, ancestors)) => {}
+                .is_some_and(|p| ternary::owns(&p, code, Ancestors::unknown())) => {}
             If | Elif | For | While | Except | Assert => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;

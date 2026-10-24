@@ -10,7 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
+    wrapped_operand,
 };
 use crate::roles::irules::{comparison, short_circuit, ternary};
 use crate::*;
@@ -201,10 +202,7 @@ fn irules_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // iRules counterpart of `tcl_condition_scores_itself`, with the word-form
 // string comparators and the keyword chain forms Tcl lacks.
 fn irules_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
 }
 
 // iRules counterpart of `tcl_count_condition` (#1526).

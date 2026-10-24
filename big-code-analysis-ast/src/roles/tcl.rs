@@ -1,14 +1,12 @@
-//! Tcl's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Tcl's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::tcl_command_is_switch_arm;
 use crate::role_table;
-use crate::roles::tcl_family::{
-    tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
-};
+use crate::roles::tcl_family::{tcl_family_comparison_payers, tcl_family_short_circuit_payers};
 use crate::{Ancestors, Node, Tcl};
-
-tcl_family_gates!();
 
 /// Whether a `command` is a decision arm of a brace-list `switch` — a
 /// child of the arm list of a command whose leading word is `switch`,
@@ -30,12 +28,12 @@ role_table! {
     // `$a < $b && $c` is a left-nested pair of `binop_expr`s, each
     // owning its own operator.
     Comparison {
-        owns [BinopExpr(gated_by comparison_operator)]
+        owns [BinopExpr(holds_payer)]
         pays [..tcl_family_comparison_payers!()]
         project "operator"
     }
     ShortCircuit {
-        owns [BinopExpr(gated_by short_circuit_operator)]
+        owns [BinopExpr(holds_payer)]
         pays [..tcl_family_short_circuit_payers!()]
         project "operator"
     }

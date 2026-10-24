@@ -506,6 +506,27 @@ pub(super) fn peel<'a>(node: &Node<'a>, step: PeelStep<'a>) -> (Node<'a>, bool) 
 // paid for covers every kind the grammar can put in the slot, including
 // ones a future grammar adds. Each language supplies only its peel step
 // and `scores_itself`, so the rule has this one home (lesson 59).
+/// A language's "already charged" predicate, as the slot helpers that
+/// take it by reference see it: whether a peeled predicate is a
+/// construct some arm of that language's `compute` already counts.
+pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
+
+/// Whether any of the named rows owns `expr`: the leading clause of
+/// every language's `scores_itself`. The rows are asked with no
+/// ancestor chain, because the peel that reaches a slot's operand
+/// descends from the slot and keeps none; that is sound only for an
+/// owner gate that reads no ancestors, which is every owner gate of
+/// the `Comparison`, `ShortCircuit`, `Ternary` and `NullSafe` rows
+/// (the `CaseArm` / `Guard` owners that read the chain are never a
+/// slot's operand).
+macro_rules! rows_own {
+    ($expr:expr, $code:expr; $($row:ident),+ $(,)?) => {{
+        let unknown = Ancestors::unknown();
+        false $(|| $row::owns($expr, $code, unknown))+
+    }};
+}
+pub(super) use rows_own;
+
 pub(super) fn count_boolean_slot<'a>(
     slot: &Node<'a>,
     step: PeelStep<'a>,

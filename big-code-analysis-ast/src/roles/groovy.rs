@@ -1,5 +1,7 @@
-//! Groovy's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Groovy's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::getter::node_text;
 use crate::role_table;
@@ -39,65 +41,11 @@ fn contextual_keyword_owns<'a>(
     })
 }
 
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers; the one kind carries every Java-style binary
-/// operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`.
-/// The grammar emits the tokens from four productions —
-/// `binary_expression`, `type_arguments`, `type_parameters` and, unlike
-/// tree-sitter-java, a separate `method_type_parameters` for
-/// `def <U> U m(U x)` — and error recovery strands either (#1274).
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Groovy::BinaryExpression as u16)
-}
-
-/// Whether a `?` is a ternary's rather than a wildcard bound's
-/// (`List<? extends T>`), the one other production the dekobon Groovy grammar
-/// spells the token in (#1274).
-fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Groovy::TernaryExpression as u16)
-}
-
-/// Whether a `safe_*` expression holds its operator token: the dekobon
-/// grammar gives each of the elvis, safe navigation, safe chain and
-/// safe subscript a node of its own wrapping its token, so every owner
-/// holds one; the gate pins that.
-fn holds_null_safe_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    null_safe::project(node).is_some()
-}
-
 /// Whether a `switch_case` is a `case X:` arm. The dekobon grammar
 /// gives `default:` its own `switch_default` kind, so every
 /// `switch_case` holds a `case`; the gate pins that.
 fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     node.is_child(Groovy::Case as u16)
-}
-
-/// Whether an `in` keyword is a membership test rather than the `in`
-/// of a `for (x in xs)` loop header, where it is a loop keyword.
-fn under_membership_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Groovy::MembershipExpression as u16)
 }
 
 /// Whether a `membership_expression` or `instanceof_expression` spells
@@ -175,23 +123,23 @@ role_table! {
     // test either way.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression(holds_payer),
             SpaceshipExpression, IdentityExpression, RegexFindExpression, RegexMatchExpression,
             MembershipExpression(pays_itself_when has_no_keyword_token),
             InstanceofExpression(pays_itself_when has_no_keyword_token),
         ]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under BinaryExpression, GT under BinaryExpression,
             LTEQGT, EQEQEQ, BANGEQEQ, EQTILDE, EQEQTILDE,
-            In gated_by under_membership_expression, Instanceof,
+            In under MembershipExpression, Instanceof,
         ]
         project "operator"
     }
     // `&&` / `||`, which the grammar emits only under a
     // `binary_expression`. The elvis `?:` is `NullSafe`'s.
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }
@@ -215,7 +163,7 @@ role_table! {
     // `elvis_expression`, and is `NullSafe`'s.
     Ternary {
         owns [TernaryExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under TernaryExpression]
         project "operator"
     }
     // Four structural forms, each one decision per token (#452): the
@@ -230,10 +178,10 @@ role_table! {
     // operand (grammar-dispatch §8) — and the navigations not at all.
     NullSafe {
         owns [
-            ElvisExpression(gated_by holds_null_safe_token),
-            SafeNavigationExpression(gated_by holds_null_safe_token),
-            SafeChainDotExpression(gated_by holds_null_safe_token),
-            SafeSubscriptExpression(gated_by holds_null_safe_token),
+            ElvisExpression(holds_payer),
+            SafeNavigationExpression(holds_payer),
+            SafeChainDotExpression(holds_payer),
+            SafeSubscriptExpression(holds_payer),
         ]
         pays [QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK]
         project "operator"

@@ -45,7 +45,9 @@ impl Cognitive for KotlinCode {
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             IfExpression if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -82,8 +84,8 @@ impl Cognitive for KotlinCode {
             // SonarSource Cognitive Complexity B1 (#1695). The row's
             // other owner, a safe navigation, is no `binary_expression`
             // and never reaches the key.
-            _ if short_circuit::owns(node, code, ancestors)
-                || null_safe::owns(node, code, ancestors) =>
+            _ if short_circuit::owns_kind(kind, node, code, ancestors)
+                || null_safe::owns_kind(kind, node, code, ancestors) =>
             {
                 compute_booleans_with(node, stats, |id| {
                     short_circuit::PAYERS.contains(&id) || id == QMARKCOLON as u16

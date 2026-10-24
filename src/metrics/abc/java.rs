@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, peel, wrapped_operand,
+    count_negated_operand, peel, rows_own, wrapped_operand,
 };
 use crate::roles::java::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
@@ -59,10 +59,7 @@ fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn java_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Java::*;
 
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
         || match expr.kind_id().into() {
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, java_wrapper_operand);

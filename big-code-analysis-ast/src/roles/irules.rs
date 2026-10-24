@@ -3,12 +3,8 @@
 
 use crate::lang_helpers::case_arms::irules_switch_arm_is_decision;
 use crate::role_table;
-use crate::roles::tcl_family::{
-    tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
-};
+use crate::roles::tcl_family::{tcl_family_comparison_payers, tcl_family_short_circuit_payers};
 use crate::{Ancestors, Irules, Node};
-
-tcl_family_gates!();
 
 /// Whether a `switch_arm` is a decision arm rather than `default`,
 /// which only its `pattern` bytes tell (lesson 11, #106).
@@ -27,7 +23,7 @@ role_table! {
     // word spellings `and` / `or`. Each is a kind of its own that the
     // grammar emits only inside a `binop_expr`.
     Comparison {
-        owns [BinopExpr(gated_by comparison_operator)]
+        owns [BinopExpr(holds_payer)]
         pays [
             ..tcl_family_comparison_payers!(),
             StartsWith, EndsWith, Contains, Equals, Matches, MatchesRegex, MatchesGlob,
@@ -35,7 +31,7 @@ role_table! {
         project "operator"
     }
     ShortCircuit {
-        owns [BinopExpr(gated_by short_circuit_operator)]
+        owns [BinopExpr(holds_payer)]
         pays [..tcl_family_short_circuit_payers!(), And, Or]
         project "operator"
     }

@@ -9,7 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_field_operands, peel, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_field_operands, peel, rows_own, wrapped_operand,
+};
 use crate::roles::python::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
@@ -78,10 +80,7 @@ fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn python_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Python::*;
 
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, Ancestors::unknown())
+    rows_own!(expr, code; comparison, short_circuit, ternary)
         || expr.kind_id() == NotOperator as u16
 }
 

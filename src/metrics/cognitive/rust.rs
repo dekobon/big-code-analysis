@@ -26,7 +26,9 @@ impl Cognitive for RustCode {
         // Macro expansion is not tracked; macros are treated as opaque tokens.
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             IfExpression if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -64,8 +66,8 @@ impl Cognitive for RustCode {
             // not wrapped in `BinaryExpression` — so without the row
             // owning them, let-chain `&&` is invisible to the
             // boolean-sequence counter (issue #396).
-            _ if short_circuit::owns(node, code, ancestors) => {
-                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             FunctionItem => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[FunctionItem]);

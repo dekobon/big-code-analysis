@@ -7,17 +7,6 @@ use crate::lang_helpers::case_arms::python_case_clause_counts;
 use crate::role_table;
 use crate::{Ancestors, Node, Python};
 
-/// Whether a bare `in` / `is` token is a comparison: its parent is the
-/// `comparison_operator` wrapper. The same tokens sit inside the
-/// compound `not in` / `is not` nodes, whose parent is the compound
-/// and which pay as one operator (#413), and `in` opens a `for`
-/// clause, whose parent is the `for_statement`; the one parent check
-/// excludes both, so no separate "not inside a compound" gate is
-/// needed — a perturbation of such a gate failed nothing (#1691).
-fn under_comparison<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Python::ComparisonOperator as u16)
-}
-
 /// Whether a `case_clause` is a decision: its pattern is not a bare `_`,
 /// or it carries an `if` guard (lesson 11, #469).
 fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -26,7 +15,8 @@ fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'
 
 /// Whether an `if_clause` is a `case` guard rather than a comprehension's
 /// filter (`[y for y in x if y]`), which the grammar spells with the same
-/// kind.
+/// kind. An owner's parent gate, which the DSL's `under` (a payer
+/// attribute) does not spell.
 fn under_case_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Python::CaseClause as u16)
 }
@@ -46,8 +36,8 @@ role_table! {
         pays [
             LT, LTEQ, EQEQ, BANGEQ, GTEQ, GT, LTGT,
             Notin, Isnot,
-            In gated_by under_comparison,
-            Is gated_by under_comparison,
+            In under ComparisonOperator,
+            Is under ComparisonOperator,
         ]
     }
 

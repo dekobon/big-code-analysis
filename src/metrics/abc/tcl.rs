@@ -10,7 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
+    wrapped_operand,
 };
 use crate::roles::tcl::{comparison, short_circuit, ternary};
 use crate::*;
@@ -76,10 +77,7 @@ fn tcl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // `tcl_count_condition`. Neither owner gate reads ancestors, so the
 // peeled descendant is asked with none.
 fn tcl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
-    comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
-        || ternary::owns(expr, code, unknown)
+    rows_own!(expr, code; comparison, short_circuit, ternary)
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` predicate, a

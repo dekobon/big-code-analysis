@@ -1,34 +1,10 @@
-//! Go's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Go's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
+use crate::Go;
 use crate::role_table;
-use crate::{Ancestors, Go, Node};
-
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers. The one kind carries every binary operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is a short-circuit
-/// payer.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`
-/// rather than a token error recovery strands.
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Go::BinaryExpression as u16)
-}
 
 role_table! {
     lang: Go;
@@ -40,15 +16,15 @@ role_table! {
     // uses brackets, but error recovery strands either token — and the
     // other tokens occur nowhere else.
     Comparison {
-        owns [BinaryExpression(gated_by comparison_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under BinaryExpression, GT under BinaryExpression,
         ]
         project "operator"
     }
     ShortCircuit {
-        owns [BinaryExpression(gated_by short_circuit_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }

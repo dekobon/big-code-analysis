@@ -117,7 +117,7 @@ fn python_apply_boolean_operator<'a>(
                 )
             });
     }
-    compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
+    compute_booleans_from(node, stats, short_circuit::PAYERS);
 }
 
 impl Cognitive for PythonCode {
@@ -139,7 +139,9 @@ impl Cognitive for PythonCode {
         // Get nesting of the parent
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+
+        match kind.into() {
             // `else: if x:` chains surface as an `if_statement` wrapped
             // in an `else_clause`; `Self::is_else_if` flags that shape
             // so the nesting increment lands only on the outer chain
@@ -151,7 +153,7 @@ impl Cognitive for PythonCode {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns(node, code, ancestors) => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // A comprehension / generator expression is a loop with an
@@ -221,7 +223,7 @@ impl Cognitive for PythonCode {
                 stats.boolean_seq.reset();
             }
             // A `boolean_operator` — the `ShortCircuit` row's owner.
-            _ if short_circuit::owns(node, code, ancestors) => {
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 python_apply_boolean_operator(node, code, ancestors, stats);
             }
             // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the

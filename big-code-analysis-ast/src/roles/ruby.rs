@@ -1,25 +1,11 @@
-//! Ruby's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Ruby's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::ruby_in_clause_counts;
 use crate::role_table;
 use crate::{Ancestors, Node, Ruby};
-
-/// Whether a `binary`'s `operator` field is one of the `Comparison`
-/// payers; the one node (three aliased ids) carries every binary
-/// operator.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary`'s `operator` field is a short-circuit payer.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
 
 /// Whether a comparison token applies its operator: its parent is a
 /// `binary` (any alias). Every one of the ten doubles as a *method
@@ -61,9 +47,9 @@ role_table! {
     // since each is also a method name an operator `def` spells.
     Comparison {
         owns [
-            Binary(gated_by comparison_operator),
-            Binary2(gated_by comparison_operator),
-            Binary3(gated_by comparison_operator),
+            Binary(holds_payer),
+            Binary2(holds_payer),
+            Binary3(holds_payer),
         ]
         pays [
             EQEQ gated_by under_binary, BANGEQ gated_by under_binary,
@@ -79,9 +65,9 @@ role_table! {
     // navigation `&.` is `NullSafe`'s.
     ShortCircuit {
         owns [
-            Binary(gated_by short_circuit_operator),
-            Binary2(gated_by short_circuit_operator),
-            Binary3(gated_by short_circuit_operator),
+            Binary(holds_payer),
+            Binary2(holds_payer),
+            Binary3(holds_payer),
         ]
         pays [AMPAMP, PIPEPIPE, And, Or]
         project "operator"

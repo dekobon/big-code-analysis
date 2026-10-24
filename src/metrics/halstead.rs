@@ -6469,10 +6469,7 @@ end",
             ("or", "a or b\n"),
             ("in", "for a in b:\n    pass\n"),
         ];
-        for (spelling, source) in ROWS {
-            let ops = ops_of::<PythonParser>(source, "foo.py");
-            assert_keyword_role(&ops, "foo.py", spelling, Role::OperatorOnly);
-        }
+        assert_spellings_bill_as_operators::<PythonParser>("foo.py", ROWS);
         let compound = ops_of::<PythonParser>("a not in b\na is not b\n", "foo.py");
         assert_eq!(compound.operators, ["is not", "not in"]);
     }
@@ -7173,10 +7170,7 @@ end",
                 "class C { boolean f(boolean a) { return a || a; } }\n",
             ),
         ];
-        for (spelling, source) in ROWS {
-            let ops = ops_of::<JavaParser>(source, "Foo.java");
-            assert_keyword_role(&ops, "Foo.java", spelling, Role::OperatorOnly);
-        }
+        assert_spellings_bill_as_operators::<JavaParser>("Foo.java", ROWS);
         // A `<` or `instanceof` error recovery reparents under `ERROR` is
         // under no `binary_expression` / `instanceof_expression`, so the
         // row's gate leaves it out; each billed before the row existed,
@@ -7595,6 +7589,7 @@ end",
         feature = "go",
         feature = "groovy",
         feature = "irules",
+        feature = "java",
         feature = "javascript",
         feature = "kotlin",
         feature = "lua",
@@ -7603,6 +7598,7 @@ end",
         feature = "objc",
         feature = "perl",
         feature = "php",
+        feature = "python",
         feature = "ruby",
         feature = "rust",
         feature = "tcl",

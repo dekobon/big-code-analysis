@@ -1,5 +1,7 @@
-//! Bash's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Bash's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::bash::bash_test_connective;
 use crate::lang_helpers::case_arms::bash_case_item_is_bare_wildcard;
@@ -11,16 +13,6 @@ use crate::{Ancestors, Bash, Node};
 /// `a|b)` and `*|b)` are not bare and still count.
 fn is_decision_item<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     !bash_case_item_is_bare_wildcard(node, code)
-}
-
-/// Whether a `?` is the arithmetic ternary's rather than an
-/// expansion's (`${y?msg}`, where the bare token is the operator of the
-/// `expansion` node; `$?` is a `special_variable_name` of its own).
-fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent(node).is_some_and(|p| {
-        p.kind_id() == Bash::TernaryExpression as u16
-            || p.kind_id() == Bash::TernaryExpression2 as u16
-    })
 }
 
 /// Whether a `test_operator` is a comparison rather than one of the
@@ -161,7 +153,7 @@ role_table! {
     // it as the operator it names, should a bump start emitting it.
     Ternary {
         owns [TernaryExpression, TernaryExpression2]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under [TernaryExpression, TernaryExpression2]]
         project "operator"
         excludes [QMARK2 "the second `?` id, which no spelling at the pinned grammar emits"]
     }

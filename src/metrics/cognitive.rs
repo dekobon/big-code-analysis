@@ -198,6 +198,13 @@ fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_
     compute_booleans_keyed(node, stats, |id| is_op(id).then_some(id));
 }
 
+/// [`compute_booleans_with`] over a row's payers: the shape every
+/// language whose `ShortCircuit` row pays plain tokens reads, so the
+/// closure is written once.
+fn compute_booleans_from(node: &Node, stats: &mut Stats, payers: &[u16]) {
+    compute_booleans_with(node, stats, |id| payers.contains(&id));
+}
+
 /// [`compute_booleans_with`] for a language that spells one operator
 /// with more than one token kind. `sequence_key` maps each operator
 /// child to the id the boolean sequence compares, so two spellings of
@@ -398,7 +405,9 @@ macro_rules! js_cognitive {
             use $lang::*;
             let mut nesting = get_nesting_from_map(node, nesting_map);
 
-            match node.kind_id().into() {
+            let kind = node.kind_id();
+
+            match kind.into() {
                 IfStatement if !Self::is_else_if(node, ancestors) => {
                     increase_nesting(stats, &mut nesting);
                 }
@@ -407,7 +416,7 @@ macro_rules! js_cognitive {
                     increase_nesting(stats, &mut nesting);
                 }
                 // The `ternary_expression` the `Ternary` row owns (#1695).
-                _ if ternary::owns(node, code, ancestors) => {
+                _ if ternary::owns_kind(kind, node, code, ancestors) => {
                     increase_nesting(stats, &mut nesting);
                 }
                 // `Else` here is the `else` keyword token, which the
@@ -436,8 +445,8 @@ macro_rules! js_cognitive {
                 // Sonar B1 (#1695). The row's other payer, the optional
                 // chain's `?.`, is no `binary_expression` operator and
                 // never reaches the key.
-                _ if short_circuit::owns(node, code, ancestors)
-                    || null_safe::owns(node, code, ancestors) =>
+                _ if short_circuit::owns_kind(kind, node, code, ancestors)
+                    || null_safe::owns_kind(kind, node, code, ancestors) =>
                 {
                     compute_booleans_with(node, stats, |id| {
                         short_circuit::PAYERS.contains(&id) || null_safe::PAYERS.contains(&id)

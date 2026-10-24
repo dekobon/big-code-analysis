@@ -1,5 +1,7 @@
-//! Csharp's role rows. The Halstead keyword roles are declared (#1693);
-//! every other role is pending the package that declares it (#1692).
+//! Csharp's role rows. The Halstead keyword roles (#1693) and the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
+//! declared; the rest are pending the package that declares each (#1692).
 
 use crate::checker::csharp_is_aliased_modifier;
 use crate::getter::node_text;
@@ -33,45 +35,6 @@ fn aliases_a_modifier_keyword<'a>(
         )
 }
 
-/// Whether a comparison token applies its operator: its parent is a
-/// `binary_expression` (either alias). A `grammar.json` sweep of
-/// tree-sitter-c-sharp 0.23.5 finds each token in these productions,
-/// and only `binary_expression` (`a < b`) qualifies:
-///
-/// - `<` / `>` — `binary_expression`, `relational_pattern`,
-///   `operator_declaration`, `type_argument_list`,
-///   `type_parameter_list`, `function_pointer_type`
-/// - `<=` / `>=` — `binary_expression`, `relational_pattern`,
-///   `operator_declaration`
-/// - `==` / `!=` — `binary_expression`, `preproc_binary_expression`
-///   (`#if A == B`, parsed as `BinaryExpression` at this pin),
-///   `operator_declaration`
-///
-/// Three reasons to exclude, one per family. The generic brackets and
-/// `delegate*<int, int>` are type syntax, no more a decision than the
-/// `?` of a nullable type (#1275). An `operator_declaration` names the
-/// operator being *defined* rather than applying it; #1297 found this
-/// for `<` / `>`, and the other four still scored 1 against their 0 on
-/// a class overloading all six, every member of which has
-/// `cyclomatic()` 1 (#1420). A `relational_pattern`'s operator is not
-/// its own decision: the enclosing `switch_expression_arm` or `if`
-/// slot already scores one, so counting it charged `x switch { > 5 =>
-/// … }` twice what the constant arm scores (#1383). Allowlist
-/// polarity, so a grammar bump that grows a seventh production fails
-/// closed, and a token error recovery reparents under `{ERROR}` stops
-/// counting — valid input is unaffected and no C# corpus file parses
-/// with an `{ERROR}` node, measured.
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent(node).is_some_and(|p| {
-        p.kind_id() == Csharp::BinaryExpression as u16
-            || p.kind_id() == Csharp::BinaryExpression2 as u16
-    })
-}
-
 /// Whether a `switch_section` holds a `case` label rather than only
 /// `default:`. One section carries every label of a fall-through run
 /// (`case 1: case 2: body`), each a decision its `case` keyword pays.
@@ -102,42 +65,6 @@ fn null_coalescing_operator<'a>(
     null_safe::project(node).is_some_and(|op| op.kind_id() == Csharp::QMARKQMARK as u16)
 }
 
-/// Whether a `?` is the ternary's. tree-sitter-c-sharp spells the bare
-/// token in four productions: `conditional_expression`,
-/// `conditional_access_expression` (`a?.b` and `a?[0]`, the `NullSafe`
-/// row's), `nullable_type` (`int? x`) and `type_parameter_constraint`
-/// (`where T : class?`), the last two type syntax (#1275).
-fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Csharp::ConditionalExpression as u16)
-}
-
-/// Whether an `is` keyword sits under one of its two type-test
-/// expressions. The grammar spells it in no other production, but
-/// error recovery keeps a keyword whose expression it lost (`var x = o
-/// is` at end of input) as a bare child of an `ERROR`, where no type
-/// test exists for it to pay for.
-fn under_type_test<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent(node).is_some_and(|p| {
-        p.kind_id() == Csharp::IsExpression as u16
-            || p.kind_id() == Csharp::IsPatternExpression as u16
-    })
-}
-
-/// Whether a `binary_expression`'s `operator` field is one of the
-/// `Comparison` payers.
-fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
-}
-
-/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
-}
-
 role_table! {
     lang: Csharp;
     Call { pending R08 }
@@ -156,22 +83,22 @@ role_table! {
     // comparison.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator),
-            BinaryExpression2(gated_by comparison_operator),
+            BinaryExpression(holds_payer),
+            BinaryExpression2(holds_payer),
             IsExpression, IsPatternExpression,
         ]
         pays [
-            EQEQ gated_by under_binary_expression, BANGEQ gated_by under_binary_expression,
-            LTEQ gated_by under_binary_expression, GTEQ gated_by under_binary_expression,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
-            Is gated_by under_type_test,
+            EQEQ under [BinaryExpression, BinaryExpression2], BANGEQ under [BinaryExpression, BinaryExpression2],
+            LTEQ under [BinaryExpression, BinaryExpression2], GTEQ under [BinaryExpression, BinaryExpression2],
+            LT under [BinaryExpression, BinaryExpression2], GT under [BinaryExpression, BinaryExpression2],
+            Is under [IsExpression, IsPatternExpression],
         ]
         project "operator"
     }
     ShortCircuit {
         owns [
-            BinaryExpression(gated_by short_circuit_operator),
-            BinaryExpression2(gated_by short_circuit_operator),
+            BinaryExpression(holds_payer),
+            BinaryExpression2(holds_payer),
         ]
         pays [AMPAMP, PIPEPIPE]
         project "operator"
@@ -195,7 +122,7 @@ role_table! {
     // `NullSafe` row's) and type syntax in two productions.
     Ternary {
         owns [ConditionalExpression]
-        pays [QMARK gated_by under_ternary]
+        pays [QMARK under ConditionalExpression]
         project "operator"
     }
     // Two structural forms, each one decision (#436, #1459): the null

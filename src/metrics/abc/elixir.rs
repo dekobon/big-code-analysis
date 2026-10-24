@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands, last_operand,
-    wrapped_operand,
+    rows_own, wrapped_operand,
 };
 use crate::lang_helpers::elixir::{
     elixir_applying_remote_call, elixir_call_keyword, elixir_kernel_short_circuit_name,
@@ -85,10 +85,8 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 // owner gate reads ancestors, so the peeled descendant is asked with
 // none.
 fn elixir_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    let unknown = Ancestors::unknown();
     elixir_kernel_short_circuit_name(expr, code).is_some()
-        || comparison::owns(expr, code, unknown)
-        || short_circuit::owns(expr, code, unknown)
+        || rows_own!(expr, code; comparison, short_circuit)
 }
 
 // Scores one boolean slot — an `if` / `unless` predicate, a `cond`

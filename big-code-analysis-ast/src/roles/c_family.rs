@@ -130,25 +130,16 @@ macro_rules! cpp_family_short_circuit_payers {
 /// `BinaryExpression2` at the pinned grammars, an `#if` operand
 /// included; the unsuffixed id is the never-emitted pre-alias) and the
 /// fold. Which construct one owns is decided by its `operator` field,
-/// so each owner is gated by the dialect's `comparison_operator`,
-/// which reads the field against the `Comparison` payers.
-macro_rules! cpp_family_comparison_owners {
+/// so each owner `holds_payer`: the row's projection — that field —
+/// lands on one of its payers. A fold's `operator` field names one
+/// spelling of its operator, so a binary fold `(0 == ... == a)` is
+/// owned once.
+macro_rules! cpp_family_binary_owners {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
-            BinaryExpression(gated_by comparison_operator),
-            BinaryExpression2(gated_by comparison_operator),
-            FoldExpression(gated_by comparison_operator),
-        ] $($rest)*);
-    };
-}
-
-/// The same three owners under the dialect's `short_circuit_operator`.
-macro_rules! cpp_family_short_circuit_owners {
-    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@owners $cont [$($acc)*
-            BinaryExpression(gated_by short_circuit_operator),
-            BinaryExpression2(gated_by short_circuit_operator),
-            FoldExpression(gated_by short_circuit_operator),
+            BinaryExpression(holds_payer),
+            BinaryExpression2(holds_payer),
+            FoldExpression(holds_payer),
         ] $($rest)*);
     };
 }
@@ -165,7 +156,7 @@ macro_rules! c_family_comparison_payers {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
             LTEQ, GTEQ, EQEQ, BANGEQ,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under [BinaryExpression, BinaryExpression2], GT under [BinaryExpression, BinaryExpression2],
         ] $($rest)*);
     };
 }
@@ -181,23 +172,13 @@ macro_rules! c_family_short_circuit_payers {
 
 /// The owners of a C or Objective-C binary operator: both aliased
 /// `binary_expression` ids (the grammars emit the node under two
-/// production paths), each gated by the dialect's `comparison_operator`
-/// — the `operator` field holding one of the `Comparison` payers.
-macro_rules! c_family_comparison_owners {
+/// production paths), each `holds_payer` — the row's `operator` field
+/// holding one of its payers.
+macro_rules! c_family_binary_owners {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
-            BinaryExpression(gated_by comparison_operator),
-            BinaryExpression2(gated_by comparison_operator),
-        ] $($rest)*);
-    };
-}
-
-/// The same two owners under the dialect's `short_circuit_operator`.
-macro_rules! c_family_short_circuit_owners {
-    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
-        $crate::role_table!(@owners $cont [$($acc)*
-            BinaryExpression(gated_by short_circuit_operator),
-            BinaryExpression2(gated_by short_circuit_operator),
+            BinaryExpression(holds_payer),
+            BinaryExpression2(holds_payer),
         ] $($rest)*);
     };
 }
@@ -217,45 +198,6 @@ macro_rules! c_family_case_arm_gate {
             _ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             node.is_child($lang::Case as u16)
-        }
-    };
-}
-
-/// The three gates the C and Objective-C `Comparison` and
-/// `ShortCircuit` rows read, per dialect because each reads the
-/// dialect's kind ids (#1695).
-macro_rules! c_family_gates {
-    ($lang:ident) => {
-        /// Whether a bare `<` / `>` is the operator of a
-        /// `binary_expression` (either alias) rather than a token error
-        /// recovery stranded.
-        fn under_binary_expression<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            ancestors.parent(node).is_some_and(|p| {
-                p.kind_id() == $lang::BinaryExpression as u16
-                    || p.kind_id() == $lang::BinaryExpression2 as u16
-            })
-        }
-
-        /// Whether an owner's `operator` field is a comparison token.
-        fn comparison_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::c_family::cpp_family_operator_in(node, comparison::PAYERS)
-        }
-
-        /// Whether an owner's `operator` field is `&&` or `||`.
-        fn short_circuit_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::c_family::cpp_family_operator_in(node, short_circuit::PAYERS)
         }
     };
 }
@@ -280,7 +222,7 @@ macro_rules! c_family_gates {
 /// `operator` field, because a binary fold `(0 && ... && a)` spells its
 /// operator twice.
 #[must_use]
-pub fn cpp_family_operator_is_applied<'a>(
+pub(crate) fn cpp_family_operator_is_applied<'a>(
     node: &crate::Node<'a>,
     ancestors: crate::Ancestors<'a, '_>,
 ) -> bool {
@@ -295,20 +237,7 @@ pub fn cpp_family_operator_is_applied<'a>(
         })
 }
 
-/// Whether `owner`'s `operator` field holds one of `payers`: the gate a
-/// C++ `Comparison` or `ShortCircuit` owner reads, since the one
-/// `binary_expression` kind carries every binary operator and only the
-/// field says which construct it is. A fold's `operator` field names
-/// one spelling of its operator, so a binary fold `(0 == ... == a)` is
-/// owned once.
-#[must_use]
-pub fn cpp_family_operator_in(owner: &crate::Node<'_>, payers: &[u16]) -> bool {
-    owner
-        .child_by_field_name("operator")
-        .is_some_and(|op| payers.contains(&op.kind_id()))
-}
-
-/// The three gates the `Comparison` and `ShortCircuit` rows read, per
+/// The gate the C++ `Comparison` and `ShortCircuit` payers read, per
 /// dialect because each reads the dialect's kind ids (#1694). The
 /// derivations are on the shared fragments in `roles/c_family.rs`.
 macro_rules! cpp_family_gates {
@@ -326,31 +255,12 @@ macro_rules! cpp_family_gates {
         ) -> bool {
             $crate::roles::c_family::cpp_family_operator_is_applied(node, ancestors)
         }
-
-        /// Whether an owner's `operator` field is a comparison token.
-        fn comparison_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::c_family::cpp_family_operator_in(node, comparison::PAYERS)
-        }
-
-        /// Whether an owner's `operator` field is `&&` / `||` / `and` / `or`.
-        fn short_circuit_operator<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::c_family::cpp_family_operator_in(node, short_circuit::PAYERS)
-        }
     };
 }
 
 pub(crate) use {
-    c_family_case_arm_gate, c_family_comparison_owners, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_gates, c_family_modifiers, c_family_primitives,
-    c_family_short_circuit_owners, c_family_short_circuit_payers, cpp_family_comparison_owners,
-    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
+    c_family_binary_owners, c_family_case_arm_gate, c_family_comparison_payers,
+    c_family_decl_keywords, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
+    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_gates,
     cpp_family_short_circuit_payers,
 };
