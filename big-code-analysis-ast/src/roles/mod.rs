@@ -847,15 +847,11 @@ macro_rules! role_table {
             /// the grammar's field table on every call, and a row's
             /// gate asks this of every owner-kind node (#1695).
             pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
-                static FIELD: std::sync::OnceLock<Option<u16>> = std::sync::OnceLock::new();
-                PROJECT
-                    .and_then(|field| *FIELD.get_or_init(|| owner.field_id(field)))
-                    .and_then(|field| owner.child_by_field_id(field))
-                    .or_else(|| {
-                        owner
-                            .children()
-                            .find(|child| PAYERS.contains(&child.kind_id()))
-                    })
+                $crate::role_table!(@projected owner $($field)?).or_else(|| {
+                    owner
+                        .children()
+                        .find(|child| PAYERS.contains(&child.kind_id()))
+                })
             }
 
             /// Whether `node` owns the construct *through* the payer
@@ -878,6 +874,17 @@ macro_rules! role_table {
 
     (@project) => { None };
     (@project $field:literal) => { Some($field) };
+
+    // The declared field's child, through a grammar id resolved on the
+    // first ask and kept in a `static` of the row's `project` fn; a row
+    // with no field emits no cache and reads only the payer fallback.
+    (@projected $owner:ident) => { None::<Node<'a>> };
+    (@projected $owner:ident $field:literal) => {{
+        static FIELD: ::std::sync::OnceLock<Option<u16>> = ::std::sync::OnceLock::new();
+        FIELD
+            .get_or_init(|| $owner.field_id($field))
+            .and_then(|field| $owner.child_by_field_id(field))
+    }};
 
     // ---- the three paying modes --------------------------------------------
     //

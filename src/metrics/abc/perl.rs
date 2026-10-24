@@ -166,16 +166,21 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // children, so the peeled descendant is asked with no ancestor chain.
 //
 // A `binary_expression` is asked once: tree-sitter-perl names no
-// `operator` field, so each row's projection is a scan of the node's
-// children for one of its payers, and four rows own the kind. Reading
-// the first payer child of *any* of them once and asking which row's
-// it is (`perl_logical_operator` for the chain rows, whose `and`
-// gate the `ShortCircuit` row reads) is the same answer at a quarter
-// of the scans (#1695). A `unary_expression` is only the chain rows'.
+// `operator` field on its chaining comparisons, so each row's
+// projection is a scan of the node's children for one of its payers,
+// and the `Comparison`, `ShortCircuit` and `NullSafe` rows all own the
+// kind (`EagerLogical`'s `xor` owns a value, not a test, and is left to
+// the slot). Reading the first payer child of any of the three once
+// and asking which row's it is is the same answer at a third of the
+// scans (#1695): a comparison payer *is* the `Comparison` row's
+// projection, so that row owns the node and only the binding question
+// is left; a chain payer is handed to `perl_is_logical_chain`, whose
+// `ShortCircuit` gate still decides an auto-quoted `and` key. A
+// `unary_expression` is only the chain rows'.
 fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Perl as P;
 
-    // role-bypass: allow(Comparison, ShortCircuit, NullSafe) — the one kind four rows own,
+    // role-bypass: allow(Comparison, ShortCircuit, NullSafe) — the one kind three rows own,
     // dispatched on so the rows' shared projection is read once; the rows decide inside
     match expr.kind_id().into() {
         P::PatternMatcher | P::PatternMatcherM => true,
@@ -188,9 +193,8 @@ fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
             }) else {
                 return false;
             };
-            let kind = op.kind_id();
-            if comparison::PAYERS.contains(&kind) {
-                return rows_own!(expr, code; comparison) && !perl_binding_rewrites(expr);
+            if comparison::PAYERS.contains(&op.kind_id()) {
+                return !perl_binding_rewrites(expr);
             }
             perl_is_logical_chain(expr, code)
         }

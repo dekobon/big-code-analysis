@@ -448,13 +448,20 @@ impl<'a> Node<'a> {
     /// a linear string compare over the grammar's field table on every
     /// call. A caller asking the same field of many nodes resolves it
     /// once with [`field_id`](Self::field_id) and reads through this.
+    ///
+    /// `pub` only because the `#[macro_export]`ed `role_table!` reads it
+    /// from its expansion; the id is the pinned grammar's and not part
+    /// of the stable surface, so this is hidden from the docs.
+    #[doc(hidden)]
     #[inline]
     pub fn child_by_field_id(&self, field: u16) -> Option<Node<'a>> {
         self.0.child_by_field_id(field).map(Node)
     }
 
     /// The grammar's id for `name` in the language this node was parsed
-    /// with, or `None` where that grammar names no such field.
+    /// with, or `None` where that grammar names no such field. Hidden
+    /// for the reason [`child_by_field_id`](Self::child_by_field_id) is.
+    #[doc(hidden)]
     #[inline]
     pub fn field_id(&self, name: &str) -> Option<u16> {
         self.0.language().field_id_for_name(name).map(u16::from)

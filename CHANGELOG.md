@@ -154,13 +154,20 @@ for historical reference.
   metric is byte-identical on the integration corpora and on a fixture
   per language spelling every row kind (6,638 outputs), and on a sweep
   of every fixture truncated at each line, sixteen offsets and after
-  every operator punctuation (4,388 outputs); eight drifts that sweep
-  or review found in flight — a macro `&&` reaching Rust's ABC chain
-  walker, a `pays_itself` owner billed to Halstead, Perl's rewrite
-  exception on `$a == s/x/y/`, C#'s `is` and JS's `?` and PHP's `<`
-  stranded under an `ERROR`, Tcl arms named `for`, iRules arms with
-  their `switch` lost, and C#'s negated `!(a?.b)` — were each fixed
-  before landing, so no output moves. (#1695)
+  every operator punctuation and every word (14,588 outputs); ten
+  drifts that sweep or review found in flight — a macro `&&` reaching
+  Rust's ABC chain walker, a `pays_itself` owner billed to Halstead,
+  Perl's rewrite exception on `$a == s/x/y/`, C#'s `is`, JS's `?`,
+  PHP's `<` and Groovy's `instanceof` stranded under an `ERROR`, Tcl
+  arms named `for`, iRules arms with their `switch` lost, C#'s negated
+  `!(a?.b)`, and Elixir's `when` named in `&when/2` — were each fixed
+  before landing, so no output moves. A row's `project` reads its
+  field by grammar id through two `#[doc(hidden)]` `Node` methods
+  (`child_by_field_id`, `field_id`), `pub` only for the exported macro
+  and outside `STABILITY.md`'s shape contract; Elixir's repeated
+  guards and Python's `and` chains, quadratic under cyclomatic / ABC
+  and cognitive before the rows, are linear
+  (`cyclomatic/elixir-repeated-guards`, `cognitive/nested-and`). (#1695)
 
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
   ancestor was quadratic in its nesting depth under every metric walk:
