@@ -105,7 +105,10 @@ macro_rules! keyword_roles {
 /// rows of the language's module under `crate::roles` (#1694). Each
 /// row is read at its leaf projection — the operator token, which is
 /// what Halstead counts — so an owning `binary_expression` bills
-/// nothing here and its `<` bills once.
+/// nothing here and its `<` bills once. A `pays_itself` owner pays the
+/// counting consumers at the leaf too, but it is a node with no token
+/// to bill (Groovy's `a !in b`), so only a kind the row lists as a
+/// payer bills here.
 macro_rules! paying_roles {
     ($roles:ident) => {
         #[inline]
@@ -116,8 +119,10 @@ macro_rules! paying_roles {
         ) -> TokenRole {
             use $crate::roles::$roles::{comparison, short_circuit};
             let kind = node.kind_id();
-            if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
-                || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            if (comparison::PAYERS.contains(&kind)
+                && comparison::pays_at_leaf_kind(kind, node, code, ancestors))
+                || (short_circuit::PAYERS.contains(&kind)
+                    && short_circuit::pays_at_leaf_kind(kind, node, code, ancestors))
             {
                 TokenRole::Operator
             } else {

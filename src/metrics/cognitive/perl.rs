@@ -12,38 +12,53 @@
 )]
 
 use super::*;
-use crate::lang_helpers::perl::perl_is_and_key_misparse;
 
 /// Folds a Perl `binary_expression`'s (or, for low-precedence `and`,
-/// `unary_expression`'s) short-circuit operator children
-/// into the boolean-sequence counter — the `ShortCircuit` row's four
-/// bare forms (`&&`, `||`, `and`, `or`), the defined-or `//` and three
-/// compound short-circuit assignments (`&&=`, `||=`, `//=`), the last
-/// four pending their `NullSafe` row. The grammar exposes each `op=`
-/// as a distinct operator token inside the same `binary_expression`,
-/// so they fold into the same predicate (issue #249). The word forms
-/// `and` / `or` are keyed to their symbols (see
-/// [`compute_booleans_keyed`]); `//` and each compound assignment keep
-/// keys of their own. Which payers share a key is this consumer's
-/// reading of the row.
-// role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not membership
-fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
-    compute_booleans_keyed(node, stats, |id| match id.into() {
-        Perl::AMPAMP | Perl::And => Some(Perl::AMPAMP as u16),
-        Perl::PIPEPIPE | Perl::Or => Some(Perl::PIPEPIPE as u16),
-        Perl::SLASHSLASH | Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ => Some(id),
-        _ => None,
+/// `unary_expression`'s) short-circuit operator children into the
+/// boolean-sequence counter: the `ShortCircuit` row's payers, read
+/// through the row so an auto-quoted `and` key (#1539) is left out by
+/// its `applied_and` gate, plus the defined-or `//` and three compound
+/// short-circuit assignments (`&&=`, `||=`, `//=`), pending their
+/// `NullSafe` row. The grammar exposes each `op=` as a distinct
+/// operator token inside the same `binary_expression`, so they fold
+/// into the same predicate (issue #249). The word forms `and` / `or`
+/// are keyed to their symbols (see [`compute_booleans_keyed`]); `//`
+/// and each compound assignment keep keys of their own. Which payers
+/// share a key is this consumer's reading of the row.
+fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
+    use crate::roles::perl::short_circuit;
+    // Each child's parent is `node`, which is all the row's `applied_and`
+    // gate reads.
+    let chain = [*node];
+    let under_node = Ancestors::known(&chain);
+    compute_booleans_by_node(node, node.end_byte(), stats, |child| {
+        let kind = child.kind_id();
+        // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
+        // membership: the row is read first, and the `//` / `op=` keys are the `NullSafe` extras
+        if short_circuit::pays_at_leaf_kind(kind, child, code, under_node) {
+            return Some(match kind.into() {
+                Perl::And => Perl::AMPAMP as u16,
+                Perl::Or => Perl::PIPEPIPE as u16,
+                _ => kind,
+            });
+        }
+        matches!(
+            kind.into(),
+            Perl::SLASHSLASH | Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ
+        )
+        .then_some(kind)
     });
 }
 
 impl Cognitive for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::perl::short_circuit;
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -92,20 +107,28 @@ impl Cognitive for PerlCode {
             P::LoopControlStatement if node.is_child(P::Identifier as u16) => {
                 increment_by_one(stats);
             }
-            // tree-sitter-perl files low-precedence `and` under
-            // `unary_expression` (with `not`), while `or` / `xor` are a
-            // `binary_expression`; without the second kind every `and`
-            // scored nothing here while cyclomatic and ABC counted it
-            // (#1530). FIXME(#1539 upstream): an auto-quoted `and` key
-            // (`(and => 1)`) is a `unary_expression` led by that token,
-            // and holds no operator. The `ShortCircuit` row owns the
-            // four bare forms; the defined-or and compound forms, which
-            // the same two kinds carry, are the `NullSafe` row's, so
-            // until that lands the arm is reached by kind.
+            // A `binary_expression` or `unary_expression` the
+            // `ShortCircuit` row owns — tree-sitter-perl files
+            // low-precedence `and` under `unary_expression` (with `not`),
+            // while `or` / `xor` are a `binary_expression`; without the
+            // second kind every `and` scored nothing here while
+            // cyclomatic and ABC counted it (#1530), and the row's gate
+            // leaves out the `unary_expression` an auto-quoted `and` key
+            // (`(and => 1)`) is parsed as (FIXME #1539 upstream) — or one
+            // carrying the defined-or / compound forms the same two kinds
+            // spell, pending their `NullSafe` row.
             // role-bypass: allow(ShortCircuit) — the `//` / `op=` owners, which the `NullSafe` row of
-            // #1695 takes over; the row's owners are the same two kinds
-            P::BinaryExpression | P::UnaryExpression if !perl_is_and_key_misparse(node) => {
-                compute_perl_booleans(node, stats);
+            // #1695 takes over; the row is read on the arm's guard
+            P::BinaryExpression | P::UnaryExpression
+                if short_circuit::owns(node, code, ancestors)
+                    || node.children().any(|c| {
+                        matches!(
+                            c.kind_id().into(),
+                            P::SLASHSLASH | P::AMPAMPEQ | P::PIPEPIPEEQ | P::SLASHSLASHEQ
+                        )
+                    }) =>
+            {
+                compute_perl_booleans(node, code, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
                 enter_function_boundary(

@@ -154,6 +154,12 @@ impl Getter for CsharpCode {
             // modifiers, the declaration keywords and `predefined_type`
             // are not here: `roles/csharp.rs` declares them and
             // `get_keyword_role` bills them (#1693).
+            // `is` for the spelling the `Comparison` row's `under_type_test`
+            // gate leaves out — a keyword error recovery strands — which
+            // billed before the row existed.
+            // role-bypass: allow(Comparison) — the operator classification of the spelling the
+            // row's `under_type_test` gate leaves out: a recovered keyword
+            | Is
             | New | Await | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
             | Params | Lock | Stackalloc | Where | With | When | Operator
             | Scoped | Not | And | Or

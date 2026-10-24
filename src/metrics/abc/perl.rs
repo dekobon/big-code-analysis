@@ -195,10 +195,17 @@ fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
 // Only a `binary_expression` binds: under error recovery the token's
 // parent can be an `ERROR` holding the whole file, whose last operand is
 // no right operand, and reading it per token was quadratic.
+//
+// Only a binding is asked: `$a == s/x/y/` is a comparison whose right
+// operand is a substitution's *result*, and scores as any comparison
+// does. The row's projection names the operator, so the token arm and
+// `perl_condition_scores_itself` read the same answer.
 fn perl_binding_rewrites(binding: &Node) -> bool {
     // role-bypass: allow(Comparison) — the rewrite reading of a binding the row owns: what its
     // right operand is, not whether it is a comparison
     binding.kind_id() == Perl::BinaryExpression as u16
+        && comparison::project(binding)
+            .is_some_and(|op| matches!(op.kind_id().into(), Perl::EQTILDE | Perl::BANGTILDE))
         && perl_last_operand(binding).is_some_and(|rhs| {
             matches!(
                 perl_unparenthesized(rhs).kind_id().into(),
@@ -595,13 +602,10 @@ impl Abc for PerlCode {
             // which only the binding's right operand says — the row's
             // named extra, read here and in `perl_condition_scores_itself`
             // alike (#1540).
-            // role-bypass: allow(Comparison) — the rewrite reading of a binding the row pays:
-            // which bound right operand makes `=~` an edit rather than a test
             _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
-                && !(matches!(kind.into(), P::EQTILDE | P::BANGTILDE)
-                    && ancestors
-                        .parent(node)
-                        .is_some_and(|binding| perl_binding_rewrites(&binding))) =>
+                && !ancestors
+                    .parent(node)
+                    .is_some_and(|binding| perl_binding_rewrites(&binding)) =>
             {
                 stats.conditions += 1.;
             }

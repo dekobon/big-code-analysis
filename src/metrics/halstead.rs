@@ -7843,6 +7843,8 @@ end",
             ("!=", "class C { bool F(int a) => a != 1; }\n"),
             ("is", "class C { bool F(object o) => o is string; }\n"),
             ("is", "class C { bool F(object o) => o is not null; }\n"),
+            // The gated-out spelling: a recovered keyword.
+            ("is", "class C { void F() { var x = o is\n"),
             ("&&", "class C { bool F(bool a) => a && a; }\n"),
             ("||", "class C { bool F(bool a) => a || a; }\n"),
             (
@@ -7921,13 +7923,12 @@ end",
             ("<>", "List<String> l = null\n"),
         ];
         assert_spellings_bill_as_operators::<GroovyParser>("foo.groovy", ROWS);
+        // The tokenless negated forms pay the counting consumers at the
+        // node, which is no token: the vocabulary is exactly the
+        // declaration's, as before the rows.
         for source in ["def c = a !in b\n", "def c = a !instanceof B\n"] {
             let ops = ops_of::<GroovyParser>(source, "foo.groovy");
-            assert!(
-                !ops.operators.iter().any(|o| o == "in" || o == "instanceof"),
-                "{source}: a tokenless negated test bills no keyword; operators were {:?}",
-                ops.operators
-            );
+            assert_eq!(ops.operators, ["=", "def"], "{source}");
         }
     }
 

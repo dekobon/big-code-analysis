@@ -69,6 +69,18 @@ fn under_binary_expression<'a>(
     })
 }
 
+/// Whether an `is` keyword sits under one of its two type-test
+/// expressions. The grammar spells it in no other production, but
+/// error recovery keeps a keyword whose expression it lost (`var x = o
+/// is` at end of input) as a bare child of an `ERROR`, where no type
+/// test exists for it to pay for.
+fn under_type_test<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(node).is_some_and(|p| {
+        p.kind_id() == Csharp::IsExpression as u16
+            || p.kind_id() == Csharp::IsPatternExpression as u16
+    })
+}
+
 /// Whether a `binary_expression`'s `operator` field is one of the
 /// `Comparison` payers.
 fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -95,9 +107,11 @@ role_table! {
     // comparison token is gated to that parent. The type tests
     // `is_expression` (`o is T`) and `is_pattern_expression` (`o is T
     // t`, `o is not null`) are disjoint alternatives that each wrap one
-    // `is` keyword, which pays for them; the grammar spells `is`
-    // nowhere else. `??` is `NullSafe`'s and the `and` / `or` / `not`
-    // pattern combinators are no comparison.
+    // `is` keyword, which pays for them, gated to that owner: the
+    // grammar spells `is` nowhere else, but a keyword error recovery
+    // strands under an `ERROR` pays for no test. `??` is `NullSafe`'s
+    // and the `and` / `or` / `not` pattern combinators are no
+    // comparison.
     Comparison {
         owns [
             BinaryExpression(gated_by comparison_operator),
@@ -108,7 +122,7 @@ role_table! {
             EQEQ gated_by under_binary_expression, BANGEQ gated_by under_binary_expression,
             LTEQ gated_by under_binary_expression, GTEQ gated_by under_binary_expression,
             LT gated_by under_binary_expression, GT gated_by under_binary_expression,
-            Is,
+            Is gated_by under_type_test,
         ]
         project "operator"
     }

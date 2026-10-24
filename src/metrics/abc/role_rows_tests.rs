@@ -578,6 +578,16 @@ fn csharp_rows_feed_each_abc_path_independently() {
             ("return x switch { 5 => 1, _ => 0 };", 1, 1),
         ],
     );
+    // An `is` keyword error recovery strands under an `ERROR` (the
+    // expression lost at end of input) pays for no type test, as the
+    // expression node it replaced scored nothing there.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(
+        LANG::Csharp,
+        b"class C { void F() { var x = o is\n",
+        options,
+    );
+    assert_eq!(root.metrics.abc.conditions(), 0);
 }
 
 #[test]
@@ -677,8 +687,13 @@ fn perl_rows_feed_each_abc_path_independently() {
             ("my $c = $x < $y;", 1, 0),
             ("my $c = $s ne \"x\";", 1, 0),
             ("my $c = $s !~ /x/;", 1, 0),
-            // a binding that rewrites is an edit, no test (#1540)
+            // a binding that rewrites is an edit, no test (#1540); a
+            // comparison against a substitution's result is a comparison,
+            // inside a slot (where the slot would otherwise pay for it)
+            // and outside one (where only the token can)
             ("my $c = $s =~ s/a/b/;", 0, 0),
+            ("if ($x == s/a/b/) { }", 1, 1),
+            ("my $c = $x == s/a/b/;", 1, 0),
             // a readline's brackets are no comparison
             ("my $l = <$s>;", 0, 0),
             ("my $c = $a && $b;", 2, 1),
