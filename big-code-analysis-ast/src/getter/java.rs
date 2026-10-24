@@ -156,11 +156,22 @@ impl Getter for JavaCode {
             // type-name kind and no listed node wraps it, so each name
             // bills once.
             Identifier | TypeIdentifier | NullLiteral | True | False
-            | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
+            | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
             | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral
             | DecimalFloatingPointLiteral | This => {
                 TokenRole::Operand
             },
+            // A Java 21 string template (`STR."Hi \{name}!"`) is a
+            // `string_literal` holding `string_interpolation` children,
+            // whose expressions are walked and billed on their own; the
+            // wrapper then yields `Unknown` so `name` is not billed twice
+            // (#420's skip, which Java lacked until #1703). The
+            // interpolation set is the `StringLit` row's `wraps` list,
+            // spelled once in `roles/java.rs`. A plain literal has no
+            // such child and stays one operand.
+            StringLiteral => {
+                Self::string_operand_type(node, crate::roles::java::string_lit::WRAPS)
+            }
             _ => {
                 TokenRole::Unknown
             },

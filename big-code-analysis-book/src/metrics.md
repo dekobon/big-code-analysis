@@ -710,8 +710,10 @@ tokens involved the same way they spell real operators:
   would make three behaviours where there are two.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy,
-  `$"{x}"` in C# and `f"{x}"` in Python all count the interpolated
-  expression's own operators and nothing for the opener itself. The
+  `$"{x}"` in C#, `f"{x}"` in Python and Java 21's `STR."\{x}"` all
+  count the interpolated expression's own operators and nothing for the
+  opener itself, and the wrapping literal is not an operand either —
+  Java's was, until #1703, beside the `x` inside it. The
   `:` that opens a Python format spec (`f"{x:>10}"`) counts nothing
   either, because the spec after it is string content (#1486). Nor
   does the self-documenting `=` of `f"{x=}"`, which prints the

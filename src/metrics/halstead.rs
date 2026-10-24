@@ -6539,6 +6539,62 @@ end",
         assert_operand_rows::<JavaParser>("Foo.java", ROWS);
     }
 
+    /// #1703: a Java 21 string template's `string_literal` wrapper is
+    /// not billed; the expressions inside its `string_interpolation`
+    /// children are, once each — the #420 skip every other interpolating
+    /// language already had. Before the fix every template row billed one
+    /// more unique and total operand, the wrapper's own text. The plain
+    /// literal rows are controls and are unchanged.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_string_template_wrapper_is_not_an_operand_1703() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `A`, `String`, `s`, `STR`, `name` — no `"Hi \{name}!"`
+            (
+                "template",
+                "class A { String s = STR.\"Hi \\{name}!\"; }\n",
+                [5, 5],
+            ),
+            // `A`, `String`, `s`, `STR`, `a`, `b` — two interpolations,
+            // one wrapper, still unbilled
+            (
+                "two interpolations",
+                "class A { String s = STR.\"\\{a} and \\{b}\"; }\n",
+                [6, 6],
+            ),
+            // `A`, `String`, `s`, `STR`, `name` x2 — the same name twice
+            // is one unique operand billed twice, not thrice
+            (
+                "repeated interpolation",
+                "class A { String s = STR.\"\\{name}\\{name}\"; }\n",
+                [5, 6],
+            ),
+            // `A`, `String`, `s`, `"Hi"`: a plain literal is one operand
+            ("plain literal", "class A { String s = \"Hi\"; }\n", [4, 4]),
+            // `A`, `String`, `s`, `STR`, `"Hi"`: a template with no
+            // interpolation wraps nothing and bills its text
+            (
+                "template without interpolation",
+                "class A { String s = STR.\"Hi\"; }\n",
+                [5, 5],
+            ),
+        ];
+        assert_operand_rows::<JavaParser>("Foo.java", ROWS);
+
+        let ops = ops_of::<JavaParser>(
+            "class A { String s = STR.\"Hi \\{name}!\"; String t = \"plain\"; }\n",
+            "Foo.java",
+        );
+        assert_keyword_role(&ops, "Foo.java", "name", Role::OperandOnly);
+        assert_keyword_role(&ops, "Foo.java", "\"plain\"", Role::OperandOnly);
+        assert_eq!(
+            Role::of(&ops, "\"Hi \\{name}!\""),
+            None,
+            "the template wrapper reaches neither vocabulary; operands were {:?}",
+            ops.operands
+        );
+    }
+
     /// One class literal's own vocabulary: the source spelling, then the
     /// operators and operands it adds to the fixture's frame.
     #[cfg(any(feature = "groovy", feature = "java"))]

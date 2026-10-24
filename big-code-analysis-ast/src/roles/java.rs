@@ -102,10 +102,8 @@ role_table! {
     // `wraps`: a `string_literal` holding a `string_interpolation`
     // child is a Java 21 string template (`STR."a \{x}"`), whose inner
     // expressions are walked on their own. The set is what
-    // `Getter::string_operand_type` reads to leave such a wrapper
-    // unbilled (#420) — which `getter/java.rs` does not call today, so
-    // the wrapper and its `name` are both operands. FIXME(#1703): wiring
-    // this set in R08 is the fix, and moves Java's Halstead output.
+    // `Getter::string_operand_type` reads in `getter/java.rs` to leave
+    // such a wrapper unbilled (#420, wired by #1703).
     // `MultilineStringLiteral` is the hidden `_multiline_string_literal`
     // rule; the parser never emits it today, and the drift marker in the
     // tests below pins that (grammar-dispatch §2).
@@ -510,7 +508,7 @@ mod tests {
     // The template's `string_literal` wraps a `string_interpolation`;
     // the plain literal beside it does not. Only the row's `WRAPS` set
     // tells them apart — the declaration `Getter::string_operand_type`
-    // will read once Java's getter calls it (FIXME(#1703)).
+    // reads in `getter/java.rs` (#1703).
     #[cfg(feature = "java")]
     #[test]
     fn string_lit_row_declares_the_interpolation_child() {
