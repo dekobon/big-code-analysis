@@ -151,7 +151,7 @@ where
 
 // Bumps `stats.exit` whenever the current node matches any of the
 // supplied per-language token variants. Mirrors the `js_cognitive!` /
-// `impl_cyclomatic_c_family!` shape used elsewhere in `src/metrics/`.
+// `impl_cyclomatic_c_family_rows!` shape used elsewhere in `src/metrics/`.
 macro_rules! impl_exit_match_kinds {
     ($code:ty, $lang:ident, [$($kind:ident),+ $(,)?]) => {
         impl Exit for $code {

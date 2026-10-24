@@ -32,12 +32,15 @@ use crate::{LANG, Metric, MetricsOptions};
     feature = "go",
     feature = "irules",
     feature = "java",
+    feature = "javascript",
     feature = "lua",
     feature = "mozcpp",
+    feature = "mozjs",
     feature = "objc",
     feature = "python",
     feature = "rust",
     feature = "tcl",
+    feature = "typescript",
 ))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
@@ -389,5 +392,68 @@ fn irules_rows_feed_each_abc_path_independently() {
             ("set c [expr { $a and $b }]", 2, 1),
             ("if { $a or $b || $x > 1 } { }", 3, 3),
         ],
+    );
+}
+
+/// The JS family: one fixture through the four grammars' rows. A JSX
+/// tag delimiter spells `<` / `>` and pays nothing (#1297) in the three
+/// grammars that parse JSX as JSX — plain TypeScript reads `<div>` as a
+/// type assertion and the rest as a comparison, so that row is the
+/// JSX grammars' alone; `??` keeps its own arm pending `NullSafe`.
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_js_rows(lang: LANG) {
+    assert_rows(
+        lang,
+        "function f(a, b, x, y, o) { BODY }\n",
+        &[
+            ("if (a) { } return a;", 1, 1),
+            ("if (x < y) { } return a;", 1, 1),
+            ("if (x !== y) { } return a;", 1, 1),
+            ("if (o instanceof Object) { } return a;", 1, 1),
+            ("let c = x < y; return c;", 1, 0),
+            ("let c = x >= y; return c;", 1, 0),
+            ("let c = x === y; return c;", 1, 0),
+            ("let c = o instanceof Object; return c;", 1, 0),
+            ("return a && b;", 2, 1),
+            ("return a || b;", 2, 1),
+            ("return a && x > 1;", 2, 1),
+            ("if (a && b || x > 1) { } return a;", 3, 3),
+        ],
+    );
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_jsx_pays_nothing(lang: LANG) {
+    assert_rows(
+        lang,
+        "function f(a, b, x, y, o) { BODY }\n",
+        &[("let c = <div><span>{x}</span></div>; return a;", 0, 0)],
+    );
+}
+
+#[test]
+#[cfg(feature = "javascript")]
+fn javascript_rows_feed_each_abc_path_independently() {
+    assert_js_rows(LANG::Javascript);
+    assert_jsx_pays_nothing(LANG::Javascript);
+}
+
+#[test]
+#[cfg(feature = "mozjs")]
+fn mozjs_rows_feed_each_abc_path_independently() {
+    assert_js_rows(LANG::Mozjs);
+    assert_jsx_pays_nothing(LANG::Mozjs);
+}
+
+#[test]
+#[cfg(feature = "typescript")]
+fn typescript_and_tsx_rows_feed_each_abc_path_independently() {
+    assert_js_rows(LANG::Typescript);
+    assert_js_rows(LANG::Tsx);
+    assert_jsx_pays_nothing(LANG::Tsx);
+    assert_rows(
+        LANG::Typescript,
+        "function f<T>(a: boolean, x: number, l: Array<Map<string, T>>): boolean { BODY }\n",
+        &[("let v: Array<Array<T>> = []; return a;", 0, 0)],
     );
 }

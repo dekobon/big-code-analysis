@@ -50,31 +50,36 @@ fn js_family_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 }
 
 // Whether an arm of the `compute` macros below already charges `expr`
-// (already peeled) as a condition: a ternary (its `?`), a comparison,
-// `??` or `instanceof` (their token arms), or an `&&` / `||` chain, whose
-// operands each pay through `js_family_count_condition`. `in` is a
-// relational operator no arm counts, so a slot holding one pays for it.
-fn js_family_condition_scores_itself(expr: &Node) -> bool {
-    match expr.kind() {
-        "ternary_expression" => true,
-        "binary_expression" => expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind(),
-                "==" | "==="
-                    | "!="
-                    | "!=="
-                    | "<"
-                    | ">"
-                    | "<="
-                    | ">="
-                    | "??"
-                    | "instanceof"
-                    | "&&"
-                    | "||"
-            )
-        }),
-        _ => false,
-    }
+// (already peeled) as a condition: a ternary (its `?`), a comparison or
+// `instanceof` (the `Comparison` row's owner, paid by its token), `??`
+// (its token arm, pending `NullSafe`), or an `&&` / `||` chain (the
+// `ShortCircuit` row's owner), whose operands each pay through
+// `count_condition`. `in` is a relational operator no arm counts, so a
+// slot holding one pays for it.
+//
+// Each grammar supplies its own, reading its rows, through
+// `js_family_scores_itself!`; the helpers below take it as a parameter
+// so the slot rule has this one home for all four.
+type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
+
+// The row-keyed `ScoresItself` of one JS grammar. Neither owner gate
+// reads ancestors, so the peeled descendant is asked with none.
+macro_rules! js_family_scores_itself {
+    ($roles:ident, $code:ident) => {
+        &|expr: &Node| {
+            use crate::roles::$roles::{comparison, short_circuit};
+            let unknown = Ancestors::unknown();
+            comparison::owns(expr, $code, unknown)
+                || short_circuit::owns(expr, $code, unknown)
+                || matches!(expr.kind(), "ternary_expression")
+                // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
+                // `NullSafe` row of #1695 takes over; the rows are read above
+                || (expr.kind() == "binary_expression"
+                    && expr
+                        .child_by_field_name("operator")
+                        .is_some_and(|op| op.kind() == "??"))
+        }
+    };
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
@@ -83,26 +88,16 @@ fn js_family_condition_scores_itself(expr: &Node) -> bool {
 // `if (this)`, `if (typeof x)` and `if (x + 1)` are each a decision, and
 // each scored 0 while the slot paid only for a fixed list of terminal
 // kinds (#1526).
-fn js_family_count_condition(condition: &Node, conditions: &mut f64) {
-    count_boolean_slot(
-        condition,
-        js_family_wrapper_operand,
-        js_family_condition_scores_itself,
-        conditions,
-    );
+fn count_condition(condition: &Node, scores: ScoresItself, conditions: &mut f64) {
+    count_boolean_slot(condition, js_family_wrapper_operand, scores, conditions);
 }
 
 // An operand outside a boolean slot — a `return` value, a call
 // argument, a ternary branch — scores only when a `!` proves it boolean
 // (see `count_negated_operand`), which keeps `(a > 0) ? b : -b` at 2
 // (the `?` and the `>`).
-fn js_family_count_negated(operand: &Node, conditions: &mut f64) {
-    count_negated_operand(
-        operand,
-        js_family_wrapper_operand,
-        js_family_condition_scores_itself,
-        conditions,
-    );
+fn count_negated(operand: &Node, scores: ScoresItself, conditions: &mut f64) {
+    count_negated_operand(operand, js_family_wrapper_operand, scores, conditions);
 }
 
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
@@ -111,13 +106,13 @@ fn js_family_count_negated(operand: &Node, conditions: &mut f64) {
 // `a ? !b : !c` as 1 (the `?` token alone) against Java's 4. Slots are
 // addressed by grammar FIELD rather than by child index, so a grammar
 // re-order cannot silently retarget them.
-fn js_family_walk_ternary(node: &Node, conditions: &mut f64) {
+fn js_family_walk_ternary(node: &Node, scores: ScoresItself, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        js_family_count_condition(&condition, conditions);
+        count_condition(&condition, scores, conditions);
     }
     for field in ["consequence", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            js_family_count_negated(&branch, conditions);
+            count_negated(&branch, scores, conditions);
         }
     }
 }
@@ -139,12 +134,12 @@ fn js_family_walk_ternary(node: &Node, conditions: &mut f64) {
 // family where it does. Neither is a value, so neither is a slot, which
 // agrees with every other language; see the `Stats` doc comment's
 // cross-language empty-`for`-condition policy.
-fn js_family_walk_for(node: &Node, conditions: &mut f64) {
+fn js_family_walk_for(node: &Node, scores: ScoresItself, conditions: &mut f64) {
     if let Some(condition) = node
         .child_by_field_name("condition")
         .filter(|slot| slot.is_named() && slot.kind() != "empty_statement")
     {
-        js_family_count_condition(&condition, conditions);
+        count_condition(&condition, scores, conditions);
     }
 }
 
@@ -248,17 +243,21 @@ impl_js_family_const_binding!(Mozjs, mozjs_eq_initializes_const_binding);
 macro_rules! ts_abc_compute {
     (
         $lang:ident,
+        $roles:ident,
         $const_binding:path
     ) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
+            code: &'a [u8],
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use crate::roles::$roles::{comparison, short_circuit};
             use $lang::*;
 
-            match node.kind_id().into() {
+            let scores: ScoresItself = js_family_scores_itself!($roles, code);
+            let kind = node.kind_id();
+            match kind.into() {
                 // Augmented assignments and pre/post increment/decrement
                 // always count.
                 PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | AMPEQ | PIPEEQ
@@ -277,16 +276,16 @@ macro_rules! ts_abc_compute {
                 CallExpression | NewExpression => {
                     stats.branches += 1.;
                 }
-                // Comparison and equality operators, `??`, `instanceof`,
-                // `else`, `case`, `catch`, `try`. The `default` arm of a
+                // `??`, `else`, `case`, `catch`, `try`; the comparison
+                // and equality operators and `instanceof` are the
+                // `Comparison` row's, below. The `default` arm of a
                 // `switch` is intentionally NOT a
                 // condition: it is the unconditional fallthrough, so
                 // cyclomatic counts only the `Case` arms (issue #469).
                 // Both the statement (`default:`) and arrow
                 // (`default ->`) forms emit the same `Default` token, so
                 // omitting it here covers both.
-                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARKQMARK | Instanceof
-                | Else | Case | Try | Catch => {
+                QMARKQMARK | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
                 }
                 // A bare `?` opens a ternary in only one of the eleven
@@ -324,9 +323,11 @@ macro_rules! ts_abc_compute {
                 QMARK if ancestors.parent_has_kind(node, TernaryExpression as u16) => {
                     stats.conditions += 1.;
                 }
-                // Counts `<` / `>` only as the operator token of a
-                // `binary_expression`, the allowlist polarity C / C++ /
-                // Rust / Go / Java use. The previous denylist named
+                // The comparison tokens, the `Comparison` row's payers
+                // (`roles/js_family.rs`): the four equalities, `<=` /
+                // `>=`, `instanceof`, and `<` / `>` gated to a
+                // `binary_expression` parent — the allowlist polarity C /
+                // C++ / Rust / Go / Java use. The previous denylist named
                 // `type_arguments` and `type_parameters` only, so every
                 // JSX tag delimiter scored a condition: a
                 // `jsx_opening_element` contributes `<` and `>`, a
@@ -341,24 +342,22 @@ macro_rules! ts_abc_compute {
                 // `type_parameters` — so the allowlist is the inverse of
                 // a five-entry denylist today and, unlike it, needs no
                 // revisiting when the grammar grows a seventh
-                // (`.claude/rules/grammar-dispatch.md` §1).
-                //
-                // `<=` / `>=` are the distinct `LTEQ` / `GTEQ` tokens
-                // counted above, and the shifts (`<<`, `>>`, `>>>`) are
-                // their own tokens, so none of them reaches this arm.
-                GT | LT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
+                // (`.claude/rules/grammar-dispatch.md` §1). The shifts
+                // (`<<`, `>>`, `>>>`) are their own tokens.
+                _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
-                // chain is one condition (issue #403). `a && b || c` is a
-                // left-nested chain of `binary_expression`s, so an operand
-                // that is itself a chain is paid by its own operator's
-                // visit.
-                AMPAMP | PIPEPIPE => {
+                // chain is one condition (issue #403); the `ShortCircuit`
+                // row is read at its leaf only to find the chain, the
+                // token's parent. `a && b || c` is a left-nested chain of
+                // `binary_expression`s, so an operand that is itself a
+                // chain is paid by its own operator's visit.
+                _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     if let Some(chain) = ancestors.parent(node) {
                         count_field_operands(
                             &chain,
-                            js_family_count_condition,
+                            |operand, conds| count_condition(operand, scores, conds),
                             &mut stats.conditions,
                         );
                     }
@@ -373,31 +372,35 @@ macro_rules! ts_abc_compute {
                 // read onto it (#1455).
                 IfStatement | WhileStatement | DoStatement => {
                     if let Some(cond) = node.child_by_field_name("condition") {
-                        js_family_count_condition(&cond, &mut stats.conditions);
+                        count_condition(&cond, scores, &mut stats.conditions);
                     }
                 }
                 // `return value;` names no field; the value is its only
                 // operand. The bare `return;` form has none.
                 ReturnStatement => {
                     if let Some(value) = wrapped_operand(node) {
-                        js_family_count_negated(&value, &mut stats.conditions);
+                        count_negated(&value, scores, &mut stats.conditions);
                     }
                 }
                 // Method-argument walker for `f(!a, !b)`.
                 Arguments => {
-                    count_each_operand(node, js_family_count_negated, &mut stats.conditions);
+                    count_each_operand(
+                        node,
+                        |operand, conds| count_negated(operand, scores, conds),
+                        &mut stats.conditions,
+                    );
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this
                 // walks the three operand slots (issue #1102).
                 TernaryExpression => {
-                    js_family_walk_ternary(node, &mut stats.conditions);
+                    js_family_walk_ternary(node, scores, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read
                 // by grammar field (issue #1276). `for (;;)` fills the
                 // slot with an `empty_statement` and counts nothing.
                 ForStatement => {
-                    js_family_walk_for(node, &mut stats.conditions);
+                    js_family_walk_for(node, scores, &mut stats.conditions);
                 }
                 _ => {}
             }
@@ -406,11 +409,15 @@ macro_rules! ts_abc_compute {
 }
 
 impl Abc for TypescriptCode {
-    ts_abc_compute!(Typescript, typescript_eq_initializes_const_binding);
+    ts_abc_compute!(
+        Typescript,
+        typescript,
+        typescript_eq_initializes_const_binding
+    );
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(Tsx, tsx_eq_initializes_const_binding);
+    ts_abc_compute!(Tsx, tsx, tsx_eq_initializes_const_binding);
 }
 
 // JavaScript / Mozjs share TypeScript's expression / statement
@@ -433,17 +440,21 @@ impl Abc for TsxCode {
 macro_rules! js_abc_compute {
     (
         $lang:ident,
+        $roles:ident,
         $const_binding:path
     ) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
+            code: &'a [u8],
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use crate::roles::$roles::{comparison, short_circuit};
             use $lang::*;
 
-            match node.kind_id().into() {
+            let scores: ScoresItself = js_family_scores_itself!($roles, code);
+            let kind = node.kind_id();
+            match kind.into() {
                 PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | AMPEQ | PIPEEQ
                 | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ
                 | PLUSPLUS | DASHDASH => {
@@ -460,33 +471,35 @@ macro_rules! js_abc_compute {
                 // The `default` arm is the unconditional fallthrough and
                 // is excluded, mirroring cyclomatic's `Case`-only count
                 // (issue #469); see the TS macro above for the rationale.
-                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARK | QMARKQMARK
-                | Instanceof | Else | Case | Try | Catch => {
+                QMARK | QMARKQMARK | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
                 }
-                // Plain JS has no generics, but it does have JSX, and
-                // both grammars here parse it unconditionally — a `.js`
-                // file returning `<div><span>hi</span></div>` scored six
-                // conditions from tag delimiters alone (#1297). The
-                // `grammar.json` sweep finds a bare `<` / `>` in exactly
-                // four productions in tree-sitter-javascript 0.25.0 and
-                // in the vendored mozjs fork — `binary_expression` plus
-                // the same three JSX ones as TypeScript — so this is the
-                // TS arm above with the two type-syntax productions
-                // absent. See that arm for the polarity rationale.
-                GT | LT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
+                // The comparison tokens, the `Comparison` row's payers
+                // (`roles/js_family.rs`). Plain JS has no generics, but
+                // it does have JSX, and both grammars here parse it
+                // unconditionally — a `.js` file returning
+                // `<div><span>hi</span></div>` scored six conditions from
+                // tag delimiters alone (#1297). The `grammar.json` sweep
+                // finds a bare `<` / `>` in exactly four productions in
+                // tree-sitter-javascript 0.25.0 and in the vendored mozjs
+                // fork — `binary_expression` plus the same three JSX ones
+                // as TypeScript — so the row's parent gate is the TS one
+                // with the two type-syntax productions absent. See that
+                // arm for the polarity rationale.
+                _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
-                // chain is one condition (issue #403). `a && b || c` is a
-                // left-nested chain of `binary_expression`s, so an operand
-                // that is itself a chain is paid by its own operator's
-                // visit.
-                AMPAMP | PIPEPIPE => {
+                // chain is one condition (issue #403); the `ShortCircuit`
+                // row is read at its leaf only to find the chain, the
+                // token's parent. `a && b || c` is a left-nested chain of
+                // `binary_expression`s, so an operand that is itself a
+                // chain is paid by its own operator's visit.
+                _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     if let Some(chain) = ancestors.parent(node) {
                         count_field_operands(
                             &chain,
-                            js_family_count_condition,
+                            |operand, conds| count_condition(operand, scores, conds),
                             &mut stats.conditions,
                         );
                     }
@@ -496,28 +509,32 @@ macro_rules! js_abc_compute {
                 // arm-block for why each slot is read by role.
                 IfStatement | WhileStatement | DoStatement => {
                     if let Some(cond) = node.child_by_field_name("condition") {
-                        js_family_count_condition(&cond, &mut stats.conditions);
+                        count_condition(&cond, scores, &mut stats.conditions);
                     }
                 }
                 ReturnStatement => {
                     if let Some(value) = wrapped_operand(node) {
-                        js_family_count_negated(&value, &mut stats.conditions);
+                        count_negated(&value, scores, &mut stats.conditions);
                     }
                 }
                 Arguments => {
-                    count_each_operand(node, js_family_count_negated, &mut stats.conditions);
+                    count_each_operand(
+                        node,
+                        |operand, conds| count_negated(operand, scores, conds),
+                        &mut stats.conditions,
+                    );
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this
                 // walks the three operand slots (issue #1102).
                 TernaryExpression => {
-                    js_family_walk_ternary(node, &mut stats.conditions);
+                    js_family_walk_ternary(node, scores, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read
                 // by grammar field (issue #1276). `for (;;)` fills the
                 // slot with an `empty_statement` and counts nothing.
                 ForStatement => {
-                    js_family_walk_for(node, &mut stats.conditions);
+                    js_family_walk_for(node, scores, &mut stats.conditions);
                 }
                 _ => {}
             }
@@ -526,9 +543,13 @@ macro_rules! js_abc_compute {
 }
 
 impl Abc for JavascriptCode {
-    js_abc_compute!(Javascript, javascript_eq_initializes_const_binding);
+    js_abc_compute!(
+        Javascript,
+        javascript,
+        javascript_eq_initializes_const_binding
+    );
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(Mozjs, mozjs_eq_initializes_const_binding);
+    js_abc_compute!(Mozjs, mozjs, mozjs_eq_initializes_const_binding);
 }

@@ -128,6 +128,8 @@ macro_rules! impl_js_family_get_op_type {
     ) => {
         keyword_roles!($roles);
 
+        paying_roles!($roles);
+
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;
 
@@ -140,7 +142,16 @@ macro_rules! impl_js_family_get_op_type {
             // The modifiers, the declaration keywords and TypeScript's
             // `predefined_type` are not here: each grammar's rows in
             // `roles/<lang>.rs` declare them and `get_keyword_role` bills
-            // them (#1693), gates included.
+            // them (#1693), gates included. Nor are the equality and
+            // relational tokens, `instanceof`, `&&` and `||`: the
+            // `Comparison` and `ShortCircuit` rows pay them and
+            // `get_paying_role` bills them (#1695). `<` / `>` stay for
+            // the spellings the rows' parent gate leaves out — a JSX tag
+            // delimiter, a TypeScript generic opener (the `<>` pair; its
+            // closer returned `Unknown` above) and a recovered token —
+            // which billed before the rows existed.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` gate leaves out
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real
@@ -174,15 +185,16 @@ macro_rules! impl_js_family_get_op_type {
                 {
                     TokenRole::Unknown
                 }
-                Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
+                LT | GT
+                | Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
                 | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If
                 | Else | Switch | Case | Default | Async | Do | For | In | Of | While | Try
-                | Catch | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH
-                | PLUSPLUS | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ
-                | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ
+                | Catch | Finally | With | EQ | AT | PLUS | DASH | DASHDASH
+                | PLUSPLUS | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE
+                | PLUSEQ | BANG | DASHEQ
                 | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
-                | QMARKQMARK | EQGT | DOTDOTDOT | New | SEMI | Typeof | Instanceof | Void
+                | QMARKQMARK | EQGT | DOTDOTDOT | New | SEMI | Typeof | Void
                 // `get`/`set` accessor keywords are operators, matching the
                 // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
                 // Before #695 the JS family classified them as operands, so

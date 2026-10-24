@@ -14,5 +14,5 @@
 use super::*;
 
 impl Cognitive for TypescriptCode {
-    js_cognitive!(Typescript);
+    js_cognitive!(Typescript, typescript);
 }

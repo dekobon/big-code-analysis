@@ -199,7 +199,6 @@ Javascript CaseArm R05
 Javascript Catch R07
 Javascript Closure R06
 Javascript Comment R09
-Javascript Comparison R05
 Javascript Container R06
 Javascript DocComment R09
 Javascript DocRunDirective R09
@@ -212,7 +211,6 @@ Javascript HoldsDocInBody R09
 Javascript Loop R07
 Javascript Member R06
 Javascript NullSafe R05
-Javascript ShortCircuit R05
 Javascript StringLit R08
 Javascript Switch R07
 Javascript Ternary R05
@@ -281,7 +279,6 @@ Mozjs CaseArm R05
 Mozjs Catch R07
 Mozjs Closure R06
 Mozjs Comment R09
-Mozjs Comparison R05
 Mozjs Container R06
 Mozjs DocComment R09
 Mozjs DocRunDirective R09
@@ -294,7 +291,6 @@ Mozjs HoldsDocInBody R09
 Mozjs Loop R07
 Mozjs Member R06
 Mozjs NullSafe R05
-Mozjs ShortCircuit R05
 Mozjs StringLit R08
 Mozjs Switch R07
 Mozjs Ternary R05
@@ -454,7 +450,6 @@ Tsx CaseArm R05
 Tsx Catch R07
 Tsx Closure R06
 Tsx Comment R09
-Tsx Comparison R05
 Tsx Container R06
 Tsx DocComment R09
 Tsx DocRunDirective R09
@@ -467,7 +462,6 @@ Tsx HoldsDocInBody R09
 Tsx Loop R07
 Tsx Member R06
 Tsx NullSafe R05
-Tsx ShortCircuit R05
 Tsx StringLit R08
 Tsx Switch R07
 Tsx Ternary R05
@@ -477,7 +471,6 @@ Typescript CaseArm R05
 Typescript Catch R07
 Typescript Closure R06
 Typescript Comment R09
-Typescript Comparison R05
 Typescript Container R06
 Typescript DocComment R09
 Typescript DocRunDirective R09
@@ -490,7 +483,6 @@ Typescript HoldsDocInBody R09
 Typescript Loop R07
 Typescript Member R06
 Typescript NullSafe R05
-Typescript ShortCircuit R05
 Typescript StringLit R08
 Typescript Switch R07
 Typescript Ternary R05

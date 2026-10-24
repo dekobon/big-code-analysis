@@ -4,18 +4,32 @@
 use crate::Typescript;
 use crate::role_table;
 use crate::roles::js_family::{
-    js_family_decl_keywords, js_family_modifiers, ts_family_decl_keywords, ts_family_gates,
-    ts_family_modifiers,
+    js_family_comparison_payers, js_family_decl_keywords, js_family_modifiers,
+    js_family_operator_gates, js_family_short_circuit_payers, ts_family_decl_keywords,
+    ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Typescript);
+js_family_operator_gates!(Typescript);
 
 role_table! {
     lang: Typescript;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The one `binary_expression` kind carries every binary operator;
+    // its `operator` field says which, so each row's owner is gated on
+    // the field holding one of its payers (`roles/js_family.rs` has the
+    // lists). `??` is `NullSafe`'s and `&&=` / `||=` are assignments.
+    Comparison {
+        owns [BinaryExpression(gated_by comparison_operator)]
+        pays [..js_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [BinaryExpression(gated_by short_circuit_operator)]
+        pays [..js_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "TypeScript's `&` / `|` / `^` are bitwise" }
     Ternary { pending R05 }
     NullSafe { pending R05 }

@@ -8,7 +8,7 @@
 
 use super::*;
 
-// Objective-C cannot reuse `impl_cyclomatic_c_family!` either: that
+// Objective-C cannot reuse `impl_cyclomatic_c_family_rows!` either: that
 // macro counts the C++ `catch` *keyword* token, but ObjC's grammar has
 // no bare `catch` token — `@catch` is the `ATcatch` keyword and the
 // handler body is a `catch_clause` node. Counting `CatchClause` adds one

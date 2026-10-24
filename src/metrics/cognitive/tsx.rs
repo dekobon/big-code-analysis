@@ -14,5 +14,5 @@
 use super::*;
 
 impl Cognitive for TsxCode {
-    js_cognitive!(Tsx);
+    js_cognitive!(Tsx, tsx);
 }

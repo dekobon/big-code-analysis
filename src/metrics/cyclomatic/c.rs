@@ -8,7 +8,7 @@
 
 use super::*;
 
-// C cannot reuse `impl_cyclomatic_c_family!`: that macro hard-codes a
+// C cannot reuse `impl_cyclomatic_c_family_rows!`: that macro hard-codes a
 // `Catch` decision arm, and C has no exceptions (no `catch` token). The
 // decision-kind set is otherwise the C-family one — `if`/`for`/`while`,
 // `case`, the `?:` ternary, and the `&&`/`||` short-circuit operators,

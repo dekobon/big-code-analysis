@@ -645,9 +645,11 @@ mod tests {
         feature = "groovy",
         feature = "irules",
         feature = "java",
+        feature = "javascript",
         feature = "kotlin",
         feature = "lua",
         feature = "mozcpp",
+        feature = "mozjs",
         feature = "objc",
         feature = "perl",
         feature = "php",
@@ -688,9 +690,11 @@ mod tests {
             feature = "groovy",
             feature = "irules",
             feature = "java",
+            feature = "javascript",
             feature = "kotlin",
             feature = "lua",
             feature = "mozcpp",
+            feature = "mozjs",
             feature = "objc",
             feature = "perl",
             feature = "php",
@@ -7586,14 +7590,17 @@ end",
         feature = "csharp",
         feature = "go",
         feature = "irules",
+        feature = "javascript",
         feature = "lua",
         feature = "mozcpp",
+        feature = "mozjs",
         feature = "objc",
         feature = "perl",
         feature = "php",
         feature = "ruby",
         feature = "rust",
         feature = "tcl",
+        feature = "typescript",
     ))]
     #[track_caller]
     fn assert_spellings_bill_as_operators<T: crate::MetricSuite>(
@@ -7670,6 +7677,42 @@ end",
             assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
             assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
         }
+    }
+
+    /// #1695: the JS family's `Comparison` / `ShortCircuit` rows' payers
+    /// bill as operators in every grammar, one spelling apiece; a JSX
+    /// tag delimiter — the gated-out `<` — bills as it did before the
+    /// rows, and `in`, which no row claims, still bills.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "let c = a < 1;\n"),
+            (">", "let c = a > 1;\n"),
+            ("<=", "let c = a <= 1;\n"),
+            (">=", "let c = a >= 1;\n"),
+            ("==", "let c = a == 1;\n"),
+            ("!=", "let c = a != 1;\n"),
+            ("===", "let c = a === 1;\n"),
+            ("!==", "let c = a !== 1;\n"),
+            ("instanceof", "let c = a instanceof B;\n"),
+            ("in", "let c = a in b;\n"),
+            ("&&", "let c = a && b;\n"),
+            ("||", "let c = a || b;\n"),
+            ("<", "let c = <div>x</div>;\n"),
+        ];
+        assert_spellings_bill_as_operators::<JavascriptParser>("foo.js", ROWS);
+        assert_spellings_bill_as_operators::<MozjsParser>("foo.js", ROWS);
+        assert_spellings_bill_as_operators::<TsxParser>("foo.tsx", ROWS);
+        // Plain TypeScript reads `<div>x</div>` as a type assertion and
+        // a comparison, so its last row is the generic opener instead.
+        let (jsx, rows) = ROWS.split_last().expect("the table has rows");
+        assert_eq!(jsx.0, "<");
+        assert_spellings_bill_as_operators::<TypescriptParser>("foo.ts", rows);
+        assert_spellings_bill_as_operators::<TypescriptParser>(
+            "foo.ts",
+            &[("<>", "let v: Array<number> = [];\n")],
+        );
     }
 
     /// #1695: the Tcl and iRules `Comparison` / `ShortCircuit` rows'

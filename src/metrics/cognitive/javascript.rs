@@ -14,5 +14,5 @@
 use super::*;
 
 impl Cognitive for JavascriptCode {
-    js_cognitive!(Javascript);
+    js_cognitive!(Javascript, javascript);
 }

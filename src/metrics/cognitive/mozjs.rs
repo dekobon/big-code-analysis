@@ -14,5 +14,5 @@
 use super::*;
 
 impl Cognitive for MozjsCode {
-    js_cognitive!(Mozjs);
+    js_cognitive!(Mozjs, mozjs);
 }

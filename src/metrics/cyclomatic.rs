@@ -278,14 +278,15 @@ where
 }
 
 /// C-family cyclomatic: `Case` adds standard, `SwitchStatement` adds
-/// modified, and the shared branching kinds add both.  The ternary token
-/// name varies (`TernaryExpression` for JS-family, `ConditionalExpression`
-/// for Cpp), so it's a parameter.  The short-circuit operator list is
-/// also a parameter because JS-family languages include nullish
-/// coalescing (`??`, token `QMARKQMARK`) and the three compound short-
-/// circuit assignment forms `&&=` (`AMPAMPEQ`), `||=` (`PIPEPIPEEQ`),
-/// `??=` (`QMARKQMARKEQ`) on top of `&&` and `||`, while C++ has only
-/// `&&` and `||` (issues #226, #231, #248).
+/// modified, and the shared branching kinds add both. The ternary node
+/// name varies (`ConditionalExpression` for C++), so it is a parameter.
+/// The short-circuit arm reads the language's `ShortCircuit` row at its
+/// leaf projection (`short_circuit = <row module>`, #1694): the row's
+/// payer gate is where C++'s "applies its operator" test lives
+/// (`int&& x` and `operator&&` spell the token and apply nothing), so
+/// the macro carries no gate of its own. The JS family, whose
+/// short-circuit set also has the nullish and compound forms, has its
+/// own macro below.
 ///
 /// **`If` / `For` / `While` are keyword tokens in the per-language
 /// enums (e.g. `Cpp::While == "while"`), not statement nodes.** The
@@ -305,54 +306,6 @@ where
 /// `constraints = [<kinds>]` names the nodes whose whole subtree scores
 /// no decision, tracked by [`ConstraintReach`] so the test is `O(1)` per
 /// node: C++'s compile-time `requires` clause and expression.
-///
-/// Two spellings of the short-circuit arm. `[<kinds>]` names the token
-/// kinds, for a language whose `ShortCircuit` row is still `pending`
-/// (the JS family, until #1695). `short_circuit = <row module>` reads
-/// the language's row at its leaf projection instead (#1694): the
-/// row's payer gate is where C++'s "applies its operator" test lives
-/// (`int&& x` and `operator&&` spell the token and apply nothing), so
-/// the macro carries no gate of its own. Two macros rather than two
-/// arms of one, because the bypass gate attributes a macro body's
-/// kinds to every language that invokes the macro.
-macro_rules! impl_cyclomatic_c_family {
-    (
-        $code:ty,
-        $lang:ident,
-        $ternary:ident,
-        [$($short_circuit:ident),+ $(,)?]
-        $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
-    ) => {
-        impl Cyclomatic for $code {
-            fn compute<'a>(
-                node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
-                stats: &mut Stats,
-            ) {
-                use $lang::*;
-                $(
-                    let opens = matches!(node.kind_id().into(), $($constraint)|+);
-                    if stats.constraint.covers(node, opens) {
-                        return;
-                    }
-                )?
-                match node.kind_id().into() {
-                    Case => stats.cyclomatic += 1.,
-                    SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | $ternary | $($short_circuit)|+ => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    };
-}
-
-/// [`impl_cyclomatic_c_family!`] reading the `ShortCircuit` row named
-/// by `short_circuit = <row module>` in place of a kind list.
 macro_rules! impl_cyclomatic_c_family_rows {
     (
         $code:ty,
@@ -409,22 +362,39 @@ macro_rules! impl_cyclomatic_c_family_rows {
 // those grammars), while TS/TSX expose both an `optional_chain`
 // wrapper and a child `?.` token (`QMARKDOT`); counting `QMARKDOT`
 // matches every textual `?.` exactly once in TS/TSX.
+//
+// `&&` / `||` are read from the grammar's `ShortCircuit` row (#1695);
+// the nullish and compound forms and the optional chain stay a kind
+// list until their `NullSafe` row lands.
 macro_rules! impl_cyclomatic_js_family {
-    ($code:ty, $lang:ident, $opt_chain:ident) => {
-        impl_cyclomatic_c_family!(
-            $code,
-            $lang,
-            TernaryExpression,
-            [
-                AMPAMP,
-                PIPEPIPE,
-                QMARKQMARK,
-                AMPAMPEQ,
-                PIPEPIPEEQ,
-                QMARKQMARKEQ,
-                $opt_chain
-            ]
-        );
+    ($code:ty, $lang:ident, $roles:ident, $opt_chain:ident) => {
+        impl Cyclomatic for $code {
+            fn compute<'a>(
+                node: &Node<'a>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
+                use crate::roles::$roles::short_circuit;
+                use $lang::*;
+                let kind = node.kind_id();
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    stats.cyclomatic_modified += 1.;
+                    return;
+                }
+                match kind.into() {
+                    Case => stats.cyclomatic += 1.,
+                    SwitchStatement => stats.cyclomatic_modified += 1.,
+                    If | For | While | Catch | TernaryExpression | QMARKQMARK | AMPAMPEQ
+                    | PIPEPIPEEQ | QMARKQMARKEQ | $opt_chain => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    _ => {}
+                }
+            }
+        }
     };
 }
 
@@ -436,7 +406,7 @@ macro_rules! impl_cyclomatic_js_family {
 // `[$($extra:ident),*]` list for any language-specific decision kinds
 // (issue #300; mirrors `impl_npm_java_like!` / `impl_npa_java_like!`).
 //
-// Why a dedicated macro instead of reusing `impl_cyclomatic_c_family!`:
+// Why a dedicated macro instead of reusing `impl_cyclomatic_c_family_rows!`:
 // the C-family macro uses `SwitchStatement` (the wrapping node) as the
 // modified-CCN container marker, whereas Java/Groovy use the `Switch`
 // keyword token — which fires exactly once per switch (both classic

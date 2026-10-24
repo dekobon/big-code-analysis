@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_cyclomatic_js_family!(TypescriptCode, Typescript, QMARKDOT);
+impl_cyclomatic_js_family!(TypescriptCode, Typescript, typescript, QMARKDOT);

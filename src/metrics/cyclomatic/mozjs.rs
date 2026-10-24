@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_cyclomatic_js_family!(MozjsCode, Mozjs, OptionalChain);
+impl_cyclomatic_js_family!(MozjsCode, Mozjs, mozjs, OptionalChain);
