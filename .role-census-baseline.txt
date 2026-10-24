@@ -395,7 +395,6 @@ Python Guard R05
 Python HoldsDocInBody R09
 Python Loop R07
 Python Member R06
-Python ShortCircuit R04
 Python Switch R07
 Python Ternary R05
 Ruby Branch R07

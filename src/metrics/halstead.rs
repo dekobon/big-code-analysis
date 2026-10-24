@@ -539,6 +539,7 @@ mod tests {
         feature = "objc",
         feature = "perl",
         feature = "php",
+        feature = "python",
         feature = "ruby",
         feature = "rust",
         feature = "tcl",
@@ -646,6 +647,7 @@ mod tests {
         feature = "objc",
         feature = "perl",
         feature = "php",
+        feature = "python",
         feature = "ruby",
         feature = "rust",
         feature = "tcl",
@@ -686,6 +688,7 @@ mod tests {
             feature = "objc",
             feature = "perl",
             feature = "php",
+            feature = "python",
             feature = "ruby",
             feature = "rust",
             feature = "tcl",
@@ -6425,6 +6428,39 @@ end",
             ("walrus inside a field", "f\"{(y := 1)}\"\n", [2, 2]),
         ];
         assert_operator_rows::<PythonParser>("foo.py", ROWS);
+    }
+
+    /// #1694: every payer of Python's `Comparison` and `ShortCircuit`
+    /// rows bills as an operator, one fixture line apiece, so dropping
+    /// any one kind from a row fails its own entry. The compounds bill
+    /// as one operator and their inner leaves as none (#413), and the
+    /// `in` of a `for` clause — which the row's `under_comparison` gate
+    /// leaves out — still bills through the byte-less arm.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_comparison_and_short_circuit_spellings_bill_1694() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "a < 1\n"),
+            ("<=", "a <= 1\n"),
+            ("==", "a == 1\n"),
+            ("!=", "a != 1\n"),
+            (">=", "a >= 1\n"),
+            (">", "a > 1\n"),
+            ("<>", "a <> 1\n"),
+            ("in", "a in b\n"),
+            ("is", "a is b\n"),
+            ("not in", "a not in b\n"),
+            ("is not", "a is not b\n"),
+            ("and", "a and b\n"),
+            ("or", "a or b\n"),
+            ("in", "for a in b:\n    pass\n"),
+        ];
+        for (spelling, source) in ROWS {
+            let ops = ops_of::<PythonParser>(source, "foo.py");
+            assert_keyword_role(&ops, "foo.py", spelling, Role::OperatorOnly);
+        }
+        let compound = ops_of::<PythonParser>("a not in b\na is not b\n", "foo.py");
+        assert_eq!(compound.operators, ["is not", "not in"]);
     }
 
     /// #1552: a JS-family `class` keyword bills as `function` does, once

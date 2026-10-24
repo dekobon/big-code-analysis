@@ -43,6 +43,8 @@ impl Getter for PythonCode {
 
     keyword_roles!(python);
 
+    paying_roles!(python);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Python::*;
 
@@ -62,14 +64,24 @@ impl Getter for PythonCode {
             return TokenRole::Unknown;
         }
 
+        // The comparison operators — the compounds `not in` / `is not`
+        // included — and `and` / `or` are not here: the `Comparison`
+        // and `ShortCircuit` rows of `roles/python.rs` declare them and
+        // `get_paying_role` bills each at its leaf (#1694).
         match kind {
             // The `not` / `in` / `is` leaf tokens are operators on their own
             // (`not x`, `a in b`, `a is b`, `for x in y`), but the grammar
             // also nests them inside the compound `not in` (Notin) and
             // `is not` (Isnot) nodes. When the leaf's parent is one of those
             // compounds, the compound itself is classified as the single
-            // operator below, so the leaf must yield Unknown — otherwise
+            // operator, so the leaf must yield Unknown — otherwise
             // `a not in b` would count `not` + `in` as two operators (#413).
+            // The `Comparison` row pays a bare `in` / `is` only under the
+            // `comparison_operator` wrapper, which is the gate the
+            // counting consumers need; the `in` of a `for` clause and a
+            // comprehension is the spelling the row leaves to this arm.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_comparison` gate leaves out: a loop's `in`
             Not | In | Is => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(Notin | Isnot) => TokenRole::Unknown,
                 _ => TokenRole::Operator,
@@ -77,15 +89,11 @@ impl Getter for PythonCode {
             Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return
             | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
             | While | Try | Except | Finally | With | DASHGT | Global | Nonlocal | Exec
-            | AT | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
-            | AMP | CARET | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | LTGT
+            | AT | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
+            | AMP | CARET | LTLT | TILDE
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ
             | GTGTEQ | LTLTEQ | AMPEQ | CARETEQ | PIPEEQ | Yield | Print | LPAREN | LBRACK
             | SEMI
-            // `not in` / `is not` compounds count as one operator each; the
-            // inner Not/In/Is leaves are suppressed by the parent-guard arm
-            // above (#413).
-            | Notin | Isnot
             // `match` / `case` keyword tokens (Match=26, Case=27), mirroring
             // the cyclomatic metric which already counts each `case` clause
             // and the Rust Halstead which counts `match` (#413).

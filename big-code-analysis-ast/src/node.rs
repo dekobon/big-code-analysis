@@ -616,7 +616,7 @@ impl<'a> Node<'a> {
     pub fn count_specific_ancestors<C: Checker>(
         &self,
         ancestors: Ancestors<'a, '_>,
-        check: fn(&Node) -> bool,
+        check: impl Fn(&Node) -> bool,
         stop: fn(&Node) -> bool,
     ) -> usize {
         let mut count = 0;

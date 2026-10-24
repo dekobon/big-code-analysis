@@ -11,11 +11,22 @@ use super::*;
 impl Cyclomatic for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::python::short_circuit;
         use Python::*;
+
+        let kind = node.kind_id();
+        // `and` / `or`, the `ShortCircuit` row's payers: cyclomatic counts
+        // the token, which ABC deliberately does not (#395) — the same
+        // row, two policies (#1694).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
 
         // Python's `match`/`case` (PEP 634, 3.10+) is treated like Rust's
         // `match` and the C-family `switch`: each non-bare-wildcard arm
@@ -33,8 +44,8 @@ impl Cyclomatic for PythonCode {
         // siblings and with the textbook definition. Both plain
         // `with` and `async with` surface the same `with` keyword
         // token (`With`), so omitting it stops counting both. See #418.
-        match node.kind_id().into() {
-            If | Elif | For | While | Except | Assert | And | Or => {
+        match kind.into() {
+            If | Elif | For | While | Except | Assert => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

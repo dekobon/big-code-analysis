@@ -53,10 +53,17 @@ role_table! {
     // and holds no interpolation of its own — its parts do.
     StringLit { owns [String, ConcatenatedString] wraps [Interpolation] }
 
+    // `a and b or c` is a left-nested chain of `boolean_operator`
+    // nodes, each wrapping one `and` / `or` token; the two tokens occur
+    // in no other production, so they pay ungated. The wrapper is the
+    // owner, and which of the two a consumer pays at is its own policy
+    // (ABC scores the operands and never the operator, #395 / #1526;
+    // cyclomatic counts the token).
+    ShortCircuit { owns [BooleanOperator] pays [And, Or] }
+
     NullSafe { absent "Python has no `?.` or `??`" }
     EagerLogical { absent "Python's `and` / `or` are lazy; `&` / `|` are bitwise" }
     Guard { pending R05 }
-    ShortCircuit { pending R04 }
     Ternary { pending R05 }
     CaseArm { pending R05 }
     Branch { pending R07 }

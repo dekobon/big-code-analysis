@@ -26,7 +26,7 @@ use crate::{LANG, Metric, MetricsOptions};
 /// For each `(body, conditions, decisions)` row, substitutes the body
 /// into the template and asserts the function named `f` scores
 /// `conditions` ABC conditions and `decisions` cyclomatic decisions.
-#[cfg(feature = "java")]
+#[cfg(any(feature = "java", feature = "python"))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
     assert!(template.contains("BODY"), "template has no body slot");
@@ -74,6 +74,43 @@ fn java_rows_feed_each_abc_path_independently() {
             ("boolean c = a && x < 1; return c;", 2, 1),
             ("if (a && b) { } return a;", 2, 2),
             ("if (a && b || x > 1) { } return a;", 3, 3),
+        ],
+    );
+}
+
+// Python pays the `Comparison` row at its wrapper, so a chained
+// `x < y < 3` is one condition, and never pays the `ShortCircuit` token
+// — only the chain's operand slots — where cyclomatic counts the token
+// and no slot (#395): the same two rows, two policies.
+#[test]
+#[cfg(feature = "python")]
+fn python_rows_feed_each_abc_path_independently() {
+    let template = "def f(a, b, x, y, xs):\n    BODY\n";
+    assert_rows(
+        LANG::Python,
+        template,
+        &[
+            // slot only
+            ("if a:\n        pass\n    return a", 1, 1),
+            // comparison in a slot: the wrapper pays, the slot does not
+            ("if x < y:\n        pass\n    return a", 1, 1),
+            ("if x < y < 3:\n        pass\n    return a", 1, 1),
+            ("if x in xs:\n        pass\n    return a", 1, 1),
+            ("if x not in xs:\n        pass\n    return a", 1, 1),
+            ("if x is not None:\n        pass\n    return a", 1, 1),
+            // outside any slot: only the wrapper arm can pay
+            ("c = x < y\n    return c", 1, 0),
+            ("c = x >= y\n    return c", 1, 0),
+            ("c = x is None\n    return c", 1, 0),
+            // a loop's `in` is no comparison
+            ("for i in xs:\n        pass\n    return a", 0, 1),
+            // the chain: two operand slots, nothing for the token; the
+            // token is cyclomatic's decision
+            ("return a and b", 2, 1),
+            ("return a or b", 2, 1),
+            ("c = a and x < 1\n    return c", 2, 1),
+            ("if a and b:\n        pass\n    return a", 2, 2),
+            ("if a and b or x > 1:\n        pass\n    return a", 3, 3),
         ],
     );
 }

@@ -79,15 +79,22 @@ fn python_comprehension_clause_nesting(
 /// it, with the measured ladder, is the Python bullet under *Cognitive
 /// Complexity → Per-language deviations* in
 /// `big-code-analysis-book/src/metrics.md`.
+///
+/// The outermost test asks the `ShortCircuit` row whether each
+/// ancestor owns a chain. An ancestor is handed over without its own
+/// chain — the walk's chain is `node`'s — and the row's owner has no
+/// gate, so `Ancestors::unknown()` is exact there.
 fn python_apply_boolean_operator<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
+    use crate::roles::python::short_circuit;
     use Python::*;
     if node.count_specific_ancestors::<PythonCode>(
         ancestors,
-        |node| node.kind_id() == BooleanOperator,
+        |ancestor| short_circuit::owns(ancestor, code, Ancestors::unknown()),
         python_is_lambda,
     ) == 0
     {
@@ -110,17 +117,18 @@ fn python_apply_boolean_operator<'a>(
                 )
             });
     }
-    compute_booleans(node, stats, And, Or);
+    compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
 }
 
 impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::python::short_circuit;
         use Python::*;
 
         // Get nesting of the parent
@@ -201,7 +209,10 @@ impl Cognitive for PythonCode {
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
             }
-            BooleanOperator => python_apply_boolean_operator(node, ancestors, stats),
+            // A `boolean_operator` — the `ShortCircuit` row's owner.
+            _ if short_circuit::owns(node, code, ancestors) => {
+                python_apply_boolean_operator(node, code, ancestors, stats);
+            }
             // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the
             // hidden alias `python_is_lambda` also accepts. A match arm
             // cannot route through the predicate, so the alias set is
