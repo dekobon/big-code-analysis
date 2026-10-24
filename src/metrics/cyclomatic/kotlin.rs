@@ -15,7 +15,7 @@ impl Cyclomatic for KotlinCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::kotlin::short_circuit;
+        use crate::roles::kotlin::{case_arm, short_circuit};
         use Kotlin::*;
 
         let kind = node.kind_id();
@@ -26,13 +26,11 @@ impl Cyclomatic for KotlinCode {
             return;
         }
         match kind.into() {
-            // Standard-only: individual when entries (arms), except the
-            // `else -> …` arm which is Kotlin's analogue of `default:`
-            // and must NOT contribute to standard CCN (issue #282 /
-            // lesson 11). tree-sitter-kotlin-ng attaches a `condition`
-            // field to every case-style entry; the else arm has no
-            // `condition` field.
-            WhenEntry if !kotlin_when_entry_is_else(node) => {
+            // Standard-only: each `when` entry the `CaseArm` row owns —
+            // every case-style arm, and not the `else -> …` fallback,
+            // Kotlin's `default:` (#282, lesson 11), which the row tells
+            // by the absence of a `condition` field.
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: the when expression container.

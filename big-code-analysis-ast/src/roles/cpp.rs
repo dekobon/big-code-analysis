@@ -4,12 +4,13 @@
 use crate::Cpp;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_comparison_owners,
-    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
-    cpp_family_short_circuit_payers,
+    c_family_case_arm_gate, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
+    cpp_family_comparison_owners, cpp_family_comparison_payers, cpp_family_gates,
+    cpp_family_short_circuit_owners, cpp_family_short_circuit_payers,
 };
 
 cpp_family_gates!(Cpp);
+c_family_case_arm_gate!(Cpp);
 
 role_table! {
     lang: Cpp;
@@ -48,7 +49,17 @@ role_table! {
         project "operator"
     }
     NullSafe { absent "C++ has no optional navigation or null coalescing" }
-    CaseArm { pending R05 }
+    // A `case_statement` is the grammar's node for a `case X:` label
+    // and a `default:` label alike; the arm owns a decision when it
+    // holds the `case` keyword, which pays — one per label, so a
+    // fall-through run `case 2: case 3:` is two. The `default` keyword
+    // is the fallback and pays nothing (lesson 11, #469); Halstead
+    // bills it as the keyword it is through the byte-less arm.
+    CaseArm {
+        owns [CaseStatement(gated_by is_case_label)]
+        pays [Case]
+        excludes [Default "the fallback label, no decision (lesson 11, #469)"]
+    }
     Guard { absent "C++ has no guard clause on a case or a function head" }
     Branch { pending R07 }
     Switch { pending R07 }

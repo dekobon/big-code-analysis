@@ -186,6 +186,8 @@ impl Cognitive for PythonCode {
                 nesting.conditional +=
                     python_comprehension_clause_nesting(node, nesting, nesting_map);
             }
+            // role-bypass: allow(Guard) — a comprehension clause's nesting slot; the `case` guard
+            // the row owns shares the kind and reads the same slot
             ForInClause | IfClause => {
                 // `nesting` already holds this clause's own value: the
                 // comprehension (visited first in pre-order) precomputed it

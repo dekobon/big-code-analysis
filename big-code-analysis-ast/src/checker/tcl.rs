@@ -22,6 +22,8 @@ impl Checker for TclCode {
         false
     }
 
+    // role-bypass: allow(CaseArm) — every command is a call; the row claims the kind for the
+    // `switch` arms a `command` can also be, told by position and text
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Tcl::Command
     }

@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::roles::mozcpp::{comparison, short_circuit, ternary};
+use crate::roles::mozcpp::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` of the Mozilla fork — the Cpp twin's,
@@ -104,6 +104,12 @@ impl Abc for MozcppCode {
             _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
+            // A `case` label, the `CaseArm` row's payer — one per label,
+            // as cyclomatic counts them; `default` is excluded on the row
+            // (lesson 11, #469).
+            _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
             // `&&` / `||` chain is one condition (issue #403); the
             // `ShortCircuit` row's gate keeps a `constraint_conjunction` and
@@ -126,7 +132,7 @@ impl Abc for MozcppCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            Else | Case | Try | Try2 | Catch => {
+            Else | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
             // Phase-2B (issue #403): condition slots, read by grammar field

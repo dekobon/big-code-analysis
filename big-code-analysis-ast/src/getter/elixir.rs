@@ -201,9 +201,11 @@ impl Getter for ElixirCode {
             // keyword, a recovered token — which bill as the operators
             // they spell, as they did before the rows; the rows pay the
             // applied spellings through `get_paying_role` (#1695), so
-            // for these kinds the vocabulary is the union of the two.
-            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
-            // spellings the rows' `applied` gate leaves out
+            // for these kinds the vocabulary is the union of the two. So
+            // does `when`, for the typespec binding (`when a: integer`)
+            // the `Guard` row's `is_guard` gate leaves out.
+            // role-bypass: allow(Comparison, ShortCircuit, Guard) — the operator classification of
+            // the spellings the rows' `applied` / `is_guard` gates leave out
             E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue
             | E::When | E::Not | E::Or | E::And | E::In | E::Notin
             // Structural punctuation acting as operators. Only the

@@ -1,13 +1,23 @@
 //! Tcl's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
-use crate::Tcl;
+use crate::lang_helpers::case_arms::tcl_command_is_switch_arm;
 use crate::role_table;
 use crate::roles::tcl_family::{
     tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
 };
+use crate::{Ancestors, Node, Tcl};
 
 tcl_family_gates!();
+
+/// Whether a `command` is a decision arm of a brace-list `switch` — a
+/// child of the arm list of a command whose leading word is `switch`,
+/// and not the `default` arm (lesson 11, #467). Reads the bytes and the
+/// ancestor chain, since `switch` is a generic `command` with no kind
+/// of its own (lesson 19).
+fn is_switch_arm<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    tcl_command_is_switch_arm(node, code, ancestors)
+}
 
 role_table! {
     lang: Tcl;
@@ -40,7 +50,14 @@ role_table! {
         project "operator"
     }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }
-    CaseArm { pending R05 }
+    // A `switch` is a generic `command` whose arms are the nested
+    // `command`s of its sole braced argument (the split form has no arm
+    // node and is not counted, #467); each arm owns a decision and pays
+    // at the node, told from any other command by its position and its
+    // parent's leading word, and the `default` arm pays nothing (lesson
+    // 11). The owner reads the ancestor chain, so it is never asked with
+    // `Ancestors::unknown()`.
+    CaseArm { owns [Command(text_gated_by is_switch_arm)] }
     Guard { absent "Tcl has no guard clause" }
     Branch { pending R07 }
     Switch { pending R07 }

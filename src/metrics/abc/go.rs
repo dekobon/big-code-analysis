@@ -64,8 +64,8 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
     let mut node = *container_node;
     // `ExpressionCase` reaches here only from a tagless switch, whose
     // case expressions are boolean exactly as an `if` predicate is.
-    // role-bypass: allow(Comparison, ShortCircuit) — traversal: whether the slot's parent is a
-    // boolean context, not whether it is a comparison or a chain
+    // role-bypass: allow(Comparison, ShortCircuit, CaseArm) — traversal: whether the slot's parent
+    // is a boolean context, not whether it is a comparison, a chain or an arm
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         G::BinaryExpression | G::IfStatement | G::ForStatement | G::ExpressionCase
@@ -234,7 +234,7 @@ impl Abc for GoCode {
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
         use Go as G;
 
-        use crate::roles::go::{comparison, short_circuit};
+        use crate::roles::go::{case_arm, comparison, short_circuit};
 
         let kind = node.kind_id();
         match kind.into() {
@@ -266,16 +266,22 @@ impl Abc for GoCode {
             G::CallExpression => {
                 stats.branches += 1.;
             }
-            // `else` and each non-default type-switch / select arm
-            // contribute one condition (an expression-switch case is
-            // scored below). `default_case` is intentionally excluded —
-            // like Java / C# `default:`, it does not introduce a new
-            // decision point.
-            G::Else | G::TypeCase | G::CommunicationCase => {
+            G::Else => {
                 stats.conditions += 1.;
             }
-            G::ExpressionCase => {
-                go_count_expression_case(node, ancestors, &mut stats.conditions);
+            // Each switch / select arm the `CaseArm` row owns contributes
+            // one condition — a tagless expression switch's through its
+            // case expressions, which are boolean exactly as an `if`
+            // predicate is. `default_case` is excluded on the row, like
+            // Java / C# `default:`: it introduces no decision.
+            // role-bypass: allow(CaseArm) — which owner shape the arm is: an expression case walks
+            // its list, the type and communication cases pay at the node
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
+                if kind == G::ExpressionCase as u16 {
+                    go_count_expression_case(node, ancestors, &mut stats.conditions);
+                } else {
+                    stats.conditions += 1.;
+                }
             }
             // The six comparison tokens, the `Comparison` row's payers
             // (`roles/go.rs`), `<` / `>` gated to a `binary_expression`

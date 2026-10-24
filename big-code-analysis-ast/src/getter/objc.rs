@@ -151,13 +151,14 @@ impl Getter for ObjcCode {
             // specifier, a protocol list (`id<NSCopying>`), a recovered
             // token — which billed before the rows existed; `LT2` is the
             // grammar's own generic-opener kind and pays nowhere. The
-            // ternary `?` is not here: the `Ternary` row pays it ungated.
+            // ternary `?` and the `case` label are not here: the `Ternary`
+            // and `CaseArm` rows pay them ungated.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
             // row's `under_binary_expression` gate leaves out
             LT | GT | LT2 | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI
-            | Return | Break | Continue | If | Else | Switch | Case | Default | For | While
-            | Goto | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
-            | PIPE | AMP | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ
+            | Return | Break | Continue | If | Else | Switch | Default | For | While | Goto
+            | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE
+            | AMP | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ
             | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof
             | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
             | ATautoreleasepool | ATselector | ATencode => TokenRole::Operator,

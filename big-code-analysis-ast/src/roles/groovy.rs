@@ -75,6 +75,13 @@ fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>
     ancestors.parent_has_kind(node, Groovy::TernaryExpression as u16)
 }
 
+/// Whether a `switch_case` is a `case X:` arm. The dekobon grammar
+/// gives `default:` its own `switch_default` kind, so every
+/// `switch_case` holds a `case`; the gate pins that.
+fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.is_child(Groovy::Case as u16)
+}
+
 /// Whether an `in` keyword is a membership test rather than the `in`
 /// of a `for (x in xs)` loop header, where it is a loop keyword.
 fn under_membership_expression<'a>(
@@ -204,8 +211,18 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // A `switch_case` owns a decision and its `case` keyword pays; the
+    // `switch_default` and its `default` keyword are the fallback and
+    // pay nothing (lesson 11, #469).
+    CaseArm {
+        owns [SwitchCase(gated_by is_case_label)]
+        pays [Case]
+        excludes [
+            SwitchDefault "the fallback arm, no decision (lesson 11, #469)",
+            Default "the fallback label's keyword",
+        ]
+    }
+    Guard { absent "Groovy has no guard clause on a case or a function head" }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

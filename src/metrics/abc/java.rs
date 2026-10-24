@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
-use crate::roles::java::{comparison, short_circuit, ternary};
+use crate::roles::java::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`): a parenthesis, a cast
@@ -250,14 +250,17 @@ fn java_count_token_condition<'a>(
     // ternary: tree-sitter-java also emits it bare as the head of a
     // `wildcard` type argument (`List<? extends T>`), type syntax and no
     // more a decision than the `<` / `>` around it (#1274).
+    // And the `CaseArm` row's `case` label, one per label as cyclomatic
+    // counts them; `default` is excluded on the row (lesson 11, #469).
     if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
         || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+        || case_arm::pays_at_leaf_kind(kind, node, code, ancestors)
     {
         stats.conditions += 1.;
         return true;
     }
     match kind.into() {
-        Else | Case | Try | Catch => {
+        Else | Try | Catch => {
             stats.conditions += 1.;
         }
         _ => return false,
@@ -321,7 +324,9 @@ fn java_walk_for_conditions<'a>(
         // it no field, so the expression is the clause's first operand
         // that is not an `extra` — `when /*c*/ g` puts a comment before
         // it, which would pay as a slot of its own.
-        Guard => java_count_slot(wrapped_operand(node), code, conds),
+        _ if guard::owns_kind(kind, node, code, ancestors) => {
+            java_count_slot(wrapped_operand(node), code, conds);
+        }
         // Declarator / assignment RHS and lambda body (`params -> body`),
         // by field for the same reason as the condition slots above.
         VariableDeclarator => {

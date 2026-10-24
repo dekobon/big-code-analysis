@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::roles::objc::{comparison, short_circuit, ternary};
+use crate::roles::objc::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -82,7 +82,7 @@ impl Abc for ObjcCode {
             // `@catch` exception conditions. `&&` / `||` are deliberately
             // excluded (Fitzpatrick Rule 7; the unary-conditional
             // counterpart is Rule 9, handled below).
-            Else | Case | ATtry | CatchClause => {
+            Else | ATtry | CatchClause => {
                 stats.conditions += 1.;
             }
             // The six comparison tokens, the `Comparison` row's payers
@@ -100,6 +100,12 @@ impl Abc for ObjcCode {
             // paid at the token so `a ? b : c` scores one outside any
             // slot; the owner arm below walks its operand slots.
             _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
+            // A `case` label, the `CaseArm` row's payer — one per label,
+            // as cyclomatic counts them; `default` is excluded on the row
+            // (lesson 11, #469).
+            _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9: each operand of a `&&` / `||` chain is

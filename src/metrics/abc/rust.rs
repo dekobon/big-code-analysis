@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, last_operand, wrapped_operand,
 };
-use crate::roles::rust::{comparison, short_circuit};
+use crate::roles::rust::{case_arm, comparison, guard, short_circuit};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis holds one
@@ -137,17 +137,17 @@ fn rust_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
 // `LetCondition` token arm and by the `&&` walker respectively, so
 // `rust_condition_scores_itself` stops the slot paying for them again.
 fn rust_count_match_arm(node: &Node, code: &[u8], conditions: &mut f64) {
-    let Some(pattern) = node.child_by_field_name("pattern") else {
-        // `pattern` is a required field, so this is unreachable at the
-        // pinned grammar; counting the arm keeps the pre-#1454
-        // `is_some_and` polarity if error recovery ever produces one.
-        *conditions += 1.;
-        return;
-    };
-    if !super::npa::pattern_is_bare_underscore(&pattern, Rust::UNDERSCORE as u16) {
+    if case_arm::owns(node, code, Ancestors::unknown()) {
         *conditions += 1.;
     }
-    rust_count_slot(pattern.child_by_field_name("condition"), code, conditions);
+    // The guard is the `Guard` row's owner, the pattern's `condition`
+    // field; the pattern is required at the pinned grammar.
+    if let Some(pattern) = node
+        .child_by_field_name("pattern")
+        .filter(|pattern| guard::owns(pattern, code, Ancestors::unknown()))
+    {
+        rust_count_slot(pattern.child_by_field_name("condition"), code, conditions);
+    }
 }
 
 // Fitzpatrick Rule 7 (#403): each operand of an `&&` / `||` chain is a
@@ -244,20 +244,16 @@ impl Abc for RustCode {
             _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
-            // Every non-wildcard `match_arm` is one condition. A bare
-            // `_ => ...` arm is the C / Java `default:` equivalent and
-            // is excluded — mirrors the cyclomatic treatment and
-            // Kotlin's `when` / Java's `case` rules. Patterns like
-            // `Some(_)`, `(_, x)`, or `_ if guard` are not bare
-            // wildcards and still count. The check scans only NAMED
-            // children of `match_pattern` so anonymous tokens like a
-            // leading `|` (allowed in or-patterns: `| _ => ...`) do
-            // not throw off the detection. A guard (`_ if g`) adds a
-            // second named child to `match_pattern` and so escapes
-            // the bare-wildcard filter.
-            //
-            // The arm's guard is a further condition slot — see
-            // `rust_count_match_arm`.
+            // Every `match_arm` the `CaseArm` row owns is one condition;
+            // a bare `_ => ...` arm is the C / Java `default:` equivalent
+            // and the row leaves it out — mirrors the cyclomatic
+            // treatment, which reads the same row, and Kotlin's `when` /
+            // Java's `case` rules. The arm's guard is a further condition
+            // slot — see `rust_count_match_arm`, which asks the row and
+            // the `Guard` row of the arm itself, so a bare `_` arm with a
+            // guard still reaches the slot.
+            // role-bypass: allow(CaseArm) — the arm's two slots are read inside; the row is asked
+            // there of the arm itself, bare or not
             MatchArm | MatchArm2 => rust_count_match_arm(node, code, &mut stats.conditions),
             // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain
             // is one condition. The walker iterates immediate children

@@ -15,16 +15,16 @@ impl Cyclomatic for BashCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::bash::{short_circuit, ternary};
+        use crate::roles::bash::{case_arm, short_circuit, ternary};
         let kind = node.kind_id();
         match kind.into() {
-            // Standard-only: individual case arms (matches C-family `case:`
-            // treatment — only arms contribute, not the container). The
-            // bare-wildcard arm `*)` is Bash's analogue of the C-family
-            // `default:` and is excluded from the standard count, matching
-            // every other switch-bearing language. A multi-value pattern
-            // (`a|b)`, `*|b)`) is NOT bare and still counts. Closes #211.
-            Bash::CaseItem | Bash::CaseItem2 if !bash_case_item_is_bare_wildcard(node, code) => {
+            // Standard-only: each case arm the `CaseArm` row owns (matches
+            // C-family `case:` treatment — only arms contribute, not the
+            // container). The bare-wildcard arm `*)` is Bash's analogue of
+            // the C-family `default:` and the row leaves it out, matching
+            // every other switch-bearing language; a multi-value pattern
+            // (`a|b)`, `*|b)`) is not bare and still counts. Closes #211.
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: the case…esac container collapses all arms

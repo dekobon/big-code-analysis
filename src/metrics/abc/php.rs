@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
     wrapped_operand,
 };
-use crate::roles::php::{comparison, short_circuit, ternary};
+use crate::roles::php::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -146,11 +146,12 @@ impl Abc for PhpCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the PHP grammar can hand us, not
-        // branching a reader must hold; the two row reads (#1695) are
-        // arms like the token arms they replaced.
+        // branching a reader must hold, and the effort is the table's
+        // vocabulary; the row reads (#1695) are arms like the kind arms
+        // they replaced.
         use Php::*;
 
         let kind = node.kind_id();
@@ -189,7 +190,12 @@ impl Abc for PhpCode {
             // only). Dropping both Default kinds keeps ABC conditions equal
             // to the cyclomatic decision count (issue #473, mirroring the
             // #469 C-family fix and #456 Kotlin/C# fixes).
-            ElseClause | ElseClause2 | CaseStatement | MatchConditionalExpression | CatchClause => {
+            ElseClause | ElseClause2 | CatchClause => {
+                stats.conditions += 1.;
+            }
+            // Each switch / match arm the `CaseArm` row owns, which leaves
+            // the `default` arms out (#473).
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // The comparison tokens and `instanceof`, the `Comparison`

@@ -30,13 +30,9 @@ use super::*;
 // and `If` / `For` / `While` / `Catch` cannot appear in an expression
 // position.
 //
-// `&&` / `||` are read from the `ShortCircuit` row of `roles/java.rs`
-// (#1694), the same declaration ABC's chain walker and cognitive's
-// boolean-sequence arm read.
-impl_cyclomatic_java_like_rows!(
-    JavaCode,
-    Java,
-    [Guard],
-    short_circuit = crate::roles::java::short_circuit,
-    ternary = crate::roles::java::ternary
-);
+// Every decision is read from a row of `roles/java.rs` (#1694, #1695):
+// `&&` / `||` from `ShortCircuit`, the ternary from `Ternary`, the
+// guard from `Guard` — the same declarations ABC's walkers and
+// cognitive's boolean-sequence arm read — and the `case` label from
+// `CaseArm`.
+impl_cyclomatic_java_like_rows!(JavaCode, Java, [], roles = crate::roles::java);

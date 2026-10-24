@@ -7,6 +7,7 @@
 )]
 
 use super::*;
+use crate::lang_helpers::case_arms::tcl_switch_arm_list;
 
 impl Cyclomatic for TclCode {
     fn compute<'a>(
@@ -15,7 +16,7 @@ impl Cyclomatic for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::tcl::{short_circuit, ternary};
+        use crate::roles::tcl::{case_arm, short_circuit, ternary};
         let kind = node.kind_id();
         // `&&` / `||`, the `ShortCircuit` row's payers, and the
         // `ternary_expr` the `Ternary` row owns (#1695).
@@ -26,6 +27,14 @@ impl Cyclomatic for TclCode {
             stats.cyclomatic_modified += 1.;
             return;
         }
+        // Standard-only: each arm of a brace-list `switch` the `CaseArm`
+        // row owns — a nested `command` told by its position and its
+        // parent's leading word, the `default` arm left out (lesson 11),
+        // and the unsupported split form owning nothing (#467).
+        if case_arm::owns_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            return;
+        }
         match kind.into() {
             Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch => {
                 stats.cyclomatic += 1.;
@@ -34,18 +43,15 @@ impl Cyclomatic for TclCode {
             // Tcl `switch` and `for` are generic `command`s with no dedicated
             // kind (issues #467, #1264), so the kind dispatch above never
             // sees them. The leading word is resolved once and dispatched on.
+            // role-bypass: allow(CaseArm) — the command-name dispatch for `switch` / `for`, which
+            // the row's switch-arm owner is also a kind of; the arms are read above
             Tcl::Command => match crate::lang_helpers::tcl::tcl_command_name(node, code) {
-                // Mirroring the C-family convention (see
-                // `impl_cyclomatic_c_family`): each non-`default` arm is a
-                // decision point in standard CCN, while modified CCN
-                // collapses the whole construct to a single container
-                // decision. The unsupported split form yields `None` and
-                // stays uncounted in both tiers.
+                // Modified-only: the brace-list `switch` collapses to one
+                // container decision (its arms are read above, each at its
+                // own node). The unsupported split form has no arm list
+                // and stays uncounted in both tiers.
                 Some("switch") => {
-                    if let Some(arms) =
-                        crate::metrics::cognitive::tcl_switch_decision_arms(node, code)
-                    {
-                        stats.cyclomatic += arms as f64;
+                    if tcl_switch_arm_list(node).is_some() {
                         stats.cyclomatic_modified += 1.;
                     }
                 }

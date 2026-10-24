@@ -130,8 +130,11 @@ impl Getter for RustCode {
             // parent gate leaves out — a generic opener (`Vec<T>`, the
             // `<>` pair) and a recovered token — which billed before the
             // row existed; `LT2` is the defensive generic-opener alias.
-            // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` gate leaves out
+            // `if` likewise stays for the `if` expression's keyword, which
+            // the `Guard` row's `under_match_pattern` gate leaves out; a
+            // match guard's is the row's.
+            // role-bypass: allow(Comparison, Guard) — the operator classification of the spellings
+            // the rows' `under_binary_expression` / `under_match_pattern` gates leave out
             LT | LT2 | GT | LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break
             | Continue | Else | For | If | In | Loop | Match | Return | While | EQ | COMMA
             | DASHGT | QMARK | AMP | DOTDOT | DOTDOTEQ | DASH | PIPE | CARET | LTLT | GTGT

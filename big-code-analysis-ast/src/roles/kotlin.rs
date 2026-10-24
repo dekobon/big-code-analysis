@@ -2,6 +2,7 @@
 //! every other role is pending the package that declares it (#1692).
 
 use crate::getter::node_text;
+use crate::lang_helpers::case_arms::kotlin_when_entry_is_else;
 use crate::role_table;
 use crate::{Ancestors, Kotlin, Node};
 
@@ -112,6 +113,12 @@ fn under_binary_expression<'a>(
     ancestors.parent_has_kind(node, Kotlin::BinaryExpression as u16)
 }
 
+/// Whether a `when_entry` is a case-style arm rather than the `else ->`
+/// fallback, which has no `condition` field (lesson 11, #469).
+fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !kotlin_when_entry_is_else(node)
+}
+
 /// Whether an `is` / `!is` keyword is the operator of an
 /// `is_expression`: the same tokens open a `when` entry's `type_test`,
 /// where the entry pays.
@@ -172,8 +179,13 @@ role_table! {
     EagerLogical { owns [InfixExpression(text_gated_by eager_infix)] }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // A `when_entry` owns a decision and pays at the node — the grammar
+    // gives the arm no keyword of its own; its `->` is punctuation —
+    // unless it is the `else ->` fallback, told by the absence of a
+    // `condition` field (lesson 11, #469). A subject-ful entry's `is` /
+    // `in` tests are the entry's, not the `Comparison` row's.
+    CaseArm { owns [WhenEntry(gated_by is_case_entry)] }
+    Guard { absent "Kotlin 2.x's `when` guards are not in the pinned grammar; `if` is an expression" }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

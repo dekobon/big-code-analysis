@@ -61,6 +61,8 @@ impl Cognitive for KotlinCode {
                 // which is `O(depth)` — one climb per `else` keeps the
                 // metric quadratic on a deeply nested `if`/`else` chain,
                 // the shape #1062 exists to make linear.
+                // role-bypass: allow(CaseArm) — traversal: whether the `else` is a `when` entry's,
+                // not whether the entry is an arm
                 let in_when = ancestors.parent_has_kind(node, WhenEntry as u16);
                 if !in_when {
                     increment_by_one(stats);

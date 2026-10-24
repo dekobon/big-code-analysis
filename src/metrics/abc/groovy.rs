@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
-use crate::roles::groovy::{comparison, short_circuit, ternary};
+use crate::roles::groovy::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
@@ -271,8 +271,11 @@ fn groovy_count_token_condition<'a>(
     // row's `?` likewise, gated by the row to the ternary — as in Java,
     // a bare `?` is also the head of a `wildcard` type argument, which
     // is no decision (#1274).
+    // And the `CaseArm` row's `case` label; `default` is excluded on the
+    // row (lesson 11, #469).
     if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
         || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+        || case_arm::pays_at_leaf_kind(kind, node, code, ancestors)
     {
         stats.conditions += 1.;
         return true;
@@ -288,7 +291,7 @@ fn groovy_count_token_condition<'a>(
         // as a unary condition — it keeps `abc.conditions` equal to
         // `cyclomatic() - 1` on the chain (grammar-dispatch §8). It is
         // `NullSafe`'s, pending that row.
-        Else | Case | Try | Catch | QMARKCOLON => {
+        Else | Try | Catch | QMARKCOLON => {
             stats.conditions += 1.;
         }
         _ => return false,

@@ -1,6 +1,7 @@
 //! Ruby's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
+use crate::lang_helpers::case_arms::ruby_in_clause_counts;
 use crate::role_table;
 use crate::{Ancestors, Node, Ruby};
 
@@ -33,6 +34,12 @@ fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
     ancestors
         .parent(node)
         .is_some_and(|p| comparison::OWNERS.contains(&p.kind_id()))
+}
+
+/// Whether a `case … in` arm is a decision: its pattern is not a bare
+/// `_`, or it carries an `if` / `unless` guard (#977; lesson 11).
+fn is_decision_in_clause<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    ruby_in_clause_counts(node, code)
 }
 
 role_table! {
@@ -95,8 +102,25 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // A `when` arm of `case … when` owns a decision and pays at the
+    // node (its `when` keyword, `When2`, bills as the keyword it is), as
+    // does an `in_clause` of `case … in` unless its pattern is a bare
+    // `_` with no guard, the pattern match's default arm (#977). The
+    // `else` of either is the fallback and pays nothing (lesson 11).
+    CaseArm {
+        owns [When, InClause(text_gated_by is_decision_in_clause)]
+        excludes [
+            Else "the fallback arm of a `case`, no decision (lesson 11); an `if`'s `else` is `Branch`'s",
+            When2 "the arm's keyword, billed as such; the arm pays",
+            In2 "the pattern arm's keyword, billed as such; the arm pays",
+        ]
+    }
+    // An `in X if g` / `in X unless g` guard is the `if_guard` /
+    // `unless_guard` node (`Guard` the hidden `_guard` supertype, listed
+    // per lesson 34), one decision paid at the node: cyclomatic counts
+    // it and ABC walks its condition field; the keyword bills as the
+    // `if` / `unless` it is.
+    Guard { owns [Guard, IfGuard, UnlessGuard] }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

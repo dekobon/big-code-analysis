@@ -12,6 +12,7 @@
 )]
 
 use super::*;
+use crate::lang_helpers::case_arms::tcl_switch_arm_list;
 
 impl Cognitive for TclCode {
     fn compute<'a>(
@@ -83,6 +84,8 @@ impl Cognitive for TclCode {
             // (`{$i < $n}`) stays an opaque `braced_word` and its comparison
             // never surfaces as a condition token for ABC — a grammar
             // limitation, not a metric-layer bug.
+            // role-bypass: allow(CaseArm) — the command-name dispatch for `switch` / `for` /
+            // `try`, which the row's switch-arm owner is also a kind of
             Command => match tcl_command_name(node, code) {
                 // A switch-like structure: +1 plus current nesting, with the
                 // `default` arm free, matching C-family `SwitchStatement`

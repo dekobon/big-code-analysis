@@ -81,7 +81,20 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
+    // A `case_statement` of a `switch` and a `match_conditional_expression`
+    // of a `match` each own a decision and pay at the node (the `case`
+    // keyword bills as the keyword it is; a match arm has none); the
+    // `default_statement` / `match_default_expression` and their
+    // keyword are the fallback and pay nothing (lesson 11, #469, #473).
+    CaseArm {
+        owns [CaseStatement, MatchConditionalExpression]
+        excludes [
+            DefaultStatement "the fallback arm, no decision (lesson 11, #469)",
+            MatchDefaultExpression "the fallback arm of a `match`, no decision (#473)",
+            Case "the arm's keyword, billed as such; the arm pays",
+            Default "the fallback label's keyword",
+        ]
+    }
     Guard { absent "PHP has no guard clause" }
     Branch { pending R07 }
     Switch { pending R07 }

@@ -3,6 +3,9 @@
 
 use crate::checker::csharp_is_aliased_modifier;
 use crate::getter::node_text;
+use crate::lang_helpers::case_arms::{
+    csharp_case_token_is_switch_arm, csharp_switch_expression_arm_is_bare_discard,
+};
 use crate::role_table;
 use crate::{Ancestors, Csharp, Node};
 
@@ -67,6 +70,27 @@ fn under_binary_expression<'a>(
         p.kind_id() == Csharp::BinaryExpression as u16
             || p.kind_id() == Csharp::BinaryExpression2 as u16
     })
+}
+
+/// Whether a `switch_section` holds a `case` label rather than only
+/// `default:`. One section carries every label of a fall-through run
+/// (`case 1: case 2: body`), each a decision its `case` keyword pays.
+fn is_case_section<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.is_child(Csharp::Case as u16)
+}
+
+/// Whether a `switch_expression_arm` is a decision: not the bare
+/// discard `_ =>` / `var _ =>`, the expression form's `default:`,
+/// unless a `when` guard makes it one (`case_arms` has the shapes).
+fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !csharp_switch_expression_arm_is_bare_discard(node)
+}
+
+/// Whether a `case` keyword is a `switch` arm's rather than the one in
+/// `goto case 2;`, an unconditional jump that spells the same token
+/// (#1450).
+fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    csharp_case_token_is_switch_arm(node, ancestors)
 }
 
 /// Whether a `?` is the ternary's. tree-sitter-c-sharp spells the bare
@@ -166,8 +190,33 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // Two arm shapes. A statement `switch_section` owns a decision when
+    // it holds a `case` label, and each `case` keyword pays — gated to
+    // the section, since `goto case 2;` spells the same token (#1450);
+    // `default:` is the fallback and pays nothing (lesson 11, #469). A
+    // `switch_expression_arm` has no keyword: the node owns and pays,
+    // unless it is the bare discard `_ =>` / `var _ =>`, the expression
+    // form's `default:` — a guarded discard still counts.
+    CaseArm {
+        owns [
+            SwitchSection(gated_by is_case_section),
+            SwitchExpressionArm(pays_itself gated_by is_decision_arm),
+        ]
+        pays [Case gated_by is_switch_arm_case]
+        excludes [Default "the fallback label, no decision (lesson 11, #469); `goto default;` spells it too"]
+    }
+    // A `when` guard on a switch-expression arm or a pattern `case`
+    // (`when_clause`) and on a `catch` (`catch_filter_clause`): each
+    // node is one decision, paid at the node (#1422). The `when` token
+    // is not the payer: it is also a `_reserved_identifier` at this
+    // pin, so `int when = 1;` emits it under an `identifier` and a
+    // token payer would score a decision per mention of the variable
+    // (`bca dump`, not inferred); it bills as the keyword it is through
+    // the byte-less arm.
+    Guard {
+        owns [WhenClause, CatchFilterClause]
+        excludes [When "also a reserved identifier at this pin: `int when = 1;` spells it"]
+    }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

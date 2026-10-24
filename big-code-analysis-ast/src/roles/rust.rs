@@ -1,6 +1,7 @@
 //! Rust's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
+use crate::lang_helpers::case_arms::pattern_is_bare_underscore;
 use crate::role_table;
 use crate::{Ancestors, Node, Rust};
 
@@ -17,6 +18,28 @@ fn short_circuit_operator<'a>(
     _ancestors: Ancestors<'a, '_>,
 ) -> bool {
     short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `match_arm` is a decision: its `pattern` is not a bare `_`
+/// (lesson 11, #469). `Some(_)`, `(_, x)` and `_ if g` are not bare and
+/// still count; a leading `|` of an or-pattern is skipped. The field is
+/// required at the pinned grammar, so an arm without one — error
+/// recovery only — counts, the polarity both consumers had (#1454).
+fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !node
+        .child_by_field_name("pattern")
+        .is_some_and(|pat| pattern_is_bare_underscore(&pat, Rust::UNDERSCORE as u16))
+}
+
+/// Whether a `match_pattern` carries a guard: its `condition` field.
+fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("condition").is_some()
+}
+
+/// Whether an `if` keyword is a match guard's rather than an `if`
+/// expression's: its parent is a `match_pattern`.
+fn under_match_pattern<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Rust::MatchPattern as u16)
 }
 
 /// Whether a bare `<` / `>` is the operator of a `binary_expression`
@@ -80,8 +103,21 @@ role_table! {
     }
     Ternary { absent "Rust has no ternary operator; `if` is an expression" }
     NullSafe { absent "Rust has no optional navigation or null coalescing; `?` is an exit" }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // A `match_arm` (`MatchArm2` the second id carrying the kind, per
+    // grammar-dispatch §1) owns a decision and pays at the node — its
+    // `=>` is punctuation — unless its pattern is a bare `_`, the
+    // C-family `default:` (lesson 11, #469).
+    CaseArm { owns [MatchArm(gated_by is_decision_arm), MatchArm2(gated_by is_decision_arm)] }
+    // A match guard is the `match_pattern`'s `condition` field, opened
+    // by an `if` keyword the grammar shares with the `if` expression;
+    // the pattern owns it where the field is present and the keyword
+    // pays, gated to the pattern. Cyclomatic counts that keyword
+    // wherever it is written, so the guard pays as an `if` does; ABC
+    // walks the field as a boolean slot.
+    Guard {
+        owns [MatchPattern(gated_by has_guard)]
+        pays [If gated_by under_match_pattern]
+    }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

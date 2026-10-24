@@ -8,6 +8,9 @@ use crate::lang_helpers::elixir::{
     elixir_applying_operator, elixir_call_keyword, elixir_is_class_macro,
     elixir_is_inside_quote_block, elixir_is_method_macro,
 };
+use crate::lang_helpers::elixir_decisions::{
+    elixir_clause_is_decision, elixir_is_when_operator, elixir_when_is_guard,
+};
 use crate::role_table;
 use crate::{Ancestors, Elixir, Node};
 
@@ -52,6 +55,31 @@ fn method_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) 
 /// A `call` whose target spells `defmodule`.
 fn class_macro<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     elixir_call_keyword(node, code).is_some_and(elixir_is_class_macro)
+}
+
+/// Whether a `stab_clause` is a decision arm — of a `case`, `cond`,
+/// `with … else`, `receive` or a `try` handler — and not the fallback
+/// (`_ ->`, `true ->`, a `receive`'s `after`), nor an anonymous
+/// function's head (`elixir_decisions` has the shapes, #1454).
+fn is_decision_clause<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_clause_is_decision(node, code, ancestors)
+}
+
+/// Whether a `binary_operator` is a `when` operator — a guard's, or a
+/// typespec's binding clause (`@spec f(a) :: a when a: integer`), which
+/// only the operator's position tells apart (#1454). That position is
+/// read from the *token's* ancestor chain by the payer gate below; the
+/// owner is the operator by kind, which is what the root's guard walker
+/// reaches from the token.
+fn is_when_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_is_when_operator(node)
+}
+
+/// Whether a `when` token is a guard's rather than a typespec's: the
+/// operator joining a clause head or function head to its condition
+/// (#1454). Reads the token's ancestor chain.
+fn is_guard<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_when_is_guard(node, code, ancestors)
 }
 
 role_table! {
@@ -126,8 +154,31 @@ role_table! {
     EagerLogical { absent "Elixir's `and` / `or` and `&&` / `||` all short-circuit; `&&&` / `|||` are \
          bitwise" }
     Ternary { absent "Elixir has no ternary operator" }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // Every multi-way branch — `case`, `cond`, `with … else`, `receive`,
+    // a `try`'s `rescue` / `catch` / `else` — is a `Call` whose clauses
+    // are `stab_clause`s, as are an anonymous function's heads; which of
+    // them is a decision is a question of position and bytes the gate
+    // answers (#1454, lesson 11): the owner pays at the node, since the
+    // clause's `->` is punctuation. Which call the clause sits in is
+    // read from the ancestor chain, so this owner is never asked with
+    // `Ancestors::unknown()`.
+    CaseArm { owns [StabClause(text_gated_by is_decision_clause)] }
+    // A guard is the `when` operator joining a clause or function head
+    // to its condition; the token pays, gated to that position by its
+    // ancestor chain, since a typespec's `when a: integer` spells the
+    // same token on type syntax (#1454). The `binary_operator` applying
+    // `when` owns it: whether that operator is a guard's is the token's
+    // question, so the owner is wider than the payer and no consumer
+    // reads it at the wrapper — ABC and cyclomatic both count the token.
+    Guard {
+        owns [
+            BinaryOperator(gated_by is_when_operator),
+            BinaryOperator2(gated_by is_when_operator),
+            BinaryOperator3(gated_by is_when_operator),
+        ]
+        pays [When gated_by is_guard]
+        project "operator"
+    }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

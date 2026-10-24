@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, is_operand, last_operand, wrapped_operand,
 };
-use crate::roles::cpp::{comparison, short_circuit, ternary};
+use crate::roles::cpp::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The C-family slot rule, shared by the `CCode`, `CppCode`, `MozcppCode`
@@ -316,6 +316,12 @@ impl Abc for CppCode {
             _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
+            // A `case` label, the `CaseArm` row's payer — one per label,
+            // as cyclomatic counts them; `default` is excluded on the row
+            // (lesson 11, #469).
+            _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of an
             // `&&` / `||` chain is one condition (issue #403), and the token
             // pays nothing — the `ShortCircuit` row is read at its leaf only
@@ -344,7 +350,7 @@ impl Abc for CppCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            Else | Case | Try | Try2 | Catch => {
+            Else | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
             // Phase-2B (issue #403): condition slots, read by grammar field

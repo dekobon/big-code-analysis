@@ -15,7 +15,7 @@ impl Cyclomatic for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::python::{short_circuit, ternary};
+        use crate::roles::python::{case_arm, short_circuit, ternary};
         use Python::*;
 
         let kind = node.kind_id();
@@ -57,9 +57,10 @@ impl Cyclomatic for PythonCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
-            CaseClause
-                if crate::metrics::npa::python_case_clause_counts(node, UNDERSCORE as u16) =>
-            {
+            // Each `case` clause the `CaseArm` row owns: a bare `case _:`
+            // with no guard is the `match`'s `default:` and the row
+            // leaves it out; `case _ if g:` still counts.
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             MatchStatement => {

@@ -7685,6 +7685,119 @@ end",
         }
     }
 
+    /// #1695: the `CaseArm` row's `case` bills as an operator where the
+    /// row pays at the label — the C family, Java, Groovy, the JS family
+    /// and C# — and `default`, excluded on every row, bills as the
+    /// keyword it is. C#'s `goto case`, the gated-out spelling, bills as
+    /// before. The `Guard` payers — Rust's match-guard `if` and Elixir's
+    /// `when` — bill as operators, as do the `if` expression's keyword
+    /// and a typespec's `when` the rows' gates leave out.
+    #[cfg(all(
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "rust",
+        feature = "typescript",
+    ))]
+    #[test]
+    fn case_arm_and_guard_spellings_bill_1695() {
+        let c_rows: &[(&str, &str)] = &[
+            (
+                "case",
+                "int f(int x) { switch (x) { case 1: return 1; default: return 0; } }\n",
+            ),
+            (
+                "default",
+                "int f(int x) { switch (x) { case 1: return 1; default: return 0; } }\n",
+            ),
+        ];
+        assert_spellings_bill_as_operators::<CParser>("foo.c", c_rows);
+        assert_spellings_bill_as_operators::<CppParser>("foo.cpp", c_rows);
+        assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", c_rows);
+        assert_spellings_bill_as_operators::<ObjcParser>("foo.m", c_rows);
+        let java_rows: &[(&str, &str)] = &[
+            (
+                "case",
+                "class A { int f(int x) { switch (x) { case 1: return 1; default: return 0; } } }\n",
+            ),
+            (
+                "default",
+                "class A { int f(int x) { switch (x) { case 1: return 1; default: return 0; } } }\n",
+            ),
+        ];
+        assert_spellings_bill_as_operators::<JavaParser>("Foo.java", java_rows);
+        assert_spellings_bill_as_operators::<GroovyParser>(
+            "foo.groovy",
+            &[
+                (
+                    "case",
+                    "switch (x) { case 1: return 1; default: return 0 }\n",
+                ),
+                (
+                    "default",
+                    "switch (x) { case 1: return 1; default: return 0 }\n",
+                ),
+            ],
+        );
+        let js_rows: &[(&str, &str)] = &[
+            ("case", "switch (x) { case 1: break; default: break; }\n"),
+            ("default", "switch (x) { case 1: break; default: break; }\n"),
+        ];
+        assert_spellings_bill_as_operators::<JavascriptParser>("foo.js", js_rows);
+        assert_spellings_bill_as_operators::<MozjsParser>("foo.js", js_rows);
+        assert_spellings_bill_as_operators::<TypescriptParser>("foo.ts", js_rows);
+        assert_spellings_bill_as_operators::<TsxParser>("foo.tsx", js_rows);
+        assert_spellings_bill_as_operators::<CsharpParser>(
+            "foo.cs",
+            &[
+                (
+                    "case",
+                    "class C { int F(int x) { switch (x) { case 1: return 1; default: return 0; } } }\n",
+                ),
+                (
+                    "default",
+                    "class C { int F(int x) { switch (x) { case 1: return 1; default: return 0; } } }\n",
+                ),
+                // The gated-out spelling: a `goto case` jump.
+                (
+                    "case",
+                    "class C { int F(int x) { switch (x) { case 1: goto case 2; case 2: return 1; } } }\n",
+                ),
+                // The `Guard` row's keyword, excluded there and billed here.
+                (
+                    "when",
+                    "class C { int F(object o) => o switch { int i when i > 0 => 1, _ => 0 }; }\n",
+                ),
+            ],
+        );
+        assert_spellings_bill_as_operators::<RustParser>(
+            "foo.rs",
+            &[
+                (
+                    "if",
+                    "fn f(x: Option<i32>) -> i32 { match x { Some(n) if n > 0 => 1, _ => 0 } }\n",
+                ),
+                // The gated-out spelling: an `if` expression's keyword.
+                ("if", "fn f(a: bool) -> i32 { if a { 1 } else { 0 } }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<ElixirParser>(
+            "foo.ex",
+            &[
+                ("when", "def f(x) when is_integer(x), do: x\n"),
+                // The gated-out spelling: a typespec's binding clause.
+                ("when", "@spec f(a) :: a when a: integer\n"),
+            ],
+        );
+    }
+
     /// #1695: the `Ternary` row's `?` bills as an operator in every
     /// language whose grammar spells one, and the gated-out spellings —
     /// a Java / Groovy wildcard, a TypeScript optional member, a C#

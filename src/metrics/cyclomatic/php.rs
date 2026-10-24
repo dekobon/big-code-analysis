@@ -17,7 +17,7 @@ impl Cyclomatic for PhpCode {
     ) {
         use Php::*;
 
-        use crate::roles::php::{short_circuit, ternary};
+        use crate::roles::php::{case_arm, short_circuit, ternary};
         let kind = node.kind_id();
         // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers,
         // and the `conditional_expression` the `Ternary` row owns
@@ -31,8 +31,9 @@ impl Cyclomatic for PhpCode {
             return;
         }
         match kind.into() {
-            // Standard-only: individual case arms in switch/match.
-            CaseStatement | MatchConditionalExpression => {
+            // Standard-only: each switch / match arm the `CaseArm` row
+            // owns; the `default` arms are excluded there (#473).
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: each switch/match container collapses to one

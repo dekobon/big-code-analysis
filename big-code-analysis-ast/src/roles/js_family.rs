@@ -199,7 +199,24 @@ macro_rules! js_family_operator_gates {
     };
 }
 
+/// The `CaseArm` gate every JS grammar reads (#1695): a `switch_case`
+/// owns a decision and its `case` keyword pays; the `switch_default`
+/// and its `default` keyword are the fallback and pay nothing (lesson
+/// 11, #469). Every `switch_case` holds a `case`, which the gate pins.
+macro_rules! js_family_case_arm_gate {
+    ($lang:ident) => {
+        /// Whether a `switch_case` holds its `case` keyword.
+        fn is_case_label<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            node.is_child($lang::Case as u16)
+        }
+    };
+}
+
 pub(crate) use {
-    js_family_comparison_payers, js_family_operator_gates, js_family_short_circuit_payers,
-    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_case_arm_gate, js_family_comparison_payers, js_family_operator_gates,
+    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };

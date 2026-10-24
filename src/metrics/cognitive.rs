@@ -599,69 +599,6 @@ mod typescript;
 ))]
 mod word_operator_tests;
 
-// Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
-// `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive
-// and Cyclomatic impls never sees it (issue #467, lesson 19). Both metrics
-// reach it through `tcl_command_name` and then through this pair: the arm
-// list locates the supported form, and `tcl_switch_decision_arms` counts
-// it. Cognitive needs only the former — it charges one structure whatever
-// the arm count is — so the count stays out of its path.
-//
-// Grammar shape (tree-sitter-tcl 0.x), canonical brace-list form:
-//
-//   (command name: (simple_word "switch")
-//     (word_list <options…> <value> (braced_word (command (simple_word PAT) …) …)))
-//
-// The arm list is the sole `braced_word` argument inside the command's
-// `word_list`, which makes the lookup robust to leading options (`-exact`,
-// `-glob`, `-regexp`, `-nocase`, `--`) and the matched value, all of which
-// precede it and never parse as `braced_word`. The rarer split form
-// (`switch $x a {b} c {d}` — arms as separate `word_list` arguments rather
-// than wrapped in one `braced_word`) produces *several* sibling
-// `braced_word`s, one per arm body, so requiring exactly one distinguishes
-// the brace-list form and excludes the split form, where the last
-// `braced_word` is merely a body rather than the full arm list. The split
-// form is intentionally NOT counted: its body braces are sibling
-// arguments, not nested commands, so there is no reliable arm node to
-// count. Idiomatic Tcl uses the brace-list form, so this scoping
-// under-counts only the uncommon style.
-//
-// **Precondition**: `node` is a `command` whose leading word resolved to
-// `"switch"` — the callers' `tcl_command_name` dispatch establishes that,
-// and re-checking it here would resolve the name a second time on every
-// switch.
-pub(crate) fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    let word_list = node
-        .children()
-        .find(|child| child.kind_id() == Tcl::WordList as u16)?;
-    let mut braced_words = word_list
-        .children()
-        .filter(|child| child.kind_id() == Tcl::BracedWord as u16);
-    let arm_list = braced_words.next()?;
-    braced_words.next().is_none().then_some(arm_list)
-}
-
-// The number of *decision* arms of a `switch` — every arm but `default`,
-// which is the fallback and does not contribute a decision point, matching
-// the C-family `default:` convention (lesson 11). Each arm is a nested
-// `command` whose leading word is the pattern.
-//
-// Carries [`tcl_switch_arm_list`]'s precondition, and returns `None` for
-// the same unsupported split form, so callers leave it untouched exactly
-// as they leave a non-switch command.
-pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
-    let decision_arms = tcl_switch_arm_list(node)?
-        .children()
-        .filter(|arm| arm.kind_id() == Tcl::Command as u16)
-        .filter(|arm| {
-            arm.child_by_field_name("name")
-                .and_then(|pat| pat.utf8_text(code))
-                != Some("default")
-        })
-        .count();
-    Some(decision_arms)
-}
-
 // Tcl's `try` has a dedicated kind (unlike `switch`/`for`), but its error
 // handler is a flat run of sibling tokens rather than a wrapper node
 // (issue #1266):
@@ -696,29 +633,6 @@ pub(crate) fn tcl_try_handler_bodies<'a>(node: &Node<'a>) -> impl Iterator<Item 
         .zip(node.children().skip(1))
         .filter(|(previous, _)| previous.kind_id() == Tcl::Arguments as u16)
         .map(|(_, body)| body)
-}
-
-// iRules counterpart to [`tcl_switch_decision_arms`]. Unlike Tcl, the iRules
-// grammar models `switch` as a dedicated node with `switch_arm` children, so
-// the arms are read off the tree directly instead of re-parsing a generic
-// command. Returns the number of non-`default` arms (each a decision point in
-// standard CCN); `None` when `node` is not a `switch`. The `default` arm is the
-// fallback and does not contribute a branch (the Java/C-family wildcard
-// convention — lesson 11, #106).
-pub(crate) fn irules_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
-    if node.kind_id() != Irules::Switch as u16 {
-        return None;
-    }
-    let decision_arms = node
-        .children()
-        .filter(|arm| arm.kind_id() == Irules::SwitchArm as u16)
-        .filter(|arm| {
-            arm.child_by_field_name("pattern")
-                .and_then(|pat| pat.utf8_text(code))
-                != Some("default")
-        })
-        .count();
-    Some(decision_arms)
 }
 
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);

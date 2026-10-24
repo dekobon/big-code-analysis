@@ -71,7 +71,6 @@ big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	FunctionDefi
 big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	Module	arm#1
 src/metrics/abc/elixir.rs	fn compute	Elixir	Call	arm#1
 src/metrics/abc/java.rs	fn java_count_token_branch	Java	MethodInvocation	arm#1
-src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	Guard	arm#1
 src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	LambdaExpression	arm#1
 src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	ReturnStatement	arm#1
 src/metrics/abc/python.rs	fn compute	Python	Call	arm#1
@@ -86,7 +85,6 @@ src/metrics/cognitive/python.rs	fn compute	Python	FunctionDefinition	arm#1
 src/metrics/cognitive/python.rs	fn compute	Python	Lambda	arm#1
 src/metrics/cognitive/python.rs	fn compute	Python	Lambda2	arm#1
 src/metrics/cyclomatic/elixir.rs	fn compute	Elixir	Call	arm#1
-src/metrics/cyclomatic/java.rs	impl_cyclomatic_java_like_rows!	Java	Guard	macro_arg#1
 src/metrics/nexits.rs	fn compute	Elixir	Call	kind_id#1
 src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ReturnStatement	macro_arg#1
 src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ThrowStatement	macro_arg#1

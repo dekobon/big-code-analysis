@@ -14,6 +14,7 @@
 //! on the metric layer, the inversion #1376 exists to remove.
 
 pub mod bash;
+pub mod case_arms;
 // Crate-private: the doc-comment predicates are read by this crate's
 // `Checker` impls; only the run walk the LOC metric drives is
 // re-exported below.
@@ -22,6 +23,7 @@ pub(crate) mod doc_comment;
 // `Checker` impls only (#1613).
 pub(crate) mod doxygen;
 pub mod elixir;
+pub mod elixir_decisions;
 // Crate-private: this dialect's only helper is a kind table the three
 // classifiers in this crate share, and nothing outside names it.
 pub(crate) mod irules;

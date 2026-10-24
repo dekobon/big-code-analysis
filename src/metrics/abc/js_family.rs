@@ -252,7 +252,7 @@ macro_rules! ts_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{comparison, short_circuit, ternary};
+            use crate::roles::$roles::{case_arm, comparison, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -285,7 +285,12 @@ macro_rules! ts_abc_compute {
                 // Both the statement (`default:`) and arrow
                 // (`default ->`) forms emit the same `Default` token, so
                 // omitting it here covers both.
-                QMARKQMARK | Else | Case | Try | Catch => {
+                QMARKQMARK | Else | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // A `case` label, the `CaseArm` row's payer; `default` is
+                // excluded on the row (lesson 11, #469).
+                _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // The `Ternary` row's `?`, gated by the row to the
@@ -427,7 +432,7 @@ macro_rules! js_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{comparison, short_circuit, ternary};
+            use crate::roles::$roles::{case_arm, comparison, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -449,7 +454,12 @@ macro_rules! js_abc_compute {
                 // The `default` arm is the unconditional fallthrough and
                 // is excluded, mirroring cyclomatic's `Case`-only count
                 // (issue #469); see the TS macro above for the rationale.
-                QMARKQMARK | Else | Case | Try | Catch => {
+                QMARKQMARK | Else | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // A `case` label, the `CaseArm` row's payer; `default` is
+                // excluded on the row (lesson 11, #469).
+                _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // The `Ternary` row's `?`: plain JS spells the bare token

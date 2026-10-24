@@ -55,7 +55,18 @@ role_table! {
     EagerLogical { absent "Go's `&` / `|` / `^` are bitwise" }
     Ternary { absent "Go has no ternary expression" }
     NullSafe { absent "Go has no optional navigation or null coalescing" }
-    CaseArm { pending R05 }
+    // An expression-switch, type-switch or `select` arm owns a decision
+    // and pays at the node — Go's `case` keyword is one kind for all
+    // three and bills as the keyword it is; the `default_case` and its
+    // keyword are the fallback and pay nothing (lesson 11, #469).
+    CaseArm {
+        owns [ExpressionCase, TypeCase, CommunicationCase]
+        excludes [
+            DefaultCase "the fallback arm, no decision (lesson 11, #469)",
+            Case "the arm's keyword, billed as such; the arm pays",
+            Default "the fallback label's keyword",
+        ]
+    }
     Guard { absent "Go has no guard clause on a case or a function head" }
     Branch { pending R07 }
     Switch { pending R07 }

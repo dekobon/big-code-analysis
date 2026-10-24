@@ -49,31 +49,20 @@ fn rust_cyclomatic_increment<'a>(
     stats: &mut Stats,
     count_try: bool,
 ) {
-    use crate::roles::rust::short_circuit;
+    use crate::roles::rust::{case_arm, short_circuit};
     use Rust::*;
 
     let kind = node.kind_id();
     match kind.into() {
-        // Standard-only: individual match arms.
-        // Lizard counts `match` as a single control-flow keyword; we count
-        // each arm, so the modified metric collapses them back to the
-        // container.
-        // Bare wildcard `_ =>` arms are skipped to match C-family
-        // `default:` treatment. Patterns like `Some(_)`, `(_, x)`,
-        // or `_ if guard` are not bare wildcards and still count.
-        // The check scans NAMED children of `match_pattern`, so
-        // anonymous tokens like a leading `|` (legal in or-patterns:
-        // `| _ => ...`) don't throw off detection, and a guard
-        // (`_ if g`) adds a second named child so it correctly
-        // escapes the filter. Shared helper with the `Abc` impl
-        // (`super::npa::pattern_is_bare_underscore`).
-        MatchArm | MatchArm2 => {
-            let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
-                crate::metrics::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
-            });
-            if !is_bare_wildcard {
-                stats.cyclomatic += 1.;
-            }
+        // Standard-only: each match arm the `CaseArm` row owns. Lizard
+        // counts `match` as a single control-flow keyword; we count each
+        // arm, so the modified metric collapses them back to the
+        // container. A bare wildcard `_ =>` arm is the C-family
+        // `default:` and the row leaves it out — `Some(_)`, `(_, x)` and
+        // `_ if guard` are not bare and still count. The guard's own `if`
+        // is the `If` arm below, as the `Guard` row says.
+        _ if case_arm::owns_kind(kind, node, code, ancestors) => {
+            stats.cyclomatic += 1.;
         }
         // Modified-only: the match expression container.
         MatchExpression => {
@@ -102,6 +91,11 @@ fn rust_cyclomatic_increment<'a>(
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
         }
+        // The `if` keyword wherever it is written — an `if` expression's
+        // and a match guard's alike, the latter the `Guard` row's payer,
+        // read here as the keyword it is since the row pays nothing more.
+        // role-bypass: allow(Guard) — the keyword arm the row's gated payer is one spelling of:
+        // the `if` expression's keyword is `Branch`'s, pending R07
         If | For | While | Loop => {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;

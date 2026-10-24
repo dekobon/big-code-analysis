@@ -1022,3 +1022,359 @@ fn bash_ternary_row_pays_once_and_an_expansion_nothing() {
         ],
     );
 }
+
+// ---- `CaseArm` and `Guard` (#1695) ----------------------------------------
+//
+// One fixture per language with a multi-way branch: every arm the row
+// owns is one condition and one decision, the fallback arm (`default`,
+// `_`, `else`, `*)`, `true`) is neither, and a guard is one more of
+// each — its expression a boolean slot, so a negated guard pays as
+// `if (!x)` does. Expected values are the pre-row binary's; cyclomatic
+// is read from the same rows, so the two columns are the oracle for
+// each other except where a policy comment says why they part.
+
+#[test]
+#[cfg(any(feature = "c", feature = "objc"))]
+fn c_family_case_arms_pay_at_the_case_label() {
+    #[cfg(feature = "c")]
+    assert_rows(
+        LANG::C,
+        "int f(int x, int y) { BODY }\n",
+        // a fall-through run `case 2: case 3:` is two labels
+        &[(
+            "switch (x) { case 1: return 1; case 2: case 3: return 2; default: return 0; } return 0;",
+            3,
+            3,
+        )],
+    );
+    #[cfg(feature = "objc")]
+    assert_rows(
+        LANG::Objc,
+        "@implementation K\n- (int)f:(int)x y:(int)y { BODY }\n@end\n",
+        &[(
+            "switch (x) { case 1: return 1; default: return 0; } return 0;",
+            1,
+            1,
+        )],
+    );
+}
+
+#[test]
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn cpp_case_arms_pay_at_the_case_label() {
+    for lang in [LANG::Cpp, LANG::Mozcpp] {
+        if !lang.is_enabled() {
+            continue;
+        }
+        assert_rows(
+            lang,
+            "int f(int x, int y) { BODY }\n",
+            &[(
+                "switch (x) { case 1: return 1; case 2: case 3: return 2; default: return 0; } return 0;",
+                3,
+                3,
+            )],
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "java")]
+fn java_case_arms_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Java,
+        "class A { int f(int x, Object o) { BODY } }\n",
+        &[
+            (
+                "switch (x) { case 1: return 1; case 2: case 3: return 2; default: return 0; }",
+                3,
+                3,
+            ),
+            // a multi-pattern arrow arm is one label; the guard is one
+            // more, and its expression a slot
+            (
+                "return switch (o) { case String s when s.isEmpty() -> 1; case Integer i, Long l -> 2; default -> 0; };",
+                3,
+                3,
+            ),
+            (
+                "return switch (o) { case String s when !s.isEmpty() -> 1; default -> 0; };",
+                2,
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "groovy")]
+fn groovy_case_arms_pay_at_the_case_label() {
+    assert_rows(
+        LANG::Groovy,
+        "class C { int f(int x, Object o) { BODY } }\n",
+        &[(
+            "switch (x) { case 1: return 1; case 2: return 2; default: return 0 }",
+            2,
+            2,
+        )],
+    );
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_js_case_arms(lang: LANG) {
+    assert_rows(
+        lang,
+        "function f(x, o) { BODY }\n",
+        &[(
+            "switch (x) { case 1: return 1; case 2: case 3: return 2; default: return 0; }",
+            3,
+            3,
+        )],
+    );
+}
+
+#[test]
+#[cfg(feature = "javascript")]
+fn javascript_case_arms_pay_at_the_case_label() {
+    assert_js_case_arms(LANG::Javascript);
+}
+
+#[test]
+#[cfg(feature = "mozjs")]
+fn mozjs_case_arms_pay_at_the_case_label() {
+    assert_js_case_arms(LANG::Mozjs);
+}
+
+#[test]
+#[cfg(feature = "typescript")]
+fn typescript_and_tsx_case_arms_pay_at_the_case_label() {
+    assert_js_case_arms(LANG::Typescript);
+    assert_js_case_arms(LANG::Tsx);
+}
+
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_case_arms_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Csharp,
+        "class C { int f(int x, object o) { BODY } }\n",
+        &[
+            // each `case` label of a fall-through section
+            (
+                "switch (x) { case 1: case 2: return 1; default: return 0; }",
+                2,
+                2,
+            ),
+            // an expression arm pays at the node; the bare discard does not
+            (
+                "return o switch { int i when i > 0 => 1, string => 2, _ => 0 };",
+                3,
+                3,
+            ),
+            // a guarded discard pays the arm and the guard; `var _` is bare
+            ("return o switch { _ when x > 0 => 1, var _ => 0 };", 2, 2),
+            // an exception filter is a guard; `try` and `catch` pay beside it
+            (
+                "try { } catch (System.Exception e) when (x > 0) { } return 0;",
+                3,
+                2,
+            ),
+            // `goto case` is a jump, not an arm (#1450)
+            (
+                "switch (x) { case 1: goto case 2; case 2: return 1; default: goto default; }",
+                2,
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "kotlin")]
+fn kotlin_when_entries_pay_at_the_node() {
+    assert_rows(
+        LANG::Kotlin,
+        "fun f(x: Int, o: Any): Int { BODY }\n",
+        &[
+            (
+                "return when (x) { 1 -> 1; 2, 3 -> 2; in 4..5 -> 3; else -> 0 }",
+                3,
+                3,
+            ),
+            // a subject-less entry's condition is a slot its own test pays
+            (
+                "return when { x > 0 -> 1; o is String -> 2; else -> 0 }",
+                2,
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "rust")]
+fn rust_match_arms_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Rust,
+        "fn f(x: Option<i32>, b: bool) -> i32 { BODY }\n",
+        &[
+            // three arms (`_ =>` is none), two guards, and one guard's
+            // comparison; `_ if b` is an arm by its guard
+            (
+                "match x { Some(n) if n > 0 => 1, Some(_) => 2, _ if b => 3, _ => 0 }",
+                5,
+                5,
+            ),
+            // a leading `|` does not make `_` a pattern of its own
+            ("match x { | _ => 0 }", 1, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "python")]
+fn python_case_clauses_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Python,
+        "def f(x, b):\n    BODY\n",
+        &[(
+            "match x:\n        case 1 if b: return 1\n        case [a, *_]: return 2\n        case _ if b: return 3\n        case _: return 0",
+            5,
+            5,
+        )],
+    );
+}
+
+#[test]
+#[cfg(feature = "go")]
+fn go_case_arms_pay_at_the_node() {
+    assert_rows(
+        LANG::Go,
+        "package p\nfunc f(x int, b bool, c chan int) int { BODY }\n",
+        &[
+            ("switch x { case 1, 2: return 1; default: return 0 }", 1, 1),
+            // a tagless switch's case expressions are boolean slots
+            (
+                "switch { case b: return 1; case x > 0: return 2; default: return 0 }",
+                2,
+                2,
+            ),
+            ("select { case <-c: return 1; default: return 0 }", 1, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "ruby")]
+fn ruby_case_arms_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Ruby,
+        "def f(x, b)\n  BODY\nend\n",
+        &[
+            // `when 2, 3` is an implicit `||`: two operand slots (#1453)
+            (
+                "case x\n  when 1 then 1\n  when 2, 3 then 2\n  else 0\n  end",
+                3,
+                2,
+            ),
+            // three `in` arms (`in _` is none), two guards, one of them
+            // what makes its `_` an arm
+            (
+                "case x\n  in Integer if b then 1\n  in [a, *] then 2\n  in _ unless b then 3\n  in _ then 0\n  end",
+                5,
+                5,
+            ),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "php")]
+fn php_case_arms_pay_at_the_node() {
+    assert_rows(
+        LANG::Php,
+        "<?php\nfunction f($x, $o) { BODY }\n",
+        &[
+            (
+                "switch ($x) { case 1: return 1; case 2: return 2; default: return 0; }",
+                2,
+                2,
+            ),
+            (
+                "return match ($x) { 1, 2 => 1, 3 => 2, default => 0 };",
+                2,
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "elixir")]
+fn elixir_clauses_and_guards_pay_once_each() {
+    assert_rows(
+        LANG::Elixir,
+        "defmodule M do\n  def f(x, b) do\n    BODY\n  end\nend\n",
+        &[
+            // two arms (`_ ->` is none) and one guard
+            (
+                "case x do\n      1 -> 1\n      n when n > 0 -> 2\n      _ -> 0\n    end",
+                3,
+                3,
+            ),
+            (
+                "cond do\n      b -> 1\n      x > 0 -> 2\n      true -> 0\n    end",
+                2,
+                2,
+            ),
+        ],
+    );
+    // A guard on a function head is one condition of the file's, with
+    // nothing else in it.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc, Metric::Cyclomatic]);
+    let root = space_verbatim(
+        LANG::Elixir,
+        b"defmodule M do\n  def f(x) when is_integer(x) do\n    x\n  end\nend\n",
+        options,
+    );
+    assert_eq!(root.metrics.abc.conditions_sum(), 1);
+}
+
+#[test]
+#[cfg(feature = "bash")]
+fn bash_case_items_pay_at_the_node() {
+    assert_rows(
+        LANG::Bash,
+        "f() {\n    BODY\n}\n",
+        // `b|c)` is not bare; `*)` is the catch-all
+        &[("case $x in a) :;; b|c) :;; *) :;; esac", 2, 2)],
+    );
+}
+
+#[cfg(any(feature = "tcl", feature = "irules"))]
+fn assert_tcl_switch_arms(lang: LANG, body: &str, decisions: u64) {
+    // Tcl ABC has never scored a switch arm as a condition — each arm is
+    // a command, a branch — so only cyclomatic reads the row here.
+    assert_rows(lang, "proc f {x} {\n    BODY\n}\n", &[(body, 0, decisions)]);
+}
+
+#[test]
+#[cfg(feature = "tcl")]
+fn tcl_switch_arms_pay_at_the_arm_command() {
+    // `b -` falls through and is an arm; `default` is none
+    assert_tcl_switch_arms(
+        LANG::Tcl,
+        "switch -- $x {\n        a { return 1 }\n        b -\n        c { return 2 }\n        default { return 0 }\n    }",
+        3,
+    );
+}
+
+#[test]
+#[cfg(feature = "irules")]
+fn irules_switch_arms_pay_at_the_arm_node() {
+    assert_tcl_switch_arms(
+        LANG::Irules,
+        "switch -- $x {\n        a { return 1 }\n        b { return 2 }\n        default { return 0 }\n    }",
+        2,
+    );
+}

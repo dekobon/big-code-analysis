@@ -33,8 +33,6 @@ pub mod tokens;
 /// Weighted Methods per Class.
 pub mod wmc;
 
-mod elixir_decisions;
-
 #[cfg(test)]
 #[path = "bash_test_connective_tests.rs"]
 mod bash_test_connective_tests;

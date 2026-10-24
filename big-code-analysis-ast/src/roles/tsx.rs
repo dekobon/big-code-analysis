@@ -4,13 +4,14 @@
 use crate::Tsx;
 use crate::role_table;
 use crate::roles::js_family::{
-    js_family_comparison_payers, js_family_decl_keywords, js_family_modifiers,
-    js_family_operator_gates, js_family_short_circuit_payers, ts_family_decl_keywords,
-    ts_family_gates, ts_family_modifiers,
+    js_family_case_arm_gate, js_family_comparison_payers, js_family_decl_keywords,
+    js_family_modifiers, js_family_operator_gates, js_family_short_circuit_payers,
+    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Tsx);
 js_family_operator_gates!(Tsx);
+js_family_case_arm_gate!(Tsx);
 
 role_table! {
     lang: Tsx;
@@ -40,7 +41,17 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
+    // A `switch_case` owns a decision and its `case` keyword pays; the
+    // `switch_default` and its `default` keyword are the fallback and
+    // pay nothing (lesson 11, #469).
+    CaseArm {
+        owns [SwitchCase(gated_by is_case_label)]
+        pays [Case]
+        excludes [
+            SwitchDefault "the fallback arm, no decision (lesson 11, #469)",
+            Default "the fallback label's keyword",
+        ]
+    }
     Guard { absent "TSX has no guard clause" }
     Branch { pending R07 }
     Switch { pending R07 }

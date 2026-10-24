@@ -1,15 +1,23 @@
-//! Elixir clause and guard predicates shared by the `Cyclomatic` and
-//! `Abc` impls for `ElixirCode`.
+//! Elixir clause and guard predicates shared by the `CaseArm` and
+//! `Guard` rows (`roles/elixir.rs`) and the root crate's `Cyclomatic`
+//! and `Abc` impls for `ElixirCode`.
 //!
 //! Elixir spells every control-flow construct as a `Call`, so which
 //! `stab_clause`, `when` and `<-` nodes are decisions is a question of
-//! position and source text rather than node kind. Both metrics must
+//! position and source text rather than node kind. Every reader must
 //! answer it identically (grammar-dispatch §7), so the answer lives in
-//! one module.
+//! one module — here, beside the rows that gate on it (#1695; it was
+//! `src/metrics/elixir_decisions.rs` in the root until then).
 
 use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
-use crate::metrics::abc::is_operand;
 use crate::{Ancestors, Elixir, Node};
+
+/// Whether `child` can occupy an operand slot: named, and not an
+/// `extra`. The root's `metrics::abc::is_operand`, which the rows
+/// cannot reach.
+fn is_operand(child: &Node) -> bool {
+    child.is_named() && !child.as_tree_sitter().is_extra()
+}
 
 /// Whether `node` is a `binary_operator` applying `operator`.
 ///
@@ -27,7 +35,8 @@ fn elixir_is_binary_operator(node: &Node, operator: Elixir) -> bool {
 
 /// Whether `node` is a `when` `binary_operator` — the shape a repeated
 /// guard's alternatives nest through.
-fn elixir_is_when_operator(node: &Node) -> bool {
+#[must_use]
+pub fn elixir_is_when_operator(node: &Node) -> bool {
     elixir_is_binary_operator(node, Elixir::When)
 }
 
@@ -69,7 +78,8 @@ fn elixir_is_with_argument<'a>(mut up: impl Iterator<Item = Node<'a>>, code: &'a
 ///
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`
 /// (grammar-dispatch §7).
-pub(super) fn elixir_arrow_is_with_clause<'a>(
+#[must_use]
+pub fn elixir_arrow_is_with_clause<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -90,7 +100,8 @@ pub(super) fn elixir_arrow_is_with_clause<'a>(
 /// The `?` is infallible at the pinned grammar — `binary_operator`
 /// declares `right` required — and is spelled as an `Option` because
 /// `AGENTS.md` bans `expect` outside tests.
-pub(super) fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>> {
+#[must_use]
+pub fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>> {
     let right = when_operator.child_by_field_name("right")?;
     if elixir_is_when_operator(&right) {
         right.child_by_field_name("left")
@@ -142,7 +153,8 @@ pub(super) fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<No
 /// something, because the Elixir root is `source` and no `when`
 /// operator can be it. They are `is_some_and`s rather than `expect`s
 /// because `AGENTS.md` bans the `expect` outside tests.
-pub(super) fn elixir_when_is_guard<'a>(
+#[must_use]
+pub fn elixir_when_is_guard<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -213,7 +225,8 @@ fn elixir_is_guard_position<'a>(
 /// filtering skips the anonymous `(` `)` tokens a parenthesised clause
 /// head carries, so an empty pair (`fn () -> … end`) also yields zero
 /// patterns. Clauses with zero or several patterns return `None`.
-pub(super) fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+#[must_use]
+pub fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let left = node
         .child_by_field_name("left")
         .filter(|left| left.kind() == "arguments")?;
@@ -331,7 +344,7 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// that owns it: every clause of a `case` / `cond` / `with`'s `else` /
 /// `receive` / `try` handler and every clause after a multi-clause
 /// `fn`'s first, except the construct's free default clause
-/// ([`elixir_is_default_clause`]).
+/// (`elixir_is_default_clause`).
 ///
 /// A `receive` gets exactly one free arm, in every spelling. Its
 /// `after` clause is the timeout, the path taken when no message clause
@@ -347,7 +360,7 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// exactly one `after` clause, and its head is a timeout value, not a
 /// pattern that can fail. No other construct puts a clause there, since
 /// `try`'s `after` takes a plain body, so the section is not among
-/// those [`DECISION_SECTION_KEYS`] names.
+/// those `DECISION_SECTION_KEYS` names.
 /// The owning Call scores the timeout once; scoring it per clause would
 /// repeatedly scan the message section on compiler-invalid multi-timeout input.
 ///
@@ -367,7 +380,7 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// keyword form of a clause construct (`case(x, do: (1 -> :a; …))`)
 /// holds its clauses in the same parenthesised `block`, so a `block`
 /// counts when it is the value of a pair whose key names a clause
-/// section ([`DECISION_SECTION_KEYS`]).
+/// section (`DECISION_SECTION_KEYS`).
 ///
 /// That pair is not asked which Call owns it, so a clause block passed
 /// under a section key to *any* call counts: `f(x, rescue: (e -> e))`
@@ -384,7 +397,8 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
 /// both score a clause construct per clause and must agree on which
 /// clauses those are (grammar-dispatch §7, #1531).
-pub(super) fn elixir_clause_is_decision<'a>(
+#[must_use]
+pub fn elixir_clause_is_decision<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -423,13 +437,14 @@ pub(super) fn elixir_clause_is_decision<'a>(
 /// modified as it is in standard, like Rust's `if let … else` (#1535).
 /// Spelled in any form: the block form's `else_block`, or the keyword
 /// form's `else:` pair whose value is a parenthesised `block`, bare or
-/// bracketed ([`elixir_trailing_keywords`]).
+/// bracketed (`elixir_trailing_keywords`).
 ///
 /// In a `with`'s `else` the default-clause rule reduces to the bare
 /// `_`: `true ->` is free only under a `cond`, and the head skip only
 /// under a `fn` or `reduce:`, so [`elixir_clause_is_decision`] agrees
 /// clause by clause with the test below.
-pub(super) fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
+#[must_use]
+pub fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
     elixir_section_has_clause(call, code, Section::Else, |clause| {
         !elixir_is_catch_all(clause, code)
     })
@@ -446,10 +461,8 @@ fn elixir_is_catch_all(clause: &Node, code: &[u8]) -> bool {
 /// path of its own. Without one the timeout is the construct's single
 /// free arm ([`elixir_clause_is_decision`]).
 /// Called once per receive, not once per timeout clause.
-pub(super) fn elixir_receive_timeout_clause<'a>(
-    receive: &Node<'a>,
-    code: &'a [u8],
-) -> Option<Node<'a>> {
+#[must_use]
+pub fn elixir_receive_timeout_clause<'a>(receive: &Node<'a>, code: &'a [u8]) -> Option<Node<'a>> {
     let timeout = receive.children().find_map(|child| {
         elixir_section_holder(&child, code, Section::After)?
             .children()
@@ -470,15 +483,19 @@ pub(super) fn elixir_receive_timeout_clause<'a>(
 /// decision ([`elixir_with_else_dispatches`]). Any clause counts, a bare
 /// `_ ->` included, because `case x do _ -> 0 end` pays its container
 /// too (#1581).
-pub(super) fn elixir_receive_dispatches(call: &Node, code: &[u8]) -> bool {
+#[must_use]
+pub fn elixir_receive_dispatches(call: &Node, code: &[u8]) -> bool {
     elixir_section_has_clause(call, code, Section::Do, |_| true)
 }
 
-/// A section of a Call, as [`elixir_section_holder`] finds it.
+/// A section of a Call, as `elixir_section_holder` finds it.
 #[derive(Clone, Copy)]
-pub(super) enum Section {
+pub enum Section {
+    /// The `do` block.
     Do,
+    /// The `else` section of a `with` / `try` / `receive`.
     Else,
+    /// The `after` section of a `receive` / `try`.
     After,
 }
 
@@ -510,8 +527,9 @@ fn elixir_section_has_clause(
 }
 
 /// Whether `call` has a `section`, in either spelling
-/// ([`elixir_section_holder`]).
-pub(super) fn elixir_call_has_section(call: &Node, code: &[u8], section: Section) -> bool {
+/// (`elixir_section_holder`).
+#[must_use]
+pub fn elixir_call_has_section(call: &Node, code: &[u8], section: Section) -> bool {
     call.children()
         .any(|child| elixir_section_holder(&child, code, section).is_some())
 }
@@ -520,7 +538,7 @@ pub(super) fn elixir_call_has_section(call: &Node, code: &[u8], section: Section
 /// spells: the block form's `do_block`, or the `else_block` inside it,
 /// or the keyword form's `do:` / `else:` value in the trailing keyword
 /// list of the `arguments` `child` is, bare or bracketed
-/// ([`elixir_trailing_keywords`]). The block form's `else_block` is the
+/// (`elixir_trailing_keywords`). The block form's `else_block` is the
 /// `do_block`'s child, never the Call's.
 fn elixir_section_holder<'a>(
     child: &Node<'a>,
@@ -600,7 +618,7 @@ fn elixir_trailing_keywords<'a>(arguments: &Node<'a>) -> Option<Node<'a>> {
 }
 
 /// The value of the `key:` pair in `arguments`' trailing keyword list
-/// ([`elixir_trailing_keywords`]), or `None` when it has no such pair.
+/// (`elixir_trailing_keywords`), or `None` when it has no such pair.
 fn elixir_keyword_section<'a>(arguments: &Node<'a>, code: &'a [u8], key: &str) -> Option<Node<'a>> {
     elixir_trailing_keywords(arguments)?
         .children()
@@ -615,7 +633,7 @@ fn elixir_keyword_section<'a>(arguments: &Node<'a>, code: &'a [u8], key: &str) -
 ///
 /// The climb is `keywords`, an optional bracketing `list`, `arguments`,
 /// then the Call, and the keyword list must be the trailing one
-/// [`elixir_trailing_keywords`] describes: no operand follows it among
+/// `elixir_trailing_keywords` describes: no operand follows it among
 /// the arguments, and a bracketing list holds nothing before it. So a
 /// `[do: x]` in any other argument position, a map's keyword pairs and a
 /// list nested in a list (`f([[do: x]])`, whose outer list is where the
@@ -628,7 +646,8 @@ fn elixir_keyword_section<'a>(arguments: &Node<'a>, code: &'a [u8], key: &str) -
 /// positional arguments beside thousands of pairs or clauses was
 /// quadratic in them (5.4 s for 16 000 arguments in a release build;
 /// `cognitive/elixir-mixed-arguments` prices the shape).
-pub(super) fn elixir_pair_section<'a>(
+#[must_use]
+pub fn elixir_pair_section<'a>(
     pair: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,

@@ -12,7 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
 };
-use crate::roles::ruby::{comparison, short_circuit, ternary};
+use crate::roles::ruby::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -257,16 +257,21 @@ impl Abc for RubyCode {
             // compound guard keeps its sub-structure rather than
             // collapsing to one.
             //
-            // `Guard` is the hidden `_guard` supertype (§2, lesson #34);
-            // it is listed for the same defensive reason
-            // `ruby_in_clause_counts` lists it.
-            //
-            // No double count (§5): the `if` / `unless` *keyword tokens*
-            // a guard contains are anonymous tokens distinct from the
-            // `If` / `Unless` statement kinds this arm matches, so a
-            // guard reaches the slot exactly once.
+            // The guards are the `Guard` row's, read in the arm after this
+            // one (`Guard` the hidden `_guard` supertype, listed there per
+            // lesson 34). No double count (§5): the `if` / `unless`
+            // *keyword tokens* a guard contains are anonymous tokens
+            // distinct from the `If` / `Unless` statement kinds this arm
+            // matches, so a guard reaches the slot exactly once.
             If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
-            | UntilModifier | Guard | IfGuard | UnlessGuard => {
+            | UntilModifier => {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    ruby_count_condition(&cond, code, &mut stats.conditions);
+                }
+            }
+            // An `in` arm's guard, the `Guard` row's owner: its condition
+            // is a slot as the predicates above are.
+            _ if guard::owns_kind(kind, node, code, ancestors) => {
                 if let Some(cond) = node.child_by_field_name("condition") {
                     ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
@@ -318,16 +323,21 @@ impl Abc for RubyCode {
                     ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
             }
-            // A subject-less `case` can already have paid for its clause
-            // through the clause's own operators (#1453).
-            When => ruby_count_when(node, code, ancestors, &mut stats.conditions),
-            // A `case … in` pattern-match arm is a branch condition exactly
-            // when it counts toward cyclomatic — a non-wildcard pattern or
-            // a guarded arm. The bare `in _` default arm is filtered out,
-            // keeping ABC and cyclomatic in lockstep on the same construct
-            // and matching the Python `case_clause` policy (#977).
-            InClause if crate::metrics::npa::ruby_in_clause_counts(node, code) => {
-                stats.conditions += 1.;
+            // Each arm the `CaseArm` row owns is a branch condition
+            // exactly when it counts toward cyclomatic, which reads the
+            // same row: a `when` arm, whose subject-less `case` can
+            // already have paid for the clause through its own operators
+            // (#1453), and an `in` arm with a non-wildcard pattern or a
+            // guard — the bare `in _` default arm is left out, as the
+            // Python `case_clause` policy leaves its twin (#977).
+            // role-bypass: allow(CaseArm) — which owner shape the arm is: a `when` walks its
+            // patterns, an `in` pays at the node
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
+                if kind == When as u16 {
+                    ruby_count_when(node, code, ancestors, &mut stats.conditions);
+                } else {
+                    stats.conditions += 1.;
+                }
             }
             // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||` /
             // `and` / `or` chain is a boolean slot (issue #557, #1529).

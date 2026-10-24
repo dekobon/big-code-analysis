@@ -120,7 +120,14 @@ role_table! {
         project "operator"
     }
     NullSafe { pending R05 }
-    CaseArm { pending R05 }
+    // A `when` statement (`given` / `when`, feature "switch") owns a
+    // decision and pays at the node; its keyword bills as the keyword
+    // it is. tree-sitter-perl reaches the kind only under error recovery
+    // at the pin, as the cyclomatic impl records.
+    CaseArm {
+        owns [WhenSimpleStatement]
+        excludes [When "the arm's keyword, billed as such; the arm pays"]
+    }
     Guard { absent "Perl has no guard clause" }
     Branch { pending R07 }
     Switch { pending R07 }

@@ -3,13 +3,14 @@
 
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_comparison_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_gates,
-    c_family_modifiers, c_family_primitives, c_family_short_circuit_owners,
-    c_family_short_circuit_payers,
+    c_family_case_arm_gate, c_family_comparison_owners, c_family_comparison_payers,
+    c_family_decl_keywords, c_family_gates, c_family_modifiers, c_family_primitives,
+    c_family_short_circuit_owners, c_family_short_circuit_payers,
 };
 use crate::{Ancestors, Node, Objc};
 
 c_family_gates!(Objc);
+c_family_case_arm_gate!(Objc);
 
 /// Whether `node` is the attribute word of `@property (nonatomic, copy,
 /// getter=isOn)`. The grammar has no keyword for any attribute: each is
@@ -63,7 +64,17 @@ role_table! {
     }
     NullSafe { absent "Objective-C has no optional navigation or null coalescing (nil-messaging is \
          semantics, not syntax)" }
-    CaseArm { pending R05 }
+    // A `case_statement` is the grammar's node for a `case X:` label
+    // and a `default:` label alike; the arm owns a decision when it
+    // holds the `case` keyword, which pays — one per label, so a
+    // fall-through run `case 2: case 3:` is two. The `default` keyword
+    // is the fallback and pays nothing (lesson 11, #469); Halstead
+    // bills it as the keyword it is through the byte-less arm.
+    CaseArm {
+        owns [CaseStatement(gated_by is_case_label)]
+        pays [Case]
+        excludes [Default "the fallback label, no decision (lesson 11, #469)"]
+    }
     Guard { absent "Objective-C has no guard clause on a case or a function head" }
     Branch { pending R07 }
     Switch { pending R07 }

@@ -17,7 +17,7 @@ impl Cyclomatic for GoCode {
     ) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
         // the bare enum name in pattern position under `use Go::*;`.
-        use crate::roles::go::short_circuit;
+        use crate::roles::go::{case_arm, short_circuit};
         use Go as G;
 
         let kind = node.kind_id();
@@ -28,8 +28,9 @@ impl Cyclomatic for GoCode {
             return;
         }
         match kind.into() {
-            // Standard-only: individual case arms inside switch/select.
-            G::ExpressionCase | G::TypeCase | G::CommunicationCase => {
+            // Standard-only: each switch / select arm the `CaseArm` row
+            // owns; the `default_case` is excluded there (lesson 11).
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: each distinct switch/select container collapses

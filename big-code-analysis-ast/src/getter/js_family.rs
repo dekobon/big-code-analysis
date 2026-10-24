@@ -153,6 +153,8 @@ macro_rules! impl_js_family_get_op_type {
             // the spellings the `Ternary` row's `under_ternary` gate leaves
             // out — TypeScript's optional members and types and its
             // `conditional_type` — which billed before the row existed.
+            // `case` is the `CaseArm` row's and `get_paying_role` bills it
+            // (#1695); `default` is the fallback label's and stays.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
             // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             match node.kind_id().into() {
@@ -191,7 +193,7 @@ macro_rules! impl_js_family_get_op_type {
                 LT | GT
                 | Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
                 | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If
-                | Else | Switch | Case | Default | Async | Do | For | In | Of | While | Try
+                | Else | Switch | Default | Async | Do | For | In | Of | While | Try
                 | Catch | Finally | With | EQ | AT | PLUS | DASH | DASHDASH
                 | PLUSPLUS | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE
                 | PLUSEQ | BANG | DASHEQ

@@ -15,17 +15,19 @@ impl Cyclomatic for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::perl::{short_circuit, ternary};
+        use crate::roles::perl::{case_arm, short_circuit, ternary};
         use Perl as P;
 
         let kind = node.kind_id();
         // `&&` / `||` / `or`, and an `and` that is the operator rather
         // than an auto-quoted key (#1539): the `ShortCircuit` row's
-        // payers, and the `ternary_expression` the `Ternary` row owns
-        // (#1695). The defined-or `//` and the compound forms stay below
-        // until their `NullSafe` row.
+        // payers, the `ternary_expression` the `Ternary` row owns, and
+        // the `when` statement the `CaseArm` row owns (#1695). The
+        // defined-or `//` and the compound forms stay below until their
+        // `NullSafe` row.
         if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
             || ternary::owns_kind(kind, node, code, ancestors)
+            || case_arm::owns_kind(kind, node, code, ancestors)
         {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
@@ -39,7 +41,6 @@ impl Cyclomatic for PerlCode {
             | P::UntilStatement
             | P::ForStatement1
             | P::ForStatement2
-            | P::WhenSimpleStatement
             | P::IfSimpleStatement
             | P::UnlessSimpleStatement
             | P::WhileSimpleStatement

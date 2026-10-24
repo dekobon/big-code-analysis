@@ -8,9 +8,9 @@
 
 use super::*;
 use crate::lang_helpers::elixir::elixir_applying_remote_call;
-use crate::metrics::elixir_decisions::{
-    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_receive_dispatches,
-    elixir_receive_timeout_clause, elixir_when_is_guard, elixir_with_else_dispatches,
+use crate::lang_helpers::elixir_decisions::{
+    elixir_arrow_is_with_clause, elixir_receive_dispatches, elixir_receive_timeout_clause,
+    elixir_with_else_dispatches,
 };
 
 impl Cyclomatic for ElixirCode {
@@ -34,10 +34,11 @@ impl Cyclomatic for ElixirCode {
         stats: &mut Stats,
     ) {
         // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
-        use crate::roles::elixir::short_circuit;
+        use crate::roles::elixir::{case_arm, guard, short_circuit};
         use Elixir as E;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Per-arm decisions: each `stab_clause` is one arm of a
             // `case`/`cond`/`with`/`receive`/anonymous-fn body or a
             // `rescue`/`catch` handler. Standard-only: modified counts a
@@ -78,7 +79,7 @@ impl Cyclomatic for ElixirCode {
             // `case`. Guarded forms (`_ when g ->`, `true when g ->`)
             // and named discards (`_x ->`) are real decisions and
             // still count.
-            E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // A guard is a decision the construct it guards does not
@@ -102,7 +103,7 @@ impl Cyclomatic for ElixirCode {
             // No double count (§5): the token fires once per `when`,
             // and the `binary_operator` that wraps it is not matched by
             // any arm here.
-            E::When if elixir_when_is_guard(node, code, ancestors) => {
+            _ if guard::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

@@ -108,7 +108,9 @@ impl Getter for JavaCode {
         // `get_paying_role` bills them (#1694).
         match node.kind_id().into() {
             // Operator: control flow
-            If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
+            // `case` is the `CaseArm` row's and `get_paying_role` bills it
+            // (#1695); `default` is the fallback label's and stays.
+            If | Else | Switch | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
             // Operator: keywords. `default` is one kind for a `switch`
             // label and an interface method's modifier.

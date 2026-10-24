@@ -277,17 +277,18 @@ where
     }
 }
 
-/// C-family cyclomatic: `Case` adds standard, `SwitchStatement` adds
-/// modified, and the shared branching kinds add both. The short-circuit
-/// arm reads the language's `ShortCircuit` row at its leaf projection
-/// (`short_circuit = <row module>`, #1694): the row's payer gate is
-/// where C++'s "applies its operator" test lives (`int&& x` and
-/// `operator&&` spell the token and apply nothing), so the macro
-/// carries no gate of its own. The ternary arm reads the `Ternary` row
-/// at its wrapper — the `conditional_expression` node, one decision —
-/// (`ternary = <row module>`, #1695). The JS family, whose
-/// short-circuit set also has the nullish and compound forms, has its
-/// own macro below.
+/// C-family cyclomatic: a `case` label adds standard, `SwitchStatement`
+/// adds modified, and the shared branching kinds add both. The rows are
+/// read from `roles = <the language's roles module>`: the short-circuit
+/// arm reads `ShortCircuit` at its leaf projection (#1694) — the row's
+/// payer gate is where C++'s "applies its operator" test lives (`int&&
+/// x` and `operator&&` spell the token and apply nothing), so the macro
+/// carries no gate of its own; the ternary arm reads `Ternary` at its
+/// wrapper, the `conditional_expression` node; and the case arm reads
+/// `CaseArm` at its leaf, the `case` keyword, which the row's exclusion
+/// of `default` keeps as the only paying label (#1695). The JS family,
+/// whose short-circuit set also has the nullish and compound forms, has
+/// its own macro below.
 ///
 /// **`If` / `For` / `While` are keyword tokens in the per-language
 /// enums (e.g. `Cpp::While == "while"`), not statement nodes.** The
@@ -311,8 +312,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
     (
         $code:ty,
         $lang:ident,
-        short_circuit = $row:path,
-        ternary = $ternary_row:path
+        roles = $roles:path
         $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
     ) => {
         impl Cyclomatic for $code {
@@ -323,8 +323,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
                 stats: &mut Stats,
             ) {
                 use $lang::*;
-                use $row as short_circuit;
-                use $ternary_row as ternary;
+                use $roles::{case_arm, short_circuit, ternary};
                 let kind = node.kind_id();
                 $(
                     let opens = matches!(kind.into(), $($constraint)|+);
@@ -339,8 +338,11 @@ macro_rules! impl_cyclomatic_c_family_rows {
                     stats.cyclomatic_modified += 1.;
                     return;
                 }
+                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    return;
+                }
                 match kind.into() {
-                    Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
                     If | For | While | Catch => {
                         stats.cyclomatic += 1.;
@@ -367,10 +369,11 @@ macro_rules! impl_cyclomatic_c_family_rows {
 // wrapper and a child `?.` token (`QMARKDOT`); counting `QMARKDOT`
 // matches every textual `?.` exactly once in TS/TSX.
 //
-// `&&` / `||` are read from the grammar's `ShortCircuit` row and the
-// ternary from its `Ternary` row (#1695); the nullish and compound
-// forms and the optional chain stay a kind list until their `NullSafe`
-// row lands.
+// `&&` / `||` are read from the grammar's `ShortCircuit` row, the
+// ternary from its `Ternary` row and the `case` label from its `CaseArm`
+// row, whose exclusion of `default` keeps it the only paying label
+// (#1695); the nullish and compound forms and the optional chain stay a
+// kind list until their `NullSafe` row lands.
 macro_rules! impl_cyclomatic_js_family {
     ($code:ty, $lang:ident, $roles:ident, $opt_chain:ident) => {
         impl Cyclomatic for $code {
@@ -380,7 +383,7 @@ macro_rules! impl_cyclomatic_js_family {
                 ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                use crate::roles::$roles::{short_circuit, ternary};
+                use crate::roles::$roles::{case_arm, short_circuit, ternary};
                 use $lang::*;
                 let kind = node.kind_id();
                 if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
@@ -390,8 +393,11 @@ macro_rules! impl_cyclomatic_js_family {
                     stats.cyclomatic_modified += 1.;
                     return;
                 }
+                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    return;
+                }
                 match kind.into() {
-                    Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
                     If | For | While | Catch | QMARKQMARK | AMPAMPEQ | PIPEPIPEEQ
                     | QMARKQMARKEQ | $opt_chain => {
@@ -442,17 +448,19 @@ macro_rules! impl_cyclomatic_js_family {
 // the per-call rationale at that invocation). This differs from
 // amaanq's grammar, which emitted ERROR nodes for those constructs.
 //
-// The `&&` / `||` arm reads the language's `ShortCircuit` row at its
-// leaf projection — the token — instead of naming the two kinds
-// (#1694, #1695), and the ternary arm the `Ternary` row at its
-// wrapper, the `ternary_expression` node.
+// The rows are read from `roles = <the language's roles module>`: the
+// `&&` / `||` arm reads `ShortCircuit` at its leaf projection — the
+// token — instead of naming the two kinds (#1694, #1695), the ternary
+// arm reads `Ternary` at its wrapper, the `ternary_expression` node,
+// the guard arm reads `Guard` at its wrapper (Java's `guard` node;
+// Groovy has none), and the case arm reads `CaseArm` at its leaf, the
+// `case` keyword, whose row excludes `default`.
 macro_rules! impl_cyclomatic_java_like_rows {
     (
         $code:ty,
         $lang:ident,
         [$($extra:ident),* $(,)?],
-        short_circuit = $row:path,
-        ternary = $ternary_row:path $(,)?
+        roles = $roles:path $(,)?
     ) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
@@ -462,21 +470,22 @@ macro_rules! impl_cyclomatic_java_like_rows {
                 stats: &mut Stats,
             ) {
                 use $lang::*;
-                use $row as short_circuit;
-                use $ternary_row as ternary;
+                use $roles::{case_arm, guard, short_circuit, ternary};
 
                 let kind = node.kind_id();
                 if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
                     || ternary::owns_kind(kind, node, code, ancestors)
+                    || guard::owns_kind(kind, node, code, ancestors)
                 {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;
                     return;
                 }
+                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    return;
+                }
                 match kind.into() {
-                    Case => {
-                        stats.cyclomatic += 1.;
-                    }
                     Switch => {
                         stats.cyclomatic_modified += 1.;
                     }
@@ -493,153 +502,6 @@ macro_rules! impl_cyclomatic_java_like_rows {
 
 // Real defaults — no executable branches. Audited in #188.
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
-
-/// Detects C# `switch_expression_arm`s whose pattern is a bare discard
-/// (`_` or `var _`) and which carry no `when` guard — the analogue of
-/// the C-family `default:` arm. Such arms must NOT contribute to
-/// standard CCN, mirroring Rust's `_ =>` and Java/C#'s `default:`
-/// treatment (lesson 11 / parity family 5). A guarded discard
-/// (`_ when g => …`) still counts because the guard introduces a
-/// non-trivial decision, matching Rust's `_ if g` rule.
-pub(crate) fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
-    use Csharp::*;
-
-    /// Classification of a `switch_expression_arm`'s pattern child.
-    /// `BareDiscard` means `_` or `var _` (the C# analogue of
-    /// `default:`); any concrete type test, constant, or composite
-    /// pattern is `NotDiscard` and still contributes to standard CCN.
-    enum PatternKind {
-        BareDiscard,
-        NotDiscard,
-    }
-
-    fn classify_pattern(child: &Node) -> PatternKind {
-        match child.kind_id().into() {
-            // `pattern` is a supertype: tree-sitter flattens it to the
-            // concrete subtype in the parse tree, so a bare `_` arm
-            // surfaces as a direct `discard` child.
-            Discard => PatternKind::BareDiscard,
-            // `var _` parses as a `declaration_pattern` with children
-            // `implicit_type` (`var`) and `discard` (`_`) rather than
-            // as a `var_pattern` — tree-sitter-c-sharp treats `var` as
-            // an implicit type designator. A `declaration_pattern`
-            // whose only named children are `implicit_type` and
-            // `discard` is therefore semantically the bare discard.
-            // A non-implicit type (`int _`) is NOT excluded — the
-            // type test is still a non-trivial decision.
-            DeclarationPattern => {
-                let mut saw_discard = false;
-                let mut saw_implicit_type = false;
-                for sub in child.children().filter(Node::is_named) {
-                    match sub.kind_id().into() {
-                        Discard => saw_discard = true,
-                        ImplicitType => saw_implicit_type = true,
-                        _ => return PatternKind::NotDiscard,
-                    }
-                }
-                if saw_discard && saw_implicit_type {
-                    PatternKind::BareDiscard
-                } else {
-                    PatternKind::NotDiscard
-                }
-            }
-            _ => PatternKind::NotDiscard,
-        }
-    }
-
-    let mut named = node.children().filter(Node::is_named);
-    let Some(pattern) = named.next() else {
-        return false;
-    };
-    let PatternKind::BareDiscard = classify_pattern(&pattern) else {
-        return false;
-    };
-    // A guarded discard (`_ when g => …`) still counts because the
-    // guard introduces a non-trivial decision, matching Rust's
-    // `_ if g` rule.
-    !named.any(|c| c.kind_id() == WhenClause)
-}
-
-/// Distinguishes the C# `case` keyword of a real `switch` arm from the
-/// one inside `goto case 2;`, which spells the same token (id 114) from
-/// a second production and is an unconditional jump, not a decision.
-///
-/// A `grammar.json` sweep of tree-sitter-c-sharp 0.23.5 finds the
-/// `"case"` string in exactly two rules — `switch_section` and
-/// `goto_statement` — and only the first is an arm. `Csharp::Case` and
-/// `Csharp::SwitchSection` each carry no numeric-suffix alias at this
-/// pin (`.claude/rules/grammar-dispatch.md` §1), and `switch_section`
-/// is not a hidden `_`-prefixed rule (§2), so the one-variant allowlist
-/// is the whole answer.
-///
-/// Allowlist polarity, matching the comparison-token gate in
-/// `src/metrics/abc/csharp.rs`: naming the one decision parent means a
-/// grammar bump that grows a third `case`-bearing production fails
-/// *closed* — the new spelling stops counting rather than silently
-/// counting as an arm. It also covers error recovery, where a token the
-/// parser reparents under `{ERROR}` stops counting; nothing pins that,
-/// because a fixture the language rejects would make the grammar's
-/// present recovery the contract (§6).
-///
-/// Both C# metrics that count the bare token gate on this — ABC's
-/// `conditions` and cyclomatic's decision count — so `goto case` moves
-/// them together. Cognitive models the construct on a different node
-/// entirely (`GotoStatement`, +1 as an unstructured jump per
-/// SonarSource §B2, `src/metrics/cognitive/csharp.rs`) and is
-/// unaffected: a `goto case` remains a jump there, it merely stops
-/// also being an arm here.
-///
-/// `goto default;` needed no equivalent gate: `Default` is a distinct
-/// token that neither metric counts, since it is the switch's
-/// unconditional fallthrough (#456, #469).
-pub(crate) fn csharp_case_token_is_switch_arm<'a>(
-    node: &Node<'a>,
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent_has_kind(node, Csharp::SwitchSection as u16)
-}
-
-/// Detects Kotlin `when_entry` nodes that are `else -> …` arms — the
-/// analogue of the C-family `default:` arm. tree-sitter-kotlin-ng
-/// attaches a `condition` field to every case-style entry; the `else`
-/// arm has no `condition` field (only an anonymous `else` keyword
-/// child). Such arms must NOT contribute to standard CCN.
-pub(crate) fn kotlin_when_entry_is_else(node: &Node) -> bool {
-    node.child_by_field_name("condition").is_none()
-}
-
-/// Detects Bash `*)` catch-all arms inside `case … esac`. Returns
-/// `true` when the case_item has exactly one `value` field whose
-/// source text is the literal `*`. Multi-value patterns (`a|b`,
-/// `*|b`) are NOT bare and still count as decisions.
-pub(crate) fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
-    // tree-sitter-bash attaches the `value` field to each alternation
-    // in the case pattern (`a|b)` produces two `value` children).
-    // Walk via a single `TreeCursor`: `field_name()` exposes the field
-    // for the current position and `goto_next_sibling()` is O(1), so
-    // total cost is linear in child count — avoiding the per-call
-    // O(i) `Node::child(i)` access that an index-based loop would
-    // pay on every iteration.
-    let mut cursor = node.as_tree_sitter().walk();
-    if !cursor.goto_first_child() {
-        return false;
-    }
-    let mut value_count = 0usize;
-    let mut sole_value_is_star = false;
-    loop {
-        if cursor.field_name() == Some("value") {
-            value_count += 1;
-            if value_count > 1 {
-                return false;
-            }
-            sole_value_is_star = cursor.node().utf8_text(code).is_ok_and(|s| s.trim() == "*");
-        }
-        if !cursor.goto_next_sibling() {
-            break;
-        }
-    }
-    value_count == 1 && sole_value_is_star
-}
 
 // Per-language `Cyclomatic` impls live in sibling modules. The `mod`
 // declarations sit after the local `macro_rules!` so textual macro

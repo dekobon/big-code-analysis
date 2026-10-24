@@ -24,7 +24,7 @@ impl Cyclomatic for ObjcCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::objc::{short_circuit, ternary};
+        use crate::roles::objc::{case_arm, short_circuit, ternary};
         use Objc::*;
         let kind = node.kind_id();
         // `&&` / `||`, the `ShortCircuit` row's payers, and the
@@ -36,8 +36,13 @@ impl Cyclomatic for ObjcCode {
             stats.cyclomatic_modified += 1.;
             return;
         }
+        // A `case` label, the `CaseArm` row's payer; `default` is excluded
+        // there (lesson 11, #469).
+        if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            return;
+        }
         match kind.into() {
-            Case => stats.cyclomatic += 1.,
             SwitchStatement => stats.cyclomatic_modified += 1.,
             // `CatchClause` (the `@catch` handler) contributes the same
             // branch as the other decision kinds, so it rides the

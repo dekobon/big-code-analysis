@@ -196,7 +196,9 @@ impl Getter for GroovyCode {
             // spellings the rows' `under_binary_expression` / `under_membership_expression` /
             // `under_ternary` gates leave out
             LT | LT2 | GT | In
-            | If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
+            // `case` is the `CaseArm` row's and `get_paying_role` bills it
+            // (#1695); `default` is the fallback label's and stays.
+            | If | Else | Switch | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Assert
             | Extends | Implements | As
             // Separators / brackets.

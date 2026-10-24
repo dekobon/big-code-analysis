@@ -16,7 +16,7 @@ use super::{
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
 };
-use crate::roles::perl::{comparison, short_circuit, ternary};
+use crate::roles::perl::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -726,8 +726,16 @@ impl Abc for PerlCode {
             | P::IfSimpleStatement
             | P::UnlessSimpleStatement
             | P::WhileSimpleStatement
-            | P::UntilSimpleStatement
-            | P::WhenSimpleStatement => {
+            | P::UntilSimpleStatement => {
+                perl_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
+            }
+            // A `when` statement, the `CaseArm` row's owner: its
+            // condition is a slot, as the statements above are.
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 perl_count_slot(
                     node.child_by_field_name("condition"),
                     code,

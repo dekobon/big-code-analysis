@@ -14,7 +14,7 @@ use super::{
     count_negated_operand, last_operand, peel, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
-use crate::roles::csharp::{comparison, short_circuit, ternary};
+use crate::roles::csharp::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -409,9 +409,15 @@ fn csharp_count_token_condition<'a>(
     // the row. Fitzpatrick Rule 5 scores the operator wherever it is
     // written, so `bool b = x is string;` scores as `bool b = x == 1;`
     // does (#1461). The `Ternary` row's `?` likewise, gated by the row
-    // to the `conditional_expression`.
+    // to the `conditional_expression`; and the `CaseArm` row's leaf —
+    // each `case` label of a statement arm, gated by the row to the arm
+    // since `goto case 2;` spells the same token (#1450 / #1451), and
+    // each `switch` *expression* arm but the bare discard `_ =>`, the
+    // `default:` analogue (#456, lesson 11) — one condition per arm, as
+    // cyclomatic counts them.
     if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
         || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+        || case_arm::pays_at_leaf_kind(kind, node, code, ancestors)
     {
         stats.conditions += 1.;
         return true;
@@ -477,32 +483,6 @@ fn csharp_count_token_condition<'a>(
         Else | Try | Catch | QMARKQMARK => {
             stats.conditions += 1.;
         }
-        // `case` comes from two productions — `switch_section`, a real
-        // arm, and `goto_statement`, where `goto case 2;` is an
-        // unconditional jump to one. Both spell the same token, so the
-        // jump scored a condition it does not earn: a method whose only
-        // difference from a control was a `goto case` read one condition
-        // *and* one cyclomatic decision higher (#1450 / #1451). The gate
-        // is shared with `src/metrics/cyclomatic/csharp.rs` and carries
-        // the grammar sweep and the allowlist rationale in its doc
-        // comment.
-        //
-        // The two arms moved in one change because they measure the same
-        // token, not because any global law binds them: `conditions ==
-        // cyclomatic() - 1` is an opt-in fixture property asserted by two
-        // of `src/metrics/abc.rs`'s three helpers, and the third
-        // documents it as knowingly false in general. Gating one side
-        // alone broke no test in the suite — no fixture spelled `goto
-        // case` outside the cognitive tests — which is the reason to
-        // write the pair as one commit rather than trust the gate to
-        // notice.
-        //
-        // A gated-out `Case` falls through to
-        // `csharp_walk_for_conditions`, which has no `Case` arm, so the
-        // fall-through is a no-op.
-        Case if crate::metrics::cyclomatic::csharp_case_token_is_switch_arm(node, ancestors) => {
-            stats.conditions += 1.;
-        }
         // tree-sitter-c-sharp emits a bare `?` from exactly four
         // productions: `nullable_type` (`int? x`),
         // `type_parameter_constraint` (`where T : class?`),
@@ -561,18 +541,6 @@ fn csharp_count_token_condition<'a>(
         {
             stats.conditions += 1.;
         }
-        // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
-        // decision point. The statement `switch` counts via its `Case`
-        // tokens above; an expression arm carries none, so it scored zero
-        // conditions before #456 even though C# cyclomatic counts it. The
-        // bare-discard arm (`_ =>` / `var _ =>`, no `when` guard) is the
-        // `default:` analogue and is excluded — mirroring the cyclomatic
-        // gate (lesson 11).
-        SwitchExpressionArm
-            if !crate::metrics::cyclomatic::csharp_switch_expression_arm_is_bare_discard(node) =>
-        {
-            stats.conditions += 1.;
-        }
         _ => return false,
     }
     true
@@ -624,8 +592,9 @@ fn csharp_walk_for_conditions<'a>(
                 csharp_count_condition(&condition, code, conds);
             }
         }
-        // C#'s two guard spellings, each modelled as a condition slot
-        // exactly like the `if` / `while` / `do` slots above (#1422).
+        // C#'s two guard spellings, the `Guard` row's owners, each
+        // modelled as a condition slot exactly like the `if` / `while` /
+        // `do` slots above (#1422).
         // Before this, a guard scored whatever operator happened to sit
         // inside it: `when x % 2 == 0` and `when x > 2` counted one via
         // the comparison-token arm while `when IsEven(x)` counted zero,
@@ -650,7 +619,7 @@ fn csharp_walk_for_conditions<'a>(
         // The first operand that is not an `extra`: a comment may precede
         // the expression (`when /*c*/ g`) and would pay as a slot of its
         // own.
-        WhenClause | CatchFilterClause => {
+        _ if guard::owns_kind(kind, node, code, ancestors) => {
             if let Some(guard) = wrapped_operand(node) {
                 csharp_count_condition(&guard, code, conds);
             }

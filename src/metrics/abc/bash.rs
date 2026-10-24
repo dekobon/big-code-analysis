@@ -11,7 +11,7 @@
 
 use super::{Abc, Stats};
 use crate::lang_helpers::bash::bash_test_eq_count;
-use crate::roles::bash::{comparison, ternary};
+use crate::roles::bash::{case_arm, comparison, ternary};
 use crate::*;
 
 impl Abc for BashCode {
@@ -71,12 +71,11 @@ impl Abc for BashCode {
             Bash::TestCommand => {
                 stats.conditions += bash_test_eq_count(node) as f64;
             }
-            // Case arms are conditions too, but counted per-arm like
-            // cyclomatic, excluding the bare-`*)` wildcard (the Bash analogue
-            // of `default:`) (#696).
-            Bash::CaseItem | Bash::CaseItem2
-                if !crate::metrics::cyclomatic::bash_case_item_is_bare_wildcard(node, code) =>
-            {
+            // Case arms are conditions too, counted per arm like
+            // cyclomatic: each `case_item` the `CaseArm` row owns, which
+            // leaves out the bare `*)` wildcard, the Bash analogue of
+            // `default:` (#696).
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             _ => {}

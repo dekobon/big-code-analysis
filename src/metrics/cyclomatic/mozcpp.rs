@@ -15,7 +15,6 @@ use super::*;
 impl_cyclomatic_c_family_rows!(
     MozcppCode,
     Mozcpp,
-    short_circuit = crate::roles::mozcpp::short_circuit,
-    ternary = crate::roles::mozcpp::ternary,
+    roles = crate::roles::mozcpp,
     constraints = [RequiresClause, RequiresExpression],
 );

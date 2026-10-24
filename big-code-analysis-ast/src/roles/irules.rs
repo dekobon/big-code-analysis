@@ -1,13 +1,20 @@
 //! iRules' role rows; declared through the Tcl template once R06 lands
 //! (contract 5 of #1690). The Halstead keyword role is declared (#1693).
 
-use crate::Irules;
+use crate::lang_helpers::case_arms::irules_switch_arm_is_decision;
 use crate::role_table;
 use crate::roles::tcl_family::{
     tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
 };
+use crate::{Ancestors, Irules, Node};
 
 tcl_family_gates!();
+
+/// Whether a `switch_arm` is a decision arm rather than `default`,
+/// which only its `pattern` bytes tell (lesson 11, #106).
+fn is_decision_arm<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    irules_switch_arm_is_decision(node, code)
+}
 
 role_table! {
     lang: Irules;
@@ -43,7 +50,10 @@ role_table! {
         project "operator"
     }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }
-    CaseArm { pending R05 }
+    // Unlike Tcl, the grammar gives `switch` and its arms kinds of their
+    // own: a `switch_arm` owns a decision and pays at the node, unless
+    // its pattern is `default`, the fallback (lesson 11, #106).
+    CaseArm { owns [SwitchArm(text_gated_by is_decision_arm)] }
     Guard { absent "Tcl has no guard clause" }
     Branch { pending R07 }
     Switch { pending R07 }

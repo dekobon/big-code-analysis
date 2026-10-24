@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::roles::c::{comparison, short_circuit, ternary};
+use crate::roles::c::{case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -81,7 +81,7 @@ impl Abc for CCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            Else | Case => {
+            Else => {
                 stats.conditions += 1.;
             }
             // The six comparison tokens, the `Comparison` row's payers
@@ -99,6 +99,12 @@ impl Abc for CCode {
             // paid at the token so `a ? b : c` scores one outside any
             // slot; the owner arm below walks its operand slots.
             _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
+            // A `case` label, the `CaseArm` row's payer — one per label,
+            // as cyclomatic counts them; `default` is excluded on the row
+            // (lesson 11, #469).
+            _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 (Figure 3): each operand of a `&&` /

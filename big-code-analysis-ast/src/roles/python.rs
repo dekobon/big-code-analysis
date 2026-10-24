@@ -3,6 +3,7 @@
 //! operator tokens; one row names both occurrences, and which one a
 //! consumer reads is decided where that consumer lives, not here.
 
+use crate::lang_helpers::case_arms::python_case_clause_counts;
 use crate::role_table;
 use crate::{Ancestors, Node, Python};
 
@@ -15,6 +16,19 @@ use crate::{Ancestors, Node, Python};
 /// needed — a perturbation of such a gate failed nothing (#1691).
 fn under_comparison<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Python::ComparisonOperator as u16)
+}
+
+/// Whether a `case_clause` is a decision: its pattern is not a bare `_`,
+/// or it carries an `if` guard (lesson 11, #469).
+fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    python_case_clause_counts(node)
+}
+
+/// Whether an `if_clause` is a `case` guard rather than a comprehension's
+/// filter (`[y for y in x if y]`), which the grammar spells with the same
+/// kind.
+fn under_case_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Python::CaseClause as u16)
 }
 
 role_table! {
@@ -77,7 +91,15 @@ role_table! {
             CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
         ]
     }
-    Guard { pending R05 }
+    // A `case X if g:` guard is an `if_clause` under the `case_clause` —
+    // the same kind a comprehension filter has, so the owner is gated to
+    // the clause — one decision paid at the node: ABC walks its
+    // expression as a boolean slot, and cyclomatic counts the `if`
+    // keyword wherever it is written, which Halstead bills likewise.
+    Guard {
+        owns [IfClause(gated_by under_case_clause)]
+        excludes [If "the keyword the `if` statement's kind spells, counted and billed as such"]
+    }
     // `a if c else b` is a `conditional_expression` with no field and
     // no operator of its own: its `if` / `else` are the statement
     // keywords' kinds, which Halstead bills wherever they appear, so
@@ -87,7 +109,14 @@ role_table! {
     // node and declines the `if` keyword under it, which it would
     // otherwise count as a statement's.
     Ternary { owns [ConditionalExpression] }
-    CaseArm { pending R05 }
+    // A `case_clause` owns a decision and pays at the node — its `case`
+    // keyword is contextual and bills as the keyword it is — unless its
+    // pattern is a bare `_` with no guard, the `default:` of a `match`
+    // (lesson 11, #469); a guarded `case _ if g:` still counts.
+    CaseArm {
+        owns [CaseClause(gated_by is_decision_clause)]
+        excludes [Case "the arm's keyword, billed as such; the clause pays"]
+    }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }
@@ -124,6 +153,29 @@ mod tests {
     use super::*;
     use crate::test_support::for_each_node_with_chain;
     use crate::{Checker, Getter, PythonCode, SpaceKind};
+
+    // A `case` guard and a comprehension filter are one `if_clause`
+    // kind; the `Guard` row owns only the one under a `case_clause`
+    // (#1695). The `CaseArm` row owns every clause but the bare `case
+    // _:`, and a guarded `_` still.
+    #[cfg(feature = "python")]
+    #[test]
+    fn guard_owns_the_case_guard_and_not_a_comprehension_filter() {
+        let source = b"match x:\n    case 1 if b: pass\n    case _ if b: pass\n    case _: pass\ny = [z for z in x if z]\n";
+        let (mut guards, mut arms) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if guard::owns(node, source, ancestors) {
+                guards.push(text());
+            }
+            if case_arm::owns(node, source, ancestors) {
+                arms.push(text());
+            }
+        });
+        assert_eq!(guards, ["if b", "if b"]);
+        assert_eq!(arms, ["case 1 if b: pass", "case _ if b: pass"]);
+    }
 
     // The rows restate `checker/python.rs` and `getter/python.rs`; this
     // pins the restatement node by node (lesson 35). The per-shape tests

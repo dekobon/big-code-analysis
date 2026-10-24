@@ -44,6 +44,5 @@ impl_cyclomatic_java_like_rows!(
     GroovyCode,
     Groovy,
     [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK],
-    short_circuit = crate::roles::groovy::short_circuit,
-    ternary = crate::roles::groovy::ternary
+    roles = crate::roles::groovy
 );

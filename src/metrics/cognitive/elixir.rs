@@ -15,7 +15,7 @@ use super::*;
 use crate::lang_helpers::elixir::{
     elixir_applying_remote_call, elixir_short_circuit_kind, elixir_short_circuit_name,
 };
-use crate::metrics::elixir_decisions::{elixir_pair_section, elixir_receive_dispatches};
+use crate::lang_helpers::elixir_decisions::{elixir_pair_section, elixir_receive_dispatches};
 
 /// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
 /// `rescue`, `catch` — in its keyword form: `try` itself, and the

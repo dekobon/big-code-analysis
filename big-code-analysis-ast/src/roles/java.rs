@@ -34,6 +34,13 @@ fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>
     ancestors.parent_has_kind(node, Java::TernaryExpression as u16)
 }
 
+/// Whether a `switch_label` is a `case X` label rather than `default`:
+/// the grammar gives both one kind, and only the first is a decision
+/// (lesson 11, #469).
+fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.is_child(Java::Case as u16)
+}
+
 /// Whether an `instanceof` keyword sits under its `instanceof_expression`.
 /// The grammar spells the keyword in no other production, but error
 /// recovery keeps a keyword whose expression it lost
@@ -195,12 +202,14 @@ role_table! {
 
     Call { owns [MethodInvocation] }
 
-    // `pays never`, on a stand-in. A `case … when guard ->` arm's guard
-    // is an owner with no token of its own: the `when` keyword is not
-    // counted anywhere, and the guard's expression pays through its own
-    // comparison. No consumer reads this row yet; it exists to prove the
-    // shape expands.
-    Guard { owns [Guard] pays never }
+    // A `case X when g ->` guard (Java 21) is the `guard` node, one
+    // decision paid at the node — cyclomatic counts it, ABC walks its
+    // expression as a boolean slot — and its `when` keyword bills
+    // nothing: a contextual keyword the grammar emits only here, which
+    // Halstead has never billed. R01's proof row said `pays never`,
+    // which was the Halstead reading; the counting consumers pay the
+    // node, so the owner is the paying projection (#1695).
+    Guard { owns [Guard] excludes [When "a contextual keyword Halstead has never billed"] }
 
     NullSafe { absent "Java has no optional-navigation or null-coalescing operator" }
     // JLS §15.22.2 makes `&` / `|` / `^` on boolean operands eager
@@ -229,7 +238,18 @@ role_table! {
         pays [QMARK gated_by under_ternary]
         project "operator"
     }
-    CaseArm { pending R05 }
+    // A `switch_label` is the grammar's node for `case X` and `default`
+    // alike, in the colon form (`switch_block_statement_group`) and the
+    // arrow form (`switch_rule`); the label owns a decision when it
+    // holds the `case` keyword, which pays — one per label, so a
+    // fall-through run `case 2: case 3:` is two and a multi-pattern
+    // `case 2, 3 ->` is one. `default` is the fallback and pays nothing
+    // (lesson 11, #469); Halstead bills it as the keyword it is.
+    CaseArm {
+        owns [SwitchLabel(gated_by is_case_label)]
+        pays [Case]
+        excludes [Default "the fallback label, no decision (lesson 11, #469)"]
+    }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }
@@ -474,7 +494,7 @@ mod tests {
             );
         }
         assert_eq!(guard::PAYERS, &[] as &[u16]);
-        assert_eq!((guard::PAYS_NEVER, comparison::PAYS_NEVER), (true, false));
+        assert_eq!((guard::PAYS_NEVER, comparison::PAYS_NEVER), (false, false));
         assert_eq!(
             comparison::EXCLUDED
                 .iter()
@@ -642,26 +662,32 @@ mod tests {
         assert!(container::OWNERS.contains(&(Java::ObjectCreationExpression as u16)));
     }
 
+    // The guard node is the one paying node (#1695): cyclomatic counts
+    // it and ABC walks its expression; its `when` keyword pays nothing.
     #[cfg(feature = "java")]
     #[test]
-    fn guard_row_owns_the_guard_and_pays_nowhere() {
+    fn guard_row_owns_the_guard_and_pays_at_it() {
         let source = b"class A { int f(Object o) { return switch (o) { case Integer i when i > 0 -> 1; default -> 0; }; } }\n";
-        let mut guards = 0;
-        let mut paid = 0;
+        let (mut owned, mut paid) = (Vec::new(), Vec::new());
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
-            guards += usize::from(guard::owns(node, source, ancestors));
-            paid += usize::from(guard::pays_at_leaf(node, source, ancestors));
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if guard::owns(node, source, ancestors) {
+                owned.push(text());
+            }
+            if guard::pays_at_leaf(node, source, ancestors) {
+                paid.push(text());
+            }
         });
-        assert_eq!((guards, paid), (1, 0));
+        assert_eq!(owned, ["when i > 0"]);
+        assert_eq!(paid, owned);
     }
 
     // A row with no `pays` list pays at its owners under both
-    // projections; a `pays never` row pays under neither, even though
-    // it owns the node.
+    // projections, whichever the consumer reads.
     #[cfg(feature = "java")]
     #[test]
-    fn plain_and_never_rows_answer_both_projections_the_same_way() {
+    fn plain_rows_answer_both_projections_the_same_way() {
         let source = b"class A { int f(Object o) { return switch (o) { case Integer i when i > 0 -> 1; default -> 0; }; } }\n";
         let mut exits = Vec::new();
         let mut guards = Vec::new();
@@ -683,6 +709,6 @@ mod tests {
             }
         });
         assert_eq!(exits, [(true, true, true)]);
-        assert_eq!(guards, [(true, false, false)]);
+        assert_eq!(guards, [(true, true, true)]);
     }
 }

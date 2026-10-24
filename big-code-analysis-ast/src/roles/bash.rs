@@ -2,8 +2,16 @@
 //! every other role is pending the package that declares it (#1692).
 
 use crate::lang_helpers::bash::bash_test_connective;
+use crate::lang_helpers::case_arms::bash_case_item_is_bare_wildcard;
 use crate::role_table;
 use crate::{Ancestors, Bash, Node};
+
+/// Whether a `case_item` is a decision arm rather than the `*)`
+/// catch-all: exactly one `value` field spelling `*` (lesson 11, #469).
+/// `a|b)` and `*|b)` are not bare and still count.
+fn is_decision_item<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !bash_case_item_is_bare_wildcard(node, code)
+}
 
 /// Whether a `?` is the arithmetic ternary's rather than an
 /// expansion's (`${y?msg}`, where the bare token is the operator of the
@@ -158,8 +166,15 @@ role_table! {
         excludes [QMARK2 "the second `?` id, which no spelling at the pinned grammar emits"]
     }
     NullSafe { absent "Bash has no optional navigation or null coalescing" }
-    CaseArm { pending R05 }
-    Guard { pending R05 }
+    // A `case_item` (`CaseItem2` the second id carrying the kind, per
+    // grammar-dispatch §1) owns a decision and pays at the node — the
+    // arm has no keyword; `case` and `esac` are the statement's and bill
+    // as the keywords they are — unless its sole pattern is `*`, the
+    // catch-all (lesson 11, #469), which only the bytes tell.
+    CaseArm {
+        owns [CaseItem(text_gated_by is_decision_item), CaseItem2(text_gated_by is_decision_item)]
+    }
+    Guard { absent "Bash has no guard clause; a `case` pattern is a glob, not a condition" }
     Branch { pending R07 }
     Switch { pending R07 }
     Loop { pending R07 }

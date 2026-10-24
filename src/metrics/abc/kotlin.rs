@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, wrapped_operand};
-use crate::roles::kotlin::{comparison, short_circuit};
+use crate::roles::kotlin::{case_arm, comparison, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -433,14 +433,13 @@ impl Abc for KotlinCode {
             }
             // A `when` entry is a decision point except for the `else ->`
             // fallback arm, which is the analogue of C-family `default:`
-            // and Rust's wildcard `_ =>`. Cyclomatic already excludes it
-            // (`WhenEntry if !kotlin_when_entry_is_else`); ABC must track
-            // the same decision count (issue #456, lesson 11). Sharing
-            // that predicate is what keeps the two metrics from drifting.
-            // `kotlin_count_when_entry` decides where the decision is
+            // and Rust's wildcard `_ =>`. The `CaseArm` row leaves it
+            // out, and cyclomatic reads the same row, which is what keeps
+            // the two metrics' decision counts together (#456, lesson
+            // 11). `kotlin_count_when_entry` decides where the decision is
             // paid for — the entry, or the operators of its condition
             // (#1421).
-            WhenEntry if !crate::metrics::cyclomatic::kotlin_when_entry_is_else(node) => {
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 kotlin_count_when_entry(node, code, ancestors, &mut stats.conditions);
             }
             // `else` is a keyword token used in both `if_expression`'s

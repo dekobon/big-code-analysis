@@ -16,11 +16,11 @@ use super::{
 use crate::lang_helpers::elixir::{
     elixir_applying_remote_call, elixir_call_keyword, elixir_kernel_short_circuit_name,
 };
-use crate::metrics::elixir_decisions::{
-    Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_clause_is_decision,
-    elixir_sole_unguarded_pattern, elixir_when_alternative, elixir_when_is_guard,
+use crate::lang_helpers::elixir_decisions::{
+    Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_sole_unguarded_pattern,
+    elixir_when_alternative,
 };
-use crate::roles::elixir::{comparison, short_circuit};
+use crate::roles::elixir::{case_arm, comparison, guard, short_circuit};
 use crate::*;
 
 /// The grammar rule an applied binary operator hangs off. Matched by
@@ -233,7 +233,7 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
     }
     if keyword == Some("receive")
         && let Some(timeout) =
-            crate::metrics::elixir_decisions::elixir_receive_timeout_clause(node, code)
+            crate::lang_helpers::elixir_decisions::elixir_receive_timeout_clause(node, code)
     {
         elixir_count_clause(&timeout, code, &mut stats.conditions);
     }
@@ -389,7 +389,7 @@ impl Abc for ElixirCode {
             // is not re-plumbed out of the predicate because that
             // predicate's whole job (§7) is to be one boolean the `Abc`
             // and `Cyclomatic` impls share.
-            E::When if elixir_when_is_guard(node, code, ancestors) => {
+            _ if guard::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(operator) = ancestors.parent(node) {
                     elixir_count_guard(&operator, code, &mut stats.conditions);
                 }
@@ -491,7 +491,10 @@ impl Abc for ElixirCode {
             E::Identifier => {
                 elixir_count_remote_chain(node, code, ancestors, &mut stats.conditions);
             }
-            E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
+            // A clause the `CaseArm` row owns — of a `case`, `cond`,
+            // `with … else`, `receive` or `try` handler, and not the
+            // fallback nor a function head (#1454).
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 elixir_count_clause(node, code, &mut stats.conditions);
             }
             // A `with`'s `pattern <- expr` clause is a pattern-match

@@ -15,18 +15,21 @@ impl Cyclomatic for IrulesCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::irules::{short_circuit, ternary};
-        // Unlike Tcl, iRules has a dedicated `switch`/`switch_arm` node: each
-        // non-`default` arm is a decision point in standard CCN, while modified
-        // CCN collapses the whole `switch` to a single container decision. The
-        // arms are counted at the `switch` node so the `switch_arm` children
-        // are not also matched below (which would double-count).
-        if let Some(arms) = crate::metrics::cognitive::irules_switch_decision_arms(node, code) {
-            stats.cyclomatic += arms as f64;
+        use crate::roles::irules::{case_arm, short_circuit, ternary};
+        let kind = node.kind_id();
+        // Unlike Tcl, iRules has a dedicated `switch` / `switch_arm` node:
+        // each arm the `CaseArm` row owns — every one but `default` — is
+        // a decision point in standard CCN, read at its own node, while
+        // modified CCN collapses the whole `switch` to one container
+        // decision.
+        if case_arm::owns_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            return;
+        }
+        if kind == Irules::Switch as u16 {
             stats.cyclomatic_modified += 1.;
             return;
         }
-        let kind = node.kind_id();
         // The short-circuit operators, symbolic and the iRules keyword
         // forms (`and` / `or`) — the `ShortCircuit` row's payers — and
         // the `ternary_expr` the `Ternary` row owns (#1695).

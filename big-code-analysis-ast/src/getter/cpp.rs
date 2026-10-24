@@ -151,14 +151,15 @@ impl Getter for CppCode {
             // they did before the rows existed. The rows pay the applied
             // spellings and this arm the rest; for these kinds the
             // Halstead vocabulary is the union, so dropping one from a
-            // row moves nothing here. The ternary `?` is not here: the
-            // `Ternary` row pays it ungated.
+            // row moves nothing here. The ternary `?` and the `case` label
+            // are not here: the `Ternary` and `CaseArm` rows pay them
+            // ungated.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' `applied` gate leaves out
             LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
             | And | Or
             | DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
-            | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
+            | Break | Continue | If | Else | Switch | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | DASH
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | PLUSEQ

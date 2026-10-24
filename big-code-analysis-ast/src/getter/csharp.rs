@@ -147,6 +147,16 @@ impl Getter for CsharpCode {
 
         match node.kind_id().into() {
             // Control-flow keywords
+            // `case` stays for the spelling the `CaseArm` row's gate
+            // leaves out — `goto case 2;` (#1450) — which billed before
+            // the row existed; a switch arm's is the row's. `default` is
+            // the fallback label's and stays; `when`, the `Guard` row's
+            // owners' keyword, is excluded there and bills here. `is`,
+            // `<` … and `?` likewise stay for the spellings the
+            // `Comparison` and `Ternary` rows' gates leave out.
+            // role-bypass: allow(Comparison, Ternary, CaseArm) — the operator classification of
+            // the spellings the rows' `under_type_test` / `under_binary_expression` /
+            // `under_ternary` / `is_switch_arm_case` gates leave out
             If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
             | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
             // Expression-keyword operators. `new` is the allocation
@@ -157,9 +167,6 @@ impl Getter for CsharpCode {
             // `is` for the spelling the `Comparison` row's `under_type_test`
             // gate leaves out — a keyword error recovery strands — which
             // billed before the row existed.
-            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
-            // spellings the rows' `under_type_test` / `under_binary_expression` / `under_ternary`
-            // gates leave out
             | Is
             | New | Await | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
             | Params | Lock | Stackalloc | Where | With | When | Operator

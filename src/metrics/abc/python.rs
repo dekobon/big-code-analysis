@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, peel, wrapped_operand};
-use crate::roles::python::{comparison, short_circuit, ternary};
+use crate::roles::python::{case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -161,8 +161,13 @@ fn python_count_ternary_condition(node: &Node, code: &[u8], conditions: &mut f64
 // No double count (§5): cyclomatic reaches this guard through the `If`
 // *keyword token* inside the `if_clause`, which no ABC arm matches.
 fn python_count_case_guard(case_clause: &Node, code: &[u8], conditions: &mut f64) {
+    // The `guard` field is the `Guard` row's owner — an `if_clause`
+    // under the clause, told from a comprehension's filter by that
+    // parent — asked of the field with the clause as its chain.
+    let chain = [*case_clause];
     if let Some(operand) = case_clause
         .child_by_field_name("guard")
+        .filter(|guard| guard::owns(guard, code, Ancestors::known(&chain)))
         .and_then(|guard| wrapped_operand(&guard))
     {
         python_count_condition(&operand, code, conditions);
@@ -260,20 +265,17 @@ impl Abc for PythonCode {
             }
             // A non-wildcard `case` arm contributes one condition,
             // matching Rust's bare-`_` MatchArm filter and Java/C#'s
-            // `default:` rule. The bare wildcard is detected by: (a)
-            // `case_pattern` is `_`, AND (b) no `if_clause` sibling
-            // on the `case_clause` — `case _ if g:` carries a guard
-            // and still counts. The shared classifier lives in
-            // `super::npa` next to `pattern_is_bare_underscore`.
-            // The guard is a further condition slot — see
-            // `python_count_case_guard`. It is counted inside this arm
-            // rather than from an `IfClause` arm of its own because a
+            // `default:` rule. The `CaseArm` row leaves the bare wildcard
+            // out — `case_pattern` is `_` and no `if_clause` sibling on
+            // the `case_clause`; `case _ if g:` carries a guard and still
+            // counts. The guard is a further condition slot, the `Guard`
+            // row's — see `python_count_case_guard`. It is counted inside
+            // this arm rather than from an arm of its own because a
             // comprehension filter (`[x for x in xs if g]`) is the same
-            // `if_clause` kind, and the `guard` field reaches only the
-            // `case` one. A guarded clause always satisfies the gate
-            // (`python_case_clause_counts` returns `true` on sight of
-            // an `if_clause`), so no guard is lost to it.
-            CaseClause if super::npa::python_case_clause_counts(node, UNDERSCORE as u16) => {
+            // `if_clause` kind, which the row's parent gate tells apart.
+            // A guarded clause is always an arm the row owns, so no guard
+            // is lost to it.
+            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 python_count_case_guard(node, code, &mut stats.conditions);
             }

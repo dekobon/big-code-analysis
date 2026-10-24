@@ -202,7 +202,12 @@ impl Abc for TclCode {
             // Generic command: branch by default, assignment when
             // the first word names a known mutator. The first word
             // can be either a `simple_word` or a wrapped form; both
-            // surface their literal text via `utf8_text`.
+            // surface their literal text via `utf8_text`. A `switch`
+            // arm is a command too — the `CaseArm` row's — and is a
+            // branch as before: Tcl ABC has never scored arms as
+            // conditions.
+            // role-bypass: allow(CaseArm) — the call / assignment reading of every command, which
+            // the row's switch-arm owner is also one of
             Tcl::Command => {
                 if tcl_command_is_assignment(node, code) {
                     stats.assignments += 1.;
