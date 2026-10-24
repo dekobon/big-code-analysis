@@ -225,6 +225,8 @@ impl Getter for KotlinCode {
 
     keyword_roles!(kotlin);
 
+    paying_roles!(kotlin);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Kotlin::*;
 
@@ -274,17 +276,30 @@ impl Getter for KotlinCode {
             // as identifiers, so the leaf exists only in its construct.
             // `in` is the variance modifier and the operator of `for` /
             // `x in y` in one kind, billed here; `out` is the row's.
-            | In | Is | As | AsQMARK | BANGis | BANGin | Constructor | Init | Where | By
+            // `is` / `!is` / `in` / `!in` for the spellings the row's
+            // expression gate leaves out — a `when` entry's `type_test` /
+            // `range_test` and a `for` header's `in` — which billed
+            // before the row existed.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_is_expression` / `under_in_expression` gates leave out
+            | In | Is | BANGis | BANGin
+            | As | AsQMARK | Constructor | Init | Where | By
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic
             | EQ | PLUS | DASH | STAR | SLASH | PERCENT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
             | PLUSPLUS | DASHDASH
-            // Operator: comparison and equality
-            | LT | GT | LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ
+            // `<` / `>` for the spellings the `Comparison` row's parent
+            // gate leaves out — `super<A>`, a generic bracket (the `<>`
+            // pair), a recovered token — which billed before the row
+            // existed; the equalities and the short-circuit tokens are
+            // the rows' and `get_paying_role` bills them (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` gate leaves out
+            | LT | GT
             // Operator: logical and misc
-            | AMPAMP | PIPEPIPE | BANG | BANGBANG
+            | BANG | BANGBANG
             | QMARK | QMARKCOLON | QMARKDOT
             | DOTDOT | DOTDOTLT | DASHGT | COLON => TokenRole::Operator,
             // Operands: identifiers and literals, plus the self- and

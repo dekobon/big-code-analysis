@@ -950,12 +950,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/metrics/abc/kotlin.rs"
-qualified = "KotlinCode::compute"
-metric = "cyclomatic"
-value = 20.0
-
-[[entry]]
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
@@ -978,6 +972,12 @@ path = "src/metrics/cognitive/cpp.rs"
 qualified = "CppCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/cognitive/csharp.rs"
+qualified = "CsharpCode::compute"
+metric = "halstead.effort"
+value = 50000.10930893994
 
 [[entry]]
 path = "src/metrics/cognitive/csharp.rs"

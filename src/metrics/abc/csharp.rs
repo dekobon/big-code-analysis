@@ -14,6 +14,7 @@ use super::{
     count_negated_operand, last_operand, peel, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
+use crate::roles::csharp::{comparison, short_circuit};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -101,33 +102,36 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 }
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: an applied comparison or `??` (the token arms), a ternary
-// (its `?`), an `is` test (its own arm), or an `&&` / `||` chain, whose
-// operands each pay through `csharp_count_condition`.
+// a condition: an applied comparison or an `is` test (the `Comparison`
+// row's owners, paid by their token), `??` (its token arm, pending
+// `NullSafe`), a ternary (its `?`), or an `&&` / `||` chain (the
+// `ShortCircuit` row's owner), whose operands each pay through
+// `csharp_count_condition`. Neither owner gate reads ancestors, so the
+// peeled descendant is asked with none.
 //
 // An assignment is not peeled, because the `AssignmentExpression` arm
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
 // counts. It scores itself exactly when its value does, as Java's does.
-fn csharp_condition_scores_itself(expr: &Node) -> bool {
+fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Csharp::*;
 
-    match expr.kind_id().into() {
-        ConditionalExpression | IsExpression | IsPatternExpression => true,
-        BinaryExpression | BinaryExpression2 => {
-            expr.child_by_field_name("operator").is_some_and(|op| {
-                matches!(
-                    op.kind_id().into(),
-                    EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | QMARKQMARK | AMPAMP | PIPEPIPE
-                )
-            })
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || match expr.kind_id().into() {
+            ConditionalExpression => true,
+            // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
+            // `NullSafe` row of #1695 takes over; the rows are read above
+            BinaryExpression | BinaryExpression2 => expr
+                .child_by_field_name("operator")
+                .is_some_and(|op| op.kind_id() == QMARKQMARK as u16),
+            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+                let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
+                proves_boolean || csharp_condition_scores_itself(&value, code)
+            }),
+            _ => false,
         }
-        AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
-            let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
-            proves_boolean || csharp_condition_scores_itself(&value)
-        }),
-        _ => false,
-    }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
@@ -138,11 +142,11 @@ fn csharp_condition_scores_itself(expr: &Node) -> bool {
 // boolean `switch` expression each scored 0 conditions against a
 // cyclomatic decision of 1 (#1526). It also pays for an ill-typed
 // `if (-x)`, which no valid program can tell apart (grammar-dispatch §6).
-fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
+fn csharp_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         csharp_wrapper_operand,
-        csharp_condition_scores_itself,
+        |expr| csharp_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -150,24 +154,28 @@ fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
 // An operand outside a boolean slot — a `return` value, a declarator or
 // assignment value, a lambda body, a ternary branch — scores only when
 // a `!` proves it boolean (see `count_negated_operand`).
-fn csharp_count_negated(operand: &Node, conditions: &mut f64) {
+fn csharp_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         csharp_wrapper_operand,
-        csharp_condition_scores_itself,
+        |expr| csharp_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn csharp_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
+fn csharp_count_negated_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(operand) = slot {
-        csharp_count_negated(&operand, conditions);
+        csharp_count_negated(&operand, code, conditions);
     }
 }
 
 // Each argument of a call is a negated operand.
-fn csharp_count_arguments(arguments: &Node, conditions: &mut f64) {
-    count_each_operand(arguments, csharp_count_argument, conditions);
+fn csharp_count_arguments(arguments: &Node, code: &[u8], conditions: &mut f64) {
+    count_each_operand(
+        arguments,
+        |argument, conds| csharp_count_argument(argument, code, conds),
+        conditions,
+    );
 }
 
 // tree-sitter-c-sharp wraps every argument in an `argument` node —
@@ -178,9 +186,9 @@ fn csharp_count_arguments(arguments: &Node, conditions: &mut f64) {
 // every argument zero, `G(!a)` included (#1537). The value is located
 // by role rather than by index because both prefixes are optional
 // (grammar-dispatch §3).
-fn csharp_count_argument(argument: &Node, conditions: &mut f64) {
+fn csharp_count_argument(argument: &Node, code: &[u8], conditions: &mut f64) {
     if let Some(value) = last_operand(argument) {
-        csharp_count_negated(&value, conditions);
+        csharp_count_negated(&value, code, conditions);
     }
 }
 
@@ -386,11 +394,26 @@ fn csharp_count_token_branch<'a>(
 
 fn csharp_count_token_condition<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) -> bool {
     use Csharp::*;
-    match node.kind_id().into() {
+    let kind = node.kind_id();
+    // The `Comparison` row's payers (`roles/csharp.rs`): the six
+    // comparison tokens, each gated to a `binary_expression` parent, and
+    // the `is` of a type test. The gate's derivation — the six other
+    // productions that spell the tokens, from the generic brackets to an
+    // `operator_declaration` (#1420) and a `relational_pattern` (#1383),
+    // and why the allowlist fails closed under error recovery — is on
+    // the row. Fitzpatrick Rule 5 scores the operator wherever it is
+    // written, so `bool b = x is string;` scores as `bool b = x == 1;`
+    // does (#1461).
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+        stats.conditions += 1.;
+        return true;
+    }
+    match kind.into() {
         // The statement `switch` counts its `Case` arms; the `default:`
         // arm (token `Default`, shared by both classic `default:` and
         // arrow `default ->` forms) is the unconditional fallthrough and
@@ -448,7 +471,7 @@ fn csharp_count_token_condition<'a>(
         // They share the arm rather than sitting beside it because the
         // arm's meaning is "this node is a condition, with nothing to
         // gate on" — which is as true of a production as of a token.
-        Else | Try | Catch | QMARKQMARK | IsExpression | IsPatternExpression => {
+        Else | Try | Catch | QMARKQMARK => {
             stats.conditions += 1.;
         }
         // `case` comes from two productions — `switch_section`, a real
@@ -475,82 +498,6 @@ fn csharp_count_token_condition<'a>(
         // `csharp_walk_for_conditions`, which has no `Case` arm, so the
         // fall-through is a no-op.
         Case if crate::metrics::cyclomatic::csharp_case_token_is_switch_arm(node, ancestors) => {
-            stats.conditions += 1.;
-        }
-        // All six C# comparison tokens, counted only where they *apply*
-        // an operator. A `grammar.json` sweep of tree-sitter-c-sharp
-        // 0.23.5 finds each one in these productions, and only
-        // `binary_expression` (`a < b`) qualifies:
-        //
-        //   `<` / `>`   — `binary_expression`, `relational_pattern`,
-        //                 `operator_declaration`, `type_argument_list`,
-        //                 `type_parameter_list`, `function_pointer_type`
-        //   `<=` / `>=` — `binary_expression`, `relational_pattern`,
-        //                 `operator_declaration`
-        //   `==` / `!=` — `binary_expression`, `preproc_binary_expression`
-        //                 (`#if A == B`), `operator_declaration`
-        //
-        // Three reasons to exclude, one per production family:
-        //
-        // `type_argument_list` (`Dictionary<K, V>`), `type_parameter_list`
-        // (`class Foo<T>`) and `function_pointer_type` (`delegate*<int,
-        // int>`) are type syntax, no more a decision than the `?` of a
-        // nullable type (#1275).
-        //
-        // `operator_declaration` — `public static bool operator <(V a,
-        // V b)` — names the operator being *defined* rather than applying
-        // it. #1297 found this for `<` / `>`, whose denylist at the time
-        // named the three type-syntax parents and not this one, so every
-        // comparison-operator overload scored a condition. C# overloads
-        // six operators, though, and the other four are distinct tokens
-        // that reached a different arm: `<=` `>=` `==` `!=` each still
-        // scored 1 against `<` / `>`'s 0 on a class overloading all six,
-        // every member of which has `cyclomatic()` 1 (#1420).
-        //
-        // `relational_pattern` is excluded for a third reason (#1383): a
-        // pattern's comparison operator is not its own decision, since the
-        // enclosing `switch_expression_arm` or `if` condition slot already
-        // scores one. Counting the operator too charged
-        // `x switch { > 5 => … }` twice what the constant arm
-        // `x switch { 5 => … }` scores, and twice C#'s own cyclomatic
-        // decision count.
-        //
-        // Allowlist polarity, matching Java's #1274 fix and unlike the
-        // `QMARK` arm below: one decision parent against six excluded
-        // productions, and a grammar bump that grows a seventh should fail
-        // closed (`.claude/rules/grammar-dispatch.md` §1). #1383 landed
-        // half of this as a denylist naming `relational_pattern` alone,
-        // which is what let `operator_declaration` through for four of the
-        // six tokens; the allowlist subsumes that denial. The `QMARK` arm
-        // takes the opposite polarity for a reason specific to that token
-        // — see its comment.
-        //
-        // `BinaryExpression2` is the second enum id carrying the
-        // `binary_expression` kind string, listed per §1. Measured at this
-        // pin it is unreachable from here: the `preproc_binary_expression`
-        // of `#if A == B` parses as `BinaryExpression` (369), so the
-        // preprocessor spelling counts through the first entry, and C#'s
-        // preprocessor admits only `== != && || !` in any case.
-        //
-        // A failed guard returns `false` and falls through to
-        // `csharp_walk_for_conditions`, which matches none of these six
-        // token kinds — so the fall-through is a no-op.
-        //
-        // Failing closed also covers error recovery, where the sweep
-        // above says nothing: a token the parser reparents under `{ERROR}`
-        // stops counting. `<` / `>` have behaved that way since #1297 and
-        // the other four now agree, valid input is unaffected, and no C#
-        // corpus file parses with an `{ERROR}` node — measured. Nothing
-        // pins it, because a fixture the language rejects would make the
-        // grammar's present recovery the contract (§6).
-        GT | LT | GTEQ | LTEQ | EQEQ | BANGEQ
-            if ancestors.parent(node).is_some_and(|parent| {
-                matches!(
-                    parent.kind_id().into(),
-                    BinaryExpression | BinaryExpression2
-                )
-            }) =>
-        {
             stats.conditions += 1.;
         }
         // tree-sitter-c-sharp emits a bare `?` from exactly four
@@ -627,30 +574,35 @@ fn csharp_count_token_condition<'a>(
 
 fn csharp_walk_for_conditions<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
     use Csharp::*;
     let conds = &mut stats.conditions;
-    match node.kind_id().into() {
-        // Fitzpatrick Rule 9: each operand of an `&&` / `||` chain is a
-        // boolean slot. `a && b || c` is a left-nested chain of
-        // `binary_expression`s, so an operand that is itself a chain is
-        // paid by its own operator's visit.
-        AMPAMP | PIPEPIPE => {
-            if let Some(chain) = ancestors
-                .parent(node)
-                .filter(|p| matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2))
-            {
-                count_field_operands(&chain, csharp_count_condition, conds);
-            }
+    let kind = node.kind_id();
+    // Fitzpatrick Rule 9: each operand of an `&&` / `||` chain is a
+    // boolean slot; the `ShortCircuit` row is read at its leaf only to
+    // find the chain, the token's parent. `a && b || c` is a
+    // left-nested chain of `binary_expression`s, so an operand that is
+    // itself a chain is paid by its own operator's visit.
+    if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        if let Some(chain) = ancestors.parent(node) {
+            count_field_operands(
+                &chain,
+                |operand, conds| csharp_count_condition(operand, code, conds),
+                conds,
+            );
         }
+        return;
+    }
+    match kind.into() {
         // Every `argument_list` but the one a `base_list` holds directly:
         // that one is itself the branch, so `compute` scores its
         // arguments on the branch path instead. A `bracketed_argument_list`
         // (an indexer, `o[!a]`) is a distinct kind and is not walked, as
         // Java's array index is not.
-        ArgumentList => csharp_count_arguments(node, conds),
+        ArgumentList => csharp_count_arguments(node, code, conds),
         // tree-sitter-c-sharp spells the parens of `if` / `while` /
         // `do … while` as anonymous tokens, NOT a wrapping
         // `parenthesized_expression` as in tree-sitter-java, so the
@@ -659,7 +611,7 @@ fn csharp_walk_for_conditions<'a>(
         // comment, since `if (/*c*/ b)` puts one at child(2) (#1455).
         IfStatement | WhileStatement | DoStatement => {
             if let Some(condition) = node.child_by_field_name("condition") {
-                csharp_count_condition(&condition, conds);
+                csharp_count_condition(&condition, code, conds);
             }
         }
         // C#'s two guard spellings, each modelled as a condition slot
@@ -690,7 +642,7 @@ fn csharp_walk_for_conditions<'a>(
         // own.
         WhenClause | CatchFilterClause => {
             if let Some(guard) = wrapped_operand(node) {
-                csharp_count_condition(&guard, conds);
+                csharp_count_condition(&guard, code, conds);
             }
         }
         // The value slots, none of which a fixed index can address: a
@@ -699,14 +651,18 @@ fn csharp_walk_for_conditions<'a>(
         // `return` and a declarator name no field for the value, so the
         // first and last operand stand in: a `return` holds only its
         // value, and a declarator's initialiser follows its name.
-        ReturnStatement => csharp_count_negated_slot(wrapped_operand(node), conds),
+        ReturnStatement => csharp_count_negated_slot(wrapped_operand(node), code, conds),
         crate::Csharp::VariableDeclarator | crate::Csharp::VariableDeclarator2 => {
-            csharp_count_negated_slot(last_operand(node), conds);
+            csharp_count_negated_slot(last_operand(node), code, conds);
         }
-        AssignmentExpression => csharp_count_negated_slot(node.child_by_field_name("right"), conds),
-        LambdaExpression => csharp_count_negated_slot(node.child_by_field_name("body"), conds),
-        ConditionalExpression => csharp_walk_conditional(node, stats),
-        ForStatement => csharp_walk_for_statement(node, stats),
+        AssignmentExpression => {
+            csharp_count_negated_slot(node.child_by_field_name("right"), code, conds);
+        }
+        LambdaExpression => {
+            csharp_count_negated_slot(node.child_by_field_name("body"), code, conds);
+        }
+        ConditionalExpression => csharp_walk_conditional(node, code, stats),
+        ForStatement => csharp_walk_for_statement(node, code, stats),
         _ => {}
     }
 }
@@ -718,16 +674,16 @@ fn csharp_walk_for_conditions<'a>(
 // `csharp_walk_for_conditions`'s `if`/`while`/`do` arms via
 // `csharp_count_condition`; the two branch slots are negated operands,
 // so only a `!`-prefixed branch contributes a condition.
-fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
+fn csharp_walk_conditional(node: &Node, code: &[u8], stats: &mut Stats) {
     let conds = &mut stats.conditions;
     // By grammar FIELD, not index — see `java_walk_ternary` for why the
     // positional form dropped a negated branch operand behind a comment
     // (#1181).
     if let Some(condition) = node.child_by_field_name("condition") {
-        csharp_count_condition(&condition, conds);
+        csharp_count_condition(&condition, code, conds);
     }
     for field in ["consequence", "alternative"] {
-        csharp_count_negated_slot(node.child_by_field_name(field), conds);
+        csharp_count_negated_slot(node.child_by_field_name(field), code, conds);
     }
 }
 
@@ -738,9 +694,9 @@ fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
 // by the standard `GT | LT | ...` arms — this only fires when the
 // condition is a bare identifier, invocation, boolean literal,
 // parenthesised expression, or `!`-prefixed unary expression.
-fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
+fn csharp_walk_for_statement(node: &Node, code: &[u8], stats: &mut Stats) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        csharp_count_condition(&condition, &mut stats.conditions);
+        csharp_count_condition(&condition, code, &mut stats.conditions);
     }
 }
 
@@ -749,7 +705,7 @@ impl Abc for CsharpCode {
     // and the cross-helper-exclusivity invariant.
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -763,14 +719,14 @@ impl Abc for CsharpCode {
             // `primary_constructor_base_type` and reaches the walk, so
             // without this the two spellings of one base call disagree.
             if node.kind_id() == Csharp::ArgumentList {
-                csharp_count_arguments(node, &mut stats.conditions);
+                csharp_count_arguments(node, code, &mut stats.conditions);
             }
             return;
         }
-        if csharp_count_token_condition(node, ancestors, stats) {
+        if csharp_count_token_condition(node, code, ancestors, stats) {
             return;
         }
-        csharp_walk_for_conditions(node, ancestors, stats);
+        csharp_walk_for_conditions(node, code, ancestors, stats);
     }
 }
 

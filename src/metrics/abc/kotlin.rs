@@ -10,6 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, wrapped_operand};
+use crate::roles::kotlin::{comparison, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -139,31 +140,27 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // `switch`, C#'s `switch` expression or Rust's `match` does. So
 // `if (when (x) { 1 -> true; else -> false })` scores 2 like those
 // twins (it scored 1), and `if (when (a) { else -> true })` 1 (#1533).
-const KOTLIN_SELF_SCORING_OPERATORS: [Kotlin; 11] = [
-    Kotlin::LT,
-    Kotlin::GT,
-    Kotlin::LTEQ,
-    Kotlin::GTEQ,
-    Kotlin::EQEQ,
-    Kotlin::EQEQEQ,
-    Kotlin::BANGEQ,
-    Kotlin::BANGEQEQ,
-    Kotlin::QMARKCOLON,
-    Kotlin::AMPAMP,
-    Kotlin::PIPEPIPE,
-];
-
-fn kotlin_condition_scores_itself(expr: &Node) -> bool {
+//
+// The comparison, `is` / `in` and `&&` / `||` owners are the
+// `Comparison` and `ShortCircuit` rows' (neither owner gate reads
+// ancestors, so the peeled descendant is asked with none); the elvis
+// `?:` stays named here until its `NullSafe` row.
+fn kotlin_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Kotlin::*;
 
-    match expr.kind_id().into() {
-        IfExpression | TryExpression | IsExpression | InExpression => true,
-        AsExpression => expr.is_child(AsQMARK as u16),
-        BinaryExpression => expr
-            .child_by_field_name("operator")
-            .is_some_and(|op| KOTLIN_SELF_SCORING_OPERATORS.contains(&op.kind_id().into())),
-        _ => false,
-    }
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || match expr.kind_id().into() {
+            IfExpression | TryExpression => true,
+            AsExpression => expr.is_child(AsQMARK as u16),
+            // role-bypass: allow(Comparison, ShortCircuit) — the elvis owner, which the
+            // `NullSafe` row of #1695 takes over; the rows are read above
+            BinaryExpression => expr
+                .child_by_field_name("operator")
+                .is_some_and(|op| op.kind_id() == QMARKCOLON as u16),
+            _ => false,
+        }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do-while` condition, a
@@ -173,11 +170,11 @@ fn kotlin_condition_scores_itself(expr: &Node) -> bool {
 // once, and a comparison or chain pays through its own arms instead.
 // Without the slot, idiomatic bare predicates reported 0 ABC conditions
 // against Kotlin's own cyclomatic decision (#773).
-fn kotlin_count_condition(condition: &Node, conditions: &mut f64) {
+fn kotlin_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         kotlin_wrapper_operand,
-        kotlin_condition_scores_itself,
+        |expr| kotlin_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -247,26 +244,34 @@ fn kotlin_enclosing_when_has_subject<'a>(entry: &Node<'a>, ancestors: Ancestors<
 // after the first are still seen by the token arms.
 fn kotlin_count_when_entry<'a>(
     entry: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     conditions: &mut f64,
 ) {
     if kotlin_enclosing_when_has_subject(entry, ancestors) {
         *conditions += 1.;
     } else if let Some(condition) = entry.child_by_field_name("condition") {
-        kotlin_count_condition(&condition, conditions);
+        kotlin_count_condition(&condition, code, conditions);
     }
 }
 
 impl Abc for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the Kotlin grammar can hand us, not
+        // branching a reader must hold, and the effort is the table's
+        // vocabulary; the two row reads (#1695) are arms like the token
+        // arms they replaced.
         use Kotlin::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Augmented assignments and pre/post increment-decrement
             // always count, regardless of declaration context.
             PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | PLUSPLUS | DASHDASH => {
@@ -371,49 +376,46 @@ impl Abc for KotlinCode {
             EnumEntry if node.is_child(ValueArguments as u16) => {
                 stats.branches += 1.;
             }
-            // Conditions: comparison operators, identity equality,
-            // ternary-elvis (`?:`), `as?` safe-cast, and the arms of
-            // control-flow constructs (`else`, `catch`, `when` entries).
-            // Kotlin's `if`-expression does not need an extra count for
-            // the `if` keyword itself — Fitzpatrick counts the
-            // *conditions*, and the unary condition is already implicit
-            // in the boolean operand. We add the `if` arm via the `Else`
-            // keyword for else-branches and via `WhenEntry` for `when`.
-            // `Try` is the `try` keyword token of a `try_expression`.
-            // Fitzpatrick counts both `try` and `catch` as conditions, and
-            // Java / C# / C++ / Groovy already count both; Kotlin previously
-            // counted only `CatchBlock`, so `try {} catch (e) {}` scored one
-            // fewer condition here than in every sibling (#696).
-            // Kotlin's two relational forms with no usable operator
-            // token join them in #1461, scored by use rather than by
-            // slot. #1421
-            // put them in `kotlin_bool_terminal_kinds!()`, which counts
-            // only inside a boolean slot, so `val b = a is String`
-            // scored zero where the `val b = a == c` beside it scored
-            // one — `EQEQ` is a token arm above and `is` was not.
-            // Fitzpatrick Rule 5 scores a relational operator wherever
-            // it is written.
-            //
-            // Matched as nodes rather than as tokens because neither
-            // construct has a token this arm could use: a bare `in` is
-            // also the `for (x in xs)` header's, and the negated
-            // spellings `!is` / `!in` are their own tokens again. One
-            // node covers every spelling of each.
+            // Conditions: the ternary-elvis (`?:`, pending `NullSafe`),
+            // the `as?` safe-cast, and the arms of control-flow
+            // constructs (`else`, `catch`, `when` entries); the
+            // comparison, identity and `is` / `in` tests are the
+            // `Comparison` row's, below. Kotlin's `if`-expression does
+            // not need an extra count for the `if` keyword itself —
+            // Fitzpatrick counts the *conditions*, and the unary
+            // condition is already implicit in the boolean operand. We
+            // add the `if` arm via the `Else` keyword for else-branches
+            // and via `WhenEntry` for `when`. `Try` is the `try` keyword
+            // token of a `try_expression`. Fitzpatrick counts both `try`
+            // and `catch` as conditions, and Java / C# / C++ / Groovy
+            // already count both; Kotlin previously counted only
+            // `CatchBlock`, so `try {} catch (e) {}` scored one fewer
+            // condition here than in every sibling (#696).
             //
             // No double count with the `when` arms below (§5). A
             // subject-ful entry pays its own condition, and `bca dump`
             // shows its patterns spelled `range_test` / `type_test` —
-            // separate productions this arm never sees. A subject-less
-            // entry routes its condition through `kotlin_count_condition`,
-            // which since this change declines an `is` / `in` test the
-            // way it already declines a comparison, leaving it to here.
-            //
-            // They share the arm rather than sitting beside it because
-            // the arm's meaning is "this node is a condition, with
-            // nothing to gate on" — as true of a production as of a
-            // token.
-            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | Try | CatchBlock | QMARKCOLON
-            | AsQMARK | IsExpression | InExpression => {
+            // separate productions whose `is` / `in` the row's gate
+            // leaves out. A subject-less entry routes its condition
+            // through `kotlin_count_condition`, which declines an `is` /
+            // `in` test the way it declines a comparison, leaving it to
+            // the row's arm.
+            Try | CatchBlock | QMARKCOLON | AsQMARK => {
+                stats.conditions += 1.;
+            }
+            // The `Comparison` row's payers (`roles/kotlin.rs`): the six
+            // equality and ordering tokens, `<` / `>` gated to a
+            // `binary_expression` — tree-sitter-kotlin-ng 1.1.0 emits a
+            // bare `<` / `>` in exactly four productions
+            // (`binary_expression`, `super_expression`, `type_arguments`,
+            // `type_parameters`), so the gate is the allowlist polarity
+            // C / C++ / Rust / Go / Java use (#1297); a generic *call*
+            // this grammar misparses as nested `binary_expression`s still
+            // scores two (#1394) — and `is` / `!is` / `in` / `!in` gated
+            // to their expressions, since the `when` entry forms and the
+            // `for` header spell the same keywords. Fitzpatrick Rule 5
+            // scores the operator wherever it is written (#1461).
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Phase-2B condition slot: the bare predicate of an
@@ -426,7 +428,7 @@ impl Abc for KotlinCode {
             // instead — so no double-count (#773, #1526).
             IfExpression | WhileStatement | DoWhileStatement => {
                 if let Some(condition) = node.child_by_field_name("condition") {
-                    kotlin_count_condition(&condition, &mut stats.conditions);
+                    kotlin_count_condition(&condition, code, &mut stats.conditions);
                 }
             }
             // A `when` entry is a decision point except for the `else ->`
@@ -439,40 +441,13 @@ impl Abc for KotlinCode {
             // paid for — the entry, or the operators of its condition
             // (#1421).
             WhenEntry if !crate::metrics::cyclomatic::kotlin_when_entry_is_else(node) => {
-                kotlin_count_when_entry(node, ancestors, &mut stats.conditions);
+                kotlin_count_when_entry(node, code, ancestors, &mut stats.conditions);
             }
             // `else` is a keyword token used in both `if_expression`'s
             // else-clause and `when`'s `else ->` entry. Only count it
             // when it belongs to an `if_expression`; the `WhenEntry`
             // wrapper above already covers the `when` case.
             Else if ancestors.parent_has_kind(node, IfExpression as u16) => {
-                stats.conditions += 1.;
-            }
-            // Counts `<` / `>` only as the operator token of a
-            // `binary_expression`, the allowlist polarity C / C++ /
-            // Rust / Go / Java use. The previous denylist named
-            // `type_arguments` and `type_parameters` only, so a
-            // qualified super call — `super<A>.g()`, which brackets the
-            // disambiguating supertype with the same two bare tokens —
-            // scored two conditions (#1297). A `grammar.json` sweep of
-            // tree-sitter-kotlin-ng 1.1.0 finds a bare `<` / `>` in
-            // exactly four productions: `binary_expression`,
-            // `super_expression`, `type_arguments` and
-            // `type_parameters`. `<=` / `>=` are the distinct `LTEQ` /
-            // `GTEQ` tokens counted above.
-            //
-            // The enumeration is a claim about the grammar, not about
-            // every parse it produces. This grammar resolves a generic
-            // *call* the wrong way: `id<Int>(a)` comes back as nested
-            // `binary_expression` nodes (`id < Int`, then `> (a)`), not
-            // as `type_arguments`, so both brackets satisfy this gate
-            // and the call still scores two conditions (#1394). No
-            // polarity can exclude that — the parse tree genuinely says
-            // `binary_expression`. Groovy's arm records the mirror-image
-            // case, where an explicit type witness lands under `ERROR`;
-            // C# and TypeScript resolve the same call shape correctly
-            // and score it 0.
-            LT | GT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each non-comparison operand of a
@@ -482,9 +457,13 @@ impl Abc for KotlinCode {
             // inspects the parent `binary_expression`. `a && b || c` is a
             // left-nested chain, so an operand that is itself a chain is
             // paid by its own operator's visit.
-            AMPAMP | PIPEPIPE => {
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
-                    count_field_operands(&parent, kotlin_count_condition, &mut stats.conditions);
+                    count_field_operands(
+                        &parent,
+                        |operand, conds| kotlin_count_condition(operand, code, conds),
+                        &mut stats.conditions,
+                    );
                 }
             }
             _ => {}

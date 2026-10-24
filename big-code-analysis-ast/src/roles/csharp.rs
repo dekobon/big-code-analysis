@@ -30,12 +30,96 @@ fn aliases_a_modifier_keyword<'a>(
         )
 }
 
+/// Whether a comparison token applies its operator: its parent is a
+/// `binary_expression` (either alias). A `grammar.json` sweep of
+/// tree-sitter-c-sharp 0.23.5 finds each token in these productions,
+/// and only `binary_expression` (`a < b`) qualifies:
+///
+/// - `<` / `>` — `binary_expression`, `relational_pattern`,
+///   `operator_declaration`, `type_argument_list`,
+///   `type_parameter_list`, `function_pointer_type`
+/// - `<=` / `>=` — `binary_expression`, `relational_pattern`,
+///   `operator_declaration`
+/// - `==` / `!=` — `binary_expression`, `preproc_binary_expression`
+///   (`#if A == B`, parsed as `BinaryExpression` at this pin),
+///   `operator_declaration`
+///
+/// Three reasons to exclude, one per family. The generic brackets and
+/// `delegate*<int, int>` are type syntax, no more a decision than the
+/// `?` of a nullable type (#1275). An `operator_declaration` names the
+/// operator being *defined* rather than applying it; #1297 found this
+/// for `<` / `>`, and the other four still scored 1 against their 0 on
+/// a class overloading all six, every member of which has
+/// `cyclomatic()` 1 (#1420). A `relational_pattern`'s operator is not
+/// its own decision: the enclosing `switch_expression_arm` or `if`
+/// slot already scores one, so counting it charged `x switch { > 5 =>
+/// … }` twice what the constant arm scores (#1383). Allowlist
+/// polarity, so a grammar bump that grows a seventh production fails
+/// closed, and a token error recovery reparents under `{ERROR}` stops
+/// counting — valid input is unaffected and no C# corpus file parses
+/// with an `{ERROR}` node, measured.
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent(node).is_some_and(|p| {
+        p.kind_id() == Csharp::BinaryExpression as u16
+            || p.kind_id() == Csharp::BinaryExpression2 as u16
+    })
+}
+
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
 role_table! {
     lang: Csharp;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // A `binary_expression` (both aliases: `BinaryExpression2` is the
+    // second id carrying the kind string, listed per grammar-dispatch
+    // §1 and unreachable at this pin, where `#if A == B` parses as the
+    // first) owns a comparison through its `operator` field, and every
+    // comparison token is gated to that parent. The type tests
+    // `is_expression` (`o is T`) and `is_pattern_expression` (`o is T
+    // t`, `o is not null`) are disjoint alternatives that each wrap one
+    // `is` keyword, which pays for them; the grammar spells `is`
+    // nowhere else. `??` is `NullSafe`'s and the `and` / `or` / `not`
+    // pattern combinators are no comparison.
+    Comparison {
+        owns [
+            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression2(gated_by comparison_operator),
+            IsExpression, IsPatternExpression,
+        ]
+        pays [
+            EQEQ gated_by under_binary_expression, BANGEQ gated_by under_binary_expression,
+            LTEQ gated_by under_binary_expression, GTEQ gated_by under_binary_expression,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            Is,
+        ]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [
+            BinaryExpression(gated_by short_circuit_operator),
+            BinaryExpression2(gated_by short_circuit_operator),
+        ]
+        pays [AMPAMP, PIPEPIPE]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { pending R05 }
     NullSafe { pending R05 }

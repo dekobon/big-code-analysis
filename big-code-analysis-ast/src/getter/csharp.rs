@@ -134,6 +134,8 @@ impl Getter for CsharpCode {
 
     keyword_roles!(csharp);
 
+    paying_roles!(csharp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Csharp::*;
 
@@ -152,7 +154,7 @@ impl Getter for CsharpCode {
             // modifiers, the declaration keywords and `predefined_type`
             // are not here: `roles/csharp.rs` declares them and
             // `get_keyword_role` bills them (#1693).
-            | New | Await | Is | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
+            | New | Await | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
             | Params | Lock | Stackalloc | Where | With | When | Operator
             | Scoped | Not | And | Or
             // Property/event accessor keywords
@@ -160,11 +162,21 @@ impl Getter for CsharpCode {
             // Structural punctuation
             | LBRACE | LBRACK | LPAREN | COMMA | SEMI | COLON | COLONCOLON | DOT
             | DOTDOT | EQGT | DASHGT | QMARK
-            // Arithmetic / comparison / logical / bitwise / assignment operators
+            // Arithmetic / logical / bitwise / assignment operators. The
+            // comparison tokens, `is`, `&&` and `||` are the `Comparison`
+            // and `ShortCircuit` rows' and `get_paying_role` bills them
+            // (#1695); the six comparison tokens stay for the spellings
+            // the row's `under_binary_expression` gate leaves out — a
+            // generic bracket (the `<>` pair; its closer returned
+            // `Unknown` above), an operator declaration's name, a
+            // relational pattern, a recovered token — which billed
+            // before the row existed.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` gate leaves out
             | EQ | EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ
             | PLUS | DASH | STAR | SLASH | PERCENT
             | AMP | PIPE | CARET | TILDE | BANG
-            | AMPAMP | PIPEPIPE | QMARKQMARK
+            | QMARKQMARK
             | LTLT | GTGT | GTGTGT
             | PLUSPLUS | DASHDASH
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ

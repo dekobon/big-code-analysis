@@ -29,11 +29,13 @@ use crate::{LANG, Metric, MetricsOptions};
 #[cfg(any(
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "groovy",
     feature = "irules",
     feature = "java",
     feature = "javascript",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "mozjs",
@@ -491,6 +493,84 @@ fn groovy_rows_feed_each_abc_path_independently() {
             ("return a && b", 2, 1),
             ("return a || b", 2, 1),
             ("if (a && b || x > 1) { }; return a", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "kotlin")]
+fn kotlin_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Kotlin,
+        "fun f(a: Boolean, b: Boolean, x: Int, y: Int, o: Any?, l: List<Int>): Boolean { BODY }\n",
+        &[
+            ("if (a) { }; return a", 1, 1),
+            ("if (x < y) { }; return a", 1, 1),
+            ("if (o === o) { }; return a", 1, 1),
+            ("if (o is String) { }; return a", 1, 1),
+            ("if (o !is String) { }; return a", 1, 1),
+            ("if (x in l) { }; return a", 1, 1),
+            ("if (x !in l) { }; return a", 1, 1),
+            ("val c = x < y; return c", 1, 0),
+            ("val c = x >= y; return c", 1, 0),
+            ("val c = o !is String; return c", 1, 0),
+            ("val c = x !in l; return c", 1, 0),
+            // a generic bracket and a `for` header's `in` pay nothing
+            (
+                "val m: Map<String, List<Int>> = mapOf(); for (i in l) { }; return a",
+                0,
+                1,
+            ),
+            // a `when` entry's `is` / `in` belong to the entry, which pays
+            (
+                "return when (o) { is String -> a; in l -> b; !in l -> a; else -> b }",
+                3,
+                3,
+            ),
+            ("return a && b", 2, 1),
+            ("return a || b", 2, 1),
+            ("if (a && b || x > 1) { }; return a", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Csharp,
+        "class C { bool f(bool a, bool b, int x, int y, object o) { BODY } }\n",
+        &[
+            ("if (a) { } return a;", 1, 1),
+            ("if (x < y) { } return a;", 1, 1),
+            ("if (x != y) { } return a;", 1, 1),
+            ("if (o is string) { } return a;", 1, 1),
+            ("if (o is string s) { } return a;", 1, 1),
+            ("if (o is not null) { } return a;", 1, 1),
+            ("bool c = x < y; return c;", 1, 0),
+            ("bool c = x >= y; return c;", 1, 0),
+            ("bool c = o is string; return c;", 1, 0),
+            ("bool c = o is not null; return c;", 1, 0),
+            // a generic bracket pays nothing
+            (
+                "var l = new System.Collections.Generic.List<int>(); return a;",
+                0,
+                0,
+            ),
+            ("return a && b;", 2, 1),
+            ("return a || b;", 2, 1),
+            ("if (a && b || x > 1) { } return a;", 3, 3),
+        ],
+    );
+    // A relational pattern's operator belongs to the arm that owns it
+    // (#1383); an operator declaration names rather than applies
+    // (#1420). Each scores what its control does.
+    assert_rows(
+        LANG::Csharp,
+        "class C { int f(int x) { BODY } }\n",
+        &[
+            ("return x switch { > 5 => 1, _ => 0 };", 1, 1),
+            ("return x switch { 5 => 1, _ => 0 };", 1, 1),
         ],
     );
 }

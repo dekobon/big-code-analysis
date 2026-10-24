@@ -7592,6 +7592,7 @@ end",
         feature = "groovy",
         feature = "irules",
         feature = "javascript",
+        feature = "kotlin",
         feature = "lua",
         feature = "mozcpp",
         feature = "mozjs",
@@ -7678,6 +7679,72 @@ end",
             assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
             assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
         }
+    }
+
+    /// #1695: C#'s `Comparison` / `ShortCircuit` rows' payers bill as
+    /// operators, one spelling apiece; the gated-out spellings (an
+    /// operator declaration's name, a relational pattern, a generic
+    /// opener as the `<>` pair) bill as they did before the rows.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "class C { bool F(int a) => a < 1; }\n"),
+            (">", "class C { bool F(int a) => a > 1; }\n"),
+            ("<=", "class C { bool F(int a) => a <= 1; }\n"),
+            (">=", "class C { bool F(int a) => a >= 1; }\n"),
+            ("==", "class C { bool F(int a) => a == 1; }\n"),
+            ("!=", "class C { bool F(int a) => a != 1; }\n"),
+            ("is", "class C { bool F(object o) => o is string; }\n"),
+            ("is", "class C { bool F(object o) => o is not null; }\n"),
+            ("&&", "class C { bool F(bool a) => a && a; }\n"),
+            ("||", "class C { bool F(bool a) => a || a; }\n"),
+            (
+                "<",
+                "class V { public static bool operator <(V a, V b) => true; }\n",
+            ),
+            (
+                ">",
+                "class C { int F(int x) => x switch { > 5 => 1, _ => 0 }; }\n",
+            ),
+            (
+                "<>",
+                "class C { System.Collections.Generic.List<int> l; }\n",
+            ),
+        ];
+        assert_spellings_bill_as_operators::<CsharpParser>("foo.cs", ROWS);
+    }
+
+    /// #1695: Kotlin's `Comparison` / `ShortCircuit` rows' payers bill
+    /// as operators, one spelling apiece; the gated-out spellings (a
+    /// `when` entry's `is` / `in`, a `for` header's `in`, a generic
+    /// opener as the `<>` pair) bill as they did before the rows.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "val c = a < 1\n"),
+            (">", "val c = a > 1\n"),
+            ("<=", "val c = a <= 1\n"),
+            (">=", "val c = a >= 1\n"),
+            ("==", "val c = a == 1\n"),
+            ("!=", "val c = a != 1\n"),
+            ("===", "val c = a === b\n"),
+            ("!==", "val c = a !== b\n"),
+            ("is", "val c = a is B\n"),
+            ("!is", "val c = a !is B\n"),
+            ("in", "val c = a in b\n"),
+            ("!in", "val c = a !in b\n"),
+            ("&&", "val c = a && b\n"),
+            ("||", "val c = a || b\n"),
+            (
+                "is",
+                "fun f(o: Any) = when (o) { is Int -> 1; else -> 2 }\n",
+            ),
+            ("in", "fun f(l: List<Int>) { for (x in l) { } }\n"),
+            ("<>", "val l: List<Int> = listOf()\n"),
+        ];
+        assert_spellings_bill_as_operators::<KotlinParser>("foo.kt", ROWS);
     }
 
     /// #1695: Groovy's `Comparison` / `ShortCircuit` rows' payers bill

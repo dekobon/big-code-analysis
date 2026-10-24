@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::csharp::short_circuit;
         use Csharp::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -53,12 +54,21 @@ impl Cognitive for CsharpCode {
             GotoStatement => {
                 increment_by_one(stats);
             }
-            BinaryExpression => {
-                // C#'s null-coalescing `??` short-circuits like `&&` /
-                // `||` and forms boolean sequences alongside them.
-                // Mirrors the C# cyclomatic operator set.
+            // A `binary_expression` the `ShortCircuit` row owns (#1695),
+            // or one applying C#'s null-coalescing `??`, which
+            // short-circuits like `&&` / `||` and forms boolean sequences
+            // alongside them — pending its `NullSafe` row. Mirrors the C#
+            // cyclomatic operator set.
+            // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
+            // `NullSafe` row of #1695 takes over; the row is read on the arm's guard
+            _ if short_circuit::owns(node, code, ancestors)
+                || (node.kind_id() == BinaryExpression as u16
+                    && node
+                        .child_by_field_name("operator")
+                        .is_some_and(|op| op.kind_id() == QMARKQMARK as u16)) =>
+            {
                 compute_booleans_with(node, stats, |id| {
-                    matches!(id.into(), AMPAMP | PIPEPIPE | QMARKQMARK)
+                    short_circuit::PAYERS.contains(&id) || id == QMARKQMARK as u16
                 });
             }
             AssignmentExpression => {

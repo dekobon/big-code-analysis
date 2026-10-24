@@ -62,12 +62,85 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
         })
 }
 
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers; the one kind carries every binary operator.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a bare `<` / `>` is the operator of a `binary_expression`.
+/// tree-sitter-kotlin-ng 1.1.0 emits the tokens from four productions —
+/// `binary_expression`, `super_expression` (`super<A>.g()`),
+/// `type_arguments` and `type_parameters` (#1297) — and error recovery
+/// strands either. The enumeration is a claim about the grammar, not
+/// about every parse it produces: the grammar resolves a generic
+/// *call* the wrong way, so `id<Int>(a)` comes back as nested
+/// `binary_expression`s and both brackets pass (#1394).
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Kotlin::BinaryExpression as u16)
+}
+
+/// Whether an `is` / `!is` keyword is the operator of an
+/// `is_expression`: the same tokens open a `when` entry's `type_test`,
+/// where the entry pays.
+fn under_is_expression<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Kotlin::IsExpression as u16)
+}
+
+/// Whether an `in` / `!in` keyword is the operator of an
+/// `in_expression`: the same tokens open a `for (x in xs)` header and
+/// a `when` entry's `range_test`, where the entry pays.
+fn under_in_expression<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Kotlin::InExpression as u16)
+}
+
 role_table! {
     lang: Kotlin;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // A `binary_expression` owns a comparison through its `operator`
+    // field, with `<` / `>` gated to that parent; the type test
+    // `is_expression` and the membership test `in_expression` own
+    // theirs through their keyword, each a token of its own in both
+    // the positive and the negated spelling (`is` / `!is`, `in` /
+    // `!in`) and gated to the expression, since the `when` entry forms
+    // `is Int ->` / `in xs ->` and the `for` header spell the same
+    // keywords. The safe cast `as?` is a decision the ABC consumer
+    // counts beside these, but no comparison; it stays its own arm.
+    Comparison {
+        owns [
+            BinaryExpression(gated_by comparison_operator),
+            IsExpression, InExpression,
+        ]
+        pays [
+            EQEQ, EQEQEQ, BANGEQ, BANGEQEQ, LTEQ, GTEQ,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            Is gated_by under_is_expression, BANGis gated_by under_is_expression,
+            In gated_by under_in_expression, BANGin gated_by under_in_expression,
+        ]
+        project "operator"
+    }
+    // `&&` / `||`, which the grammar emits only under a
+    // `binary_expression`. The elvis `?:` is `NullSafe`'s, and the
+    // infix `and` / `or` / `xor` are `EagerLogical`'s.
+    ShortCircuit {
+        owns [BinaryExpression(gated_by short_circuit_operator)]
+        pays [AMPAMP, PIPEPIPE]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
     NullSafe { pending R05 }

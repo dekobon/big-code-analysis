@@ -11,13 +11,21 @@ use super::*;
 impl Cyclomatic for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::kotlin::short_circuit;
         use Kotlin::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             // Standard-only: individual when entries (arms), except the
             // `else -> …` arm which is Kotlin's analogue of `default:`
             // and must NOT contribute to standard CCN (issue #282 /
@@ -47,7 +55,7 @@ impl Cyclomatic for KotlinCode {
             // +2), and parallels TS/TSX which also match the `QMARKDOT`
             // token rather than the wrapper node.
             IfExpression | ForStatement | WhileStatement | DoWhileStatement | CatchBlock
-            | AMPAMP | PIPEPIPE | QMARKCOLON | QMARKDOT => {
+            | QMARKCOLON | QMARKDOT => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

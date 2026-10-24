@@ -11,13 +11,22 @@ use super::*;
 impl Cyclomatic for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::csharp::short_circuit;
         use Csharp::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // `&&` / `||`, the `ShortCircuit` row's payers (#1695); `??` /
+        // `??=` stay below until their `NullSafe` row.
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             // Standard-only: individual switch statement arms. The `case`
             // keyword token is what is matched here; `default:` uses a
             // distinct `Default` token and is correctly excluded.
@@ -85,8 +94,6 @@ impl Cyclomatic for CsharpCode {
             | CatchFilterClause
             | ConditionalExpression
             | ConditionalAccessExpression
-            | AMPAMP
-            | PIPEPIPE
             | QMARKQMARK
             | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;
