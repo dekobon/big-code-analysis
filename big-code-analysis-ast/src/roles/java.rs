@@ -510,18 +510,29 @@ mod tests {
         );
     }
 
+    // A `binary_expression` projects through its `operator` field; an
+    // `instanceof_expression` has no such field, so the row's fallback
+    // finds the `instanceof` keyword among its children — in the plain
+    // test and the Java 16 pattern form alike.
     #[cfg(feature = "java")]
     #[test]
-    fn projection_lands_on_the_operator_field() {
-        let source = b"class A { boolean f(int a, int b) { return a <= b; } }\n";
+    fn projection_lands_on_each_owners_paying_child() {
+        let source = b"class A { boolean f(int a, int b, Object o) { return a <= b && o instanceof String && o instanceof String s; } }\n";
         let mut projected = Vec::new();
-        for_each_node_with_chain::<JavaCode>(source, |node, _| {
-            if node.kind_id() == Java::BinaryExpression as u16 {
-                let op = comparison::project(node).expect("binary_expression has an operator");
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            if comparison::owns(node, source, Ancestors::known(chain)) {
+                let op = comparison::project(node).expect("every owner projects to a payer");
                 projected.push((op.kind_id(), op.utf8_text(source).map(str::to_owned)));
             }
         });
-        assert_eq!(projected, [(Java::LTEQ as u16, Some("<=".to_owned()))]);
+        assert_eq!(
+            projected,
+            [
+                (Java::LTEQ as u16, Some("<=".to_owned())),
+                (Java::Instanceof as u16, Some("instanceof".to_owned())),
+                (Java::Instanceof as u16, Some("instanceof".to_owned())),
+            ]
+        );
     }
 
     // The template's `string_literal` wraps a `string_interpolation`;

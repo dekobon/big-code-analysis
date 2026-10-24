@@ -309,6 +309,29 @@ class CensusTests(unittest.TestCase):
         code, out = self.t.run()
         self.assertEqual(code, 0, out)
 
+    def test_a_fragment_splices_payers_with_their_inline_gates(self) -> None:
+        # A `pays [..]` list walks the same splice (#1694): the fragment's
+        # payers land in order where `..name!()` sits, each keeping the
+        # gate it spells inline, and the row's own gated payer after it
+        # is read the same way.
+        (self.t.roles / "tokens.rs").write_text(
+            "macro_rules! equality_tokens {\n"
+            "    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {\n"
+            "        $crate::role_table!(@owners $cont [$($acc)* EQEQ, BANGEQ gated_by applied,] $($rest)*);\n"
+            "    };\n"
+            "}\n"
+        )
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    Call { owns [MethodInvocation] pays [..equality_tokens!(), LT gated_by under_binary] }\n"
+            "    Modifier { absent \"none\" }\n    Exit { pending R07 }\n",
+        )
+        self.t.write("python", PY_FULL)
+        row = rt.parse_table(self.t.roles / "java.rs").rows["Call"]
+        self.assertEqual(row.pays_mode, "split")
+        self.assertEqual([(p.kind, p.gate) for p in row.payers], [("EQEQ", None), ("BANGEQ", "applied"), ("LT", "under_binary")])
+
     def test_a_fragment_is_shared_across_tables(self) -> None:
         (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
         self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")

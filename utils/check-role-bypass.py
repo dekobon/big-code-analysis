@@ -487,14 +487,19 @@ def parse_macros(src: Source) -> dict[str, Macro]:
         expands = re.findall(r"\$crate::(" + CAMEL + r")::(" + CAMEL + r")", body)
         # A body that reads `kind_id()` only to hand it to a row
         # (`roles::$lang::<role>::…_kind(kind, …)`) and never compares
-        # it, matches on it or reads `kind()` restates no membership —
-        # it is the shape the rows exist for (`keyword_roles!`,
-        # `paying_roles!` in `getter.rs`).
+        # it, matches on it (`match` or `matches!`) or reads `kind()`
+        # restates no membership — it is the shape the rows exist for
+        # (`keyword_roles!`, `paying_roles!` in `getter.rs`). Any
+        # classification beside the row read keeps the body a
+        # classifier, so a half-migrated macro is still reported.
         reads_rows = bool(re.search(r"roles::\$" + IDENT + r"::", body))
-        compares = bool(
-            re.search(r"matches!|\.kind\(\)|kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=|[!=]=\s*\$?\w+\.kind_id\(\)", body)
+        classifies = bool(
+            re.search(
+                r"\bmatch\b|matches!|\.kind\(\)|kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=|[!=]=\s*\$?\w+\.kind_id\(\)",
+                body,
+            )
         )
-        touches = compares or (not reads_rows and "kind_id()" in body)
+        touches = classifies or (not reads_rows and "kind_id()" in body)
         inner = sorted({c for c in re.findall(r"\b(" + IDENT + r")!\s*[\(\[{]", body) if c != name})
         out[name] = Macro(name, lang_arg, globs_lang, [f"{a}::{b}" for a, b in expands], touches, inner)
     return out

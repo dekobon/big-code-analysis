@@ -7125,6 +7125,14 @@ end",
             let ops = ops_of::<JavaParser>(source, "Foo.java");
             assert_keyword_role(&ops, "Foo.java", spelling, Role::OperatorOnly);
         }
+        // A `<` error recovery reparents under `ERROR` is not under a
+        // `binary_expression`, so the row's gate leaves it out; it billed
+        // before the row existed, and the byte-less arm keeps billing it.
+        let ops = ops_of::<JavaParser>(
+            "class C { boolean f(int a) { return a < ; } }\n",
+            "Foo.java",
+        );
+        assert_keyword_role(&ops, "Foo.java", "<", Role::OperatorOnly);
     }
 
     /// #1565: Groovy bills every modifier, as Java now does. Its grammar

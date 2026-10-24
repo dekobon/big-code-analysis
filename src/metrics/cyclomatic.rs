@@ -357,10 +357,11 @@ macro_rules! impl_cyclomatic_c_family {
     };
 }
 
-// The C++ applied-operator gate moved to the AST crate in #1694, where
+// The C++ applied-operator gate lives in the AST crate since #1694, so
 // the `Comparison` and `ShortCircuit` rows of `roles/cpp.rs` and
-// `roles/mozcpp.rs` read it; the consumers here read the rows. Its
-// derivation (#1448, #1525, #1533) is on the function.
+// `roles/mozcpp.rs` can gate on it; the consumers here read it directly
+// until those rows are declared. Its derivation (#1448, #1525, #1533)
+// is on the function.
 pub(crate) use crate::roles::c_family::cpp_family_operator_is_applied as cpp_operator_is_applied;
 
 // JS-family: include nullish coalescing (`??`) and the three compound

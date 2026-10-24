@@ -80,8 +80,8 @@
 //!     lang: Java;
 //!     Exit       { owns [ReturnStatement, ThrowStatement] }
 //!     Comparison { owns [BinaryExpression(gated_by comparison_operator),
-//!                        InstanceofExpression(pays_itself)]
-//!                  pays [EQEQ, LT gated_by under_binary_expression]
+//!                        InstanceofExpression]
+//!                  pays [EQEQ, LT gated_by under_binary_expression, Instanceof]
 //!                  project "operator"
 //!                  excludes [QMARK "a wildcard bound's `?` is type syntax"] }
 //!     Container  { owns [ClassDeclaration(opens Class),
@@ -101,8 +101,8 @@
 //! `f(node, code, ancestors)` says so; `text_gated_by f` is the same
 //! with a name that says the gate reads source bytes; `pays_itself`
 //! marks a kind the grammar gives no token for, so the owner is also the
-//! payer (`InstanceofExpression`); `opens K` records the `SpaceKind` the
-//! owner opens. A payer takes `gated_by f` bare, after its kind. Per
+//! payer (Python's `comparison_operator` wrapper, where ABC pays);
+//! `opens K` records the `SpaceKind` the owner opens. A payer takes `gated_by f` bare, after its kind. Per
 //! row: `pays [..]` splits the paying occurrences from the owners (see
 //! the projections below); `pays never` says the construct has owners
 //! and no paying node at all; neither means the owners are the paying
@@ -138,7 +138,9 @@
 //!   counting both an owner and its leaf is a visible choice at the
 //!   consumer, never an accident here.
 //! - `project(owner) -> Option<Node>`: the owner's paying child, when a
-//!   `project` field is declared.
+//!   `project` field is declared — the field where the owner has it,
+//!   else the first child whose kind is a declared payer, for an owner
+//!   whose grammar names no field (Java's `instanceof_expression`).
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
@@ -767,9 +769,18 @@ macro_rules! role_table {
             }
 
             $(
-                /// The child of an owner that pays for it.
+                /// The child of an owner that pays for it: the owner's
+                /// declared field, or — for an owner the grammar gives
+                /// no such field (Java's `instanceof_expression` carries
+                /// its keyword as a bare child) — its first child whose
+                /// kind is a declared payer. `None` when neither holds,
+                /// which for a declared owner is a row defect.
                 pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
-                    owner.child_by_field_name($field)
+                    owner.child_by_field_name($field).or_else(|| {
+                        owner
+                            .children()
+                            .find(|child| PAYERS.contains(&child.kind_id()))
+                    })
                 }
             )?
         });

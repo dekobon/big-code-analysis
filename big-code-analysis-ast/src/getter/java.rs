@@ -123,17 +123,19 @@ impl Getter for JavaCode {
             => {
                 TokenRole::Operator
             },
-            // The `<` that opens a generic list — `List<String>`, `<T>
-            // void m()` — is a bracket pair billed as `<>`
-            // (`get_operator_spelling`, #1559); its closer returned
-            // `Unknown` above. The `Comparison` row gates `<` / `>` to a
-            // `binary_expression`, where they compare, so the opener is
-            // the one spelling of the token the row leaves to this arm.
-            // role-bypass: allow(Comparison) — the operator classification of the gated-out generic
-            // opener, the complement of the row's `under_binary_expression`
-            LT | GT if GENERIC_ANGLES.opener_spelling(node, ancestors).is_some() => {
-                TokenRole::Operator
-            }
+            // The `Comparison` row pays `<` / `>` only under a
+            // `binary_expression`, the gate ABC needs (#1274). Halstead
+            // bills every other spelling too: the opener of a generic
+            // list (`List<String>`, as the `<>` pair — #1559; its closer
+            // returned `Unknown` above) and a token error recovery
+            // reparents under `ERROR` (`return a < ;`), which billed
+            // before the row existed and must not stop. So this arm is
+            // unconditional, and for these two kinds the row is not what
+            // makes Halstead bill them — the perturbation evidence for
+            // the Halstead path is the other seven payers.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the row's
+            // `under_binary_expression` gate leaves out: a generic opener and a recovered token
+            LT | GT => TokenRole::Operator,
             // `super` is the receiver of `super.f()` / `super(x)` /
             // `super::f` everywhere except a wildcard type bound, where
             // `? super String` denotes no value and is the mirror image
