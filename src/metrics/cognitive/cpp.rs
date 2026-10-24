@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for CppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::cpp::short_circuit;
         use Cpp::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -51,14 +52,19 @@ impl Cognitive for CppCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
+            // A `binary_expression` or fold the `ShortCircuit` row owns.
             // `and` / `or` are the ISO alternative spellings of `&&` /
             // `||` ([lex.digraph]) and get kinds of their own, so each is
             // keyed to its symbol: a chain that mixes the spellings of
             // one operator is one sequence, as it is when spelled alike
             // (#1522). A fold applies its operator once, so `(... && a)`
             // is one sequence too, as cyclomatic counts it once (#1533);
-            // a binary fold's second spelling continues it.
-            BinaryExpression2 | FoldExpression => {
+            // a binary fold's second spelling continues it. The row says
+            // which tokens pay; which of them share a sequence key is
+            // this consumer's reading of them.
+            // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
+            // membership: the row is read on the arm's guard
+            _ if short_circuit::owns(node, code, ancestors) => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

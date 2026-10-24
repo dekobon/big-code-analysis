@@ -83,6 +83,76 @@ macro_rules! c_family_primitives {
     };
 }
 
+/// The comparison tokens C++ applies under a `binary_expression` or
+/// as a fold's operator, each gated by the dialect's `applied` (#1694).
+/// A `grammar.json` sweep of tree-sitter-cpp 0.23.4 and the vendored
+/// Mozcpp finds each in `binary_expression` (a comparison),
+/// `preproc_binary_expression` (`#if A <= B`, aliased onto
+/// `binary_expression`), `operator_name` (`bool operator<=(…)`
+/// declares rather than applies — #1448), the fold operators (`<` `>`
+/// `<=` `>=` `==` `!=`; the parent is `fold_expression`, which applies
+/// its comparison once through its `operator` field — #1533) and, for
+/// `<` / `>` only, the template delimiters and `system_lib_string`.
+/// `NotEq` is `not_eq`, the ISO alternative token for `!=`
+/// ([lex.digraph]), in every production `!=` has bar the preprocessor
+/// one; `LTEQGT` is `<=>`. `GT2` is the template closer's own symbol,
+/// which the parser folds onto `GT` before `kind_id()` returns, so it
+/// is in no list here.
+macro_rules! cpp_family_comparison_payers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            LT gated_by applied, GT gated_by applied, LTEQ gated_by applied,
+            GTEQ gated_by applied, EQEQ gated_by applied, BANGEQ gated_by applied,
+            NotEq gated_by applied, LTEQGT gated_by applied,
+        ] $($rest)*);
+    };
+}
+
+/// The short-circuit tokens, each gated by the dialect's `applied`
+/// (#1694). `and` / `or` are the ISO alternative spellings of `&&` /
+/// `||` ([lex.digraph]), kinds of their own that occur only in the
+/// productions their symbol occurs in (#1522). The grammar also spells
+/// `&&` where nothing branches — a reference declarator (`int&& x`),
+/// the ref-qualifier (`void f() &&`), an overload name (`operator&&`)
+/// and a requires-clause's `constraint_conjunction` (#1525) — which the
+/// gate excludes by parent.
+macro_rules! cpp_family_short_circuit_payers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            AMPAMP gated_by applied, PIPEPIPE gated_by applied,
+            And gated_by applied, Or gated_by applied,
+        ] $($rest)*);
+    };
+}
+
+/// The nodes that own a C++ binary operator: the aliased
+/// `binary_expression` ids (every `binary_expression` carries
+/// `BinaryExpression2` at the pinned grammars, an `#if` operand
+/// included; the unsuffixed id is the never-emitted pre-alias) and the
+/// fold. Which construct one owns is decided by its `operator` field,
+/// so each owner is gated by the dialect's `comparison_operator`,
+/// which reads the field against the `Comparison` payers.
+macro_rules! cpp_family_comparison_owners {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression2(gated_by comparison_operator),
+            FoldExpression(gated_by comparison_operator),
+        ] $($rest)*);
+    };
+}
+
+/// The same three owners under the dialect's `short_circuit_operator`.
+macro_rules! cpp_family_short_circuit_owners {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            BinaryExpression(gated_by short_circuit_operator),
+            BinaryExpression2(gated_by short_circuit_operator),
+            FoldExpression(gated_by short_circuit_operator),
+        ] $($rest)*);
+    };
+}
+
 /// Whether a C++ binary operator token applies its operator under its
 /// parent, as opposed to spelling the same token in a declaration: an
 /// overload name (`operator&&`, `operator<`), a reference declarator or
@@ -118,4 +188,60 @@ pub fn cpp_family_operator_is_applied<'a>(
         })
 }
 
-pub(crate) use {c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+/// Whether `owner`'s `operator` field holds one of `payers`: the gate a
+/// C++ `Comparison` or `ShortCircuit` owner reads, since the one
+/// `binary_expression` kind carries every binary operator and only the
+/// field says which construct it is. A fold's `operator` field names
+/// one spelling of its operator, so a binary fold `(0 == ... == a)` is
+/// owned once.
+#[must_use]
+pub fn cpp_family_operator_in(owner: &crate::Node<'_>, payers: &[u16]) -> bool {
+    owner
+        .child_by_field_name("operator")
+        .is_some_and(|op| payers.contains(&op.kind_id()))
+}
+
+/// The three gates the `Comparison` and `ShortCircuit` rows read, per
+/// dialect because each reads the dialect's kind ids (#1694). The
+/// derivations are on the shared fragments in `roles/c_family.rs`.
+macro_rules! cpp_family_gates {
+    ($lang:ident) => {
+        /// Whether a token applies its operator: its parent is a
+        /// `binary_expression`, or a `fold_expression` whose `operator`
+        /// field it is. An overload name, a reference declarator, a
+        /// ref-qualifier, a template delimiter and a requires-clause's
+        /// constraint conjunction all spell the same tokens and apply
+        /// nothing.
+        fn applied<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::cpp_family_operator_is_applied(node, ancestors)
+        }
+
+        /// Whether an owner's `operator` field is a comparison token.
+        fn comparison_operator<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::cpp_family_operator_in(node, comparison::PAYERS)
+        }
+
+        /// Whether an owner's `operator` field is `&&` / `||` / `and` / `or`.
+        fn short_circuit_operator<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::cpp_family_operator_in(node, short_circuit::PAYERS)
+        }
+    };
+}
+
+pub(crate) use {
+    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_comparison_owners,
+    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
+    cpp_family_short_circuit_payers,
+};

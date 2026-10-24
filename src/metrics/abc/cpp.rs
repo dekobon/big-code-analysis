@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, is_operand, last_operand, wrapped_operand,
 };
-use crate::metrics::cyclomatic::cpp_operator_is_applied;
+use crate::roles::cpp::{comparison, short_circuit};
 use crate::*;
 
 // The C-family slot rule, shared by the `CCode`, `CppCode`, `MozcppCode`
@@ -75,17 +75,27 @@ fn sole_operand<'a>(list: &Node<'a>) -> Option<Node<'a>> {
     operands.next().filter(|_| operands.next().is_none())
 }
 
-// The comparison operators the C-family comparison-token arms count when
-// applied (`not_eq` and `<=>` exist in the C++ grammars only).
-const CPP_COMPARISONS: &[&str] = &["<", ">", "<=", ">=", "==", "!=", "not_eq", "<=>"];
-
 // Whether an arm of the C-family `compute` impls already charges `expr`
 // (already peeled) as a condition: a ternary (its `?`), an applied
 // comparison, or an `&&` / `||` chain, whose operands each pay through
-// `cpp_count_condition`. A C++ fold over any of those operators is
-// charged by its `operator` field token as one application of it (see
+// `count_condition`. A C++ fold over any of those operators is charged
+// by its `operator` field token as one application of it (see
 // `cpp_count_chain_operands`), so the slot holding it does not pay.
-fn cpp_condition_scores_itself(expr: &Node) -> bool {
+//
+// Each dialect supplies its own: the `CppCode` and `MozcppCode` impls
+// read their `Comparison` and `ShortCircuit` rows (#1694), while C and
+// Objective-C keep the name-keyed `c_family_condition_scores_itself`
+// until their rows land (#1695). The helpers below take it as a
+// parameter so the slot rule has this one home for all four.
+pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
+
+// The comparison operators C and Objective-C count when applied, by
+// kind name (`not_eq` and `<=>` exist in the C++ grammars only, and
+// those two dialects read their rows instead).
+const C_FAMILY_COMPARISONS: &[&str] = &["<", ">", "<=", ">=", "==", "!=", "not_eq", "<=>"];
+
+// The name-keyed `ScoresItself` of C and Objective-C.
+pub(super) fn c_family_condition_scores_itself(expr: &Node) -> bool {
     let operator_in = |accept: &[&str]| {
         expr.child_by_field_name("operator")
             .is_some_and(|op| accept.contains(&op.kind()))
@@ -93,10 +103,22 @@ fn cpp_condition_scores_itself(expr: &Node) -> bool {
     match expr.kind() {
         "conditional_expression" => true,
         "binary_expression" | "fold_expression" => {
-            operator_in(CPP_COMPARISONS) || operator_in(&["&&", "||", "and", "or"])
+            operator_in(C_FAMILY_COMPARISONS) || operator_in(&["&&", "||", "and", "or"])
         }
         _ => false,
     }
+}
+
+// The row-keyed `ScoresItself` of C++: a `binary_expression` or fold
+// the `Comparison` or `ShortCircuit` row owns, or a ternary. The rows
+// are asked with no ancestor chain — `expr` is a descendant the peel
+// reached from the walked node — and neither owner gate reads one:
+// each reads the node's `operator` field.
+fn cpp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Cpp::ConditionalExpression as u16
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
@@ -105,51 +127,49 @@ fn cpp_condition_scores_itself(expr: &Node) -> bool {
 // `if (-x)`, `if (*p)`, `if (x + 1)`, `if (this)` and `if (sizeof x)` are
 // each a decision, and each scored 0 while the slot paid only for a
 // fixed list of terminal kinds (#1526).
-fn cpp_count_condition(condition: &Node, conditions: &mut f64) {
-    count_boolean_slot(
-        condition,
-        cpp_wrapper_operand,
-        cpp_condition_scores_itself,
-        conditions,
-    );
+fn count_condition(condition: &Node, scores: ScoresItself, conditions: &mut f64) {
+    count_boolean_slot(condition, cpp_wrapper_operand, scores, conditions);
 }
 
 // An operand outside a boolean slot — a `return` value, a call or
 // message argument, a ternary branch — scores only when a `!` proves it
 // boolean (see `count_negated_operand`), which keeps `(a > 0) ? b : -b`
 // at 2 (the `?` and the `>`).
-fn cpp_count_negated(operand: &Node, conditions: &mut f64) {
-    count_negated_operand(
-        operand,
-        cpp_wrapper_operand,
-        cpp_condition_scores_itself,
-        conditions,
-    );
+fn count_negated(operand: &Node, scores: ScoresItself, conditions: &mut f64) {
+    count_negated_operand(operand, cpp_wrapper_operand, scores, conditions);
 }
 
 // The condition slot of an `if` / `while` / `do` statement, read by the
 // grammar's `condition` field, never by index: `if constexpr (cond)`
 // puts the keyword at child(1), and a comment shifts every later child
 // (`do {} while /*c*/ (b);` — #1455).
-pub(super) fn cpp_count_condition_slot(statement: &Node, conditions: &mut f64) {
+pub(super) fn cpp_count_condition_slot(
+    statement: &Node,
+    scores: ScoresItself,
+    conditions: &mut f64,
+) {
     if let Some(condition) = statement.child_by_field_name("condition") {
-        cpp_count_condition(&condition, conditions);
+        count_condition(&condition, scores, conditions);
     }
 }
 
 // The value of a `return` statement, which names no field: it is the
 // statement's only operand (`return /*c*/ !b;` — #1455). The bare
 // `return;` has none.
-pub(super) fn cpp_count_return(statement: &Node, conditions: &mut f64) {
+pub(super) fn cpp_count_return(statement: &Node, scores: ScoresItself, conditions: &mut f64) {
     if let Some(value) = wrapped_operand(statement) {
-        cpp_count_negated(&value, conditions);
+        count_negated(&value, scores, conditions);
     }
 }
 
 // Each operand of a call's `argument_list` or of an Objective-C message
 // is a negated operand (`f(!a, !b)`).
-pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
-    count_each_operand(list, cpp_count_negated, conditions);
+pub(super) fn cpp_count_arguments(list: &Node, scores: ScoresItself, conditions: &mut f64) {
+    count_each_operand(
+        list,
+        |operand, conds| count_negated(operand, scores, conds),
+        conditions,
+    );
 }
 
 // Fitzpatrick Rule 9 (C++ in Figure 3, #403): each operand of an `&&` /
@@ -170,13 +190,17 @@ pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
 // ungated, but their grammars spell `&&` in no other production, so a
 // token reparented by error recovery reaches here and, as the gated C++
 // arms do, scores nothing.
-pub(super) fn cpp_count_chain_operands(chain: &Node, conditions: &mut f64) {
+pub(super) fn cpp_count_chain_operands(chain: &Node, scores: ScoresItself, conditions: &mut f64) {
     match chain.kind() {
-        "binary_expression" => count_field_operands(chain, cpp_count_condition, conditions),
+        "binary_expression" => count_field_operands(
+            chain,
+            |operand, conds| count_condition(operand, scores, conds),
+            conditions,
+        ),
         "fold_expression" => {
             let mut written = 0;
             for operand in chain.children().filter(is_operand) {
-                cpp_count_condition(&operand, conditions);
+                count_condition(&operand, scores, conditions);
                 written += 1;
             }
             if written == 1 {
@@ -196,13 +220,13 @@ pub(super) fn cpp_count_chain_operands(chain: &Node, conditions: &mut f64) {
 // `conditional_expression` marks `consequence` optional to admit the GNU
 // elision `a ?: b`, which shifts the alternative from child(4) to
 // child(3).
-pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
+pub(super) fn cpp_walk_ternary(node: &Node, scores: ScoresItself, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        cpp_count_condition(&condition, conditions);
+        count_condition(&condition, scores, conditions);
     }
     for field in ["consequence", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            cpp_count_negated(&branch, conditions);
+            count_negated(&branch, scores, conditions);
         }
     }
 }
@@ -217,36 +241,42 @@ pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
 // (`for (;;)`) exposes no `condition` field, so it counts zero with no
 // special case — see the `Stats` doc comment's cross-language
 // empty-`for`-condition policy.
-pub(super) fn cpp_walk_for_statement(node: &Node, conditions: &mut f64) {
+pub(super) fn cpp_walk_for_statement(node: &Node, scores: ScoresItself, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        cpp_count_condition(&condition, conditions);
+        count_condition(&condition, scores, conditions);
     }
 }
 
 impl Abc for CppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic)
+        // bca: suppress(cyclomatic, halstead)
         // Exhaustive one-arm-per-grammar-kind dispatch table: the
         // cyclomatic count here is the number of node kinds the C++
         // grammar can hand us, not branching a reader must hold in
         // their head. Every arm is independent and self-describing, and
         // the table only ever grows as the grammar does (#1102 added
-        // the ternary arm). Splitting it would scatter one lookup
-        // across helpers with no semantic boundary to split on.
+        // the ternary arm, #1694 the two row reads). Splitting it would
+        // scatter one lookup across helpers with no semantic boundary
+        // to split on, and the effort is that table's vocabulary.
         use Cpp::*;
 
         // A requires clause or requires-expression is compile-time and
         // pays no condition, parenthesised or not; cyclomatic and
-        // cognitive agree (#1533).
+        // cognitive agree (#1533). The `Comparison` and `ShortCircuit`
+        // rows are consulted *under* this reach: a parenthesised
+        // constraint is an ordinary `binary_expression` the rows own,
+        // and only the clause above it says it decides nothing.
         let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
         let in_constraint = stats.constraint.covers(node, opens);
+        let scores: ScoresItself = &|expr| cpp_condition_scores_itself(expr, code);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // `assignment_expression` covers both plain `=` and every
             // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
             // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
@@ -291,6 +321,33 @@ impl Abc for CppCode {
             // call is still a branch, as it is in the unparenthesised
             // `requires A<T> && (f<T>())` and in `static_assert`.
             _ if in_constraint => {}
+            // The seven comparison tokens, counted when applied: the
+            // `Comparison` row's payers, each gated on its parent being a
+            // `binary_expression` (an `#if` operand included) or a fold
+            // whose `operator` field it is, so an overload name
+            // (`bool operator<=(…)` — #1448), a template delimiter and a
+            // binary fold's second spelling score nothing. Fitzpatrick Rule
+            // 5 scores the operator wherever it is written; the slot holding
+            // one reads the row's owner so it does not pay again.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of an
+            // `&&` / `||` chain is one condition (issue #403), and the token
+            // pays nothing — the `ShortCircuit` row is read at its leaf only
+            // to find the chain, which is the token's parent. `and` / `or`
+            // are the same operators as ISO alternative tokens, which the
+            // row lists beside them. The row's gate is cyclomatic's: a
+            // `constraint_conjunction` scores nothing (a parenthesised
+            // constraint never reaches here), and a binary fold
+            // `(0 || ... || !a)` spells its one operator twice, so only the
+            // `operator` field token walks the fold — the second spelling
+            // paid `!a` again.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                if let Some(parent) = ancestors.parent(node) {
+                    cpp_count_chain_operands(&parent, scores, &mut stats.conditions);
+                }
+            }
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -306,97 +363,38 @@ impl Abc for CppCode {
             Else | Case | QMARK | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
-            // The seven comparison tokens, counted only when applied —
-            // their parent is a `binary_expression`. A `grammar.json`
-            // sweep of tree-sitter-cpp 0.23.4 (and the vendored
-            // tree-sitter-mozcpp) finds each of them in these
-            // productions:
-            //
-            // - `binary_expression` — a comparison; counts.
-            // - `preproc_binary_expression` — `#if A <= B`, legal C++
-            //   and a real decision. The grammar aliases it onto
-            //   `binary_expression`, so it counts through the same
-            //   allowlist.
-            // - `operator_name` — `bool operator<=(…)` *declares* the
-            //   operator rather than applying it. Each of the seven
-            //   overloads has `cyclomatic()` 1; before #1448 only
-            //   `<` / `>` were gated, so the other five scored one
-            //   condition each (#1420 is the C# instance).
-            // - `_fold_operator` / `_binary_fold_operator` (`<` `>` `<=`
-            //   `>=` `==` `!=` only) — the parent is `fold_expression`.
-            //   A fold applies its comparison, so it counts once per
-            //   fold: the token must be the fold's `operator` field. A
-            //   binary fold `(0 == ... == a)` spells its one operator
-            //   twice, and the field names only one of the two
-            //   spellings. The idiomatic `((a == 0) && ...)` keeps its
-            //   `==` inside a `binary_expression` and counts there.
-            // - `template_argument_list` / `template_parameter_list` /
-            //   `system_lib_string` (`<` `>` only) — delimiters
-            //   (`std::vector<int>`, `#include <vector>`).
-            //
-            // Allowlist polarity so a grammar bump adding a production
-            // fails closed (`.claude/rules/grammar-dispatch.md` §1). A
-            // token reparented under `{ERROR}` by recovery stops
-            // counting too, as `<` / `>` always have.
-            //
-            // The test is `cpp_operator_is_applied`, shared with Mozcpp.
-            //
-            // `NotEq` is `not_eq`, the ISO alternative token for `!=`. It
-            // occurs in exactly the productions `!=` does bar the
-            // preprocessor one, so the same allowlist decides it.
-            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
-                if cpp_operator_is_applied(node, ancestors) =>
-            {
-                stats.conditions += 1.;
-            }
-            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
-            // `&&` / `||` chain is one condition (issue #403). `and` /
-            // `or` are the same operators spelled as ISO alternative
-            // tokens, which the grammar gives kinds of their own.
-            //
-            // The same applied-operator gate as cyclomatic: a
-            // `constraint_conjunction` scores nothing (a parenthesised
-            // constraint never reaches here), and a binary fold
-            // `(0 || ... || !a)` spells its one operator twice, so only
-            // the `operator` field token walks the fold — the second
-            // spelling paid `!a` again.
-            AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {
-                if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(&parent, &mut stats.conditions);
-                }
-            }
             // Phase-2B (issue #403): condition slots, read by grammar field
             // in `cpp_count_condition_slot`. The slot pays for any
             // predicate no other arm counts (#1526), so `if (true)`,
             // `if (-x)` and `return !x` each count one condition; bare
             // `return x` reports zero.
             IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(node, &mut stats.conditions);
+                cpp_count_condition_slot(node, scores, &mut stats.conditions);
             }
             // `co_return` is a coroutine's `return` (#1547), so its value
             // is read the same way: `co_return !x` counts one. `co_yield`
             // hands back a value without returning, as the JS family's
             // `yield` does, and like it scores no value slot.
             ReturnStatement | CoReturnStatement => {
-                cpp_count_return(node, &mut stats.conditions);
+                cpp_count_return(node, scores, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(node, &mut stats.conditions);
+                cpp_count_arguments(node, scores, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
             // operand slots (issue #1102).
             ConditionalExpression => {
-                cpp_walk_ternary(node, &mut stats.conditions);
+                cpp_walk_ternary(node, scores, &mut stats.conditions);
             }
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
             ForStatement => {
-                cpp_walk_for_statement(node, &mut stats.conditions);
+                cpp_walk_for_statement(node, scores, &mut stats.conditions);
             }
             _ => {}
         }
@@ -406,7 +404,10 @@ impl Abc for CppCode {
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use super::{cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_negated};
+    use super::{
+        c_family_condition_scores_itself, count_negated, cpp_count_chain_operands,
+        cpp_count_condition_slot,
+    };
     use crate::traits::ParserTrait;
     use crate::{CppParser, Node};
 
@@ -457,7 +458,7 @@ mod tests {
             let bin = first_of_kind(p.root(), "binary_expression")
                 .expect("`a && b` parses to a binary_expression");
             let mut conditions = 0.;
-            cpp_count_chain_operands(&bin, &mut conditions);
+            cpp_count_chain_operands(&bin, &c_family_condition_scores_itself, &mut conditions);
             assert_eq!(conditions, 2., "{src}");
         }
     }
@@ -480,7 +481,11 @@ mod tests {
             let statement =
                 first_of_kind(p.root(), "if_statement").expect("the fixture holds an `if`");
             let mut conditions = 0.;
-            cpp_count_condition_slot(&statement, &mut conditions);
+            cpp_count_condition_slot(
+                &statement,
+                &c_family_condition_scores_itself,
+                &mut conditions,
+            );
             assert_eq!(conditions, expected, "{src}");
         }
     }
@@ -505,7 +510,7 @@ mod tests {
             let p = parse(src);
             let operand = first_of_kind(p.root(), kind).expect("the fixture holds the operand");
             let mut conditions = 0.;
-            cpp_count_negated(&operand, &mut conditions);
+            count_negated(&operand, &c_family_condition_scores_itself, &mut conditions);
             assert_eq!(conditions, expected, "{src}");
         }
     }

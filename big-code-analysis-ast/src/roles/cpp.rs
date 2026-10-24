@@ -3,14 +3,40 @@
 
 use crate::Cpp;
 use crate::role_table;
-use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+use crate::roles::c_family::{
+    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_comparison_owners,
+    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
+    cpp_family_short_circuit_payers,
+};
+
+cpp_family_gates!(Cpp);
 
 role_table! {
     lang: Cpp;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R04 }
-    ShortCircuit { pending R04 }
+    // The C++ binary operators are one `binary_expression` kind (the
+    // aliased `BinaryExpression2` at the pinned grammar; the unsuffixed
+    // id is the never-emitted pre-alias) plus the fold, told apart by
+    // the `operator` field, so each row's owners are gated on that
+    // field holding one of its payers and each payer on applying its
+    // operator (`roles/c_family.rs` has both lists and their
+    // derivations — #1448, #1522, #1525, #1533). A `requires` clause or
+    // expression is compile-time and its operators decide nothing; the
+    // rows do not know that, because a parenthesised constraint parses
+    // as an ordinary `binary_expression` and only the root crate's
+    // `ConstraintReach` can see the clause above it. The consumers read
+    // the rows *under* that reach.
+    Comparison {
+        owns [..cpp_family_comparison_owners!()]
+        pays [..cpp_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [..cpp_family_short_circuit_owners!()]
+        pays [..cpp_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "C++'s `&` / `|` / `^` are bitwise; `and` / `or` are the lazy spellings" }
     Ternary { pending R05 }
     NullSafe { absent "C++ has no optional navigation or null coalescing" }

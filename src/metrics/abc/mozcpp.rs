@@ -10,31 +10,43 @@
 )]
 
 use super::cpp::{
-    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
-    cpp_walk_for_statement, cpp_walk_ternary,
+    ScoresItself, cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot,
+    cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::metrics::cyclomatic::cpp_operator_is_applied;
+use crate::roles::mozcpp::{comparison, short_circuit};
 use crate::*;
+
+// The row-keyed `ScoresItself` of the Mozilla fork — the Cpp twin's,
+// against this dialect's rows and ids.
+fn mozcpp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Mozcpp::ConditionalExpression as u16
+}
 
 impl Abc for MozcppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic)
+        // bca: suppress(cyclomatic, halstead)
         // Exhaustive one-arm-per-grammar-kind dispatch table; see the
         // rationale on `CppCode::compute`, of which this is the
         // Mozilla-fork clone.
         use Mozcpp::*;
 
-        // A requires clause pays no condition — see the Cpp twin (#1533).
+        // A requires clause pays no condition, and the rows are read
+        // under its reach — see the Cpp twin (#1533).
         let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
         let in_constraint = stats.constraint.covers(node, opens);
+        let scores: ScoresItself = &|expr| mozcpp_condition_scores_itself(expr, code);
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // `assignment_expression` covers both plain `=` and every
             // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
             // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
@@ -75,8 +87,27 @@ impl Abc for MozcppCode {
             CallExpression | CallExpression2 | NewExpression => {
                 stats.branches += 1.;
             }
-            // Only the A and B arms above apply in a constraint.
+            // Inside a constraint only the A and B arms above apply: a
+            // call is still a branch, as it is in the unparenthesised
+            // `requires A<T> && (f<T>())` and in `static_assert`.
             _ if in_constraint => {}
+            // The seven comparison tokens count only when applied, through
+            // the `Comparison` row; the vendored grammar has the same
+            // productions for them as tree-sitter-cpp, and the derivation
+            // is on the matching arm of `CppCode::compute`.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
+            // `&&` / `||` chain is one condition (issue #403); the
+            // `ShortCircuit` row's gate keeps a `constraint_conjunction` and
+            // a binary fold's second spelling out, and the derivation is on
+            // the Cpp twin.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                if let Some(parent) = ancestors.parent(node) {
+                    cpp_count_chain_operands(&parent, scores, &mut stats.conditions);
+                }
+            }
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -92,60 +123,38 @@ impl Abc for MozcppCode {
             Else | Case | QMARK | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
-            // The seven comparison tokens count only when applied. The
-            // vendored grammar has the same productions for them as
-            // tree-sitter-cpp; the `grammar.json` sweep, the fold and
-            // `#if` decisions, and the operator-overload defect (#1448)
-            // are recorded on the matching arm of `CppCode::compute`.
-            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
-                if cpp_operator_is_applied(node, ancestors) =>
-            {
-                stats.conditions += 1.;
-            }
-            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
-            // `&&` / `||` chain is one condition (issue #403). `and` /
-            // `or` are the same operators spelled as ISO alternative
-            // tokens, which the grammar gives kinds of their own.
-            //
-            // Gated like the comparisons, so a `constraint_conjunction`
-            // and a binary fold's second
-            // operator spelling score nothing; the derivation is on the
-            // Cpp twin.
-            AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {
-                if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(&parent, &mut stats.conditions);
-                }
-            }
             // Phase-2B (issue #403): condition slots, read by grammar field
             // in `cpp_count_condition_slot`. The slot pays for any
             // predicate no other arm counts (#1526), so `if (true)`,
             // `if (-x)` and `return !x` each count one condition; bare
             // `return x` reports zero.
             IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(node, &mut stats.conditions);
+                cpp_count_condition_slot(node, scores, &mut stats.conditions);
             }
-            // `co_return` reads its value as `return` does; the
-            // derivation is on the Cpp twin (#1547).
+            // `co_return` is a coroutine's `return` (#1547), so its value
+            // is read the same way: `co_return !x` counts one. `co_yield`
+            // hands back a value without returning, as the JS family's
+            // `yield` does, and like it scores no value slot.
             ReturnStatement | CoReturnStatement => {
-                cpp_count_return(node, &mut stats.conditions);
+                cpp_count_return(node, scores, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(node, &mut stats.conditions);
+                cpp_count_arguments(node, scores, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
             // operand slots (issue #1102).
             ConditionalExpression => {
-                cpp_walk_ternary(node, &mut stats.conditions);
+                cpp_walk_ternary(node, scores, &mut stats.conditions);
             }
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
             ForStatement => {
-                cpp_walk_for_statement(node, &mut stats.conditions);
+                cpp_walk_for_statement(node, scores, &mut stats.conditions);
             }
             _ => {}
         }

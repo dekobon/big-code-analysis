@@ -10,8 +10,8 @@
 )]
 
 use super::cpp::{
-    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
-    cpp_walk_for_statement, cpp_walk_ternary,
+    c_family_condition_scores_itself, cpp_count_arguments, cpp_count_chain_operands,
+    cpp_count_condition_slot, cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
 use crate::*;
@@ -37,10 +37,11 @@ impl Abc for ObjcCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic)
+        // bca: suppress(cyclomatic, halstead)
         // Exhaustive one-arm-per-grammar-kind dispatch table; see the
         // rationale on `CppCode::compute`, of which this is the
-        // Objective-C sibling.
+        // Objective-C sibling. The effort is the table's vocabulary plus
+        // the scorer every shared helper now takes (#1694).
         use Objc::*;
 
         match node.kind_id().into() {
@@ -61,7 +62,11 @@ impl Abc for ObjcCode {
             // inspected here rather than via the `ArgumentList` arm below.
             MessageExpression => {
                 stats.branches += 1.;
-                cpp_count_arguments(node, &mut stats.conditions);
+                cpp_count_arguments(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // Comparison operators, `else` / `case` / `?` branch openers,
             // and the `@try` / `@catch` exception conditions. `&&` / `||`
@@ -92,30 +97,54 @@ impl Abc for ObjcCode {
             }
             AMPAMP | PIPEPIPE => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(&parent, &mut stats.conditions);
+                    cpp_count_chain_operands(
+                        &parent,
+                        &c_family_condition_scores_itself,
+                        &mut stats.conditions,
+                    );
                 }
             }
             // By role, never by index — see `impl Abc for CppCode` (#1455).
             IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(node, &mut stats.conditions);
+                cpp_count_condition_slot(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
-                cpp_count_return(node, &mut stats.conditions);
+                cpp_count_return(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(node, &mut stats.conditions);
+                cpp_count_arguments(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
             // operand slots (issue #1102).
             ConditionalExpression => {
-                cpp_walk_ternary(node, &mut stats.conditions);
+                cpp_walk_ternary(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
             ForStatement => {
-                cpp_walk_for_statement(node, &mut stats.conditions);
+                cpp_walk_for_statement(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             _ => {}
         }

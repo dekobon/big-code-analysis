@@ -26,7 +26,12 @@ use crate::{LANG, Metric, MetricsOptions};
 /// For each `(body, conditions, decisions)` row, substitutes the body
 /// into the template and asserts the function named `f` scores
 /// `conditions` ABC conditions and `decisions` cyclomatic decisions.
-#[cfg(any(feature = "java", feature = "python"))]
+#[cfg(any(
+    feature = "java",
+    feature = "python",
+    feature = "cpp",
+    feature = "mozcpp"
+))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
     assert!(template.contains("BODY"), "template has no body slot");
@@ -113,4 +118,82 @@ fn python_rows_feed_each_abc_path_independently() {
             ("if a and b or x > 1:\n        pass\n    return a", 3, 3),
         ],
     );
+}
+
+/// The C++ rows on both dialects: Mozcpp owns no file extension, so
+/// nothing but a parity test like this reaches its rows.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn assert_cpp_rows(lang: LANG) {
+    let template = "template <typename T> concept A = requires(T t) { t.a(); };\n\
+                    template <typename T> concept B = requires(T t) { t.b(); };\n\
+                    template <typename... Ts>\n\
+                    bool f(bool a, bool b, int x, int y, Ts... ts) { BODY }\n";
+    assert_rows(
+        lang,
+        template,
+        &[
+            // slot only
+            ("if (a) { } return a;", 1, 1),
+            ("if (-x) { } return a;", 1, 1),
+            // comparison in a slot: the token pays, the slot does not
+            ("if (x < y) { } return a;", 1, 1),
+            ("if (x not_eq y) { } return a;", 1, 1),
+            ("if ((x <=> y) < 0) { } return a;", 2, 1),
+            // outside any slot: only the token arm can pay
+            ("bool c = x < y; return c;", 1, 0),
+            ("bool c = x >= y; return c;", 1, 0),
+            ("bool c = x not_eq y; return c;", 1, 0),
+            ("auto c = x <=> y; return a;", 1, 0),
+            // the non-applying spellings pay nothing
+            ("std::vector<int> v; return a;", 0, 0),
+            ("int&& r = static_cast<int&&>(x); return a;", 0, 0),
+            // the chain: two operand slots, nothing for the token, in
+            // either spelling and mixed
+            ("return a && b;", 2, 1),
+            ("return a and b;", 2, 1),
+            ("return a and b && x > 1;", 3, 2),
+            ("if (a or b || x > 1) { } return a;", 3, 3),
+            // a fold applies its operator once: each written operand is
+            // a slot, and a unary fold's unwritten side one more
+            ("return (ts && ...);", 2, 1),
+            ("return (... || ts);", 2, 1),
+            ("return (a && ... && ts);", 2, 1),
+            ("return (ts == ...);", 1, 0),
+            // a requires clause decides nothing, parenthesised or not
+            ("static_assert(requires { a && b; }); return a;", 0, 0),
+        ],
+    );
+    // A `requires` clause on a function head, unparenthesised and
+    // parenthesised: the `&&` scores zero in both forms, and the
+    // function body's own slot still pays.
+    for head in ["requires A<T> && B<T>", "requires (A<T> && B<T>)"] {
+        let source = format!(
+            "template <typename T> concept A = requires(T t) {{ t.a(); }};\n\
+             template <typename T> concept B = requires(T t) {{ t.b(); }};\n\
+             template <typename T> {head} bool f(T t, bool a) {{ if (a) {{ }} return a; }}\n"
+        );
+        let options = MetricsOptions::default().with_only(&[Metric::Abc, Metric::Cyclomatic]);
+        let root = space_verbatim(lang, source.as_bytes(), options);
+        let f = function_space(&root, "f");
+        assert_eq!(
+            (
+                f.metrics.abc.conditions(),
+                f.metrics.cyclomatic.cyclomatic() - 1
+            ),
+            (1, 1),
+            "`{head}` in {lang:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "cpp")]
+fn cpp_rows_feed_each_abc_path_independently() {
+    assert_cpp_rows(LANG::Cpp);
+}
+
+#[test]
+#[cfg(feature = "mozcpp")]
+fn mozcpp_rows_feed_each_abc_path_independently() {
+    assert_cpp_rows(LANG::Mozcpp);
 }

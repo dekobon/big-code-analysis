@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for MozcppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::mozcpp::short_circuit;
         use Mozcpp::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -49,9 +50,12 @@ impl Cognitive for MozcppCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
-            // `and` / `or` keyed to `&&` / `||`, and a fold one sequence —
-            // see the Cpp twin (#1522, #1533).
-            BinaryExpression2 | FoldExpression => {
+            // A `binary_expression` or fold the `ShortCircuit` row owns,
+            // with `and` / `or` keyed to `&&` / `||` and a fold one
+            // sequence — see the Cpp twin (#1522, #1533).
+            // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
+            // membership: the row is read on the arm's guard
+            _ if short_circuit::owns(node, code, ancestors) => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

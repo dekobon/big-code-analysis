@@ -144,7 +144,7 @@ big-code-analysis-ast/src/getter/tcl.rs 6
 big-code-analysis-ast/src/macros/mod.rs 14
 enums/src/macros.rs 1
 src/metrics/cognitive/perl.rs 8
-src/metrics/cyclomatic.rs 11
+src/metrics/cyclomatic.rs 15
 src/metrics/cyclomatic/irules.rs 2
 src/metrics/cyclomatic/perl.rs 2
 src/metrics/cyclomatic/php.rs 4

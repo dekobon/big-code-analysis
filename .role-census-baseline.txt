@@ -63,7 +63,6 @@ Cpp CaseArm R05
 Cpp Catch R07
 Cpp Closure R06
 Cpp Comment R09
-Cpp Comparison R04
 Cpp Container R06
 Cpp DocComment R09
 Cpp DocRunDirective R09
@@ -75,7 +74,6 @@ Cpp FuncOpener R06
 Cpp HoldsDocInBody R09
 Cpp Loop R07
 Cpp Member R06
-Cpp ShortCircuit R04
 Cpp StringLit R08
 Cpp Switch R07
 Cpp Ternary R05
@@ -271,7 +269,6 @@ Mozcpp CaseArm R05
 Mozcpp Catch R07
 Mozcpp Closure R06
 Mozcpp Comment R09
-Mozcpp Comparison R04
 Mozcpp Container R06
 Mozcpp DocComment R09
 Mozcpp DocRunDirective R09
@@ -283,7 +280,6 @@ Mozcpp FuncOpener R06
 Mozcpp HoldsDocInBody R09
 Mozcpp Loop R07
 Mozcpp Member R06
-Mozcpp ShortCircuit R04
 Mozcpp StringLit R08
 Mozcpp Switch R07
 Mozcpp Ternary R05

@@ -10,8 +10,8 @@
 )]
 
 use super::cpp::{
-    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
-    cpp_walk_for_statement, cpp_walk_ternary,
+    c_family_condition_scores_itself, cpp_count_arguments, cpp_count_chain_operands,
+    cpp_count_condition_slot, cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
 use crate::*;
@@ -95,7 +95,11 @@ impl Abc for CCode {
             // `&&` / `||` chain is one condition (issue #403).
             AMPAMP | PIPEPIPE => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(&parent, &mut stats.conditions);
+                    cpp_count_chain_operands(
+                        &parent,
+                        &c_family_condition_scores_itself,
+                        &mut stats.conditions,
+                    );
                 }
             }
             // Phase-2B (issue #403): condition slots, read by grammar field
@@ -104,28 +108,48 @@ impl Abc for CCode {
             // `if (-x)` and `return !x` each count one condition; bare
             // `return x` reports zero.
             IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(node, &mut stats.conditions);
+                cpp_count_condition_slot(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
-                cpp_count_return(node, &mut stats.conditions);
+                cpp_count_return(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(node, &mut stats.conditions);
+                cpp_count_arguments(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
             // operand slots (issue #1102).
             ConditionalExpression => {
-                cpp_walk_ternary(node, &mut stats.conditions);
+                cpp_walk_ternary(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
             ForStatement => {
-                cpp_walk_for_statement(node, &mut stats.conditions);
+                cpp_walk_for_statement(
+                    node,
+                    &c_family_condition_scores_itself,
+                    &mut stats.conditions,
+                );
             }
             _ => {}
         }

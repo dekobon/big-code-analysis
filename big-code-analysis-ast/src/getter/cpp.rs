@@ -88,6 +88,8 @@ impl Getter for CppCode {
 
     keyword_roles!(cpp);
 
+    paying_roles!(cpp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Cpp::*;
 
@@ -107,7 +109,11 @@ impl Getter for CppCode {
         // in `metrics/halstead.rs` (issue #768).
         // The modifiers, the declaration keywords and the primitive
         // types are not here: `roles/cpp.rs` declares them and
-        // `get_keyword_role` bills them (#1693).
+        // `get_keyword_role` bills them (#1693). The comparison and
+        // short-circuit tokens are read from the `Comparison` and
+        // `ShortCircuit` rows by `get_paying_role` where they apply
+        // their operator; the arm below keeps the spellings the rows'
+        // `applied` gate leaves out (#1694).
         match node.kind_id().into() {
             // Raw-string delimiter punctuation. A `raw_string_literal`
             // carries its `R"(` opener as a bare `LPAREN` child — the
@@ -133,11 +139,28 @@ impl Getter for CppCode {
             {
                 TokenRole::Unknown
             }
-            DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
+            // The comparison and short-circuit tokens (`<` … `<=>`,
+            // `not_eq`, `&&`, `||`, `and`, `or`) sit in this arm for the
+            // spellings that apply no operator — an overload name
+            // (`operator<`, `operator and`), a reference declarator or
+            // ref-qualifier (`int&& x`, `void f() &&`), a requires-
+            // clause's constraint conjunction (`requires A<T> && B<T>`),
+            // a template delimiter's `<` (the `<>` pair; its closer
+            // returned `Unknown` above) and a token error recovery
+            // reparents — which bill as the operators they spell, as
+            // they did before the rows existed. The rows pay the applied
+            // spellings and this arm the rest; for these kinds the
+            // Halstead vocabulary is the union, so dropping one from a
+            // row moves nothing here.
+            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
+            // spellings the rows' `applied` gate leaves out
+            LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
+            | And | Or
+            | DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
-            | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
+            | Delete | New | Try | Try2 | Catch | Throw | EQ | DASH
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
-            | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
+            | LTLT | TILDE | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
             // The ISO alternative tokens ([lex.digraph]): `not`, `compl`,
@@ -150,8 +173,9 @@ impl Getter for CppCode {
             // the symbol lacks. Keyed by `kind_id` like every operator, so
             // `and` and `&&` are two distinct operators in n1: the `ops`
             // vocabulary names operators by kind, and folding the two in
-            // the metric alone would make the two stores disagree.
-            | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
+            // the metric alone would make the two stores disagree. `and`,
+            // `or` and `not_eq` sit in the arm above with their symbols.
+            | Not | Compl | Bitand | Bitor | Xor | AndEq | OrEq | XorEq
             // An overloaded operator's name (#1296). `operator +` already
             // billed its `+` through the punctuation kind, but the grammar
             // spells four overloadable names as whole tokens of their own

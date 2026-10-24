@@ -1,19 +1,49 @@
 //! Mozcpp's role rows. The dialect owns no file extension and shares
-//! Cpp's grammar shape; contract 5 of #1690 declares it through Cpp's
-//! template once R04 lands. Until then its rows are Cpp's, copied: the
-//! Halstead keyword rows are declared (#1693) and the rest are pending
-//! or absent as Cpp's are.
+//! Cpp's grammar shape with different kind ids, so its rows splice the
+//! same `cpp_family_*` fragments Cpp's do (`roles/c_family.rs`,
+//! contract 5 of #1690): the `Comparison` and `ShortCircuit` rows are
+//! declared through them (#1694), the Halstead keyword rows are
+//! declared (#1693) and the rest are pending or absent as Cpp's are.
+//! Nothing routes a file to this dialect, so no corpus snapshot reaches
+//! these rows; `tests/parity/cpp_mozcpp_parity.rs` holds the two
+//! dialects together.
 
 use crate::Mozcpp;
 use crate::role_table;
-use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+use crate::roles::c_family::{
+    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_comparison_owners,
+    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
+    cpp_family_short_circuit_payers,
+};
+
+cpp_family_gates!(Mozcpp);
 
 role_table! {
     lang: Mozcpp;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R04 }
-    ShortCircuit { pending R04 }
+    // The C++ binary operators are one `binary_expression` kind (the
+    // aliased `BinaryExpression2` at the pinned grammar; the unsuffixed
+    // id is the never-emitted pre-alias) plus the fold, told apart by
+    // the `operator` field, so each row's owners are gated on that
+    // field holding one of its payers and each payer on applying its
+    // operator (`roles/c_family.rs` has both lists and their
+    // derivations — #1448, #1522, #1525, #1533). A `requires` clause or
+    // expression is compile-time and its operators decide nothing; the
+    // rows do not know that, because a parenthesised constraint parses
+    // as an ordinary `binary_expression` and only the root crate's
+    // `ConstraintReach` can see the clause above it. The consumers read
+    // the rows *under* that reach.
+    Comparison {
+        owns [..cpp_family_comparison_owners!()]
+        pays [..cpp_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [..cpp_family_short_circuit_owners!()]
+        pays [..cpp_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "C++'s `&` / `|` / `^` are bitwise; `and` / `or` are the lazy spellings" }
     Ternary { pending R05 }
     NullSafe { absent "C++ has no optional navigation or null coalescing" }

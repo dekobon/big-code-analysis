@@ -378,3 +378,61 @@ fn cpp_and_mozcpp_agree_on_keyword_vocabularies() {
         cpp.operators
     );
 }
+
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
+#[test]
+fn cpp_and_mozcpp_agree_on_comparison_and_short_circuit_rows() {
+    // #1694 declared the `Comparison` and `ShortCircuit` rows of both
+    // dialects through the shared `cpp_family_*` fragments of
+    // `roles/c_family.rs`, and every consumer — ABC, cyclomatic,
+    // cognitive, Halstead — reads them. One fixture spelling every payer
+    // in its applying form, the fold forms, the ISO alternative
+    // spellings mixed with their symbols, and the non-applying spellings
+    // (an overload name, a reference declarator, a requires clause, a
+    // template delimiter) that must score nothing; the expected values
+    // are written out so a kind dropped from *both* dialects' rows fails
+    // by name rather than by parity.
+    let source = r"
+        template <typename T> concept A = requires(T t) { t.a(); };
+        template <typename T> concept B = requires(T t) { t.b(); };
+        template <typename T> requires A<T> && B<T> void both(T) { }
+        template <typename T> requires (A<T> || B<T>) void either(T) { }
+        template <typename... Ts> bool fold(Ts... ts) { return (ts && ...) || (... or ts) || (ts == ...); }
+        struct S { bool operator<(const S&) const; bool operator and(const S&) const; void q() &&; };
+        bool f(int&& x, int y, bool a, bool b, std::vector<int> v) {
+            bool c = x < y || x > y || x <= y || x >= y || x == y || x != y || x not_eq y;
+            auto d = x <=> y;
+            if (a && b and x > 1 || c or d < 0) { return true; }
+            return a;
+        }
+    ";
+
+    let cpp = metric_sums(LANG::Cpp, source, "cpp");
+    let mozcpp = metric_sums(LANG::Mozcpp, source, "cpp");
+    assert_eq!(
+        cpp, mozcpp,
+        "Cpp and Mozcpp must agree on the row consumers"
+    );
+    let get = |key: &str| metric(&cpp, key);
+    // cyclomatic: a base of 1 per space — the unit, `both`, `either`,
+    // `fold`, `S` and `f` (the bodiless overload declarations open
+    // none) — plus the decisions: `fold` the `&&` fold, the `or` fold
+    // and its two `||` = 4; `f` the six `||` of `c`, the `if`, its
+    // `&&`, `and`, `||`, `or` = 11; the requires clauses, the overload
+    // names and the `int&&` 0. 6 + 15.
+    assert_eq!(get("cyclomatic"), 6 + 15, "cyclomatic: {cpp:?}");
+    // abc.conditions: `fold` — `(ts && ...)` one written operand + the
+    // unwritten side = 2, `(... or ts)` likewise 2, `(ts == ...)` the
+    // `==` = 1, and the two `||` each pay their chain operands, which
+    // are folds already paid = 0: 5. `f` — seven comparison tokens in
+    // `c` = 7 (their `||` operands are all comparisons, paid), `<=>` = 1,
+    // the `if`: `x > 1` and `d < 0` = 2, operands `a`, `b`, `c` = 3: 13.
+    // The requires clauses, the overloads and the `int&&` pay 0.
+    assert_eq!(get("abc.conditions"), 5 + 13, "abc.conditions: {cpp:?}");
+    // cognitive: `fold` one `||` sequence (+1) — the inner folds are
+    // sequences of their own operator but each is one token, +1 for the
+    // `&&` fold, +1 for the `or` fold; `f` the `if` (+1), one `&&`/`and`
+    // sequence (+1), one `||`/`or` sequence (+1), the `||` sequence of
+    // `c` (+1).
+    assert_eq!(get("cognitive"), 3 + 4, "cognitive: {cpp:?}");
+}

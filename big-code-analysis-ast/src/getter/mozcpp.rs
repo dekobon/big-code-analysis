@@ -86,6 +86,8 @@ impl Getter for MozcppCode {
 
     keyword_roles!(mozcpp);
 
+    paying_roles!(mozcpp);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Mozcpp::*;
 
@@ -110,16 +112,23 @@ impl Getter for MozcppCode {
             {
                 TokenRole::Unknown
             }
-            DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
+            // The comparison and short-circuit tokens sit in this arm for
+            // the spellings that apply no operator, the rows paying the
+            // applied ones — the derivation is on the Cpp twin (#1694).
+            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
+            // spellings the rows' `applied` gate leaves out
+            LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
+            | And | Or
+            | DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
-            | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
+            | Delete | New | Try | Try2 | Catch | Throw | EQ | DASH
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
-            | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
+            | LTLT | TILDE | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
-            // The ISO alternative tokens (`not`, `and`, `not_eq`, …) —
+            // The ISO alternative tokens (`not`, `compl`, `bitand`, …) —
             // the derivation is on the Cpp twin (#1522).
-            | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
+            | Not | Compl | Bitand | Bitor | Xor | AndEq | OrEq | XorEq
             // An overloaded operator's name, the `operator` keyword and
             // `co_await` — the derivation is on the Cpp twin (#1296).
             | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator

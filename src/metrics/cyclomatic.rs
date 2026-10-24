@@ -302,27 +302,32 @@ where
 /// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
 /// correct keyword-driven counts.
 ///
-/// `applied_if = <fn(&Node, Ancestors) -> bool>` gates the short-circuit
-/// arm on the token's ancestry, for a grammar that spells the operator
-/// token in productions where it applies nothing (C++'s `int&& x`).
-///
 /// `constraints = [<kinds>]` names the nodes whose whole subtree scores
 /// no decision, tracked by [`ConstraintReach`] so the test is `O(1)` per
 /// node: C++'s compile-time `requires` clause and expression.
+///
+/// Two spellings of the short-circuit arm. `[<kinds>]` names the token
+/// kinds, for a language whose `ShortCircuit` row is still `pending`
+/// (the JS family, until #1695). `short_circuit = <row module>` reads
+/// the language's row at its leaf projection instead (#1694): the
+/// row's payer gate is where C++'s "applies its operator" test lives
+/// (`int&& x` and `operator&&` spell the token and apply nothing), so
+/// the macro carries no gate of its own. Two macros rather than two
+/// arms of one, because the bypass gate attributes a macro body's
+/// kinds to every language that invokes the macro.
 macro_rules! impl_cyclomatic_c_family {
     (
         $code:ty,
         $lang:ident,
         $ternary:ident,
         [$($short_circuit:ident),+ $(,)?]
-        $(, applied_if = $applied:path)?
         $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
     ) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
                 node: &Node<'a>,
                 _code: &'a [u8],
-                ancestors: Ancestors<'a, '_>,
+                _ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
                 use $lang::*;
@@ -335,34 +340,61 @@ macro_rules! impl_cyclomatic_c_family {
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | $ternary => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    $($short_circuit)|+ => {
-                        $(
-                            if !$applied(node, ancestors) {
-                                return;
-                            }
-                        )?
+                    If | For | While | Catch | $ternary | $($short_circuit)|+ => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
                     _ => {}
                 }
-                // Read only by a gated expansion.
-                let _ = ancestors;
             }
         }
     };
 }
 
-// The C++ applied-operator gate lives in the AST crate since #1694, so
-// the `Comparison` and `ShortCircuit` rows of `roles/cpp.rs` and
-// `roles/mozcpp.rs` can gate on it; the consumers here read it directly
-// until those rows are declared. Its derivation (#1448, #1525, #1533)
-// is on the function.
-pub(crate) use crate::roles::c_family::cpp_family_operator_is_applied as cpp_operator_is_applied;
+/// [`impl_cyclomatic_c_family!`] reading the `ShortCircuit` row named
+/// by `short_circuit = <row module>` in place of a kind list.
+macro_rules! impl_cyclomatic_c_family_rows {
+    (
+        $code:ty,
+        $lang:ident,
+        $ternary:ident,
+        short_circuit = $row:path
+        $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
+    ) => {
+        impl Cyclomatic for $code {
+            fn compute<'a>(
+                node: &Node<'a>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
+                use $lang::*;
+                use $row as short_circuit;
+                let kind = node.kind_id();
+                $(
+                    let opens = matches!(kind.into(), $($constraint)|+);
+                    if stats.constraint.covers(node, opens) {
+                        return;
+                    }
+                )?
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    stats.cyclomatic_modified += 1.;
+                    return;
+                }
+                match kind.into() {
+                    Case => stats.cyclomatic += 1.,
+                    SwitchStatement => stats.cyclomatic_modified += 1.,
+                    If | For | While | Catch | $ternary => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+}
 
 // JS-family: include nullish coalescing (`??`) and the three compound
 // short-circuit assignments `&&=`, `||=`, `??=` as short-circuit

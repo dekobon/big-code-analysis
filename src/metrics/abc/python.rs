@@ -181,12 +181,14 @@ impl Abc for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the Python grammar can hand us, not
         // branching a reader must hold. The `NotOperator` guard (#1526)
         // took it into the headroom band; each arm is independent and
-        // there is no semantic boundary to split this lookup on.
+        // there is no semantic boundary to split this lookup on. The
+        // effort is the table's vocabulary — one row read per
+        // construct (#1694) — not arithmetic a reader works through.
         use Python::*;
 
         let kind = node.kind_id();

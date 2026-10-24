@@ -7658,6 +7658,56 @@ end",
         }
     }
 
+    /// #1694: every payer of the C++ `Comparison` and `ShortCircuit`
+    /// rows bills as an operator in both dialects, one applied spelling
+    /// apiece, and the spellings the rows' `applied` gate leaves out —
+    /// an overload name, a reference declarator, a requires-clause
+    /// conjunction, a template delimiter's `<` — still bill through the
+    /// byte-less arm as they did before the rows existed. The row and
+    /// the arm bill the same kinds, so the vocabulary cannot tell which
+    /// paid; the counting consumers' tests are where the gate shows.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_comparison_and_short_circuit_spellings_bill_1694() {
+        const APPLIED: &[(&str, &str)] = &[
+            ("<", "bool f(int a) { return a < 1; }\n"),
+            (">", "bool f(int a) { return a > 1; }\n"),
+            ("<=", "bool f(int a) { return a <= 1; }\n"),
+            (">=", "bool f(int a) { return a >= 1; }\n"),
+            ("==", "bool f(int a) { return a == 1; }\n"),
+            ("!=", "bool f(int a) { return a != 1; }\n"),
+            ("not_eq", "bool f(int a) { return a not_eq 1; }\n"),
+            ("<=>", "auto f(int a) { return a <=> 1; }\n"),
+            ("&&", "bool f(bool a) { return a && a; }\n"),
+            ("||", "bool f(bool a) { return a || a; }\n"),
+            ("and", "bool f(bool a) { return a and a; }\n"),
+            ("or", "bool f(bool a) { return a or a; }\n"),
+            (
+                "==",
+                "template <typename... T> bool f(T... t) { return (t == ...); }\n",
+            ),
+            (
+                "&&",
+                "template <typename... T> bool f(T... t) { return (t && ...); }\n",
+            ),
+        ];
+        const NOT_APPLIED: &[(&str, &str)] = &[
+            ("<", "struct S { bool operator<(const S&) const; };\n"),
+            ("&&", "struct S { bool operator&&(const S&) const; };\n"),
+            ("and", "struct S { bool operator and(const S&) const; };\n"),
+            ("&&", "void f(int&& x);\n"),
+            ("&&", "struct S { void f() &&; };\n"),
+            (
+                "&&",
+                "template <typename T> requires A<T> && B<T> void f(T);\n",
+            ),
+        ];
+        for rows in [APPLIED, NOT_APPLIED] {
+            assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
+            assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
+        }
+    }
+
     /// #1552: ObjC bills C's `struct` and its own class and protocol
     /// declaration keywords. `@class` already billed its `@` and stays
     /// as it was.
