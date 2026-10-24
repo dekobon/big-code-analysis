@@ -17,6 +17,11 @@
 //! has the shape); the row and the `opens_space` fold both walk that
 //! one arm. `utils/role_tables.py` reads the same arm, and the
 //! differential test in `mod.rs` holds the compiled rows to it.
+//!
+//! The `cpp_family_*` items below are shared by the two C++ dialects
+//! only — Cpp and the vendored Mozcpp, whose grammars are one shape
+//! with different ids (#1694). C and Objective-C spell no fold, no
+//! `<=>` and no alternative tokens, and declare their own rows.
 
 /// Storage classes, function specifiers and type qualifiers every
 /// dialect bills (#1578). Each is the keyword leaf of an unclassified
@@ -76,6 +81,41 @@ macro_rules! c_family_primitives {
             PrimitiveType, TypeSpecifier, Signed, Unsigned, Long, Short,
         ] $($rest)*);
     };
+}
+
+/// Whether a C++ binary operator token applies its operator under its
+/// parent, as opposed to spelling the same token in a declaration: an
+/// overload name (`operator&&`, `operator<`), a reference declarator or
+/// ref-qualifier (`int&& x`, `void f() &&`), a requires-clause
+/// constraint (`requires A<T> && B<T>`), or a template delimiter.
+///
+/// It answers from the parent alone, so it stays O(1) per token. A
+/// parenthesised constraint (`requires (A<T> && B<T>)`) parses as an
+/// ordinary `binary_expression` and passes; the counting consumers
+/// leave it out through the root crate's `ConstraintReach`, because
+/// climbing to the enclosing `requires_clause` from every token made a
+/// long `&&` chain quadratic (#1525, #1533).
+///
+/// An allowlist, so a grammar bump adding a production fails closed and
+/// a token reparented under `{ERROR}` stops counting. Compared by kind
+/// *name* so one body serves both tree-sitter-cpp and the vendored
+/// Mozcpp fork, whose ids differ. A fold counts once, through its
+/// `operator` field, because a binary fold `(0 && ... && a)` spells its
+/// operator twice.
+#[must_use]
+pub fn cpp_family_operator_is_applied<'a>(
+    node: &crate::Node<'a>,
+    ancestors: crate::Ancestors<'a, '_>,
+) -> bool {
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| match parent.kind() {
+            "binary_expression" => true,
+            "fold_expression" => parent
+                .child_by_field_name("operator")
+                .is_some_and(|op| op.id() == node.id()),
+            _ => false,
+        })
 }
 
 pub(crate) use {c_family_decl_keywords, c_family_modifiers, c_family_primitives};

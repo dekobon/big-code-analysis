@@ -542,7 +542,7 @@ def _parse_row_body(
         pays = expect_list("pays")
         if pays is not None:
             row.pays_mode = "split"
-            for e in _split_list(pays[0]):
+            for e in _expand_fragments(_split_list(pays[0]), frags, line, path):
                 pm = PAYER_RE.fullmatch(e.strip())
                 if not pm:
                     raise RoleTableError(f"{path}:{line}: `{role}`: unreadable payer `{e.strip()}`")

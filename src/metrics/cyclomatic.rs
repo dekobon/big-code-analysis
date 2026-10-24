@@ -357,37 +357,11 @@ macro_rules! impl_cyclomatic_c_family {
     };
 }
 
-/// Whether a C++ binary operator token applies its operator under
-/// `parent`, as opposed to spelling the same token in a declaration:
-/// an overload name (`operator&&`, `operator<`), a reference declarator
-/// or ref-qualifier (`int&& x`, `void f() &&`), a requires-clause
-/// constraint (`requires A<T> && B<T>`), or a template delimiter.
-///
-/// It answers from the parent alone, so it stays O(1) per token. A
-/// parenthesised constraint (`requires (A<T> && B<T>)`) parses as an
-/// ordinary `binary_expression` and passes; the callers leave it out
-/// through [`ConstraintReach`], because climbing to the enclosing
-/// `requires_clause` from every token made a long `&&` chain quadratic.
-///
-/// An allowlist, so a grammar bump adding a production fails closed and
-/// a token reparented under `{ERROR}` stops counting. Compared by kind
-/// *name* so one body serves both tree-sitter-cpp and the vendored
-/// Mozcpp fork, whose ids differ; every `binary_expression` (an `#if`
-/// operand included) carries the aliased id `BinaryExpression2` at the
-/// pinned grammars, and the name also covers the never-emitted
-/// pre-alias id. A fold counts once, through its `operator` field,
-/// because a binary fold `(0 && ... && a)` spells its operator twice.
-pub(crate) fn cpp_operator_is_applied<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors
-        .parent(node)
-        .is_some_and(|parent| match parent.kind() {
-            "binary_expression" => true,
-            "fold_expression" => parent
-                .child_by_field_name("operator")
-                .is_some_and(|op| op.id() == node.id()),
-            _ => false,
-        })
-}
+// The C++ applied-operator gate moved to the AST crate in #1694, where
+// the `Comparison` and `ShortCircuit` rows of `roles/cpp.rs` and
+// `roles/mozcpp.rs` read it; the consumers here read the rows. Its
+// derivation (#1448, #1525, #1533) is on the function.
+pub(crate) use crate::roles::c_family::cpp_family_operator_is_applied as cpp_operator_is_applied;
 
 // JS-family: include nullish coalescing (`??`) and the three compound
 // short-circuit assignments `&&=`, `||=`, `??=` as short-circuit
@@ -457,6 +431,51 @@ macro_rules! impl_cyclomatic_js_family {
 // counted as branches via the GroovyCode extra-token list below (see
 // the per-call rationale at that invocation). This differs from
 // amaanq's grammar, which emitted ERROR nodes for those constructs.
+//
+// Two macros for one body. `impl_cyclomatic_java_like_rows!` reads the
+// language's `ShortCircuit` row at its leaf projection — the `&&` /
+// `||` token — instead of naming the two kinds (#1694);
+// `impl_cyclomatic_java_like!` keeps the kind list for a language whose
+// row is still `pending` (Groovy, until #1695). Two names rather than
+// two arms of one macro because the bypass gate attributes a macro
+// body's kinds to every language that invokes the macro, so Java would
+// read as restating `AMPAMP` through Groovy's arm.
+macro_rules! impl_cyclomatic_java_like_rows {
+    ($code:ty, $lang:ident, [$($extra:ident),* $(,)?], short_circuit = $row:path) => {
+        impl Cyclomatic for $code {
+            fn compute<'a>(
+                node: &Node<'a>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
+                use $lang::*;
+                use $row as short_circuit;
+
+                let kind = node.kind_id();
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                    stats.cyclomatic += 1.;
+                    stats.cyclomatic_modified += 1.;
+                    return;
+                }
+                match kind.into() {
+                    Case => {
+                        stats.cyclomatic += 1.;
+                    }
+                    Switch => {
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    If | For | While | Catch | TernaryExpression $(| $extra)* => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
 macro_rules! impl_cyclomatic_java_like {
     ($code:ty, $lang:ident, [$($extra:ident),* $(,)?]) => {
         impl Cyclomatic for $code {

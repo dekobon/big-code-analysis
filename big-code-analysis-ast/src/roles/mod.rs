@@ -149,6 +149,17 @@
 //! wrappers in `checker.rs`, and a text-gated row cannot be answered
 //! without the bytes (contract 4 of #1690).
 //!
+//! Everything a table emits is `pub`: the root crate's metric
+//! dispatchers are consumers too (`abc`, `cyclomatic`, `cognitive` read
+//! the `Comparison` and `ShortCircuit` rows since #1694), and they reach
+//! a row as `big_code_analysis_ast::roles::<lang>::<role>`. The AST
+//! crate is outside `STABILITY.md`, so this widens no published
+//! contract.
+//!
+//! An `owns` or `pays` list may splice a shared kind fragment with
+//! `..name!()` (`roles/c_family.rs`, `roles/js_family.rs`); the
+//! fragment note on the macro below has the shape.
+//!
 //! What a row must not say is which consumer reads which projection, or
 //! why: that is policy, and it lives with the consumer in
 //! `big-code-analysis`. A row's comment describes the grammar — what
@@ -215,33 +226,33 @@
 // narrow this allow as they land.
 #![allow(dead_code)]
 
-pub(crate) mod bash;
-pub(crate) mod c;
-pub(crate) mod c_family;
-pub(crate) mod ccomment;
-pub(crate) mod cpp;
-pub(crate) mod csharp;
-pub(crate) mod elixir;
-pub(crate) mod go;
-pub(crate) mod groovy;
-pub(crate) mod irules;
-pub(crate) mod java;
-pub(crate) mod javascript;
-pub(crate) mod js_family;
-pub(crate) mod kotlin;
-pub(crate) mod lua;
-pub(crate) mod mozcpp;
-pub(crate) mod mozjs;
-pub(crate) mod objc;
-pub(crate) mod perl;
-pub(crate) mod php;
-pub(crate) mod preproc;
-pub(crate) mod python;
-pub(crate) mod ruby;
-pub(crate) mod rust;
-pub(crate) mod tcl;
-pub(crate) mod tsx;
-pub(crate) mod typescript;
+pub mod bash;
+pub mod c;
+pub mod c_family;
+pub mod ccomment;
+pub mod cpp;
+pub mod csharp;
+pub mod elixir;
+pub mod go;
+pub mod groovy;
+pub mod irules;
+pub mod java;
+pub mod javascript;
+pub mod js_family;
+pub mod kotlin;
+pub mod lua;
+pub mod mozcpp;
+pub mod mozjs;
+pub mod objc;
+pub mod perl;
+pub mod php;
+pub mod preproc;
+pub mod python;
+pub mod ruby;
+pub mod rust;
+pub mod tcl;
+pub mod tsx;
+pub mod typescript;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -447,7 +458,7 @@ macro_rules! role_table {
         /// emits with `--dump`, one row per line in declaration order.
         /// Test-only: the differential test is its one reader.
         #[cfg(test)]
-        pub(crate) fn canonical() -> String {
+        pub fn canonical() -> String {
             let mut out = format!("lang {}\n", stringify!($lang));
             $( out.push_str(&$crate::role_table!(@canonical $role)); out.push('\n'); )*
             out
@@ -459,7 +470,7 @@ macro_rules! role_table {
         /// that needs both "does it open a space" and "which kind"
         /// calls this once and tests for `Unknown`, rather than paying
         /// each owner's gate twice through `owns` and here.
-        pub(crate) fn opens_space<'a>(
+        pub fn opens_space<'a>(
             node: &$crate::Node<'a>,
             code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
@@ -482,7 +493,7 @@ macro_rules! role_table {
     (@row $lang:ident $role:ident { absent $why:literal }) => {
         $crate::role_table!(@named $role {
             /// Why this language has no such construct.
-            pub(crate) const ABSENT: &str = $why;
+            pub const ABSENT: &str = $why;
             $crate::role_table!(@absent_predicate owns);
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);
@@ -490,7 +501,7 @@ macro_rules! role_table {
             $crate::role_table!(@absent_predicate_kind pays_at_leaf_kind);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
-            pub(crate) fn canonical() -> String {
+            pub fn canonical() -> String {
                 format!("{} absent {}", stringify!($role), ABSENT)
             }
         });
@@ -500,7 +511,7 @@ macro_rules! role_table {
     (@absent_predicate $name:ident) => {
         /// Nothing is an absent construct.
         #[inline]
-        pub(crate) fn $name<'a>(
+        pub fn $name<'a>(
             _node: &$crate::Node<'a>,
             _code: &[u8],
             _ancestors: $crate::Ancestors<'a, '_>,
@@ -511,7 +522,7 @@ macro_rules! role_table {
     (@absent_predicate_kind $name:ident) => {
         /// Nothing is an absent construct.
         #[inline]
-        pub(crate) fn $name<'a>(
+        pub fn $name<'a>(
             _kind: u16,
             _node: &$crate::Node<'a>,
             _code: &[u8],
@@ -523,10 +534,10 @@ macro_rules! role_table {
     (@row $lang:ident $role:ident { pending $package:ident }) => {
         $crate::role_table!(@named $role {
             /// The work package that fills this row in.
-            pub(crate) const PENDING: &str = stringify!($package);
+            pub const PENDING: &str = stringify!($package);
             /// This row in the canonical form `utils/role_tables.py` emits.
             #[cfg(test)]
-            pub(crate) fn canonical() -> String {
+            pub fn canonical() -> String {
                 format!("{} pending {}", stringify!($role), PENDING)
             }
         });
@@ -566,14 +577,18 @@ macro_rules! role_table {
     // }
     // ```
     //
-    // The same walk serves the row and the `opens_space` fold: the two
-    // continuations differ in shape (`[lang role mode { tail }]` against
-    // `[lang kind node code ancestors]`), so the walk's two terminal
-    // arms tell them apart and a fragment carries its list once.
-    // `utils/role_tables.py` reads that one arm, and the differential
-    // test holds the compiled row to it. A fragment contributes kinds
-    // only; a dialect-specific gate stays on the dialect's row, beside
-    // its reason.
+    // The same walk serves the row's `owns` list, its `pays` list and
+    // the `opens_space` fold: the three continuations differ in shape
+    // (`[lang role mode { tail }]`, `[pays lang role mode [owners]
+    // { tail }]` and `[lang kind node code ancestors]`), so the walk's
+    // terminal arms tell them apart and a fragment carries its list
+    // once, whichever list splices it. A payer entry is `K` or `K
+    // gated_by f`, so a fragment of payers spells its gate inline
+    // (`LT gated_by applied,`) and the gate resolves at the dialect's
+    // row, where the fragment is expanded. `utils/role_tables.py`
+    // reads that one arm, and the differential test holds the compiled
+    // row to it. A fragment contributes kinds only; a dialect-specific
+    // gate stays on the dialect's row, beside its reason.
 
     (@splice $lang:ident $role:ident $mode:tt [$($acc:tt)*] [ $($entries:tt)* ] $tail:tt) => {
         $crate::role_table!(@owners [$lang $role $mode $tail] [$($acc)*] $($entries)*);
@@ -581,11 +596,25 @@ macro_rules! role_table {
     (@owners $cont:tt [$($acc:tt)*] ..$frag:ident!() $(, $($rest:tt)*)?) => {
         $frag!(@splice $cont [$($acc)*] $($($rest)*)?);
     };
+    (@owners $cont:tt [$($acc:tt)*] $k:ident gated_by $g:ident $(, $($rest:tt)*)?) => {
+        $crate::role_table!(@owners $cont [$($acc)* $k gated_by $g,] $($($rest)*)?);
+    };
     (@owners $cont:tt [$($acc:tt)*] $k:ident $(( $($attr:tt)* ))? $(, $($rest:tt)*)?) => {
         $crate::role_table!(@owners $cont [$($acc)* $k $(( $($attr)* ))?,] $($($rest)*)?);
     };
-    (@owners [$lang:ident $role:ident $mode:tt { $($tail:tt)* }] [$($acc:tt)*]) => {
-        $crate::role_table!(@row_body $lang $role $mode { owns [ $($acc)* ] $($tail)* });
+    // The `owns` list is complete: walk the `pays` list the same way,
+    // carrying the owners along.
+    (@owners [$lang:ident $role:ident $mode:tt { pays [ $($payers:tt)* ] $($tail:tt)* }]
+        [$($acc:tt)*]) => {
+        $crate::role_table!(
+            @owners [pays $lang $role $mode [$($acc)*] { $($tail)* }] [] $($payers)*
+        );
+    };
+    (@owners [pays $lang:ident $role:ident $mode:tt [$($owners:tt)*] { $($tail:tt)* }]
+        [$($acc:tt)*]) => {
+        $crate::role_table!(
+            @row_body $lang $role $mode { owns [ $($owners)* ] pays [ $($acc)* ] $($tail)* }
+        );
     };
     (@owners [$l:ident $k:ident $n:ident $c:ident $a:ident]
         [ $($owner:ident $(( $($owner_attr:tt)* ))?,)* ]) => {
@@ -606,16 +635,16 @@ macro_rules! role_table {
             use super::*;
 
             /// Every kind this row declares as owning the construct.
-            pub(crate) const OWNERS: &[u16] = &[ $( $lang::$owner as u16, )* ];
+            pub const OWNERS: &[u16] = &[ $( $lang::$owner as u16, )* ];
             /// Every kind this row declares as paying for it.
-            pub(crate) const PAYERS: &[u16] = &[ $( $lang::$payer as u16, )* ];
+            pub const PAYERS: &[u16] = &[ $( $lang::$payer as u16, )* ];
             /// Kinds the row's author considered and rejected, with why.
-            pub(crate) const EXCLUDED: &[(u16, &str)] =
+            pub const EXCLUDED: &[(u16, &str)] =
                 &[ $($( ($lang::$excluded as u16, $excluded_why), )*)? ];
             /// Interpolation child kinds a `StringLit` owner can hold.
-            pub(crate) const WRAPS: &[u16] = &[ $($( $lang::$wrapped as u16, )*)? ];
+            pub const WRAPS: &[u16] = &[ $($( $lang::$wrapped as u16, )*)? ];
             /// Whether the construct has owners but no paying node at all.
-            pub(crate) const PAYS_NEVER: bool = $crate::role_table!(@mode $mode never);
+            pub const PAYS_NEVER: bool = $crate::role_table!(@mode $mode never);
             // Whether the owners themselves are paying nodes: yes on a
             // plain row, no once a `pays` list splits the token off, no
             // under `pays never`.
@@ -627,7 +656,7 @@ macro_rules! role_table {
             /// the DSL; the differential test in `roles/mod.rs` holds it to
             /// this.
             #[cfg(test)]
-            pub(crate) fn canonical() -> String {
+            pub fn canonical() -> String {
                 let ids = |kinds: &[u16]| {
                     kinds.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
                 };
@@ -669,7 +698,7 @@ macro_rules! role_table {
 
             /// Whether `node` owns the construct.
             #[inline]
-            pub(crate) fn owns<'a>(
+            pub fn owns<'a>(
                 node: &Node<'a>,
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
@@ -681,7 +710,7 @@ macro_rules! role_table {
             /// that asks several rows about one node: `kind_id()` is an
             /// FFI call per read.
             #[inline]
-            pub(crate) fn owns_kind<'a>(
+            pub fn owns_kind<'a>(
                 kind: u16,
                 node: &Node<'a>,
                 code: &[u8],
@@ -700,7 +729,7 @@ macro_rules! role_table {
             /// `pays` list the owners are the paying nodes; with `pays
             /// never`, nothing is.
             #[inline]
-            pub(crate) fn pays_at_leaf<'a>(
+            pub fn pays_at_leaf<'a>(
                 node: &Node<'a>,
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
@@ -710,7 +739,7 @@ macro_rules! role_table {
 
             /// [`pays_at_leaf`] with `node`'s kind id already read.
             #[inline]
-            pub(crate) fn pays_at_leaf_kind<'a>(
+            pub fn pays_at_leaf_kind<'a>(
                 kind: u16,
                 node: &Node<'a>,
                 code: &[u8],
@@ -729,7 +758,7 @@ macro_rules! role_table {
             /// Whether `node` is the owning node, for a consumer that
             /// pays at the wrapper rather than at its token. Equal to
             /// `owns` unless the row says `pays never`.
-            pub(crate) fn pays_at_wrapper<'a>(
+            pub fn pays_at_wrapper<'a>(
                 node: &Node<'a>,
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
@@ -739,7 +768,7 @@ macro_rules! role_table {
 
             $(
                 /// The child of an owner that pays for it.
-                pub(crate) fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
+                pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
                     owner.child_by_field_name($field)
                 }
             )?
@@ -881,35 +910,122 @@ macro_rules! role_table {
     (@canonical DocRunDirective) => { doc_run_directive::canonical() };
     (@canonical HoldsDocInBody) => { holds_doc_in_body::canonical() };
 
-    (@named Call { $($b:tt)* }) => { pub(crate) mod call { $($b)* } };
-    (@named StringLit { $($b:tt)* }) => { pub(crate) mod string_lit { $($b)* } };
-    (@named Comparison { $($b:tt)* }) => { pub(crate) mod comparison { $($b)* } };
-    (@named ShortCircuit { $($b:tt)* }) => { pub(crate) mod short_circuit { $($b)* } };
-    (@named EagerLogical { $($b:tt)* }) => { pub(crate) mod eager_logical { $($b)* } };
-    (@named Ternary { $($b:tt)* }) => { pub(crate) mod ternary { $($b)* } };
-    (@named NullSafe { $($b:tt)* }) => { pub(crate) mod null_safe { $($b)* } };
-    (@named CaseArm { $($b:tt)* }) => { pub(crate) mod case_arm { $($b)* } };
-    (@named Guard { $($b:tt)* }) => { pub(crate) mod guard { $($b)* } };
-    (@named Branch { $($b:tt)* }) => { pub(crate) mod branch { $($b)* } };
-    (@named Switch { $($b:tt)* }) => { pub(crate) mod switch { $($b)* } };
-    (@named Loop { $($b:tt)* }) => { pub(crate) mod r#loop { $($b)* } };
-    (@named Catch { $($b:tt)* }) => { pub(crate) mod catch { $($b)* } };
-    (@named ElseIf { $($b:tt)* }) => { pub(crate) mod else_if { $($b)* } };
-    (@named Exit { $($b:tt)* }) => { pub(crate) mod exit { $($b)* } };
-    (@named Modifier { $($b:tt)* }) => { pub(crate) mod modifier { $($b)* } };
-    (@named DeclKeyword { $($b:tt)* }) => { pub(crate) mod decl_keyword { $($b)* } };
-    (@named Primitive { $($b:tt)* }) => { pub(crate) mod primitive { $($b)* } };
-    (@named FuncOpener { $($b:tt)* }) => { pub(crate) mod func_opener { $($b)* } };
-    (@named Closure { $($b:tt)* }) => { pub(crate) mod closure { $($b)* } };
-    (@named Container { $($b:tt)* }) => { pub(crate) mod container { $($b)* } };
-    (@named Member { $($b:tt)* }) => { pub(crate) mod member { $($b)* } };
-    (@named Comment { $($b:tt)* }) => { pub(crate) mod comment { $($b)* } };
-    (@named DocComment { $($b:tt)* }) => { pub(crate) mod doc_comment { $($b)* } };
-    (@named Docstring { $($b:tt)* }) => { pub(crate) mod docstring { $($b)* } };
-    (@named DocTarget { $($b:tt)* }) => { pub(crate) mod doc_target { $($b)* } };
-    (@named DocRunOpener { $($b:tt)* }) => { pub(crate) mod doc_run_opener { $($b)* } };
-    (@named DocRunDirective { $($b:tt)* }) => { pub(crate) mod doc_run_directive { $($b)* } };
-    (@named HoldsDocInBody { $($b:tt)* }) => { pub(crate) mod holds_doc_in_body { $($b)* } };
+    (@named Call { $($b:tt)* }) => {
+        /// This language's `Call` row.
+        pub mod call { $($b)* }
+    };
+    (@named StringLit { $($b:tt)* }) => {
+        /// This language's `StringLit` row.
+        pub mod string_lit { $($b)* }
+    };
+    (@named Comparison { $($b:tt)* }) => {
+        /// This language's `Comparison` row.
+        pub mod comparison { $($b)* }
+    };
+    (@named ShortCircuit { $($b:tt)* }) => {
+        /// This language's `ShortCircuit` row.
+        pub mod short_circuit { $($b)* }
+    };
+    (@named EagerLogical { $($b:tt)* }) => {
+        /// This language's `EagerLogical` row.
+        pub mod eager_logical { $($b)* }
+    };
+    (@named Ternary { $($b:tt)* }) => {
+        /// This language's `Ternary` row.
+        pub mod ternary { $($b)* }
+    };
+    (@named NullSafe { $($b:tt)* }) => {
+        /// This language's `NullSafe` row.
+        pub mod null_safe { $($b)* }
+    };
+    (@named CaseArm { $($b:tt)* }) => {
+        /// This language's `CaseArm` row.
+        pub mod case_arm { $($b)* }
+    };
+    (@named Guard { $($b:tt)* }) => {
+        /// This language's `Guard` row.
+        pub mod guard { $($b)* }
+    };
+    (@named Branch { $($b:tt)* }) => {
+        /// This language's `Branch` row.
+        pub mod branch { $($b)* }
+    };
+    (@named Switch { $($b:tt)* }) => {
+        /// This language's `Switch` row.
+        pub mod switch { $($b)* }
+    };
+    (@named Loop { $($b:tt)* }) => {
+        /// This language's `Loop` row.
+        pub mod r#loop { $($b)* }
+    };
+    (@named Catch { $($b:tt)* }) => {
+        /// This language's `Catch` row.
+        pub mod catch { $($b)* }
+    };
+    (@named ElseIf { $($b:tt)* }) => {
+        /// This language's `ElseIf` row.
+        pub mod else_if { $($b)* }
+    };
+    (@named Exit { $($b:tt)* }) => {
+        /// This language's `Exit` row.
+        pub mod exit { $($b)* }
+    };
+    (@named Modifier { $($b:tt)* }) => {
+        /// This language's `Modifier` row.
+        pub mod modifier { $($b)* }
+    };
+    (@named DeclKeyword { $($b:tt)* }) => {
+        /// This language's `DeclKeyword` row.
+        pub mod decl_keyword { $($b)* }
+    };
+    (@named Primitive { $($b:tt)* }) => {
+        /// This language's `Primitive` row.
+        pub mod primitive { $($b)* }
+    };
+    (@named FuncOpener { $($b:tt)* }) => {
+        /// This language's `FuncOpener` row.
+        pub mod func_opener { $($b)* }
+    };
+    (@named Closure { $($b:tt)* }) => {
+        /// This language's `Closure` row.
+        pub mod closure { $($b)* }
+    };
+    (@named Container { $($b:tt)* }) => {
+        /// This language's `Container` row.
+        pub mod container { $($b)* }
+    };
+    (@named Member { $($b:tt)* }) => {
+        /// This language's `Member` row.
+        pub mod member { $($b)* }
+    };
+    (@named Comment { $($b:tt)* }) => {
+        /// This language's `Comment` row.
+        pub mod comment { $($b)* }
+    };
+    (@named DocComment { $($b:tt)* }) => {
+        /// This language's `DocComment` row.
+        pub mod doc_comment { $($b)* }
+    };
+    (@named Docstring { $($b:tt)* }) => {
+        /// This language's `Docstring` row.
+        pub mod docstring { $($b)* }
+    };
+    (@named DocTarget { $($b:tt)* }) => {
+        /// This language's `DocTarget` row.
+        pub mod doc_target { $($b)* }
+    };
+    (@named DocRunOpener { $($b:tt)* }) => {
+        /// This language's `DocRunOpener` row.
+        pub mod doc_run_opener { $($b)* }
+    };
+    (@named DocRunDirective { $($b:tt)* }) => {
+        /// This language's `DocRunDirective` row.
+        pub mod doc_run_directive { $($b)* }
+    };
+    (@named HoldsDocInBody { $($b:tt)* }) => {
+        /// This language's `HoldsDocInBody` row.
+        pub mod holds_doc_in_body { $($b)* }
+    };
 }
 
 #[cfg(test)]
@@ -1015,6 +1131,7 @@ mod tests {
     // the dialect's own entries, in both the row and the `opens_space`
     // fold; the dialect's attributes stay on its own entries.
     mod spliced {
+        use super::never;
         use crate::Java;
 
         macro_rules! jvm_openers {
@@ -1026,10 +1143,22 @@ mod tests {
             };
         }
 
+        // A payer fragment spells its gate inline, so a shared list of
+        // gated tokens resolves the gate at the splicing row.
+        macro_rules! equality_tokens {
+            (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+                $crate::role_table!(
+                    @owners $cont [$($acc)* EQEQ, BANGEQ gated_by never,]
+                    $($rest)*
+                );
+            };
+        }
+
         role_table! {
             lang: Java;
             FuncOpener { owns [..jvm_openers!(), StaticInitializer(opens Function)] }
             Exit { owns [..jvm_openers!()] pays [ReturnStatement] }
+            Comparison { owns [BinaryExpression] pays [..equality_tokens!(), LT gated_by never] }
         }
     }
 
@@ -1075,6 +1204,28 @@ mod tests {
             ]
         );
         assert_eq!(spliced::exit::PAYERS, &[Java::ReturnStatement as u16]);
+        assert_eq!(
+            spliced::comparison::PAYERS,
+            &[Java::EQEQ as u16, Java::BANGEQ as u16, Java::LT as u16]
+        );
+    }
+
+    // A payer fragment's inline gate is read: `BANGEQ gated_by never`
+    // pays nowhere while the ungated `EQEQ` beside it pays, and the
+    // row's own gated entry after the fragment is read the same way.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_payer_fragment_keeps_its_inline_gates() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        let source = b"class A { boolean f(int a, int b) { return a == b || a != b || a < b; } }\n";
+        let mut paid = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            if spliced::comparison::pays_at_leaf(node, source, Ancestors::known(chain)) {
+                paid.push(node.kind());
+            }
+        });
+        assert_eq!(paid, ["=="]);
     }
 
     #[cfg(feature = "java")]

@@ -100,13 +100,40 @@ macro_rules! keyword_roles {
     };
 }
 
-/// The keyword classification where it answers, otherwise the byte-less
+/// Emits a [`Getter::get_paying_role`] that bills the paying token of
+/// each listed row as an operator: the `Comparison` and `ShortCircuit`
+/// rows of the language's module under `crate::roles` (#1694). Each
+/// row is read at its leaf projection — the operator token, which is
+/// what Halstead counts — so an owning `binary_expression` bills
+/// nothing here and its `<` bills once.
+macro_rules! paying_roles {
+    ($roles:ident) => {
+        #[inline]
+        fn get_paying_role<'a>(
+            node: &Node<'a>,
+            code: &[u8],
+            ancestors: Ancestors<'a, '_>,
+        ) -> TokenRole {
+            use $crate::roles::$roles::{comparison, short_circuit};
+            let kind = node.kind_id();
+            if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+                || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            {
+                TokenRole::Operator
+            } else {
+                TokenRole::Unknown
+            }
+        }
+    };
+}
+
+/// The row classifications where they answer — the keyword rows first,
+/// then the paying-construct rows — otherwise the byte-less
 /// [`Getter::get_op_type`]: the one fallback every spelling of
 /// [`Getter::get_op_type_with_code`] ends in. An override of that
-/// method calls this, never `get_op_type` directly, so a keyword row is
-/// read on every path the walk takes. A free function rather than a
-/// provided method so no language can override the fallback and skip
-/// its rows.
+/// method calls this, never `get_op_type` directly, so a row is read on
+/// every path the walk takes. A free function rather than a provided
+/// method so no language can override the fallback and skip its rows.
 #[inline]
 #[must_use]
 pub(crate) fn keyword_or_op_type<'a, G: Getter + ?Sized>(
@@ -115,7 +142,10 @@ pub(crate) fn keyword_or_op_type<'a, G: Getter + ?Sized>(
     ancestors: Ancestors<'a, '_>,
 ) -> TokenRole {
     match G::get_keyword_role(node, code, ancestors) {
-        TokenRole::Unknown => G::get_op_type(node, ancestors),
+        TokenRole::Unknown => match G::get_paying_role(node, code, ancestors) {
+            TokenRole::Unknown => G::get_op_type(node, ancestors),
+            role => role,
+        },
         role => role,
     }
 }
@@ -372,9 +402,40 @@ pub trait Getter {
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole;
 
+    /// The Halstead role of a node some *paying-construct* row of
+    /// `crate::roles` declares — the operator token of a `Comparison`
+    /// or `ShortCircuit` — and [`TokenRole::Unknown`] for every other
+    /// node (#1694). Read after [`get_keyword_role`](Self::get_keyword_role)
+    /// and before the byte-less [`get_op_type`](Self::get_op_type) on
+    /// every path the walk takes.
+    ///
+    /// Defaulted to `Unknown`, unlike the keyword hook, because the
+    /// rows it reads are being declared one package at a time (#1694
+    /// declares three languages, #1695 the rest): a language whose rows
+    /// are still `pending` bills these tokens through `get_op_type`,
+    /// which is what it did before. Once every language's rows are
+    /// declared the default goes, as `get_keyword_role`'s did.
+    ///
+    /// A row gates its payers on *application* — Java's `<` under a
+    /// `binary_expression`, C++'s `&&` not in a reference declarator —
+    /// because the counting consumers need that gate. Halstead bills
+    /// the other spellings too (`List<T>`, `int&& x`, `operator<`), so
+    /// each language's `get_op_type` keeps those as the gated-out
+    /// complement, under a `role-bypass: allow` naming the row.
+    #[inline]
+    #[must_use]
+    fn get_paying_role<'a>(
+        _node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        TokenRole::Unknown
+    }
+
     /// Source-aware variant of [`get_op_type`], and the spelling the
     /// walk calls. The default forwards to the crate-private
-    /// `keyword_or_op_type`, which reads [`get_keyword_role`] and falls
+    /// `keyword_or_op_type`, which reads [`get_keyword_role`], then
+    /// [`get_paying_role`](Self::get_paying_role), and falls
     /// back to [`get_op_type`]; languages whose Halstead operand
     /// classification depends on token text override this and end in
     /// the same call. Kotlin uses
