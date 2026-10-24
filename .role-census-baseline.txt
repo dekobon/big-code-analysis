@@ -38,7 +38,6 @@ C Call R08
 C CaseArm R05
 C Catch R07
 C Comment R09
-C Comparison R05
 C Container R06
 C DocComment R09
 C DocRunDirective R09
@@ -50,7 +49,6 @@ C FuncOpener R06
 C HoldsDocInBody R09
 C Loop R07
 C Member R06
-C ShortCircuit R05
 C StringLit R08
 C Switch R07
 C Ternary R05
@@ -312,7 +310,6 @@ Objc CaseArm R05
 Objc Catch R07
 Objc Closure R06
 Objc Comment R09
-Objc Comparison R05
 Objc Container R06
 Objc DocComment R09
 Objc DocRunDirective R09
@@ -324,7 +321,6 @@ Objc FuncOpener R06
 Objc HoldsDocInBody R09
 Objc Loop R07
 Objc Member R06
-Objc ShortCircuit R05
 Objc StringLit R08
 Objc Switch R07
 Objc Ternary R05

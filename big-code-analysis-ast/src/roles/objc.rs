@@ -2,8 +2,14 @@
 //! every other role is pending the package that declares it (#1692).
 
 use crate::role_table;
-use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+use crate::roles::c_family::{
+    c_family_comparison_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_gates,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_owners,
+    c_family_short_circuit_payers,
+};
 use crate::{Ancestors, Node, Objc};
+
+c_family_gates!(Objc);
 
 /// Whether `node` is the attribute word of `@property (nonatomic, copy,
 /// getter=isOn)`. The grammar has no keyword for any attribute: each is
@@ -26,8 +32,25 @@ role_table! {
     lang: Objc;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The Objective-C binary operators are one `binary_expression`
+    // kind, emitted under two production paths (`BinaryExpression`,
+    // `BinaryExpression2`) and told apart by the `operator` field, so
+    // each row's owners are gated on that field holding one of its
+    // payers (`roles/c_family.rs` has the lists and their derivations).
+    // A bare `<` / `>` also opens a `generic_specifier`, a
+    // `protocol_reference_list` (`id<NSCopying>`), a
+    // `parameterized_arguments` and an `argument_list`, which is what
+    // the payers' `under_binary_expression` gate excludes.
+    Comparison {
+        owns [..c_family_comparison_owners!()]
+        pays [..c_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [..c_family_short_circuit_owners!()]
+        pays [..c_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "Objective-C's `&` / `|` / `^` are bitwise" }
     Ternary { pending R05 }
     NullSafe { absent "Objective-C has no optional navigation or null coalescing (nil-messaging is \

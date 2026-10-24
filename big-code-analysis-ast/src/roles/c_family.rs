@@ -153,6 +153,94 @@ macro_rules! cpp_family_short_circuit_owners {
     };
 }
 
+/// The six comparison tokens C and Objective-C apply (#1695). tree-sitter-c
+/// 0.24.2 and tree-sitter-objc emit `<=` `>=` `==` `!=` only from
+/// `binary_expression` and `preproc_binary_expression` (aliased onto
+/// it), both comparisons, so those four pay ungated; `<` / `>` are
+/// gated to a `binary_expression` parent because both grammars spell
+/// them elsewhere too: error recovery strands either, and Objective-C
+/// emits them bare in `generic_specifier`, `protocol_reference_list`,
+/// `parameterized_arguments` and `argument_list`.
+macro_rules! c_family_comparison_payers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            LTEQ, GTEQ, EQEQ, BANGEQ,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+        ] $($rest)*);
+    };
+}
+
+/// The short-circuit tokens C and Objective-C spell: `&&` and `||`,
+/// which neither grammar emits from any production but a
+/// `binary_expression`, so they pay ungated (#1695).
+macro_rules! c_family_short_circuit_payers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)* AMPAMP, PIPEPIPE,] $($rest)*);
+    };
+}
+
+/// The owners of a C or Objective-C binary operator: both aliased
+/// `binary_expression` ids (the grammars emit the node under two
+/// production paths), each gated by the dialect's `comparison_operator`
+/// — the `operator` field holding one of the `Comparison` payers.
+macro_rules! c_family_comparison_owners {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            BinaryExpression(gated_by comparison_operator),
+            BinaryExpression2(gated_by comparison_operator),
+        ] $($rest)*);
+    };
+}
+
+/// The same two owners under the dialect's `short_circuit_operator`.
+macro_rules! c_family_short_circuit_owners {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            BinaryExpression(gated_by short_circuit_operator),
+            BinaryExpression2(gated_by short_circuit_operator),
+        ] $($rest)*);
+    };
+}
+
+/// The three gates the C and Objective-C `Comparison` and
+/// `ShortCircuit` rows read, per dialect because each reads the
+/// dialect's kind ids (#1695).
+macro_rules! c_family_gates {
+    ($lang:ident) => {
+        /// Whether a bare `<` / `>` is the operator of a
+        /// `binary_expression` (either alias) rather than a token error
+        /// recovery stranded.
+        fn under_binary_expression<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            ancestors.parent(node).is_some_and(|p| {
+                p.kind_id() == $lang::BinaryExpression as u16
+                    || p.kind_id() == $lang::BinaryExpression2 as u16
+            })
+        }
+
+        /// Whether an owner's `operator` field is a comparison token.
+        fn comparison_operator<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::cpp_family_operator_in(node, comparison::PAYERS)
+        }
+
+        /// Whether an owner's `operator` field is `&&` or `||`.
+        fn short_circuit_operator<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::cpp_family_operator_in(node, short_circuit::PAYERS)
+        }
+    };
+}
+
 /// Whether a C++ binary operator token applies its operator under its
 /// parent, as opposed to spelling the same token in a declaration: an
 /// overload name (`operator&&`, `operator<`), a reference declarator or
@@ -241,7 +329,8 @@ macro_rules! cpp_family_gates {
 }
 
 pub(crate) use {
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_comparison_owners,
-    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_owners,
-    cpp_family_short_circuit_payers,
+    c_family_comparison_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_gates,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_owners,
+    c_family_short_circuit_payers, cpp_family_comparison_owners, cpp_family_comparison_payers,
+    cpp_family_gates, cpp_family_short_circuit_owners, cpp_family_short_circuit_payers,
 };

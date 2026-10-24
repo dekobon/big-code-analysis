@@ -82,32 +82,10 @@ fn sole_operand<'a>(list: &Node<'a>) -> Option<Node<'a>> {
 // by its `operator` field token as one application of it (see
 // `cpp_count_chain_operands`), so the slot holding it does not pay.
 //
-// Each dialect supplies its own: the `CppCode` and `MozcppCode` impls
-// read their `Comparison` and `ShortCircuit` rows (#1694), while C and
-// Objective-C keep the name-keyed `c_family_condition_scores_itself`
-// until their rows land (#1695). The helpers below take it as a
+// Each dialect supplies its own, reading its `Comparison` and
+// `ShortCircuit` rows (#1694, #1695); the helpers below take it as a
 // parameter so the slot rule has this one home for all four.
 pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
-
-// The comparison operators C and Objective-C count when applied, by
-// kind name (`not_eq` and `<=>` exist in the C++ grammars only, and
-// those two dialects read their rows instead).
-const C_FAMILY_COMPARISONS: &[&str] = &["<", ">", "<=", ">=", "==", "!=", "not_eq", "<=>"];
-
-// The name-keyed `ScoresItself` of C and Objective-C.
-pub(super) fn c_family_condition_scores_itself(expr: &Node) -> bool {
-    let operator_in = |accept: &[&str]| {
-        expr.child_by_field_name("operator")
-            .is_some_and(|op| accept.contains(&op.kind()))
-    };
-    match expr.kind() {
-        "conditional_expression" => true,
-        "binary_expression" | "fold_expression" => {
-            operator_in(C_FAMILY_COMPARISONS) || operator_in(&["&&", "||", "and", "or"])
-        }
-        _ => false,
-    }
-}
 
 // The row-keyed `ScoresItself` of C++: a `binary_expression` or fold
 // the `Comparison` or `ShortCircuit` row owns, or a ternary. The rows
@@ -405,7 +383,7 @@ impl Abc for CppCode {
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::{
-        c_family_condition_scores_itself, count_negated, cpp_count_chain_operands,
+        count_negated, cpp_condition_scores_itself, cpp_count_chain_operands,
         cpp_count_condition_slot,
     };
     use crate::traits::ParserTrait;
@@ -458,7 +436,8 @@ mod tests {
             let bin = first_of_kind(p.root(), "binary_expression")
                 .expect("`a && b` parses to a binary_expression");
             let mut conditions = 0.;
-            cpp_count_chain_operands(&bin, &c_family_condition_scores_itself, &mut conditions);
+            let scores = |e: &Node| cpp_condition_scores_itself(e, src.as_bytes());
+            cpp_count_chain_operands(&bin, &scores, &mut conditions);
             assert_eq!(conditions, 2., "{src}");
         }
     }
@@ -481,11 +460,8 @@ mod tests {
             let statement =
                 first_of_kind(p.root(), "if_statement").expect("the fixture holds an `if`");
             let mut conditions = 0.;
-            cpp_count_condition_slot(
-                &statement,
-                &c_family_condition_scores_itself,
-                &mut conditions,
-            );
+            let scores = |e: &Node| cpp_condition_scores_itself(e, src.as_bytes());
+            cpp_count_condition_slot(&statement, &scores, &mut conditions);
             assert_eq!(conditions, expected, "{src}");
         }
     }
@@ -510,7 +486,8 @@ mod tests {
             let p = parse(src);
             let operand = first_of_kind(p.root(), kind).expect("the fixture holds the operand");
             let mut conditions = 0.;
-            count_negated(&operand, &c_family_condition_scores_itself, &mut conditions);
+            let scores = |e: &Node| cpp_condition_scores_itself(e, src.as_bytes());
+            count_negated(&operand, &scores, &mut conditions);
             assert_eq!(conditions, expected, "{src}");
         }
     }

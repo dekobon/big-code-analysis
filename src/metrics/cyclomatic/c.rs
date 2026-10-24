@@ -16,15 +16,23 @@ use super::*;
 impl Cyclomatic for CCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::c::short_circuit;
         use C::*;
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             Case => stats.cyclomatic += 1.,
             SwitchStatement => stats.cyclomatic_modified += 1.,
-            If | For | While | ConditionalExpression | AMPAMP | PIPEPIPE => {
+            If | For | While | ConditionalExpression => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

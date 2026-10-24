@@ -10,11 +10,23 @@
 )]
 
 use super::cpp::{
-    c_family_condition_scores_itself, cpp_count_arguments, cpp_count_chain_operands,
-    cpp_count_condition_slot, cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
+    ScoresItself, cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot,
+    cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
+use crate::roles::objc::{comparison, short_circuit};
 use crate::*;
+
+// The row-keyed `ScoresItself` (see the Cpp twin): a
+// `binary_expression` the `Comparison` or `ShortCircuit` row owns, or a
+// ternary. Neither owner gate reads ancestors, so the peeled descendant
+// is asked with none.
+fn objc_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Objc::ConditionalExpression as u16
+}
 
 // Objective-C ABC. ObjC is C plus message sends and `@`-directives, so
 // the walker is the C/C++ shape (it reuses the grammar-agnostic C-family
@@ -33,7 +45,7 @@ use crate::*;
 impl Abc for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -44,7 +56,9 @@ impl Abc for ObjcCode {
         // the scorer every shared helper now takes (#1694).
         use Objc::*;
 
-        match node.kind_id().into() {
+        let scores: ScoresItself = &|expr| objc_condition_scores_itself(expr, code);
+        let kind = node.kind_id();
+        match kind.into() {
             AssignmentExpression | UpdateExpression => {
                 stats.assignments += 1.;
             }
@@ -62,89 +76,55 @@ impl Abc for ObjcCode {
             // inspected here rather than via the `ArgumentList` arm below.
             MessageExpression => {
                 stats.branches += 1.;
-                cpp_count_arguments(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_count_arguments(node, scores, &mut stats.conditions);
             }
-            // Comparison operators, `else` / `case` / `?` branch openers,
-            // and the `@try` / `@catch` exception conditions. `&&` / `||`
-            // are deliberately excluded (Fitzpatrick Rule 7; the
-            // unary-conditional counterpart is Rule 9, handled below).
-            // `<=` `>=` `==` `!=` need no parent gate, unlike C++
-            // (#1448): tree-sitter-objc 3.0.2's `grammar.json` emits
-            // them only from `binary_expression` and
-            // `preproc_binary_expression`, and ObjC has no operator
-            // overloading.
-            LTEQ | GTEQ | EQEQ | BANGEQ | Else | Case | QMARK | ATtry | CatchClause => {
+            // `else` / `case` / `?` branch openers and the `@try` /
+            // `@catch` exception conditions. `&&` / `||` are deliberately
+            // excluded (Fitzpatrick Rule 7; the unary-conditional
+            // counterpart is Rule 9, handled below).
+            Else | Case | QMARK | ATtry | CatchClause => {
                 stats.conditions += 1.;
             }
-            // Plain `<` / `>` count only in comparison position (parent is
-            // a `binary_expression`). ObjC has no C++ templates, but the
-            // gate is not merely parity with the C/C++ impl: a
-            // `grammar.json` sweep of tree-sitter-objc finds a bare
-            // `<` / `>` in `generic_specifier`,
-            // `protocol_reference_list` (`id<NSCopying>`),
-            // `parameterized_arguments` and `argument_list`, every one
-            // of which this gate is what excludes.
-            LT | GT
-                if ancestors.parent(node).is_some_and(|p| {
-                    matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
-                }) =>
-            {
+            // The six comparison tokens, the `Comparison` row's payers
+            // (`roles/objc.rs`): `<=` `>=` `==` `!=` ungated, since
+            // tree-sitter-objc 3.0.2 emits them only from a
+            // `binary_expression` or a `preproc_binary_expression`; `<` /
+            // `>` only under one — a `grammar.json` sweep finds the bare
+            // tokens in `generic_specifier`, `protocol_reference_list`
+            // (`id<NSCopying>`), `parameterized_arguments` and
+            // `argument_list` too, every one of which the gate excludes.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
-            AMPAMP | PIPEPIPE => {
+            // Fitzpatrick Rule 9: each operand of a `&&` / `||` chain is
+            // one condition; the `ShortCircuit` row is read at its leaf
+            // only to find the chain, the token's parent.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(
-                        &parent,
-                        &c_family_condition_scores_itself,
-                        &mut stats.conditions,
-                    );
+                    cpp_count_chain_operands(&parent, scores, &mut stats.conditions);
                 }
             }
             // By role, never by index — see `impl Abc for CppCode` (#1455).
             IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_count_condition_slot(node, scores, &mut stats.conditions);
             }
             ReturnStatement => {
-                cpp_count_return(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_count_return(node, scores, &mut stats.conditions);
             }
             ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_count_arguments(node, scores, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
             // operand slots (issue #1102).
             ConditionalExpression => {
-                cpp_walk_ternary(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_walk_ternary(node, scores, &mut stats.conditions);
             }
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
             ForStatement => {
-                cpp_walk_for_statement(
-                    node,
-                    &c_family_condition_scores_itself,
-                    &mut stats.conditions,
-                );
+                cpp_walk_for_statement(node, scores, &mut stats.conditions);
             }
             _ => {}
         }

@@ -7664,6 +7664,46 @@ end",
         }
     }
 
+    /// #1695: the C and Objective-C `Comparison` / `ShortCircuit` rows'
+    /// payers bill as operators, and a stranded `<` still bills through
+    /// the byte-less arm (the row's gate leaves it out; the rest are
+    /// ungated, so dropping one from a row fails its own entry).
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "int f(int a) { return a < 1; }\n"),
+            (">", "int f(int a) { return a > 1; }\n"),
+            ("<=", "int f(int a) { return a <= 1; }\n"),
+            (">=", "int f(int a) { return a >= 1; }\n"),
+            ("==", "int f(int a) { return a == 1; }\n"),
+            ("!=", "int f(int a) { return a != 1; }\n"),
+            ("&&", "int f(int a) { return a && a; }\n"),
+            ("||", "int f(int a) { return a || a; }\n"),
+            ("<", "int f(int a) { return a < ;\n"),
+        ];
+        assert_spellings_bill_as_operators::<CParser>("foo.c", ROWS);
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "int f(int a) { return a < 1; }\n"),
+            (">", "int f(int a) { return a > 1; }\n"),
+            ("<=", "int f(int a) { return a <= 1; }\n"),
+            (">=", "int f(int a) { return a >= 1; }\n"),
+            ("==", "int f(int a) { return a == 1; }\n"),
+            ("!=", "int f(int a) { return a != 1; }\n"),
+            ("&&", "int f(int a) { return a && a; }\n"),
+            ("||", "int f(int a) { return a || a; }\n"),
+            // A recovered `<`: the gated-out spelling (a protocol list's
+            // brackets are the `<>` pair, as in C++).
+            ("<", "int f(int a) { return a < ;\n"),
+        ];
+        assert_spellings_bill_as_operators::<ObjcParser>("foo.m", ROWS);
+    }
+
     /// #1694: every payer of the C++ `Comparison` and `ShortCircuit`
     /// rows bills as an operator in both dialects, one applied spelling
     /// apiece, and the spellings the rows' `applied` gate leaves out —

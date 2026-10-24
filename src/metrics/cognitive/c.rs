@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for CCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::c::short_circuit;
         use C::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -43,8 +44,9 @@ impl Cognitive for CCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
-            BinaryExpression2 => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             // At a (possibly nested) function-definition boundary, reset
             // structural nesting to zero and bump the function-depth

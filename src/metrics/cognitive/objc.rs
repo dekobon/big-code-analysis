@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::objc::short_circuit;
         use Objc::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -47,12 +48,10 @@ impl Cognitive for ObjcCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
-            // Both `binary_expression` aliases are listed: a node carries
-            // exactly one kind_id, so this cannot double-count, and it is
-            // robust to which alias the grammar emits for `&&` / `||`
-            // (Step 3.5 aliased-variant audit).
-            BinaryExpression | BinaryExpression2 => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            // A `binary_expression` (either alias) the `ShortCircuit`
+            // row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             // ObjC blocks `^{ … }` are the language's closures.
             BlockLiteral => {

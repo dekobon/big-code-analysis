@@ -107,6 +107,8 @@ impl Getter for ObjcCode {
 
     keyword_roles!(objc);
 
+    paying_roles!(objc);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Objc::*;
 
@@ -141,16 +143,23 @@ impl Getter for ObjcCode {
             // qualifier, so it bills here rather than on the `Modifier`
             // row. The modifiers, the declaration keywords and the
             // primitive types are not here: `roles/objc.rs` declares
-            // them and `get_keyword_role` bills them (#1693).
-            DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
-            | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
-            | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
-            | PIPE | AMP | LTLT | TILDE | LT | LT2 | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
-            | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | Sizeof | In | AT | ATtry | ATcatch
-            | ATfinally | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode => {
-                TokenRole::Operator
-            }
+            // them and `get_keyword_role` bills them (#1693). Nor are
+            // `<=` `>=` `==` `!=` `&&` `||`: the `Comparison` and
+            // `ShortCircuit` rows pay them ungated and `get_paying_role`
+            // bills them (#1695). `<` / `>` stay for the spellings the
+            // rows' `under_binary_expression` gate leaves out — a generic
+            // specifier, a protocol list (`id<NSCopying>`), a recovered
+            // token — which billed before the rows existed; `LT2` is the
+            // grammar's own generic-opener kind and pays nowhere.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` gate leaves out
+            LT | GT | LT2 | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI
+            | Return | Break | Continue | If | Else | Switch | Case | Default | For | While
+            | Goto | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
+            | PIPE | AMP | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ
+            | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK
+            | Sizeof | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
+            | ATautoreleasepool | ATselector | ATencode => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

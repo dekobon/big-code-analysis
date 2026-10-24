@@ -3,14 +3,35 @@
 
 use crate::C;
 use crate::role_table;
-use crate::roles::c_family::{c_family_decl_keywords, c_family_modifiers, c_family_primitives};
+use crate::roles::c_family::{
+    c_family_comparison_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_gates,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_owners,
+    c_family_short_circuit_payers,
+};
+
+c_family_gates!(C);
 
 role_table! {
     lang: C;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The C binary operators are one `binary_expression` kind, emitted
+    // under two production paths (`BinaryExpression`, `BinaryExpression2`)
+    // and told apart by the `operator` field, so each row's owners are
+    // gated on that field holding one of its payers
+    // (`roles/c_family.rs` has the lists and their derivations). An
+    // `#if A <= B` operand is a `preproc_binary_expression` aliased onto
+    // the same node and pays alike.
+    Comparison {
+        owns [..c_family_comparison_owners!()]
+        pays [..c_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [..c_family_short_circuit_owners!()]
+        pays [..c_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "C's `&` / `|` / `^` are bitwise; the language has no eager boolean \
          operator" }
     Ternary { pending R05 }

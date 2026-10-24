@@ -27,10 +27,12 @@ use crate::{LANG, Metric, MetricsOptions};
 /// into the template and asserts the function named `f` scores
 /// `conditions` ABC conditions and `decisions` cyclomatic decisions.
 #[cfg(any(
-    feature = "java",
-    feature = "python",
+    feature = "c",
     feature = "cpp",
-    feature = "mozcpp"
+    feature = "java",
+    feature = "mozcpp",
+    feature = "objc",
+    feature = "python",
 ))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
@@ -207,4 +209,57 @@ fn cpp_rows_feed_each_abc_path_independently() {
 #[cfg(feature = "mozcpp")]
 fn mozcpp_rows_feed_each_abc_path_independently() {
     assert_cpp_rows(LANG::Mozcpp);
+}
+
+/// C and Objective-C: the six comparison tokens and the two
+/// short-circuit tokens, through the shared `c_family_*` fragments.
+#[cfg(any(feature = "c", feature = "objc"))]
+fn assert_c_rows(lang: LANG, template: &str) {
+    assert_rows(
+        lang,
+        template,
+        &[
+            // slot only
+            ("if (a) { } return a;", 1, 1),
+            ("if (-x) { } return a;", 1, 1),
+            // comparison in a slot: the token pays, the slot does not
+            ("if (x < y) { } return a;", 1, 1),
+            ("if (x != y) { } return a;", 1, 1),
+            // outside any slot: only the token arm can pay
+            ("int c = x < y; return c;", 1, 0),
+            ("int c = x >= y; return c;", 1, 0),
+            ("int c = x == y; return c;", 1, 0),
+            // the chain: two operand slots, nothing for the token
+            ("return a && b;", 2, 1),
+            ("return a || b;", 2, 1),
+            ("return a && x > 1;", 2, 1),
+            ("if (a && b || x > 1) { } return a;", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "c")]
+fn c_rows_feed_each_abc_path_independently() {
+    assert_c_rows(LANG::C, "int f(int a, int b, int x, int y) { BODY }\n");
+    // A `<` error recovery strands under an `ERROR` pays nothing.
+    let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(LANG::C, b"int f(int a) { return a < ;\n", options);
+    assert_eq!(root.metrics.abc.conditions(), 0);
+}
+
+#[test]
+#[cfg(feature = "objc")]
+fn objc_rows_feed_each_abc_path_independently() {
+    assert_c_rows(
+        LANG::Objc,
+        "@implementation K\n- (int)f:(int)a b:(int)b x:(int)x y:(int)y { BODY }\n@end\n",
+    );
+    // A protocol list's `<` / `>` pay nothing: not under a
+    // `binary_expression`.
+    assert_rows(
+        LANG::Objc,
+        "@implementation K\n- (int)f:(int)a b:(int)b x:(int)x y:(int)y { BODY }\n@end\n",
+        &[("id<NSCopying> o = nil; return a;", 0, 0)],
+    );
 }

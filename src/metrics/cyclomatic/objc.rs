@@ -20,19 +20,27 @@ use super::*;
 impl Cyclomatic for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::objc::short_circuit;
         use Objc::*;
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             Case => stats.cyclomatic += 1.,
             SwitchStatement => stats.cyclomatic_modified += 1.,
             // `CatchClause` (the `@catch` handler) contributes the same
             // branch as the other decision kinds, so it rides the
             // combined arm — the C++ family macro folds `Catch` in the
             // same way.
-            CatchClause | If | For | While | ConditionalExpression | AMPAMP | PIPEPIPE => {
+            CatchClause | If | For | While | ConditionalExpression => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
