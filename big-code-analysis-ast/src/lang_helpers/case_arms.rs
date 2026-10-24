@@ -22,21 +22,8 @@
 //! guarded wildcard (`_ if g`, `case _ if g:`, `_ when g =>`, `in _ if
 //! g`) still counts: the guard is a decision of its own.
 
-use crate::{Ancestors, Node};
-
-#[cfg(feature = "tcl")]
 use crate::node::MemoQuestion;
-
-#[cfg(feature = "csharp")]
-use crate::Csharp;
-#[cfg(feature = "irules")]
-use crate::Irules;
-#[cfg(feature = "python")]
-use crate::Python;
-#[cfg(feature = "ruby")]
-use crate::Ruby;
-#[cfg(feature = "tcl")]
-use crate::Tcl;
+use crate::{Ancestors, Csharp, Irules, Node, Python, Ruby, Tcl};
 
 /// Whether `pat` holds exactly one `underscore_id` token and no other
 /// named child. Anonymous tokens such as a leading `|` in a Rust
@@ -70,7 +57,6 @@ pub fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
 /// bare `_`, or it carries an `if` guard (`case _ if g:`). The bare
 /// wildcard without a guard is Python's `default:` and pays nothing,
 /// as Rust's bare-`_` arm and Java's / C#'s `default:` do.
-#[cfg(feature = "python")]
 #[must_use]
 pub fn python_case_clause_counts(node: &Node) -> bool {
     let mut bare_underscore = false;
@@ -97,7 +83,6 @@ pub fn python_case_clause_counts(node: &Node) -> bool {
 /// dedicated token, unlike Rust and Python — so the pattern is read
 /// from the bytes. The pattern is the first *named* child; the `in`
 /// keyword is anonymous and the guard and body follow it.
-#[cfg(feature = "ruby")]
 #[must_use]
 pub fn ruby_in_clause_counts(in_clause: &Node, code: &[u8]) -> bool {
     let mut pattern: Option<Node> = None;
@@ -124,7 +109,6 @@ pub fn ruby_in_clause_counts(in_clause: &Node, code: &[u8]) -> bool {
 /// parses as a `declaration_pattern` of `implicit_type` and `discard`
 /// rather than a `var_pattern`; a declared type (`int _`) is a type
 /// test and still counts.
-#[cfg(feature = "csharp")]
 #[must_use]
 pub fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
     use Csharp::*;
@@ -158,7 +142,6 @@ pub fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
 /// inside `goto case 2;`, which spells the same token from a second
 /// production and is an unconditional jump (#1450). `goto default;`
 /// needs no twin: `default` is a distinct token no arm counts.
-#[cfg(feature = "csharp")]
 #[must_use]
 pub fn csharp_case_token_is_switch_arm<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Csharp::SwitchSection as u16)
@@ -180,7 +163,6 @@ pub fn kotlin_when_entry_is_else(node: &Node) -> bool {
 /// are walked with one cursor — `field_name()` names the field at the
 /// cursor and `goto_next_sibling()` is `O(1)` — rather than through
 /// `Node::child(i)`, which is `O(i)` per call.
-#[cfg(feature = "bash")]
 #[must_use]
 pub fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
     let mut cursor = node.as_tree_sitter().walk();
@@ -216,7 +198,6 @@ pub fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
 /// `None`: its bodies are sibling arguments rather than nested
 /// commands, so there is no arm node to count. Idiomatic Tcl uses the
 /// brace-list form, so only the uncommon style is under-counted.
-#[cfg(feature = "tcl")]
 #[must_use]
 pub fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let word_list = node
@@ -239,7 +220,6 @@ pub fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// switch's arguments, asked once per arm; on a walk that lends a
 /// memo it is answered once per switch, so a switch with `W` options
 /// and `A` arms costs `O(A + W)` and not `O(A × W)`.
-#[cfg(feature = "tcl")]
 #[must_use]
 pub fn tcl_command_is_switch_arm<'a>(
     node: &Node<'a>,
@@ -274,7 +254,6 @@ pub fn tcl_command_is_switch_arm<'a>(
 /// Whether a `word_list` holds exactly one `braced_word` — the
 /// brace-list `switch`'s arm list — memoised per list on a walk that
 /// lends a [`MemoQuestion::SwitchArmList`] memo, since every arm asks.
-#[cfg(feature = "tcl")]
 fn tcl_word_list_holds_sole_braced_word(
     word_list: &Node<'_>,
     ancestors: Ancestors<'_, '_>,
@@ -299,7 +278,6 @@ fn tcl_word_list_holds_sole_braced_word(
 /// grammar gives `switch` and its arms kinds of their own; an arm error
 /// recovery strands under an `ERROR` with its `switch` lost has no
 /// switch to be an arm of, and never counted.
-#[cfg(feature = "irules")]
 #[must_use]
 pub fn irules_switch_arm_is_decision<'a>(
     node: &Node<'a>,
