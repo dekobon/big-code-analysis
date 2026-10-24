@@ -86,7 +86,14 @@ role_table! {
             CARET "a boolean `^` is the operator method's kind, which the grammar does not tell from the integral one",
         ]
     }
-    Ternary { pending R05 }
+    // The `conditional` owns it and its `?` pays, ungated: the grammar
+    // spells the bare token nowhere else (a character literal `?a` and
+    // a predicate name `x?` are single tokens of their own).
+    Ternary {
+        owns [Conditional]
+        pays [QMARK]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { pending R05 }

@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::roles::mozcpp::{comparison, short_circuit};
+use crate::roles::mozcpp::{comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` of the Mozilla fork — the Cpp twin's,
@@ -23,7 +23,7 @@ fn mozcpp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || expr.kind_id() == Mozcpp::ConditionalExpression as u16
+        || ternary::owns(expr, code, unknown)
 }
 
 impl Abc for MozcppCode {
@@ -98,6 +98,12 @@ impl Abc for MozcppCode {
             _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
+            // A ternary's `?`, the `Ternary` row's payer: one decision,
+            // paid at the token so `a ? b : c` scores one outside any
+            // slot; the owner arm below walks its operand slots.
+            _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
             // `&&` / `||` chain is one condition (issue #403); the
             // `ShortCircuit` row's gate keeps a `constraint_conjunction` and
@@ -120,7 +126,7 @@ impl Abc for MozcppCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            Else | Case | QMARK | Try | Try2 | Catch => {
+            Else | Case | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
             // Phase-2B (issue #403): condition slots, read by grammar field
@@ -145,9 +151,9 @@ impl Abc for MozcppCode {
                 cpp_count_arguments(node, scores, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
-            // counted by the condition arm above; this walks the three
+            // paid by the `Ternary` arm above; this walks the three
             // operand slots (issue #1102).
-            ConditionalExpression => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 cpp_walk_ternary(node, scores, &mut stats.conditions);
             }
             // `for (init; cond; update)` — the condition slot, read by

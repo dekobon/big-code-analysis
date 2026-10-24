@@ -37,5 +37,6 @@ impl_cyclomatic_java_like_rows!(
     JavaCode,
     Java,
     [Guard],
-    short_circuit = crate::roles::java::short_circuit
+    short_circuit = crate::roles::java::short_circuit,
+    ternary = crate::roles::java::ternary
 );

@@ -45,7 +45,15 @@ role_table! {
         project "operator"
     }
     EagerLogical { absent "C++'s `&` / `|` / `^` are bitwise; `and` / `or` are the lazy spellings" }
-    Ternary { pending R05 }
+    // The `conditional_expression` owns the ternary and its `?` pays,
+    // ungated: the grammar spells a bare `?` in no other production. The
+    // GNU elision `a ?: b` is the same node with its `consequence` field
+    // empty, which the ABC slot walker reads by field (#1102).
+    Ternary {
+        owns [ConditionalExpression]
+        pays [QMARK]
+        project "operator"
+    }
     NullSafe { absent "C++ has no optional navigation or null coalescing" }
     CaseArm { pending R05 }
     Guard { absent "C++ has no guard clause on a case or a function head" }

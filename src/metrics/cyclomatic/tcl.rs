@@ -15,16 +15,19 @@ impl Cyclomatic for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::tcl::short_circuit;
+        use crate::roles::tcl::{short_circuit, ternary};
         let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // `&&` / `||`, the `ShortCircuit` row's payers, and the
+        // `ternary_expr` the `Ternary` row owns (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
         }
         match kind.into() {
-            Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch | Tcl::TernaryExpr => {
+            Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

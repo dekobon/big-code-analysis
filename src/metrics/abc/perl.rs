@@ -16,7 +16,7 @@ use super::{
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
 };
-use crate::roles::perl::{comparison, short_circuit};
+use crate::roles::perl::{comparison, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -167,12 +167,13 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Perl as P;
 
+    let unknown = Ancestors::unknown();
     match expr.kind_id().into() {
-        P::TernaryExpression | P::PatternMatcher | P::PatternMatcherM => true,
+        P::PatternMatcher | P::PatternMatcherM => true,
         _ => {
-            perl_is_logical_chain(expr, code)
-                || (comparison::owns(expr, code, Ancestors::unknown())
-                    && !perl_binding_rewrites(expr))
+            ternary::owns(expr, code, unknown)
+                || perl_is_logical_chain(expr, code)
+                || (comparison::owns(expr, code, unknown) && !perl_binding_rewrites(expr))
         }
     }
 }
@@ -332,7 +333,7 @@ fn perl_misparse_absorbs_leading_operand<'a>(
 // The leading boolean slot of a spine node — a ternary's condition or a
 // logical chain's first operand — or `None` for any other node.
 fn perl_leading_slot<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
-    if node.kind_id() == Perl::TernaryExpression as u16 {
+    if ternary::owns(node, code, Ancestors::unknown()) {
         node.child_by_field_name("condition")
     } else if perl_is_logical_chain(node, code) {
         wrapped_operand(node)
@@ -681,10 +682,12 @@ impl Abc for PerlCode {
             }
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but
-            // the `ternary_expression` node is what carries the
-            // condition tally's +1 — so this arm keeps that increment
-            // and adds the three operand slots (issue #1102).
-            P::TernaryExpression => {
+            // the `ternary_expression` node, the `Ternary` row's owner,
+            // is what carries the condition tally's +1 (read at the
+            // wrapper, for the #1273 misparse the walk routes around) —
+            // so this arm keeps that increment and adds the three
+            // operand slots (issue #1102).
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 let absorbed = perl_misparse_absorbs_leading_operand(node, code, ancestors);
                 perl_walk_ternary(node, code, absorbed, &mut stats.conditions);

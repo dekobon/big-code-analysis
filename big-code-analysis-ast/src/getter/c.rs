@@ -68,9 +68,9 @@ impl Getter for CCode {
         // `kind_id()`; #768, see the Cpp note). The modifiers, the
         // declaration keywords and the primitive types are not here:
         // `roles/c.rs` declares them and `get_keyword_role` bills them
-        // (#1693). Nor are `<=` `>=` `==` `!=` `&&` `||`: the `Comparison`
-        // and `ShortCircuit` rows pay them ungated and `get_paying_role`
-        // bills them (#1695). `<` / `>` stay for the spelling the rows'
+        // (#1693). Nor are `<=` `>=` `==` `!=` `&&` `||` and the ternary
+        // `?`: the `Comparison`, `ShortCircuit` and `Ternary` rows pay
+        // them ungated and `get_paying_role` bills them (#1695). `<` / `>` stay for the spelling the rows'
         // `under_binary_expression` gate leaves out — a token error
         // recovery strands under an `ERROR` — which billed before the
         // rows existed; for those two the row is not what bills them.
@@ -81,7 +81,7 @@ impl Getter for CCode {
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ
-            | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | Sizeof => {
+            | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof => {
                 TokenRole::Operator
             }
             // `CharLiteral` joins the operand list here for the whole

@@ -68,8 +68,9 @@ impl Getter for PerlCode {
             // `and` key (#1539), a recovered token. Those billed before
             // the rows existed; the rows pay the applied spellings
             // through `get_paying_role` (#1695), so for these kinds the
-            // vocabulary is the union of the two. `xor` is not here: the
-            // `EagerLogical` row pays it ungated.
+            // vocabulary is the union of the two. `xor` and the ternary
+            // `?` are not here: the `EagerLogical` and `Ternary` rows pay
+            // them ungated.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' gates leave out
             P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
@@ -85,7 +86,7 @@ impl Getter for PerlCode {
             // Punctuation acting as operators
             | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK
             | P::LPAREN | P::DOT | P::DOTDOT | P::DOTDOTDOT | P::FatComma | P::DASHGT
-            | P::QMARK | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT
+            | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT
             // Arithmetic / logical / bitwise / assignment operators
             | P::EQ | P::PLUS | P::DASH | P::STAR | P::SLASH | P::STARSTAR | P::BANG
             | P::TILDE | P::SLASHSLASH | P::PIPE

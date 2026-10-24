@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_count_return, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
-use crate::roles::c::{comparison, short_circuit};
+use crate::roles::c::{comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -25,7 +25,7 @@ fn c_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || expr.kind_id() == C::ConditionalExpression as u16
+        || ternary::owns(expr, code, unknown)
 }
 
 impl Abc for CCode {
@@ -35,10 +35,10 @@ impl Abc for CCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic)
+        // bca: suppress(cyclomatic, halstead)
         // Exhaustive one-arm-per-grammar-kind dispatch table; see the
         // rationale on `CppCode::compute`, of which this is the
-        // C-grammar sibling.
+        // C-grammar sibling. The effort is the table's vocabulary.
         use C::*;
 
         let scores: ScoresItself = &|expr| c_condition_scores_itself(expr, code);
@@ -81,7 +81,7 @@ impl Abc for CCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            Else | Case | QMARK => {
+            Else | Case => {
                 stats.conditions += 1.;
             }
             // The six comparison tokens, the `Comparison` row's payers
@@ -93,6 +93,12 @@ impl Abc for CCode {
             // operator wherever it is written; the slot holding one
             // reads the row's owner so it does not pay again.
             _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                stats.conditions += 1.;
+            }
+            // A ternary's `?`, the `Ternary` row's payer: one decision,
+            // paid at the token so `a ? b : c` scores one outside any
+            // slot; the owner arm below walks its operand slots.
+            _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 (Figure 3): each operand of a `&&` /
@@ -122,9 +128,9 @@ impl Abc for CCode {
                 cpp_count_arguments(node, scores, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
-            // counted by the condition arm above; this walks the three
+            // paid by the `Ternary` arm above; this walks the three
             // operand slots (issue #1102).
-            ConditionalExpression => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 cpp_walk_ternary(node, scores, &mut stats.conditions);
             }
             // `for (init; cond; update)` — the condition slot, read by

@@ -68,6 +68,13 @@ fn under_binary_expression<'a>(
     ancestors.parent_has_kind(node, Groovy::BinaryExpression as u16)
 }
 
+/// Whether a `?` is a ternary's rather than a wildcard bound's
+/// (`List<? extends T>`), the one other production the dekobon Groovy grammar
+/// spells the token in (#1274).
+fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Groovy::TernaryExpression as u16)
+}
+
 /// Whether an `in` keyword is a membership test rather than the `in`
 /// of a `for (x in xs)` loop header, where it is a loop keyword.
 fn under_membership_expression<'a>(
@@ -187,7 +194,15 @@ role_table! {
             CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
         ]
     }
-    Ternary { pending R05 }
+    // The `ternary_expression` owns it and its `?` pays, gated to that
+    // owner: the grammar also spells `?` as a `wildcard` bound, which is
+    // type syntax (#1274). The elvis `?:` is its own token under its own
+    // `elvis_expression`, and is `NullSafe`'s.
+    Ternary {
+        owns [TernaryExpression]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { pending R05 }

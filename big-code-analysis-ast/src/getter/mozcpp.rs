@@ -115,6 +115,7 @@ impl Getter for MozcppCode {
             // The comparison and short-circuit tokens sit in this arm for
             // the spellings that apply no operator, the rows paying the
             // applied ones — the derivation is on the Cpp twin (#1694).
+            // The ternary `?` is not here: the `Ternary` row pays it ungated.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' `applied` gate leaves out
             LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
@@ -125,7 +126,7 @@ impl Getter for MozcppCode {
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | COLONCOLON | Sizeof
             // The ISO alternative tokens (`not`, `compl`, `bitand`, …) —
             // the derivation is on the Cpp twin (#1522).
             | Not | Compl | Bitand | Bitor | Xor | AndEq | OrEq | XorEq

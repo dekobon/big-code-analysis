@@ -145,10 +145,26 @@ macro_rules! js_family_short_circuit_payers {
     };
 }
 
-/// The three gates the JS-family `Comparison` / `ShortCircuit` rows
-/// read, per grammar because each reads the grammar's kind ids.
+/// The four gates the JS-family `Comparison` / `ShortCircuit` /
+/// `Ternary` rows read, per grammar because each reads the grammar's
+/// kind ids.
 macro_rules! js_family_operator_gates {
     ($lang:ident) => {
+        /// Whether a `?` is a ternary's. The JavaScript grammars spell
+        /// the bare token nowhere else; the TypeScript grammars spell it
+        /// in ten type productions — an optional parameter, property,
+        /// method or tuple member, `optional_type`, `flow_maybe_type`,
+        /// `conditional_type` (`T extends U ? X : Y`, resolved by the
+        /// type checker and erased before runtime) — none a decision
+        /// (#1275). `?.` and `??` are distinct tokens.
+        fn under_ternary<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            ancestors.parent_has_kind(node, $lang::TernaryExpression as u16)
+        }
+
         /// Whether a bare `<` / `>` is the operator of a
         /// `binary_expression` rather than a generic bracket, a JSX tag
         /// delimiter or a token error recovery strands.

@@ -78,7 +78,14 @@ role_table! {
         ]
     }
     Guard { pending R05 }
-    Ternary { pending R05 }
+    // `a if c else b` is a `conditional_expression` with no field and
+    // no operator of its own: its `if` / `else` are the statement
+    // keywords, which Halstead bills wherever they appear, so the row
+    // is owner-only and the node pays. ABC pays it there and reads only
+    // the condition (the branches would double-count through the
+    // top-level walk); cognitive nests on it; cyclomatic does not count
+    // it, a policy this package records and does not move.
+    Ternary { owns [ConditionalExpression] }
     CaseArm { pending R05 }
     Branch { pending R07 }
     Switch { pending R07 }

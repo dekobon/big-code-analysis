@@ -94,11 +94,10 @@ impl Getter for IrulesCode {
             | Irules::TILDE
             | Irules::LTLT
             | Irules::GTGT
-            // Logical negation, symbolic and keyword.
+            // Logical negation, symbolic and keyword. The ternary `?` is
+            // the `Ternary` row's and `get_paying_role` bills it (#1695).
             | Irules::BANG
-            | Irules::Not
-            // Ternary conditional operator.
-            | Irules::QMARK => TokenRole::Operator,
+            | Irules::Not => TokenRole::Operator,
 
             // `Id` (named, id 49) is a standalone identifier operand — e.g.
             // a `set` target (`set s …` → `s`). But it is ALSO the inner

@@ -156,8 +156,8 @@ impl Getter for RubyCode {
             // row's `under_binary` gate leaves out — an operator method's
             // name (`def ==(o)`), a superclass clause's `<`, a recovered
             // token — which billed before the row existed; `&&` / `||`
-            // are the `ShortCircuit` row's and `get_paying_role` bills
-            // them (#1695).
+            // and the ternary `?` are the `ShortCircuit` and `Ternary`
+            // rows' and `get_paying_role` bills them (#1695).
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
             // row's `under_binary` gate leaves out
             | R::EQEQ | R::BANGEQ | R::EQEQEQ
@@ -173,7 +173,7 @@ impl Getter for RubyCode {
             | R::STARSTAREQ | R::AMPEQ | R::AMPAMPEQ | R::PIPEEQ | R::PIPEPIPEEQ
             | R::CARETEQ | R::LTLTEQ | R::GTGTEQ
             // Hash arrow, ternary, range
-            | R::EQGT | R::QMARK | R::DOTDOT | R::DOTDOTDOT
+            | R::EQGT | R::DOTDOT | R::DOTDOTDOT
             // Subshell backtick used as method-name marker (def `...)
             | R::BQUOTE
                 => TokenRole::Operator,

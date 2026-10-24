@@ -47,13 +47,14 @@ impl Getter for BashCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
-        use crate::roles::bash::{comparison, short_circuit};
+        use crate::roles::bash::{comparison, short_circuit, ternary};
         let kind = node.kind_id();
         if kind == Bash::TestOperator as u16 {
             return TokenRole::Unknown;
         }
         if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
             || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
         {
             TokenRole::Operator
         } else {
@@ -92,9 +93,10 @@ impl Getter for BashCode {
             // gate leaves out — a redirection (`cmd > out`) — which billed
             // before the row existed; the other comparison tokens and
             // `&&` / `||` are the rows' and `get_paying_role` bills them
-            // (#1695).
-            // role-bypass: allow(Comparison) — the operator classification of the spelling the
-            // row's `under_binary_expression` gate leaves out: a redirection
+            // (#1695). `?` likewise stays, below, for the `Ternary` row's
+            // gated-out expansion spelling.
+            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
+            // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             | Bash::LT | Bash::GT
             // Bitwise operators
             | Bash::PIPE | Bash::PIPEAMP
@@ -106,7 +108,10 @@ impl Getter for BashCode {
             | Bash::AMPGT | Bash::GTAMP | Bash::LTAMP | Bash::GTPIPE
             | Bash::LTAMPDASH | Bash::GTAMPDASH | Bash::LTLTDASH | Bash::AMPGTGT
             | Bash::LTLTLT
-            // Ternary operator
+            // `?` for the spelling the `Ternary` row's `under_ternary` gate
+            // leaves out — an expansion's `${y?msg}` — which billed before
+            // the row existed; `QMARK2` is the second `?` id, which no
+            // spelling at the pinned grammar emits.
             | Bash::QMARK | Bash::QMARK2
                 => TokenRole::Operator,
 

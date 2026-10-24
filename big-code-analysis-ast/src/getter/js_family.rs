@@ -149,9 +149,12 @@ macro_rules! impl_js_family_get_op_type {
             // the spellings the rows' parent gate leaves out — a JSX tag
             // delimiter, a TypeScript generic opener (the `<>` pair; its
             // closer returned `Unknown` above) and a recovered token —
-            // which billed before the rows existed.
-            // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` gate leaves out
+            // which billed before the rows existed. `?` likewise stays for
+            // the spellings the `Ternary` row's `under_ternary` gate leaves
+            // out — TypeScript's optional members and types and its
+            // `conditional_type` — which billed before the row existed.
+            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
+            // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real

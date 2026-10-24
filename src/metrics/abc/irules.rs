@@ -12,7 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
 };
-use crate::roles::irules::{comparison, short_circuit};
+use crate::roles::irules::{comparison, short_circuit, ternary};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -35,6 +35,8 @@ fn irules_ternary_slots<'a>(
     let mut seen_question = false;
     let mut seen_colon = false;
 
+    // role-bypass: allow(Ternary) — traversal: the `?` / `:` markers the operand slots are read
+    // relative to, inside an owner the row already admitted
     for child in node.children() {
         match child.kind_id().into() {
             Irules::QMARK => seen_question = true,
@@ -137,7 +139,10 @@ impl Abc for IrulesCode {
                     irules_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
-            Irules::TernaryExpr => {
+            // The `ternary_expr` the `Ternary` row owns, read at the
+            // wrapper: one condition, as before, plus its three operand
+            // slots.
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 irules_walk_ternary(node, code, &mut stats.conditions);
             }
@@ -199,7 +204,7 @@ fn irules_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || expr.kind_id() == Irules::TernaryExpr as u16
+        || ternary::owns(expr, code, unknown)
 }
 
 // iRules counterpart of `tcl_count_condition` (#1526).

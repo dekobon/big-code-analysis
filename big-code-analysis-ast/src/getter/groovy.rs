@@ -192,8 +192,9 @@ impl Getter for GroovyCode {
             // gates leave out — a generic bracket (`LT2` is the opener's
             // alias), a recovered token, the `in` of a `for (x in xs)`
             // header — which billed before the rows existed.
-            // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` / `under_membership_expression` gates leave out
+            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
+            // spellings the rows' `under_binary_expression` / `under_membership_expression` /
+            // `under_ternary` gates leave out
             LT | LT2 | GT | In
             | If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Assert
@@ -201,6 +202,9 @@ impl Getter for GroovyCode {
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, assignment).
+            // `?` stays for the spelling the `Ternary` row's `under_ternary`
+            // gate leaves out — a wildcard bound — which billed before the
+            // row existed.
             | EQ | BANG | TILDE | QMARK | COLON
             | PLUSPLUS | DASHDASH | PLUS | DASH | STAR | SLASH | AMP
             | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT | PLUSEQ | DASHEQ | STAREQ

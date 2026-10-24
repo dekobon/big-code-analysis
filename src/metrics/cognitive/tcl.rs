@@ -21,7 +21,12 @@ impl Cognitive for TclCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::tcl::short_circuit;
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
+        use crate::roles::tcl::{short_circuit, ternary};
         use Tcl::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -39,7 +44,11 @@ impl Cognitive for TclCode {
             Else => {
                 increment_by_one(stats);
             }
-            While | Foreach | TernaryExpr => {
+            While | Foreach => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `ternary_expr` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; only executes when the body errors.

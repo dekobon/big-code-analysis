@@ -21,7 +21,7 @@ impl Cognitive for GroovyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::groovy::short_circuit;
+        use crate::roles::groovy::{short_circuit, ternary};
         use Groovy::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -35,7 +35,11 @@ impl Cognitive for GroovyCode {
             // grammar called this `enhanced_for_statement`); `do_while`
             // and `switch_block` keep their familiar names.
             ForStatement | ForInStatement | WhileStatement | DoWhileStatement | SwitchBlock
-            | CatchClause | TernaryExpression => {
+            | CatchClause => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `ternary_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` covers plain `else` blocks *and* the chained

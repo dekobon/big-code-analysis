@@ -175,12 +175,11 @@ impl Getter for TclCode {
             | Tcl::TILDE
             | Tcl::LTLT
             | Tcl::GTGT
-            // The comparison and short-circuit operators are not here:
-            // the `Comparison` and `ShortCircuit` rows of `roles/tcl.rs`
-            // pay them and `get_paying_role` bills them (#1695).
-            | Tcl::BANG
-            // Ternary conditional operator.
-            | Tcl::QMARK => TokenRole::Operator,
+            // The comparison, short-circuit and ternary operators are not
+            // here: the `Comparison`, `ShortCircuit` and `Ternary` rows of
+            // `roles/tcl.rs` pay them and `get_paying_role` bills them
+            // (#1695).
+            | Tcl::BANG => TokenRole::Operator,
 
             // The anonymous `id` token (`Id2`) is the kind the parser
             // actually emits, in *both* of its positions: as a standalone

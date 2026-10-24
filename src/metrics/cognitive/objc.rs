@@ -21,7 +21,7 @@ impl Cognitive for ObjcCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::objc::short_circuit;
+        use crate::roles::objc::{short_circuit, ternary};
         use Objc::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -34,12 +34,11 @@ impl Cognitive for ObjcCode {
             // `@catch` (the `catch_clause` node) nests like a C++ catch.
             // Fast enumeration folds into `for_statement`, so `ForStatement`
             // already covers it.
-            ForStatement
-            | WhileStatement
-            | DoStatement
-            | SwitchStatement
-            | CatchClause
-            | ConditionalExpression => {
+            ForStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `conditional_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar

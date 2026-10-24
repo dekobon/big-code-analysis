@@ -394,7 +394,7 @@ macro_rules! js_cognitive {
             stats: &mut Stats,
             nesting_map: &mut NestingMap,
         ) {
-            use crate::roles::$roles::short_circuit;
+            use crate::roles::$roles::{short_circuit, ternary};
             use $lang::*;
             let mut nesting = get_nesting_from_map(node, nesting_map);
 
@@ -403,7 +403,11 @@ macro_rules! js_cognitive {
                     increase_nesting(stats, &mut nesting);
                 }
                 ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement
-                | CatchClause | TernaryExpression => {
+                | CatchClause => {
+                    increase_nesting(stats, &mut nesting);
+                }
+                // The `ternary_expression` the `Ternary` row owns (#1695).
+                _ if ternary::owns(node, code, ancestors) => {
                     increase_nesting(stats, &mut nesting);
                 }
                 // `Else` here is the `else` keyword token, which the

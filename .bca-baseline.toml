@@ -257,7 +257,7 @@ value = 76163.33479442904
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 125243.88999455165
+value = 124424.52920800987
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"
@@ -269,7 +269,7 @@ value = 84035.0200995642
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 114173.5054931161
+value = 113457.9549194733
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -976,12 +976,6 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/csharp.rs"
 qualified = "CsharpCode::compute"
-metric = "halstead.effort"
-value = 50000.10930893994
-
-[[entry]]
-path = "src/metrics/cognitive/csharp.rs"
-qualified = "CsharpCode::compute"
 metric = "nargs"
 value = 5.0
 
@@ -1048,12 +1042,6 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/php.rs"
 qualified = "PhpCode::compute"
-metric = "halstead.effort"
-value = 48398.686832978485
-
-[[entry]]
-path = "src/metrics/cognitive/php.rs"
-qualified = "PhpCode::compute"
 metric = "nargs"
 value = 5.0
 
@@ -1080,12 +1068,6 @@ path = "src/metrics/cognitive/rust.rs"
 qualified = "RustCode::compute"
 metric = "nargs"
 value = 5.0
-
-[[entry]]
-path = "src/metrics/cognitive/tcl.rs"
-qualified = "TclCode::compute"
-metric = "cyclomatic"
-value = 16.0
 
 [[entry]]
 path = "src/metrics/cognitive/tcl.rs"

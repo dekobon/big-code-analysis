@@ -67,11 +67,11 @@ type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 macro_rules! js_family_scores_itself {
     ($roles:ident, $code:ident) => {
         &|expr: &Node| {
-            use crate::roles::$roles::{comparison, short_circuit};
+            use crate::roles::$roles::{comparison, short_circuit, ternary};
             let unknown = Ancestors::unknown();
             comparison::owns(expr, $code, unknown)
                 || short_circuit::owns(expr, $code, unknown)
-                || matches!(expr.kind(), "ternary_expression")
+                || ternary::owns(expr, $code, unknown)
                 // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
                 // `NullSafe` row of #1695 takes over; the rows are read above
                 || (expr.kind() == "binary_expression"
@@ -252,7 +252,7 @@ macro_rules! ts_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{comparison, short_circuit};
+            use crate::roles::$roles::{comparison, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -288,39 +288,17 @@ macro_rules! ts_abc_compute {
                 QMARKQMARK | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
                 }
-                // A bare `?` opens a ternary in only one of the eleven
-                // productions that emit it. The other ten are type
-                // syntax carrying no runtime decision:
-                // `optional_parameter` (`f(x?: T)`);
-                // `property_signature`, `method_signature` and
-                // `abstract_method_signature`
-                // (`interface I { a?: T; m?(): void }`);
-                // `public_field_definition` (`class K { f?: T }`) and
-                // `method_definition` (`class K { m?() {} }`);
-                // `optional_type` and `optional_tuple_parameter`
-                // (`[number, string?]`); `flow_maybe_type`; and
-                // `conditional_type` (`T extends U ? X : Y`) — every one
-                // of which scored a condition before #1275.
-                //
-                // Allowlist polarity, deliberately — unlike the C#
-                // denylist in `csharp_count_token_condition`. Ten type-
-                // syntax parents against one decision parent is not a
-                // set worth restating, and TypeScript keeps growing type
-                // syntax, so the safe failure here is the closed one: a
-                // production the grammar adds later stops counting
-                // rather than starting to.
-                //
-                // `conditional_type` is an explicit decision, not an
-                // omission: `T extends U ? X : Y` is resolved by the
-                // type checker and erased before runtime, so it is no
-                // more a branch than the `<` / `>` excluded below.
-                //
-                // `?.` never reaches this arm — it is the distinct
-                // `QMARKDOT` token, inside an `optional_chain` node —
-                // and neither does `??` / `??=` (`QMARKQMARK` /
-                // `QMARKQMARKEQ`) nor a mapped type's `?:`
+                // The `Ternary` row's `?`, gated by the row to the
+                // ternary: a bare `?` opens one in only one of the eleven
+                // productions that emit it, the other ten being type
+                // syntax carrying no runtime decision (#1275) — the row's
+                // gate says which, and why `conditional_type` is an
+                // explicit decision rather than an omission. `?.` never
+                // reaches this arm (the distinct `QMARKDOT` token inside
+                // an `optional_chain`), nor does `??` / `??=`
+                // (`QMARKQMARK` / `QMARKQMARKEQ`) nor a mapped type's `?:`
                 // (`QMARKCOLON`).
-                QMARK if ancestors.parent_has_kind(node, TernaryExpression as u16) => {
+                _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // The comparison tokens, the `Comparison` row's payers
@@ -390,10 +368,10 @@ macro_rules! ts_abc_compute {
                         &mut stats.conditions,
                     );
                 }
-                // `a ? !b : !c` — the ternary's own `?` token is
-                // already counted by the condition arm above; this
-                // walks the three operand slots (issue #1102).
-                TernaryExpression => {
+                // `a ? !b : !c` — the `ternary_expression` the `Ternary`
+                // row owns: its `?` is already paid by the row's arm
+                // above; this walks the three operand slots (issue #1102).
+                _ if ternary::owns_kind(kind, node, code, ancestors) => {
                     js_family_walk_ternary(node, scores, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read
@@ -449,7 +427,7 @@ macro_rules! js_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{comparison, short_circuit};
+            use crate::roles::$roles::{comparison, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -471,7 +449,12 @@ macro_rules! js_abc_compute {
                 // The `default` arm is the unconditional fallthrough and
                 // is excluded, mirroring cyclomatic's `Case`-only count
                 // (issue #469); see the TS macro above for the rationale.
-                QMARK | QMARKQMARK | Else | Case | Try | Catch => {
+                QMARKQMARK | Else | Case | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // The `Ternary` row's `?`: plain JS spells the bare token
+                // nowhere else, so the row's gate admits every one.
+                _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // The comparison tokens, the `Comparison` row's payers
@@ -524,10 +507,10 @@ macro_rules! js_abc_compute {
                         &mut stats.conditions,
                     );
                 }
-                // `a ? !b : !c` — the ternary's own `?` token is
-                // already counted by the condition arm above; this
-                // walks the three operand slots (issue #1102).
-                TernaryExpression => {
+                // `a ? !b : !c` — the `ternary_expression` the `Ternary`
+                // row owns: its `?` is already paid by the row's arm
+                // above; this walks the three operand slots (issue #1102).
+                _ if ternary::owns_kind(kind, node, code, ancestors) => {
                     js_family_walk_ternary(node, scores, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read

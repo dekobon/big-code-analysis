@@ -745,3 +745,262 @@ fn bash_rows_feed_each_abc_path_independently() {
         ],
     );
 }
+
+// ---- `Ternary` (#1695) ---------------------------------------------------
+//
+// One row per language that has a ternary: the construct outside any
+// slot (the row pays its decision — at the `?` where the token pays, at
+// the node where the node does — and its condition slot pays one more,
+// Fitzpatrick Rule 6), inside a slot (that slot does not pay again), with
+// both branches negated (the slot walker's operand read), and — where
+// the grammar spells `?` elsewhere — that spelling paying nothing.
+// Cyclomatic is the oracle: a ternary is one decision everywhere.
+
+#[test]
+#[cfg(any(feature = "c", feature = "objc"))]
+fn c_family_ternary_row_pays_once() {
+    #[cfg(feature = "c")]
+    assert_rows(
+        LANG::C,
+        "int f(int a, int b, int x, int y) { BODY }\n",
+        &[
+            ("int c = a ? b : x; return c;", 2, 1),
+            ("if (a ? b : x) { } return a;", 2, 2),
+            ("int c = a ? !b : !x; return c;", 4, 1),
+            // the GNU elision is the same node with no consequence
+            ("int c = a ?: x; return c;", 2, 1),
+        ],
+    );
+    #[cfg(feature = "objc")]
+    assert_rows(
+        LANG::Objc,
+        "@implementation K\n- (int)f:(int)a b:(int)b x:(int)x y:(int)y { BODY }\n@end\n",
+        &[
+            ("int c = a ? b : x; return c;", 2, 1),
+            ("if (a ? b : x) { } return a;", 2, 2),
+            ("int c = a ? !b : !x; return c;", 4, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn cpp_ternary_row_pays_once() {
+    for lang in [LANG::Cpp, LANG::Mozcpp] {
+        if !lang.is_enabled() {
+            continue;
+        }
+        assert_rows(
+            lang,
+            "int f(int a, int b, int x, int y) { BODY }\n",
+            &[
+                ("int c = a ? b : x; return c;", 2, 1),
+                ("if (a ? b : x) { } return a;", 2, 2),
+                ("int c = a ? !b : !x; return c;", 4, 1),
+                ("int c = a ?: x; return c;", 2, 1),
+            ],
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "java")]
+fn java_ternary_row_pays_once_and_a_wildcard_nothing() {
+    assert_rows(
+        LANG::Java,
+        "class A { boolean f(boolean a, boolean b, int x, java.util.List<?> l) { BODY } }\n",
+        &[
+            ("boolean c = a ? b : a; return c;", 2, 1),
+            ("if (a ? b : a) { } return a;", 2, 2),
+            ("boolean c = a ? !b : !a; return c;", 4, 1),
+            // a wildcard bound's `?` is type syntax (#1274)
+            ("java.util.List<? extends Number> m = null; return a;", 0, 0),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "groovy")]
+fn groovy_ternary_row_pays_once_and_a_wildcard_nothing() {
+    assert_rows(
+        LANG::Groovy,
+        "class C { boolean f(boolean a, boolean b, int x, List<?> l) { BODY } }\n",
+        &[
+            ("def c = a ? b : a; return c", 2, 1),
+            ("if (a ? b : a) { }; return a", 2, 2),
+            ("def c = a ? !b : !a; return c", 4, 1),
+            ("List<? extends Number> m = null; return a", 0, 0),
+            // the elvis is `NullSafe`'s: one per token, as before
+            ("def c = a ?: b; return c", 1, 1),
+        ],
+    );
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_js_ternary(lang: LANG) {
+    assert_rows(
+        lang,
+        "function f(a, b, x, y, o) { BODY }\n",
+        &[
+            ("let c = a ? b : x; return c;", 2, 1),
+            ("if (a ? b : x) { } return a;", 2, 2),
+            ("let c = a ? !b : !x; return c;", 4, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "javascript")]
+fn javascript_ternary_row_pays_once() {
+    assert_js_ternary(LANG::Javascript);
+}
+
+#[test]
+#[cfg(feature = "mozjs")]
+fn mozjs_ternary_row_pays_once() {
+    assert_js_ternary(LANG::Mozjs);
+}
+
+#[test]
+#[cfg(feature = "typescript")]
+fn typescript_ternary_row_pays_once_and_type_syntax_nothing() {
+    assert_js_ternary(LANG::Typescript);
+    assert_js_ternary(LANG::Tsx);
+    // Three of the ten type productions that spell `?` (#1275): an
+    // optional parameter and member, an optional tuple member, a
+    // conditional type.
+    assert_rows(
+        LANG::Typescript,
+        "function f<T>(a: boolean, x?: number, o?: { p?: string }): boolean { BODY }\n",
+        &[(
+            "type U = T extends string ? 1 : 2; let t: [number, string?] = [1]; return a;",
+            0,
+            0,
+        )],
+    );
+}
+
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_ternary_row_pays_once_and_type_syntax_nothing() {
+    assert_rows(
+        LANG::Csharp,
+        "class C { bool f(bool a, bool b, int x, object o) { BODY } }\n",
+        &[
+            ("bool c = a ? b : a; return c;", 2, 1),
+            ("if (a ? b : a) { } return a;", 2, 2),
+            ("bool c = a ? !b : !a; return c;", 4, 1),
+            // a nullable type's `?` is type syntax (#1275); a conditional
+            // access's is the `NullSafe` row's and still pays, as before
+            ("int? n = null; return a;", 0, 0),
+            ("var s = o?.ToString(); return a;", 1, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "ruby")]
+fn ruby_ternary_row_pays_once() {
+    assert_rows(
+        LANG::Ruby,
+        "def f(a, b, x, y, o)\n  BODY\nend\n",
+        &[
+            ("c = a ? b : x; c", 2, 1),
+            ("if a ? b : x then end; a", 2, 2),
+            ("c = a ? !b : !x; c", 4, 1),
+            // a character literal and a predicate name are their own tokens
+            ("c = ?a; d = x.nil?; a", 0, 0),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "perl")]
+fn perl_ternary_row_pays_once() {
+    assert_rows(
+        LANG::Perl,
+        "sub f { my ($a, $b, $x, $y, $s) = @_; BODY }\n",
+        &[
+            ("my $c = $a ? $b : $x;", 2, 1),
+            ("if ($a ? $b : $x) { }", 2, 2),
+            ("my $c = $a ? !$b : !$x;", 4, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "php")]
+fn php_ternary_row_pays_once_and_an_optional_type_nothing() {
+    assert_rows(
+        LANG::Php,
+        "<?php\nfunction f($a, $b, $x, $y, $o) { BODY }\n",
+        &[
+            ("$c = $a ? $b : $x; return $c;", 2, 1),
+            ("if ($a ? $b : $x) { } return $a;", 2, 2),
+            ("$c = $a ? !$b : !$x; return $c;", 4, 1),
+            // the short form is the same node with no body
+            ("$c = $a ?: $x; return $c;", 2, 1),
+        ],
+    );
+    assert_rows(
+        LANG::Php,
+        "<?php\nfunction f(?int $a) { BODY }\n",
+        &[("return $a;", 0, 0)],
+    );
+}
+
+#[test]
+#[cfg(feature = "python")]
+fn python_ternary_row_pays_once() {
+    assert_rows(
+        LANG::Python,
+        "def f(a, b, x, y):\n    BODY\n",
+        &[
+            ("c = b if a else x; return c", 2, 1),
+            ("if (b if a else x): pass\n    return a", 2, 2),
+        ],
+    );
+}
+
+#[cfg(any(feature = "tcl", feature = "irules"))]
+fn assert_tcl_ternary(lang: LANG) {
+    assert_rows(
+        lang,
+        "proc f {a b x y} {\n    BODY\n}\n",
+        &[
+            ("set c [expr { $a ? $b : $x }]", 2, 1),
+            ("if { $a ? $b : $x } { }", 2, 2),
+            ("set c [expr { $a ? !$b : !$x }]", 4, 1),
+            // a parenthesised condition shifts every operand (#1180)
+            ("set c [expr { ($a) ? !$b : $x }]", 3, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "tcl")]
+fn tcl_ternary_row_pays_once() {
+    assert_tcl_ternary(LANG::Tcl);
+}
+
+#[test]
+#[cfg(feature = "irules")]
+fn irules_ternary_row_pays_once() {
+    assert_tcl_ternary(LANG::Irules);
+}
+
+#[test]
+#[cfg(feature = "bash")]
+fn bash_ternary_row_pays_once_and_an_expansion_nothing() {
+    assert_rows(
+        LANG::Bash,
+        "f() {\n    BODY\n}\n",
+        &[
+            // Bash has no slot walker: the node alone pays
+            ("c=$(( a ? b : x ))", 1, 1),
+            ("c=$(( a ? (b ? 1 : 2) : x ))", 2, 2),
+            // an expansion's `?` and `$?` are no ternary
+            ("echo ${y?msg} $?", 0, 0),
+        ],
+    );
+}

@@ -30,7 +30,6 @@ Bash HoldsDocInBody R09
 Bash Loop R07
 Bash StringLit R08
 Bash Switch R07
-Bash Ternary R05
 C Branch R07
 C Call R08
 C CaseArm R05
@@ -49,7 +48,6 @@ C Loop R07
 C Member R06
 C StringLit R08
 C Switch R07
-C Ternary R05
 Ccomment Comment R09
 Ccomment DocComment R09
 Ccomment StringLit R08
@@ -72,7 +70,6 @@ Cpp Loop R07
 Cpp Member R06
 Cpp StringLit R08
 Cpp Switch R07
-Cpp Ternary R05
 Csharp Branch R07
 Csharp Call R08
 Csharp CaseArm R05
@@ -94,7 +91,6 @@ Csharp Member R06
 Csharp NullSafe R05
 Csharp StringLit R08
 Csharp Switch R07
-Csharp Ternary R05
 Elixir Branch R07
 Elixir CaseArm R05
 Elixir Catch R07
@@ -148,7 +144,6 @@ Groovy Member R06
 Groovy NullSafe R05
 Groovy StringLit R08
 Groovy Switch R07
-Groovy Ternary R05
 Irules Branch R07
 Irules Call R08
 Irules CaseArm R05
@@ -166,7 +161,6 @@ Irules HoldsDocInBody R09
 Irules Loop R07
 Irules StringLit R08
 Irules Switch R07
-Irules Ternary R05
 Java Branch R07
 Java CaseArm R05
 Java Catch R07
@@ -180,7 +174,6 @@ Java HoldsDocInBody R09
 Java Loop R07
 Java Member R06
 Java Switch R07
-Java Ternary R05
 Javascript Branch R07
 Javascript Call R08
 Javascript CaseArm R05
@@ -201,7 +194,6 @@ Javascript Member R06
 Javascript NullSafe R05
 Javascript StringLit R08
 Javascript Switch R07
-Javascript Ternary R05
 Kotlin Branch R07
 Kotlin Call R08
 Kotlin CaseArm R05
@@ -257,7 +249,6 @@ Mozcpp Loop R07
 Mozcpp Member R06
 Mozcpp StringLit R08
 Mozcpp Switch R07
-Mozcpp Ternary R05
 Mozjs Branch R07
 Mozjs Call R08
 Mozjs CaseArm R05
@@ -278,7 +269,6 @@ Mozjs Member R06
 Mozjs NullSafe R05
 Mozjs StringLit R08
 Mozjs Switch R07
-Mozjs Ternary R05
 Objc Branch R07
 Objc Call R08
 Objc CaseArm R05
@@ -298,7 +288,6 @@ Objc Loop R07
 Objc Member R06
 Objc StringLit R08
 Objc Switch R07
-Objc Ternary R05
 Perl Branch R07
 Perl Call R08
 Perl CaseArm R05
@@ -318,7 +307,6 @@ Perl Member R06
 Perl NullSafe R05
 Perl StringLit R08
 Perl Switch R07
-Perl Ternary R05
 Php Branch R07
 Php Call R08
 Php CaseArm R05
@@ -339,7 +327,6 @@ Php Member R06
 Php NullSafe R05
 Php StringLit R08
 Php Switch R07
-Php Ternary R05
 Preproc Comment R09
 Preproc DocComment R09
 Preproc StringLit R08
@@ -357,7 +344,6 @@ Python HoldsDocInBody R09
 Python Loop R07
 Python Member R06
 Python Switch R07
-Python Ternary R05
 Ruby Branch R07
 Ruby Call R08
 Ruby CaseArm R05
@@ -379,7 +365,6 @@ Ruby Member R06
 Ruby NullSafe R05
 Ruby StringLit R08
 Ruby Switch R07
-Ruby Ternary R05
 Rust Branch R07
 Rust Call R08
 Rust CaseArm R05
@@ -418,7 +403,6 @@ Tcl HoldsDocInBody R09
 Tcl Loop R07
 Tcl StringLit R08
 Tcl Switch R07
-Tcl Ternary R05
 Tsx Branch R07
 Tsx Call R08
 Tsx CaseArm R05
@@ -439,7 +423,6 @@ Tsx Member R06
 Tsx NullSafe R05
 Tsx StringLit R08
 Tsx Switch R07
-Tsx Ternary R05
 Typescript Branch R07
 Typescript Call R08
 Typescript CaseArm R05
@@ -460,4 +443,3 @@ Typescript Member R06
 Typescript NullSafe R05
 Typescript StringLit R08
 Typescript Switch R07
-Typescript Ternary R05

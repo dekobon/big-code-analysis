@@ -31,7 +31,14 @@ role_table! {
         project "operator"
     }
     EagerLogical { absent "TSX's `&` / `|` / `^` are bitwise" }
-    Ternary { pending R05 }
+    // The `ternary_expression` owns it and its `?` pays, gated to that
+    // owner (`roles/js_family.rs` says which other productions spell
+    // the token).
+    Ternary {
+        owns [TernaryExpression]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { absent "TSX has no guard clause" }

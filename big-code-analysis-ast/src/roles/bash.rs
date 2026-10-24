@@ -5,6 +5,16 @@ use crate::lang_helpers::bash::bash_test_connective;
 use crate::role_table;
 use crate::{Ancestors, Bash, Node};
 
+/// Whether a `?` is the arithmetic ternary's rather than an
+/// expansion's (`${y?msg}`, where the bare token is the operator of the
+/// `expansion` node; `$?` is a `special_variable_name` of its own).
+fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(node).is_some_and(|p| {
+        p.kind_id() == Bash::TernaryExpression as u16
+            || p.kind_id() == Bash::TernaryExpression2 as u16
+    })
+}
+
 /// Whether a `test_operator` is a comparison rather than one of the
 /// `-a` / `-o` connectives: the grammar gives `-z`, `-n`, `-eq`, `-lt`,
 /// `-a`, `-o`, … one kind, so only the bytes tell them apart (#1536).
@@ -131,7 +141,21 @@ role_table! {
                  `ShortCircuit` row claims them; the builtin's eager evaluation is recorded here",
         ]
     }
-    Ternary { pending R05 }
+    // The arithmetic `(( a ? b : c ))` is Bash's only ternary: the
+    // `ternary_expression` owns it (`TernaryExpression2` is the second
+    // id carrying the kind, listed per grammar-dispatch §1 and
+    // unreachable at the pinned grammar) and its `?` pays, gated to that
+    // owner since `${y?msg}` spells the same token. `QMARK2` is the
+    // grammar's second `?` id, which a `bca dump` of every spelling
+    // never emits; it bills as the operator it names and is excluded
+    // rather than paid so a reachable spelling fails the coverage gate
+    // loudly.
+    Ternary {
+        owns [TernaryExpression, TernaryExpression2]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+        excludes [QMARK2 "the second `?` id, which no spelling at the pinned grammar emits"]
+    }
     NullSafe { absent "Bash has no optional navigation or null coalescing" }
     CaseArm { pending R05 }
     Guard { pending R05 }
@@ -161,4 +185,36 @@ role_table! {
     DocRunOpener { pending R09 }
     DocRunDirective { pending R09 }
     HoldsDocInBody { pending R09 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BashCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    // The `Ternary` row's `?` is the arithmetic ternary's alone: an
+    // expansion's `${y?msg}` spells the same bare token and pays
+    // nothing, and `$?` is a token of its own (#1695). ABC reads the
+    // row at its wrapper and Halstead's byte-less arm keeps billing the
+    // expansion's `?`, so this is the one place the payer gate is
+    // observed.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn ternary_pays_at_the_arithmetic_question_mark_only() {
+        let source = b"c=$(( a ? b : x ))\necho ${y?msg} $?\n";
+        let (mut owned, mut paid) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<BashCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if ternary::owns(node, source, ancestors) {
+                owned.push(text());
+            }
+            if ternary::pays_at_leaf(node, source, ancestors) {
+                paid.push((node.start_byte(), text()));
+            }
+        });
+        assert_eq!(owned, ["a ? b : x"]);
+        assert_eq!(paid, [(8, "?".to_owned())]);
+    }
 }

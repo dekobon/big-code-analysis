@@ -69,6 +69,15 @@ fn under_binary_expression<'a>(
     })
 }
 
+/// Whether a `?` is the ternary's. tree-sitter-c-sharp spells the bare
+/// token in four productions: `conditional_expression`,
+/// `conditional_access_expression` (`a?.b` and `a?[0]`, the `NullSafe`
+/// row's), `nullable_type` (`int? x`) and `type_parameter_constraint`
+/// (`where T : class?`), the last two type syntax (#1275).
+fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Csharp::ConditionalExpression as u16)
+}
+
 /// Whether an `is` keyword sits under one of its two type-test
 /// expressions. The grammar spells it in no other production, but
 /// error recovery keeps a keyword whose expression it lost (`var x = o
@@ -148,7 +157,14 @@ role_table! {
             CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
         ]
     }
-    Ternary { pending R05 }
+    // The `conditional_expression` owns it and its `?` pays, gated to
+    // that owner; the same bare token is a conditional access's (the
+    // `NullSafe` row's) and type syntax in two productions.
+    Ternary {
+        owns [ConditionalExpression]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { pending R05 }

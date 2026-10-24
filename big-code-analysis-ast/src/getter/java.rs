@@ -115,7 +115,12 @@ impl Getter for JavaCode {
             | New | Return | Default | Assert | Extends | Implements
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
-            // Operator: operators
+            // Operator: operators. `?` stays for the spelling the
+            // `Ternary` row's `under_ternary` gate leaves out — a
+            // wildcard bound (`List<? extends T>`) — which billed before
+            // the row existed; the ternary's `?` is the row's.
+            // role-bypass: allow(Ternary) — the operator classification of the spelling the row's
+            // `under_ternary` gate leaves out: a wildcard bound
             | EQ | BANG | TILDE | QMARK | COLON | PLUSPLUS | DASHDASH
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ

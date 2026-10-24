@@ -21,6 +21,12 @@ fn short_circuit_operator<'a>(
     short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
 }
 
+/// Whether a `?` is the ternary's rather than an `optional_type`'s
+/// (`?int $a`), the one other production the grammar spells it in.
+fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Php::ConditionalExpression as u16)
+}
+
 /// Whether a `binary_expression`'s `operator` field is `xor`.
 fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
@@ -76,7 +82,15 @@ role_table! {
         pays [Xor]
         project "operator"
     }
-    Ternary { pending R05 }
+    // The `conditional_expression` owns it and its `?` pays, gated to
+    // that owner — `?int` spells the same token as type syntax. The
+    // short form `$a ?: $b` is the same node with its `body` field
+    // empty, and pays once as the long form does; `??` is `NullSafe`'s.
+    Ternary {
+        owns [ConditionalExpression]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { absent "PHP has no guard clause" }

@@ -21,7 +21,7 @@ impl Cognitive for CCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::c::short_circuit;
+        use crate::roles::c::{short_circuit, ternary};
         use C::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -31,11 +31,11 @@ impl Cognitive for CCode {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement
-            | WhileStatement
-            | DoStatement
-            | SwitchStatement
-            | ConditionalExpression => {
+            ForStatement | WhileStatement | DoStatement | SwitchStatement => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `conditional_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar

@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
     wrapped_operand,
 };
-use crate::roles::php::{comparison, short_circuit};
+use crate::roles::php::{comparison, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -57,7 +57,7 @@ fn php_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || expr.kind_id() == Php::ConditionalExpression as u16
+        || ternary::owns(expr, code, unknown)
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` / `do` / `for`
@@ -256,10 +256,11 @@ impl Abc for PhpCode {
             Arguments => php_count_arguments(node, code, &mut stats.conditions),
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but
-            // the `conditional_expression` node is what carries the
-            // condition tally's +1 — so this arm keeps that increment
-            // and adds the three operand slots (issue #1102).
-            ConditionalExpression => {
+            // the `conditional_expression` node, the `Ternary` row's
+            // owner, is what carries the condition tally's +1, read at
+            // the wrapper — so this arm keeps that increment and adds
+            // the three operand slots (issue #1102).
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 php_walk_ternary(node, code, &mut stats.conditions);
             }

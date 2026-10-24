@@ -30,7 +30,15 @@ role_table! {
         project "operator"
     }
     EagerLogical { absent "Tcl's `&` / `|` inside `expr` are bitwise" }
-    Ternary { pending R05 }
+    // A `ternary_expr` owns it and its `?` pays, ungated: the grammar
+    // spells the bare token nowhere else. The node names no field, so
+    // the row's payer fallback finds the `?`, and the ABC slot walker
+    // reads the operands relative to the `?` / `:` markers (#1180).
+    Ternary {
+        owns [TernaryExpr]
+        pays [QMARK]
+        project "operator"
+    }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }
     CaseArm { pending R05 }
     Guard { absent "Tcl has no guard clause" }

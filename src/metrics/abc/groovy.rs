@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
-use crate::roles::groovy::{comparison, short_circuit};
+use crate::roles::groovy::{comparison, short_circuit, ternary};
 use crate::*;
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
@@ -87,8 +87,11 @@ fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
+        || ternary::owns(expr, code, unknown)
         || match expr.kind_id().into() {
-            TernaryExpression | ElvisExpression => true,
+            // role-bypass: allow(Ternary) — the elvis owner, which the `NullSafe` row of
+            // #1695 takes over; the rows are read above
+            ElvisExpression => true,
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
                 proves_boolean || groovy_condition_scores_itself(&value, code)
@@ -264,8 +267,13 @@ fn groovy_count_token_condition<'a>(
     // `!instanceof` nodes, which carry no token to pay (#1461). One pays
     // per test (§5). Fitzpatrick Rule 5 scores a relational operator
     // wherever it is written, so `def r = a <=> b` and
-    // `def b = a in l` score as `def r = a == b` does.
-    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+    // `def b = a in l` score as `def r = a == b` does. The `Ternary`
+    // row's `?` likewise, gated by the row to the ternary — as in Java,
+    // a bare `?` is also the head of a `wildcard` type argument, which
+    // is no decision (#1274).
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+        || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+    {
         stats.conditions += 1.;
         return true;
     }
@@ -282,17 +290,6 @@ fn groovy_count_token_condition<'a>(
         // `NullSafe`'s, pending that row.
         Else | Case | Try | Catch | QMARKCOLON => {
             stats.conditions += 1.;
-        }
-        // As in Java: a bare `?` is either a ternary head or the head of
-        // a `wildcard` type argument (`List<? extends T>`), and only the
-        // first is a decision (#1274).
-        QMARK => {
-            if ancestors
-                .parent(node)
-                .is_some_and(|parent| matches!(parent.kind_id().into(), TernaryExpression))
-            {
-                stats.conditions += 1.;
-            }
         }
         _ => return false,
     }
@@ -343,8 +340,12 @@ fn groovy_walk_for_conditions<'a>(
         }
         // `return value` names no field; the value is its only operand.
         ReturnStatement => groovy_count_negated_slot(wrapped_operand(node), code, conds),
-        TernaryExpression => groovy_walk_ternary(node, code, stats),
         ForStatement => groovy_walk_for_statement(node, code, stats),
+        // The `ternary_expression` the `Ternary` row owns: its `?` paid
+        // above, this walks its operand slots.
+        _ if ternary::owns_kind(kind, node, code, ancestors) => {
+            groovy_walk_ternary(node, code, stats);
+        }
         _ => {}
     }
 }

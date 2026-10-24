@@ -15,7 +15,7 @@ impl Cyclomatic for IrulesCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::irules::short_circuit;
+        use crate::roles::irules::{short_circuit, ternary};
         // Unlike Tcl, iRules has a dedicated `switch`/`switch_arm` node: each
         // non-`default` arm is a decision point in standard CCN, while modified
         // CCN collapses the whole `switch` to a single container decision. The
@@ -28,8 +28,11 @@ impl Cyclomatic for IrulesCode {
         }
         let kind = node.kind_id();
         // The short-circuit operators, symbolic and the iRules keyword
-        // forms (`and` / `or`) — the `ShortCircuit` row's payers (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // forms (`and` / `or`) — the `ShortCircuit` row's payers — and
+        // the `ternary_expr` the `Ternary` row owns (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -51,8 +54,7 @@ impl Cyclomatic for IrulesCode {
             // and the C-family `CatchClause`. `Try` itself and `Finally`
             // are unconditional and stay free.
             | Irules::OnHandler
-            | Irules::TrapHandler
-            | Irules::TernaryExpr => {
+            | Irules::TrapHandler => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

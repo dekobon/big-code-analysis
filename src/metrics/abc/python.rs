@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, peel, wrapped_operand};
-use crate::roles::python::{comparison, short_circuit};
+use crate::roles::python::{comparison, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -81,7 +81,8 @@ fn python_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || matches!(expr.kind_id().into(), NotOperator | ConditionalExpression)
+        || ternary::owns(expr, code, Ancestors::unknown())
+        || expr.kind_id() == NotOperator as u16
 }
 
 // Scores one boolean slot: an `if` / `elif` / `while` predicate, a
@@ -315,7 +316,7 @@ impl Abc for PythonCode {
             // unary condition (issue #1161). The branch operands are
             // deliberately not walked — see
             // `python_count_ternary_condition`.
-            ConditionalExpression => {
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 python_count_ternary_condition(node, code, &mut stats.conditions);
             }

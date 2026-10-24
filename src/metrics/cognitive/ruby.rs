@@ -37,13 +37,14 @@ impl Cognitive for RubyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::ruby::short_circuit;
+        use crate::roles::ruby::{short_circuit, ternary};
         use Ruby as R;
 
-        // bca: suppress(halstead) — exhaustive one-arm-per-grammar-kind
-        // dispatch table (see the rationale on `abc/perl.rs`'s compute):
-        // effort here counts distinct enum operands, not reasoning a
-        // reader must do.
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
@@ -56,13 +57,16 @@ impl Cognitive for RubyCode {
             R::If if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
+            // The `conditional` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
+                increase_nesting(stats, &mut nesting);
+            }
             R::Unless
             | R::While
             | R::Until
             | R::For
             | R::Case
             | R::CaseMatch
-            | R::Conditional
             | R::IfModifier
             | R::UnlessModifier
             | R::WhileModifier

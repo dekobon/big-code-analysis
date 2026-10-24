@@ -128,7 +128,12 @@ impl Cognitive for PythonCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::python::short_circuit;
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
+        use crate::roles::python::{short_circuit, ternary};
         use Python::*;
 
         // Get nesting of the parent
@@ -142,7 +147,11 @@ impl Cognitive for PythonCode {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement | WhileStatement | ConditionalExpression | MatchStatement => {
+            ForStatement | WhileStatement | MatchStatement => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `conditional_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // A comprehension / generator expression is a loop with an

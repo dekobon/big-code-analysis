@@ -12,7 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
 };
-use crate::roles::ruby::{comparison, short_circuit};
+use crate::roles::ruby::{comparison, short_circuit, ternary};
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -128,7 +128,8 @@ fn ruby_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
-        || matches!(expr.kind_id().into(), TestPattern | Conditional)
+        || ternary::owns(expr, code, unknown)
+        || expr.kind_id() == TestPattern as u16
 }
 
 // Scores one `when` clause (#1453, transferring #1421's Kotlin rule).
@@ -299,8 +300,12 @@ impl Abc for RubyCode {
             // the arm's meaning is "this node is a condition, with
             // nothing to gate on" — as true of a production as of a
             // token.
-            Else | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3
-            | TestPattern => {
+            Else | Rescue | RescueModifier | RescueModifier2 | RescueModifier3 | TestPattern => {
+                stats.conditions += 1.;
+            }
+            // A ternary's `?`, the `Ternary` row's payer: the grammar
+            // spells the bare token nowhere else.
+            _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // An `elsif` is Java's `else if`: the `else` (+1, Rule 5) and
@@ -346,10 +351,10 @@ impl Abc for RubyCode {
                     );
                 }
             }
-            // `a ? !b : !c` — the ternary's own `?` token is already
-            // counted by the token arm above; this walks the three
-            // operand slots (issue #1161).
-            Conditional => {
+            // `a ? !b : !c` — the `conditional` the `Ternary` row owns:
+            // its `?` is already paid by the row's arm above; this walks
+            // the three operand slots (issue #1161).
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 ruby_walk_ternary(node, code, &mut stats.conditions);
             }
             _ => {}

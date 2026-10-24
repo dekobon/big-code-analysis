@@ -52,7 +52,15 @@ role_table! {
         project "operator"
     }
     EagerLogical { absent "Objective-C's `&` / `|` / `^` are bitwise" }
-    Ternary { pending R05 }
+    // The `conditional_expression` owns the ternary and its `?` pays,
+    // ungated: the grammar spells a bare `?` in no other production. The
+    // GNU elision `a ?: b` is the same node with its `consequence` field
+    // empty, which the ABC slot walker reads by field (#1102).
+    Ternary {
+        owns [ConditionalExpression]
+        pays [QMARK]
+        project "operator"
+    }
     NullSafe { absent "Objective-C has no optional navigation or null coalescing (nil-messaging is \
          semantics, not syntax)" }
     CaseArm { pending R05 }

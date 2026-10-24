@@ -21,7 +21,12 @@ impl Cognitive for CsharpCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::csharp::short_circuit;
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
+        use crate::roles::csharp::{short_circuit, ternary};
         use Csharp::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -30,14 +35,12 @@ impl Cognitive for CsharpCode {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement
-            | ForeachStatement
-            | WhileStatement
-            | DoStatement
-            | SwitchStatement
-            | SwitchExpression
-            | CatchClause
-            | ConditionalExpression => {
+            ForStatement | ForeachStatement | WhileStatement | DoStatement | SwitchStatement
+            | SwitchExpression | CatchClause => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `conditional_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `else` is an anonymous keyword token. Each occurrence carries

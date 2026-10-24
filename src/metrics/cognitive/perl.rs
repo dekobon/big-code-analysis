@@ -58,7 +58,12 @@ impl Cognitive for PerlCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::perl::short_circuit;
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
+        use crate::roles::perl::{short_circuit, ternary};
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -74,7 +79,6 @@ impl Cognitive for PerlCode {
             | P::UntilStatement
             | P::ForStatement1
             | P::ForStatement2
-            | P::TernaryExpression
             // Postfix conditional / loop forms (`return 1 if $cond;`) — the
             // condition is a real cognitive branch and contributes nesting
             // even though the body is a single expression.
@@ -83,6 +87,10 @@ impl Cognitive for PerlCode {
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::ForSimpleStatement => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `ternary_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `else` and `elsif` each contribute a flat +1.

@@ -27,6 +27,13 @@ fn short_circuit_operator<'a>(
     short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
 }
 
+/// Whether a `?` is a ternary's rather than a wildcard bound's
+/// (`List<? extends T>`), the one other production tree-sitter-java
+/// spells the token in (#1274).
+fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent_has_kind(node, Java::TernaryExpression as u16)
+}
+
 /// Whether an `instanceof` keyword sits under its `instanceof_expression`.
 /// The grammar spells the keyword in no other production, but error
 /// recovery keeps a keyword whose expression it lost
@@ -213,7 +220,15 @@ role_table! {
     }
 
     // Filled in by the packages that migrate their consumers.
-    Ternary { pending R05 }
+    // The `ternary_expression` owns it and its `?` pays, gated to that
+    // owner: the grammar also spells `?` as a `wildcard` bound, which is
+    // type syntax (#1274). The `Comparison` row's exclusion above says
+    // the same.
+    Ternary {
+        owns [TernaryExpression]
+        pays [QMARK gated_by under_ternary]
+        project "operator"
+    }
     CaseArm { pending R05 }
     Branch { pending R07 }
     Switch { pending R07 }

@@ -21,7 +21,7 @@ impl Cognitive for IrulesCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::irules::short_circuit;
+        use crate::roles::irules::{short_circuit, ternary};
         use Irules::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -41,7 +41,11 @@ impl Cognitive for IrulesCode {
             }
             // Loops and ternary. `DictFor` iterates; `dict update`/`dict with`
             // do not and are excluded.
-            For | Foreach | While | DictFor | TernaryExpr => {
+            For | Foreach | While | DictFor => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `ternary_expr` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; its body only runs when

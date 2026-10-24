@@ -7685,6 +7685,112 @@ end",
         }
     }
 
+    /// #1695: the `Ternary` row's `?` bills as an operator in every
+    /// language whose grammar spells one, and the gated-out spellings —
+    /// a Java / Groovy wildcard, a TypeScript optional member, a C#
+    /// nullable type, a PHP optional type, a Bash expansion — bill as
+    /// they did before the row. Python's `a if c else b` has no token:
+    /// its `if` / `else` bill as the keywords they are.
+    #[cfg(all(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "ruby",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
+    #[test]
+    fn ternary_spellings_bill_1695() {
+        assert_spellings_bill_as_operators::<CParser>(
+            "foo.c",
+            &[
+                ("?", "int f(int a) { return a ? 1 : 2; }\n"),
+                ("?", "int f(int a) { return a ?: 2; }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<CppParser>(
+            "foo.cpp",
+            &[("?", "int f(int a) { return a ? 1 : 2; }\n")],
+        );
+        assert_spellings_bill_as_operators::<MozcppParser>(
+            "foo.cpp",
+            &[("?", "int f(int a) { return a ? 1 : 2; }\n")],
+        );
+        assert_spellings_bill_as_operators::<ObjcParser>(
+            "foo.m",
+            &[("?", "int f(int a) { return a ? 1 : 2; }\n")],
+        );
+        assert_spellings_bill_as_operators::<JavaParser>(
+            "Foo.java",
+            &[
+                ("?", "class C { int f(boolean a) { return a ? 1 : 2; } }\n"),
+                ("?", "class C { java.util.List<? extends Number> l; }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<GroovyParser>(
+            "foo.groovy",
+            &[
+                ("?", "def c = a ? 1 : 2\n"),
+                ("?", "List<? extends Number> l = null\n"),
+            ],
+        );
+        let js: &[(&str, &str)] = &[("?", "let c = a ? 1 : 2;\n")];
+        assert_spellings_bill_as_operators::<JavascriptParser>("foo.js", js);
+        assert_spellings_bill_as_operators::<MozjsParser>("foo.js", js);
+        assert_spellings_bill_as_operators::<TypescriptParser>("foo.ts", js);
+        assert_spellings_bill_as_operators::<TsxParser>("foo.tsx", js);
+        assert_spellings_bill_as_operators::<TypescriptParser>(
+            "foo.ts",
+            &[
+                ("?", "function f(x?: number) { }\n"),
+                ("?", "type U<T> = T extends string ? 1 : 2;\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<CsharpParser>(
+            "foo.cs",
+            &[
+                ("?", "class C { int F(bool a) => a ? 1 : 2; }\n"),
+                ("?", "class C { int? n; }\n"),
+                ("?", "class C { string F(object o) => o?.ToString(); }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<RubyParser>("foo.rb", &[("?", "c = a ? 1 : 2\n")]);
+        assert_spellings_bill_as_operators::<PerlParser>(
+            "foo.pl",
+            &[("?", "my $c = $a ? 1 : 2;\n")],
+        );
+        assert_spellings_bill_as_operators::<PhpParser>(
+            "foo.php",
+            &[
+                ("?", "<?php $c = $a ? 1 : 2;\n"),
+                ("?", "<?php $c = $a ?: 2;\n"),
+                ("?", "<?php function f(?int $a) { }\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<TclParser>(
+            "foo.tcl",
+            &[("?", "set c [expr { $a ? 1 : 2 }]\n")],
+        );
+        assert_spellings_bill_as_operators::<IrulesParser>(
+            "foo.irule",
+            &[("?", "set c [expr { $a ? 1 : 2 }]\n")],
+        );
+        assert_spellings_bill_as_operators::<BashParser>(
+            "foo.sh",
+            &[("?", "c=$(( a ? 1 : 2 ))\n"), ("?", "echo ${y?msg}\n")],
+        );
+    }
+
     /// #1695: Elixir's, Perl's and Bash's `Comparison` / `ShortCircuit`
     /// rows' payers bill as operators, one applied spelling apiece, and
     /// the gated-out spellings — a capture's name, a `Kernel.||` call's,

@@ -15,15 +15,18 @@ impl Cyclomatic for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::perl::short_circuit;
+        use crate::roles::perl::{short_circuit, ternary};
         use Perl as P;
 
         let kind = node.kind_id();
         // `&&` / `||` / `or`, and an `and` that is the operator rather
         // than an auto-quoted key (#1539): the `ShortCircuit` row's
-        // payers (#1695). The defined-or `//` and the compound forms
-        // stay below until their `NullSafe` row.
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // payers, and the `ternary_expression` the `Ternary` row owns
+        // (#1695). The defined-or `//` and the compound forms stay below
+        // until their `NullSafe` row.
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -49,8 +52,7 @@ impl Cyclomatic for PerlCode {
             // #248 (issue #249).
             | P::AMPAMPEQ
             | P::PIPEPIPEEQ
-            | P::SLASHSLASHEQ
-            | P::TernaryExpression => {
+            | P::SLASHSLASHEQ => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

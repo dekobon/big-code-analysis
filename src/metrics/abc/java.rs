@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
-use crate::roles::java::{comparison, short_circuit};
+use crate::roles::java::{comparison, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`): a parenthesis, a cast
@@ -62,8 +62,8 @@ fn java_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
+        || ternary::owns(expr, code, unknown)
         || match expr.kind_id().into() {
-            TernaryExpression => true,
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, java_wrapper_operand);
                 proves_boolean || java_condition_scores_itself(&value, code)
@@ -246,28 +246,19 @@ fn java_count_token_condition<'a>(
     // written — inside a slot or in `boolean b = x < y;` alike — so the
     // leaf projection is read here, and `java_condition_scores_itself`
     // reads the owner so the slot holding one does not pay again.
-    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+    // The `Ternary` row's `?` likewise, gated by the row to the
+    // ternary: tree-sitter-java also emits it bare as the head of a
+    // `wildcard` type argument (`List<? extends T>`), type syntax and no
+    // more a decision than the `<` / `>` around it (#1274).
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+        || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+    {
         stats.conditions += 1.;
         return true;
     }
     match kind.into() {
         Else | Case | Try | Catch => {
             stats.conditions += 1.;
-        }
-        // `?` opens a ternary, but tree-sitter-java also emits it bare
-        // as the head of a `wildcard` type argument
-        // (`List<? extends T>`), which is type syntax and no more a
-        // decision than the `<` / `>` around it (#1274). Those two
-        // productions are the only ones that emit a bare `?`, so the
-        // same allowlist polarity the row's `<` / `>` gate uses settles
-        // it.
-        QMARK => {
-            if ancestors
-                .parent(node)
-                .is_some_and(|parent| matches!(parent.kind_id().into(), TernaryExpression))
-            {
-                stats.conditions += 1.;
-            }
         }
         _ => return false,
     }
@@ -342,8 +333,12 @@ fn java_walk_for_conditions<'a>(
         LambdaExpression => {
             java_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }
-        TernaryExpression => java_walk_ternary(node, code, stats),
         ForStatement => java_walk_for_statement(node, code, stats),
+        // The `ternary_expression` the `Ternary` row owns: its `?` paid
+        // above, this walks its operand slots.
+        _ if ternary::owns_kind(kind, node, code, ancestors) => {
+            java_walk_ternary(node, code, stats);
+        }
         _ => {}
     }
 }

@@ -151,7 +151,8 @@ impl Getter for CppCode {
             // they did before the rows existed. The rows pay the applied
             // spellings and this arm the rest; for these kinds the
             // Halstead vocabulary is the union, so dropping one from a
-            // row moves nothing here.
+            // row moves nothing here. The ternary `?` is not here: the
+            // `Ternary` row pays it ungated.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' `applied` gate leaves out
             LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
@@ -162,7 +163,7 @@ impl Getter for CppCode {
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | Sizeof
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | COLONCOLON | Sizeof
             // The ISO alternative tokens ([lex.digraph]): `not`, `compl`,
             // `and`, `or`, `bitand`, `bitor`, `xor`, `not_eq`, `and_eq`,
             // `or_eq`, `xor_eq` spell `!`, `~`, `&&`, `||`, `&`, `|`, `^`,

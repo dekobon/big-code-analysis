@@ -150,15 +150,16 @@ impl Getter for ObjcCode {
             // rows' `under_binary_expression` gate leaves out — a generic
             // specifier, a protocol list (`id<NSCopying>`), a recovered
             // token — which billed before the rows existed; `LT2` is the
-            // grammar's own generic-opener kind and pays nowhere.
+            // grammar's own generic-opener kind and pays nowhere. The
+            // ternary `?` is not here: the `Ternary` row pays it ungated.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
             // row's `under_binary_expression` gate leaves out
             LT | GT | LT2 | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI
             | Return | Break | Continue | If | Else | Switch | Case | Default | For | While
             | Goto | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
             | PIPE | AMP | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ
-            | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK
-            | Sizeof | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
+            | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof
+            | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
             | ATautoreleasepool | ATselector | ATencode => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

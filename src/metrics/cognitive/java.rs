@@ -21,7 +21,7 @@ impl Cognitive for JavaCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::java::short_circuit;
+        use crate::roles::java::{short_circuit, ternary};
         use Java::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -37,7 +37,11 @@ impl Cognitive for JavaCode {
                 compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
-            | CatchClause | TernaryExpression => {
+            | CatchClause => {
+                increase_nesting(stats, &mut nesting);
+            }
+            // The `ternary_expression` the `Ternary` row owns (#1695).
+            _ if ternary::owns(node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar

@@ -101,8 +101,8 @@ macro_rules! keyword_roles {
 }
 
 /// Emits a [`Getter::get_paying_role`] that bills the paying token of
-/// each listed row as an operator: the `Comparison`, `ShortCircuit`
-/// and `EagerLogical` rows of the language's module under
+/// each listed row as an operator: the `Comparison`, `ShortCircuit`,
+/// `EagerLogical` and `Ternary` rows of the language's module under
 /// `crate::roles` (#1694, #1695). Each row is read at its leaf
 /// projection — the operator token, which is what Halstead counts — so
 /// an owning `binary_expression` bills nothing here and its `<` bills
@@ -119,7 +119,7 @@ macro_rules! paying_roles {
             code: &[u8],
             ancestors: Ancestors<'a, '_>,
         ) -> TokenRole {
-            use $crate::roles::$roles::{comparison, eager_logical, short_circuit};
+            use $crate::roles::$roles::{comparison, eager_logical, short_circuit, ternary};
             let kind = node.kind_id();
             if (comparison::PAYERS.contains(&kind)
                 && comparison::pays_at_leaf_kind(kind, node, code, ancestors))
@@ -127,6 +127,8 @@ macro_rules! paying_roles {
                     && short_circuit::pays_at_leaf_kind(kind, node, code, ancestors))
                 || (eager_logical::PAYERS.contains(&kind)
                     && eager_logical::pays_at_leaf_kind(kind, node, code, ancestors))
+                || (ternary::PAYERS.contains(&kind)
+                    && ternary::pays_at_leaf_kind(kind, node, code, ancestors))
             {
                 TokenRole::Operator
             } else {

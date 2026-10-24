@@ -157,15 +157,20 @@ impl Getter for CsharpCode {
             // `is` for the spelling the `Comparison` row's `under_type_test`
             // gate leaves out — a keyword error recovery strands — which
             // billed before the row existed.
-            // role-bypass: allow(Comparison) — the operator classification of the spelling the
-            // row's `under_type_test` gate leaves out: a recovered keyword
+            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
+            // spellings the rows' `under_type_test` / `under_binary_expression` / `under_ternary`
+            // gates leave out
             | Is
             | New | Await | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
             | Params | Lock | Stackalloc | Where | With | When | Operator
             | Scoped | Not | And | Or
             // Property/event accessor keywords
             | Get | Set | Init | Add | Remove
-            // Structural punctuation
+            // Structural punctuation. `?` stays for the spellings the
+            // `Ternary` row's `under_ternary` gate leaves out — a
+            // conditional access (`a?.b`, the `NullSafe` row's), a
+            // nullable type, a constraint's `class?` — which billed before
+            // the row existed.
             | LBRACE | LBRACK | LPAREN | COMMA | SEMI | COLON | COLONCOLON | DOT
             | DOTDOT | EQGT | DASHGT | QMARK
             // Arithmetic / logical / bitwise / assignment operators. The
@@ -177,8 +182,6 @@ impl Getter for CsharpCode {
             // `Unknown` above), an operator declaration's name, a
             // relational pattern, a recovered token — which billed
             // before the row existed.
-            // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` gate leaves out
             | EQ | EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ
             | PLUS | DASH | STAR | SLASH | PERCENT
             | AMP | PIPE | CARET | TILDE | BANG

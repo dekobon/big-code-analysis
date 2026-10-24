@@ -24,11 +24,14 @@ impl Cyclomatic for ObjcCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::objc::short_circuit;
+        use crate::roles::objc::{short_circuit, ternary};
         use Objc::*;
         let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // `&&` / `||`, the `ShortCircuit` row's payers, and the
+        // `conditional_expression` the `Ternary` row owns (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -40,7 +43,7 @@ impl Cyclomatic for ObjcCode {
             // branch as the other decision kinds, so it rides the
             // combined arm — the C++ family macro folds `Catch` in the
             // same way.
-            CatchClause | If | For | While | ConditionalExpression => {
+            CatchClause | If | For | While => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

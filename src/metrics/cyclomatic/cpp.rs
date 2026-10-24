@@ -36,7 +36,7 @@ use super::*;
 impl_cyclomatic_c_family_rows!(
     CppCode,
     Cpp,
-    ConditionalExpression,
     short_circuit = crate::roles::cpp::short_circuit,
+    ternary = crate::roles::cpp::ternary,
     constraints = [RequiresClause, RequiresExpression],
 );

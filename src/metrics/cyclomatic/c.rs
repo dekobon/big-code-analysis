@@ -20,11 +20,14 @@ impl Cyclomatic for CCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::c::short_circuit;
+        use crate::roles::c::{short_circuit, ternary};
         use C::*;
         let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        // `&&` / `||`, the `ShortCircuit` row's payers, and the
+        // `conditional_expression` the `Ternary` row owns (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -32,7 +35,7 @@ impl Cyclomatic for CCode {
         match kind.into() {
             Case => stats.cyclomatic += 1.,
             SwitchStatement => stats.cyclomatic_modified += 1.,
-            If | For | While | ConditionalExpression => {
+            If | For | While => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

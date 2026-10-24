@@ -17,12 +17,15 @@ impl Cyclomatic for PhpCode {
     ) {
         use Php::*;
 
-        use crate::roles::php::short_circuit;
+        use crate::roles::php::{short_circuit, ternary};
         let kind = node.kind_id();
-        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers
+        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers,
+        // and the `conditional_expression` the `Ternary` row owns
         // (#1695); `??` / `??=` / `?->` stay below until their `NullSafe`
         // row.
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+            || ternary::owns_kind(kind, node, code, ancestors)
+        {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
             return;
@@ -47,7 +50,6 @@ impl Cyclomatic for PhpCode {
             | ForeachStatement
             | WhileStatement
             | DoStatement
-            | ConditionalExpression
             | CatchClause
             | QMARKQMARK
             | QMARKQMARKEQ

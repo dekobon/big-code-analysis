@@ -15,7 +15,7 @@ impl Cyclomatic for BashCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::bash::short_circuit;
+        use crate::roles::bash::{short_circuit, ternary};
         let kind = node.kind_id();
         match kind.into() {
             // Standard-only: individual case arms (matches C-family `case:`
@@ -32,22 +32,12 @@ impl Cyclomatic for BashCode {
             Bash::CaseStatement => {
                 stats.cyclomatic_modified += 1.;
             }
-            // Both standard and modified. `TernaryExpression` is the
-            // arithmetic ternary inside `(( … ))` / `$(( … ))` — the only
-            // ternary form Bash has, and a decision point in every sibling
-            // that has one (#1268). The pinned grammar emits only kind 223
-            // in every arithmetic context; the `TernaryExpression2` alias
-            // is listed defensively per grammar-dispatch §1, following the
-            // ObjC `BinaryExpression | BinaryExpression2` precedent, and
-            // pinned unreachable by
-            // `bash_ternary_expression_alias_is_unreachable`.
+            // Both standard and modified.
             Bash::IfStatement
             | Bash::ElifClause
             | Bash::ForStatement
             | Bash::CStyleForStatement
-            | Bash::WhileStatement
-            | Bash::TernaryExpression
-            | Bash::TernaryExpression2 => {
+            | Bash::WhileStatement => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -55,7 +45,14 @@ impl Cyclomatic for BashCode {
             // as — a decision each like the `[ … ] && [ … ]` and
             // `[[ … && … ]]` twins (#1536): the `ShortCircuit` row's
             // payers, the test spelling read for its bytes by the row.
-            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+            // The arithmetic ternary inside `(( … ))` / `$(( … ))` — the
+            // only ternary form Bash has, and a decision point in every
+            // sibling that has one (#1268) — is the `Ternary` row's
+            // owner; `bash_ternary_expression_alias_is_unreachable` pins
+            // the second id the row lists defensively.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                || ternary::owns_kind(kind, node, code, ancestors) =>
+            {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

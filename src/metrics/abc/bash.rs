@@ -11,7 +11,7 @@
 
 use super::{Abc, Stats};
 use crate::lang_helpers::bash::bash_test_eq_count;
-use crate::roles::bash::comparison;
+use crate::roles::bash::{comparison, ternary};
 use crate::*;
 
 impl Abc for BashCode {
@@ -36,23 +36,19 @@ impl Abc for BashCode {
             Bash::Command => {
                 stats.branches += 1.;
             }
-            // Two condition signals share this arm:
-            //
-            // - Control-flow branches (`if`/`elif`/`while`). A Bash predicate
-            //   is a command, so the branch keyword itself is the only
-            //   condition signal. These branch keywords mirror the matching
-            //   Bash cyclomatic decisions (`if`/`elif`/`while`; not `for`/
-            //   `&&`/`||`), lifting ABC off 0 for `if cmd; then … elif … fi`.
-            // - The arithmetic ternary, Bash's only ternary form, matching
-            //   the C-family `ConditionalExpression` and the Bash
-            //   cyclomatic / cognitive arms that count it (#1268).
-            //   `TernaryExpression2` is listed defensively per
-            //   grammar-dispatch §1, as it is in those two siblings.
-            Bash::IfStatement
-            | Bash::ElifClause
-            | Bash::WhileStatement
-            | Bash::TernaryExpression
-            | Bash::TernaryExpression2 => {
+            // Control-flow branches (`if`/`elif`/`while`). A Bash predicate
+            // is a command, so the branch keyword itself is the only
+            // condition signal. These branch keywords mirror the matching
+            // Bash cyclomatic decisions (`if`/`elif`/`while`; not `for`/
+            // `&&`/`||`), lifting ABC off 0 for `if cmd; then … elif … fi`.
+            Bash::IfStatement | Bash::ElifClause | Bash::WhileStatement => {
+                stats.conditions += 1.;
+            }
+            // The arithmetic ternary, Bash's only ternary form and the
+            // `Ternary` row's owner, read at the wrapper: one condition,
+            // matching the C-family `conditional_expression` and the Bash
+            // cyclomatic / cognitive arms that count it (#1268).
+            _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // The comparison operators, the `Comparison` row's payers

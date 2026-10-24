@@ -109,7 +109,16 @@ role_table! {
         pays [Xor]
         project "operator"
     }
-    Ternary { pending R05 }
+    // The `ternary_expression` owns it and its `?` pays, ungated: the
+    // grammar spells the bare token nowhere else (a regex quantifier is
+    // inside its pattern token). The ABC consumer pays at the node
+    // rather than the token, for the #1273 misparse it has to route
+    // around; one pays per ternary either way.
+    Ternary {
+        owns [TernaryExpression]
+        pays [QMARK]
+        project "operator"
+    }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
     Guard { absent "Perl has no guard clause" }

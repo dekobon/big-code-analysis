@@ -278,13 +278,14 @@ where
 }
 
 /// C-family cyclomatic: `Case` adds standard, `SwitchStatement` adds
-/// modified, and the shared branching kinds add both. The ternary node
-/// name varies (`ConditionalExpression` for C++), so it is a parameter.
-/// The short-circuit arm reads the language's `ShortCircuit` row at its
-/// leaf projection (`short_circuit = <row module>`, #1694): the row's
-/// payer gate is where C++'s "applies its operator" test lives
-/// (`int&& x` and `operator&&` spell the token and apply nothing), so
-/// the macro carries no gate of its own. The JS family, whose
+/// modified, and the shared branching kinds add both. The short-circuit
+/// arm reads the language's `ShortCircuit` row at its leaf projection
+/// (`short_circuit = <row module>`, #1694): the row's payer gate is
+/// where C++'s "applies its operator" test lives (`int&& x` and
+/// `operator&&` spell the token and apply nothing), so the macro
+/// carries no gate of its own. The ternary arm reads the `Ternary` row
+/// at its wrapper — the `conditional_expression` node, one decision —
+/// (`ternary = <row module>`, #1695). The JS family, whose
 /// short-circuit set also has the nullish and compound forms, has its
 /// own macro below.
 ///
@@ -310,8 +311,8 @@ macro_rules! impl_cyclomatic_c_family_rows {
     (
         $code:ty,
         $lang:ident,
-        $ternary:ident,
-        short_circuit = $row:path
+        short_circuit = $row:path,
+        ternary = $ternary_row:path
         $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
     ) => {
         impl Cyclomatic for $code {
@@ -323,6 +324,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
             ) {
                 use $lang::*;
                 use $row as short_circuit;
+                use $ternary_row as ternary;
                 let kind = node.kind_id();
                 $(
                     let opens = matches!(kind.into(), $($constraint)|+);
@@ -330,7 +332,9 @@ macro_rules! impl_cyclomatic_c_family_rows {
                         return;
                     }
                 )?
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                    || ternary::owns_kind(kind, node, code, ancestors)
+                {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;
                     return;
@@ -338,7 +342,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
                 match kind.into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | $ternary => {
+                    If | For | While | Catch => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
@@ -363,9 +367,10 @@ macro_rules! impl_cyclomatic_c_family_rows {
 // wrapper and a child `?.` token (`QMARKDOT`); counting `QMARKDOT`
 // matches every textual `?.` exactly once in TS/TSX.
 //
-// `&&` / `||` are read from the grammar's `ShortCircuit` row (#1695);
-// the nullish and compound forms and the optional chain stay a kind
-// list until their `NullSafe` row lands.
+// `&&` / `||` are read from the grammar's `ShortCircuit` row and the
+// ternary from its `Ternary` row (#1695); the nullish and compound
+// forms and the optional chain stay a kind list until their `NullSafe`
+// row lands.
 macro_rules! impl_cyclomatic_js_family {
     ($code:ty, $lang:ident, $roles:ident, $opt_chain:ident) => {
         impl Cyclomatic for $code {
@@ -375,10 +380,12 @@ macro_rules! impl_cyclomatic_js_family {
                 ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                use crate::roles::$roles::short_circuit;
+                use crate::roles::$roles::{short_circuit, ternary};
                 use $lang::*;
                 let kind = node.kind_id();
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                    || ternary::owns_kind(kind, node, code, ancestors)
+                {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;
                     return;
@@ -386,8 +393,8 @@ macro_rules! impl_cyclomatic_js_family {
                 match kind.into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | TernaryExpression | QMARKQMARK | AMPAMPEQ
-                    | PIPEPIPEEQ | QMARKQMARKEQ | $opt_chain => {
+                    If | For | While | Catch | QMARKQMARK | AMPAMPEQ | PIPEPIPEEQ
+                    | QMARKQMARKEQ | $opt_chain => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
@@ -437,9 +444,16 @@ macro_rules! impl_cyclomatic_js_family {
 //
 // The `&&` / `||` arm reads the language's `ShortCircuit` row at its
 // leaf projection — the token — instead of naming the two kinds
-// (#1694, #1695).
+// (#1694, #1695), and the ternary arm the `Ternary` row at its
+// wrapper, the `ternary_expression` node.
 macro_rules! impl_cyclomatic_java_like_rows {
-    ($code:ty, $lang:ident, [$($extra:ident),* $(,)?], short_circuit = $row:path) => {
+    (
+        $code:ty,
+        $lang:ident,
+        [$($extra:ident),* $(,)?],
+        short_circuit = $row:path,
+        ternary = $ternary_row:path $(,)?
+    ) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
                 node: &Node<'a>,
@@ -449,9 +463,12 @@ macro_rules! impl_cyclomatic_java_like_rows {
             ) {
                 use $lang::*;
                 use $row as short_circuit;
+                use $ternary_row as ternary;
 
                 let kind = node.kind_id();
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+                    || ternary::owns_kind(kind, node, code, ancestors)
+                {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;
                     return;
@@ -463,7 +480,7 @@ macro_rules! impl_cyclomatic_java_like_rows {
                     Switch => {
                         stats.cyclomatic_modified += 1.;
                     }
-                    If | For | While | Catch | TernaryExpression $(| $extra)* => {
+                    If | For | While | Catch $(| $extra)* => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }

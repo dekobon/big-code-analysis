@@ -88,7 +88,12 @@ impl Getter for PhpCode {
             {
                 TokenRole::Unknown
             }
-            // Operator: control-flow keywords
+            // Operator: control-flow keywords. `<` / `>` and `?` stay in
+            // this arm for the spellings the `Comparison` / `Ternary`
+            // rows' gates leave out — a recovered token, an optional
+            // type's `?int` — which billed before the rows existed.
+            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
+            // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             If | Else | Elseif | Endif
             | Switch | Case | Default | Endswitch
             | For | Endfor | Foreach | Endforeach
@@ -123,14 +128,10 @@ impl Getter for PhpCode {
             | PLUS | DASH | STAR | SLASH | PERCENT | STARSTAR
             | PLUSPLUS | DASHDASH
 
-            // `<` / `>` for the spelling the `Comparison` row's parent
-            // gate leaves out — a token error recovery strands — which
-            // billed before the row existed; the other comparison
-            // tokens, `instanceof`, `&&`, `||`, `and` and `or` are the
-            // `Comparison` and `ShortCircuit` rows' and `get_paying_role`
-            // bills them (#1695).
-            // role-bypass: allow(Comparison) — the operator classification of the spelling the
-            // row's `under_binary_expression` gate leaves out: a recovered token
+            // `<` / `>` (see the arm's head); the other comparison tokens,
+            // `instanceof`, `&&`, `||`, `and` and `or` are the `Comparison`
+            // and `ShortCircuit` rows' and `get_paying_role` bills them
+            // (#1695).
             | LT | GT
 
             // Operator: logical; `xor` is the `EagerLogical` row's and

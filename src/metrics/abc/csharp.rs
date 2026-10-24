@@ -14,7 +14,7 @@ use super::{
     count_negated_operand, last_operand, peel, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
-use crate::roles::csharp::{comparison, short_circuit};
+use crate::roles::csharp::{comparison, short_circuit, ternary};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -119,8 +119,8 @@ fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     let unknown = Ancestors::unknown();
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
+        || ternary::owns(expr, code, unknown)
         || match expr.kind_id().into() {
-            ConditionalExpression => true,
             // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
             // `NullSafe` row of #1695 takes over; the rows are read above
             BinaryExpression | BinaryExpression2 => expr
@@ -408,8 +408,11 @@ fn csharp_count_token_condition<'a>(
     // and why the allowlist fails closed under error recovery — is on
     // the row. Fitzpatrick Rule 5 scores the operator wherever it is
     // written, so `bool b = x is string;` scores as `bool b = x == 1;`
-    // does (#1461).
-    if comparison::pays_at_leaf_kind(kind, node, code, ancestors) {
+    // does (#1461). The `Ternary` row's `?` likewise, gated by the row
+    // to the `conditional_expression`.
+    if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+        || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
+    {
         stats.conditions += 1.;
         return true;
     }
@@ -503,12 +506,13 @@ fn csharp_count_token_condition<'a>(
         // tree-sitter-c-sharp emits a bare `?` from exactly four
         // productions: `nullable_type` (`int? x`),
         // `type_parameter_constraint` (`where T : class?`),
-        // `conditional_expression` (the ternary) and
-        // `conditional_access_expression` (`a?.b` *and* `a?[0]` — both
-        // spell their operator as this same bare token, not a distinct
-        // `?.` / `?[` kind). The first two are type syntax and no more a
-        // decision than the `<` / `>` around a generic (#1275); the last
-        // two are decisions.
+        // `conditional_expression` (the ternary, the `Ternary` row's,
+        // paid above) and `conditional_access_expression` (`a?.b`
+        // *and* `a?[0]` — both spell their operator as this same bare
+        // token, not a distinct `?.` / `?[` kind). The first two are
+        // type syntax and no more a decision than the `<` / `>` around
+        // a generic (#1275); the last is a decision, the `NullSafe`
+        // row's, and this arm is what pays it until that row lands.
         //
         // Denylist polarity, deliberately — the opposite of the TS/TSX
         // allowlist this fix installs alongside it and of the Java one
@@ -545,11 +549,13 @@ fn csharp_count_token_condition<'a>(
         // of #1275 and is absent from the issue's own deny set. The four
         // productions above are the closed enumeration at the pinned
         // `=0.23.5`; re-derive it on a grammar bump.
+        // role-bypass: allow(Ternary) — the conditional access's `?`, which the `NullSafe` row
+        // of #1695 takes over; the ternary's is the row's and paid above
         QMARK
             if ancestors.parent(node).is_some_and(|parent| {
                 !matches!(
                     parent.kind_id().into(),
-                    NullableType | TypeParameterConstraint
+                    NullableType | TypeParameterConstraint | ConditionalExpression
                 )
             }) =>
         {
@@ -578,6 +584,10 @@ fn csharp_walk_for_conditions<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
+    // bca: suppress(cyclomatic) — slot dispatch table: one arm per
+    // grammar kind holding a boolean slot, each an independent routing
+    // rule; the row reads (#1695) are arms like the kind arms they
+    // replaced.
     use Csharp::*;
     let conds = &mut stats.conditions;
     let kind = node.kind_id();
@@ -661,8 +671,12 @@ fn csharp_walk_for_conditions<'a>(
         LambdaExpression => {
             csharp_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }
-        ConditionalExpression => csharp_walk_conditional(node, code, stats),
         ForStatement => csharp_walk_for_statement(node, code, stats),
+        // The `conditional_expression` the `Ternary` row owns: its `?`
+        // paid above, this walks its operand slots.
+        _ if ternary::owns_kind(kind, node, code, ancestors) => {
+            csharp_walk_conditional(node, code, stats);
+        }
         _ => {}
     }
 }
