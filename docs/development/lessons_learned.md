@@ -4322,3 +4322,43 @@ memo keyed by node id survives any derivation, and one keyed by
 *walk position* is valid only on the chain the walk built.
 
 ---
+
+## 102. A recovery sweep's cut set is shaped by the drifts it has already found
+
+**Lesson:** When a zero-drift contract is checked by truncating fixtures
+and diffing two binaries, the cut positions decide which recovery trees
+the sweep can reach, and a cut set written after the first drifts
+surfaced reaches exactly those drifts' shapes. Choose the cuts from the
+*grammar's token classes* — every boundary a payer kind can sit at —
+rather than from the failures already seen, and treat a reviewer's
+independently chosen sweep as the only measurement of what yours
+missed. A sweep that reports zero is evidence only over the shapes it
+cut; a second sweep with a different cut rule is cheap, and the two
+disagreeing is the finding.
+
+**The #1695 sweep cut after every operator punctuation character and
+missed every keyword operator** (found by the `review` skill, in the
+review of the finished branch). The first drifts the rows produced were
+a stranded `<`, `?` and `is`, so the sweep that then guarded the branch
+cut one byte after each of `?:<>=!&|~` — and reported 0 of 4,388
+outputs differing through four cleanup commits. The reviewer's sweep
+cut at every line and every operator *or keyword* boundary and found
+two drifts in 1,790 outputs: Groovy's `o instanceof` at end of input
+strands the keyword under `ERROR`, where the `Comparison` row paid it
+ungated while the ABC arm it replaced had paid the expression node;
+and Elixir's `when` inside an `operator_identifier` (`&when/2`), which
+the `Guard` row's Halstead reader billed before `get_op_type`'s
+first test could decline it. Both were keyword payers, the one class
+the punctuation cut set could not reach. Adding a cut after every
+word took the sweep to 14,588 outputs and found a third, the same
+Groovy shape on the byte-less getter arm.
+
+Two things follow. The oracle's rule should be derivable from the
+change under test — here, "a payer kind at every position the grammar
+can strand it" — and written down with the sweep, so the next reader
+can see what it does not cut. And a review that re-derives the
+measurement is worth more than one that re-reads the code: the two
+rows that failed were in files four reviewers had read, and only the
+one that ran its own inputs saw them.
+
+---
