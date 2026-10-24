@@ -138,6 +138,41 @@ for historical reference.
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
 
+### Fixed
+
+- **Groovy's `var` bills as a declaration keyword** (#1704). The
+  keyword leaf of a `local_variable_declaration` was in no operator
+  arm, so `def f() { var x = 1 }` billed one operator fewer than its
+  `def` spelling. It now sits on the `DeclKeyword` row beside `def`,
+  gated on its parent as `trait` and `record` are, because a statement
+  that opens with `var` as a name (`var = 4`, `var++`) fails into an
+  `ERROR` holding the same leaf and keeps billing nothing. A `var`
+  used as a name elsewhere stays an operand, and the `var` of a field
+  or of `final var`, which the grammar reads as a type name, bills as
+  it did. Every Groovy fixture with a `var` local moves by one operator
+  per declaration.
+
+- **A Java 21 string template's wrapper is no longer an operand**
+  (#1703). `STR."Hi \{name}!"` billed the literal's whole text *and*
+  the `name` inside it, two operands for one, because Java's getter
+  never reached the shared interpolation skip (#420) every other
+  interpolating language already had. The `string_literal` now yields
+  nothing when it holds a `string_interpolation`, read from the
+  `StringLit` row's `wraps` set in `roles/java.rs`; its expressions
+  bill on their own, once each. A plain literal is still one operand.
+
+- **Perl's `__END__` / `__DATA__` section bills nothing, and each
+  `__FILE__` bills once** (#1644). tree-sitter-perl holds the marker
+  and every byte after it in the same `special_literal` node it wraps
+  `__FILE__`, `__LINE__`, `__PACKAGE__` and `__SUB__` in, and the
+  getter billed that node by text: the data section was one operand
+  spelling its contents, so two files differing only after `__END__`
+  scored differently, and each constant billed twice — as the wrapper
+  and as the keyword inside it. The keyword leaf is now the one
+  operand (it is the node every spelling has; `__SUB__->(1)` emits it
+  with no wrapper), and the terminator and the section after it bill
+  nothing. `tokens` still counts the marker and the data leaf.
+
 ## [2.4.0] - 2026-10-21
 
 ### Added
