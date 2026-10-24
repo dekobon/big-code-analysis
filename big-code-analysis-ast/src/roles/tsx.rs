@@ -3,7 +3,10 @@
 
 use crate::Tsx;
 use crate::role_table;
-use crate::roles::js_family::{js_family_decl_keywords, js_family_modifiers, ts_family_gates};
+use crate::roles::js_family::{
+    js_family_decl_keywords, js_family_modifiers, ts_family_decl_keywords, ts_family_gates,
+    ts_family_modifiers,
+};
 
 ts_family_gates!(Tsx);
 
@@ -24,48 +27,12 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    // TypeScript's three keyword rows, with TSX's own `String3` for the
-    // `: string` keyword; the derivations are on the TypeScript rows.
-    // The shared JS-family `static` (`roles/js_family.rs`) plus the
-    // member modifiers #1563 bills as C# and Kotlin bill theirs:
-    // `public`, `private`, `protected`, `override`, `readonly`,
-    // `abstract` and `accessor`, and `declare` (#1557). Each is its
-    // keyword leaf, one kind apiece. `public` / `private` / `protected`
-    // sit under an `accessibility_modifier` and `override` under an
-    // `override_modifier`; both wrappers stay unlisted, so a modifier
-    // bills once. The same leaves bill outside a class too: a parameter
-    // property (`constructor(private x)`), `readonly T[]`, a mapped
-    // type's `-readonly`, `abstract class` and `abstract new () => T`.
-    // Used as a name (`let readonly = 1`, `o.public`, `abstract()` in an
-    // expression, a field named `static`) the grammar emits an
-    // identifier. The pinned grammar misreads a few valid name
-    // spellings as the keyword under or beside an ERROR — a statement
-    // `abstract();`, a field `abstract;` or `accessor = 1`, and an
-    // object-type member `abstract: T` — so those bill the operator.
-    // They billed nothing before, and none occurs in the corpora.
-    Modifier {
-        owns [
-            ..js_family_modifiers!(),
-            Public, Private, Protected, Override, Readonly, Abstract, Accessor, Declare,
-        ]
-    }
-    // The shared JS-family keywords plus `interface` and `enum`, the
-    // type-declaration leaves billed as the shared `class` is (#1552)
-    // and as C# and Java bill theirs, and `type`, `namespace`, `module`
-    // and `global` (#1557); every `*_declaration` wrapper stays
-    // unlisted. `Module2` is the `module` keyword leaf; the unsuffixed
-    // `Module` is the declaration node that wraps it. Each word is
-    // contextual, but used as a name (`let type = 1`, `module.exports`)
-    // the grammar emits an `identifier`, never the keyword leaf — except
-    // a binding named `type` in an export clause, which is what the
-    // gate on `Type` reads. `type` also bills in `import type` /
-    // `export type`, where it is the same leaf.
-    DeclKeyword {
-        owns [
-            ..js_family_decl_keywords!(),
-            Interface, Enum, Type(gated_by declares_a_type), Namespace, Module2, Global,
-        ]
-    }
+    // TypeScript's keyword rows through the shared JS-family and
+    // TS-family fragments (`roles/js_family.rs`), with TSX's own
+    // `String3` for the `: string` keyword below; the derivations are
+    // on the TypeScript rows.
+    Modifier { owns [..js_family_modifiers!(), ..ts_family_modifiers!()] }
+    DeclKeyword { owns [..js_family_decl_keywords!(), ..ts_family_decl_keywords!()] }
     // `predefined_type` is the TS type-keyword set (`string`, `number`,
     // `boolean`, …), one kind for every spelling, so
     // `Checker::is_primitive` keys it by text; the gate leaves `void`

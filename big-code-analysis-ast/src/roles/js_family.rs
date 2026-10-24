@@ -88,4 +88,35 @@ macro_rules! ts_family_gates {
     };
 }
 
-pub(crate) use ts_family_gates;
+/// The TypeScript-only modifiers both TS grammars bill beside the
+/// shared JS-family `static` (#1563, #1557): `public`, `private`,
+/// `protected`, `override`, `readonly`, `abstract`, `accessor` and
+/// `declare`. Each is its keyword leaf, one kind apiece; the
+/// `accessibility_modifier` / `override_modifier` wrappers stay
+/// unlisted so a modifier bills once. The spelling notes — where each
+/// leaf bills outside a class, and the name spellings the pinned
+/// grammar misreads under an ERROR — are on the TypeScript row.
+macro_rules! ts_family_modifiers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            Public, Private, Protected, Override, Readonly, Abstract, Accessor, Declare,
+        ] $($rest)*);
+    };
+}
+
+/// The TypeScript-only declaration keywords both TS grammars bill
+/// beside the shared JS-family `class` / `function` (#1552, #1557):
+/// `interface`, `enum`, `type` — gated by the dialect's
+/// `declares_a_type`, which resolves at the splicing row —
+/// `namespace`, `module` (`Module2`, the keyword leaf; `Module` is the
+/// declaration node) and `global`. The contextual-word notes are on
+/// the TypeScript row.
+macro_rules! ts_family_decl_keywords {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            Interface, Enum, Type(gated_by declares_a_type), Namespace, Module2, Global,
+        ] $($rest)*);
+    };
+}
+
+pub(crate) use {ts_family_decl_keywords, ts_family_gates, ts_family_modifiers};

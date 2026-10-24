@@ -3,7 +3,10 @@
 
 use crate::Typescript;
 use crate::role_table;
-use crate::roles::js_family::{js_family_decl_keywords, js_family_modifiers, ts_family_gates};
+use crate::roles::js_family::{
+    js_family_decl_keywords, js_family_modifiers, ts_family_decl_keywords, ts_family_gates,
+    ts_family_modifiers,
+};
 
 ts_family_gates!(Typescript);
 
@@ -25,7 +28,8 @@ role_table! {
     ElseIf { pending R07 }
     Exit { pending R07 }
     // The shared JS-family `static` (`roles/js_family.rs`) plus the
-    // member modifiers #1563 bills as C# and Kotlin bill theirs:
+    // TS-family member modifiers — the fragment TSX splices too — that
+    // #1563 bills as C# and Kotlin bill theirs:
     // `public`, `private`, `protected`, `override`, `readonly`,
     // `abstract` and `accessor`, and `declare` (#1557). Each is its
     // keyword leaf, one kind apiece. `public` / `private` / `protected`
@@ -41,13 +45,9 @@ role_table! {
     // `abstract();`, a field `abstract;` or `accessor = 1`, and an
     // object-type member `abstract: T` — so those bill the operator.
     // They billed nothing before, and none occurs in the corpora.
-    Modifier {
-        owns [
-            ..js_family_modifiers!(),
-            Public, Private, Protected, Override, Readonly, Abstract, Accessor, Declare,
-        ]
-    }
-    // The shared JS-family keywords plus `interface` and `enum`, the
+    Modifier { owns [..js_family_modifiers!(), ..ts_family_modifiers!()] }
+    // The shared JS-family keywords plus the TS-family fragment TSX
+    // splices too: `interface` and `enum`, the
     // type-declaration leaves billed as the shared `class` is (#1552)
     // and as C# and Java bill theirs, and `type`, `namespace`, `module`
     // and `global` (#1557); every `*_declaration` wrapper stays
@@ -58,12 +58,7 @@ role_table! {
     // a binding named `type` in an export clause, which is what the
     // gate on `Type` reads. `type` also bills in `import type` /
     // `export type`, where it is the same leaf.
-    DeclKeyword {
-        owns [
-            ..js_family_decl_keywords!(),
-            Interface, Enum, Type(gated_by declares_a_type), Namespace, Module2, Global,
-        ]
-    }
+    DeclKeyword { owns [..js_family_decl_keywords!(), ..ts_family_decl_keywords!()] }
     // `predefined_type` is the TS type-keyword set (`string`, `number`,
     // `boolean`, …), one kind for every spelling, so
     // `Checker::is_primitive` keys it by text; the gate leaves `void`
