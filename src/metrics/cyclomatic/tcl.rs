@@ -12,18 +12,19 @@ impl Cyclomatic for TclCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
-            Tcl::If
-            | Tcl::Elseif
-            | Tcl::Foreach
-            | Tcl::While
-            | Tcl::Catch
-            | Tcl::TernaryExpr
-            | Tcl::AMPAMP
-            | Tcl::PIPEPIPE => {
+        use crate::roles::tcl::short_circuit;
+        let kind = node.kind_id();
+        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
+            Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch | Tcl::TernaryExpr => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

@@ -3,13 +3,35 @@
 
 use crate::Irules;
 use crate::role_table;
+use crate::roles::tcl_family::{
+    tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
+};
+
+tcl_family_gates!();
 
 role_table! {
     lang: Irules;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // Tcl's rows (`roles/tcl_family.rs`) plus iRules' own operators.
+    // The comparison row adds the string and glob comparators
+    // `starts_with`, `ends_with`, `contains`, `equals`, `matches`,
+    // `matches_regex` and `matches_glob`; the short-circuit row adds the
+    // word spellings `and` / `or`. Each is a kind of its own that the
+    // grammar emits only inside a `binop_expr`.
+    Comparison {
+        owns [BinopExpr(gated_by comparison_operator)]
+        pays [
+            ..tcl_family_comparison_payers!(),
+            StartsWith, EndsWith, Contains, Equals, Matches, MatchesRegex, MatchesGlob,
+        ]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [BinopExpr(gated_by short_circuit_operator)]
+        pays [..tcl_family_short_circuit_payers!(), And, Or]
+        project "operator"
+    }
     EagerLogical { absent "Tcl's `&` / `|` inside `expr` are bitwise" }
     Ternary { pending R05 }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }

@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for IrulesCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::irules::short_circuit;
         use Irules::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -67,7 +68,11 @@ impl Cognitive for IrulesCode {
             // and the iRules keyword forms (`and`/`or`), each keyword keyed
             // to the symbol it aliases so a mixed spelling stays one
             // sequence (#1530).
-            BinopExpr => {
+            // A `binop_expr` the `ShortCircuit` row owns (#1695); which of
+            // its payers share a key is this consumer's reading.
+            // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
+            // membership: the row is read on the arm's guard
+            _ if short_circuit::owns(node, code, ancestors) => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

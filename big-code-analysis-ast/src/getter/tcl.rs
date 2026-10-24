@@ -16,6 +16,8 @@ impl Getter for TclCode {
 
     keyword_roles!(tcl);
 
+    paying_roles!(tcl);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // The braced-word rule (#1354 / #1317), whose two halves
@@ -144,11 +146,6 @@ impl Getter for TclCode {
             | Tcl::Finally2
             | Tcl::Regexp2
             | Tcl::Expr2
-            // String comparison operators.
-            | Tcl::Eq
-            | Tcl::Ne
-            | Tcl::In
-            | Tcl::Ni
             // Structural punctuation. Only the *opening* delimiter is an
             // operator (the pair folds to one glyph in
             // `get_operator_id_as_str`); counting the matching closer too
@@ -178,17 +175,10 @@ impl Getter for TclCode {
             | Tcl::TILDE
             | Tcl::LTLT
             | Tcl::GTGT
-            // Comparison operators.
-            | Tcl::EQEQ
-            | Tcl::BANGEQ
-            | Tcl::LT
-            | Tcl::GT
-            | Tcl::LTEQ
-            | Tcl::GTEQ
-            // Logical operators.
+            // The comparison and short-circuit operators are not here:
+            // the `Comparison` and `ShortCircuit` rows of `roles/tcl.rs`
+            // pay them and `get_paying_role` bills them (#1695).
             | Tcl::BANG
-            | Tcl::AMPAMP
-            | Tcl::PIPEPIPE
             // Ternary conditional operator.
             | Tcl::QMARK => TokenRole::Operator,
 

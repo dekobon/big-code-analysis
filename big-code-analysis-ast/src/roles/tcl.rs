@@ -3,13 +3,32 @@
 
 use crate::Tcl;
 use crate::role_table;
+use crate::roles::tcl_family::{
+    tcl_family_comparison_payers, tcl_family_gates, tcl_family_short_circuit_payers,
+};
+
+tcl_family_gates!();
 
 role_table! {
     lang: Tcl;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // A `binop_expr` names no operator field; its operator is one token
+    // among its children, so each row's owner is gated on holding one
+    // of the row's payers, and `project` — the first payer child — is
+    // the lookup (`roles/tcl_family.rs` has the lists). A chained
+    // `$a < $b && $c` is a left-nested pair of `binop_expr`s, each
+    // owning its own operator.
+    Comparison {
+        owns [BinopExpr(gated_by comparison_operator)]
+        pays [..tcl_family_comparison_payers!()]
+        project "operator"
+    }
+    ShortCircuit {
+        owns [BinopExpr(gated_by short_circuit_operator)]
+        pays [..tcl_family_short_circuit_payers!()]
+        project "operator"
+    }
     EagerLogical { absent "Tcl's `&` / `|` inside `expr` are bitwise" }
     Ternary { pending R05 }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }

@@ -254,12 +254,6 @@ metric = "halstead.effort"
 value = 76163.33479442904
 
 [[entry]]
-path = "big-code-analysis-ast/src/getter/irules.rs"
-qualified = "IrulesCode::get_op_type"
-metric = "halstead.effort"
-value = 48556.8881128996
-
-[[entry]]
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
@@ -1085,7 +1079,7 @@ value = 5.0
 path = "src/metrics/cognitive/tcl.rs"
 qualified = "TclCode::compute"
 metric = "cyclomatic"
-value = 15.0
+value = 16.0
 
 [[entry]]
 path = "src/metrics/cognitive/tcl.rs"

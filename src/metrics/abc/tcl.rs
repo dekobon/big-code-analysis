@@ -12,6 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
 };
+use crate::roles::tcl::{comparison, short_circuit};
 use crate::*;
 
 // Names of Tcl commands that mutate a variable. Each invocation of
@@ -69,32 +70,16 @@ fn tcl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 }
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a ternary (its own arm), or a `binop_expr` applying a
-// comparison (the token arm) or `&&` / `||`, whose operands each pay
-// through `tcl_count_condition`. The grammar names no operator field, so
-// the operator is found among the node's tokens.
-fn tcl_condition_scores_itself(expr: &Node) -> bool {
-    match expr.kind_id().into() {
-        Tcl::TernaryExpr => true,
-        Tcl::BinopExpr => expr.children().any(|token| {
-            matches!(
-                token.kind_id().into(),
-                Tcl::EQEQ
-                    | Tcl::BANGEQ
-                    | Tcl::LT
-                    | Tcl::GT
-                    | Tcl::LTEQ
-                    | Tcl::GTEQ
-                    | Tcl::Eq
-                    | Tcl::Ne
-                    | Tcl::In
-                    | Tcl::Ni
-                    | Tcl::AMPAMP
-                    | Tcl::PIPEPIPE
-            )
-        }),
-        _ => false,
-    }
+// a condition: a ternary (its own arm), or a `binop_expr` the
+// `Comparison` or `ShortCircuit` row owns — one applying a comparison
+// (paid by its token) or `&&` / `||`, whose operands each pay through
+// `tcl_count_condition`. Neither owner gate reads ancestors, so the
+// peeled descendant is asked with none.
+fn tcl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Tcl::TernaryExpr as u16
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` predicate, a
@@ -102,21 +87,26 @@ fn tcl_condition_scores_itself(expr: &Node) -> bool {
 // `count_boolean_slot`). `expr` tests any number for non-zero, so
 // `if {-$x}` and `if {$x + 1}` are each a decision, and each scored 0
 // while the slot paid only for a fixed list of terminal kinds (#1526).
-fn tcl_count_condition(condition: &Node, conditions: &mut f64) {
+fn tcl_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         tcl_wrapper_operand,
-        tcl_condition_scores_itself,
+        |expr| tcl_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
 // Each operand of a chain is a boolean slot (Fitzpatrick Rule 9, #403).
 // The operands are the chain's named children: the grammar names no
-// operand field, and inlines the parens of `($a)`.
-fn tcl_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    if chain.kind_id() == Tcl::BinopExpr {
-        count_each_operand(chain, tcl_count_condition, conditions);
+// operand field, and inlines the parens of `($a)`. The chain is the
+// `ShortCircuit` row's owner, the token's parent.
+fn tcl_count_chain_operands(chain: &Node, code: &[u8], conditions: &mut f64) {
+    if short_circuit::owns(chain, code, Ancestors::unknown()) {
+        count_each_operand(
+            chain,
+            |operand, conds| tcl_count_condition(operand, code, conds),
+            conditions,
+        );
     }
 }
 
@@ -159,16 +149,16 @@ fn tcl_ternary_slots<'a>(
 /// Routes the three ternary slots (#1180): the condition is a boolean
 /// slot, and each branch counts only if a `!` makes it a negated operand
 /// (see `count_negated_operand`).
-fn tcl_walk_ternary(node: &Node, conditions: &mut f64) {
+fn tcl_walk_ternary(node: &Node, code: &[u8], conditions: &mut f64) {
     let (condition, consequence, alternative) = tcl_ternary_slots(node);
     if let Some(condition) = condition {
-        tcl_count_condition(&condition, conditions);
+        tcl_count_condition(&condition, code, conditions);
     }
     for branch in [consequence, alternative].into_iter().flatten() {
         count_negated_operand(
             &branch,
             tcl_wrapper_operand,
-            tcl_condition_scores_itself,
+            |expr| tcl_condition_scores_itself(expr, code),
             conditions,
         );
     }
@@ -195,7 +185,13 @@ impl Abc for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
+        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold; the two row reads (#1695) are arms like
+        // the token arms they replaced.
+        let kind = node.kind_id();
+        match kind.into() {
             // The `set` production wraps `set name value` as a
             // first-class node distinct from generic commands.
             Tcl::Set => {
@@ -212,17 +208,12 @@ impl Abc for TclCode {
                     stats.branches += 1.;
                 }
             }
-            Tcl::EQEQ
-            | Tcl::BANGEQ
-            | Tcl::LT
-            | Tcl::GT
-            | Tcl::LTEQ
-            | Tcl::GTEQ
-            | Tcl::Eq
-            | Tcl::Ne
-            | Tcl::In
-            | Tcl::Ni
-            | Tcl::Else => {
+            Tcl::Else => {
+                stats.conditions += 1.;
+            }
+            // The ten comparison tokens, the `Comparison` row's payers
+            // (`roles/tcl.rs`): the six symbols, `eq` / `ne`, `in` / `ni`.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Phase 2B slot routing (#1180). `if` / `while` / `elseif`
@@ -231,7 +222,7 @@ impl Abc for TclCode {
             // operator token arm above, not again through the slot.
             Tcl::If | Tcl::While => {
                 if let Some(expr) = tcl_condition_expr(node) {
-                    tcl_count_condition(&expr, &mut stats.conditions);
+                    tcl_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
             // `elseif` is both a clause (one condition, as before) and a
@@ -240,20 +231,22 @@ impl Abc for TclCode {
             Tcl::Elseif => {
                 stats.conditions += 1.;
                 if let Some(expr) = tcl_condition_expr(node) {
-                    tcl_count_condition(&expr, &mut stats.conditions);
+                    tcl_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
             // The `?` marker is one condition, as before; its three
             // operand slots are new.
             Tcl::TernaryExpr => {
                 stats.conditions += 1.;
-                tcl_walk_ternary(node, &mut stats.conditions);
+                tcl_walk_ternary(node, code, &mut stats.conditions);
             }
             // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||`
-            // chain inside an `expr` slot is one condition (issue #403).
-            Tcl::AMPAMP | Tcl::PIPEPIPE => {
+            // chain inside an `expr` slot is one condition (issue #403);
+            // the `ShortCircuit` row is read at its leaf only to find the
+            // chain, the token's parent.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(chain) = ancestors.parent(node) {
-                    tcl_count_chain_operands(&chain, &mut stats.conditions);
+                    tcl_count_chain_operands(&chain, code, &mut stats.conditions);
                 }
             }
             _ => {}

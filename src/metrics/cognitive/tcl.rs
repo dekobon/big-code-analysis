@@ -21,6 +21,7 @@ impl Cognitive for TclCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::tcl::short_circuit;
         use Tcl::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -90,8 +91,9 @@ impl Cognitive for TclCode {
                 }
                 _ => {}
             },
-            BinopExpr => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            // A `binop_expr` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             Procedure => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[Procedure]);

@@ -253,6 +253,7 @@ pub mod python;
 pub mod ruby;
 pub mod rust;
 pub mod tcl;
+pub mod tcl_family;
 pub mod tsx;
 pub mod typescript;
 

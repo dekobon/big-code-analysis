@@ -30,12 +30,14 @@ use crate::{LANG, Metric, MetricsOptions};
     feature = "c",
     feature = "cpp",
     feature = "go",
+    feature = "irules",
     feature = "java",
     feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "python",
     feature = "rust",
+    feature = "tcl",
 ))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
@@ -334,6 +336,58 @@ fn lua_rows_feed_each_abc_path_independently() {
             ("return a or b", 2, 1),
             ("return a and x > 1", 2, 1),
             ("if a and b or x > 1 then end return a", 3, 3),
+        ],
+    );
+}
+
+/// Tcl and iRules: a `binop_expr` names no operator field, so each row's
+/// owner is gated on holding a payer child and the row's projection is
+/// the lookup. The `f` function is a `proc`.
+#[cfg(any(feature = "tcl", feature = "irules"))]
+fn assert_tcl_rows(lang: LANG) {
+    assert_rows(
+        lang,
+        "proc f {a b x y} {\n    BODY\n}\n",
+        &[
+            ("if { $a } { }", 1, 1),
+            ("if { $x < $y } { }", 1, 1),
+            ("if { $x != $y } { }", 1, 1),
+            ("if { $a eq \"x\" } { }", 1, 1),
+            ("if { $a in {1 2} } { }", 1, 1),
+            // outside any slot: only the token arm can pay
+            ("set c [expr { $x < $y }]", 1, 0),
+            ("set c [expr { $a ne \"x\" }]", 1, 0),
+            ("set c [expr { $a in {1 2} }]", 1, 0),
+            // the chain: two operand slots, nothing for the token
+            ("set c [expr { $a && $b }]", 2, 1),
+            ("set c [expr { $a || $b }]", 2, 1),
+            ("if { $a && $x > 1 } { }", 2, 2),
+            ("if { $a && $b || $x > 1 } { }", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "tcl")]
+fn tcl_rows_feed_each_abc_path_independently() {
+    assert_tcl_rows(LANG::Tcl);
+}
+
+#[test]
+#[cfg(feature = "irules")]
+fn irules_rows_feed_each_abc_path_independently() {
+    assert_tcl_rows(LANG::Irules);
+    // iRules' own spellings: the string comparators and the word-form
+    // chain operators.
+    assert_rows(
+        LANG::Irules,
+        "proc f {a b x y} {\n    BODY\n}\n",
+        &[
+            ("if { $a starts_with \"x\" } { }", 1, 1),
+            ("if { $a contains \"x\" } { }", 1, 1),
+            ("set c [expr { $a matches_regex \"x\" }]", 1, 0),
+            ("set c [expr { $a and $b }]", 2, 1),
+            ("if { $a or $b || $x > 1 } { }", 3, 3),
         ],
     );
 }

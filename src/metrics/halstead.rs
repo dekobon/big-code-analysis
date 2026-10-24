@@ -7672,6 +7672,58 @@ end",
         }
     }
 
+    /// #1695: the Tcl and iRules `Comparison` / `ShortCircuit` rows'
+    /// payers bill as operators, one spelling apiece, through the
+    /// braced-word revision both dialects route the walk through.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "set c [expr { $a < 1 }]\n"),
+            (">", "set c [expr { $a > 1 }]\n"),
+            ("<=", "set c [expr { $a <= 1 }]\n"),
+            (">=", "set c [expr { $a >= 1 }]\n"),
+            ("==", "set c [expr { $a == 1 }]\n"),
+            ("!=", "set c [expr { $a != 1 }]\n"),
+            ("eq", "set c [expr { $a eq \"x\" }]\n"),
+            ("ne", "set c [expr { $a ne \"x\" }]\n"),
+            ("in", "set c [expr { $a in {1 2} }]\n"),
+            ("ni", "set c [expr { $a ni {1 2} }]\n"),
+            ("&&", "set c [expr { $a && $b }]\n"),
+            ("||", "set c [expr { $a || $b }]\n"),
+        ];
+        assert_spellings_bill_as_operators::<TclParser>("foo.tcl", ROWS);
+    }
+
+    #[cfg(feature = "irules")]
+    #[test]
+    fn irules_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "set c [expr { $a < 1 }]\n"),
+            (">", "set c [expr { $a > 1 }]\n"),
+            ("<=", "set c [expr { $a <= 1 }]\n"),
+            (">=", "set c [expr { $a >= 1 }]\n"),
+            ("==", "set c [expr { $a == 1 }]\n"),
+            ("!=", "set c [expr { $a != 1 }]\n"),
+            ("eq", "set c [expr { $a eq \"x\" }]\n"),
+            ("ne", "set c [expr { $a ne \"x\" }]\n"),
+            ("in", "set c [expr { $a in {1 2} }]\n"),
+            ("ni", "set c [expr { $a ni {1 2} }]\n"),
+            ("starts_with", "set c [expr { $a starts_with \"x\" }]\n"),
+            ("ends_with", "set c [expr { $a ends_with \"x\" }]\n"),
+            ("contains", "set c [expr { $a contains \"x\" }]\n"),
+            ("equals", "set c [expr { $a equals \"x\" }]\n"),
+            ("matches", "set c [expr { $a matches \"x\" }]\n"),
+            ("matches_regex", "set c [expr { $a matches_regex \"x\" }]\n"),
+            ("matches_glob", "set c [expr { $a matches_glob \"x\" }]\n"),
+            ("&&", "set c [expr { $a && $b }]\n"),
+            ("||", "set c [expr { $a || $b }]\n"),
+            ("and", "set c [expr { $a and $b }]\n"),
+            ("or", "set c [expr { $a or $b }]\n"),
+        ];
+        assert_spellings_bill_as_operators::<IrulesParser>("foo.irule", ROWS);
+    }
+
     /// #1695: the Go, Rust and Lua `Comparison` / `ShortCircuit` rows'
     /// payers bill as operators, one spelling apiece; the gated-out
     /// spellings (a Rust generic opener as the `<>` pair, an empty

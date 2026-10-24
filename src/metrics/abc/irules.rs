@@ -12,6 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
 };
+use crate::roles::irules::{comparison, short_circuit};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -51,16 +52,16 @@ fn irules_ternary_slots<'a>(
 }
 
 /// Routes the three ternary slots (#1180) — see `tcl_walk_ternary`.
-fn irules_walk_ternary(node: &Node, conditions: &mut f64) {
+fn irules_walk_ternary(node: &Node, code: &[u8], conditions: &mut f64) {
     let (condition, consequence, alternative) = irules_ternary_slots(node);
     if let Some(condition) = condition {
-        irules_count_condition(&condition, conditions);
+        irules_count_condition(&condition, code, conditions);
     }
     for branch in [consequence, alternative].into_iter().flatten() {
         count_negated_operand(
             &branch,
             irules_wrapper_operand,
-            irules_condition_scores_itself,
+            |expr| irules_condition_scores_itself(expr, code),
             conditions,
         );
     }
@@ -87,7 +88,13 @@ impl Abc for IrulesCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
+        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold; the two row reads (#1695) are arms like
+        // the token arms they replaced.
+        let kind = node.kind_id();
+        match kind.into() {
             // The `set name value` production is a first-class node.
             Irules::Set => {
                 stats.assignments += 1.;
@@ -107,50 +114,40 @@ impl Abc for IrulesCode {
             // and each `elseif` / `else` clause. iRules adds the word-form
             // string comparators (`starts_with`, `contains`, `matches`, …)
             // that Tcl lacks.
-            Irules::EQEQ
-            | Irules::BANGEQ
-            | Irules::LT
-            | Irules::GT
-            | Irules::LTEQ
-            | Irules::GTEQ
-            | Irules::Eq
-            | Irules::Ne
-            | Irules::StartsWith
-            | Irules::EndsWith
-            | Irules::Contains
-            | Irules::Equals
-            | Irules::Matches
-            | Irules::MatchesRegex
-            | Irules::MatchesGlob
-            | Irules::In
-            | Irules::Ni
-            | Irules::Else => {
+            Irules::Else => {
+                stats.conditions += 1.;
+            }
+            // The comparison tokens, the `Comparison` row's payers
+            // (`roles/irules.rs`): Tcl's ten plus the word-form string
+            // comparators (`starts_with`, `contains`, `matches`, …) Tcl
+            // lacks.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Phase 2B slot routing (#1180) — see `tcl.rs`, which this
             // mirrors arm for arm.
             Irules::If | Irules::While => {
                 if let Some(expr) = irules_condition_expr(node) {
-                    irules_count_condition(&expr, &mut stats.conditions);
+                    irules_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
             Irules::Elseif => {
                 stats.conditions += 1.;
                 if let Some(expr) = irules_condition_expr(node) {
-                    irules_count_condition(&expr, &mut stats.conditions);
+                    irules_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
             Irules::TernaryExpr => {
                 stats.conditions += 1.;
-                irules_walk_ternary(node, &mut stats.conditions);
+                irules_walk_ternary(node, code, &mut stats.conditions);
             }
             // Fitzpatrick Rule 9: the short-circuit operators are not counted
             // directly (cross-language policy, #395); instead each operand of
             // a `&&`/`||`/`and`/`or` chain is one condition (#403). iRules'
             // keyword forms (`and`/`or`) get the same treatment as `&&`/`||`.
-            Irules::AMPAMP | Irules::PIPEPIPE | Irules::And | Irules::Or => {
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(chain) = ancestors.parent(node) {
-                    irules_count_chain_operands(&chain, &mut stats.conditions);
+                    irules_count_chain_operands(&chain, code, &mut stats.conditions);
                 }
             }
             _ => {}
@@ -198,54 +195,33 @@ fn irules_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
 // iRules counterpart of `tcl_condition_scores_itself`, with the word-form
 // string comparators and the keyword chain forms Tcl lacks.
-fn irules_condition_scores_itself(expr: &Node) -> bool {
-    match expr.kind_id().into() {
-        Irules::TernaryExpr => true,
-        Irules::BinopExpr => expr.children().any(|token| {
-            matches!(
-                token.kind_id().into(),
-                Irules::EQEQ
-                    | Irules::BANGEQ
-                    | Irules::LT
-                    | Irules::GT
-                    | Irules::LTEQ
-                    | Irules::GTEQ
-                    | Irules::Eq
-                    | Irules::Ne
-                    | Irules::StartsWith
-                    | Irules::EndsWith
-                    | Irules::Contains
-                    | Irules::Equals
-                    | Irules::Matches
-                    | Irules::MatchesRegex
-                    | Irules::MatchesGlob
-                    | Irules::In
-                    | Irules::Ni
-                    | Irules::AMPAMP
-                    | Irules::PIPEPIPE
-                    | Irules::And
-                    | Irules::Or
-            )
-        }),
-        _ => false,
-    }
+fn irules_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Irules::TernaryExpr as u16
 }
 
 // iRules counterpart of `tcl_count_condition` (#1526).
-fn irules_count_condition(condition: &Node, conditions: &mut f64) {
+fn irules_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         irules_wrapper_operand,
-        irules_condition_scores_itself,
+        |expr| irules_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
 // Each operand of a chain is a boolean slot (Fitzpatrick Rule 9, #403).
 // The operands are the chain's named children: the grammar names no
-// operand field, and inlines the parens of `($a)`.
-fn irules_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    if chain.kind_id() == Irules::BinopExpr {
-        count_each_operand(chain, irules_count_condition, conditions);
+// operand field, and inlines the parens of `($a)`. The chain is the
+// `ShortCircuit` row's owner, the token's parent.
+fn irules_count_chain_operands(chain: &Node, code: &[u8], conditions: &mut f64) {
+    if short_circuit::owns(chain, code, Ancestors::unknown()) {
+        count_each_operand(
+            chain,
+            |operand, conds| irules_count_condition(operand, code, conds),
+            conditions,
+        );
     }
 }

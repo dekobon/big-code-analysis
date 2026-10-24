@@ -21,6 +21,8 @@ impl Getter for IrulesCode {
 
     keyword_roles!(irules);
 
+    paying_roles!(irules);
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // The braced-word rule (#1314, #1354 / #1317) — the twin of
@@ -58,19 +60,11 @@ impl Getter for IrulesCode {
             | Irules::Dict
             | Irules::Update
             | Irules::With
-            // String comparison operators (`eq`, `contains`, `matches`, …):
-            // operators, not branches (the branching metrics ignore them).
-            | Irules::Eq
-            | Irules::Ne
-            | Irules::StartsWith
-            | Irules::EndsWith
-            | Irules::Contains
-            | Irules::Equals
-            | Irules::Matches
-            | Irules::MatchesRegex
-            | Irules::MatchesGlob
-            | Irules::In
-            | Irules::Ni
+            // The comparison and short-circuit operators — symbolic,
+            // the string comparators (`eq`, `contains`, `matches`, …) and
+            // the word forms `and` / `or` — are not here: the `Comparison`
+            // and `ShortCircuit` rows of `roles/irules.rs` pay them and
+            // `get_paying_role` bills them (#1695).
             // Structural punctuation. Only the *opening* delimiter is an
             // operator (the pair folds to one glyph in
             // `get_operator_id_as_str`); counting the matching closer too
@@ -100,20 +94,9 @@ impl Getter for IrulesCode {
             | Irules::TILDE
             | Irules::LTLT
             | Irules::GTGT
-            // Comparison operators.
-            | Irules::EQEQ
-            | Irules::BANGEQ
-            | Irules::LT
-            | Irules::GT
-            | Irules::LTEQ
-            | Irules::GTEQ
-            // Logical operators (symbolic and keyword forms).
+            // Logical negation, symbolic and keyword.
             | Irules::BANG
             | Irules::Not
-            | Irules::AMPAMP
-            | Irules::And
-            | Irules::PIPEPIPE
-            | Irules::Or
             // Ternary conditional operator.
             | Irules::QMARK => TokenRole::Operator,
 

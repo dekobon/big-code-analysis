@@ -165,7 +165,6 @@ Irules Call R08
 Irules CaseArm R05
 Irules Catch R07
 Irules Comment R09
-Irules Comparison R05
 Irules Container R06
 Irules DocComment R09
 Irules DocRunDirective R09
@@ -176,7 +175,6 @@ Irules Exit R07
 Irules FuncOpener R06
 Irules HoldsDocInBody R09
 Irules Loop R07
-Irules ShortCircuit R05
 Irules StringLit R08
 Irules Switch R07
 Irules Ternary R05
@@ -437,7 +435,6 @@ Tcl CaseArm R05
 Tcl Catch R07
 Tcl Closure R06
 Tcl Comment R09
-Tcl Comparison R05
 Tcl Container R06
 Tcl DocComment R09
 Tcl DocRunDirective R09
@@ -448,7 +445,6 @@ Tcl Exit R07
 Tcl FuncOpener R06
 Tcl HoldsDocInBody R09
 Tcl Loop R07
-Tcl ShortCircuit R05
 Tcl StringLit R08
 Tcl Switch R07
 Tcl Ternary R05

@@ -12,9 +12,10 @@ impl Cyclomatic for IrulesCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::irules::short_circuit;
         // Unlike Tcl, iRules has a dedicated `switch`/`switch_arm` node: each
         // non-`default` arm is a decision point in standard CCN, while modified
         // CCN collapses the whole `switch` to a single container decision. The
@@ -25,7 +26,15 @@ impl Cyclomatic for IrulesCode {
             stats.cyclomatic_modified += 1.;
             return;
         }
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        // The short-circuit operators, symbolic and the iRules keyword
+        // forms (`and` / `or`) — the `ShortCircuit` row's payers (#1695).
+        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match kind.into() {
             // Branches and loops. `DictFor` is an iterating construct; the
             // non-looping `dict update` / `dict with` are intentionally
             // excluded. `Else` carries no condition and is not a branch.
@@ -43,14 +52,7 @@ impl Cyclomatic for IrulesCode {
             // are unconditional and stay free.
             | Irules::OnHandler
             | Irules::TrapHandler
-            | Irules::TernaryExpr
-            // Short-circuit logical operators, both symbolic and the iRules
-            // keyword forms (`and`/`or`) — Tcl has no keyword forms, so these
-            // two arms are iRules-specific.
-            | Irules::AMPAMP
-            | Irules::PIPEPIPE
-            | Irules::And
-            | Irules::Or => {
+            | Irules::TernaryExpr => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
