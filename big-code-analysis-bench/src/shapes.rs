@@ -3309,6 +3309,41 @@ mod tests {
         }
     }
 
+    /// The two #1695 probes read a count that *grows* with the shape —
+    /// one decision per `switch` arm, one operator per repeated guard —
+    /// so a shape that lost the construct it times is caught here,
+    /// where [`probe_workload_is_exercised`] would not see it: a
+    /// cyclomatic reading floors at one per space, and a Halstead one
+    /// at the head's own operators. Several older probes read a
+    /// constant by design (their signal is the timing, as each says),
+    /// so the check is per probe rather than over `PROBES`.
+    #[test]
+    fn the_row_probes_readings_grow_with_the_shape() {
+        for name in [
+            "cyclomatic/tcl-wide-switch",
+            "halstead/elixir-repeated-guards",
+        ] {
+            let probe = PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"));
+            let read = |size: usize| {
+                let ast = parse(probe, size);
+                probe
+                    .workload
+                    .walk(&ast, probe.workload.options())
+                    .unwrap_or_else(|e| panic!("{name}: walker must succeed: {e}"))
+            };
+            let (small, large) = (read(probe.sizes[0]), read(probe.sizes[1]));
+            assert!(
+                large > small,
+                "{name}: the reading does not grow with the shape ({small} at {}, {large} at {})",
+                probe.sizes[0],
+                probe.sizes[1]
+            );
+        }
+    }
+
     /// Every export probe's *exported* tree grows with its size, along
     /// its own axis, at the sizes the gate measures.
     ///

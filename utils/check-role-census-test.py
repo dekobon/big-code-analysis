@@ -358,6 +358,24 @@ class CensusTests(unittest.TestCase):
             [("EQEQ", None, ()), ("LT", None, ("BinaryExpression", "Fold")), ("GT", None, ("Fold",)), ("Instanceof", None, ("Call",))],
         )
 
+    def test_self_paying_owners_are_read_in_both_spellings(self) -> None:
+        # `pays_itself` and `pays_itself_when f` both mark a self-paying
+        # owner (#1695); the differential test compares kinds only, so
+        # only this reader test sees the attribute.
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    Call { owns [MethodInvocation(pays_itself), Lambda(pays_itself_when bare gated_by applied), "
+            "Super] pays [EQEQ] }\n"
+            "    Modifier { absent \"none\" }\n    Exit { pending R07 }\n",
+        )
+        self.t.write("python", PY_FULL)
+        row = rt.parse_table(self.t.roles / "java.rs").rows["Call"]
+        self.assertEqual(
+            [(o.kind, o.pays_itself, o.gate) for o in row.owners],
+            [("MethodInvocation", True, None), ("Lambda", True, "applied"), ("Super", False, None)],
+        )
+
     def test_a_fragment_is_shared_across_tables(self) -> None:
         (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
         self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")

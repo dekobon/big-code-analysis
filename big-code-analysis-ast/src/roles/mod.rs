@@ -1188,6 +1188,11 @@ mod tests {
     // role gates, so it is a second implementation of this macro's
     // meaning. This holds it to the compiled constants: every table's
     // `canonical()` must equal what `--dump` prints for the same file.
+    // The canonical form is the *kind lists* — owners, payers, wraps,
+    // exclusions and `pays never` — which is what the three gates read;
+    // an owner's or payer's gate, `holds_payer`, `under`, `pays_itself`
+    // and `opens` are not in it, and the reader's handling of those is
+    // pinned by `utils/check-role-census-test.py` instead.
     // Every language's module is compiled unconditionally, so the
     // comparison needs no grammar and runs in every build. A missing
     // `python3` is a failure, not a skip: a pass that ran nothing would
@@ -1263,6 +1268,10 @@ mod tests {
         false
     }
 
+    fn always<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+        true
+    }
+
     // A table no language declares, to reach the one scan terminal the
     // three proof tables do not: a *gated* `pays_itself` owner. Without
     // this, dropping the gate from `@self_payer_done` failed nothing.
@@ -1282,23 +1291,35 @@ mod tests {
     // The two gates the DSL spells itself (#1695): an owner that
     // `holds_payer` — its projection lands on one of the row's payers,
     // optionally under a gate of its own — and a payer `under` one or
-    // several parent kinds.
+    // several parent kinds. Each is declared in the direction that
+    // makes the DSL arm decide: the gated `holds_payer` under `always`,
+    // so only the projection half can say no; the real parent *second*
+    // in the `under [..]` list, so a walk that read only the first
+    // alternative would miss it; and a `pays never` row, the shape no
+    // production table declares since #1695, kept here so its two
+    // projections stay pinned.
     mod dsl_gates {
-        use super::never;
+        use super::{always, never};
         use crate::Java;
 
         role_table! {
             lang: Java;
             Comparison {
                 owns [BinaryExpression(holds_payer)]
-                pays [EQEQ, LT under BinaryExpression, GT under [BinaryExpression, TernaryExpression]]
+                pays [EQEQ, LT under BinaryExpression, GT under [TernaryExpression, BinaryExpression]]
                 project "operator"
             }
             ShortCircuit {
-                owns [BinaryExpression(holds_payer gated_by never)]
+                owns [BinaryExpression(holds_payer gated_by always)]
                 pays [AMPAMP under TernaryExpression]
                 project "operator"
             }
+            Ternary {
+                owns [TernaryExpression(gated_by never), InstanceofExpression(pays_itself gated_by always)]
+                pays [QMARK]
+                project "operator"
+            }
+            Guard { owns [Guard] pays never }
         }
     }
 
@@ -1355,10 +1376,13 @@ mod tests {
             assert!(!primitive::pays_at_wrapper(node, source, a));
             assert!(!primitive::owns_kind(kind, node, source, a));
             assert!(!primitive::pays_at_leaf_kind(kind, node, source, a));
+            assert!(!primitive::pays_at_token_kind(kind, node, source, a));
             asked += 1;
         });
         assert!(asked > 1);
         assert_eq!(primitive::ABSENT, "JavaScript has no type names");
+        // The constants a reader asking several rows reads alike.
+        assert_eq!((primitive::OWNERS, primitive::PAYERS), (&[][..], &[][..]));
     }
 
     #[test]
@@ -1453,30 +1477,92 @@ mod tests {
         use crate::JavaCode;
         use crate::test_support::for_each_node_with_chain;
         use dsl_gates::{comparison, short_circuit};
-        // Two `binary_expression`s: `a < b` holds a payer, `a + b` does
-        // not; the `<` under the first is under its parent, the `>` of
-        // `List<String>` is not (a type argument list); `&&`'s row owns
-        // through `never` and pays `&&` only under a ternary.
+        // Three `binary_expression`s: `a < b` and `a + b > 0` hold a
+        // `Comparison` payer, `a + b` holds none; `a < b && a + b > 0`
+        // holds `&&`, the `ShortCircuit` payer, and that row's gate is
+        // `always`, so only the projection decides. The `<` and `>`
+        // are under their parent (the `>` through the *second* listed
+        // alternative), the `>` of `List<String>` is not (a type
+        // argument list), and `&&` is under a `binary_expression`, not
+        // the ternary its row names.
         let source = b"class A { boolean f(int a, int b, java.util.List<String> l) { return a < b && a + b > 0; } }\n";
-        let (mut owns, mut pays) = (Vec::new(), Vec::new());
+        let (mut owns, mut chains, mut pays) = (Vec::new(), Vec::new(), Vec::new());
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let text = node.utf8_text(source).expect("fixture is UTF-8");
             if comparison::owns(node, source, ancestors) {
                 owns.push(text.to_owned());
             }
+            if short_circuit::owns(node, source, ancestors) {
+                chains.push(text.to_owned());
+            }
             if comparison::pays_at_leaf(node, source, ancestors)
                 || short_circuit::pays_at_leaf(node, source, ancestors)
             {
                 pays.push(text.to_owned());
             }
-            assert!(!short_circuit::owns(node, source, ancestors), "{text}");
         });
-        // `a < b` and `a + b > 0` hold a payer; `a < b && a + b > 0` holds
-        // `&&`, which is not a `Comparison` payer.
         assert_eq!(owns, ["a < b", "a + b > 0"]);
-        // The generic `>` is under a `type_arguments`, not a listed
-        // parent, and `&&` is under a `binary_expression`, not a ternary.
+        assert_eq!(chains, ["a < b && a + b > 0"]);
         assert_eq!(pays, ["<", ">"]);
+    }
+
+    // A gated `pays_itself` owner pays where its gate says so, and a
+    // gated owner owns nowhere where its gate says no — the two scan
+    // terminals a `never` gate alone cannot tell from "no clause
+    // emitted" (the `gated_self_payer` table pins that other side).
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_gated_self_payer_pays_where_its_gate_admits_it() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::ternary;
+        let source =
+            b"class A { int f(Object o, boolean a) { return o instanceof String ? 1 : 2; } }\n";
+        let (mut owns, mut pays) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = node.utf8_text(source).expect("fixture is UTF-8");
+            if ternary::owns(node, source, ancestors) {
+                owns.push(text.to_owned());
+            }
+            if ternary::pays_at_leaf(node, source, ancestors) {
+                pays.push(text.to_owned());
+            }
+        });
+        // The ternary's gate is `never`: neither it nor its `?` (an
+        // ungated payer, which pays regardless) is gated away — the `?`
+        // pays; the `instanceof_expression` pays for itself under
+        // `always`, and owns through the same gate.
+        assert_eq!(owns, ["o instanceof String"]);
+        assert_eq!(pays, ["o instanceof String", "?"]);
+    }
+
+    // `pays never`: the owner is recognised and pays under neither
+    // projection, which is the whole of what the shape says.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_pays_never_row_owns_and_pays_nowhere() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::guard;
+        let source = b"class A { int f(Object o) { return switch (o) { case Integer i when i > 0 -> 1; default -> 0; }; } }\n";
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if node.kind_id() == Java::Guard as u16 {
+                seen.push((
+                    guard::owns(node, source, ancestors),
+                    guard::pays_at_leaf(node, source, ancestors),
+                    guard::pays_at_wrapper(node, source, ancestors),
+                    guard::pays_at_token_kind(node.kind_id(), node, source, ancestors),
+                ));
+            }
+        });
+        assert_eq!(seen, [(true, false, false, false)]);
+        assert_eq!(
+            guard::canonical(),
+            "Guard rows owners=[184] payers=[] wraps=[] excluded=[] pays_never=true"
+        );
     }
 }

@@ -25,6 +25,12 @@
 use crate::node::MemoQuestion;
 use crate::{Ancestors, Csharp, Irules, Node, Python, Ruby, Tcl};
 
+// The arm-list scan `tcl_command_is_switch_arm` runs, counted so a test
+// can see that a walk lending a `FoldCache` runs it once per `switch`
+// rather than once per arm (#1695): the answers are identical either
+// way, and only the count tells the two apart.
+crate::observation::counter!(switch_arm_list_scans, cfg(test));
+
 /// Whether `pat` holds exactly one `underscore_id` token and no other
 /// named child. Anonymous tokens such as a leading `|` in a Rust
 /// or-pattern (`| _ => …`) are skipped — they do not change the
@@ -250,12 +256,90 @@ fn tcl_word_list_holds_sole_braced_word(
     ancestors: Ancestors<'_, '_>,
 ) -> bool {
     ancestors.memoised(MemoQuestion::SwitchArmList, word_list, || {
+        switch_arm_list_scans::record();
         word_list
             .children()
             .filter(|child| child.kind_id() == Tcl::BracedWord as u16)
             .count()
             == 1
     })
+}
+
+#[cfg(all(test, feature = "tcl"))]
+mod tests {
+    use super::*;
+    use crate::TclCode;
+    use crate::node::FoldCache;
+    use crate::node::Tree;
+
+    // The brace-list test — the switch's argument list holds exactly one
+    // braced word — is asked once per arm; a walk lending a `FoldCache`
+    // answers it once per switch. Deleting the memo read makes the
+    // first assertion fail (one scan per arm); the row's answers are
+    // the same either way, and the second assertion pins them.
+    #[test]
+    fn a_switch_s_arm_list_is_scanned_once_per_walk() {
+        let width = 64;
+        let options = "-nocase ".repeat(width);
+        let arms = (0..width).fold(String::new(), |mut s, i| {
+            use std::fmt::Write as _;
+            let _ = writeln!(s, "    p{i} {{ puts {i} }}");
+            s
+        });
+        let code = format!("switch {options}-- $x {{\n{arms}    default {{ puts d }}\n}}\n");
+        let code = code.as_bytes();
+        let tree = Tree::new::<TclCode>(code);
+        let root = tree.get_root();
+
+        // Every arm with its ancestor chain, root first.
+        let mut arms_with_chains = Vec::new();
+        let mut stack = vec![(root, Vec::new())];
+        while let Some((node, chain)) = stack.pop() {
+            if node.kind_id() == Tcl::Command as u16 && chain.len() == 4 {
+                arms_with_chains.push((node, chain.clone()));
+            }
+            let mut below = chain;
+            below.push(node);
+            stack.extend(node.children().map(|child| (child, below.clone())));
+        }
+        arms_with_chains.sort_by_key(|(node, _)| node.start_byte());
+        assert_eq!(
+            arms_with_chains.len(),
+            width + 1,
+            "the arms and the default"
+        );
+
+        let cache = FoldCache::default();
+        let before = switch_arm_list_scans::observed();
+        let cached: Vec<bool> = arms_with_chains
+            .iter()
+            .map(|(arm, chain)| {
+                tcl_command_is_switch_arm(arm, code, Ancestors::known(chain).with_folds(&cache))
+            })
+            .collect();
+        assert_eq!(
+            switch_arm_list_scans::observed() - before,
+            1,
+            "a walk lending a FoldCache scans the switch's list once"
+        );
+
+        let before = switch_arm_list_scans::observed();
+        let uncached: Vec<bool> = arms_with_chains
+            .iter()
+            .map(|(arm, chain)| tcl_command_is_switch_arm(arm, code, Ancestors::known(chain)))
+            .collect();
+        assert_eq!(
+            switch_arm_list_scans::observed() - before,
+            width + 1,
+            "a chain with no cache scans once per arm"
+        );
+        assert_eq!(cached, uncached);
+        assert_eq!(
+            cached.iter().filter(|&&arm| arm).count(),
+            width,
+            "every arm but `default`"
+        );
+    }
 }
 
 /// Whether an iRules `switch_arm` is a decision arm: a direct child of

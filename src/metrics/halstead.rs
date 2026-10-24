@@ -7576,10 +7576,13 @@ end",
     }
 
     /// Every `(spelling, source)` row bills its spelling as an operator
-    /// and nowhere as an operand, one fixture line apiece, so dropping
-    /// any one kind from a role row fails its own entry (#1578). The
-    /// count tests pin the totals; this pins the spellings they leave
-    /// out.
+    /// and nowhere as an operand, one fixture line apiece (#1578). Where
+    /// a getter's byte-less arm still lists the kind — for the spellings
+    /// a row's gate leaves out, the vocabulary being the union — dropping
+    /// the kind from the row moves nothing here, and the row's reach is
+    /// pinned by the ABC row tests instead; where it does not, dropping
+    /// the kind fails its own entry. The count tests pin the totals; this
+    /// pins the spellings they leave out.
     #[cfg(any(
         feature = "bash",
         feature = "c",
@@ -8423,8 +8426,8 @@ end",
 
     /// #1695: the C and Objective-C `Comparison` / `ShortCircuit` rows'
     /// payers bill as operators, and a stranded `<` still bills through
-    /// the byte-less arm (the row's gate leaves it out; the rest are
-    /// ungated, so dropping one from a row fails its own entry).
+    /// the byte-less arm, which the row's gate leaves it to; `<` / `>`
+    /// bill either way, so a dropped payer shows in the ABC row tests.
     #[cfg(feature = "c")]
     #[test]
     fn c_comparison_and_short_circuit_spellings_bill_1695() {
@@ -8437,7 +8440,10 @@ end",
             ("!=", "int f(int a) { return a != 1; }\n"),
             ("&&", "int f(int a) { return a && a; }\n"),
             ("||", "int f(int a) { return a || a; }\n"),
-            ("<", "int f(int a) { return a < ;\n"),
+            // A recovered `<`: tree-sitter-c keeps `a <` as a
+            // `binary_expression` with a zero-width operand, so the
+            // stranded spelling is a `<` with no left operand at all.
+            ("<", "int f(int a) { < a; }\n"),
         ];
         assert_spellings_bill_as_operators::<CParser>("foo.c", ROWS);
     }
@@ -8455,8 +8461,10 @@ end",
             ("&&", "int f(int a) { return a && a; }\n"),
             ("||", "int f(int a) { return a || a; }\n"),
             // A recovered `<`: the gated-out spelling (a protocol list's
-            // brackets are the `<>` pair, as in C++).
-            ("<", "int f(int a) { return a < ;\n"),
+            // brackets are the `<>` pair, as in C++). `a <` with no right
+            // operand stays a `binary_expression`; a `<` with no left one
+            // strands under an `ERROR`.
+            ("<", "int f(int a) { < a; }\n"),
         ];
         assert_spellings_bill_as_operators::<ObjcParser>("foo.m", ROWS);
     }

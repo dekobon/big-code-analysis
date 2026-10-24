@@ -258,10 +258,16 @@ fn assert_c_rows(lang: LANG, template: &str) {
 #[cfg(feature = "c")]
 fn c_rows_feed_each_abc_path_independently() {
     assert_c_rows(LANG::C, "int f(int a, int b, int x, int y) { BODY }\n");
-    // A `<` error recovery strands under an `ERROR` pays nothing.
+    // A `<` error recovery strands under an `ERROR` pays nothing — the
+    // one with no left operand; `a <` with none on the right stays a
+    // `binary_expression` holding a zero-width operand, and pays. The
+    // sum reads every space, since the function's own count is where
+    // either would land.
     let options = MetricsOptions::default().with_only(&[Metric::Abc]);
+    let root = space_verbatim(LANG::C, b"int f(int a) { < a; }\n", options);
+    assert_eq!(root.metrics.abc.conditions_sum(), 0);
     let root = space_verbatim(LANG::C, b"int f(int a) { return a < ;\n", options);
-    assert_eq!(root.metrics.abc.conditions(), 0);
+    assert_eq!(root.metrics.abc.conditions_sum(), 1);
 }
 
 #[test]
@@ -643,6 +649,7 @@ fn ruby_rows_feed_each_abc_path_independently() {
             ("c = x < y; c", 1, 0),
             ("c = x >= y; c", 1, 0),
             ("c = o =~ /x/; c", 1, 0),
+            ("c = o !~ /x/; c", 1, 0),
             // an operator method's name is no comparison
             ("def ==(o); end; a", 0, 0),
             ("a && b", 2, 1),
@@ -668,6 +675,10 @@ fn elixir_rows_feed_each_abc_path_independently() {
             ("if x not in l, do: 1", 1, 1),
             ("c = x < y", 1, 0),
             ("c = x >= y", 1, 0),
+            ("c = x <= y", 1, 0),
+            ("c = x != y", 1, 0),
+            ("c = x === y", 1, 0),
+            ("c = x !== y", 1, 0),
             ("c = x not in l", 1, 0),
             // a capture names the operator and applies nothing
             ("c = &==/2", 0, 0),
