@@ -353,11 +353,16 @@ mod tests {
             }
             if node.kind_id() == Elixir::When as u16 {
                 tokens.push(node.start_byte());
-                if guard::pays_at_leaf(node, source, ancestors) {
-                    paid.push(node.start_byte());
-                    let operator = ancestors.parent(node).expect("a `when` has a parent");
-                    assert!(guard::owns(&operator, source, ancestors), "{}", text());
-                }
+            }
+            // Asked of every node, so a payer the row gained would show.
+            if guard::pays_at_leaf(node, source, ancestors) {
+                paid.push(node.start_byte());
+                let (operator, above) = chain.split_last().expect("a `when` has a parent");
+                assert!(
+                    guard::owns(operator, source, Ancestors::known(above)),
+                    "{}",
+                    text()
+                );
             }
         });
         // Every `when` operator owns — the typespec's included, since the
@@ -370,7 +375,8 @@ mod tests {
                 "y when y > 0"
             ]
         );
-        // Three `when` tokens; the typespec's, first, pays nothing.
+        // Three `when` tokens; the typespec's, first, pays nothing, and
+        // nothing else pays.
         assert_eq!(tokens.len(), 3);
         assert_eq!(paid, tokens[1..]);
     }

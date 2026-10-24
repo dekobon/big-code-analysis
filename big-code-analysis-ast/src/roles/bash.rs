@@ -216,50 +216,59 @@ mod tests {
     // `test_operator` kind for its bytes, as the payer gates do: a
     // `binary_expression` holding `-lt` / `-gt` owns a comparison and
     // one holding `-a` / `-o` owns a chain, never both. The consumers
-    // read these rows at the token, so only this pins the owner side.
-    // tree-sitter-bash nests every operator left: `$a -lt $b -a $c -gt
-    // 1` is `(($a -lt $b) -a $c) -gt 1`, so the outermost node holds
-    // `-gt` and the chain is its left operand. The `=` of `[ "$s" = x ]`
-    // is the `EQ` kind, which the row leaves to the consumer (#1536), so
-    // that node owns nothing.
+    // read these rows at the token, so only this pins the owner side,
+    // and each payer's parent is held to its own row. The first test's
+    // operators nest left — `(($a -lt $b) -a $c) -gt 1` — so its
+    // outermost node holds `-gt` and the chain is its left operand; the
+    // `=` of the second is the `EQ` kind, which the row leaves to the
+    // consumer (#1536), so that node owns nothing. (`-a` / `-o` are
+    // `[ ]`'s; inside `[[ ]]` they are a syntax error.)
     #[cfg(feature = "bash")]
     #[test]
     fn test_operators_sort_their_owners_by_their_bytes() {
-        let source = b"if [[ $a -lt $b -a $c -gt 1 ]]; then :; fi\n\
+        let source = b"if [ $a -lt $b -a $c -gt 1 ]; then :; fi\n\
 if [ \"$s\" = x -o \"$t\" != y ]; then :; fi\n";
-        let (mut comparisons, mut chains) = (Vec::new(), Vec::new());
+        let mut owned: [Vec<String>; 2] = Default::default();
+        let mut paid: [Vec<String>; 2] = Default::default();
         for_each_node_with_chain::<BashCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
-            let (comparison, chain) = (
-                comparison::owns(node, source, ancestors),
-                short_circuit::owns(node, source, ancestors),
-            );
-            assert!(!(comparison && chain), "{}", text());
-            if comparison {
-                comparisons.push(text());
-            }
-            if chain {
-                chains.push(text());
-            }
-            // An owner is the parent of the token that pays for it, and
-            // a payer's parent owns: the two projections agree per node.
-            if comparison::pays_at_leaf(node, source, ancestors)
-                || short_circuit::pays_at_leaf(node, source, ancestors)
-            {
-                let parent = ancestors.parent(node).expect("a payer has a parent");
-                assert!(
-                    comparison::owns(&parent, source, ancestors)
-                        || short_circuit::owns(&parent, source, ancestors),
-                    "{}",
-                    text()
-                );
+            let rows = [
+                (
+                    comparison::owns(node, source, ancestors),
+                    comparison::pays_at_leaf(node, source, ancestors),
+                ),
+                (
+                    short_circuit::owns(node, source, ancestors),
+                    short_circuit::pays_at_leaf(node, source, ancestors),
+                ),
+            ];
+            assert!(!(rows[0].0 && rows[1].0), "{}", text());
+            assert!(!(rows[0].1 && rows[1].1), "{}", text());
+            for (row, (owns, pays)) in rows.into_iter().enumerate() {
+                if owns {
+                    owned[row].push(text());
+                }
+                if pays {
+                    paid[row].push(text());
+                    // The payer's parent is the owner, asked with the
+                    // chain above it.
+                    let (parent, above) = chain.split_last().expect("a payer has a parent");
+                    let row_owns = [comparison::owns, short_circuit::owns][row];
+                    assert!(
+                        row_owns(parent, source, Ancestors::known(above)),
+                        "{}",
+                        text()
+                    );
+                }
             }
         });
         assert_eq!(
-            comparisons,
+            owned[0],
             ["$a -lt $b -a $c -gt 1", "$a -lt $b", "x -o \"$t\" != y"]
         );
-        assert_eq!(chains, ["$a -lt $b -a $c", "x -o \"$t\""]);
+        assert_eq!(owned[1], ["$a -lt $b -a $c", "x -o \"$t\""]);
+        assert_eq!(paid[0], ["-lt", "-gt", "!="]);
+        assert_eq!(paid[1], ["-a", "-o"]);
     }
 }
