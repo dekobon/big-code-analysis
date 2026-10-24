@@ -72,7 +72,8 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // a condition: a comparison, identity, regex, spaceship, membership or
 // `instanceof` test (the `Comparison` row's owners, paid at their
 // token or, for the negated membership forms, at the node), a ternary
-// (its `?`) or an elvis (its `?:`, pending `NullSafe`), or an `&&` /
+// (its `?`) or an elvis (its `?:`, the `NullSafe` owner paid by that
+// token — not the row's three safe navigations), or an `&&` /
 // `||` chain (the `ShortCircuit` row's owner), whose operands each pay
 // through `groovy_count_condition`. Neither owner gate reads ancestors,
 // so the peeled descendant is asked with none.

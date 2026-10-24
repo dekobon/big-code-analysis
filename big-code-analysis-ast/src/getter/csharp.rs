@@ -153,16 +153,17 @@ impl Getter for CsharpCode {
             // the fallback label's and stays; `when`, the `Guard` row's
             // owners' keyword, is excluded there and bills here. `is`,
             // `<` … and `?` likewise stay for the spellings the
-            // `Comparison`, `Ternary` and `NullSafe` rows' gates leave
-            // out — for `?`, a nullable type and a constraint's
-            // `class?`; the ternary's and a conditional access's are
-            // those two rows'. `??` is the `NullSafe` row's and
-            // `get_paying_role` bills it; `??=` is excluded there and
-            // bills here as the assignment it is.
+            // `Comparison` and `Ternary` rows' gates leave out — for `?`,
+            // a nullable type, a constraint's `class?`, and a conditional
+            // access's: the `NullSafe` row pays that access at the node
+            // (it is no `PAYERS` entry, so `get_paying_role` bills
+            // nothing for it) and its `?` bills here. `??` is that row's
+            // payer and `get_paying_role` bills it; `??=` is excluded
+            // there and bills here as the assignment it is.
             // role-bypass: allow(Comparison, Ternary, CaseArm, NullSafe) — the operator
             // classification of the spellings the rows' `under_type_test` /
-            // `under_binary_expression` / `under_ternary` / `under_conditional_access` /
-            // `is_switch_arm_case` gates leave out
+            // `under_binary_expression` / `under_ternary` / `is_switch_arm_case` gates leave
+            // out, and of the conditional access's `?`, which its self-paying owner does not bill
             If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
             | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
             // Expression-keyword operators. `new` is the allocation

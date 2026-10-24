@@ -142,9 +142,9 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // twins (it scored 1), and `if (when (a) { else -> true })` 1 (#1533).
 //
 // The comparison, `is` / `in` and `&&` / `||` owners are the
-// `Comparison` and `ShortCircuit` rows' (neither owner gate reads
-// ancestors, so the peeled descendant is asked with none); the elvis
-// `?:` stays named here until its `NullSafe` row.
+// `Comparison`, `ShortCircuit` and `NullSafe` rows' (no owner gate
+// reads ancestors, so the peeled descendant is asked with none); of
+// the last row's two owners only the elvis is a boolean test.
 fn kotlin_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Kotlin::*;
 
@@ -379,7 +379,7 @@ impl Abc for KotlinCode {
             EnumEntry if node.is_child(ValueArguments as u16) => {
                 stats.branches += 1.;
             }
-            // Conditions: the ternary-elvis (`?:`, pending `NullSafe`),
+            // Conditions: the ternary-elvis (`?:`, the `NullSafe` row's),
             // the `as?` safe-cast, and the arms of control-flow
             // constructs (`else`, `catch`, `when` entries); the
             // comparison, identity and `is` / `in` tests are the

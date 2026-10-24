@@ -103,11 +103,13 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
 // a condition: an applied comparison or an `is` test (the `Comparison`
-// row's owners, paid by their token), `??` (its token arm, pending
-// `NullSafe`), a ternary (its `?`), or an `&&` / `||` chain (the
-// `ShortCircuit` row's owner), whose operands each pay through
-// `csharp_count_condition`. Neither owner gate reads ancestors, so the
-// peeled descendant is asked with none.
+// row's owners, paid by their token), `??` (the `NullSafe` owner paid
+// by its token — not a conditional access, which that row also owns:
+// `!(a?.b)` is a negated operand the slot pays for, as it always did,
+// beside the access's own condition), a ternary (its `?`), or an `&&`
+// / `||` chain (the `ShortCircuit` row's owner), whose operands each
+// pay through `csharp_count_condition`. No owner gate reads ancestors,
+// so the peeled descendant is asked with none.
 //
 // An assignment is not peeled, because the `AssignmentExpression` arm
 // already scores its right-hand side as a negated operand: peeling
@@ -117,10 +119,14 @@ fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Csharp::*;
 
     let unknown = Ancestors::unknown();
+    // role-bypass: allow(NullSafe) — which of the row's owners this consumer scores itself
+    // by, told by the projected token: the coalescing, not the access
+    let coalescing = null_safe::owns(expr, code, unknown)
+        && null_safe::project(expr).is_some_and(|op| op.kind_id() == QMARKQMARK as u16);
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
         || ternary::owns(expr, code, unknown)
-        || null_safe::owns(expr, code, unknown)
+        || coalescing
         || match expr.kind_id().into() {
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);

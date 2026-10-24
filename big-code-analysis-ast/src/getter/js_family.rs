@@ -157,8 +157,9 @@ macro_rules! impl_js_family_get_op_type {
             // and the optional chain's `?.` are the `NullSafe` row's
             // (`optional_chain` the token in the JavaScript grammars,
             // `?.` under an `optional_chain` wrapper in the TypeScript
-            // ones); `??=` is excluded there and bills here as the
-            // assignment it is.
+            // ones). `??=` is excluded there as the consumers' own; no
+            // arm here bills it — nor `&&=` / `||=` — a pre-existing gap
+            // the row neither opens nor closes.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
             // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             match node.kind_id().into() {

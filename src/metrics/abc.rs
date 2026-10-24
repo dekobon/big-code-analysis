@@ -489,9 +489,15 @@ pub(super) fn peel<'a>(node: &Node<'a>, step: PeelStep<'a>) -> (Node<'a>, bool) 
 // condition, unless another arm already charged the same decision.
 // `scores_itself` says whether the peeled predicate is a comparison,
 // chain, ternary or other construct some arm of the language's
-// `compute` already counts, and must agree with those arms exactly: a
-// kind listed here and counted nowhere leaves its slot at zero, and one
-// counted there but missing here pays twice.
+// `compute` already counts. The two read the same rows of
+// `roles/<lang>.rs` — the owner here, its payer there — so they agree
+// by construction for every row-owned construct (#1694, #1695); a
+// construct a language keeps as its own kind arm must still be listed
+// here by hand, since a kind counted there but missing here pays
+// twice, and one listed here and counted nowhere leaves its slot at
+// zero. Where a row has several owners and the consumer pays only
+// some (C#'s `??` but not its conditional access), `scores_itself`
+// asks the row's projection which owner it holds.
 //
 // The slots once paid only for an occupant that peeled down to a fixed
 // list of terminal kinds, so every kind missing from the list — `-x`,

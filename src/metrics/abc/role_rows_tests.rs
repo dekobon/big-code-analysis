@@ -407,7 +407,7 @@ fn irules_rows_feed_each_abc_path_independently() {
 /// tag delimiter spells `<` / `>` and pays nothing (#1297) in the three
 /// grammars that parse JSX as JSX — plain TypeScript reads `<div>` as a
 /// type assertion and the rest as a comparison, so that row is the
-/// JSX grammars' alone; `??` keeps its own arm pending `NullSafe`.
+/// JSX grammars' alone; `??` is the `NullSafe` row's, tested below.
 #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
 fn assert_js_rows(lang: LANG) {
     assert_rows(
@@ -1465,6 +1465,10 @@ fn csharp_null_safe_row_pays_coalescing_and_access() {
             ("var c = o?.ToString()?.Length; return c;", 2, 2),
             ("var c = x?[0]; return c;", 1, 1),
             ("a ??= b; return a;", 0, 1),
+            // a negated access is a negated operand the slot pays for,
+            // beside the access's own condition: `scores_itself` is the
+            // coalescing owner's, not the access's
+            ("return !(o?.ToString()?.Length);", 3, 2),
         ],
     );
 }

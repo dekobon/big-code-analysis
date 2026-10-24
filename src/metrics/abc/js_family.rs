@@ -52,7 +52,8 @@ fn js_family_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // Whether an arm of the `compute` macros below already charges `expr`
 // (already peeled) as a condition: a ternary (its `?`), a comparison or
 // `instanceof` (the `Comparison` row's owner, paid by its token), `??`
-// (its token arm, pending `NullSafe`), or an `&&` / `||` chain (the
+// (the `NullSafe` row's one owner, paid by its token), or an `&&` /
+// `||` chain (the
 // `ShortCircuit` row's owner), whose operands each pay through
 // `count_condition`. `in` is a relational operator no arm counts, so a
 // slot holding one pays for it.

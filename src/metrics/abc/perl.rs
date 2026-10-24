@@ -160,8 +160,8 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // owner, paid by its token — except a `=~` / `!~` binding a rewrite,
 // which the row cannot see and the consumer declines, #1540), a bare
 // `/re/` match (its own arm; no token), a ternary (its node), or a
-// logical chain — the `ShortCircuit` row's owner, or the defined-or
-// `//` chain pending `NullSafe` — whose operands each pay through
+// logical chain — the `ShortCircuit` row's owner, or the `NullSafe`
+// row's defined-or `//` chain — whose operands each pay through
 // `perl_count_condition`. The owner gates read only the node's
 // children, so the peeled descendant is asked with no ancestor chain.
 fn perl_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
