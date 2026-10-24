@@ -556,14 +556,18 @@ pub(crate) enum MemoQuestion {
     /// Tcl family: whether a `word_list`'s own slot sequence can be read
     /// positionally — no `ERROR` or MISSING child of its own (#1686).
     ArgumentSlotsReadable,
+    /// Tcl: whether a `word_list` is a brace-list `switch`'s — holds
+    /// exactly one `braced_word`, the arm list — asked once per arm by
+    /// the `CaseArm` row (#1695).
+    SwitchArmList,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 2;
+    const COUNT: usize = 3;
 }
 
-const _: () = assert!(MemoQuestion::ArgumentSlotsReadable as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::SwitchArmList as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), and the per-node memos for

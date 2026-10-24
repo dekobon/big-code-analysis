@@ -24,6 +24,9 @@
 
 use crate::{Ancestors, Node};
 
+#[cfg(feature = "tcl")]
+use crate::node::MemoQuestion;
+
 #[cfg(feature = "csharp")]
 use crate::Csharp;
 #[cfg(feature = "irules")]
@@ -230,6 +233,12 @@ pub fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// a child of the arm list of a `command` whose leading word spells
 /// `switch`, and not named `default`. Each arm is a nested `command`
 /// whose leading word is the pattern.
+///
+/// Whether the `word_list` holds exactly one `braced_word` — the
+/// brace-list test [`tcl_switch_arm_list`] makes — is a scan of the
+/// switch's arguments, asked once per arm; on a walk that lends a
+/// memo it is answered once per switch, so a switch with `W` options
+/// and `A` arms costs `O(A + W)` and not `O(A × W)`.
 #[cfg(feature = "tcl")]
 #[must_use]
 pub fn tcl_command_is_switch_arm<'a>(
@@ -245,25 +254,60 @@ pub fn tcl_command_is_switch_arm<'a>(
     // Nearest first: the arm list (a `braced_word`), the `word_list` it
     // sits in, and the `switch` command itself.
     let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-    let (Some(arm_list), Some(_word_list), Some(switch)) = (up.next(), up.next(), up.next()) else {
+    let (Some(arm_list), Some(word_list), Some(switch)) = (up.next(), up.next(), up.next()) else {
         return false;
     };
-    switch.kind_id() == Tcl::Command as u16
-        && tcl_command_name(&switch, code) == Some("switch")
-        && tcl_switch_arm_list(&switch).is_some_and(|list| list.id() == arm_list.id())
+    if arm_list.kind_id() != Tcl::BracedWord as u16
+        || word_list.kind_id() != Tcl::WordList as u16
+        || switch.kind_id() != Tcl::Command as u16
+        || tcl_command_name(&switch, code) != Some("switch")
+    {
+        return false;
+    }
+    tcl_word_list_holds_sole_braced_word(&word_list, ancestors)
         && node
             .child_by_field_name("name")
             .and_then(|pat| pat.utf8_text(code))
             != Some("default")
 }
 
-/// Whether an iRules `switch_arm` is a decision arm: one whose
-/// `pattern` is not `default`. Unlike Tcl, the iRules grammar gives
-/// `switch` and its arms kinds of their own.
+/// Whether a `word_list` holds exactly one `braced_word` — the
+/// brace-list `switch`'s arm list — memoised per list on a walk that
+/// lends a [`MemoQuestion::SwitchArmList`] memo, since every arm asks.
+#[cfg(feature = "tcl")]
+fn tcl_word_list_holds_sole_braced_word(
+    word_list: &Node<'_>,
+    ancestors: Ancestors<'_, '_>,
+) -> bool {
+    let memo = ancestors.node_memo(MemoQuestion::SwitchArmList);
+    if let Some(answer) = memo.and_then(|memo| memo.get(word_list)) {
+        return answer;
+    }
+    let sole = word_list
+        .children()
+        .filter(|child| child.kind_id() == Tcl::BracedWord as u16)
+        .count()
+        == 1;
+    if let Some(memo) = memo {
+        memo.set(word_list, sole);
+    }
+    sole
+}
+
+/// Whether an iRules `switch_arm` is a decision arm: a direct child of
+/// a `switch` whose `pattern` is not `default`. Unlike Tcl, the iRules
+/// grammar gives `switch` and its arms kinds of their own; an arm error
+/// recovery strands under an `ERROR` with its `switch` lost has no
+/// switch to be an arm of, and never counted.
 #[cfg(feature = "irules")]
 #[must_use]
-pub fn irules_switch_arm_is_decision(node: &Node, code: &[u8]) -> bool {
+pub fn irules_switch_arm_is_decision<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     node.kind_id() == Irules::SwitchArm as u16
+        && ancestors.parent_has_kind(node, Irules::Switch as u16)
         && node
             .child_by_field_name("pattern")
             .and_then(|pat| pat.utf8_text(code))

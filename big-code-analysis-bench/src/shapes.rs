@@ -1018,6 +1018,20 @@ pub fn tcl_wide_erroring_eval(width: usize) -> String {
     format!("eval {half}] {half}\n")
 }
 
+/// A brace-list `switch` with `width` repeated `-nocase` options and
+/// `width` arms, so the option list and the arm list grow together.
+#[must_use]
+pub fn tcl_wide_switch(width: usize) -> String {
+    use std::fmt::Write as _;
+
+    let options = "-nocase ".repeat(width);
+    let mut arms = String::new();
+    for i in 0..width {
+        let _ = writeln!(arms, "    p{i} {{ puts {i} }}");
+    }
+    format!("switch {options}-- $x {{\n{arms}    default {{ puts d }}\n}}\n")
+}
+
 /// The walk a probe times.
 ///
 /// Four seams reach an AST walk — `Ast::metrics`, `Ast::ops`, the
@@ -2776,6 +2790,26 @@ pub const PROBES: &[Probe] = &[
                     507.4 ms. A depth probe cannot see it whatever it \
                     nests: the cost is per popped child, and a nesting \
                     shape has one child per space at every depth.",
+    },
+    Probe {
+        name: "cyclomatic/tcl-wide-switch",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
+        render: tcl_wide_switch,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Every arm of a brace-list `switch` asks the `CaseArm` \
+                    row whether its parent list is the switch's sole braced \
+                    word, and the option scan that answers is memoised per \
+                    `word_list` through the walk's `FoldCache`. Without the \
+                    memo each of `A` arms rescans `W` options, quadratic \
+                    when the two grow together (#1695). The reading is one \
+                    decision per arm plus the file's base.",
     },
     Probe {
         name: "cyclomatic/cpp-plus-chain",

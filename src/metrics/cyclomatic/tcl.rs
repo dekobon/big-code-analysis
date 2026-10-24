@@ -30,10 +30,13 @@ impl Cyclomatic for TclCode {
         // Standard-only: each arm of a brace-list `switch` the `CaseArm`
         // row owns — a nested `command` told by its position and its
         // parent's leading word, the `default` arm left out (lesson 11),
-        // and the unsupported split form owning nothing (#467).
+        // and the unsupported split form owning nothing (#467). An arm
+        // is a command too, so the command dispatch below still reads
+        // its leading word: an arm whose pattern spells `for` or
+        // `switch` pays as that command as well, as it always has — a
+        // reading the grammar cannot tell from the command, left as is.
         if case_arm::owns_kind(kind, node, code, ancestors) {
             stats.cyclomatic += 1.;
-            return;
         }
         match kind.into() {
             Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch => {

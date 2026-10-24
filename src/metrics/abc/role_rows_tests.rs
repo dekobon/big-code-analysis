@@ -1225,7 +1225,9 @@ fn rust_match_arms_and_guards_pay_once_each() {
                 5,
                 5,
             ),
-            // a leading `|` does not make `_` a pattern of its own
+            // a leading `|` on a bare `_` makes the arm count, as it
+            // always has: the pattern's named children are what the gate
+            // reads, and tree-sitter-rust nests `| _` in an `or_pattern`
             ("match x { | _ => 0 }", 1, 1),
         ],
     );
@@ -1367,6 +1369,17 @@ fn tcl_switch_arms_pay_at_the_arm_command() {
         "switch -- $x {\n        a { return 1 }\n        b -\n        c { return 2 }\n        default { return 0 }\n    }",
         3,
     );
+    // An arm whose pattern spells `for` or `switch` is a command the
+    // name dispatch reads as that command too, as it always has: the
+    // grammar cannot tell the arm from the command, and the row's read
+    // adds to that reading rather than replacing it.
+    assert_tcl_switch_arms(
+        LANG::Tcl,
+        "switch $x {\n        for { puts yes }\n        default { puts no }\n    }",
+        2,
+    );
+    // The split form has no arm list and owns nothing (#467).
+    assert_tcl_switch_arms(LANG::Tcl, "switch $x a { return 1 } b { return 2 }", 0);
 }
 
 #[test]
@@ -1377,4 +1390,13 @@ fn irules_switch_arms_pay_at_the_arm_node() {
         "switch -- $x {\n        a { return 1 }\n        b { return 2 }\n        default { return 0 }\n    }",
         2,
     );
+    // An arm error recovery strands under an `ERROR` (its `switch` lost
+    // at end of input) is no arm, as it never was.
+    let options = MetricsOptions::default().with_only(&[Metric::Cyclomatic]);
+    let root = space_verbatim(
+        LANG::Irules,
+        b"when HTTP_REQUEST { switch -- [HTTP::uri] { \"/a\" { return }\n",
+        options,
+    );
+    assert_eq!(root.metrics.cyclomatic.cyclomatic_sum(), 1);
 }

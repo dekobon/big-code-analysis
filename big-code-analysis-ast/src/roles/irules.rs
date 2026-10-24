@@ -12,8 +12,8 @@ tcl_family_gates!();
 
 /// Whether a `switch_arm` is a decision arm rather than `default`,
 /// which only its `pattern` bytes tell (lesson 11, #106).
-fn is_decision_arm<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    irules_switch_arm_is_decision(node, code)
+fn is_decision_arm<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    irules_switch_arm_is_decision(node, code, ancestors)
 }
 
 role_table! {
@@ -51,8 +51,10 @@ role_table! {
     }
     NullSafe { absent "Tcl has no optional navigation or null coalescing" }
     // Unlike Tcl, the grammar gives `switch` and its arms kinds of their
-    // own: a `switch_arm` owns a decision and pays at the node, unless
-    // its pattern is `default`, the fallback (lesson 11, #106).
+    // own: a `switch_arm` under its `switch` owns a decision and pays at
+    // the node, unless its pattern is `default`, the fallback (lesson
+    // 11, #106). The owner reads its parent, so it is never asked with
+    // `Ancestors::unknown()`.
     CaseArm { owns [SwitchArm(text_gated_by is_decision_arm)] }
     Guard { absent "Tcl has no guard clause" }
     Branch { pending R07 }
