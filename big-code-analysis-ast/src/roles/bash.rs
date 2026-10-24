@@ -31,29 +31,6 @@ fn is_test_connective<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a,
         .is_some_and(|parent| bash_test_connective(node, &parent, code).is_some())
 }
 
-/// Whether a bare `<` / `>` is the operator of a `binary_expression`
-/// (any alias). The same two tokens spell an I/O redirection (`cmd >
-/// out`, `read x < in`), which the grammar parents under
-/// `file_redirect` (#1280). At tree-sitter-bash 0.25.1 only
-/// `BinaryExpression3` wraps a comparison; the four siblings are listed
-/// defensively (grammar-dispatch §1).
-fn under_binary_expression<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors.parent(node).is_some_and(|p| {
-        matches!(
-            p.kind_id().into(),
-            Bash::BinaryExpression
-                | Bash::BinaryExpression2
-                | Bash::BinaryExpression3
-                | Bash::BinaryExpression4
-                | Bash::BinaryExpression5
-        )
-    })
-}
-
 /// Whether a `binary_expression`'s `operator` field is one of the
 /// `Comparison` payers, with a `test_operator` read for its bytes.
 fn comparison_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -84,8 +61,10 @@ role_table! {
     // A comparison inside `[[ … ]]` / `(( … ))` is a `binary_expression`
     // (`BinaryExpression3` at the pinned grammar; the four siblings are
     // listed defensively) owning one of `==` `!=` `<=` `>=` `=~`, or `<`
-    // / `>` gated to that parent since the same tokens spell a
-    // redirection. Inside `[ … ]` the comparison is a `test_operator` —
+    // / `>` under that parent (any alias) since the same two tokens
+    // spell an I/O redirection (`cmd > out`, `read x < in`), which the
+    // grammar parents under `file_redirect` (#1280). Inside `[ … ]` the
+    // comparison is a `test_operator` —
     // `-eq`, `-lt`, `-z`, `-n`, … — one kind the grammar shares with the
     // `-a` / `-o` connectives, so that payer is text-gated: a
     // `test_operator` pays as a comparison exactly when its bytes are
@@ -102,7 +81,14 @@ role_table! {
         ]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ, EQTILDE,
-            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+            LT under [
+                BinaryExpression, BinaryExpression2, BinaryExpression3, BinaryExpression4,
+                BinaryExpression5,
+            ],
+            GT under [
+                BinaryExpression, BinaryExpression2, BinaryExpression3, BinaryExpression4,
+                BinaryExpression5,
+            ],
             TestOperator text_gated_by is_test_comparison,
         ]
         project "operator"

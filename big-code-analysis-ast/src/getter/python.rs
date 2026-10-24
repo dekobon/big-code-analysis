@@ -81,7 +81,7 @@ impl Getter for PythonCode {
             // counting consumers need; the `in` of a `for` clause and a
             // comprehension is the spelling the row leaves to this arm.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_comparison` gate leaves out: a loop's `in`
+            // row's `under ComparisonOperator` gate leaves out: a loop's `in`
             Not | In | Is => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(Notin | Isnot) => TokenRole::Unknown,
                 _ => TokenRole::Operator,

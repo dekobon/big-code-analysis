@@ -7711,7 +7711,7 @@ function f(int $a, int $b): int {
         // each one more pattern layer the predicate's climb has to cross
         // — while `for (const x of xs)` carries no `=` at all. Only
         // `let i = 3` and `var j = 4` count — the deliberate deviation
-        // documented on `js_abc_compute!`. Gating on
+        // documented on `js_family_abc_compute!`. Gating on
         // `variable_declaration` instead of `lexical_declaration`,
         // dropping the `const` check, or stopping the climb at the
         // declarator's own `=`, each flips one of these rows. The
@@ -8312,7 +8312,7 @@ function f(int $a, int $b): int {
         );
     }
 
-    // #1275 in the second expansion of `ts_abc_compute!`. TSX shares
+    // #1275 in the TSX expansion of `js_family_abc_compute!`. TSX shares
     // TypeScript's `?` productions and its own `TernaryExpression` /
     // `QMARK` ids, so the gate is a distinct instantiation and needs its
     // own fixture — a passing TypeScript test says nothing about the
@@ -8333,7 +8333,7 @@ function f(int $a, int $b): int {
     }
 
     // The TSX half of `typescript_conditional_type_is_not_a_condition`.
-    // `ts_abc_compute!` expands twice and the two expansions are
+    // `js_family_abc_compute!` expands four times and the expansions are
     // independent code (grammar-dispatch §11): adding `ConditionalType`
     // to the allowlist "for symmetry" fails only the TypeScript test
     // without this one, which reads as the TSX expansion being fine
@@ -13114,7 +13114,7 @@ end
         );
     }
 
-    // #1297 in the `js_abc_compute!` expansion, where `LT` / `GT` had
+    // #1297 in the `js_family_abc_compute!` expansion, where `LT` / `GT` had
     // no gate at all: plain JavaScript has no generics, but
     // tree-sitter-javascript parses JSX unconditionally, so the same
     // seven tag brackets that
@@ -13257,10 +13257,10 @@ end
         });
     }
 
-    // TypeScript expands the same `ts_abc_compute!` arm from a separate
-    // macro body than JavaScript's `js_abc_compute!`, so wiring one and
-    // not the other is a live failure mode; TSX and Mozjs are clones of
-    // these two.
+    // TypeScript and JavaScript expanded this arm from separate macro
+    // bodies until #1695 folded them into `js_family_abc_compute!`;
+    // the per-grammar run stays, since each expansion reads its own
+    // rows and TSX and Mozjs are clones of these two.
     #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ternary_operand_slots_count_as_unary_conditions() {
@@ -13321,10 +13321,10 @@ end
         );
     }
 
-    // TypeScript expands the `ForStatement` arm from `ts_abc_compute!`,
-    // a separate macro body from JavaScript's `js_abc_compute!`, so
-    // wiring one and not the other is a live failure mode; TSX and
-    // Mozjs are the clones of those two. The expected values are
+    // The four grammars expand one `js_family_abc_compute!` body (two
+    // until #1695), each reading its own rows, so a row wired in one
+    // and not another is the live failure mode; TSX and Mozjs are the
+    // clones of TypeScript and JavaScript. The expected values are
     // derived from the JavaScript run rather than hardcoded.
     #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
@@ -13357,7 +13357,7 @@ end
         // `a ? !b : !c` is the one shape that tells the ternary walker
         // from the `for`-header walker: both read the `condition` field
         // and share the `(&Node, &mut f64)` signature, so a transposed
-        // pair in a `ts_abc_compute!` / `js_abc_compute!` invocation
+        // pair in a `js_family_abc_compute!` invocation
         // compiles, passes every condition-slot test, and drops only the
         // two branch operands. TypeScript alone pinned those before; the
         // other three expansions now do too.
@@ -13481,7 +13481,7 @@ end
     #[test]
     fn mozjs_complex_function_abc() {
         // Mozjs shares JavaScript's expression / statement vocabulary;
-        // the `js_abc_compute!` macro expands identical token-level
+        // the `js_family_abc_compute!` macro expands identical token-level
         // rules for both. This test pins parity against the JS impl.
         check_metrics::<MozjsParser>(
             "function f(a, b) {\n\
@@ -13714,7 +13714,7 @@ end
     #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_jsx_elements_are_not_conditions() {
-        // #1297 in the second expansion of `js_abc_compute!`. The
+        // #1297 in the Mozjs expansion of `js_family_abc_compute!`. The
         // vendored mozjs fork carries the same three JSX productions as
         // upstream tree-sitter-javascript with its own `kind_id`s, so
         // the gate is a distinct instantiation and needs its own

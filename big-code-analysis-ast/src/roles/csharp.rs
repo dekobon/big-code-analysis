@@ -35,13 +35,6 @@ fn aliases_a_modifier_keyword<'a>(
         )
 }
 
-/// Whether a `switch_section` holds a `case` label rather than only
-/// `default:`. One section carries every label of a fall-through run
-/// (`case 1: case 2: body`), each a decision its `case` keyword pays.
-fn is_case_section<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    node.is_child(Csharp::Case as u16)
-}
-
 /// Whether a `switch_expression_arm` is a decision: not the bare
 /// discard `_ =>` / `var _ =>`, the expression form's `default:`,
 /// unless a `when` guard makes it one (`case_arms` has the shapes).
@@ -54,15 +47,6 @@ fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
 /// (#1450).
 fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     csharp_case_token_is_switch_arm(node, ancestors)
-}
-
-/// Whether a `binary_expression`'s `operator` field is `??`.
-fn null_coalescing_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    null_safe::project(node).is_some_and(|op| op.kind_id() == Csharp::QMARKQMARK as u16)
 }
 
 role_table! {
@@ -143,8 +127,8 @@ role_table! {
     // (#236): the consumers' own, recorded here.
     NullSafe {
         owns [
-            BinaryExpression(gated_by null_coalescing_operator),
-            BinaryExpression2(gated_by null_coalescing_operator),
+            BinaryExpression(holds_payer),
+            BinaryExpression2(holds_payer),
             ConditionalAccessExpression(pays_itself),
         ]
         pays [QMARKQMARK]
@@ -160,7 +144,7 @@ role_table! {
     // form's `default:` — a guarded discard still counts.
     CaseArm {
         owns [
-            SwitchSection(gated_by is_case_section),
+            SwitchSection(holds_payer),
             SwitchExpressionArm(pays_itself gated_by is_decision_arm),
         ]
         pays [Case gated_by is_switch_arm_case]

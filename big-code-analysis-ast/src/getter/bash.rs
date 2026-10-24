@@ -96,7 +96,8 @@ impl Getter for BashCode {
             // (#1695). `?` likewise stays, below, for the `Ternary` row's
             // gated-out expansion spelling.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
-            // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
+            // spellings the rows' `under BinaryExpression` / `under TernaryExpression` gates
+            // leave out
             | Bash::LT | Bash::GT
             // Bitwise operators
             | Bash::PIPE | Bash::PIPEAMP
@@ -108,7 +109,7 @@ impl Getter for BashCode {
             | Bash::AMPGT | Bash::GTAMP | Bash::LTAMP | Bash::GTPIPE
             | Bash::LTAMPDASH | Bash::GTAMPDASH | Bash::LTLTDASH | Bash::AMPGTGT
             | Bash::LTLTLT
-            // `?` for the spelling the `Ternary` row's `under_ternary` gate
+            // `?` for the spelling the `Ternary` row's `under TernaryExpression` gate
             // leaves out — an expansion's `${y?msg}` — which billed before
             // the row existed; `QMARK2` is the second `?` id, which no
             // spelling at the pinned grammar emits.

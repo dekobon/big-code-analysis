@@ -6,11 +6,9 @@
 use crate::C;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_binary_owners, c_family_case_arm_gate, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
+    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
+    c_family_primitives, c_family_short_circuit_payers,
 };
-
-c_family_case_arm_gate!(C);
 
 role_table! {
     lang: C;
@@ -52,7 +50,7 @@ role_table! {
     // is the fallback and pays nothing (lesson 11, #469); Halstead
     // bills it as the keyword it is through the byte-less arm.
     CaseArm {
-        owns [CaseStatement(gated_by is_case_label)]
+        owns [CaseStatement(holds_payer)]
         pays [Case]
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }

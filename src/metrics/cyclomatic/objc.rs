@@ -8,51 +8,18 @@
 
 use super::*;
 
-// Objective-C cannot reuse `impl_cyclomatic_c_family_rows!` either: that
-// macro counts the C++ `catch` *keyword* token, but ObjC's grammar has
-// no bare `catch` token — `@catch` is the `ATcatch` keyword and the
-// handler body is a `catch_clause` node. Counting `CatchClause` adds one
-// branch per `@catch`, the same edge `catch` contributes in C++.
-// Fast enumeration (`for (id x in xs)`) folds into `for_statement`, so
-// the `For` keyword-token arm already covers it — no separate node
-// (issue #284: count keyword tokens, never the statement nodes, or the
-// `For`/`While`/`If` keyword and their `*Statement` wrappers double-count).
-impl Cyclomatic for ObjcCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use crate::roles::objc::{case_arm, short_circuit, ternary};
-        use Objc::*;
-        let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers, and the
-        // `conditional_expression` the `Ternary` row owns (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::owns_kind(kind, node, code, ancestors)
-        {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        // A `case` label, the `CaseArm` row's payer; `default` is excluded
-        // there (lesson 11, #469).
-        if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
-            stats.cyclomatic += 1.;
-            return;
-        }
-        match kind.into() {
-            SwitchStatement => stats.cyclomatic_modified += 1.,
-            // `CatchClause` (the `@catch` handler) contributes the same
-            // branch as the other decision kinds, so it rides the
-            // combined arm — the C++ family macro folds `Catch` in the
-            // same way.
-            CatchClause | If | For | While => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// The C-family shape with `catch_clause` as its extra: ObjC's grammar
+// has no bare `catch` token — `@catch` is the `ATcatch` keyword and the
+// handler body is a `catch_clause` node — so counting `CatchClause` adds
+// one branch per `@catch`, the same edge C++'s `catch` keyword
+// contributes. Fast enumeration (`for (id x in xs)`) folds into
+// `for_statement`, so the `For` keyword-token arm already covers it —
+// no separate node (issue #284: count keyword tokens, never the
+// statement nodes, or the `For` / `While` / `If` keyword and their
+// `*Statement` wrappers double-count).
+impl_cyclomatic_c_family_rows!(
+    ObjcCode,
+    Objc,
+    roles = crate::roles::objc,
+    extra = [CatchClause]
+);

@@ -13,7 +13,7 @@ use super::{
     Abc, ScoresItself, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, is_operand, last_operand, rows_own, wrapped_operand,
 };
-use crate::roles::cpp::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::cpp::{comparison, short_circuit, ternary};
 use crate::*;
 
 // The C-family slot rule, shared by the `CCode`, `CppCode`, `MozcppCode`
@@ -222,171 +222,185 @@ pub(super) fn cpp_walk_for_statement(node: &Node, scores: ScoresItself, conditio
     }
 }
 
-impl Abc for CppCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // bca: suppress(cyclomatic, halstead)
-        // Exhaustive one-arm-per-grammar-kind dispatch table: the
-        // cyclomatic count here is the number of node kinds the C++
-        // grammar can hand us, not branching a reader must hold in
-        // their head. Every arm is independent and self-describing, and
-        // the table only ever grows as the grammar does (#1102 added
-        // the ternary arm, #1694 the two row reads). Splitting it would
-        // scatter one lookup across helpers with no semantic boundary
-        // to split on, and the effort is that table's vocabulary.
-        use Cpp::*;
+/// The C++ ABC walk, one body for the two dialects: `$lang` is the
+/// grammar's kind enum, `$roles` its rows module, `$scores` its
+/// row-keyed `ScoresItself`. Mozcpp is a vendored fork of
+/// tree-sitter-cpp with its own kind ids and no file extension of its
+/// own, so its walk is this one against its own rows, pinned equal by
+/// `tests/parity/cpp_mozcpp_parity.rs`.
+macro_rules! cpp_family_abc {
+    ($code:ty, $lang:ident, $roles:path, $scores:ident) => {
+        impl Abc for $code {
+            fn compute<'a>(
+                node: &Node<'a>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
+                // bca: suppress(cyclomatic, halstead)
+                // Exhaustive one-arm-per-grammar-kind dispatch table: the
+                // cyclomatic count here is the number of node kinds the C++
+                // grammar can hand us, not branching a reader must hold in
+                // their head. Every arm is independent and self-describing, and
+                // the table only ever grows as the grammar does (#1102 added
+                // the ternary arm, #1694 the two row reads). Splitting it would
+                // scatter one lookup across helpers with no semantic boundary
+                // to split on, and the effort is that table's vocabulary.
+                use $lang::*;
+                use $roles::{case_arm, comparison, short_circuit, ternary};
 
-        // A requires clause or requires-expression is compile-time and
-        // pays no condition, parenthesised or not; cyclomatic and
-        // cognitive agree (#1533). The `Comparison` and `ShortCircuit`
-        // rows are consulted *under* this reach: a parenthesised
-        // constraint is an ordinary `binary_expression` the rows own,
-        // and only the clause above it says it decides nothing.
-        let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
-        let in_constraint = stats.constraint.covers(node, opens);
-        let scores: ScoresItself = &|expr| cpp_condition_scores_itself(expr, code);
+                // A requires clause or requires-expression is compile-time and
+                // pays no condition, parenthesised or not; cyclomatic and
+                // cognitive agree (#1533). The `Comparison` and `ShortCircuit`
+                // rows are consulted *under* this reach: a parenthesised
+                // constraint is an ordinary `binary_expression` the rows own,
+                // and only the clause above it says it decides nothing.
+                let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
+                let in_constraint = stats.constraint.covers(node, opens);
+                let scores: ScoresItself = &|expr| $scores(expr, code);
 
-        let kind = node.kind_id();
-        match kind.into() {
-            // `assignment_expression` covers both plain `=` and every
-            // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
-            // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
-            // single named node so we count once per
-            // `assignment_expression`. `update_expression` covers both
-            // prefix and postfix `++` / `--`.
-            AssignmentExpression | AssignmentExpression2 | UpdateExpression => {
-                stats.assignments += 1.;
-            }
-            // `int x = expr;` parses as a `declaration` carrying an
-            // `init_declarator` of the form `declarator = value`. Per
-            // Fitzpatrick (1997), every `=` operator increments A; the
-            // JS impl already counts `let x = 5;` (and excludes
-            // `const`). We follow the literal reading for C++ too and
-            // count every `init_declarator` whose body contains an
-            // explicit `=` token. `const int x = 5;` is counted along
-            // with `int x = 5;` — distinguishing them would diverge
-            // from the JS rule's "let counted, const not" mapping
-            // because C++ `const` semantics are unlike JS `const` (a
-            // C++ `const int x` binding is the canonical "one
-            // assignment to initialise" — closer to Rust's
-            // non-`mut` `let` than to JS's hoisted reference binding).
-            // `int x;` parses as a plain declarator inside the
-            // `declaration`, not an `init_declarator`, so this arm
-            // never fires for un-initialised declarations. The second
-            // `init_declarator` grammar form `int x(5);` / `int x{5};`
-            // (paren / brace init) carries no `=` token and stays out
-            // — only the `=` operator counts.
-            InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
-                stats.assignments += 1.;
-            }
-            // Every call counts (method calls fold in as
-            // `call_expression` with a `field_expression` callee). The
-            // C++ grammar exposes two aliased `call_expression` ids.
-            // `new T(...)` allocations count as a branch — they invoke
-            // a constructor, mirroring Java's `New` and C#'s
-            // `ObjectCreationExpression` rule.
-            CallExpression | CallExpression2 | NewExpression => {
-                stats.branches += 1.;
-            }
-            // Inside a constraint only the A and B arms above apply: a
-            // call is still a branch, as it is in the unparenthesised
-            // `requires A<T> && (f<T>())` and in `static_assert`.
-            _ if in_constraint => {}
-            // The seven comparison tokens, counted when applied: the
-            // `Comparison` row's payers, each gated on its parent being a
-            // `binary_expression` (an `#if` operand included) or a fold
-            // whose `operator` field it is, so an overload name
-            // (`bool operator<=(…)` — #1448), a template delimiter and a
-            // binary fold's second spelling score nothing. Fitzpatrick Rule
-            // 5 scores the operator wherever it is written; the slot holding
-            // one reads the row's owner so it does not pay again.
-            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                stats.conditions += 1.;
-            }
-            // A ternary's `?`, the `Ternary` row's payer: one decision,
-            // paid at the token so `a ? b : c` scores one outside any
-            // slot; the owner arm below walks its operand slots.
-            _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                stats.conditions += 1.;
-            }
-            // A `case` label, the `CaseArm` row's payer — one per label,
-            // as cyclomatic counts them; `default` is excluded on the row
-            // (lesson 11, #469).
-            _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                stats.conditions += 1.;
-            }
-            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of an
-            // `&&` / `||` chain is one condition (issue #403), and the token
-            // pays nothing — the `ShortCircuit` row is read at its leaf only
-            // to find the chain, which is the token's parent. `and` / `or`
-            // are the same operators as ISO alternative tokens, which the
-            // row lists beside them. The row's gate is cyclomatic's: a
-            // `constraint_conjunction` scores nothing (a parenthesised
-            // constraint never reaches here), and a binary fold
-            // `(0 || ... || !a)` spells its one operator twice, so only the
-            // `operator` field token walks the fold — the second spelling
-            // paid `!a` again.
-            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_chain_operands(&parent, scores, &mut stats.conditions);
+                let kind = node.kind_id();
+                match kind.into() {
+                    // `assignment_expression` covers both plain `=` and every
+                    // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
+                    // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
+                    // single named node so we count once per
+                    // `assignment_expression`. `update_expression` covers both
+                    // prefix and postfix `++` / `--`.
+                    AssignmentExpression | AssignmentExpression2 | UpdateExpression => {
+                        stats.assignments += 1.;
+                    }
+                    // `int x = expr;` parses as a `declaration` carrying an
+                    // `init_declarator` of the form `declarator = value`. Per
+                    // Fitzpatrick (1997), every `=` operator increments A; the
+                    // JS impl already counts `let x = 5;` (and excludes
+                    // `const`). We follow the literal reading for C++ too and
+                    // count every `init_declarator` whose body contains an
+                    // explicit `=` token. `const int x = 5;` is counted along
+                    // with `int x = 5;` — distinguishing them would diverge
+                    // from the JS rule's "let counted, const not" mapping
+                    // because C++ `const` semantics are unlike JS `const` (a
+                    // C++ `const int x` binding is the canonical "one
+                    // assignment to initialise" — closer to Rust's
+                    // non-`mut` `let` than to JS's hoisted reference binding).
+                    // `int x;` parses as a plain declarator inside the
+                    // `declaration`, not an `init_declarator`, so this arm
+                    // never fires for un-initialised declarations. The second
+                    // `init_declarator` grammar form `int x(5);` / `int x{5};`
+                    // (paren / brace init) carries no `=` token and stays out
+                    // — only the `=` operator counts.
+                    InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
+                        stats.assignments += 1.;
+                    }
+                    // Every call counts (method calls fold in as
+                    // `call_expression` with a `field_expression` callee). The
+                    // C++ grammar exposes two aliased `call_expression` ids.
+                    // `new T(...)` allocations count as a branch — they invoke
+                    // a constructor, mirroring Java's `New` and C#'s
+                    // `ObjectCreationExpression` rule.
+                    CallExpression | CallExpression2 | NewExpression => {
+                        stats.branches += 1.;
+                    }
+                    // Inside a constraint only the A and B arms above apply: a
+                    // call is still a branch, as it is in the unparenthesised
+                    // `requires A<T> && (f<T>())` and in `static_assert`.
+                    _ if in_constraint => {}
+                    // The seven comparison tokens, counted when applied: the
+                    // `Comparison` row's payers, each gated on its parent being a
+                    // `binary_expression` (an `#if` operand included) or a fold
+                    // whose `operator` field it is, so an overload name
+                    // (`bool operator<=(…)` — #1448), a template delimiter and a
+                    // binary fold's second spelling score nothing. Fitzpatrick Rule
+                    // 5 scores the operator wherever it is written; the slot holding
+                    // one reads the row's owner so it does not pay again.
+                    _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                        stats.conditions += 1.;
+                    }
+                    // A ternary's `?`, the `Ternary` row's payer: one decision,
+                    // paid at the token so `a ? b : c` scores one outside any
+                    // slot; the owner arm below walks its operand slots.
+                    _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                        stats.conditions += 1.;
+                    }
+                    // A `case` label, the `CaseArm` row's payer — one per label,
+                    // as cyclomatic counts them; `default` is excluded on the row
+                    // (lesson 11, #469).
+                    _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                        stats.conditions += 1.;
+                    }
+                    // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of an
+                    // `&&` / `||` chain is one condition (issue #403), and the token
+                    // pays nothing — the `ShortCircuit` row is read at its leaf only
+                    // to find the chain, which is the token's parent. `and` / `or`
+                    // are the same operators as ISO alternative tokens, which the
+                    // row lists beside them. The row's gate is cyclomatic's: a
+                    // `constraint_conjunction` scores nothing (a parenthesised
+                    // constraint never reaches here), and a binary fold
+                    // `(0 || ... || !a)` spells its one operator twice, so only the
+                    // `operator` field token walks the fold — the second spelling
+                    // paid `!a` again.
+                    _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                        if let Some(parent) = ancestors.parent(node) {
+                            cpp_count_chain_operands(&parent, scores, &mut stats.conditions);
+                        }
+                    }
+                    // `else` opens an alternative branch path; `case`
+                    // (non-default) adds one per switch arm; `?` opens a
+                    // ternary; `try` / `catch` count per Fitzpatrick (and
+                    // Java's rule). `Try2` is the second token-id alias the
+                    // C++ grammar emits for `try` (it appears under
+                    // structured-exception forms).
+                    //
+                    // `&&` / `||` are deliberately NOT counted (Fitzpatrick
+                    // Rule 7 in Figure 3 for C++; the unary-conditional
+                    // counterpart is Rule 9). See the module-level `Stats`
+                    // doc-comment for the cross-language policy (issue
+                    // #395, walker tracked in #403).
+                    Else | Try | Try2 | Catch => {
+                        stats.conditions += 1.;
+                    }
+                    // Phase-2B (issue #403): condition slots, read by grammar field
+                    // in `cpp_count_condition_slot`. The slot pays for any
+                    // predicate no other arm counts (#1526), so `if (true)`,
+                    // `if (-x)` and `return !x` each count one condition; bare
+                    // `return x` reports zero.
+                    IfStatement | WhileStatement | DoStatement => {
+                        cpp_count_condition_slot(node, scores, &mut stats.conditions);
+                    }
+                    // `co_return` is a coroutine's `return` (#1547), so its value
+                    // is read the same way: `co_return !x` counts one. `co_yield`
+                    // hands back a value without returning, as the JS family's
+                    // `yield` does, and like it scores no value slot.
+                    ReturnStatement | CoReturnStatement => {
+                        cpp_count_return(node, scores, &mut stats.conditions);
+                    }
+                    // `f(!a, !b)` — argument list walker. Two aliases —
+                    // `argument_list` is emitted as ArgumentList or
+                    // ArgumentList2 depending on production rule path.
+                    ArgumentList | ArgumentList2 => {
+                        cpp_count_arguments(node, scores, &mut stats.conditions);
+                    }
+                    // `a ? !b : !c` — the ternary's own `?` token is already
+                    // paid by the `Ternary` arm above; this walks the three
+                    // operand slots (issue #1102).
+                    _ if ternary::owns_kind(kind, node, code, ancestors) => {
+                        cpp_walk_ternary(node, scores, &mut stats.conditions);
+                    }
+                    // `for (init; cond; update)` — the condition slot, read by
+                    // grammar field (issue #1276). `for (;;)` has no condition
+                    // field and counts nothing.
+                    ForStatement => {
+                        cpp_walk_for_statement(node, scores, &mut stats.conditions);
+                    }
+                    _ => {}
                 }
             }
-            // `else` opens an alternative branch path; `case`
-            // (non-default) adds one per switch arm; `?` opens a
-            // ternary; `try` / `catch` count per Fitzpatrick (and
-            // Java's rule). `Try2` is the second token-id alias the
-            // C++ grammar emits for `try` (it appears under
-            // structured-exception forms).
-            //
-            // `&&` / `||` are deliberately NOT counted (Fitzpatrick
-            // Rule 7 in Figure 3 for C++; the unary-conditional
-            // counterpart is Rule 9). See the module-level `Stats`
-            // doc-comment for the cross-language policy (issue
-            // #395, walker tracked in #403).
-            Else | Try | Try2 | Catch => {
-                stats.conditions += 1.;
-            }
-            // Phase-2B (issue #403): condition slots, read by grammar field
-            // in `cpp_count_condition_slot`. The slot pays for any
-            // predicate no other arm counts (#1526), so `if (true)`,
-            // `if (-x)` and `return !x` each count one condition; bare
-            // `return x` reports zero.
-            IfStatement | WhileStatement | DoStatement => {
-                cpp_count_condition_slot(node, scores, &mut stats.conditions);
-            }
-            // `co_return` is a coroutine's `return` (#1547), so its value
-            // is read the same way: `co_return !x` counts one. `co_yield`
-            // hands back a value without returning, as the JS family's
-            // `yield` does, and like it scores no value slot.
-            ReturnStatement | CoReturnStatement => {
-                cpp_count_return(node, scores, &mut stats.conditions);
-            }
-            // `f(!a, !b)` — argument list walker. Two aliases —
-            // `argument_list` is emitted as ArgumentList or
-            // ArgumentList2 depending on production rule path.
-            ArgumentList | ArgumentList2 => {
-                cpp_count_arguments(node, scores, &mut stats.conditions);
-            }
-            // `a ? !b : !c` — the ternary's own `?` token is already
-            // paid by the `Ternary` arm above; this walks the three
-            // operand slots (issue #1102).
-            _ if ternary::owns_kind(kind, node, code, ancestors) => {
-                cpp_walk_ternary(node, scores, &mut stats.conditions);
-            }
-            // `for (init; cond; update)` — the condition slot, read by
-            // grammar field (issue #1276). `for (;;)` has no condition
-            // field and counts nothing.
-            ForStatement => {
-                cpp_walk_for_statement(node, scores, &mut stats.conditions);
-            }
-            _ => {}
         }
-    }
+    };
 }
+pub(super) use cpp_family_abc;
+
+cpp_family_abc!(CppCode, Cpp, crate::roles::cpp, cpp_condition_scores_itself);
 
 #[cfg(test)]
 #[allow(clippy::float_cmp)]

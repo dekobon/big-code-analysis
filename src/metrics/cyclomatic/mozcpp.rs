@@ -16,5 +16,6 @@ impl_cyclomatic_c_family_rows!(
     MozcppCode,
     Mozcpp,
     roles = crate::roles::mozcpp,
+    extra = [Catch],
     constraints = [RequiresClause, RequiresExpression],
 );

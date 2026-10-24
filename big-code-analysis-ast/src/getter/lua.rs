@@ -76,7 +76,7 @@ impl Getter for LuaCode {
             // billed before the row existed; the other comparison tokens
             // are the row's and `get_paying_role` bills them (#1695).
             // role-bypass: allow(Comparison) — the operator classification of the spelling the
-            // row's `under_binary_expression` gate leaves out: a recovered token
+            // row's `under BinaryExpression` gate leaves out: a recovered token
             | Lua::LT
             | Lua::GT
             // Assignment

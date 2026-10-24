@@ -5,12 +5,10 @@
 
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_binary_owners, c_family_case_arm_gate, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
+    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
+    c_family_primitives, c_family_short_circuit_payers,
 };
 use crate::{Ancestors, Node, Objc};
-
-c_family_case_arm_gate!(Objc);
 
 /// Whether `node` is the attribute word of `@property (nonatomic, copy,
 /// getter=isOn)`. The grammar has no keyword for any attribute: each is
@@ -41,7 +39,7 @@ role_table! {
     // A bare `<` / `>` also opens a `generic_specifier`, a
     // `protocol_reference_list` (`id<NSCopying>`), a
     // `parameterized_arguments` and an `argument_list`, which is what
-    // the payers' `under_binary_expression` gate excludes.
+    // the payers' `under BinaryExpression` gate excludes.
     Comparison {
         owns [..c_family_binary_owners!()]
         pays [..c_family_comparison_payers!()]
@@ -71,7 +69,7 @@ role_table! {
     // is the fallback and pays nothing (lesson 11, #469); Halstead
     // bills it as the keyword it is through the byte-less arm.
     CaseArm {
-        owns [CaseStatement(gated_by is_case_label)]
+        owns [CaseStatement(holds_payer)]
         pays [Case]
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }

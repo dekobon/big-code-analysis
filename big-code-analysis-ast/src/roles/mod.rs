@@ -79,9 +79,9 @@
 //! role_table! {
 //!     lang: Java;
 //!     Exit       { owns [ReturnStatement, ThrowStatement] }
-//!     Comparison { owns [BinaryExpression(gated_by comparison_operator),
+//!     Comparison { owns [BinaryExpression(holds_payer),
 //!                        InstanceofExpression]
-//!                  pays [EQEQ, LT gated_by under_binary_expression, Instanceof]
+//!                  pays [EQEQ, LT under BinaryExpression, Instanceof]
 //!                  project "operator"
 //!                  excludes [QMARK "a wildcard bound's `?` is type syntax"] }
 //!     Container  { owns [ClassDeclaration(opens Class),
@@ -135,9 +135,7 @@
 //!   verbatim, for the coverage ratchet. `OWNERS` and `PAYERS` are the
 //!   *declared* lists and are disjoint by construction (see below).
 //! - `owns(node, code, ancestors)`: the gated owner test. A
-//!   `holds_payer` owner's gate is `project(node)` landing on a payer, so
-//!   the row must declare `project` (the field, or the payer-child
-//!   fallback).
+//!   `holds_payer` owner's gate is `project(node)` landing on a payer.
 //! - `pays_at_leaf(node, code, ancestors)`: with a `pays` list, the gated
 //!   payer test plus every `pays_itself` owner — where a token-counting
 //!   arm fires; without one, the owner test; under `pays never`, false.
@@ -154,10 +152,11 @@
 //!   the split is visible only where a row declares it, and a consumer
 //!   counting both an owner and its leaf is a visible choice at the
 //!   consumer, never an accident here.
-//! - `project(owner) -> Option<Node>`: the owner's paying child, when a
-//!   `project` field is declared — the field where the owner has it,
-//!   else the first child whose kind is a declared payer, for an owner
-//!   whose grammar names no field (Java's `instanceof_expression`); and
+//! - `project(owner) -> Option<Node>`: the owner's paying child — the
+//!   declared `project` field where the row names one and the owner has
+//!   it, else the first child whose kind is a declared payer, for an
+//!   owner whose grammar names no field (Java's `instanceof_expression`,
+//!   or a `case_statement` whose `case` keyword is a bare child); and
 //!   beside it `owns_via(payer, node, …)`, the owner test narrowed to
 //!   one payer, for a consumer that scores some of a row's payers and
 //!   not others.
@@ -825,37 +824,47 @@ macro_rules! role_table {
                 !PAYS_NEVER && owns(node, code, ancestors)
             }
 
-            $(
-                /// The child of an owner that pays for it: the owner's
-                /// declared field, or — for an owner the grammar gives
-                /// no such field (Java's `instanceof_expression` carries
-                /// its keyword as a bare child) — its first child whose
-                /// kind is a declared payer. `None` when neither holds,
-                /// which for a declared owner is a row defect.
-                pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
-                    owner.child_by_field_name($field).or_else(|| {
+            /// The field holding an owner's paying token, where the row
+            /// declares one.
+            pub const PROJECT: Option<&str> = $crate::role_table!(@project $($field)?);
+
+            /// The child of an owner that pays for it: the owner's
+            /// declared `project` field, or — where the row declares
+            /// none, or the grammar gives this owner no such field
+            /// (Java's `instanceof_expression` carries its keyword as a
+            /// bare child) — its first child whose kind is a declared
+            /// payer. `None` when neither holds, which for a declared
+            /// owner is a row defect.
+            pub fn project<'a>(owner: &Node<'a>) -> Option<Node<'a>> {
+                PROJECT
+                    .and_then(|field| owner.child_by_field_name(field))
+                    .or_else(|| {
                         owner
                             .children()
                             .find(|child| PAYERS.contains(&child.kind_id()))
                     })
-                }
+            }
 
-                /// Whether `node` owns the construct *through* the payer
-                /// of kind `payer`: for a consumer that scores only one
-                /// of a row's payers (C#'s `??` but not its conditional
-                /// access), asked of the projection once.
-                pub fn owns_via<'a>(
-                    payer: u16,
-                    node: &Node<'a>,
-                    code: &[u8],
-                    ancestors: Ancestors<'a, '_>,
-                ) -> bool {
-                    owns(node, code, ancestors)
-                        && project(node).is_some_and(|child| child.kind_id() == payer)
-                }
-            )?
+            /// Whether `node` owns the construct *through* the payer
+            /// of kind `payer`: for a consumer that scores only one
+            /// of a row's payers (C#'s `??` but not its conditional
+            /// access), asked of the projection once.
+            pub fn owns_via<'a>(
+                payer: u16,
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
+                owns(node, code, ancestors)
+                    && project(node).is_some_and(|child| child.kind_id() == payer)
+            }
         });
     };
+
+    // ---- the declared projection field, or none ---------------------------
+
+    (@project) => { None };
+    (@project $field:literal) => { Some($field) };
 
     // ---- the three paying modes --------------------------------------------
     //

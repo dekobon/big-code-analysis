@@ -325,18 +325,12 @@ pub(crate) fn argument_slots_are_readable(
     if !owner.has_error() {
         return true;
     }
-    let memo = ancestors.node_memo(MemoQuestion::ArgumentSlotsReadable);
-    if let Some(answer) = memo.and_then(|memo| memo.get(arguments)) {
-        return answer;
-    }
-    argument_slot_scans::record();
-    let readable = !arguments
-        .children()
-        .any(|slot| slot.is_error() || slot.is_missing());
-    if let Some(memo) = memo {
-        memo.set(arguments, readable);
-    }
-    readable
+    ancestors.memoised(MemoQuestion::ArgumentSlotsReadable, arguments, || {
+        argument_slot_scans::record();
+        !arguments
+            .children()
+            .any(|slot| slot.is_error() || slot.is_missing())
+    })
 }
 
 /// Whether the braced `word` fills a slot of `arguments` that `roles`

@@ -7,6 +7,15 @@ use crate::getter::node_text;
 use crate::role_table;
 use crate::{Ancestors, Groovy, Node};
 
+/// Whether a `membership_expression` or `instanceof_expression` spells
+/// its keyword as a token. The negated forms `a !in b` and
+/// `o !instanceof T` emit no operator token at all — the node holds its
+/// two operands and nothing between them — so the owner pays for
+/// itself there and the positive form's keyword pays otherwise.
+fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_none()
+}
+
 /// Whether a contextual keyword leaf (`trait`, `record`, `sealed`,
 /// `permits`, `var`) sits directly under the construct it introduces.
 ///
@@ -39,22 +48,6 @@ fn contextual_keyword_owns<'a>(
                 | (Var, LocalVariableDeclaration)
         )
     })
-}
-
-/// Whether a `switch_case` is a `case X:` arm. The dekobon grammar
-/// gives `default:` its own `switch_default` kind, so every
-/// `switch_case` holds a `case`; the gate pins that.
-fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    node.is_child(Groovy::Case as u16)
-}
-
-/// Whether a `membership_expression` or `instanceof_expression` spells
-/// its keyword as a token. The negated forms `a !in b` and
-/// `o !instanceof T` emit no operator token at all — the node holds its
-/// two operands and nothing between them — so the owner pays for
-/// itself there and the positive form's keyword pays otherwise.
-fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    comparison::project(node).is_none()
 }
 
 /// Java's eight primitive type keywords and `void`, which Groovy
@@ -190,7 +183,7 @@ role_table! {
     // `switch_default` and its `default` keyword are the fallback and
     // pay nothing (lesson 11, #469).
     CaseArm {
-        owns [SwitchCase(gated_by is_case_label)]
+        owns [SwitchCase(holds_payer)]
         pays [Case]
         excludes [
             SwitchDefault "the fallback arm, no decision (lesson 11, #469)",

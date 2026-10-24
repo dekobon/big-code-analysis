@@ -163,30 +163,18 @@ pub(crate) fn kotlin_when_entry_is_else(node: &Node) -> bool {
 /// `*|b`) is not bare and still counts.
 ///
 /// tree-sitter-bash attaches `value` to each alternation, so the items
-/// are walked with one cursor — `field_name()` names the field at the
-/// cursor and `goto_next_sibling()` is `O(1)` — rather than through
-/// `Node::child(i)`, which is `O(i)` per call.
+/// are read through `children_by_field_name` — one cursor, `O(1)` per
+/// step — rather than through `Node::child(i)`, which is `O(i)` per
+/// call.
 #[must_use]
 pub(crate) fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
-    let mut cursor = node.as_tree_sitter().walk();
-    if !cursor.goto_first_child() {
+    let item = node.as_tree_sitter();
+    let mut cursor = item.walk();
+    let mut values = item.children_by_field_name("value", &mut cursor);
+    let Some(sole) = values.next() else {
         return false;
-    }
-    let mut value_count = 0usize;
-    let mut sole_value_is_star = false;
-    loop {
-        if cursor.field_name() == Some("value") {
-            value_count += 1;
-            if value_count > 1 {
-                return false;
-            }
-            sole_value_is_star = cursor.node().utf8_text(code).is_ok_and(|s| s.trim() == "*");
-        }
-        if !cursor.goto_next_sibling() {
-            break;
-        }
-    }
-    value_count == 1 && sole_value_is_star
+    };
+    values.next().is_none() && sole.utf8_text(code).is_ok_and(|s| s.trim() == "*")
 }
 
 /// The arm list of a Tcl `switch` written in the brace-list form:
@@ -261,19 +249,13 @@ fn tcl_word_list_holds_sole_braced_word(
     word_list: &Node<'_>,
     ancestors: Ancestors<'_, '_>,
 ) -> bool {
-    let memo = ancestors.node_memo(MemoQuestion::SwitchArmList);
-    if let Some(answer) = memo.and_then(|memo| memo.get(word_list)) {
-        return answer;
-    }
-    let sole = word_list
-        .children()
-        .filter(|child| child.kind_id() == Tcl::BracedWord as u16)
-        .count()
-        == 1;
-    if let Some(memo) = memo {
-        memo.set(word_list, sole);
-    }
-    sole
+    ancestors.memoised(MemoQuestion::SwitchArmList, word_list, || {
+        word_list
+            .children()
+            .filter(|child| child.kind_id() == Tcl::BracedWord as u16)
+            .count()
+            == 1
+    })
 }
 
 /// Whether an iRules `switch_arm` is a decision arm: a direct child of

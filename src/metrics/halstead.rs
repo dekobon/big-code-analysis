@@ -6447,7 +6447,7 @@ end",
     /// rows bills as an operator, one fixture line apiece. Dropping a
     /// symbol, a compound, `and` or `or` from a row fails its own entry;
     /// `in` and `is` stay in the byte-less arm for the spellings the
-    /// row's `under_comparison` gate leaves out (a loop's `in`), so
+    /// row's `under ComparisonOperator` gate leaves out (a loop's `in`), so
     /// their entries pin the vocabulary, not the row. The compounds
     /// bill as one operator and their inner leaves as none (#413).
     #[cfg(feature = "python")]

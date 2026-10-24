@@ -183,25 +183,6 @@ macro_rules! c_family_binary_owners {
     };
 }
 
-/// The `CaseArm` gate every C-family dialect reads (#1695): a
-/// `case_statement` is one node for a `case X:` label and a
-/// `default:` label alike, and only the first is a decision — the
-/// `default` label is the fallback, the convention of lesson 11
-/// (#469). The arm owns the construct when it holds a `case` keyword.
-macro_rules! c_family_case_arm_gate {
-    ($lang:ident) => {
-        /// Whether a `case_statement` is a `case X:` arm rather than the
-        /// `default:` label.
-        fn is_case_label<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            node.is_child($lang::Case as u16)
-        }
-    };
-}
-
 /// Whether a C++ binary operator token applies its operator under its
 /// parent, as opposed to spelling the same token in a declaration: an
 /// overload name (`operator&&`, `operator<`), a reference declarator or
@@ -259,8 +240,7 @@ macro_rules! cpp_family_gates {
 }
 
 pub(crate) use {
-    c_family_binary_owners, c_family_case_arm_gate, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
-    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_gates,
-    cpp_family_short_circuit_payers,
+    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
+    c_family_primitives, c_family_short_circuit_payers, cpp_family_binary_owners,
+    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_payers,
 };

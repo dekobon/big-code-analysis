@@ -118,11 +118,11 @@ impl Getter for JavaCode {
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators. `?` stays for the spelling the
-            // `Ternary` row's `under_ternary` gate leaves out — a
+            // `Ternary` row's `under TernaryExpression` gate leaves out — a
             // wildcard bound (`List<? extends T>`) — which billed before
             // the row existed; the ternary's `?` is the row's.
             // role-bypass: allow(Ternary) — the operator classification of the spelling the row's
-            // `under_ternary` gate leaves out: a wildcard bound
+            // `under TernaryExpression` gate leaves out: a wildcard bound
             | EQ | BANG | TILDE | QMARK | COLON | PLUSPLUS | DASHDASH
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ
@@ -143,7 +143,7 @@ impl Getter for JavaCode {
             // the perturbation evidence for the Halstead path is the
             // other six payers.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the row's
-            // `under_binary_expression` / `under_instanceof_expression` gates leave out: a generic
+            // `under BinaryExpression` / `under InstanceofExpression` gates leave out: a generic
             // opener and a recovered token
             LT | GT | Instanceof => TokenRole::Operator,
             // `super` is the receiver of `super.f()` / `super(x)` /

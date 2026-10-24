@@ -218,9 +218,9 @@ impl_js_family_const_binding!(Tsx, tsx_eq_initializes_const_binding);
 impl_js_family_const_binding!(Javascript, javascript_eq_initializes_const_binding);
 impl_js_family_const_binding!(Mozjs, mozjs_eq_initializes_const_binding);
 
-// TypeScript / TSX share the same expression / statement vocabulary;
-// the `ts_abc_compute!` macro expands the same token-level
-// Fitzpatrick rules for both. Conditions capture every comparison and
+// The four JS grammars share one expression / statement vocabulary;
+// the `js_family_abc_compute!` macro expands the same token-level
+// Fitzpatrick rules for each, reading the grammar's rows. Conditions capture every comparison and
 // control-flow arm (the original token-level set), plus Phase-2 walker
 // arms for `&&` / `||` operand counting and the
 // `IfStatement` / `WhileStatement` / `DoStatement` / `ForStatement`
@@ -236,7 +236,7 @@ impl_js_family_const_binding!(Mozjs, mozjs_eq_initializes_const_binding);
 // stack could not answer it. `let` and `var` initializers still count.
 // Augmented assignments (`+=`) and update expressions (`++`, `--`) always
 // count.
-macro_rules! ts_abc_compute {
+macro_rules! js_family_abc_compute {
     (
         $lang:ident,
         $roles:ident,
@@ -398,7 +398,7 @@ macro_rules! ts_abc_compute {
 }
 
 impl Abc for TypescriptCode {
-    ts_abc_compute!(
+    js_family_abc_compute!(
         Typescript,
         typescript,
         typescript_eq_initializes_const_binding
@@ -406,154 +406,20 @@ impl Abc for TypescriptCode {
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(Tsx, tsx, tsx_eq_initializes_const_binding);
+    js_family_abc_compute!(Tsx, tsx, tsx_eq_initializes_const_binding);
 }
 
-// JavaScript / Mozjs share TypeScript's expression / statement
-// vocabulary. The `js_abc_compute!` macro expands the same
-// token-level Fitzpatrick rules as `ts_abc_compute!`, with two
-// adjustments:
-//
-//   1. `LT` / `GT` take the same `binary_expression` gate, against a
-//      shorter list of non-comparison producers: plain JS has no
-//      `TypeArguments` / `TypeParameters`, but it does have the three
-//      JSX productions (#1297).
-//   2. JS runs the same `$const_binding` structural check so `const x = 5`
-//      does not count the initializer `=` as an assignment. `let x = 5`
-//      and `var x = 5` DO count their initializer `=` as an assignment —
-//      only `const` suppresses, matching the TS impl above. This
-//      deliberately deviates from a strict reading of Fitzpatrick's
-//      "declaration initialiser is not an assignment" rule because
-//      `let`/`var` bindings can be reassigned and the initial value is
-//      the first assignment of the binding's lifetime.
-macro_rules! js_abc_compute {
-    (
-        $lang:ident,
-        $roles:ident,
-        $const_binding:path
-    ) => {
-        fn compute<'a>(
-            node: &Node<'a>,
-            code: &'a [u8],
-            ancestors: Ancestors<'a, '_>,
-            stats: &mut Stats,
-        ) {
-            use crate::roles::$roles::{case_arm, comparison, null_safe, short_circuit, ternary};
-            use $lang::*;
-
-            let scores: ScoresItself = js_family_scores_itself!($roles, code);
-            let kind = node.kind_id();
-            match kind.into() {
-                PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | AMPEQ | PIPEEQ
-                | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ
-                | PLUSPLUS | DASHDASH => {
-                    stats.assignments += 1.;
-                }
-                // See the TS macro above: a `const` initializer is part of
-                // the declaration, every other `=` is an assignment (#1277).
-                EQ if !$const_binding(node, ancestors) => {
-                    stats.assignments += 1.;
-                }
-                CallExpression | NewExpression => {
-                    stats.branches += 1.;
-                }
-                // The `default` arm is the unconditional fallthrough and
-                // is excluded, mirroring cyclomatic's `Case`-only count
-                // (issue #469); see the TS macro above for the rationale.
-                Else | Try | Catch => {
-                    stats.conditions += 1.;
-                }
-                // `??`, the `NullSafe` row's payer that is a boolean test;
-                // the row's other payer, the optional chain's `?.`, is a
-                // navigation ABC does not score.
-                // role-bypass: allow(NullSafe) — which of the row's two payers this consumer
-                // scores: the coalescing operator, not the optional chain
-                _ if kind == QMARKQMARK as u16
-                    && null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
-                {
-                    stats.conditions += 1.;
-                }
-                // A `case` label, the `CaseArm` row's payer; `default` is
-                // excluded on the row (lesson 11, #469).
-                _ if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                    stats.conditions += 1.;
-                }
-                // The `Ternary` row's `?`: plain JS spells the bare token
-                // nowhere else, so the row pays it ungated — a recovered
-                // `?` with its ternary lost still pays, as it always did.
-                _ if ternary::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                    stats.conditions += 1.;
-                }
-                // The comparison tokens, the `Comparison` row's payers
-                // (`roles/js_family.rs`). Plain JS has no generics, but
-                // it does have JSX, and both grammars here parse it
-                // unconditionally — a `.js` file returning
-                // `<div><span>hi</span></div>` scored six conditions from
-                // tag delimiters alone (#1297). The `grammar.json` sweep
-                // finds a bare `<` / `>` in exactly four productions in
-                // tree-sitter-javascript 0.25.0 and in the vendored mozjs
-                // fork — `binary_expression` plus the same three JSX ones
-                // as TypeScript — so the row's parent gate is the TS one
-                // with the two type-syntax productions absent. See that
-                // arm for the polarity rationale.
-                _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                    stats.conditions += 1.;
-                }
-                // Fitzpatrick Rule 9: each operand of a `&&` / `||`
-                // chain is one condition (issue #403); the `ShortCircuit`
-                // row is read at its leaf only to find the chain, the
-                // token's parent. `a && b || c` is a left-nested chain of
-                // `binary_expression`s, so an operand that is itself a
-                // chain is paid by its own operator's visit.
-                _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
-                    if let Some(chain) = ancestors.parent(node) {
-                        count_field_operands(
-                            &chain,
-                            |operand, conds| count_condition(operand, scores, conds),
-                            &mut stats.conditions,
-                        );
-                    }
-                }
-                // Phase-2B (issue #403): condition slots. Same shape
-                // as the TypeScript impl above — see that macro's
-                // arm-block for why each slot is read by role.
-                IfStatement | WhileStatement | DoStatement => {
-                    if let Some(cond) = node.child_by_field_name("condition") {
-                        count_condition(&cond, scores, &mut stats.conditions);
-                    }
-                }
-                ReturnStatement => {
-                    if let Some(value) = wrapped_operand(node) {
-                        count_negated(&value, scores, &mut stats.conditions);
-                    }
-                }
-                Arguments => {
-                    count_each_operand(
-                        node,
-                        |operand, conds| count_negated(operand, scores, conds),
-                        &mut stats.conditions,
-                    );
-                }
-                // `a ? !b : !c` — the `ternary_expression` the `Ternary`
-                // row owns: its `?` is already paid by the row's arm
-                // above; this walks the three operand slots (issue #1102).
-                _ if ternary::owns_kind(kind, node, code, ancestors) => {
-                    js_family_walk_ternary(node, scores, &mut stats.conditions);
-                }
-                // `for (init; cond; update)` — the condition slot, read
-                // by grammar field (issue #1276). `for (;;)` fills the
-                // slot with an `empty_statement` and counts nothing.
-                ForStatement => {
-                    js_family_walk_for(node, scores, &mut stats.conditions);
-                }
-                _ => {}
-            }
-        }
-    };
-}
-
+// JavaScript / Mozjs share TypeScript's vocabulary and, since every
+// token a grammar spells differently is read from its rows (#1695),
+// the same macro: plain JS has no `TypeArguments` / `TypeParameters`
+// for `<` / `>` to be gated against, but its `Comparison` row's `under`
+// gate reads the grammar's own kinds, so the body is one. The
+// `$const_binding` structural check is the same deliberate deviation
+// as TypeScript's: `const x = 5` does not count its initializer `=`,
+// `let` / `var` do (the binding can be reassigned, so the initial
+// value is its first assignment).
 impl Abc for JavascriptCode {
-    js_abc_compute!(
+    js_family_abc_compute!(
         Javascript,
         javascript,
         javascript_eq_initializes_const_binding
@@ -561,5 +427,5 @@ impl Abc for JavascriptCode {
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(Mozjs, mozjs, mozjs_eq_initializes_const_binding);
+    js_family_abc_compute!(Mozjs, mozjs, mozjs_eq_initializes_const_binding);
 }

@@ -161,9 +161,10 @@ impl Getter for CsharpCode {
             // payer and `get_paying_role` bills it; `??=` is excluded
             // there and bills here as the assignment it is.
             // role-bypass: allow(Comparison, Ternary, CaseArm, NullSafe) — the operator
-            // classification of the spellings the rows' `under_type_test` /
-            // `under_binary_expression` / `under_ternary` / `is_switch_arm_case` gates leave
-            // out, and of the conditional access's `?`, which its self-paying owner does not bill
+            // classification of the spellings the rows' `under IsExpression` /
+            // `under BinaryExpression` / `under ConditionalExpression` / `is_switch_arm_case`
+            // gates leave out, and of the conditional access's `?`, which its self-paying owner
+            // does not bill
             If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
             | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
             // Expression-keyword operators. `new` is the allocation
@@ -171,7 +172,7 @@ impl Getter for CsharpCode {
             // modifiers, the declaration keywords and `predefined_type`
             // are not here: `roles/csharp.rs` declares them and
             // `get_keyword_role` bills them (#1693).
-            // `is` for the spelling the `Comparison` row's `under_type_test`
+            // `is` for the spelling the `Comparison` row's `under IsExpression`
             // gate leaves out — a keyword error recovery strands — which
             // billed before the row existed.
             | Is
@@ -190,7 +191,7 @@ impl Getter for CsharpCode {
             // comparison tokens, `is`, `&&` and `||` are the `Comparison`
             // and `ShortCircuit` rows' and `get_paying_role` bills them
             // (#1695); the six comparison tokens stay for the spellings
-            // the row's `under_binary_expression` gate leaves out — a
+            // the row's `under BinaryExpression` gate leaves out — a
             // generic bracket (the `<>` pair; its closer returned
             // `Unknown` above), an operator declaration's name, a
             // relational pattern, a recovered token — which billed

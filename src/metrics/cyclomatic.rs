@@ -305,6 +305,11 @@ where
 /// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
 /// correct keyword-driven counts.
 ///
+/// `extra = [<kinds>]` names the dialect's own both-count decision
+/// kinds beside `if` / `for` / `while`: C++'s `catch` keyword, ObjC's
+/// `catch_clause` (its `@catch` is the `ATcatch` keyword, so the handler
+/// node is what pays), and nothing for C, which has no exceptions.
+///
 /// `constraints = [<kinds>]` names the nodes whose whole subtree scores
 /// no decision, tracked by [`ConstraintReach`] so the test is `O(1)` per
 /// node: C++'s compile-time `requires` clause and expression.
@@ -313,6 +318,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
         $code:ty,
         $lang:ident,
         roles = $roles:path
+        $(, extra = [$($extra:ident),+ $(,)?])?
         $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
     ) => {
         impl Cyclomatic for $code {
@@ -344,7 +350,7 @@ macro_rules! impl_cyclomatic_c_family_rows {
                 }
                 match kind.into() {
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch => {
+                    If | For | While $($(| $extra)+)? => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }

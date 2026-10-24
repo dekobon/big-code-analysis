@@ -37,5 +37,6 @@ impl_cyclomatic_c_family_rows!(
     CppCode,
     Cpp,
     roles = crate::roles::cpp,
+    extra = [Catch],
     constraints = [RequiresClause, RequiresExpression],
 );

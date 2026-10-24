@@ -72,11 +72,11 @@ impl Getter for CCode {
         // `?` and the `case` label: the `Comparison`, `ShortCircuit`,
         // `Ternary` and `CaseArm` rows pay them ungated and
         // `get_paying_role` bills them (#1695). `<` / `>` stay for the spelling the rows'
-        // `under_binary_expression` gate leaves out — a token error
+        // `under BinaryExpression` gate leaves out — a token error
         // recovery strands under an `ERROR` — which billed before the
         // rows existed; for those two the row is not what bills them.
         // role-bypass: allow(Comparison) — the operator classification of the spelling the row's
-        // `under_binary_expression` gate leaves out: a recovered token
+        // `under BinaryExpression` gate leaves out: a recovered token
         match node.kind_id().into() {
             LT | GT | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Default | For | While | Goto | Do | EQ

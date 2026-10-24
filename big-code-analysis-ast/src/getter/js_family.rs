@@ -149,7 +149,7 @@ macro_rules! impl_js_family_get_op_type {
             // delimiter, a TypeScript generic opener (the `<>` pair; its
             // closer returned `Unknown` above) and a recovered token —
             // which billed before the rows existed. `?` likewise stays for
-            // the spellings the `Ternary` row's `under_ternary` gate leaves
+            // the spellings the `Ternary` row's `under TernaryExpression` gate leaves
             // out — TypeScript's optional members and types and its
             // `conditional_type` — which billed before the row existed.
             // `case` is the `CaseArm` row's and `get_paying_role` bills it
@@ -161,7 +161,8 @@ macro_rules! impl_js_family_get_op_type {
             // arm here bills it — nor `&&=` / `||=` — a pre-existing gap
             // the row neither opens nor closes.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
-            // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
+            // spellings the rows' `under BinaryExpression` / `under TernaryExpression` gates
+            // leave out
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real

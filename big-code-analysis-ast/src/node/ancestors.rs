@@ -136,6 +136,26 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         self.folds.map(|cache| &cache.nodes[question as usize])
     }
 
+    /// `answer` for `node` under `question`, read from the walk's memo
+    /// where it lent one and recorded there after the first ask; computed
+    /// every time on a chain with no cache.
+    pub(crate) fn memoised(
+        self,
+        question: MemoQuestion,
+        node: &Node<'_>,
+        answer: impl FnOnce() -> bool,
+    ) -> bool {
+        let memo = self.node_memo(question);
+        if let Some(known) = memo.and_then(|memo| memo.get(node)) {
+            return known;
+        }
+        let answer = answer();
+        if let Some(memo) = memo {
+            memo.set(node, answer);
+        }
+        answer
+    }
+
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
     /// one a walk lent a [`FoldCache`] with. Otherwise every fold runs
     /// from the root, so a predicate whose own climb is bounded takes that

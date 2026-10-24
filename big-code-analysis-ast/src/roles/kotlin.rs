@@ -84,18 +84,6 @@ fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) 
         .is_some_and(|name| matches!(name, "and" | "or" | "xor"))
 }
 
-/// Whether a `navigation_expression` is the safe `a?.b` rather than
-/// the plain `a.b`: it holds a `?.` token (the grammar names no
-/// operator field; the row's payer fallback finds it).
-fn safe_navigation<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    node.is_child(Kotlin::QMARKDOT as u16)
-}
-
-/// Whether a `binary_expression`'s `operator` field is the elvis `?:`.
-fn elvis_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    null_safe::project(node).is_some_and(|op| op.kind_id() == Kotlin::QMARKCOLON as u16)
-}
-
 /// Whether a `when_entry` is a case-style arm rather than the `else ->`
 /// fallback, which has no `condition` field (lesson 11, #469).
 fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -159,8 +147,8 @@ role_table! {
     // rather than branches, and is no decision to any consumer.
     NullSafe {
         owns [
-            BinaryExpression(gated_by elvis_operator),
-            NavigationExpression(gated_by safe_navigation),
+            BinaryExpression(holds_payer),
+            NavigationExpression(holds_payer),
         ]
         pays [QMARKCOLON, QMARKDOT]
         project "operator"

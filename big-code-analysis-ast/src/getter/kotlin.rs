@@ -281,7 +281,7 @@ impl Getter for KotlinCode {
             // `range_test` and a `for` header's `in` — which billed
             // before the row existed.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_is_expression` / `under_in_expression` gates leave out
+            // row's `under IsExpression` / `under InExpression` gates leave out
             | In | Is | BANGis | BANGin
             | As | AsQMARK | Constructor | Init | Where | By
             // Operator: brackets, separators, terminators
@@ -298,7 +298,7 @@ impl Getter for KotlinCode {
             // `get_paying_role` bills them (#1695). `!!` is excluded on
             // the `NullSafe` row and bills here.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` gate leaves out
+            // row's `under BinaryExpression` gate leaves out
             | LT | GT
             // Operator: logical and misc
             | BANG | BANGBANG

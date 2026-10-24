@@ -22,13 +22,6 @@ fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
         .is_some_and(|p| comparison::OWNERS.contains(&p.kind_id()))
 }
 
-/// Whether a `call` is the safe navigation `a&.b` rather than `a.b`: it
-/// holds an `&.` token (the grammar names no operator field; the row's
-/// payer fallback finds it).
-fn safe_navigation<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    node.is_child(Ruby::AMPDOT as u16)
-}
-
 /// Whether a `case … in` arm is a decision: its pattern is not a bare
 /// `_`, or it carries an `if` / `unless` guard (#977; lesson 11).
 fn is_decision_in_clause<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -104,8 +97,8 @@ role_table! {
     // `a ||= b` are the `||` they spell.
     NullSafe {
         owns [
-            Call(gated_by safe_navigation), Call2(gated_by safe_navigation),
-            Call3(gated_by safe_navigation), Call4(gated_by safe_navigation),
+            Call(holds_payer), Call2(holds_payer),
+            Call3(holds_payer), Call4(holds_payer),
         ]
         pays [AMPDOT]
         project "operator"

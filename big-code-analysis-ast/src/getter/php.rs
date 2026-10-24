@@ -93,7 +93,7 @@ impl Getter for PhpCode {
             // optional type's `?int` — which billed before the row
             // existed.
             // role-bypass: allow(Ternary) — the operator classification of the spelling the row's
-            // `under_ternary` gate leaves out: an optional type
+            // `under ConditionalExpression` gate leaves out: an optional type
             If | Else | Elseif | Endif
             | Switch | Case | Default | Endswitch
             | For | Endfor | Foreach | Endforeach

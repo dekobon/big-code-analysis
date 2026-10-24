@@ -25,11 +25,6 @@ fn short_circuit_operator<'a>(
     })
 }
 
-/// Whether an expression holds the defined-or `//` among its tokens.
-fn defined_or_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    null_safe::project(node).is_some_and(|op| op.kind_id() == Perl::SLASHSLASH as u16)
-}
-
 /// Whether an `and` token is the operator of its chain rather than an
 /// auto-quoted hash key (`(and => 1)`), which tree-sitter-perl parses
 /// as a `unary_expression` whose first child is the token (#1539).
@@ -102,7 +97,7 @@ role_table! {
     // sequence to cognitive and a decision to cyclomatic (#249): the
     // consumers' own, recorded here. Perl has no optional navigation.
     NullSafe {
-        owns [BinaryExpression(gated_by defined_or_operator)]
+        owns [BinaryExpression(holds_payer)]
         pays [SLASHSLASH]
         project "operator"
         excludes [SLASHSLASHEQ "the compound `//=`, an assignment ABC pays as one and a decision the others pay as their own (#249)"]

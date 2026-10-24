@@ -193,8 +193,8 @@ impl Getter for GroovyCode {
             // alias), a recovered token, the `in` of a `for (x in xs)`
             // header — which billed before the rows existed.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
-            // spellings the rows' `under_binary_expression` / `under_membership_expression` /
-            // `under_ternary` gates leave out
+            // spellings the rows' `under BinaryExpression` / `under MembershipExpression` /
+            // `under TernaryExpression` gates leave out
             LT | LT2 | GT | In
             // `case` is the `CaseArm` row's and `get_paying_role` bills it
             // (#1695); `default` is the fallback label's and stays.
@@ -204,7 +204,7 @@ impl Getter for GroovyCode {
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, assignment).
-            // `?` stays for the spelling the `Ternary` row's `under_ternary`
+            // `?` stays for the spelling the `Ternary` row's `under TernaryExpression`
             // gate leaves out — a wildcard bound — which billed before the
             // row existed.
             | EQ | BANG | TILDE | QMARK | COLON

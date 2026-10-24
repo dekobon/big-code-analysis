@@ -147,14 +147,14 @@ impl Getter for ObjcCode {
             // `<=` `>=` `==` `!=` `&&` `||`: the `Comparison` and
             // `ShortCircuit` rows pay them ungated and `get_paying_role`
             // bills them (#1695). `<` / `>` stay for the spellings the
-            // rows' `under_binary_expression` gate leaves out — a generic
+            // rows' `under BinaryExpression` gate leaves out — a generic
             // specifier, a protocol list (`id<NSCopying>`), a recovered
             // token — which billed before the rows existed; `LT2` is the
             // grammar's own generic-opener kind and pays nowhere. The
             // ternary `?` and the `case` label are not here: the `Ternary`
             // and `CaseArm` rows pay them ungated.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
-            // row's `under_binary_expression` gate leaves out
+            // row's `under BinaryExpression` gate leaves out
             LT | GT | LT2 | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI
             | Return | Break | Continue | If | Else | Switch | Default | For | While | Goto
             | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE

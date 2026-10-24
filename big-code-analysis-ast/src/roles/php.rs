@@ -3,17 +3,8 @@
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
 //! declared; the rest are pending the package that declares each (#1692).
 
+use crate::Php;
 use crate::role_table;
-use crate::{Ancestors, Node, Php};
-
-/// Whether a `binary_expression`'s `operator` field is `??`.
-fn null_coalescing_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
-    null_safe::project(node).is_some_and(|op| op.kind_id() == Php::QMARKQMARK as u16)
-}
 
 role_table! {
     lang: Php;
@@ -77,7 +68,7 @@ role_table! {
     // cyclomatic (#236): the consumers' own, recorded here.
     NullSafe {
         owns [
-            BinaryExpression(gated_by null_coalescing_operator),
+            BinaryExpression(holds_payer),
             NullsafeMemberAccessExpression, NullsafeMemberAccessExpression2,
             NullsafeMemberCallExpression,
         ]
@@ -148,8 +139,8 @@ role_table! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PhpCode;
     use crate::test_support::for_each_node_with_chain;
+    use crate::{Ancestors, PhpCode};
 
     // The `EagerLogical` row owns an expression exactly when its
     // operator is `xor`, projects to that token, and pays at it — and

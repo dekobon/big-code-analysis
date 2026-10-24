@@ -359,7 +359,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 562.0
+value = 565.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -974,12 +974,6 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
-path = "src/metrics/cognitive/cpp.rs"
-qualified = "CppCode::compute"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
 path = "src/metrics/cognitive/csharp.rs"
 qualified = "CsharpCode::compute"
 metric = "nargs"
@@ -1024,12 +1018,6 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/lua.rs"
 qualified = "LuaCode::compute"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/metrics/cognitive/mozcpp.rs"
-qualified = "MozcppCode::compute"
 metric = "nargs"
 value = 5.0
 

@@ -9,13 +9,6 @@ use crate::checker::java_anonymous_class_body;
 use crate::role_table;
 use crate::{Ancestors, Java, Node};
 
-/// Whether a `switch_label` is a `case X` label rather than `default`:
-/// the grammar gives both one kind, and only the first is a decision
-/// (lesson 11, #469).
-fn is_case_label<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    node.is_child(Java::Case as u16)
-}
-
 /// Whether an `object_creation_expression` carries a `class_body`, which
 /// makes it an anonymous class rather than a plain `new Foo()` (#463).
 fn has_class_body<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -196,7 +189,7 @@ role_table! {
     // `case 2, 3 ->` is one. `default` is the fallback and pays nothing
     // (lesson 11, #469); Halstead bills it as the keyword it is.
     CaseArm {
-        owns [SwitchLabel(gated_by is_case_label)]
+        owns [SwitchLabel(holds_payer)]
         pays [Case]
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }

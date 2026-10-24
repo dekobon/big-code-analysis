@@ -6,11 +6,9 @@
 use crate::Mozjs;
 use crate::role_table;
 use crate::roles::js_family::{
-    js_family_case_arm_gate, js_family_comparison_payers, js_family_decl_keywords,
-    js_family_modifiers, js_family_short_circuit_payers,
+    js_family_comparison_payers, js_family_decl_keywords, js_family_modifiers,
+    js_family_short_circuit_payers,
 };
-
-js_family_case_arm_gate!(Mozjs);
 
 role_table! {
     lang: Mozjs;
@@ -63,7 +61,7 @@ role_table! {
     // `switch_default` and its `default` keyword are the fallback and
     // pay nothing (lesson 11, #469).
     CaseArm {
-        owns [SwitchCase(gated_by is_case_label)]
+        owns [SwitchCase(holds_payer)]
         pays [Case]
         excludes [
             SwitchDefault "the fallback arm, no decision (lesson 11, #469)",

@@ -33,7 +33,7 @@ impl Getter for GoCode {
             // short-circuit tokens are the rows' and `get_paying_role`
             // bills them (#1695).
             // role-bypass: allow(Comparison) — the operator classification of the spelling the row's
-            // `under_binary_expression` gate leaves out: a recovered token
+            // `under BinaryExpression` gate leaves out: a recovered token
             G::LT | G::GT
             | G::If | G::Else | G::Switch | G::Case | G::Default | G::For | G::Range
             | G::Continue | G::Break | G::Fallthrough | G::Goto | G::Return | G::Select
