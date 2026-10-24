@@ -198,9 +198,10 @@ impl Abc for PhpCode {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9: each operand of a `&&` / `||` / `and`
-            // / `or` chain is one condition (issue #403). `xor` is no
-            // chain: it evaluates both operands, so like `^` it is a
-            // value and its slot pays once (#1536). PHP exposes both
+            // / `or` chain is one condition (issue #403). `xor` — the
+            // `EagerLogical` row's — is no chain: it evaluates both
+            // operands, so like `^` it is a value and its slot pays
+            // once (#1536). PHP exposes both
             // the punctuation forms (`&&`, `||`) and the
             // low-precedence keyword forms (`and`, `or`) as
             // distinct tokens inside `binary_expression`; both fire

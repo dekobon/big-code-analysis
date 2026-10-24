@@ -1,6 +1,7 @@
 //! Kotlin's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
+use crate::getter::node_text;
 use crate::role_table;
 use crate::{Ancestors, Kotlin, Node};
 
@@ -60,6 +61,20 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
             }
             next.start_byte() == next.end_byte()
         })
+}
+
+/// Whether an `infix_expression` applies one of the eager boolean
+/// functions `and` / `or` / `xor`. tree-sitter-kotlin-ng gives an infix
+/// call no field and no operator kind: it is three children, the
+/// middle an `identifier` leaf spelling the function's name, so only
+/// the bytes tell `a and b` from `a shl b` or `a to b`. Comments aside,
+/// the name is the second child.
+fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.children()
+        .filter(|child| child.kind_id() == Kotlin::Identifier as u16)
+        .nth(1)
+        .and_then(|name| node_text(code, &name))
+        .is_some_and(|name| matches!(name, "and" | "or" | "xor"))
 }
 
 /// Whether a `binary_expression`'s `operator` field is one of the
@@ -141,7 +156,16 @@ role_table! {
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    // The infix functions `and` / `or` / `xor` evaluate both operands
+    // (`Boolean.and` is a function, not the `&&` operator), so the
+    // decision-counting consumers add no chain increment for them: a
+    // slot holding one pays under the ordinary slot rule, as it would
+    // for any call. The grammar spells the name as a plain `identifier`
+    // inside the `infix_expression`, which Halstead bills as an operand
+    // and keeps billing — the row records the construct and nothing
+    // reads it to count (#1695). Owner-only and text-gated, since
+    // claiming `Identifier` as a payer would claim every name.
+    EagerLogical { owns [InfixExpression(text_gated_by eager_infix)] }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
@@ -219,4 +243,37 @@ role_table! {
     DocRunOpener { pending R09 }
     DocRunDirective { pending R09 }
     HoldsDocInBody { pending R09 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::KotlinCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    // The infix eager functions are told from every other infix call by
+    // their name alone (#1695): `and` / `or` / `xor` own the construct,
+    // `shl` / `to` / a user infix do not. The row lists no payer — the
+    // name is an `identifier` that nothing bills as an operator — so
+    // the owner is the paying node at both projections, and no token
+    // pays.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn eager_infix_is_told_by_its_name() {
+        let source = b"fun f(a: Boolean, b: Boolean, x: Int) { val c = a and b; val d = a or b; val e = a xor b; val s = x shl 1; val p = 1 to 2; val m = a myInfix b }\n";
+        let (mut owned, mut paid) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<KotlinCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if eager_logical::owns(node, source, ancestors) {
+                owned.push(text());
+            }
+            if eager_logical::pays_at_leaf(node, source, ancestors) {
+                paid.push(text());
+            }
+        });
+        assert_eq!(owned, ["a and b", "a or b", "a xor b"]);
+        assert_eq!(paid, owned);
+        assert_eq!(eager_logical::PAYERS, &[] as &[u16]);
+    }
 }

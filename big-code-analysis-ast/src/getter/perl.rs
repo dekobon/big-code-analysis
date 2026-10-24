@@ -68,7 +68,8 @@ impl Getter for PerlCode {
             // `and` key (#1539), a recovered token. Those billed before
             // the rows existed; the rows pay the applied spellings
             // through `get_paying_role` (#1695), so for these kinds the
-            // vocabulary is the union of the two.
+            // vocabulary is the union of the two. `xor` is not here: the
+            // `EagerLogical` row pays it ungated.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' gates leave out
             P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
@@ -80,7 +81,7 @@ impl Getter for PerlCode {
             | P::If | P::Unless | P::Else | P::Elsif | P::While | P::Until | P::For
             | P::Foreach | P::When | P::Continue | P::Next | P::Last | P::Redo | P::Goto
             | P::Return | P::Use | P::No | P::Require | P::Bless
-            | P::Xor | P::Not
+            | P::Not
             // Punctuation acting as operators
             | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK
             | P::LPAREN | P::DOT | P::DOTDOT | P::DOTDOTDOT | P::FatComma | P::DASHGT

@@ -133,8 +133,9 @@ impl Getter for PhpCode {
             // row's `under_binary_expression` gate leaves out: a recovered token
             | LT | GT
 
-            // Operator: logical (`xor` evaluates both operands)
-            | BANG | Xor | QMARKQMARK
+            // Operator: logical; `xor` is the `EagerLogical` row's and
+            // `get_paying_role` bills it (#1695)
+            | BANG | QMARKQMARK
 
             // Operator: bitwise
             | AMP | PIPE | CARET | TILDE | LTLT | GTGT

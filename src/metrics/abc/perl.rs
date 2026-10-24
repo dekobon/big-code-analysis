@@ -49,9 +49,9 @@ use crate::*;
 //   See the module-level `Stats` doc-comment for the cross-
 //   language policy (Fitzpatrick rules mapped from Figure 2 for C,
 //   the closest analogue since the paper does not define rules for
-//   Perl; issue #395). `xor` is no chain: it evaluates both operands,
-//   so like Java's `^` it is a value, and the slot holding it pays
-//   one condition (#1536).
+//   Perl; issue #395). `xor` — the `EagerLogical` row's — is no
+//   chain: it evaluates both operands, so like Java's `^` it is a
+//   value, and the slot holding it pays one condition (#1536).
 
 // Whether `child` can occupy a Perl operand slot. tree-sitter-perl
 // names its separators — `normal_comma` (`,`) and `fat_comma` (`=>`) —
@@ -344,9 +344,10 @@ fn perl_leading_slot<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
 // A `&&` / `||` / `and` / `or` chain — the `ShortCircuit` row's owner,
 // whose gate already declines an auto-quoted `and` key (#1539) — or a
 // defined-or `//` chain, which stays named here until its `NullSafe`
-// row. `xor` is left out: it does not short-circuit, so it is a value,
-// as `^` is (#1536). The owner gate reads only the node's children, so
-// a node reached without its chain is asked with none.
+// row. `xor`, the `EagerLogical` row's, is left out: it does not
+// short-circuit, so it is a value, as `^` is (#1536). The owner gate
+// reads only the node's children, so a node reached without its chain
+// is asked with none.
 fn perl_is_logical_chain(node: &Node, code: &[u8]) -> bool {
     use Perl as P;
 

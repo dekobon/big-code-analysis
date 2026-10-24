@@ -64,7 +64,20 @@ role_table! {
         pays [AMPAMP, PIPEPIPE]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    // `&` / `|` / `^` on boolean operands evaluate both sides, but the
+    // grammar emits them as the same `binary_expression` as the integral
+    // forms, so the syntax alone cannot tell them apart; no consumer
+    // treats them as a decision, and the three tokens bill as the
+    // operators they are. A recognition boundary, recorded as the
+    // kinds considered rather than as an absence.
+    EagerLogical {
+        owns []
+        excludes [
+            AMP "a boolean `&` is the integral `&`'s kind, which the grammar does not tell apart",
+            PIPE "a boolean `|` is the integral `|`'s kind, which the grammar does not tell apart",
+            CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
+        ]
+    }
     Ternary { absent "Rust has no ternary operator; `if` is an expression" }
     NullSafe { absent "Rust has no optional navigation or null coalescing; `?` is an exit" }
     CaseArm { pending R05 }

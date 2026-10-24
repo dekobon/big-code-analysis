@@ -116,8 +116,12 @@ role_table! {
         pays [AMPAMP, PIPEPIPE, TestOperator text_gated_by is_test_connective]
         project "operator"
     }
-    EagerLogical { absent "Bash's `&&` / `||` are lazy; `-a` / `-o` inside `[ ]` are test \
-         operators the grammar does not split out" }
+    // `-a` / `-o` inside `[ ]` are the `test` spelling of `&&` / `||`,
+    // scored as such by every consumer (#1536), so they are the
+    // `ShortCircuit` row's text-gated payer above, not an eager form;
+    // `&` / `|` / `^` inside `(( … ))` are bitwise.
+    EagerLogical { absent "Bash's `&&` / `||` and the `-a` / `-o` of `[ ]` are lazy; `&` / `|` / `^` \
+         inside `(( … ))` are bitwise" }
     Ternary { pending R05 }
     NullSafe { absent "Bash has no optional navigation or null coalescing" }
     CaseArm { pending R05 }

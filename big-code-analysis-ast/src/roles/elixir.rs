@@ -123,7 +123,8 @@ role_table! {
         ]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    EagerLogical { absent "Elixir's `and` / `or` and `&&` / `||` all short-circuit; `&&&` / `|||` are \
+         bitwise" }
     Ternary { absent "Elixir has no ternary operator" }
     CaseArm { pending R05 }
     Guard { pending R05 }

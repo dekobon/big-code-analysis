@@ -7745,6 +7745,8 @@ end",
             ("||", "my $c = $a || $b;\n"),
             ("and", "my $c = $a and $b;\n"),
             ("or", "my $c = $a or $b;\n"),
+            // `xor` is the `EagerLogical` row's payer, an operator as before.
+            ("xor", "my $c = $a xor $b;\n"),
             ("<", "my $l = <$fh>;\n"),
         ];
         assert_spellings_bill_as_operators::<PerlParser>("foo.pl", ROWS);
@@ -7798,6 +7800,7 @@ end",
             ("||", "<?php $c = $a || $b;\n"),
             ("and", "<?php $c = $a and $b;\n"),
             ("or", "<?php $c = $a or $b;\n"),
+            // `xor` is the `EagerLogical` row's payer, an operator as before.
             ("xor", "<?php $c = $a xor $b;\n"),
         ];
         assert_spellings_bill_as_operators::<PhpParser>("foo.php", ROWS);
@@ -7893,6 +7896,17 @@ end",
             ("<>", "val l: List<Int> = listOf()\n"),
         ];
         assert_spellings_bill_as_operators::<KotlinParser>("foo.kt", ROWS);
+        // The eager infix functions are the `EagerLogical` row's owners
+        // with no payer: each name is an `identifier` billed as an
+        // operand, as before the row.
+        for (name, source) in [
+            ("and", "val c = a and b\n"),
+            ("or", "val c = a or b\n"),
+            ("xor", "val c = a xor b\n"),
+        ] {
+            let ops = ops_of::<KotlinParser>(source, "foo.kt");
+            assert_keyword_role(&ops, "foo.kt", name, Role::OperandOnly);
+        }
     }
 
     /// #1695: Groovy's `Comparison` / `ShortCircuit` rows' payers bill

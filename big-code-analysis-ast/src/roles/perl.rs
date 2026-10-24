@@ -33,6 +33,12 @@ fn short_circuit_operator<'a>(
     })
 }
 
+/// Whether an expression holds the `EagerLogical` payer among its
+/// tokens — `xor`, which tree-sitter-perl spells only as an operator.
+fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
+}
+
 /// Whether a bare `<` / `>` is the operator of a `binary_expression`. A
 /// `grammar.json` sweep of tree-sitter-perl 1.1.2 finds the two tokens
 /// in exactly three productions — `binary_expression` and the readlines
@@ -92,7 +98,17 @@ role_table! {
         pays [AMPAMP, PIPEPIPE, Or, And gated_by applied_and]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    // `xor` evaluates both operands, so it is a value as `^` is, not a
+    // chain: no Rule-9 chain increment, and the slot holding one pays
+    // once under the ordinary slot rule (#1536). The token is a kind of
+    // its own that the grammar spells only as the operator — a hash key
+    // `(xor => 1)` or `$h{xor}` is a bareword `identifier` — and Halstead
+    // bills it as the operator it is, as before the row.
+    EagerLogical {
+        owns [BinaryExpression(gated_by eager_operator)]
+        pays [Xor]
+        project "operator"
+    }
     Ternary { pending R05 }
     NullSafe { pending R05 }
     CaseArm { pending R05 }

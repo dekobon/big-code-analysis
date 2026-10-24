@@ -500,6 +500,11 @@ macro_rules! role_table {
         $crate::role_table!(@named $role {
             /// Why this language has no such construct.
             pub const ABSENT: &str = $why;
+            /// An absent construct has no owners.
+            pub const OWNERS: &[u16] = &[];
+            /// An absent construct has no payers, so a reader that asks
+            /// several rows about one token can ask this one alike.
+            pub const PAYERS: &[u16] = &[];
             $crate::role_table!(@absent_predicate owns);
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);

@@ -67,9 +67,9 @@ impl Cognitive for PhpCode {
             // `or` and so forms boolean sequences alongside them —
             // pending its `NullSafe` row. The word forms are keyed to
             // their symbols; `??` is an operation of its own (#1530).
-            // `xor` evaluates both operands, so like `^` it is a value,
-            // not a sequence (#1536). Which payers share a key is this
-            // consumer's reading of the row.
+            // `xor` (the `EagerLogical` row's) evaluates both operands,
+            // so like `^` it is a value, not a sequence (#1536). Which
+            // payers share a key is this consumer's reading of the row.
             // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
             // `NullSafe` row of #1695 takes over; the row is read on the arm's guard
             _ if short_circuit::owns(node, code, ancestors)

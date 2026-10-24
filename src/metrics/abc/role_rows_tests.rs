@@ -532,6 +532,12 @@ fn kotlin_rows_feed_each_abc_path_independently() {
                 3,
                 3,
             ),
+            // the eager infix `and` / `or` / `xor` (`EagerLogical`) are
+            // calls, not chains: a slot holding one pays once, as for any
+            // call, and outside a slot nothing pays
+            ("if (a and b) { }; return a", 1, 1),
+            ("if (a xor b) { }; return a", 1, 1),
+            ("val c = a or b; return c", 0, 0),
             ("return a && b", 2, 1),
             ("return a || b", 2, 1),
             ("if (a && b || x > 1) { }; return a", 3, 3),
@@ -609,8 +615,10 @@ fn php_rows_feed_each_abc_path_independently() {
             ("return $a || $b;", 2, 1),
             ("return $a and $b;", 2, 1),
             ("return $a or $b;", 2, 1),
-            // `xor` evaluates both operands: no chain, the slot pays once
+            // `xor` (`EagerLogical`) evaluates both operands: no chain, the
+            // slot pays once, and outside a slot nothing pays
             ("if ($a xor $b) { } return $a;", 1, 1),
+            ("$c = $a xor $b; return $c;", 0, 0),
             ("if ($a and $b || $x > 1) { } return $a;", 3, 3),
         ],
     );
@@ -702,8 +710,10 @@ fn perl_rows_feed_each_abc_path_independently() {
             ("my $c = $a or $b;", 2, 1),
             // an auto-quoted `and` key is no operator (#1539)
             ("my %h = (and => 1);", 0, 0),
-            // `xor` evaluates both operands: the slot pays once
+            // `xor` (`EagerLogical`) evaluates both operands: the slot
+            // pays once, and outside a slot nothing pays
             ("if ($a xor $b) { }", 1, 1),
+            ("my $c = $a xor $b;", 0, 0),
             ("if ($a and $b || $x > 1) { }", 3, 3),
         ],
     );

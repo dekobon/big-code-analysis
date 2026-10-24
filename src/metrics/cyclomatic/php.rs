@@ -37,9 +37,9 @@ impl Cyclomatic for PhpCode {
             SwitchStatement | MatchExpression => {
                 stats.cyclomatic_modified += 1.;
             }
-            // Both standard and modified. `xor` is absent: it evaluates
-            // both operands, so like `^` it is a value, not a decision
-            // (#1536).
+            // Both standard and modified. `xor` — the `EagerLogical`
+            // row's — is absent: it evaluates both operands, so like `^`
+            // it is a value, not a decision (#1536).
             IfStatement
             | ElseIfClause
             | ElseIfClause2

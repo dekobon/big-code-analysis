@@ -21,6 +21,11 @@ fn short_circuit_operator<'a>(
     short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
 }
 
+/// Whether a `binary_expression`'s `operator` field is `xor`.
+fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
+}
+
 /// Whether a bare `<` / `>` is the operator of a `binary_expression`
 /// rather than a token error recovery strands. PHP has no generic
 /// brackets; the pinned grammar spells the two nowhere else.
@@ -59,7 +64,18 @@ role_table! {
         pays [AMPAMP, PIPEPIPE, And, Or]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    // `xor` evaluates both operands, so it is a value as `^` is, not a
+    // chain: no Rule-9 chain increment, no cyclomatic decision, no
+    // boolean sequence, and the slot holding one pays once under the
+    // ordinary slot rule (#1536). The token is a kind of its own the
+    // grammar spells only as the operator — `[xor => 1]` and `$o->xor`
+    // are a `name` — and Halstead bills it as the operator it is, as
+    // before the row.
+    EagerLogical {
+        owns [BinaryExpression(gated_by eager_operator)]
+        pays [Xor]
+        project "operator"
+    }
     Ternary { pending R05 }
     NullSafe { pending R05 }
     CaseArm { pending R05 }

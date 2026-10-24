@@ -84,7 +84,6 @@ Csharp DocComment R09
 Csharp DocRunDirective R09
 Csharp DocRunOpener R09
 Csharp DocTarget R09
-Csharp EagerLogical R05
 Csharp ElseIf R07
 Csharp Exit R07
 Csharp FuncOpener R06
@@ -104,7 +103,6 @@ Elixir DocRunDirective R09
 Elixir DocRunOpener R09
 Elixir DocTarget R09
 Elixir Docstring R09
-Elixir EagerLogical R05
 Elixir Exit R07
 Elixir Guard R05
 Elixir HoldsDocInBody R09
@@ -140,7 +138,6 @@ Groovy DocComment R09
 Groovy DocRunDirective R09
 Groovy DocRunOpener R09
 Groovy DocTarget R09
-Groovy EagerLogical R05
 Groovy ElseIf R07
 Groovy Exit R07
 Groovy FuncOpener R06
@@ -178,7 +175,6 @@ Java DocComment R09
 Java DocRunDirective R09
 Java DocRunOpener R09
 Java DocTarget R09
-Java EagerLogical R05
 Java ElseIf R07
 Java HoldsDocInBody R09
 Java Loop R07
@@ -217,7 +213,6 @@ Kotlin DocComment R09
 Kotlin DocRunDirective R09
 Kotlin DocRunOpener R09
 Kotlin DocTarget R09
-Kotlin EagerLogical R05
 Kotlin ElseIf R07
 Kotlin Exit R07
 Kotlin FuncOpener R06
@@ -314,7 +309,6 @@ Perl DocComment R09
 Perl DocRunDirective R09
 Perl DocRunOpener R09
 Perl DocTarget R09
-Perl EagerLogical R05
 Perl ElseIf R07
 Perl Exit R07
 Perl FuncOpener R06
@@ -336,7 +330,6 @@ Php DocComment R09
 Php DocRunDirective R09
 Php DocRunOpener R09
 Php DocTarget R09
-Php EagerLogical R05
 Php ElseIf R07
 Php Exit R07
 Php FuncOpener R06
@@ -376,7 +369,6 @@ Ruby DocComment R09
 Ruby DocRunDirective R09
 Ruby DocRunOpener R09
 Ruby DocTarget R09
-Ruby EagerLogical R05
 Ruby ElseIf R07
 Ruby Exit R07
 Ruby FuncOpener R06
@@ -399,7 +391,6 @@ Rust DocComment R09
 Rust DocRunDirective R09
 Rust DocRunOpener R09
 Rust DocTarget R09
-Rust EagerLogical R05
 Rust ElseIf R07
 Rust Exit R07
 Rust FuncOpener R06

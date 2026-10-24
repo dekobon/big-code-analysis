@@ -72,7 +72,20 @@ role_table! {
         pays [AMPAMP, PIPEPIPE, And, Or]
         project "operator"
     }
-    EagerLogical { pending R05 }
+    // `&` / `|` / `^` are method calls on any receiver — `true & x`
+    // evaluates both sides, as `1 & x` does — and the grammar emits
+    // them as the same `binary` as every other operator method; no
+    // consumer treats them as a decision, and the tokens bill as the
+    // operators they are. A recognition boundary, recorded as the kinds
+    // considered rather than as an absence.
+    EagerLogical {
+        owns []
+        excludes [
+            AMP "a boolean `&` is the operator method's kind, which the grammar does not tell from the integral one",
+            PIPE "a boolean `|` is the operator method's kind, which the grammar does not tell from the integral one",
+            CARET "a boolean `^` is the operator method's kind, which the grammar does not tell from the integral one",
+        ]
+    }
     Ternary { pending R05 }
     NullSafe { pending R05 }
     CaseArm { pending R05 }
