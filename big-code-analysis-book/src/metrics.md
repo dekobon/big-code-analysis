@@ -746,7 +746,14 @@ tokens involved the same way they spell real operators:
   `struct`, `union`, `enum`, `interface`, `record`, `trait`,
   `@interface`, `@implementation` and `@protocol`. The `class` tail of
   Java's `C.class` is an operand, not this keyword (see the class
-  literal below). Kotlin's `interface` followed in #1556. #1557 added
+  literal below). Groovy's `var` bills as its `def` does since #1704,
+  once per local declaration however many declarators follow it. A
+  `var` used as a name stays an operand (`def var = 3`, `[var: 1]`),
+  or bills nothing where the grammar cannot parse the statement
+  (`var = 4`), and the `var` of a field (`var field = 1`) or of
+  `final var`, which the grammar reads as a type name, still bills as
+  a type-name operand (#1706). Kotlin's `interface` followed in #1556.
+  #1557 added
   C++'s `namespace`, `template`, `typename`, `typedef` and `using` (C
   and Objective-C bill `typedef` too), so `template <class T>` and
   `template <typename T>` each bill their keyword and score alike. It
@@ -759,13 +766,7 @@ tokens involved the same way they spell real operators:
   `get`, `set`, `init` and `where`. The `@get:` and `@set:` annotation
   targets bill nothing, like `@field:`. The backing `field` in an
   accessor is an operand, and the words used as names (`val by = 1`,
-  `x.get(i)`) stay operands. Groovy's `var` bills as its `def` does
-  since #1704, once per local declaration however many declarators
-  follow it; a `var` used as a name (`def var = 3`, `[var: 1]`,
-  `var = 4`) stays an operand or, where the grammar cannot parse the
-  statement, bills nothing, and the `var` of a field (`var field = 1`)
-  or of `final var`, which the grammar reads as a type name, bills as
-  it did.
+  `x.get(i)`) stay operands.
 - **A declaration modifier is an operator, keyed by its keyword and
   never its wrapper node.** C#, Kotlin, Java, Groovy, TypeScript and
   TSX, C, C++, Mozcpp and Objective-C bill every modifier once, as the

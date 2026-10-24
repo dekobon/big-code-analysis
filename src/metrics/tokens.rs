@@ -693,6 +693,21 @@ mod tests {
         });
     }
 
+    /// #1644 left `tokens` alone: Halstead stopped billing the
+    /// `__END__` marker and the `data_not_for_compiler` leaf, but both
+    /// are leaves, so `1;\n__END__\naaa\n` is `1`, `;`, `__END__` and the
+    /// data leaf — 4 tokens, two more than `1;\n` alone.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_data_section_still_counts_its_two_leaves_1644() {
+        check_metrics::<PerlParser>("1;\n", "foo.pl", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 2);
+        });
+        check_metrics::<PerlParser>("1;\n__END__\naaa\n", "foo.pl", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 4);
+        });
+    }
+
     #[cfg(feature = "php")]
     #[test]
     fn smoke_php() {

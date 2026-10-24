@@ -2394,7 +2394,12 @@ omission. The fix introduces
 interpolation child-kind set, so a new language gets the skip for free.
 The bespoke Tcl/PHP multi-kind helpers were retired with their exact
 kind sets preserved, and per-language rationale comments kept at each
-call site.
+call site. "For free" still means "once someone calls it": Java's
+grammar grew `string_interpolation` with Java 21 templates, its getter
+kept `StringLiteral` in the unconditional operand arm, and the wrapper
+double-billed for the next thousand-odd issues until #1703 — found only
+when #1691's `StringLit` row declared a `wraps` set and review asked
+what read it.
 
 **The same shape across CLI surfaces, where the minority case is where
 they first diverge** (#825, #827, #837; formerly lesson 78). Most metrics

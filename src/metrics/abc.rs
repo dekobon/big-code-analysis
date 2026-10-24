@@ -18636,7 +18636,9 @@ mod literal_bool_operands {
     /// - Perl: the four string productions the grammar keeps separate
     ///   (`'s'`, `q()`, `"s"`, `qq()`), the two command substitutions
     ///   (`qx()`, backticks), the `qw()` / `[…]` / `{…}` collection
-    ///   literals, `qr//`, and `special_literal` (`__FILE__`).
+    ///   literals, `qr//`, and `special_literal` (`__FILE__`; the same
+    ///   kind also wraps `__END__` and its data section, which ABC never
+    ///   reaches because no slot holds it).
     ///   `heredoc_initializer` is the twelfth kind and cannot live in
     ///   this table — a Perl heredoc body follows the *statement*, not
     ///   the operand — so it has its own test below.

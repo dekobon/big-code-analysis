@@ -147,10 +147,10 @@ for historical reference.
   gated on its parent as `trait` and `record` are, because a statement
   that opens with `var` as a name (`var = 4`, `var++`) fails into an
   `ERROR` holding the same leaf and keeps billing nothing. A `var`
-  used as a name elsewhere stays an operand, and the `var` of a field
-  or of `final var`, which the grammar reads as a type name, bills as
-  it did. Every Groovy fixture with a `var` local moves by one operator
-  per declaration.
+  used as a name elsewhere stays an operand. The `var` of a field or of
+  `final var`, which the grammar reads as a type name, still bills as a
+  type-name operand; making it the same operator is #1706. Every
+  Groovy file with a `var` local moves by one operator per declaration.
 
 - **A Java 21 string template's wrapper is no longer an operand**
   (#1703). `STR."Hi \{name}!"` billed the literal's whole text *and*

@@ -129,10 +129,12 @@ role_table! {
     // Kotlin's `var` is, and bills with it (#1704) — gated, as `trait`
     // and `record` are, because a statement that opens with `var` as a
     // name (`var = 4`) fails into an `ERROR` holding the same leaf. Only
-    // that leaf: a field's `var field = 1` and a `final var q = 5` parse
-    // the word as a `type_identifier`, where the grammar reads it as a
-    // type name, and a `var` used as a name elsewhere (`def var = 3`,
-    // `[var: 1]`) is an `identifier`.
+    // that leaf: a `var` used as a name elsewhere (`def var = 3`,
+    // `[var: 1]`) is an `identifier`, and a field's `var field = 1` or
+    // a `final var q = 5` parses the word as a `type_identifier`, where
+    // it still bills as a type-name *operand* — the reading Java's
+    // `get_op_type_with_code` rejects for its own `var`. FIXME(#1706):
+    // that spelling wants the same operator, keyed by its text.
     DeclKeyword {
         owns [
             Class, Interface, Enum, Def, Var(gated_by contextual_keyword_owns),

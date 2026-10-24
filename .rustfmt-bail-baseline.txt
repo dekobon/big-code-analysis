@@ -54,7 +54,9 @@
 #                              2 -> 5: the self- and super-reference arms
 #                              (#1380) in `get_op_type` — each a nested
 #                              two-arm `match` on the parent kind, so
-#                              three stuck arms apiece
+#                              three stuck arms apiece; then 6 -> 7, the
+#                              `StringLiteral` template arm (#1703) in
+#                              the same match
 #   src/vcs/error.rs           `classify_error_variants!` (#1245): its
 #                              matcher, plus the 11 `$pat => $sample`
 #                              entries at the invocation, which are

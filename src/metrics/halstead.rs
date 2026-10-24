@@ -6611,7 +6611,10 @@ end",
     /// children are, once each — the #420 skip every other interpolating
     /// language already had. Before the fix every template row billed one
     /// more unique and total operand, the wrapper's own text. The plain
-    /// literal rows are controls and are unchanged.
+    /// literal rows are controls and are unchanged. That the skip reads
+    /// direct children rather than descending is unobservable here: the
+    /// grammar emits `string_interpolation` only directly under a
+    /// `string_literal`, and a nested template is itself that case.
     #[cfg(feature = "java")]
     #[test]
     fn java_string_template_wrapper_is_not_an_operand_1703() {
@@ -6635,6 +6638,14 @@ end",
                 "repeated interpolation",
                 "class A { String s = STR.\"\\{name}\\{name}\"; }\n",
                 [5, 6],
+            ),
+            // `A`, `String`, `s`, `STR`, `name`: a text-block template is
+            // the same `string_literal` kind, with `multiline_string_fragment`
+            // children beside the interpolation, and skips its wrapper too
+            (
+                "text-block template",
+                "class A { String s = STR.\"\"\"\n  Hi \\{name}!\n  \"\"\"; }\n",
+                [5, 5],
             ),
             // `A`, `String`, `s`, `"Hi"`: a plain literal is one operand
             ("plain literal", "class A { String s = \"Hi\"; }\n", [4, 4]),
@@ -6910,6 +6921,12 @@ end",
     /// unbilled as it does `record = 3`; and the `var` of a field or of
     /// `final var`, which the grammar reads as a `type_identifier`, is
     /// not the keyword leaf and bills as it did.
+    ///
+    /// The rows prove the gate necessary (ungated, the `assigned var`
+    /// row reads `[6, 8]`), not narrow: a gate admitting any parent but
+    /// `ERROR` passes them too, because no valid spelling puts the
+    /// `var` leaf under a third parent kind — every other position
+    /// parses it as an `identifier` or a `type_identifier`.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_var_is_a_declaration_keyword_1704() {
@@ -6924,6 +6941,18 @@ end",
             ("uninitialised", "def f() { var x }\n", [4, 4]),
             // `var`, `=`: script level
             ("script", "var x = 1\n", [2, 2]),
+            // `def`, `()` x2, `{}` x2, `for`, `var`, `=`, `;` x2, `<`,
+            // `++`: a C-style loop's init declaration
+            (
+                "for init",
+                "def f() { for (var i = 0; i < 2; i++) { } }\n",
+                [9, 12],
+            ),
+            // `def`, `()` x2, `{}` x2, `for`, `var`, `[]`: the for-in header's
+            // `var` sits in a `local_variable_declaration` the pinned
+            // grammar wraps in an `ERROR`, and still bills; recovery
+            // reads the `in` as an `identifier`, so it is an operand here
+            ("for in", "def f() { for (var x in [1]) { } }\n", [6, 8]),
             // `def` x2, `()`, `{}`, `=`: `var` named, not declared
             ("named var", "def f() { def var = 3 }\n", [4, 5]),
             // `def` x2, `()`, `{}`, `=` x2, `;`: the assignment's `var` is
