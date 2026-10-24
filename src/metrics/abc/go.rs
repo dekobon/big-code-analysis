@@ -64,6 +64,8 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
     let mut node = *container_node;
     // `ExpressionCase` reaches here only from a tagless switch, whose
     // case expressions are boolean exactly as an `if` predicate is.
+    // role-bypass: allow(Comparison, ShortCircuit) — traversal: whether the slot's parent is a
+    // boolean context, not whether it is a comparison or a chain
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         G::BinaryExpression | G::IfStatement | G::ForStatement | G::ExpressionCase
@@ -196,6 +198,8 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     if cursor.goto_first_child() {
         loop {
             let node = cursor.node();
+            // role-bypass: allow(Comparison, ShortCircuit) — traversal: the shape of the list being
+            // walked, reached from the `ShortCircuit` payer's parent
             if go_is_bool_operand(&node) && matches!(list_kind, G::BinaryExpression) {
                 *conditions += 1.;
             } else if node.is_named() {
@@ -212,7 +216,7 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 impl Abc for GoCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -230,7 +234,10 @@ impl Abc for GoCode {
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
         use Go as G;
 
-        match node.kind_id().into() {
+        use crate::roles::go::{comparison, short_circuit};
+
+        let kind = node.kind_id();
+        match kind.into() {
             // Plain `=`, augmented `+=`, `-=`, … all parse as
             // `assignment_statement`. `:=` is a short variable
             // declaration. `x++` / `x--` rebind too.
@@ -259,39 +266,28 @@ impl Abc for GoCode {
             G::CallExpression => {
                 stats.branches += 1.;
             }
-            // Comparison operators emitted as token children of a
-            // `binary_expression`, `else`, and each non-default
-            // type-switch / select arm all contribute one condition
-            // (an expression-switch case is scored below).
-            // `<` / `>` double as type-argument delimiters in generic
-            // instantiations (`f[T any]`, `List[int]`); the
-            // `BinaryExpression` parent guard filters those out
-            // without inspecting siblings. `default_case` is
-            // intentionally excluded — like Java / C# `default:`, it
-            // does not introduce a new decision point.
-            G::EQEQ
-            | G::BANGEQ
-            | G::LTEQ
-            | G::GTEQ
-            | G::Else
-            | G::TypeCase
-            | G::CommunicationCase => {
+            // `else` and each non-default type-switch / select arm
+            // contribute one condition (an expression-switch case is
+            // scored below). `default_case` is intentionally excluded —
+            // like Java / C# `default:`, it does not introduce a new
+            // decision point.
+            G::Else | G::TypeCase | G::CommunicationCase => {
                 stats.conditions += 1.;
             }
             G::ExpressionCase => {
                 go_count_expression_case(node, ancestors, &mut stats.conditions);
             }
-            G::LT | G::GT
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| matches!(p.kind_id().into(), G::BinaryExpression)) =>
-            {
+            // The six comparison tokens, the `Comparison` row's payers
+            // (`roles/go.rs`), `<` / `>` gated to a `binary_expression`
+            // parent so a stranded recovery token pays nothing.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain is
-            // one condition (issue #403). The walker iterates immediate
-            // children of the parent `binary_expression`.
-            G::AMPAMP | G::PIPEPIPE => {
+            // one condition (issue #403); the `ShortCircuit` row is read
+            // at its leaf only to find the chain, the token's parent,
+            // whose immediate children the walker iterates.
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
                     go_count_unary_conditions(&parent, &mut stats.conditions);
                 }

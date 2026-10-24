@@ -529,11 +529,13 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "go",
         feature = "groovy",
         feature = "irules",
         feature = "java",
         feature = "javascript",
         feature = "kotlin",
+        feature = "lua",
         feature = "mozcpp",
         feature = "mozjs",
         feature = "objc",
@@ -639,10 +641,12 @@ mod tests {
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "go",
         feature = "groovy",
         feature = "irules",
         feature = "java",
         feature = "kotlin",
+        feature = "lua",
         feature = "mozcpp",
         feature = "objc",
         feature = "perl",
@@ -680,10 +684,12 @@ mod tests {
             feature = "c",
             feature = "cpp",
             feature = "csharp",
+            feature = "go",
             feature = "groovy",
             feature = "irules",
             feature = "java",
             feature = "kotlin",
+            feature = "lua",
             feature = "mozcpp",
             feature = "objc",
             feature = "perl",
@@ -7578,7 +7584,9 @@ end",
         feature = "c",
         feature = "cpp",
         feature = "csharp",
+        feature = "go",
         feature = "irules",
+        feature = "lua",
         feature = "mozcpp",
         feature = "objc",
         feature = "perl",
@@ -7662,6 +7670,76 @@ end",
             assert_spellings_bill_as_operators::<CppParser>("foo.cpp", rows);
             assert_spellings_bill_as_operators::<MozcppParser>("foo.cpp", rows);
         }
+    }
+
+    /// #1695: the Go, Rust and Lua `Comparison` / `ShortCircuit` rows'
+    /// payers bill as operators, one spelling apiece; the gated-out
+    /// spellings (a Rust generic opener as the `<>` pair, an empty
+    /// closure's bars as `|`) bill as they did before the rows.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "package p\nfunc f(a int) bool { return a < 1 }\n"),
+            (">", "package p\nfunc f(a int) bool { return a > 1 }\n"),
+            ("<=", "package p\nfunc f(a int) bool { return a <= 1 }\n"),
+            (">=", "package p\nfunc f(a int) bool { return a >= 1 }\n"),
+            ("==", "package p\nfunc f(a int) bool { return a == 1 }\n"),
+            ("!=", "package p\nfunc f(a int) bool { return a != 1 }\n"),
+            ("&&", "package p\nfunc f(a bool) bool { return a && a }\n"),
+            ("||", "package p\nfunc f(a bool) bool { return a || a }\n"),
+        ];
+        assert_spellings_bill_as_operators::<GoParser>("foo.go", ROWS);
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "fn f(a: i32) -> bool { a < 1 }\n"),
+            (">", "fn f(a: i32) -> bool { a > 1 }\n"),
+            ("<=", "fn f(a: i32) -> bool { a <= 1 }\n"),
+            (">=", "fn f(a: i32) -> bool { a >= 1 }\n"),
+            ("==", "fn f(a: i32) -> bool { a == 1 }\n"),
+            ("!=", "fn f(a: i32) -> bool { a != 1 }\n"),
+            ("&&", "fn f(a: bool) -> bool { a && a }\n"),
+            ("||", "fn f(a: bool) -> bool { a || a }\n"),
+            (
+                "&&",
+                "fn f(o: Option<i32>) -> bool { if let Some(n) = o && n > 1 { true } else { false } }\n",
+            ),
+            // The gated-out spellings: a generic opener is the pair.
+            ("<>", "fn f() { let v: Vec<i32> = Vec::new(); }\n"),
+        ];
+        assert_spellings_bill_as_operators::<RustParser>("foo.rs", ROWS);
+        // An empty closure's bars are two `|` tokens; a `||` inside a
+        // macro's token tree is nothing: neither bills `||`.
+        for source in ["fn f() { let c = || 1; }\n", "fn f() { m!(|| 1); }\n"] {
+            let ops = ops_of::<RustParser>(source, "foo.rs");
+            assert!(
+                !ops.operators.iter().any(|o| o == "||"),
+                "{source}: `||` must not bill; operators were {:?}",
+                ops.operators
+            );
+        }
+    }
+
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_comparison_and_short_circuit_spellings_bill_1695() {
+        const ROWS: &[(&str, &str)] = &[
+            ("<", "local c = a < 1\n"),
+            (">", "local c = a > 1\n"),
+            ("<=", "local c = a <= 1\n"),
+            (">=", "local c = a >= 1\n"),
+            ("==", "local c = a == 1\n"),
+            ("~=", "local c = a ~= 1\n"),
+            ("and", "local c = a and b\n"),
+            ("or", "local c = a or b\n"),
+            // The gated-out spelling: an attribute's brackets.
+            ("<", "local k <const> = 1\n"),
+        ];
+        assert_spellings_bill_as_operators::<LuaParser>("foo.lua", ROWS);
     }
 
     /// #1695: the C and Objective-C `Comparison` / `ShortCircuit` rows'

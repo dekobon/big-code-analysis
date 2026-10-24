@@ -1,15 +1,69 @@
 //! Rust's role rows. The Halstead keyword roles are declared (#1693);
 //! every other role is pending the package that declares it (#1692).
 
-use crate::Rust;
 use crate::role_table;
+use crate::{Ancestors, Node, Rust};
+
+/// Whether a `binary_expression`'s `operator` field is one of the
+/// `Comparison` payers. The one kind carries every binary operator.
+fn comparison_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    comparison::project(node).is_some_and(|op| comparison::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a `binary_expression`'s `operator` field is `&&` or `||`.
+fn short_circuit_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    short_circuit::project(node).is_some_and(|op| short_circuit::PAYERS.contains(&op.kind_id()))
+}
+
+/// Whether a bare `<` / `>` is the operator of a `binary_expression`
+/// rather than a generic bracket (`Vec<T>`, a turbofish) or a token
+/// error recovery strands.
+fn under_binary_expression<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Rust::BinaryExpression as u16)
+}
 
 role_table! {
     lang: Rust;
     Call { pending R08 }
     StringLit { pending R08 }
-    Comparison { pending R05 }
-    ShortCircuit { pending R05 }
+    // The one `binary_expression` kind carries every binary operator;
+    // its `operator` field says which, so the owner is gated on the
+    // field and `<` / `>` on the parent: a generic list and a turbofish
+    // spell the same tokens. The four other tokens occur nowhere else.
+    Comparison {
+        owns [BinaryExpression(gated_by comparison_operator)]
+        pays [
+            EQEQ, BANGEQ, LTEQ, GTEQ,
+            LT gated_by under_binary_expression, GT gated_by under_binary_expression,
+        ]
+        project "operator"
+    }
+    // A `binary_expression` whose operator is `&&` / `||`, and a Rust
+    // 2024 let-chain (`if let Some(x) = a && b`) — `LetChain` the
+    // visible alias, `LetChain2` the hidden `_let_chain` supertype —
+    // whose `&&` tokens are its direct children, so the chain owns them
+    // with no field to project through and the row's payer fallback
+    // finds the first. The tokens pay ungated: the grammar spells them
+    // bare only inside a macro's `token_tree` (`m!(a || b)`), where the
+    // parser sees no expression and the counting consumers have always
+    // paid them (an empty closure's `||` is two `|` tokens under
+    // `closure_parameters`, not this kind).
+    ShortCircuit {
+        owns [
+            BinaryExpression(gated_by short_circuit_operator),
+            LetChain, LetChain2,
+        ]
+        pays [AMPAMP, PIPEPIPE]
+        project "operator"
+    }
     EagerLogical { pending R05 }
     Ternary { absent "Rust has no ternary operator; `if` is an expression" }
     NullSafe { absent "Rust has no optional navigation or null coalescing; `?` is an exit" }

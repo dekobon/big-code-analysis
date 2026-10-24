@@ -18,6 +18,8 @@ impl Getter for GoCode {
 
     keyword_roles!(go);
 
+    paying_roles!(go);
+
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Go as G;
 
@@ -25,7 +27,15 @@ impl Getter for GoCode {
         // them and `get_keyword_role` bills them (#1693).
         match node.kind_id().into() {
             // Control flow keywords and the `map` / `chan` type constructors
-            G::If | G::Else | G::Switch | G::Case | G::Default | G::For | G::Range
+            // `<` / `>` for the spelling the `Comparison` row's parent gate
+            // leaves out — a token error recovery strands — which billed
+            // before the row existed; the other comparison and
+            // short-circuit tokens are the rows' and `get_paying_role`
+            // bills them (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spelling the row's
+            // `under_binary_expression` gate leaves out: a recovered token
+            G::LT | G::GT
+            | G::If | G::Else | G::Switch | G::Case | G::Default | G::For | G::Range
             | G::Continue | G::Break | G::Fallthrough | G::Goto | G::Return | G::Select
             | G::Defer | G::Go | G::Map | G::Chan
             // Punctuation acting as operators
@@ -33,8 +43,7 @@ impl Getter for GoCode {
             | G::DOT | G::DOTDOTDOT
             // Operators
             | G::EQ | G::COLONEQ | G::PLUS | G::DASH | G::STAR | G::SLASH | G::PERCENT
-            | G::AMP | G::PIPE | G::CARET | G::TILDE | G::BANG | G::LT | G::GT
-            | G::LTEQ | G::GTEQ | G::EQEQ | G::BANGEQ | G::AMPAMP | G::PIPEPIPE
+            | G::AMP | G::PIPE | G::CARET | G::TILDE | G::BANG
             | G::LTLT | G::GTGT | G::AMPCARET | G::LTDASH | G::PLUSPLUS | G::DASHDASH
             | G::PLUSEQ | G::DASHEQ | G::STAREQ | G::SLASHEQ | G::PERCENTEQ | G::AMPEQ
             | G::PIPEEQ | G::CARETEQ | G::LTLTEQ | G::GTGTEQ | G::AMPCARETEQ

@@ -22,12 +22,12 @@ impl Cyclomatic for RustCode {
 
     fn compute_with_options<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         count_try: bool,
     ) {
-        rust_cyclomatic_increment(node, stats, count_try);
+        rust_cyclomatic_increment(node, code, ancestors, stats, count_try);
     }
 }
 
@@ -42,10 +42,18 @@ impl Cyclomatic for RustCode {
 /// `count_try` toggles the `?` operator's contribution (#409): `true`
 /// counts it toward both standard and modified cyclomatic, `false`
 /// treats it as linear error propagation.
-fn rust_cyclomatic_increment(node: &Node<'_>, stats: &mut Stats, count_try: bool) {
+fn rust_cyclomatic_increment<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+    count_try: bool,
+) {
+    use crate::roles::rust::short_circuit;
     use Rust::*;
 
-    match node.kind_id().into() {
+    let kind = node.kind_id();
+    match kind.into() {
         // Standard-only: individual match arms.
         // Lizard counts `match` as a single control-flow keyword; we count
         // each arm, so the modified metric collapses them back to the
@@ -88,8 +96,13 @@ fn rust_cyclomatic_increment(node: &Node<'_>, stats: &mut Stats, count_try: bool
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
         }
-        // Both standard and modified.
-        If | For | While | Loop | AMPAMP | PIPEPIPE => {
+        // Both standard and modified. `&&` / `||` are the `ShortCircuit`
+        // row's payers (#1695), read on the arm's guard.
+        _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
+        If | For | While | Loop => {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
         }

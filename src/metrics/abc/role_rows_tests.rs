@@ -29,10 +29,13 @@ use crate::{LANG, Metric, MetricsOptions};
 #[cfg(any(
     feature = "c",
     feature = "cpp",
+    feature = "go",
     feature = "java",
+    feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "python",
+    feature = "rust",
 ))]
 #[track_caller]
 fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
@@ -261,5 +264,76 @@ fn objc_rows_feed_each_abc_path_independently() {
         LANG::Objc,
         "@implementation K\n- (int)f:(int)a b:(int)b x:(int)x y:(int)y { BODY }\n@end\n",
         &[("id<NSCopying> o = nil; return a;", 0, 0)],
+    );
+}
+
+#[test]
+#[cfg(feature = "go")]
+fn go_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Go,
+        "package p\nfunc f(a, b bool, x, y int) bool { BODY }\n",
+        &[
+            ("if a { }; return a", 1, 1),
+            ("if x < y { }; return a", 1, 1),
+            ("if x != y { }; return a", 1, 1),
+            ("c := x < y; return c", 1, 0),
+            ("c := x >= y; return c", 1, 0),
+            ("return a && b", 2, 1),
+            ("return a || b", 2, 1),
+            ("return a && x > 1", 2, 1),
+            ("if a && b || x > 1 { }; return a", 3, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "rust")]
+fn rust_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Rust,
+        "fn f(a: bool, b: bool, x: i32, y: i32, o: Option<i32>) -> bool { BODY }\n",
+        &[
+            ("if a { } a", 1, 1),
+            ("if x < y { } a", 1, 1),
+            ("if x != y { } a", 1, 1),
+            ("let c = x < y; c", 1, 0),
+            ("let c = x >= y; c", 1, 0),
+            // a generic opener and a turbofish pay nothing
+            ("let v: Vec<Vec<i32>> = Vec::<Vec<i32>>::new(); a", 0, 0),
+            ("a && b", 2, 1),
+            ("a || b", 2, 1),
+            ("a && x > 1", 2, 1),
+            ("if a && b || x > 1 { } a", 3, 3),
+            // a let-chain owns its `&&` tokens directly
+            ("if let Some(n) = o && n > 1 && a { } a", 3, 3),
+            // an empty closure's bars pay nothing; a `&&` inside a
+            // macro's token tree is a decision to cyclomatic, as it
+            // always was, but owns no chain whose operands could pay
+            ("let c = || a; c()", 0, 0),
+            ("m!(a && b); a", 0, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "lua")]
+fn lua_rows_feed_each_abc_path_independently() {
+    assert_rows(
+        LANG::Lua,
+        "local function f(a, b, x, y)\n  BODY\nend\n",
+        &[
+            ("if a then end return a", 1, 1),
+            ("if x < y then end return a", 1, 1),
+            ("if x ~= y then end return a", 1, 1),
+            ("local c = x < y return c", 1, 0),
+            ("local c = x >= y return c", 1, 0),
+            // an attribute's brackets pay nothing (#1297)
+            ("local k <const> = 1 return a", 0, 0),
+            ("return a and b", 2, 1),
+            ("return a or b", 2, 1),
+            ("return a and x > 1", 2, 1),
+            ("if a and b or x > 1 then end return a", 3, 3),
+        ],
     );
 }

@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, wrapped_operand,
 };
+use crate::roles::lua::{comparison, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -55,23 +56,13 @@ fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 }
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a comparison (the token arms) or an `and` / `or` chain,
-// whose operands each pay through `lua_count_condition`.
-fn lua_condition_scores_itself(expr: &Node) -> bool {
-    expr.kind_id() == Lua::BinaryExpression
-        && expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind_id().into(),
-                Lua::EQEQ
-                    | Lua::TILDEEQ
-                    | Lua::LT
-                    | Lua::GT
-                    | Lua::LTEQ
-                    | Lua::GTEQ
-                    | Lua::And
-                    | Lua::Or
-            )
-        })
+// a condition: a comparison or an `and` / `or` chain — the `Comparison`
+// and `ShortCircuit` rows' owners — whose operands each pay through
+// `lua_count_condition`. Neither owner gate reads ancestors, so the
+// peeled descendant is asked with none.
+fn lua_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown) || short_circuit::owns(expr, code, unknown)
 }
 
 // Scores one boolean slot — an `if` / `elseif` / `while` / `repeat …
@@ -79,11 +70,11 @@ fn lua_condition_scores_itself(expr: &Node) -> bool {
 // `count_boolean_slot`). Lua is truthy-valued, so `if -x`, `if #t` and
 // `if x + 1` are each a decision, and each scored 0 while the slot paid
 // only for a fixed list of terminal kinds (#1526).
-fn lua_count_condition(condition: &Node, conditions: &mut f64) {
+fn lua_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         lua_wrapper_operand,
-        lua_condition_scores_itself,
+        |expr| lua_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -91,65 +82,68 @@ fn lua_count_condition(condition: &Node, conditions: &mut f64) {
 // An operand outside a boolean slot — a `return` value, a call argument
 // — scores only when a `not` proves it boolean (see
 // `count_negated_operand`): `return not x` scores one, `return x` none.
-fn lua_count_negated(operand: &Node, conditions: &mut f64) {
+fn lua_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         lua_wrapper_operand,
-        lua_condition_scores_itself,
+        |expr| lua_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn lua_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn lua_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        lua_count_condition(&condition, conditions);
+        lua_count_condition(&condition, code, conditions);
     }
 }
 
 impl Abc for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
                 stats.assignments += 1.;
             }
             Lua::FunctionCall => {
                 stats.branches += 1.;
             }
-            Lua::EQEQ | Lua::TILDEEQ | Lua::LTEQ | Lua::GTEQ | Lua::ElseStatement => {
+            Lua::ElseStatement => {
                 stats.conditions += 1.;
             }
-            // Counts `<` / `>` only as the operator token of a
+            // The six comparison tokens, the `Comparison` row's payers
+            // (`roles/lua.rs`). `<` / `>` pay only as the operator of a
             // `binary_expression`, the allowlist polarity C / C++ /
-            // Rust / Go / Java use. Ungated, Lua 5.4's to-be-closed and
-            // constant attributes scored two conditions apiece:
+            // Rust / Go / Java use: ungated, Lua 5.4's to-be-closed and
+            // constant attributes scored two conditions apiece, since
             // `local x <const> = 1` brackets the attribute name with the
             // same two bare tokens a comparison uses (#1297). A
             // `grammar.json` sweep of tree-sitter-lua 0.5.0 finds them
             // in exactly two productions — `binary_expression` and the
             // hidden `_attrib`, which surfaces aliased as `attribute` —
             // so the gate is closed rather than a coverage claim
-            // (`.claude/rules/grammar-dispatch.md` §1). `<=` / `>=` and
-            // the 5.3 shifts `<<` / `>>` are distinct tokens and never
-            // reach this arm.
-            Lua::LT | Lua::GT if ancestors.parent_has_kind(node, Lua::BinaryExpression as u16) => {
+            // (`.claude/rules/grammar-dispatch.md` §1).
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of an `and` /
-            // `or` chain is one condition (issue #403). `a and b or c`
+            // `or` chain is one condition (issue #403), and the token
+            // pays nothing — the `ShortCircuit` row is read at its leaf
+            // only to find the chain, the token's parent. `a and b or c`
             // is a left-nested chain of `binary_expression`s, so an
             // operand that is itself a chain is paid by its own
             // operator's visit.
-            Lua::And | Lua::Or => {
-                if let Some(chain) = ancestors
-                    .parent(node)
-                    .filter(|p| p.kind_id() == Lua::BinaryExpression)
-                {
-                    count_field_operands(&chain, lua_count_condition, &mut stats.conditions);
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
+                if let Some(chain) = ancestors.parent(node) {
+                    count_field_operands(
+                        &chain,
+                        |operand, conds| lua_count_condition(operand, code, conds),
+                        &mut stats.conditions,
+                    );
                 }
             }
             // An `elseif` is Java's `else if`: the `else` (+1, Rule 5) and
@@ -158,7 +152,11 @@ impl Abc for LuaCode {
             // (#1526).
             Lua::ElseifStatement => {
                 stats.conditions += 1.;
-                lua_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                lua_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             // Phase-2B (issue #403): condition slots. Lua has no paren
             // wrap around `if` / `while` / `repeat …` conditions, so
@@ -170,7 +168,11 @@ impl Abc for LuaCode {
             // shape where the BLANK alternative for the body would
             // shift positional child indices.
             Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement => {
-                lua_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                lua_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             // `return value` — Lua wraps return values in an
             // `expression_list`, the statement's only operand (not
@@ -180,12 +182,20 @@ impl Abc for LuaCode {
             // reports zero. Bare `return` (no values) has no operand.
             Lua::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
-                    count_each_operand(&expr_list, lua_count_negated, &mut stats.conditions);
+                    count_each_operand(
+                        &expr_list,
+                        |operand, conds| lua_count_negated(operand, code, conds),
+                        &mut stats.conditions,
+                    );
                 }
             }
             // `f(not a, not b)` — argument-list walker.
             Lua::Arguments => {
-                count_each_operand(node, lua_count_negated, &mut stats.conditions);
+                count_each_operand(
+                    node,
+                    |operand, conds| lua_count_negated(operand, code, conds),
+                    &mut stats.conditions,
+                );
             }
             _ => {}
         }

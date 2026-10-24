@@ -17,6 +17,8 @@ impl Getter for LuaCode {
 
     keyword_roles!(lua);
 
+    paying_roles!(lua);
+
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         match node.kind_id().into() {
             // Control-flow keywords. `local` and `function` are not
@@ -35,9 +37,8 @@ impl Getter for LuaCode {
             | Lua::Until
             | Lua::Return
             | Lua::Goto
-            // Logical operators (keywords in Lua)
-            | Lua::And
-            | Lua::Or
+            // `not`; `and` / `or` are the `ShortCircuit` row's and
+            // `get_paying_role` bills them (#1695)
             | Lua::Not
             // Structural punctuation. Only the *opening* delimiter is an
             // operator: `get_operator_id_as_str` folds `LPAREN`/`LBRACK`/
@@ -70,13 +71,14 @@ impl Getter for LuaCode {
             | Lua::TILDE
             | Lua::LTLT
             | Lua::GTGT
-            // Comparison
-            | Lua::EQEQ
-            | Lua::TILDEEQ
+            // `<` / `>` for the spelling the `Comparison` row's parent
+            // gate leaves out — a token error recovery strands — which
+            // billed before the row existed; the other comparison tokens
+            // are the row's and `get_paying_role` bills them (#1695).
+            // role-bypass: allow(Comparison) — the operator classification of the spelling the
+            // row's `under_binary_expression` gate leaves out: a recovered token
             | Lua::LT
             | Lua::GT
-            | Lua::LTEQ
-            | Lua::GTEQ
             // Assignment
             | Lua::EQ
             // `break` is a named leaf node (no anonymous keyword child), so it must be

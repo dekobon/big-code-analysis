@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::rust::short_circuit;
         use Rust::*;
         // Macro expansion is not tracked; macros are treated as opaque tokens.
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -55,16 +56,16 @@ impl Cognitive for RustCode {
                     increment_by_one(stats);
                 }
             }
-            // `LetChain` (the visible alias) and `LetChain2` (the hidden
-            // `_let_chain` supertype) are Rust 2024 let-chains:
-            // `if let Some(x) = a && let Some(y) = b && cond`. Their `&&`
-            // tokens are direct children of the chain node — not wrapped
-            // in `BinaryExpression` — so without dispatching them through
-            // `compute_booleans` here, let-chain `&&` is invisible to the
-            // boolean-sequence counter (issue #396). Cyclomatic already
-            // counts the same tokens via the AMPAMP keyword arm.
-            BinaryExpression | LetChain | LetChain2 => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            // A `binary_expression` or a let-chain the `ShortCircuit` row
+            // owns (#1695). `LetChain` (the visible alias) and `LetChain2`
+            // (the hidden `_let_chain` supertype) are Rust 2024
+            // let-chains: `if let Some(x) = a && let Some(y) = b && cond`.
+            // Their `&&` tokens are direct children of the chain node —
+            // not wrapped in `BinaryExpression` — so without the row
+            // owning them, let-chain `&&` is invisible to the
+            // boolean-sequence counter (issue #396).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             FunctionItem => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[FunctionItem]);

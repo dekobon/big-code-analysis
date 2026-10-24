@@ -56,6 +56,40 @@ impl Getter for RustCode {
 
     keyword_roles!(rust);
 
+    /// The `Comparison` and `ShortCircuit` rows' payers bill as
+    /// operators (#1695), except a `||` outside the owner the row
+    /// projects it from: inside a macro's `token_tree` the parser sees
+    /// no expression, and a `|| { … }` there is a closure with no
+    /// parameters, whose `||` the grammar emits as this token rather
+    /// than as `closure_parameters`. The counting consumers pay that
+    /// token — it was always a decision to them — so the row's payer is
+    /// ungated and this Halstead reading is the one place the two
+    /// policies part. `&&` has no such second spelling.
+    // role-bypass: allow(ShortCircuit) — the Halstead reading of a payer the row pays ungated: which
+    // parent makes `||` an operator rather than an empty closure's bars
+    fn get_paying_role<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        use crate::roles::rust::{comparison, short_circuit};
+        let kind = node.kind_id();
+        if kind == Rust::PIPEPIPE as u16
+            && !ancestors
+                .parent(node)
+                .is_some_and(|p| short_circuit::owns(&p, code, ancestors))
+        {
+            return TokenRole::Unknown;
+        }
+        if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
+            || short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+        {
+            TokenRole::Operator
+        } else {
+            TokenRole::Unknown
+        }
+    }
+
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Rust::*;
 
@@ -63,12 +97,12 @@ impl Getter for RustCode {
             return TokenRole::Unknown;
         }
         match node.kind_id().into() {
-            // `||` is treated as an operator only if it's part of a binary expression.
-            // This prevents misclassification inside macros where closures without arguments (e.g., `let closure = || { /* ... */ };`)
-            // are not recognized as `ClosureExpression` and their `||` node is identified as `PIPEPIPE` instead of `ClosureParameters`.
-            //
-            // Similarly, exclude `/` when it corresponds to the third slash in `///` (`OuterDocCommentMarker`)
-            PIPEPIPE | SLASH => match ancestors.parent(node) {
+            // Exclude `/` when it corresponds to the third slash in `///`
+            // (`OuterDocCommentMarker`). `||` is the `ShortCircuit` row's
+            // and `get_paying_role` decides it (#1695).
+            // role-bypass: allow(Comparison, ShortCircuit) — the `/` of `///` against a binary
+            // expression's `/`: a doc-marker test, not membership
+            SLASH => match ancestors.parent(node) {
                 Some(parent) if matches!(parent.kind_id().into(), BinaryExpression) => {
                     TokenRole::Operator
                 }
@@ -89,13 +123,20 @@ impl Getter for RustCode {
             //
             // The declaration and visibility keywords and the primitive
             // types are not here: `roles/rust.rs` declares them and
-            // `get_keyword_role` bills them (#1693; #394 added them).
-            LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break | Continue
-            | Else | For | If | In | Loop | Match | Return | While | EQ | COMMA | DASHGT
-            | QMARK | LT | LT2 | GT | AMP | DOTDOT | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET
-            | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | DOT | SEMI
-            | COLON | COLONCOLON => TokenRole::Operator,
+            // `get_keyword_role` bills them (#1693; #394 added them). Nor
+            // are `==` `!=` `<=` `>=` `&&`: the `Comparison` and
+            // `ShortCircuit` rows pay them and `get_paying_role` bills
+            // them (#1695). `<` / `>` stay for the spellings the row's
+            // parent gate leaves out — a generic opener (`Vec<T>`, the
+            // `<>` pair) and a recovered token — which billed before the
+            // row existed; `LT2` is the defensive generic-opener alias.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings the
+            // row's `under_binary_expression` gate leaves out
+            LT | LT2 | GT | LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break
+            | Continue | Else | For | If | In | Loop | Match | Return | While | EQ | COMMA
+            | DASHGT | QMARK | AMP | DOTDOT | DOTDOTEQ | DASH | PIPE | CARET | LTLT | GTGT
+            | PERCENT | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ
+            | CARETEQ | LTLTEQ | GTGTEQ | DOT | SEMI | COLON | COLONCOLON => TokenRole::Operator,
             // FieldIdentifier (e.g. `p.x`) and TypeIdentifier (e.g. `Vec`,
             // `HashMap`) are operand-class names — C++ and Go classify them
             // the same way (see arms ~588 and ~862 below). Omitting them

@@ -122,7 +122,6 @@ Go Call R08
 Go CaseArm R05
 Go Closure R06
 Go Comment R09
-Go Comparison R05
 Go Container R06
 Go DocComment R09
 Go DocRunDirective R09
@@ -134,7 +133,6 @@ Go FuncOpener R06
 Go HoldsDocInBody R09
 Go Loop R07
 Go Member R06
-Go ShortCircuit R05
 Go StringLit R08
 Go Switch R07
 Groovy Branch R07
@@ -248,7 +246,6 @@ Lua Branch R07
 Lua Call R08
 Lua Closure R06
 Lua Comment R09
-Lua Comparison R05
 Lua Container R06
 Lua DocComment R09
 Lua DocRunDirective R09
@@ -259,7 +256,6 @@ Lua Exit R07
 Lua FuncOpener R06
 Lua HoldsDocInBody R09
 Lua Loop R07
-Lua ShortCircuit R05
 Lua StringLit R08
 Mozcpp Branch R07
 Mozcpp Call R08
@@ -420,7 +416,6 @@ Rust CaseArm R05
 Rust Catch R07
 Rust Closure R06
 Rust Comment R09
-Rust Comparison R05
 Rust Container R06
 Rust DocComment R09
 Rust DocRunDirective R09
@@ -434,7 +429,6 @@ Rust Guard R05
 Rust HoldsDocInBody R09
 Rust Loop R07
 Rust Member R06
-Rust ShortCircuit R05
 Rust StringLit R08
 Rust Switch R07
 Tcl Branch R07

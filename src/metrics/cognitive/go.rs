@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for GoCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::go::short_circuit;
         use Go as G;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -41,8 +42,9 @@ impl Cognitive for GoCode {
             G::BreakStatement | G::ContinueStatement if node.is_child(G::LabelName as u16) => {
                 increment_by_one(stats);
             }
-            G::BinaryExpression => {
-                compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             G::FunctionDeclaration | G::MethodDeclaration => {
                 enter_function_boundary(

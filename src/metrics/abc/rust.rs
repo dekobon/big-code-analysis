@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, last_operand, wrapped_operand,
 };
+use crate::roles::rust::{comparison, short_circuit};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis holds one
@@ -59,23 +60,17 @@ fn rust_transparent_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 }
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
-// a condition: a comparison (the comparison-token arms), a `let`
-// condition (its own arm), or an `&&` / `||` chain — a
-// `binary_expression`, or the `let_chain` a Rust 2024 chain with a `let`
-// in it becomes — whose operands each pay through `rust_count_condition`.
-fn rust_condition_scores_itself(expr: &Node) -> bool {
-    use Rust::*;
-
-    match expr.kind_id().into() {
-        LetCondition | LetChain | LetChain2 => true,
-        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
-            matches!(
-                op.kind_id().into(),
-                EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | AMPAMP | PIPEPIPE
-            )
-        }),
-        _ => false,
-    }
+// a condition: a comparison (the `Comparison` row's owner, paid by its
+// token), a `let` condition (its own arm), or an `&&` / `||` chain —
+// the `ShortCircuit` row's owner: a `binary_expression`, or the
+// `let_chain` a Rust 2024 chain with a `let` in it becomes — whose
+// operands each pay through `rust_count_condition`. Neither owner gate
+// reads ancestors, so the peeled descendant is asked with none.
+fn rust_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
+    let unknown = Ancestors::unknown();
+    comparison::owns(expr, code, unknown)
+        || short_circuit::owns(expr, code, unknown)
+        || expr.kind_id() == Rust::LetCondition as u16
 }
 
 // Scores one boolean slot — an `if` / `while` condition, a match guard,
@@ -86,11 +81,11 @@ fn rust_condition_scores_itself(expr: &Node) -> bool {
 // cyclomatic decision of 1 (#1526). Asking whether the decision is
 // already paid for covers them all. It also pays for an ill-typed
 // `if -x`, which no valid program can tell apart (grammar-dispatch §6).
-fn rust_count_condition(condition: &Node, conditions: &mut f64) {
+fn rust_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         rust_wrapper_operand,
-        rust_condition_scores_itself,
+        |expr| rust_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -99,18 +94,18 @@ fn rust_count_condition(condition: &Node, conditions: &mut f64) {
 // — scores only when a `!` proves it boolean (see
 // `count_negated_operand`): `return !x` scores one, `return x` none,
 // matching Java's policy (`java_return_without_conditions`).
-fn rust_count_negated(operand: &Node, conditions: &mut f64) {
+fn rust_count_negated(operand: &Node, code: &[u8], conditions: &mut f64) {
     count_negated_operand(
         operand,
         rust_wrapper_operand,
-        rust_condition_scores_itself,
+        |expr| rust_condition_scores_itself(expr, code),
         conditions,
     );
 }
 
-fn rust_count_slot(slot: Option<Node>, conditions: &mut f64) {
+fn rust_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
     if let Some(condition) = slot {
-        rust_count_condition(&condition, conditions);
+        rust_count_condition(&condition, code, conditions);
     }
 }
 
@@ -141,7 +136,7 @@ fn rust_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // Some(v) = o`) and `let_chain` — are already owned by the
 // `LetCondition` token arm and by the `&&` walker respectively, so
 // `rust_condition_scores_itself` stops the slot paying for them again.
-fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
+fn rust_count_match_arm(node: &Node, code: &[u8], conditions: &mut f64) {
     let Some(pattern) = node.child_by_field_name("pattern") else {
         // `pattern` is a required field, so this is unreachable at the
         // pinned grammar; counting the arm keeps the pre-#1454
@@ -152,7 +147,7 @@ fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
     if !super::npa::pattern_is_bare_underscore(&pattern, Rust::UNDERSCORE as u16) {
         *conditions += 1.;
     }
-    rust_count_slot(pattern.child_by_field_name("condition"), conditions);
+    rust_count_slot(pattern.child_by_field_name("condition"), code, conditions);
 }
 
 // Fitzpatrick Rule 7 (#403): each operand of an `&&` / `||` chain is a
@@ -164,29 +159,38 @@ fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
 // `extra`, and only its first `&&` walks them: each later one would pay
 // every operand again (`if let Some(_) = o && b && c` scored 5 against
 // 3). Its `let` operands score themselves.
-fn rust_count_chain_operands(token: &Node, chain: &Node, conditions: &mut f64) {
+//
+// The chain is the token's parent, and only one the `ShortCircuit` row
+// owns walks: the row pays the token ungated, so a `&&` inside a macro's
+// `token_tree` (`m!(a && b)`) reaches here with a parent that owns no
+// chain and scores nothing, as it always did. Which owner shape it is
+// decides how its operands are read, and the let-chain's first `&&` is
+// the one the row's projection lands on.
+fn rust_count_chain_operands(token: &Node, chain: &Node, code: &[u8], conditions: &mut f64) {
+    if !short_circuit::owns(chain, code, Ancestors::unknown()) {
+        return;
+    }
+    let count = |operand: &Node, conds: &mut f64| rust_count_condition(operand, code, conds);
+    // role-bypass: allow(Comparison, ShortCircuit) — traversal: which shape the owning chain
+    // has, reached from the `ShortCircuit` payer's parent
     if chain.kind_id() == Rust::BinaryExpression {
-        count_field_operands(chain, rust_count_condition, conditions);
-    } else if matches!(chain.kind_id().into(), Rust::LetChain | Rust::LetChain2)
-        && chain
-            .children()
-            .find(|child| child.kind_id() == Rust::AMPAMP)
-            .is_some_and(|first| first.id() == token.id())
-    {
-        count_each_operand(chain, rust_count_condition, conditions);
+        count_field_operands(chain, count, conditions);
+    } else if short_circuit::project(chain).is_some_and(|first| first.id() == token.id()) {
+        count_each_operand(chain, count, conditions);
     }
 }
 
 impl Abc for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Rust::*;
 
-        match node.kind_id().into() {
+        let kind = node.kind_id();
+        match kind.into() {
             // Plain `x = expr` (assignment_expression) and augmented
             // forms `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`,
             // `<<=`, `>>=` (compound_assignment_expr) both bind a
@@ -230,17 +234,14 @@ impl Abc for RustCode {
             // `let_chain` each `let_condition` counts separately.
             // Java counts the `Else` token directly; Rust's grammar
             // exposes the same token and we follow that lead.
-            LTEQ | GTEQ | EQEQ | BANGEQ | LetCondition | Else => {
+            LetCondition | Else => {
                 stats.conditions += 1.;
             }
-            // `<` / `>` doubles as type-argument delimiter; the
-            // `BinaryExpression` parent check disambiguates without
-            // needing to inspect siblings.
-            LT | GT
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| matches!(p.kind_id().into(), BinaryExpression)) =>
-            {
+            // The six comparison tokens, the `Comparison` row's payers
+            // (`roles/rust.rs`): `<` / `>` double as type-argument
+            // delimiters, and the row gates them to a `binary_expression`
+            // parent.
+            _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Every non-wildcard `match_arm` is one condition. A bare
@@ -257,7 +258,7 @@ impl Abc for RustCode {
             //
             // The arm's guard is a further condition slot — see
             // `rust_count_match_arm`.
-            MatchArm | MatchArm2 => rust_count_match_arm(node, &mut stats.conditions),
+            MatchArm | MatchArm2 => rust_count_match_arm(node, code, &mut stats.conditions),
             // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain
             // is one condition. The walker iterates immediate children
             // of the parent `binary_expression`; the per-`&&` / per-`||`
@@ -265,9 +266,9 @@ impl Abc for RustCode {
             // O(operands) total work since the inner operator's pass
             // counts the inner pair and the outer operator's pass
             // counts only the new outer operand. See issue #403.
-            AMPAMP | PIPEPIPE => {
+            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 if let Some(chain) = ancestors.parent(node) {
-                    rust_count_chain_operands(node, &chain, &mut stats.conditions);
+                    rust_count_chain_operands(node, &chain, code, &mut stats.conditions);
                 }
             }
             // Phase-2B (issue #403): Fitzpatrick Rule 6 / 7 condition
@@ -276,19 +277,27 @@ impl Abc for RustCode {
             // (#1455). Rust has no `do_statement`, no ternary, and no
             // for-condition slot.
             IfExpression | WhileExpression => {
-                rust_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+                rust_count_slot(
+                    node.child_by_field_name("condition"),
+                    code,
+                    &mut stats.conditions,
+                );
             }
             // `return value;` — the value is the only operand, which
             // scores only behind a negation.
             ReturnExpression => {
                 if let Some(value) = wrapped_operand(node) {
-                    rust_count_negated(&value, &mut stats.conditions);
+                    rust_count_negated(&value, code, &mut stats.conditions);
                 }
             }
             // Method-argument walker: `m(!a, !b)` contributes one
             // condition per negated argument.
             // Each argument of a call is a negated operand (`m(!a, !b)`).
-            Arguments => count_each_operand(node, rust_count_negated, &mut stats.conditions),
+            Arguments => count_each_operand(
+                node,
+                |operand, conds| rust_count_negated(operand, code, conds),
+                &mut stats.conditions,
+            ),
             _ => {}
         }
     }

@@ -965,7 +965,7 @@ value = 20.0
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
-value = 15.0
+value = 16.0
 
 [[entry]]
 path = "src/metrics/cognitive/bash.rs"
@@ -1072,6 +1072,12 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/rust.rs"
 qualified = "RustCode::compute"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/cognitive/rust.rs"
+qualified = "RustCode::compute"
 metric = "nargs"
 value = 5.0
 
@@ -1096,6 +1102,12 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cyclomatic/rust.rs"
 qualified = "RustCode::compute_with_options"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "src/metrics/cyclomatic/rust.rs"
+qualified = "rust_cyclomatic_increment"
 metric = "nargs"
 value = 5.0
 

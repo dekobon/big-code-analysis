@@ -16,11 +16,12 @@ use super::*;
 impl Cognitive for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        use crate::roles::lua::short_circuit;
         use Lua::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -49,8 +50,9 @@ impl Cognitive for LuaCode {
             ElseStatement | GotoStatement => {
                 increment_by_one(stats);
             }
-            BinaryExpression => {
-                compute_booleans(node, stats, And, Or);
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            _ if short_circuit::owns(node, code, ancestors) => {
+                compute_booleans_with(node, stats, |id| short_circuit::PAYERS.contains(&id));
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
                 enter_function_boundary(
