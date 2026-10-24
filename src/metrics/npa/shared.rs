@@ -342,6 +342,8 @@ fn ruby_add_attributes(stats: &mut Stats, count: usize, public: bool) {
 fn ruby_wrapped_attr_count(call: &Node, source: &[u8]) -> usize {
     use Ruby::*;
 
+    // role-bypass: allow(NullSafe) — an `attr_*` macro call, which the row's safe-navigation
+    // owner is a kind of; the macro is told by its name
     ruby_call_named_arguments(call)
         .filter(|arg| {
             matches!(arg.kind_id().into(), Call | Call2 | Call3 | Call4)
@@ -400,6 +402,8 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                     ruby_add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
                 }
             }
+            // role-bypass: allow(NullSafe) — the `attr_*` and visibility macro calls, which the
+            // row's safe-navigation owner is a kind of; each is told by its name
             Call | Call2 | Call3 | Call4 if ruby_is_attr_macro(&child, source) => {
                 ruby_add_attributes(
                     stats,
@@ -407,6 +411,7 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                     ruby_declaration_is_public(false, visibility),
                 );
             }
+            // role-bypass: allow(NullSafe) — the visibility macro calls, told by name
             Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(&child, source) {
                 Some(RubyVisibilityEffect::Flag(flag)) => visibility = flag,
                 // `private attr_accessor :b`. An attribute is always an

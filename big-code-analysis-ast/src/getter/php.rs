@@ -121,7 +121,7 @@ impl Getter for PhpCode {
             | LBRACE | LPAREN | LPAREN2
             | LBRACK
             | COMMA | SEMI | COLON | COLONCOLON
-            | DASHGT | QMARKDASHGT | EQGT | BSLASH | DOTDOTDOT | QMARK | AT
+            | DASHGT | EQGT | BSLASH | DOTDOTDOT | QMARK | AT
             | HASHLBRACK
 
             // Operator: arithmetic
@@ -133,8 +133,10 @@ impl Getter for PhpCode {
             // `get_paying_role` bills them (#1695).
 
             // Operator: logical; `xor` is the `EagerLogical` row's and
-            // `get_paying_role` bills it (#1695)
-            | BANG | QMARKQMARK
+            // `??` and `?->` the `NullSafe` row's, which `get_paying_role`
+            // bills (#1695); `??=` is excluded there and bills below as
+            // the assignment it is
+            | BANG
 
             // Operator: bitwise
             | AMP | PIPE | CARET | TILDE | LTLT | GTGT

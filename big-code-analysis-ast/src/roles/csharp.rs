@@ -93,6 +93,15 @@ fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
     csharp_case_token_is_switch_arm(node, ancestors)
 }
 
+/// Whether a `binary_expression`'s `operator` field is `??`.
+fn null_coalescing_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    null_safe::project(node).is_some_and(|op| op.kind_id() == Csharp::QMARKQMARK as u16)
+}
+
 /// Whether a `?` is the ternary's. tree-sitter-c-sharp spells the bare
 /// token in four productions: `conditional_expression`,
 /// `conditional_access_expression` (`a?.b` and `a?[0]`, the `NullSafe`
@@ -189,7 +198,32 @@ role_table! {
         pays [QMARK gated_by under_ternary]
         project "operator"
     }
-    NullSafe { pending R05 }
+    // Two structural forms, each one decision (#436, #1459): the null
+    // coalescing `a ?? b`, a `binary_expression` (either alias) owned
+    // through its `operator` field and paid at the `??` token; and the
+    // conditional access `a?.b` / `a?[0]`, a
+    // `conditional_access_expression` that pays for itself — its
+    // operator is the same bare `?` the ternary and two type
+    // productions spell (#1275), and one node is one `?`, so the node is
+    // the payer and the token bills through the byte-less arm as it
+    // did. Which consumer reads which: cyclomatic pays `??` at the token
+    // and the access at the node; cognitive folds `??` into a boolean
+    // sequence; ABC pays both as conditions, which keeps ABC level with
+    // C#'s own cyclomatic on a safe-navigation chain — a C#-internal
+    // agreement no sibling shares (`a?.b?.c` is 0 ABC conditions in the
+    // JS family, Kotlin and Groovy). The compound `??=` is an assignment
+    // to ABC, a sequence to cognitive and a decision to cyclomatic
+    // (#236): the consumers' own, recorded here.
+    NullSafe {
+        owns [
+            BinaryExpression(gated_by null_coalescing_operator),
+            BinaryExpression2(gated_by null_coalescing_operator),
+            ConditionalAccessExpression(pays_itself),
+        ]
+        pays [QMARKQMARK]
+        project "operator"
+        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236)"]
+    }
     // Two arm shapes. A statement `switch_section` owns a decision when
     // it holds a `case` label, and each `case` keyword pays — gated to
     // the section, since `goto case 2;` spells the same token (#1450);

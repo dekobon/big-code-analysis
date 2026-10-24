@@ -67,17 +67,12 @@ type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 macro_rules! js_family_scores_itself {
     ($roles:ident, $code:ident) => {
         &|expr: &Node| {
-            use crate::roles::$roles::{comparison, short_circuit, ternary};
+            use crate::roles::$roles::{comparison, null_safe, short_circuit, ternary};
             let unknown = Ancestors::unknown();
             comparison::owns(expr, $code, unknown)
                 || short_circuit::owns(expr, $code, unknown)
                 || ternary::owns(expr, $code, unknown)
-                // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
-                // `NullSafe` row of #1695 takes over; the rows are read above
-                || (expr.kind() == "binary_expression"
-                    && expr
-                        .child_by_field_name("operator")
-                        .is_some_and(|op| op.kind() == "??"))
+                || null_safe::owns(expr, $code, unknown)
         }
     };
 }
@@ -252,7 +247,7 @@ macro_rules! ts_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{case_arm, comparison, short_circuit, ternary};
+            use crate::roles::$roles::{case_arm, comparison, null_safe, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -285,7 +280,17 @@ macro_rules! ts_abc_compute {
                 // Both the statement (`default:`) and arrow
                 // (`default ->`) forms emit the same `Default` token, so
                 // omitting it here covers both.
-                QMARKQMARK | Else | Try | Catch => {
+                Else | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // `??`, the `NullSafe` row's payer that is a boolean test;
+                // the row's other payer, the optional chain's `?.`, is a
+                // navigation ABC does not score.
+                // role-bypass: allow(NullSafe) — which of the row's two payers this consumer
+                // scores: the coalescing operator, not the optional chain
+                _ if kind == QMARKQMARK as u16
+                    && null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
+                {
                     stats.conditions += 1.;
                 }
                 // A `case` label, the `CaseArm` row's payer; `default` is
@@ -432,7 +437,7 @@ macro_rules! js_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{case_arm, comparison, short_circuit, ternary};
+            use crate::roles::$roles::{case_arm, comparison, null_safe, short_circuit, ternary};
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -454,7 +459,17 @@ macro_rules! js_abc_compute {
                 // The `default` arm is the unconditional fallthrough and
                 // is excluded, mirroring cyclomatic's `Case`-only count
                 // (issue #469); see the TS macro above for the rationale.
-                QMARKQMARK | Else | Try | Catch => {
+                Else | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // `??`, the `NullSafe` row's payer that is a boolean test;
+                // the row's other payer, the optional chain's `?.`, is a
+                // navigation ABC does not score.
+                // role-bypass: allow(NullSafe) — which of the row's two payers this consumer
+                // scores: the coalescing operator, not the optional chain
+                _ if kind == QMARKQMARK as u16
+                    && null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
+                {
                     stats.conditions += 1.;
                 }
                 // A `case` label, the `CaseArm` row's payer; `default` is

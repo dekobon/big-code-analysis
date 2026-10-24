@@ -276,6 +276,10 @@ impl Abc for RubyCode {
                     ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
             }
+            // A safe-navigation call is the `NullSafe` row's for its `&.`,
+            // which ABC does not score; it is a branch as every call is.
+            // role-bypass: allow(NullSafe) — the branch reading of every call, which the row's
+            // safe-navigation owner is one of
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
                 stats.branches += 1.;
             }

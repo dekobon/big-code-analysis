@@ -127,7 +127,7 @@ impl Getter for TypescriptCode {
     impl_js_family_get_op_type!(
         Typescript,
         roles: typescript,
-        op_extras: [QMARKDOT, Satisfies, Keyof, Infer, Is, Asserts2],
+        op_extras: [Satisfies, Keyof, Infer, Is, Asserts2],
         operand_extras: [TypeIdentifier],
         generic_angles: GENERIC_ANGLES,
     );

@@ -5,13 +5,14 @@ use crate::Typescript;
 use crate::role_table;
 use crate::roles::js_family::{
     js_family_case_arm_gate, js_family_comparison_payers, js_family_decl_keywords,
-    js_family_modifiers, js_family_operator_gates, js_family_short_circuit_payers,
-    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_modifiers, js_family_null_safe_gate, js_family_operator_gates,
+    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Typescript);
 js_family_operator_gates!(Typescript);
 js_family_case_arm_gate!(Typescript);
+js_family_null_safe_gate!();
 
 role_table! {
     lang: Typescript;
@@ -40,7 +41,27 @@ role_table! {
         pays [QMARK gated_by under_ternary]
         project "operator"
     }
-    NullSafe { pending R05 }
+    // Two structural forms, each one decision per token (#281, #248):
+    // the null coalescing `a ?? b`, a `binary_expression` owned through
+    // its `operator` field, and the optional chain `a?.b` / `a?.[0]` /
+    // `a?.()`, whose `?.` the TypeScript grammars spell as a `?.` token
+    // inside an `optional_chain` wrapper — the wrapper is excluded so a
+    // chain pays once, at the token (the JavaScript grammars have no
+    // wrapper; their `optional_chain` *is* the token). Which consumer
+    // reads which: cyclomatic pays both tokens; cognitive folds `??`
+    // into a boolean sequence and reads `?.` not at all; ABC pays `??`
+    // as a condition and `?.` not at all. The compound `??=` is an
+    // assignment to ABC, a sequence to cognitive and a decision to
+    // cyclomatic (#236, #248): the consumers' own, recorded here.
+    NullSafe {
+        owns [BinaryExpression(gated_by null_coalescing_operator)]
+        pays [QMARKQMARK, QMARKDOT]
+        project "operator"
+        excludes [
+            OptionalChain "the wrapper around the `?.` token, which pays once",
+            QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236, #248)",
+        ]
+    }
     // A `switch_case` owns a decision and its `case` keyword pays; the
     // `switch_default` and its `default` keyword are the fallback and
     // pay nothing (lesson 11, #469).

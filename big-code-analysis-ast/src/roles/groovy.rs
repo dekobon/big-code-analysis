@@ -75,6 +75,14 @@ fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>
     ancestors.parent_has_kind(node, Groovy::TernaryExpression as u16)
 }
 
+/// Whether a `safe_*` expression holds its operator token: the dekobon
+/// grammar gives each of the elvis, safe navigation, safe chain and
+/// safe subscript a node of its own wrapping its token, so every owner
+/// holds one; the gate pins that.
+fn holds_null_safe_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    null_safe::project(node).is_some()
+}
+
 /// Whether a `switch_case` is a `case X:` arm. The dekobon grammar
 /// gives `default:` its own `switch_default` kind, so every
 /// `switch_case` holds a `case`; the gate pins that.
@@ -210,7 +218,26 @@ role_table! {
         pays [QMARK gated_by under_ternary]
         project "operator"
     }
-    NullSafe { pending R05 }
+    // Four structural forms, each one decision per token (#452): the
+    // elvis `a ?: b` (`elvis_expression` / `?:`), the safe navigation
+    // `a?.b` (`safe_navigation_expression` / `?.`), the safe chain
+    // `a??.b` (`safe_chain_dot_expression` / `??.`) and the safe
+    // subscript `a?[0]` (`safe_subscript_expression` / `?[`). Cyclomatic
+    // pays each token; cognitive folds the elvis into a boolean
+    // sequence and reads the others not at all; ABC pays the elvis token
+    // as a condition — once per token, the Kotlin reading, rather than
+    // the C / PHP short-ternary reading that also walks the left
+    // operand (grammar-dispatch §8) — and the navigations not at all.
+    NullSafe {
+        owns [
+            ElvisExpression(gated_by holds_null_safe_token),
+            SafeNavigationExpression(gated_by holds_null_safe_token),
+            SafeChainDotExpression(gated_by holds_null_safe_token),
+            SafeSubscriptExpression(gated_by holds_null_safe_token),
+        ]
+        pays [QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK]
+        project "operator"
+    }
     // A `switch_case` owns a decision and its `case` keyword pays; the
     // `switch_default` and its `default` keyword are the fallback and
     // pay nothing (lesson 11, #469).

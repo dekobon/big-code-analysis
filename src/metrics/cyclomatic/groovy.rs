@@ -38,11 +38,6 @@ use super::*;
 //   node reaches no cyclomatic arm; it is an ABC bool-terminal only.
 //
 // `&&` / `||` are read from the `ShortCircuit` row of `roles/groovy.rs`
-// (#1695); the elvis and safe-navigation forms stay in the extras list
-// until their `NullSafe` row lands.
-impl_cyclomatic_java_like_rows!(
-    GroovyCode,
-    Groovy,
-    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK],
-    roles = crate::roles::groovy
-);
+// and the elvis and safe-navigation forms from its `NullSafe` row, each
+// once per token (#452) (#1695); `assert` is the one extra.
+impl_cyclomatic_java_like_rows!(GroovyCode, Groovy, [Assert], roles = crate::roles::groovy);

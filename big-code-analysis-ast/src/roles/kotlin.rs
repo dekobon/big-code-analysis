@@ -113,6 +113,18 @@ fn under_binary_expression<'a>(
     ancestors.parent_has_kind(node, Kotlin::BinaryExpression as u16)
 }
 
+/// Whether a `navigation_expression` is the safe `a?.b` rather than
+/// the plain `a.b`: it holds a `?.` token (the grammar names no
+/// operator field; the row's payer fallback finds it).
+fn safe_navigation<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.is_child(Kotlin::QMARKDOT as u16)
+}
+
+/// Whether a `binary_expression`'s `operator` field is the elvis `?:`.
+fn elvis_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    null_safe::project(node).is_some_and(|op| op.kind_id() == Kotlin::QMARKCOLON as u16)
+}
+
 /// Whether a `when_entry` is a case-style arm rather than the `else ->`
 /// fallback, which has no `condition` field (lesson 11, #469).
 fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -178,7 +190,25 @@ role_table! {
     // claiming `Identifier` as a payer would claim every name.
     EagerLogical { owns [InfixExpression(text_gated_by eager_infix)] }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
-    NullSafe { pending R05 }
+    // Two structural forms, each one decision per token (#436): the
+    // elvis `a ?: b`, a `binary_expression` owned through its `operator`
+    // field — a short-circuit nullish operator, so cognitive folds it
+    // into the `&&` / `||` sequence and ABC pays its token as a
+    // condition (the Kotlin reading, one per token, which Groovy's elvis
+    // follows) — and the safe navigation `a?.b`, whose `?.` sits in a
+    // `navigation_expression` beside the plain `.`, so the owner is
+    // gated on holding one; cyclomatic pays both tokens, ABC and
+    // cognitive read `?.` not at all. The not-null assertion `!!` throws
+    // rather than branches, and is no decision to any consumer.
+    NullSafe {
+        owns [
+            BinaryExpression(gated_by elvis_operator),
+            NavigationExpression(gated_by safe_navigation),
+        ]
+        pays [QMARKCOLON, QMARKDOT]
+        project "operator"
+        excludes [BANGBANG "`a!!` throws on null rather than branching; an operator, no decision"]
+    }
     // A `when_entry` owns a decision and pays at the node — the grammar
     // gives the arm no keyword of its own; its `->` is punctuation —
     // unless it is the `else ->` fallback, told by the absence of a

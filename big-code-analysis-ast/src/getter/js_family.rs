@@ -8,11 +8,10 @@
 // deltas are passed as bracketed extras so all four impls stay in
 // lockstep when a kind is added or removed (issue #299).
 //
-// `$op_extras` per language:
-//   * JavaScript / MozJS: `OptionalChain` — the bare `?.` token (these
-//     grammars expose no `optional_chain` wrapper).
-//   * TypeScript / TSX:   `QMARKDOT`, the bare `?.` token under the
-//     `optional_chain` wrapper (issue #281).
+// `$op_extras` per language (the optional chain's `?.`, which was one —
+// `OptionalChain` the bare token in JavaScript / MozJS, `QMARKDOT`
+// under the `optional_chain` wrapper in TypeScript / TSX, issue #281 —
+// is the `NullSafe` row's now, #1695):
 //   * JavaScript / MozJS / TSX: `LTSLASH`, `SLASHGT` — the JSX closing
 //     and self-closing tag delimiters, which these grammars spell as
 //     their own two-character tokens rather than as a `<` / `>` pair.
@@ -154,7 +153,12 @@ macro_rules! impl_js_family_get_op_type {
             // out — TypeScript's optional members and types and its
             // `conditional_type` — which billed before the row existed.
             // `case` is the `CaseArm` row's and `get_paying_role` bills it
-            // (#1695); `default` is the fallback label's and stays.
+            // (#1695); `default` is the fallback label's and stays. `??`
+            // and the optional chain's `?.` are the `NullSafe` row's
+            // (`optional_chain` the token in the JavaScript grammars,
+            // `?.` under an `optional_chain` wrapper in the TypeScript
+            // ones); `??=` is excluded there and bills here as the
+            // assignment it is.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
             // spellings the rows' `under_binary_expression` / `under_ternary` gates leave out
             match node.kind_id().into() {
@@ -199,7 +203,7 @@ macro_rules! impl_js_family_get_op_type {
                 | PLUSEQ | BANG | DASHEQ
                 | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
-                | QMARKQMARK | EQGT | DOTDOTDOT | New | SEMI | Typeof | Void
+                | EQGT | DOTDOTDOT | New | SEMI | Typeof | Void
                 // `get`/`set` accessor keywords are operators, matching the
                 // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
                 // Before #695 the JS family classified them as operands, so

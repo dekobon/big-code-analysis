@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_cyclomatic_js_family!(JavascriptCode, Javascript, javascript, OptionalChain);
+impl_cyclomatic_js_family!(JavascriptCode, Javascript, javascript);

@@ -14,7 +14,7 @@ use super::{
     count_negated_operand, last_operand, peel, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
-use crate::roles::csharp::{case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::csharp::{case_arm, comparison, guard, null_safe, short_circuit, ternary};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -120,12 +120,8 @@ fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
         || ternary::owns(expr, code, unknown)
+        || null_safe::owns(expr, code, unknown)
         || match expr.kind_id().into() {
-            // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
-            // `NullSafe` row of #1695 takes over; the rows are read above
-            BinaryExpression | BinaryExpression2 => expr
-                .child_by_field_name("operator")
-                .is_some_and(|op| op.kind_id() == QMARKQMARK as u16),
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
                 proves_boolean || csharp_condition_scores_itself(&value, code)
@@ -480,62 +476,53 @@ fn csharp_count_token_condition<'a>(
         // They share the arm rather than sitting beside it because the
         // arm's meaning is "this node is a condition, with nothing to
         // gate on" — which is as true of a production as of a token.
-        Else | Try | Catch | QMARKQMARK => {
+        Else | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // The `NullSafe` row's payers: `??` at its token and a conditional
+        // access at its node — `a?.b` / `a?[0]`, whose operator is the
+        // same bare `?` the ternary and two type productions spell, so
+        // the node pays once for it (#1459, #1275). That keeps ABC level
+        // with C#'s own cyclomatic on a safe-navigation chain, a
+        // C#-internal agreement: `a?.b?.c` scores ABC conditions 2 here
+        // and 0 in TypeScript, JavaScript, Kotlin and Groovy, whose `?.`
+        // is a distinct token their ABC arms never list — even though
+        // `safe_navigation_chain_parity` pins all five at +2 *cyclomatic*.
+        // Pre-existing, and preserved rather than silently changed. The
+        // compound `??=` is excluded on the row and stays an assignment:
+        // a cyclomatic decision that is no condition, so `a ??= b` sits
+        // one below C#'s decision count — deliberate (the JS family
+        // scores it the same way), but a live divergence.
+        _ if null_safe::pays_at_leaf_kind(kind, node, code, ancestors) => {
             stats.conditions += 1.;
         }
         // tree-sitter-c-sharp emits a bare `?` from exactly four
-        // productions: `nullable_type` (`int? x`),
-        // `type_parameter_constraint` (`where T : class?`),
-        // `conditional_expression` (the ternary, the `Ternary` row's,
-        // paid above) and `conditional_access_expression` (`a?.b`
-        // *and* `a?[0]` — both spell their operator as this same bare
-        // token, not a distinct `?.` / `?[` kind). The first two are
-        // type syntax and no more a decision than the `<` / `>` around
-        // a generic (#1275); the last is a decision, the `NullSafe`
-        // row's, and this arm is what pays it until that row lands.
+        // productions: `nullable_type` (`int? x`) and
+        // `type_parameter_constraint` (`where T : class?`), type syntax
+        // and no more a decision than the `<` / `>` around a generic
+        // (#1275); `conditional_expression`, the `Ternary` row's, paid
+        // at the token above; and `conditional_access_expression`, the
+        // `NullSafe` row's, paid at the node above. What is left for the
+        // bare token is the spelling no production owns — a `?` error
+        // recovery strands under an `ERROR` — which this arm has always
+        // paid, by denying the four parents rather than naming the one.
         //
-        // Denylist polarity, deliberately — the opposite of the TS/TSX
-        // allowlist this fix installs alongside it and of the Java one
-        // #1274 already landed. An allowlist would have to name
-        // `ConditionalAccessExpression` explicitly to keep counting
-        // `a?.b`, and that counting is load-bearing: C# cyclomatic
-        // counts the `ConditionalAccessExpression` node
-        // (`src/metrics/cyclomatic/csharp.rs`), so dropping it would put
-        // ABC *below* C#'s own cyclomatic decision count on a safe-
-        // navigation chain. Denying the two type-syntax parents keeps
-        // that count without an allowlist entry a later "consistency"
-        // pass could drop. The sibling `??` gap this comment used to
-        // record — a C# cyclomatic decision that was no ABC condition —
-        // is closed for `??` by `QMARKQMARK` joining the ungated
-        // condition-token arm at the top of this match (#1459). It is
-        // *not* closed for `??=`: `QMARKQMARKEQ` is a cyclomatic
-        // decision and stays an ABC assignment only, so `a ??= b` still
-        // sits one below C#'s decision count. That is deliberate rather
-        // than missed — the JS family scores `??=` the same way — but it
-        // is a live divergence, not a closed one.
-        //
-        // The agreement being protected is C#-internal, not cross-
-        // language: `a?.b?.c` scores ABC conditions 2 in C# and 0 in
-        // TypeScript, JavaScript, Kotlin and Groovy, whose `?.` is a
-        // distinct token their ABC arms never list — even though
-        // `safe_navigation_chain_parity` pins all five at +2
-        // *cyclomatic*. That ABC-side divergence is pre-existing and
-        // out of scope for #1275; this arm preserves C#'s side of it
-        // rather than silently changing it.
-        //
-        // The cost of that polarity is that it fails *open*: type syntax
-        // the grammar gains later starts counting. That is not
+        // Denylist polarity, deliberately, so that it fails *open*: type
+        // syntax the grammar gains later starts counting, which is not
         // hypothetical — `type_parameter_constraint` was the second half
         // of #1275 and is absent from the issue's own deny set. The four
         // productions above are the closed enumeration at the pinned
         // `=0.23.5`; re-derive it on a grammar bump.
-        // role-bypass: allow(Ternary) — the conditional access's `?`, which the `NullSafe` row
-        // of #1695 takes over; the ternary's is the row's and paid above
+        // role-bypass: allow(Ternary, NullSafe) — the recovered `?` no row owns, told by
+        // denying the parents the two rows' owners are
         QMARK
             if ancestors.parent(node).is_some_and(|parent| {
                 !matches!(
                     parent.kind_id().into(),
-                    NullableType | TypeParameterConstraint | ConditionalExpression
+                    NullableType
+                        | TypeParameterConstraint
+                        | ConditionalExpression
+                        | ConditionalAccessExpression
                 )
             }) =>
         {

@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, wrapped_operand,
 };
-use crate::roles::groovy::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::groovy::{case_arm, comparison, null_safe, short_circuit, ternary};
 use crate::*;
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
@@ -81,17 +81,29 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
 // counts. It scores itself exactly when its value does, as Java's does.
+// Whether `expr` is the elvis `a ?: b`, the `NullSafe` owner whose
+// payer is the `?:` token — asked of the row's projection, so the owner
+// and the token the arm pays agree by construction.
+// role-bypass: allow(NullSafe) — which of the row's four owners this consumer scores, told by
+// the projected token: the elvis, not the safe navigations
+fn groovy_is_elvis(expr: &Node, code: &[u8]) -> bool {
+    null_safe::owns(expr, code, Ancestors::unknown())
+        && null_safe::project(expr).is_some_and(|op| op.kind_id() == Groovy::QMARKCOLON as u16)
+}
+
 fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Groovy::*;
 
     let unknown = Ancestors::unknown();
+    // The elvis owner is the one `NullSafe` owner that is a boolean
+    // test; the three safe navigations never reach a slot as a value
+    // that proves boolean, and score nothing if one does.
+    let elvis = groovy_is_elvis(expr, code);
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
         || ternary::owns(expr, code, unknown)
+        || elvis
         || match expr.kind_id().into() {
-            // role-bypass: allow(Ternary) — the elvis owner, which the `NullSafe` row of
-            // #1695 takes over; the rows are read above
-            ElvisExpression => true,
             AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
                 proves_boolean || groovy_condition_scores_itself(&value, code)
@@ -281,17 +293,24 @@ fn groovy_count_token_condition<'a>(
         return true;
     }
     match kind.into() {
-        // `QMARKCOLON` is the elvis operator `a ?: c`, a short-circuit
-        // decision Groovy cyclomatic already counts
-        // (`src/metrics/cyclomatic/groovy.rs`) and the Kotlin ABC arm
-        // counts for its identical token; without it a method whose only
-        // branching is elvis chains reported cyclomatic > 1 with zero
-        // conditions. One per token, the Kotlin reading, rather than the
-        // C / PHP short-ternary reading that also walks the left operand
-        // as a unary condition — it keeps `abc.conditions` equal to
-        // `cyclomatic() - 1` on the chain (grammar-dispatch §8). It is
-        // `NullSafe`'s, pending that row.
-        Else | Try | Catch | QMARKCOLON => {
+        Else | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // The elvis `a ?: c`, the one `NullSafe` payer that is a boolean
+        // test: a short-circuit decision Groovy cyclomatic counts and the
+        // Kotlin ABC arm counts for its identical token; without it a
+        // method whose only branching is elvis chains reported cyclomatic
+        // > 1 with zero conditions. One per token, the Kotlin reading,
+        // rather than the C / PHP short-ternary reading that also walks
+        // the left operand as a unary condition — it keeps
+        // `abc.conditions` equal to `cyclomatic() - 1` on the chain
+        // (grammar-dispatch §8). The row's three navigations are no
+        // boolean test and ABC does not score them.
+        // role-bypass: allow(NullSafe) — which of the row's four payers this consumer scores:
+        // the elvis, not the safe navigations
+        _ if kind == QMARKCOLON as u16
+            && null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
+        {
             stats.conditions += 1.;
         }
         _ => return false,

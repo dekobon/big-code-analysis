@@ -153,10 +153,16 @@ impl Getter for CsharpCode {
             // the fallback label's and stays; `when`, the `Guard` row's
             // owners' keyword, is excluded there and bills here. `is`,
             // `<` … and `?` likewise stay for the spellings the
-            // `Comparison` and `Ternary` rows' gates leave out.
-            // role-bypass: allow(Comparison, Ternary, CaseArm) — the operator classification of
-            // the spellings the rows' `under_type_test` / `under_binary_expression` /
-            // `under_ternary` / `is_switch_arm_case` gates leave out
+            // `Comparison`, `Ternary` and `NullSafe` rows' gates leave
+            // out — for `?`, a nullable type and a constraint's
+            // `class?`; the ternary's and a conditional access's are
+            // those two rows'. `??` is the `NullSafe` row's and
+            // `get_paying_role` bills it; `??=` is excluded there and
+            // bills here as the assignment it is.
+            // role-bypass: allow(Comparison, Ternary, CaseArm, NullSafe) — the operator
+            // classification of the spellings the rows' `under_type_test` /
+            // `under_binary_expression` / `under_ternary` / `under_conditional_access` /
+            // `is_switch_arm_case` gates leave out
             If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
             | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
             // Expression-keyword operators. `new` is the allocation
@@ -174,10 +180,9 @@ impl Getter for CsharpCode {
             // Property/event accessor keywords
             | Get | Set | Init | Add | Remove
             // Structural punctuation. `?` stays for the spellings the
-            // `Ternary` row's `under_ternary` gate leaves out — a
-            // conditional access (`a?.b`, the `NullSafe` row's), a
-            // nullable type, a constraint's `class?` — which billed before
-            // the row existed.
+            // `Ternary` and `NullSafe` rows' gates leave out — a nullable
+            // type, a constraint's `class?` — which billed before the rows
+            // existed.
             | LBRACE | LBRACK | LPAREN | COMMA | SEMI | COLON | COLONCOLON | DOT
             | DOTDOT | EQGT | DASHGT | QMARK
             // Arithmetic / logical / bitwise / assignment operators. The
@@ -192,7 +197,6 @@ impl Getter for CsharpCode {
             | EQ | EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ
             | PLUS | DASH | STAR | SLASH | PERCENT
             | AMP | PIPE | CARET | TILDE | BANG
-            | QMARKQMARK
             | LTLT | GTGT | GTGTGT
             | PLUSPLUS | DASHDASH
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ

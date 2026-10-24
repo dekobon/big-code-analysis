@@ -17,16 +17,17 @@ use super::*;
 /// `unary_expression`'s) short-circuit operator children into the
 /// boolean-sequence counter: the `ShortCircuit` row's payers, read
 /// through the row so an auto-quoted `and` key (#1539) is left out by
-/// its `applied_and` gate, plus the defined-or `//` and three compound
-/// short-circuit assignments (`&&=`, `||=`, `//=`), pending their
-/// `NullSafe` row. The grammar exposes each `op=` as a distinct
-/// operator token inside the same `binary_expression`, so they fold
-/// into the same predicate (issue #249). The word forms `and` / `or`
-/// are keyed to their symbols (see [`compute_booleans_keyed`]); `//`
-/// and each compound assignment keep keys of their own. Which payers
-/// share a key is this consumer's reading of the row.
+/// its `applied_and` gate, the `NullSafe` row's defined-or `//`, and
+/// the three compound short-circuit assignments (`&&=`, `||=`, `//=`),
+/// which the rows exclude as the consumers' own. The grammar exposes
+/// each `op=` as a distinct operator token inside the same
+/// `binary_expression`, so they fold into the same predicate (issue
+/// #249). The word forms `and` / `or` are keyed to their symbols (see
+/// [`compute_booleans_keyed`]); `//` and each compound assignment keep
+/// keys of their own. Which payers share a key is this consumer's
+/// reading of the rows.
 fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
-    use crate::roles::perl::short_circuit;
+    use crate::roles::perl::{null_safe, short_circuit};
     // Each child's parent is `node`, which is all the row's `applied_and`
     // gate reads.
     let chain = [*node];
@@ -34,7 +35,7 @@ fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
     compute_booleans_by_node(node, node.end_byte(), stats, |child| {
         let kind = child.kind_id();
         // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
-        // membership: the row is read first, and the `//` / `op=` keys are the `NullSafe` extras
+        // membership: the rows are read first, and the `op=` keys are the consumers' own
         if short_circuit::pays_at_leaf_kind(kind, child, code, under_node) {
             return Some(match kind.into() {
                 Perl::And => Perl::AMPAMP as u16,
@@ -42,9 +43,12 @@ fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
                 _ => kind,
             });
         }
+        if null_safe::pays_at_leaf_kind(kind, child, code, under_node) {
+            return Some(kind);
+        }
         matches!(
             kind.into(),
-            Perl::SLASHSLASH | Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ
+            Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ
         )
         .then_some(kind)
     });
@@ -63,7 +67,7 @@ impl Cognitive for PerlCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::perl::{short_circuit, ternary};
+        use crate::roles::perl::{null_safe, short_circuit, ternary};
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -123,16 +127,18 @@ impl Cognitive for PerlCode {
             // cyclomatic and ABC counted it (#1530), and the row's gate
             // leaves out the `unary_expression` an auto-quoted `and` key
             // (`(and => 1)`) is parsed as (FIXME #1539 upstream) — or one
-            // carrying the defined-or / compound forms the same two kinds
-            // spell, pending their `NullSafe` row.
-            // role-bypass: allow(ShortCircuit) — the `//` / `op=` owners, which the `NullSafe` row of
-            // #1695 takes over; the row is read on the arm's guard
+            // the `NullSafe` row owns through the defined-or `//`, or one
+            // carrying the compound forms the same two kinds spell, which
+            // the rows exclude as the consumers' own.
+            // role-bypass: allow(ShortCircuit, NullSafe) — the `op=` owners, excluded on the rows
+            // as the consumers' own; the rows are read on the arm's guard
             P::BinaryExpression | P::UnaryExpression
                 if short_circuit::owns(node, code, ancestors)
+                    || null_safe::owns(node, code, ancestors)
                     || node.children().any(|c| {
                         matches!(
                             c.kind_id().into(),
-                            P::SLASHSLASH | P::AMPAMPEQ | P::PIPEPIPEEQ | P::SLASHSLASHEQ
+                            P::AMPAMPEQ | P::PIPEPIPEEQ | P::SLASHSLASHEQ
                         )
                     }) =>
             {

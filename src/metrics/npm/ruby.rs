@@ -174,6 +174,8 @@ impl<'a> RubyClassBody<'a> {
             Method | SingletonMethod => {
                 self.declare(child, matches!(kind, SingletonMethod), None);
             }
+            // role-bypass: allow(NullSafe) — the visibility macro calls, which the row's
+            // safe-navigation owner is a kind of; each is told by its name
             Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(child, self.code) {
                 Some(RubyVisibilityEffect::Flag(flag)) => self.visibility = flag,
                 Some(RubyVisibilityEffect::Arguments(keyword)) => {

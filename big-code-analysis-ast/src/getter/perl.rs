@@ -68,9 +68,11 @@ impl Getter for PerlCode {
             // `and` key (#1539), a recovered token. Those billed before
             // the rows existed; the rows pay the applied spellings
             // through `get_paying_role` (#1695), so for these kinds the
-            // vocabulary is the union of the two. `xor` and the ternary
-            // `?` are not here: the `EagerLogical` and `Ternary` rows pay
-            // them ungated.
+            // vocabulary is the union of the two. `xor`, the ternary `?`
+            // and the defined-or `//` are not here: the `EagerLogical`,
+            // `Ternary` and `NullSafe` rows pay them ungated; `//=` is
+            // excluded on the last and bills below as the assignment it
+            // is.
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' gates leave out
             P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
@@ -89,7 +91,7 @@ impl Getter for PerlCode {
             | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT
             // Arithmetic / logical / bitwise / assignment operators
             | P::EQ | P::PLUS | P::DASH | P::STAR | P::SLASH | P::STARSTAR | P::BANG
-            | P::TILDE | P::SLASHSLASH | P::PIPE
+            | P::TILDE | P::PIPE
             | P::CARET | P::LTLT | P::GTGT | P::TILDETILDE | P::PLUSPLUS | P::DASHDASH
             | P::PLUSEQ | P::DASHEQ | P::STAREQ | P::SLASHEQ | P::PERCENTEQ | P::STARSTAREQ
             | P::AMPEQ | P::PIPEEQ | P::CARETEQ | P::LTLTEQ | P::GTGTEQ | P::AMPAMPEQ

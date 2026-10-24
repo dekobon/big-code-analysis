@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, wrapped_operand};
-use crate::roles::kotlin::{case_arm, comparison, short_circuit};
+use crate::roles::kotlin::{case_arm, comparison, null_safe, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -149,16 +149,19 @@ fn kotlin_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Kotlin::*;
 
     let unknown = Ancestors::unknown();
+    // The elvis owner, asked of the row's projection; the row's other
+    // owner, a safe navigation, is no boolean test and scores itself
+    // nowhere.
+    // role-bypass: allow(NullSafe) — which of the row's two owners this consumer scores, told
+    // by the projected token: the elvis, not the safe navigation
+    let elvis = null_safe::owns(expr, code, unknown)
+        && null_safe::project(expr).is_some_and(|op| op.kind_id() == QMARKCOLON as u16);
     comparison::owns(expr, code, unknown)
         || short_circuit::owns(expr, code, unknown)
+        || elvis
         || match expr.kind_id().into() {
             IfExpression | TryExpression => true,
             AsExpression => expr.is_child(AsQMARK as u16),
-            // role-bypass: allow(Comparison, ShortCircuit) — the elvis owner, which the
-            // `NullSafe` row of #1695 takes over; the rows are read above
-            BinaryExpression => expr
-                .child_by_field_name("operator")
-                .is_some_and(|op| op.kind_id() == QMARKCOLON as u16),
             _ => false,
         }
 }
@@ -400,7 +403,17 @@ impl Abc for KotlinCode {
             // through `kotlin_count_condition`, which declines an `is` /
             // `in` test the way it declines a comparison, leaving it to
             // the row's arm.
-            Try | CatchBlock | QMARKCOLON | AsQMARK => {
+            Try | CatchBlock | AsQMARK => {
+                stats.conditions += 1.;
+            }
+            // The elvis `?:`, the one `NullSafe` payer that is a boolean
+            // test, once per token; the safe navigation's `?.` is no test
+            // and ABC does not score it.
+            // role-bypass: allow(NullSafe) — which of the row's two payers this consumer scores:
+            // the elvis, not the safe navigation
+            _ if kind == QMARKCOLON as u16
+                && null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
+            {
                 stats.conditions += 1.;
             }
             // The `Comparison` row's payers (`roles/kotlin.rs`): the six

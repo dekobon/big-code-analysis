@@ -16,7 +16,7 @@ use super::{
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
 };
-use crate::roles::perl::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::perl::{case_arm, comparison, null_safe, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -344,23 +344,13 @@ fn perl_leading_slot<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
 
 // A `&&` / `||` / `and` / `or` chain — the `ShortCircuit` row's owner,
 // whose gate already declines an auto-quoted `and` key (#1539) — or a
-// defined-or `//` chain, which stays named here until its `NullSafe`
-// row. `xor`, the `EagerLogical` row's, is left out: it does not
-// short-circuit, so it is a value, as `^` is (#1536). The owner gate
-// reads only the node's children, so a node reached without its chain
-// is asked with none.
+// defined-or `//` chain, the `NullSafe` row's owner. `xor`, the
+// `EagerLogical` row's, is left out: it does not short-circuit, so it
+// is a value, as `^` is (#1536). Neither owner gate reads ancestors,
+// so a node reached without its chain is asked with none.
 fn perl_is_logical_chain(node: &Node, code: &[u8]) -> bool {
-    use Perl as P;
-
-    short_circuit::owns(node, code, Ancestors::unknown())
-        // role-bypass: allow(ShortCircuit) — the defined-or chain, which the `NullSafe` row
-        // of #1695 takes over; the row is read above
-        || (matches!(
-            node.kind_id().into(),
-            P::BinaryExpression | P::UnaryExpression
-        ) && node
-            .children()
-            .any(|token| token.kind_id() == P::SLASHSLASH as u16))
+    let unknown = Ancestors::unknown();
+    short_circuit::owns(node, code, unknown) || null_safe::owns(node, code, unknown)
 }
 
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
@@ -524,7 +514,7 @@ impl Abc for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead, cyclomatic)
+        // bca: suppress(halstead, cyclomatic, abc)
         // Exhaustive one-arm-per-grammar-kind dispatch table, like
         // `CppCode::compute`, which breaches only the cyclomatic limit
         // and so carries only that marker. Perl's arm list is the
@@ -539,7 +529,9 @@ impl Abc for PerlCode {
         // to 16, the bare-match arm for #1467 to 17, and the `=~` /
         // `!~` rewrite gate for #1540 added one more; each arm is
         // independent and self-describing like every other, and there
-        // is no semantic boundary to split this lookup on.
+        // is no semantic boundary to split this lookup on. The ABC
+        // reading is the same table's: one guarded arm per row read
+        // (#1695), each a condition of the lookup and not of the metric.
         use Perl as P;
 
         let kind = node.kind_id();
@@ -629,14 +621,12 @@ impl Abc for PerlCode {
             // Fitzpatrick Rule 9 walker: each operand of a Perl
             // short-circuit / low-precedence logical chain is one
             // condition (issue #403). Covers the `ShortCircuit` row's
-            // `&&`, `||`, `and`, `or` and the defined-or `//` (pending
-            // `NullSafe`) — not `xor`, which is a value (#1536). The
-            // chain is the token's parent, which `perl_count_chain_operands`
-            // asks the row about.
-            // role-bypass: allow(ShortCircuit) — the defined-or token, which the `NullSafe` row of
-            // #1695 takes over; the row is read on the arm's guard
+            // `&&`, `||`, `and`, `or` and the `NullSafe` row's defined-or
+            // `//` — not `xor`, which is a value (#1536). The chain is
+            // the token's parent, which `perl_count_chain_operands` asks
+            // the rows about.
             _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-                || kind == P::SLASHSLASH as u16 =>
+                || null_safe::pays_at_leaf_kind(kind, node, code, ancestors) =>
             {
                 if let Some((chain, above)) = ancestors.iter(node).next() {
                     let absorbed = perl_misparse_absorbs_leading_operand(&chain, code, above);

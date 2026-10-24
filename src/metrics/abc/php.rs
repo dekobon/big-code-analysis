@@ -169,7 +169,11 @@ impl Abc for PhpCode {
             | DASHDASH => {
                 stats.assignments += 1.;
             }
-            // Branches: every PHP call kind plus object construction.
+            // Branches: every PHP call kind plus object construction. A
+            // nullsafe call is the `NullSafe` row's for its `?->`, which
+            // ABC does not score; it is a branch as every call is.
+            // role-bypass: allow(NullSafe) — the branch reading of every call kind, which the
+            // row's nullsafe owner is one of
             FunctionCallExpression
             | MemberCallExpression
             | ScopedCallExpression

@@ -293,14 +293,16 @@ impl Getter for KotlinCode {
             // `<` / `>` for the spellings the `Comparison` row's parent
             // gate leaves out — `super<A>`, a generic bracket (the `<>`
             // pair), a recovered token — which billed before the row
-            // existed; the equalities and the short-circuit tokens are
-            // the rows' and `get_paying_role` bills them (#1695).
+            // existed; the equalities, the short-circuit tokens, the
+            // elvis `?:` and the safe navigation's `?.` are the rows' and
+            // `get_paying_role` bills them (#1695). `!!` is excluded on
+            // the `NullSafe` row and bills here.
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
             // row's `under_binary_expression` gate leaves out
             | LT | GT
             // Operator: logical and misc
             | BANG | BANGBANG
-            | QMARK | QMARKCOLON | QMARKDOT
+            | QMARK
             | DOTDOT | DOTDOTLT | DASHGT | COLON => TokenRole::Operator,
             // Operands: identifiers and literals, plus the self- and
             // super-reference leaves (#1380). Four leaf kinds, not two:

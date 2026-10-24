@@ -298,6 +298,8 @@ impl Checker for RubyCode {
     // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the
     // `call` rule (`Call`, `Call2`, `Call3`, `Call4`); `Call5` ("_call")
     // is the hidden inner production and does not surface.
+    // role-bypass: allow(NullSafe) — every call is a call; the row claims the kinds for the
+    // safe-navigation `a&.b` a `call` can also be, told by its token
     fn is_call(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

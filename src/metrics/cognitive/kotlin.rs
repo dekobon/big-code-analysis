@@ -40,7 +40,7 @@ impl Cognitive for KotlinCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::kotlin::short_circuit;
+        use crate::roles::kotlin::{null_safe, short_circuit};
         use Kotlin::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -75,19 +75,15 @@ impl Cognitive for KotlinCode {
             LabeledExpression if kotlin_is_labeled_jump(node, code) => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns (#1695),
-            // or one applying Kotlin's Elvis operator `?:` (token
-            // `QMARKCOLON`), a short-circuit nullish operator analogous
-            // to JS `??` that forms boolean sequences alongside `&&` /
-            // `||` per SonarSource Cognitive Complexity B1 — pending its
-            // `NullSafe` row.
-            // role-bypass: allow(Comparison, ShortCircuit) — the elvis owner, which the
-            // `NullSafe` row of #1695 takes over; the row is read on the arm's guard
+            // A `binary_expression` the `ShortCircuit` row owns, or one
+            // the `NullSafe` row owns through Kotlin's Elvis operator
+            // `?:`, a short-circuit nullish operator analogous to JS `??`
+            // that forms boolean sequences alongside `&&` / `||` per
+            // SonarSource Cognitive Complexity B1 (#1695). The row's
+            // other owner, a safe navigation, is no `binary_expression`
+            // and never reaches the key.
             _ if short_circuit::owns(node, code, ancestors)
-                || (node.kind_id() == BinaryExpression as u16
-                    && node
-                        .child_by_field_name("operator")
-                        .is_some_and(|op| op.kind_id() == QMARKCOLON as u16)) =>
+                || null_safe::owns(node, code, ancestors) =>
             {
                 compute_booleans_with(node, stats, |id| {
                     short_circuit::PAYERS.contains(&id) || id == QMARKCOLON as u16

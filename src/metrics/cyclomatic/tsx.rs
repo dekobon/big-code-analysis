@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_cyclomatic_js_family!(TsxCode, Tsx, tsx, QMARKDOT);
+impl_cyclomatic_js_family!(TsxCode, Tsx, tsx);

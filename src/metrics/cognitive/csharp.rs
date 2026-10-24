@@ -26,7 +26,7 @@ impl Cognitive for CsharpCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::csharp::{short_circuit, ternary};
+        use crate::roles::csharp::{null_safe, short_circuit, ternary};
         use Csharp::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -57,23 +57,21 @@ impl Cognitive for CsharpCode {
             GotoStatement => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns (#1695),
-            // or one applying C#'s null-coalescing `??`, which
-            // short-circuits like `&&` / `||` and forms boolean sequences
-            // alongside them — pending its `NullSafe` row. Mirrors the C#
-            // cyclomatic operator set.
-            // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
-            // `NullSafe` row of #1695 takes over; the row is read on the arm's guard
+            // A `binary_expression` the `ShortCircuit` row owns, or one
+            // the `NullSafe` row owns through C#'s null-coalescing `??`,
+            // which short-circuits like `&&` / `||` and forms boolean
+            // sequences alongside them (#1695). Mirrors the C# cyclomatic
+            // operator set; the row's other owner, a conditional access,
+            // is no `binary_expression` and never reaches the key.
             _ if short_circuit::owns(node, code, ancestors)
-                || (node.kind_id() == BinaryExpression as u16
-                    && node
-                        .child_by_field_name("operator")
-                        .is_some_and(|op| op.kind_id() == QMARKQMARK as u16)) =>
+                || null_safe::owns(node, code, ancestors) =>
             {
                 compute_booleans_with(node, stats, |id| {
                     short_circuit::PAYERS.contains(&id) || id == QMARKQMARK as u16
                 });
             }
+            // role-bypass: allow(NullSafe) — the `??=` arm: excluded on the row as the
+            // consumers' own, a sequence decision here (#236)
             AssignmentExpression => {
                 // C#'s compound null-coalescing assignment `??=` is
                 // semantically `x = x ?? y` and carries one boolean-

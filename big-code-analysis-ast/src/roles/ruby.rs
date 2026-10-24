@@ -36,6 +36,13 @@ fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
         .is_some_and(|p| comparison::OWNERS.contains(&p.kind_id()))
 }
 
+/// Whether a `call` is the safe navigation `a&.b` rather than `a.b`: it
+/// holds an `&.` token (the grammar names no operator field; the row's
+/// payer fallback finds it).
+fn safe_navigation<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.is_child(Ruby::AMPDOT as u16)
+}
+
 /// Whether a `case … in` arm is a decision: its pattern is not a bare
 /// `_`, or it carries an `if` / `unless` guard (#977; lesson 11).
 fn is_decision_in_clause<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
@@ -101,7 +108,22 @@ role_table! {
         pays [QMARK]
         project "operator"
     }
-    NullSafe { pending R05 }
+    // The safe navigation `a&.b`, a `call` (four aliased ids, per
+    // grammar-dispatch §1; the pinned grammar emits `Call3` for every
+    // spelling) owned when it holds the `&.` token, which cyclomatic
+    // pays once per textual operator (#452); ABC and cognitive read it
+    // not at all, and every other reader of a `call` — `is_call`, the
+    // ABC branch, the `attr_*` and visibility walks — reads the call,
+    // not the navigation. Ruby has no null coalescing: `a || b` and
+    // `a ||= b` are the `||` they spell.
+    NullSafe {
+        owns [
+            Call(gated_by safe_navigation), Call2(gated_by safe_navigation),
+            Call3(gated_by safe_navigation), Call4(gated_by safe_navigation),
+        ]
+        pays [AMPDOT]
+        project "operator"
+    }
     // A `when` arm of `case … when` owns a decision and pays at the
     // node (its `when` keyword, `When2`, bills as the keyword it is), as
     // does an `in_clause` of `case … in` unless its pattern is a bare

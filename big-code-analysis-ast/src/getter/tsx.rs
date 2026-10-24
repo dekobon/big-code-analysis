@@ -96,7 +96,7 @@ impl Getter for TsxCode {
     impl_js_family_get_op_type!(
         Tsx,
         roles: tsx,
-        op_extras: [QMARKDOT, Satisfies, Keyof, Infer, Is, Asserts2, LTSLASH, SLASHGT],
+        op_extras: [Satisfies, Keyof, Infer, Is, Asserts2, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2, TypeIdentifier],
         generic_angles: GENERIC_ANGLES,
         jsx: [JsxText, HtmlCharacterReference],

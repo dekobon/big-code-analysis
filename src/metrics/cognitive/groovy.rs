@@ -21,7 +21,12 @@ impl Cognitive for GroovyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::groovy::{short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695) are arms like the kind arms they replaced.
+        use crate::roles::groovy::{null_safe, short_circuit, ternary};
         use Groovy::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -65,8 +70,13 @@ impl Cognitive for GroovyCode {
             // — the same rule as `&&` / `||`. The dekobon grammar
             // models Elvis as a distinct `elvis_expression` node
             // rather than a Java-shaped `ternary_expression` with a
-            // missing consequence (closes #246).
-            ElvisExpression => {
+            // missing consequence (closes #246): the `NullSafe` row's
+            // owner whose payer is `?:`. The row's three safe
+            // navigations are no sequence, and their tokens never match
+            // the key.
+            // role-bypass: allow(NullSafe) — the sequence key, the one of the row's four payers
+            // that is a boolean operator
+            _ if null_safe::owns(node, code, ancestors) => {
                 compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKCOLON));
             }
             // Groovy closures are first-class (`list.each { … }`,

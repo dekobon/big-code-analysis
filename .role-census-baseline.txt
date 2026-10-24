@@ -82,7 +82,6 @@ Csharp FuncOpener R06
 Csharp HoldsDocInBody R09
 Csharp Loop R07
 Csharp Member R06
-Csharp NullSafe R05
 Csharp StringLit R08
 Csharp Switch R07
 Elixir Branch R07
@@ -130,7 +129,6 @@ Groovy FuncOpener R06
 Groovy HoldsDocInBody R09
 Groovy Loop R07
 Groovy Member R06
-Groovy NullSafe R05
 Groovy StringLit R08
 Groovy Switch R07
 Irules Branch R07
@@ -177,7 +175,6 @@ Javascript FuncOpener R06
 Javascript HoldsDocInBody R09
 Javascript Loop R07
 Javascript Member R06
-Javascript NullSafe R05
 Javascript StringLit R08
 Javascript Switch R07
 Kotlin Branch R07
@@ -196,7 +193,6 @@ Kotlin FuncOpener R06
 Kotlin HoldsDocInBody R09
 Kotlin Loop R07
 Kotlin Member R06
-Kotlin NullSafe R05
 Kotlin StringLit R08
 Kotlin Switch R07
 Lua Branch R07
@@ -248,7 +244,6 @@ Mozjs FuncOpener R06
 Mozjs HoldsDocInBody R09
 Mozjs Loop R07
 Mozjs Member R06
-Mozjs NullSafe R05
 Mozjs StringLit R08
 Mozjs Switch R07
 Objc Branch R07
@@ -284,7 +279,6 @@ Perl FuncOpener R06
 Perl HoldsDocInBody R09
 Perl Loop R07
 Perl Member R06
-Perl NullSafe R05
 Perl StringLit R08
 Perl Switch R07
 Php Branch R07
@@ -303,7 +297,6 @@ Php FuncOpener R06
 Php HoldsDocInBody R09
 Php Loop R07
 Php Member R06
-Php NullSafe R05
 Php StringLit R08
 Php Switch R07
 Preproc Comment R09
@@ -337,7 +330,6 @@ Ruby FuncOpener R06
 Ruby HoldsDocInBody R09
 Ruby Loop R07
 Ruby Member R06
-Ruby NullSafe R05
 Ruby StringLit R08
 Ruby Switch R07
 Rust Branch R07
@@ -391,7 +383,6 @@ Tsx FuncOpener R06
 Tsx HoldsDocInBody R09
 Tsx Loop R07
 Tsx Member R06
-Tsx NullSafe R05
 Tsx StringLit R08
 Tsx Switch R07
 Typescript Branch R07
@@ -410,6 +401,5 @@ Typescript FuncOpener R06
 Typescript HoldsDocInBody R09
 Typescript Loop R07
 Typescript Member R06
-Typescript NullSafe R05
 Typescript StringLit R08
 Typescript Switch R07

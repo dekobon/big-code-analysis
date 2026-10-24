@@ -214,13 +214,13 @@ impl Getter for GroovyCode {
             | STARSTAR | STARSTAREQ
             // Groovy-specific operator tokens added by the dekobon
             // grammar (closes #247): ranges `..` / `..<` / `<..` /
-            // `<..<`, Elvis `?:` and Elvis-assign `?=`, safe-nav `?.`,
-            // safe-chain `??.`, spread-dot `*.`, method-pointer `.&`,
-            // direct-field `.@`, safe-index `?[`, logical implication
-            // `==>`, and spread-map `*:` (the identity, spaceship and
-            // regex tokens are the `Comparison` row's).
-            | DOTDOT | DOTDOTLT | LTDOTDOT | LTDOTDOTLT | QMARKCOLON | QMARKEQ | QMARKDOT
-            | QMARKQMARKDOT | STARDOT | DOTAMP | DOTAT | QMARKLBRACK
+            // `<..<`, Elvis-assign `?=`, spread-dot `*.`, method-pointer
+            // `.&`, direct-field `.@`, logical implication `==>`, and
+            // spread-map `*:` (the identity, spaceship and regex tokens
+            // are the `Comparison` row's; the elvis `?:`, safe-nav `?.`,
+            // safe-chain `??.` and safe-index `?[` the `NullSafe` row's).
+            | DOTDOT | DOTDOTLT | LTDOTDOT | LTDOTDOTLT | QMARKEQ
+            | STARDOT | DOTAMP | DOTAT
             | EQEQGT | STARCOLON => TokenRole::Operator,
 
             // `QualifiedName` (a `package` / `import` path) and

@@ -15,19 +15,20 @@ impl Cyclomatic for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::perl::{case_arm, short_circuit, ternary};
+        use crate::roles::perl::{case_arm, null_safe, short_circuit, ternary};
         use Perl as P;
 
         let kind = node.kind_id();
         // `&&` / `||` / `or`, and an `and` that is the operator rather
         // than an auto-quoted key (#1539): the `ShortCircuit` row's
-        // payers, the `ternary_expression` the `Ternary` row owns, and
-        // the `when` statement the `CaseArm` row owns (#1695). The
-        // defined-or `//` and the compound forms stay below until their
-        // `NullSafe` row.
+        // payers, the `ternary_expression` the `Ternary` row owns, the
+        // `when` statement the `CaseArm` row owns, and the defined-or
+        // `//`, the `NullSafe` row's payer (#1695). The compound forms
+        // are excluded on the rows as the consumers' own and stay below.
         if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
             || ternary::owns_kind(kind, node, code, ancestors)
             || case_arm::owns_kind(kind, node, code, ancestors)
+            || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
         {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
@@ -46,7 +47,6 @@ impl Cyclomatic for PerlCode {
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::ForSimpleStatement
-            | P::SLASHSLASH
             // Compound short-circuit assignments `&&=`, `||=`, `//=`
             // are semantically `x = x op y` and each carries one short-
             // circuit decision edge, parallel to the JS-family fix in

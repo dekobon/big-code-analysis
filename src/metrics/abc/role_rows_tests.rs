@@ -1400,3 +1400,144 @@ fn irules_switch_arms_pay_at_the_arm_node() {
     );
     assert_eq!(root.metrics.cyclomatic.cyclomatic_sum(), 1);
 }
+
+// ---- `NullSafe` (#1695) -------------------------------------------------
+//
+// One fixture per language with a null-safe operator: the coalescing
+// form (`??`, elvis `?:`, defined-or `//`) outside a slot and inside one,
+// and the optional navigation (`?.`, `?->`, `&.`, `?[`) in a chain. The
+// two columns part by policy, recorded on each row: ABC scores a
+// coalescing operator as a condition where the language's ABC always
+// did (not PHP, where it is a branch's operand; Perl walks the chain's
+// operands instead) and a navigation nowhere but C#, while cyclomatic
+// pays every token. The compound `??=` / `//=` is excluded on every row
+// and keeps its consumers' own reading: a decision, no condition.
+
+#[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+fn assert_js_null_safe(lang: LANG, template: &str) {
+    assert_rows(
+        lang,
+        template,
+        &[
+            ("let c = a ?? b; return c;", 1, 1),
+            ("if (a ?? b) { } return a;", 1, 2),
+            // three `?.` in a chain, one decision each and no condition
+            ("let c = o?.p?.[0]?.(); return c;", 0, 3),
+            ("a ??= b; return a;", 0, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "javascript")]
+fn javascript_null_safe_row_pays_per_token() {
+    assert_js_null_safe(LANG::Javascript, "function f(a, b, o) { BODY }\n");
+}
+
+#[test]
+#[cfg(feature = "mozjs")]
+fn mozjs_null_safe_row_pays_per_token() {
+    assert_js_null_safe(LANG::Mozjs, "function f(a, b, o) { BODY }\n");
+}
+
+#[test]
+#[cfg(feature = "typescript")]
+fn typescript_and_tsx_null_safe_rows_pay_per_token() {
+    // The `?.` token under its `optional_chain` wrapper pays once.
+    assert_js_null_safe(
+        LANG::Typescript,
+        "function f(a: any, b: any, o: any) { BODY }\n",
+    );
+    assert_js_null_safe(LANG::Tsx, "function f(a: any, b: any, o: any) { BODY }\n");
+}
+
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_null_safe_row_pays_coalescing_and_access() {
+    assert_rows(
+        LANG::Csharp,
+        "class C { object f(object a, object b, object o, int[] x) { BODY } }\n",
+        &[
+            ("var c = a ?? b; return c;", 1, 1),
+            ("if (a ?? b) { } return a;", 1, 2),
+            // a conditional access pays at the node, to both consumers
+            // — the C#-internal agreement no sibling shares
+            ("var c = o?.ToString()?.Length; return c;", 2, 2),
+            ("var c = x?[0]; return c;", 1, 1),
+            ("a ??= b; return a;", 0, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "kotlin")]
+fn kotlin_null_safe_row_pays_elvis_and_navigation() {
+    assert_rows(
+        LANG::Kotlin,
+        "fun f(a: String?, b: String, o: String?): Any { BODY }\n",
+        &[
+            ("val c = a ?: b; return c", 1, 1),
+            ("if (a ?: b == \"\") { }; return b", 2, 2),
+            ("val c = o?.length?.toString(); return b", 0, 2),
+            // `!!` throws rather than branches
+            ("val c = o!!; return c", 0, 0),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "groovy")]
+fn groovy_null_safe_row_pays_elvis_and_navigations() {
+    assert_rows(
+        LANG::Groovy,
+        "class C { def f(a, b, o, x) { BODY } }\n",
+        &[
+            ("def c = a ?: b; return c", 1, 1),
+            ("if (a ?: b) { }; return a", 1, 2),
+            // `?.`, `??.` and `?[`, one decision each
+            ("def c = o?.p; def d = o??.q; def e = x?[0]; return c", 0, 3),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "php")]
+fn php_null_safe_row_pays_per_token() {
+    assert_rows(
+        LANG::Php,
+        "<?php\nfunction f($a, $b, $o) { BODY }\n",
+        &[
+            // PHP ABC scores `??` nowhere but inside a slot
+            ("$c = $a ?? $b; return $c;", 0, 1),
+            ("if ($a ?? $b) { } return $a;", 1, 2),
+            ("$c = $o?->p?->m(); return $c;", 0, 2),
+            ("$a ??= $b; return $a;", 0, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "perl")]
+fn perl_null_safe_row_walks_the_defined_or_chain() {
+    assert_rows(
+        LANG::Perl,
+        "sub f { my ($a, $b, $x) = @_; BODY }\n",
+        &[
+            // each operand of a `//` chain is one condition (Rule 9)
+            ("my $c = $a // $b;", 2, 1),
+            ("if ($a // $b) { }", 2, 2),
+            ("my $c = $a // $b // $x;", 3, 2),
+            ("$a //= $b;", 0, 1),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "ruby")]
+fn ruby_null_safe_row_pays_per_token() {
+    assert_rows(
+        LANG::Ruby,
+        "def f(a, b, o)\n  BODY\nend\n",
+        &[("c = o&.p&.q; c", 0, 2), ("c = o&.r(1); c", 0, 1)],
+    );
+}

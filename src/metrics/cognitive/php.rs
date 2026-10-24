@@ -26,7 +26,7 @@ impl Cognitive for PhpCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::php::{short_circuit, ternary};
+        use crate::roles::php::{null_safe, short_circuit, ternary};
         use Php::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -64,25 +64,22 @@ impl Cognitive for PhpCode {
             GotoStatement => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns (#1695),
-            // or one applying PHP's null-coalescing `??`, which
-            // short-circuits like `&&` / `||` and the word-form `and` /
-            // `or` and so forms boolean sequences alongside them —
-            // pending its `NullSafe` row. The word forms are keyed to
-            // their symbols; `??` is an operation of its own (#1530).
-            // `xor` (the `EagerLogical` row's) evaluates both operands,
-            // so like `^` it is a value, not a sequence (#1536). Which
-            // payers share a key is this consumer's reading of the row.
-            // role-bypass: allow(Comparison, ShortCircuit) — the `??` owner, which the
-            // `NullSafe` row of #1695 takes over; the row is read on the arm's guard
+            // A `binary_expression` the `ShortCircuit` row owns, or one
+            // the `NullSafe` row owns through PHP's null-coalescing `??`,
+            // which short-circuits like `&&` / `||` and the word-form
+            // `and` / `or` and so forms boolean sequences alongside them
+            // (#1695). The word forms are keyed to their symbols; `??` is
+            // an operation of its own (#1530). `xor` (the `EagerLogical`
+            // row's) evaluates both operands, so like `^` it is a value,
+            // not a sequence (#1536). Which payers share a key is this
+            // consumer's reading of the rows; the `NullSafe` row's other
+            // owners, the nullsafe accesses, are no `binary_expression`
+            // and never reach the key.
             _ if short_circuit::owns(node, code, ancestors)
-                || (node.kind_id() == BinaryExpression as u16
-                    && node
-                        .child_by_field_name("operator")
-                        .is_some_and(|op| op.kind_id() == QMARKQMARK as u16)) =>
+                || null_safe::owns(node, code, ancestors) =>
             {
-                // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share,
-                // not membership
+                // role-bypass: allow(ShortCircuit, NullSafe) — the sequence key the rows' payers
+                // share, not membership
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

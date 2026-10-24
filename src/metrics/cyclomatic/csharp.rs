@@ -15,7 +15,7 @@ impl Cyclomatic for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::csharp::{case_arm, guard, short_circuit, ternary};
+        use crate::roles::csharp::{case_arm, guard, null_safe, short_circuit, ternary};
         use Csharp::*;
 
         let kind = node.kind_id();
@@ -24,11 +24,15 @@ impl Cyclomatic for CsharpCode {
         // guard clauses the `Guard` row owns — `when_clause` and
         // `catch_filter_clause`, each a decision the construct it guards
         // does not already pay for (#1422), so a guarded discard scores
-        // two: the arm and the guard that makes it conditional (#1695).
-        // `??` / `??=` stay below until their `NullSafe` row.
+        // two: the arm and the guard that makes it conditional — and
+        // the `NullSafe` row's payers, `??` at its token and a
+        // conditional access at its node, each a short-circuit decision
+        // (#436) (#1695). `??=` is excluded on the row as the consumers'
+        // own and stays below.
         if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
             || ternary::owns_kind(kind, node, code, ancestors)
             || guard::owns_kind(kind, node, code, ancestors)
+            || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
         {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
@@ -55,16 +59,12 @@ impl Cyclomatic for CsharpCode {
             // it under an `identifier` and the token would score a
             // decision per mention of the variable (`bca dump`, not
             // inferred) — which is why the row's owners are the clause
-            // nodes and the token is excluded.
-            IfStatement
-            | ForStatement
-            | ForeachStatement
-            | WhileStatement
-            | DoStatement
-            | CatchClause
-            | ConditionalAccessExpression
-            | QMARKQMARK
-            | QMARKQMARKEQ => {
+            // nodes and the token is excluded. `??=` is the compound form
+            // the `NullSafe` row excludes as the consumers' own: one
+            // decision edge, as the bare operator (#236).
+            // role-bypass: allow(NullSafe) — the compound `??=`, excluded on the row
+            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
+            | CatchClause | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

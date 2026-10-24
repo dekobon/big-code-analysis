@@ -199,6 +199,20 @@ macro_rules! js_family_operator_gates {
     };
 }
 
+/// Whether a `binary_expression`'s `operator` field is `??`.
+macro_rules! js_family_null_safe_gate {
+    () => {
+        /// Whether a `binary_expression` applies `??`.
+        fn null_coalescing_operator<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            null_safe::project(node).is_some_and(|op| null_safe::PAYERS.contains(&op.kind_id()))
+        }
+    };
+}
+
 /// The `CaseArm` gate every JS grammar reads (#1695): a `switch_case`
 /// owns a decision and its `case` keyword pays; the `switch_default`
 /// and its `default` keyword are the fallback and pay nothing (lesson
@@ -217,6 +231,7 @@ macro_rules! js_family_case_arm_gate {
 }
 
 pub(crate) use {
-    js_family_case_arm_gate, js_family_comparison_payers, js_family_operator_gates,
-    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_case_arm_gate, js_family_comparison_payers, js_family_null_safe_gate,
+    js_family_operator_gates, js_family_short_circuit_payers, ts_family_decl_keywords,
+    ts_family_gates, ts_family_modifiers,
 };

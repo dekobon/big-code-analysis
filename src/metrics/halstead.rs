@@ -7685,6 +7685,108 @@ end",
         }
     }
 
+    /// #1695: the `NullSafe` row's payers bill as operators — `??`, the
+    /// optional chain's `?.` (the token itself in the JavaScript grammars,
+    /// the `?.` under the `optional_chain` wrapper in the TypeScript
+    /// ones, once each), the elvis `?:`, Groovy's `??.` / `?[`, PHP's
+    /// `?->`, Perl's `//`, Ruby's `&.` — and the spellings the rows
+    /// exclude keep billing through the byte-less arms: the compound
+    /// `??=` / `//=`, Kotlin's `!!`, and C#'s conditional-access `?`,
+    /// whose node pays for itself and whose token is no row's.
+    #[cfg(all(
+        feature = "csharp",
+        feature = "groovy",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "php",
+        feature = "ruby",
+        feature = "typescript",
+    ))]
+    #[test]
+    fn null_safe_spellings_bill_1695() {
+        // The JavaScript grammars' `?.` token is named `optional_chain`,
+        // and that name is its vocabulary entry, as before the row. The
+        // JS family's `??=` (like its `&&=` / `||=`) has never billed —
+        // a pre-existing gap in the byte-less arms, which the row's
+        // exclusion neither opens nor closes.
+        let js: &[(&str, &str)] = &[
+            ("??", "let c = a ?? b;\n"),
+            ("optional_chain", "let c = o?.p;\n"),
+            ("optional_chain", "let c = o?.[0];\n"),
+            ("optional_chain", "let c = o?.();\n"),
+        ];
+        assert_spellings_bill_as_operators::<JavascriptParser>("foo.js", js);
+        assert_spellings_bill_as_operators::<MozjsParser>("foo.js", js);
+        let ts: &[(&str, &str)] = &[
+            ("??", "let c = a ?? b;\n"),
+            ("?.", "let c = o?.p;\n"),
+            ("?.", "let c = o?.[0];\n"),
+            ("?.", "let c = o?.();\n"),
+        ];
+        assert_spellings_bill_as_operators::<TypescriptParser>("foo.ts", ts);
+        assert_spellings_bill_as_operators::<TsxParser>("foo.tsx", ts);
+        // A chain of three `?.` bills the token three times and the
+        // TypeScript wrapper never: `;`, `=`, three `?.`, `let`.
+        let chain = "let c = o?.p?.q?.r;\n";
+        assert_eq!(
+            ops_of::<TypescriptParser>(chain, "foo.ts").operators,
+            [";", "=", "?.", "let"]
+        );
+        assert_halstead_counts::<JavascriptParser>(chain, "foo.js", [4, 6, 5, 5], "js chain");
+        assert_halstead_counts::<TypescriptParser>(chain, "foo.ts", [4, 6, 5, 5], "ts chain");
+        assert_spellings_bill_as_operators::<CsharpParser>(
+            "foo.cs",
+            &[
+                (
+                    "??",
+                    "class C { object F(object a, object b) => a ?? b; }\n",
+                ),
+                ("?", "class C { object F(object o) => o?.ToString(); }\n"),
+                ("?", "class C { object F(int[] a) => a?[0]; }\n"),
+                (
+                    "??=",
+                    "class C { void F(object a, object b) { a ??= b; } }\n",
+                ),
+            ],
+        );
+        assert_spellings_bill_as_operators::<KotlinParser>(
+            "foo.kt",
+            &[
+                ("?:", "val c = a ?: b\n"),
+                ("?.", "val c = o?.p\n"),
+                ("!!", "val c = o!!\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<GroovyParser>(
+            "foo.groovy",
+            &[
+                ("?:", "def c = a ?: b\n"),
+                ("?.", "def c = o?.p\n"),
+                ("??.", "def c = o??.p\n"),
+                ("?[", "def c = o?[0]\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<PhpParser>(
+            "foo.php",
+            &[
+                ("??", "<?php $c = $a ?? $b;\n"),
+                ("?->", "<?php $c = $o?->p;\n"),
+                ("?->", "<?php $c = $o?->m();\n"),
+                ("??=", "<?php $a ??= $b;\n"),
+            ],
+        );
+        assert_spellings_bill_as_operators::<PerlParser>(
+            "foo.pl",
+            &[("//", "my $c = $a // $b;\n"), ("//=", "$a //= $b;\n")],
+        );
+        assert_spellings_bill_as_operators::<RubyParser>(
+            "foo.rb",
+            &[("&.", "c = o&.p\n"), ("&.", "c = o&.q(1)\n")],
+        );
+    }
+
     /// #1695: the `CaseArm` row's `case` bills as an operator where the
     /// row pays at the label — the C family, Java, Groovy, the JS family
     /// and C# — and `default`, excluded on every row, bills as the

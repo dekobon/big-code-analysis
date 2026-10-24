@@ -370,12 +370,15 @@ macro_rules! impl_cyclomatic_c_family_rows {
 // matches every textual `?.` exactly once in TS/TSX.
 //
 // `&&` / `||` are read from the grammar's `ShortCircuit` row, the
-// ternary from its `Ternary` row and the `case` label from its `CaseArm`
-// row, whose exclusion of `default` keeps it the only paying label
-// (#1695); the nullish and compound forms and the optional chain stay a
-// kind list until their `NullSafe` row lands.
+// ternary from its `Ternary` row, the `case` label from its `CaseArm`
+// row — whose exclusion of `default` keeps it the only paying label —
+// and `??` and the optional chain's `?.` from its `NullSafe` row, whose
+// payer is the token in every grammar (`optional_chain` itself in the
+// JavaScript ones, `?.` under the `optional_chain` wrapper in the
+// TypeScript ones, #281) (#1695). The compound forms `&&=` / `||=` /
+// `??=` stay a kind list: the rows exclude them as the consumers' own.
 macro_rules! impl_cyclomatic_js_family {
-    ($code:ty, $lang:ident, $roles:ident, $opt_chain:ident) => {
+    ($code:ty, $lang:ident, $roles:ident) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
                 node: &Node<'a>,
@@ -383,11 +386,12 @@ macro_rules! impl_cyclomatic_js_family {
                 ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                use crate::roles::$roles::{case_arm, short_circuit, ternary};
+                use crate::roles::$roles::{case_arm, null_safe, short_circuit, ternary};
                 use $lang::*;
                 let kind = node.kind_id();
                 if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
                     || ternary::owns_kind(kind, node, code, ancestors)
+                    || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
                 {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;
@@ -399,8 +403,9 @@ macro_rules! impl_cyclomatic_js_family {
                 }
                 match kind.into() {
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | QMARKQMARK | AMPAMPEQ | PIPEPIPEEQ
-                    | QMARKQMARKEQ | $opt_chain => {
+                    // role-bypass: allow(NullSafe) — the compound forms, excluded on the row as the
+                    // consumers' own: one decision edge each, as the bare operator (#248)
+                    If | For | While | Catch | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
@@ -453,8 +458,9 @@ macro_rules! impl_cyclomatic_js_family {
 // token — instead of naming the two kinds (#1694, #1695), the ternary
 // arm reads `Ternary` at its wrapper, the `ternary_expression` node,
 // the guard arm reads `Guard` at its wrapper (Java's `guard` node;
-// Groovy has none), and the case arm reads `CaseArm` at its leaf, the
-// `case` keyword, whose row excludes `default`.
+// Groovy has none), the case arm reads `CaseArm` at its leaf, the
+// `case` keyword, whose row excludes `default`, and the null-safe arm
+// reads `NullSafe` at its leaf (Groovy's four tokens; Java is absent).
 macro_rules! impl_cyclomatic_java_like_rows {
     (
         $code:ty,
@@ -470,12 +476,13 @@ macro_rules! impl_cyclomatic_java_like_rows {
                 stats: &mut Stats,
             ) {
                 use $lang::*;
-                use $roles::{case_arm, guard, short_circuit, ternary};
+                use $roles::{case_arm, guard, null_safe, short_circuit, ternary};
 
                 let kind = node.kind_id();
                 if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
                     || ternary::owns_kind(kind, node, code, ancestors)
                     || guard::owns_kind(kind, node, code, ancestors)
+                    || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
                 {
                     stats.cyclomatic += 1.;
                     stats.cyclomatic_modified += 1.;

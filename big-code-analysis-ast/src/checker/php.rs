@@ -186,6 +186,8 @@ impl Checker for PhpCode {
     // user's mental model of "function/method call sites" (mirrors
     // Java's `is_call` = `MethodInvocation` while ABC counts
     // `MethodInvocation | New`).
+    // role-bypass: allow(NullSafe) — every call is a call; the row claims the nullsafe call
+    // for its `?->`, which `find call` reports as the call it is
     fn is_call(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

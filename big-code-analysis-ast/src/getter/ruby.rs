@@ -142,7 +142,8 @@ impl Getter for RubyCode {
             // and `second_alias_opener_collapses_to_base_kind_id`).
             | R::LPAREN | R::LPAREN2
             | R::LBRACE | R::LBRACK | R::LBRACK2 | R::LBRACK3
-            | R::COMMA | R::SEMI | R::DOT | R::COLONCOLON | R::COLONCOLON2 | R::AMPDOT
+            // `&.` is the `NullSafe` row's and `get_paying_role` bills it (#1695).
+            | R::COMMA | R::SEMI | R::DOT | R::COLONCOLON | R::COLONCOLON2
             | R::COLON | R::COLON2 | R::DASHGT
             // Method-name operator markers (`def +@`, `def -@`, `def ~@`)
             // and indexer methods.

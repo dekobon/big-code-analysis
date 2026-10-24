@@ -27,6 +27,15 @@ fn under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>
     ancestors.parent_has_kind(node, Php::ConditionalExpression as u16)
 }
 
+/// Whether a `binary_expression`'s `operator` field is `??`.
+fn null_coalescing_operator<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> bool {
+    null_safe::project(node).is_some_and(|op| op.kind_id() == Php::QMARKQMARK as u16)
+}
+
 /// Whether a `binary_expression`'s `operator` field is `xor`.
 fn eager_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     eager_logical::project(node).is_some_and(|op| eager_logical::PAYERS.contains(&op.kind_id()))
@@ -80,7 +89,28 @@ role_table! {
         pays [QMARK gated_by under_ternary]
         project "operator"
     }
-    NullSafe { pending R05 }
+    // Two structural forms, each one decision per token (#436): the
+    // null coalescing `a ?? b`, a `binary_expression` owned through its
+    // `operator` field, and the nullsafe access `$o?->p` / call
+    // `$o?->m()`, whose `?->` sits in the
+    // `nullsafe_member_access_expression` (two aliased ids) or
+    // `nullsafe_member_call_expression`. Cyclomatic pays each token
+    // once per textual operator, across both nullsafe kinds and in a
+    // chain; cognitive folds `??` into a boolean sequence (an operation
+    // of its own, #1530) and reads `?->` not at all; ABC pays neither —
+    // a nullsafe call is a branch as every call is. The compound `??=`
+    // is an assignment to ABC, a sequence to cognitive and a decision to
+    // cyclomatic (#236): the consumers' own, recorded here.
+    NullSafe {
+        owns [
+            BinaryExpression(gated_by null_coalescing_operator),
+            NullsafeMemberAccessExpression, NullsafeMemberAccessExpression2,
+            NullsafeMemberCallExpression,
+        ]
+        pays [QMARKQMARK, QMARKDASHGT]
+        project "operator"
+        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236)"]
+    }
     // A `case_statement` of a `switch` and a `match_conditional_expression`
     // of a `match` each own a decision and pay at the node (the `case`
     // keyword bills as the keyword it is; a match arm has none); the
