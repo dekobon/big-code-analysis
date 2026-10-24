@@ -53,6 +53,18 @@ pub fn elixir_many_timeouts(width: usize) -> String {
     )
 }
 
+/// Elixir: one function head carrying `depth` repeated guards, which
+/// the grammar nests as a chain of `when` operators, one per guard.
+/// Valid Elixir (the guards are alternatives), and the shape the
+/// guard-position climb is quadratic in when asked once per token.
+#[must_use]
+pub fn elixir_repeated_guards(depth: usize) -> String {
+    format!(
+        "defmodule M do\n  def f(x) {}do\n    x\n  end\nend\n",
+        "when is_integer(x) ".repeat(depth)
+    )
+}
+
 /// Rust: `fn f() -> i32 { (((…1…))) }`.
 ///
 /// The paren chain is the shape that first surfaced both the `tokens`
@@ -1454,6 +1466,27 @@ pub const PROBES: &[Probe] = &[
                     is a value, and `act_on_node` must lend the cache that \
                     memoises the answer. The reading is the one quoted word \
                     beside each braced one (#1686).",
+    },
+    Probe {
+        name: "halstead/elixir-repeated-guards",
+        lang: LANG::Elixir,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operators(),
+        },
+        render: elixir_repeated_guards,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Every `when` of a repeated guard is the `Guard` row's \
+                    payer, whose gate climbs the chain of nested `when` \
+                    operators to find the guard position — quadratic in the \
+                    chain when every token asks. Halstead bills the token \
+                    in every position, so `ElixirCode::get_paying_role` \
+                    bills it without asking; reading the row there made the \
+                    Halstead-only walk quadratic (#1695). The reading is one \
+                    operator per guard plus the head's own.",
     },
     Probe {
         name: "halstead/csharp-qualified-generics",

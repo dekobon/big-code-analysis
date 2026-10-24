@@ -145,7 +145,40 @@ impl Getter for ElixirCode {
 
     keyword_roles!(elixir);
 
-    paying_roles!(elixir);
+    /// The `Comparison`, `ShortCircuit`, `CaseArm` and `Guard` rows'
+    /// payers bill as operators (#1695) — what `paying_roles!` reads —
+    /// except that the `Guard` row is not asked. Its `when` payer is
+    /// gated on a guard position, which climbs the chain of nested
+    /// `when` operators a repeated guard (`when a when b when …`)
+    /// builds: asked once per token, that is quadratic in the chain,
+    /// and the answer cannot move this reading — a `when` the gate
+    /// leaves out (a typespec's `when a: integer`) bills as an operator
+    /// through the byte-less arm all the same. The counting consumers
+    /// pay that climb once per guard, where it decides something.
+    // role-bypass: allow(Guard) — the Halstead reading of the row's one payer, which bills as
+    // an operator in every position and so skips the row's position gate
+    fn get_paying_role<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        use crate::roles::elixir::{case_arm, comparison, guard, short_circuit};
+        let kind = node.kind_id();
+        if guard::PAYERS.contains(&kind) {
+            return TokenRole::Operator;
+        }
+        if (comparison::PAYERS.contains(&kind)
+            && comparison::pays_at_leaf_kind(kind, node, code, ancestors))
+            || (short_circuit::PAYERS.contains(&kind)
+                && short_circuit::pays_at_leaf_kind(kind, node, code, ancestors))
+            || (case_arm::PAYERS.contains(&kind)
+                && case_arm::pays_at_leaf_kind(kind, node, code, ancestors))
+        {
+            TokenRole::Operator
+        } else {
+            TokenRole::Unknown
+        }
+    }
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Elixir as E;
@@ -201,13 +234,13 @@ impl Getter for ElixirCode {
             // keyword, a recovered token — which bill as the operators
             // they spell, as they did before the rows; the rows pay the
             // applied spellings through `get_paying_role` (#1695), so
-            // for these kinds the vocabulary is the union of the two. So
-            // does `when`, for the typespec binding (`when a: integer`)
-            // the `Guard` row's `is_guard` gate leaves out.
-            // role-bypass: allow(Comparison, ShortCircuit, Guard) — the operator classification of
-            // the spellings the rows' `applied` / `is_guard` gates leave out
+            // for these kinds the vocabulary is the union of the two.
+            // `when` is not here: `get_paying_role` bills every spelling
+            // of the `Guard` row's payer, guard or typespec binding.
+            // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
+            // spellings the rows' `applied` gate leaves out
             E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue
-            | E::When | E::Not | E::Or | E::And | E::In | E::Notin
+            | E::Not | E::Or | E::And | E::In | E::Notin
             // Structural punctuation acting as operators. Only the
             // *opening* delimiter counts (the pair folds to one glyph in
             // `get_operator_id_as_str`); the former `RPAREN`/`RBRACE`/
