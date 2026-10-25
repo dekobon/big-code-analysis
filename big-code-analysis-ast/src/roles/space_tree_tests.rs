@@ -861,3 +861,168 @@ fn ruby_space_tree_rows() {
         assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
     }
 }
+
+/// Which languages' closures open a space, read from the rows: a
+/// `Closure` owner that the same table's `FuncOpener` row also owns is
+/// a closure with a space of its own (contract 2 of #1690). The book's
+/// `metrics.md` names the two sets in prose; this is the table it
+/// quotes, and the comment there says so.
+// The table is the twenty-three rows; rustfmt puts each on five lines.
+#[allow(clippy::too_many_lines)]
+#[test]
+fn closures_that_open_a_space_are_what_the_book_says() {
+    use crate::roles;
+    let tables: &[(&str, &[u16], &[u16])] = &[
+        (
+            "bash",
+            roles::bash::closure::OWNERS,
+            roles::bash::func_opener::OWNERS,
+        ),
+        (
+            "c",
+            roles::c::closure::OWNERS,
+            roles::c::func_opener::OWNERS,
+        ),
+        (
+            "cpp",
+            roles::cpp::closure::OWNERS,
+            roles::cpp::func_opener::OWNERS,
+        ),
+        (
+            "csharp",
+            roles::csharp::closure::OWNERS,
+            roles::csharp::func_opener::OWNERS,
+        ),
+        (
+            "elixir",
+            roles::elixir::closure::OWNERS,
+            roles::elixir::func_opener::OWNERS,
+        ),
+        (
+            "go",
+            roles::go::closure::OWNERS,
+            roles::go::func_opener::OWNERS,
+        ),
+        (
+            "groovy",
+            roles::groovy::closure::OWNERS,
+            roles::groovy::func_opener::OWNERS,
+        ),
+        (
+            "irules",
+            roles::irules::closure::OWNERS,
+            roles::irules::func_opener::OWNERS,
+        ),
+        (
+            "java",
+            roles::java::closure::OWNERS,
+            roles::java::func_opener::OWNERS,
+        ),
+        (
+            "javascript",
+            roles::javascript::closure::OWNERS,
+            roles::javascript::func_opener::OWNERS,
+        ),
+        (
+            "kotlin",
+            roles::kotlin::closure::OWNERS,
+            roles::kotlin::func_opener::OWNERS,
+        ),
+        (
+            "lua",
+            roles::lua::closure::OWNERS,
+            roles::lua::func_opener::OWNERS,
+        ),
+        (
+            "mozcpp",
+            roles::mozcpp::closure::OWNERS,
+            roles::mozcpp::func_opener::OWNERS,
+        ),
+        (
+            "mozjs",
+            roles::mozjs::closure::OWNERS,
+            roles::mozjs::func_opener::OWNERS,
+        ),
+        (
+            "objc",
+            roles::objc::closure::OWNERS,
+            roles::objc::func_opener::OWNERS,
+        ),
+        (
+            "perl",
+            roles::perl::closure::OWNERS,
+            roles::perl::func_opener::OWNERS,
+        ),
+        (
+            "php",
+            roles::php::closure::OWNERS,
+            roles::php::func_opener::OWNERS,
+        ),
+        (
+            "python",
+            roles::python::closure::OWNERS,
+            roles::python::func_opener::OWNERS,
+        ),
+        (
+            "ruby",
+            roles::ruby::closure::OWNERS,
+            roles::ruby::func_opener::OWNERS,
+        ),
+        (
+            "rust",
+            roles::rust::closure::OWNERS,
+            roles::rust::func_opener::OWNERS,
+        ),
+        (
+            "tcl",
+            roles::tcl::closure::OWNERS,
+            roles::tcl::func_opener::OWNERS,
+        ),
+        (
+            "tsx",
+            roles::tsx::closure::OWNERS,
+            roles::tsx::func_opener::OWNERS,
+        ),
+        (
+            "typescript",
+            roles::typescript::closure::OWNERS,
+            roles::typescript::func_opener::OWNERS,
+        ),
+    ];
+    let (mut with_space, mut without, mut none) = (Vec::new(), Vec::new(), Vec::new());
+    for (lang, closures, openers) in tables {
+        if closures.is_empty() {
+            none.push(*lang);
+        } else if closures.iter().all(|k| openers.contains(k)) {
+            with_space.push(*lang);
+        } else if closures.iter().all(|k| !openers.contains(k)) {
+            without.push(*lang);
+        } else {
+            panic!("{lang}: some closures open a space and some do not");
+        }
+    }
+    assert_eq!(
+        with_space,
+        [
+            "csharp",
+            "elixir",
+            "go",
+            "javascript",
+            "lua",
+            "mozjs",
+            "perl",
+            "php",
+            "ruby",
+            "rust",
+            "tsx",
+            "typescript"
+        ]
+    );
+    assert_eq!(
+        without,
+        [
+            "cpp", "groovy", "java", "kotlin", "mozcpp", "objc", "python"
+        ]
+    );
+    assert_eq!(none, ["bash", "c", "irules", "tcl"]);
+}

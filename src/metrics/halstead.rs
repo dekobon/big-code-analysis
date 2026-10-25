@@ -404,8 +404,8 @@ fn compute_halstead<'a, T: Getter + Checker>(
                     .primitive_operators
                     .entry(spelling.as_bytes())
                     .or_insert(0) += 1;
-            } else if T::is_primitive(node) {
-                // Store primitive-type operators by text so distinct
+            } else if T::keys_operator_by_text(node, code, ancestors) {
+                // Store text-keyed operators by text so distinct
                 // primitives (e.g. `int` vs `double`) that share a
                 // single kind_id are counted separately in n1/N1.
                 *halstead_maps
@@ -8618,6 +8618,129 @@ end",
         let ops = ops_of::<ObjcParser>(SOURCE, "foo.m");
         assert_eq!(ops.operators, ["()", "-", ";", "@interface", "nullable"]);
         assert_eq!(ops.operands, ["C", "m", "y"]);
+    }
+
+    /// #1599: Halstead's text-key selection reads
+    /// `Checker::keys_operator_by_text` — the `Primitive` row's text
+    /// gate for Groovy, that row plus the text-keyed modifier kinds for
+    /// Objective-C — rather than the byte-less `is_primitive`, which
+    /// answered `true` for every Groovy name and every ObjC identifier.
+    /// Distinct primitive spellings stay distinct operators, an ordinary
+    /// name stays an operand, and `is_primitive` now answers its own
+    /// question: a plain identifier is no primitive to either language.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_text_keyed_operators_are_the_primitives_1599() {
+        use crate::test_support::for_each_node_with_chain;
+        const SOURCE: &str = "class C {\n  int a = 1\n  double b = 2.0\n  String s = 'x'\n  void m(List list) { int c = list.size() }\n}\n";
+        let ops = ops_of::<GroovyParser>(SOURCE, "foo.groovy");
+        // `class`, `{}` x2, `=` x4, `()` x2, `.`, and the three primitive
+        // spellings `int`, `double`, `void` by text; `String`, `List`,
+        // `list`, `size` and the names are operands.
+        assert_eq!(
+            ops.operators,
+            ["()", ".", "=", "class", "double", "int", "void", "{}"]
+        );
+        assert_eq!(
+            ops.operands,
+            [
+                "'x'", "1", "2.0", "C", "List", "String", "a", "b", "c", "list", "m", "s", "size"
+            ]
+        );
+        let (mut keyed, mut names) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<GroovyCode>(SOURCE.as_bytes(), |node, chain| {
+            let kind = node.kind();
+            if !matches!(kind, "identifier" | "type_identifier") {
+                return;
+            }
+            let text = node.utf8_text(SOURCE.as_bytes()).expect("UTF-8");
+            if GroovyCode::keys_operator_by_text(node, SOURCE.as_bytes(), Ancestors::known(chain)) {
+                keyed.push(text.to_owned());
+            }
+            if text == "list" || text == "String" {
+                names.push(GroovyCode::is_primitive(node));
+            }
+        });
+        assert_eq!(keyed, ["int", "double", "void", "int"]);
+        // A second consumer asking `is_primitive` of a plain name: the
+        // byte-less answer is the kind table, every name — the recorded
+        // limitation — not the row's text gate.
+        assert_eq!(names, [true, true, true]);
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_text_keyed_operators_are_primitives_attributes_and_nullable_1599() {
+        use crate::test_support::for_each_node_with_chain;
+        const SOURCE: &str = "@interface C
+@property (nonatomic, strong, nullable) NSString *p;
+- (nullable id)m:(int)x with:(double)y;
+@end
+int helper(int a, char b) { return a; }
+";
+        let ops = ops_of::<ObjcParser>(SOURCE, "foo.m");
+        assert_eq!(
+            ops.operators,
+            [
+                "()",
+                "*",
+                ",",
+                "-",
+                ":",
+                ";",
+                "@interface",
+                "char",
+                "double",
+                "int",
+                "nonatomic",
+                "nullable",
+                "return",
+                "strong",
+                "{}"
+            ]
+        );
+        let mut keyed = Vec::new();
+        let mut plain = Vec::new();
+        for_each_node_with_chain::<ObjcCode>(SOURCE.as_bytes(), |node, chain| {
+            let text = node.utf8_text(SOURCE.as_bytes()).expect("UTF-8");
+            if ObjcCode::keys_operator_by_text(node, SOURCE.as_bytes(), Ancestors::known(chain)) {
+                keyed.push(text.to_owned());
+            }
+            if matches!(node.kind(), "identifier" | "type_identifier")
+                && matches!(text, "NSString" | "helper" | "x")
+            {
+                plain.push((text.to_owned(), ObjcCode::is_primitive(node)));
+            }
+        });
+        // The three primitive spellings (`int` thrice, `double`, `char`),
+        // the two attribute words, and `nullable` twice — the attribute
+        // and the qualifier, one operator (#1579).
+        assert_eq!(
+            keyed,
+            [
+                "nonatomic",
+                "strong",
+                "nullable",
+                "nullable",
+                "int",
+                "double",
+                "int",
+                "int",
+                "char"
+            ]
+        );
+        // An ordinary identifier or type name is neither keyed by text
+        // nor a primitive (the walk meets the parameter before the
+        // declarator's name).
+        plain.sort();
+        assert_eq!(
+            plain,
+            [
+                ("NSString".to_owned(), false),
+                ("helper".to_owned(), false),
+                ("x".to_owned(), false),
+            ]
+        );
     }
 
     /// #1579's oracle: a `.m` is a C translation unit, so C's

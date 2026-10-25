@@ -101,18 +101,21 @@ impl Checker for GroovyCode {
     }
 
     // A primitive type is a name kind spelled `int`, `void`, … (#1568),
-    // which only the bytes can tell, and this predicate gets none. It is
-    // consulted only for a node `GroovyCode::get_op_type_with_code`
-    // already billed as an operator, and that bills these two kinds as
-    // one only for a primitive spelling, so the kind alone suffices to
-    // key each primitive by its text.
+    // which only the bytes can tell: the `Primitive` row's text gate.
+    // The byte-less spelling answers the kind table alone, which is
+    // every name — the limitation #1599 recorded — so the Halstead key
+    // selection reads the row through `keys_operator_by_text`, and a
+    // second consumer asking this of a plain name gets `true` only here.
     fn is_primitive(node: &Node) -> bool {
-        // role-bypass: allow(Primitive) — key selection after the row has
-        // classified the node, under which both kinds are keyed by text
-        matches!(
-            node.kind_id().into(),
-            Groovy::Identifier | Groovy::TypeIdentifier
-        )
+        crate::roles::groovy::primitive::OWNERS.contains(&node.kind_id())
+    }
+
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::groovy::primitive::owns(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

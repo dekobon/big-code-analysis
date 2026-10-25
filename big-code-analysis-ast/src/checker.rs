@@ -624,20 +624,41 @@ pub trait Checker {
     fn is_else_if(_: &Node, _: Ancestors<'_, '_>) -> bool {
         false
     }
-    /// Whether `node` is a primitive type name (`int`, `double`, …),
-    /// which Halstead keys by text so each distinct primitive counts once.
-    ///
-    /// Precondition: call this only for a node
-    /// [`Getter::get_op_type_with_code`] has already classified as
-    /// [`TokenRole::Operator`]. An impl that cannot read the source may
-    /// answer by kind alone: Groovy's returns `true` for every
-    /// `identifier` and `type_identifier`, which is right only because
-    /// its getter bills those kinds as operators for a primitive
-    /// spelling and nothing else.
+    /// Whether `node` is a primitive type name (`int`, `double`, …):
+    /// what the `Primitive` row of the language's role table declares,
+    /// by kind or — Groovy, whose primitives are `identifier`s spelled
+    /// `int` — by text, which this byte-less spelling cannot read. The
+    /// text-gated languages answer this from the row through
+    /// [`keys_operator_by_text`](Self::keys_operator_by_text); the
+    /// kind-only ones by kind.
     #[inline]
     #[must_use]
     fn is_primitive(_node: &Node) -> bool {
         false
+    }
+
+    /// Whether an operator `node` is keyed by its text rather than its
+    /// kind in the Halstead vocabulary, so that the spellings one kind
+    /// covers — `int` and `double` under one `primitive_type`, `reified`
+    /// under a modifier kind, Objective-C's property-attribute words
+    /// under `identifier` — each count once (#286, #1558, #1579).
+    ///
+    /// Consulted only for a node
+    /// [`Getter::get_op_type_with_code`] has already classified as
+    /// [`TokenRole::Operator`]. The default is
+    /// [`is_primitive`](Self::is_primitive), which is the whole answer
+    /// for a language whose text-keyed operators are its primitive kinds;
+    /// a language that keys a non-primitive by text, or whose primitives
+    /// are told by text (#1599), overrides this with the bytes and the
+    /// chain in hand and leaves `is_primitive` to answer its own question.
+    #[inline]
+    #[must_use]
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::is_primitive(node)
     }
 
     /// Whether `node` is, or contains, a tree-sitter `ERROR` node.

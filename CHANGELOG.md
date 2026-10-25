@@ -169,6 +169,49 @@ for historical reference.
   and cognitive before the rows, are linear
   (`cyclomatic/elixir-repeated-guards`, `cognitive/nested-and`). (#1695)
 
+- `Checker::is_func`, `is_closure`, `is_func_space` and
+  `Getter::get_space_kind` — both spellings — and the npm / npa member
+  walks and the cognitive function-boundary and lambda arms read each
+  language's `FuncOpener`, `Closure`, `Container` and `Member` rows in
+  `big-code-analysis-ast/src/roles/<lang>.rs` instead of restating the
+  kinds; the rows are declared in all twenty-five languages and no
+  `pending R06` cell remains. Recognising a closure and opening a space
+  stay two declarations: a `FuncOpener` owner is marked `callable`
+  (what `is_func` answers; a Java `static { … }` or a Kotlin accessor
+  opens a space and is not one) or `callable_when f` (a JS function
+  expression is a function only where bound — the `is_js_func!` walk
+  moved onto the rows), and a `Closure` row is read for what it is; the
+  table's `opens_space` fold labels, with `opens_by f` for a kind that
+  spells two containers (Kotlin's `class_declaration`). Each table's
+  `CALLABLE` lists the marked kinds gates aside, which is why C#'s
+  cognitive stop list stays its own: a bodied property is in the list
+  and is not a boundary. A `Member` row recognises the declaration — a
+  field, a property, a Python `self.x` where it is bound, an Elixir
+  `defstruct` — and leaves which body, what visibility and how many
+  names to the consumer; the Elixir walk reads one `elixir_declaration`
+  of a `call`'s target for both space rows, pinned by a counter.
+  Halstead's text-key selection reads a new
+  `Checker::keys_operator_by_text(node, code, ancestors)` instead of
+  the byte-less `is_primitive`, so Groovy's and Objective-C's
+  `is_primitive` answer what their name says (a plain identifier is no
+  primitive) and the key selection reads the `Primitive` row's text
+  gate and ObjC's text-keyed modifier kinds (#1599). Every `bca ops`
+  vocabulary, every metric, the space tree, `dump`, `find` and `count`
+  are byte-identical on the integration corpora and a fixture per
+  language (26,992 CLI and library-export outputs), and on a sweep of
+  every fixture truncated at each line, sixteen offsets, after every
+  operator punctuation and at every word boundary (0 of 128,062
+  outputs differ across the seven slices); one drift the corpus found
+  in flight — C#'s bodied property read as a function boundary — was
+  fixed before landing. `src/spaces/opens_space_parity_tests.rs` holds
+  the real walk's promotions to the nodes `opens_space` labels in
+  every language, and `roles/space_tree_tests.rs` pins each language's
+  answers independently of the classifiers that now read the rows. The
+  book's list of which languages' closures open a space is read from
+  the rows and gains Groovy, Mozcpp and Objective-C. The AST crate is
+  outside `STABILITY.md`'s shape contract; the `Checker` trait gains
+  one provided method. (#1696, #1599)
+
 - An Elixir `def` / `defp` / `defmacro` / `defmacrop` with no `quote`
   ancestor was quadratic in its nesting depth under every metric walk:
   deciding whether the call is a definition or a quoted template climbed

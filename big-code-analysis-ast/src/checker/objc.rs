@@ -124,21 +124,32 @@ impl Checker for ObjcCode {
 
     impl_is_else_if_parent_clause!(Objc, IfStatement, ElseClause);
 
-    // Besides the primitive types, an `identifier` the getter bills is a
-    // property attribute word (`nonatomic`, `copy`), whose kind is no
-    // keyword, so keying it by text lists each word. The `nullable`
-    // type qualifier is keyed by text too, so it and the `nullable`
-    // property attribute share one `n1` entry rather than one per map
-    // (#1579).
+    // A primitive is the `Primitive` row's kind: `primitive_type`, one
+    // kind for `int`, `double`, …, and the two `_Complex` spellings.
     #[inline]
     fn is_primitive(node: &Node) -> bool {
-        // role-bypass: allow(Primitive, Modifier) — key selection after
-        // the rows have classified the node: which of their kinds is one
-        // kind for many spellings and so is keyed by text, not whether
-        // the node is a primitive or a modifier
-        matches!(
-            node.kind_id().into(),
-            Objc::PrimitiveType | Objc::Identifier | Objc::Nullable
-        )
+        crate::roles::objc::primitive::OWNERS.contains(&node.kind_id())
+    }
+
+    // Keyed by text: a `primitive_type` (one kind, many spellings); a
+    // property attribute word (`nonatomic`, `copy`) — an `identifier`
+    // the `Modifier` row owns under its position gate, whose kind is no
+    // keyword, so keying it by text lists each word; and the `nullable`
+    // type qualifier, keyed by text so it and the `nullable` property
+    // attribute share one `n1` entry rather than one per map (#1579).
+    // Before #1599 the byte-less `is_primitive` answered this by kind
+    // alone — every `identifier` — which was right only because the
+    // getter bills an identifier as an operator for an attribute word
+    // and nothing else; the row's gate says which.
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        use crate::roles::objc::{modifier, primitive};
+        let kind = node.kind_id();
+        primitive::owns_kind(kind, node, code, ancestors)
+            || kind == Objc::Nullable as u16
+            || (kind == Objc::Identifier as u16 && modifier::owns_kind(kind, node, code, ancestors))
     }
 }

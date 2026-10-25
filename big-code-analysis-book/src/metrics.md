@@ -1548,13 +1548,13 @@ JSON-consuming front-end can reproduce the gate. Until then the Python
 `to_sarif` binding had nothing but `total` to compare and reported
 breaches `bca check` did not.
 
-Nothing escapes the narrower rule. In the grammars whose closures open
-their own space (Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go,
-PHP, Perl, Ruby, Lua and Elixir), a closure is gated on its own
-offender row, which is also where its fix belongs. In Python, Java,
-Kotlin and
-C++ a lambda opens no space, so its arguments can only be attributed to
-the enclosing function; there the offender row shows the split:
+Nothing escapes the narrower rule. In the twelve grammars whose closures
+open their own space — Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go,
+PHP, Perl, Ruby, Lua and Elixir — a closure is gated on its own offender
+row, which is also where its fix belongs. In Python, Java, Kotlin, C++
+(and its Mozilla dialect), Groovy and Objective-C a lambda, closure or
+block opens no space, so its arguments can only be attributed to the
+enclosing function; there the offender row shows the split:
 
 ```text
 small: nargs = 8 (1 own + 7 lambda) (limit 5)
@@ -1562,6 +1562,13 @@ small: nargs = 8 (1 own + 7 lambda) (limit 5)
 
 The split identifies how many arguments come from the enclosing
 signature and how many come from lambdas.
+
+Both lists are read from the per-language role tables rather than
+maintained by hand: a language is in the first when every kind its
+`Closure` row owns is also an opener of its `FuncOpener` row, and in the
+second when none is (`closures_that_open_a_space_are_what_the_book_says`
+in `big-code-analysis-ast/src/roles/space_tree_tests.rs` pins the two
+against this paragraph; Bash, C, Tcl and iRules have no closure at all).
 
 ### Languages where it reads 0 {#nargs-language-gaps}
 
