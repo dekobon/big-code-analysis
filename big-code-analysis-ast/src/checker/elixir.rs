@@ -64,9 +64,10 @@ impl Checker for ElixirCode {
         crate::roles::elixir::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Elixir::Call
-    }
+    // `Call` and `StringLit` are the rows of `roles/elixir.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(elixir);
+    impl_string_lit_row!(elixir);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -74,8 +75,6 @@ impl Checker for ElixirCode {
             Elixir::LPAREN | Elixir::LPAREN2 | Elixir::RPAREN | Elixir::COMMA
         )
     }
-
-    impl_simple_is_string!(Elixir, String, Charlist, Sigil);
 
     // Elixir lacks an `else if` chain construct. Multi-way branching uses
     // `cond do ... end` (a `Call` whose `do_block` holds many

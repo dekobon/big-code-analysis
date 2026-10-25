@@ -128,10 +128,13 @@ pub(crate) fn ruby_call_named_arguments<'a>(call: &Node<'a>) -> impl Iterator<It
 fn ruby_symbol_argument_count(arg: &Node) -> usize {
     use Ruby::*;
 
+    // role-bypass: allow(StringLit) — how many names a symbol argument spells; the
+    // row owns the symbol kinds as literals, a different question
     match arg.kind_id().into() {
         SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol => 1,
         SymbolArray => arg
             .children()
+            // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
             .filter(|c| matches!(c.kind_id().into(), BareSymbol))
             .count(),
         _ => 0,
@@ -163,8 +166,12 @@ pub(crate) fn ruby_attr_macro_symbol_count(call: &Node) -> usize {
 // child, and returning the literal half of it would name — and demote —
 // a different method called `get_`.
 pub(crate) fn ruby_symbol_name<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    // Which symbol spelling names a method, read from the bytes; not
+    // whether the node is a literal, which the `StringLit` row owns.
     match node.kind_id().into() {
+        // role-bypass: allow(StringLit) — the `:name` spelling
         Ruby::SimpleSymbol => node.utf8_text(source)?.strip_prefix(':'),
+        // role-bypass: allow(StringLit) — the delimited and bare spellings
         Ruby::DelimitedSymbol | Ruby::BareSymbol => {
             let mut content = node.children().filter(Node::is_named);
             let first = content.next()?;

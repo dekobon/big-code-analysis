@@ -160,9 +160,10 @@ macro_rules! impl_js_family_get_op_type {
             // ones). `??=` is excluded there as the consumers' own; no
             // arm here bills it — nor `&&=` / `||=` — a pre-existing gap
             // the row neither opens nor closes.
-            // role-bypass: allow(Comparison, Ternary) — the operator classification of the
-            // spellings the rows' `under BinaryExpression` / `under TernaryExpression` gates
-            // leave out
+            // role-bypass: allow(Comparison, Ternary, StringLit) — the operator classification
+            // of the spellings the rows' `under BinaryExpression` / `under TernaryExpression`
+            // gates leave out, and the operand classification of the string
+            // literals, a projection the `StringLit` row does not answer
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real
@@ -249,7 +250,7 @@ macro_rules! impl_js_family_get_op_type {
                 // double-count its contribution to `N2` (issue #192, same
                 // pattern as #183 C# / #191 Kotlin / #199 Perl).
                 TemplateString => {
-                    Self::string_operand_type(node, &[TemplateSubstitution as u16])
+                    Self::string_operand_type(node, $crate::roles::$roles::string_lit::WRAPS)
                 }
                 $(
                     $jsx_text => TokenRole::Operand,

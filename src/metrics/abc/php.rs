@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
     rows_own, wrapped_operand,
 };
-use crate::roles::php::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::php::{call, case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -166,16 +166,14 @@ impl Abc for PhpCode {
             | DASHDASH => {
                 stats.assignments += 1.;
             }
-            // Branches: every PHP call kind plus object construction. A
-            // nullsafe call is the `NullSafe` row's for its `?->`, which
-            // ABC does not score; it is a branch as every call is.
-            // role-bypass: allow(NullSafe) — the branch reading of every call kind, which the
-            // row's nullsafe owner is one of
-            FunctionCallExpression
-            | MemberCallExpression
-            | ScopedCallExpression
-            | NullsafeMemberCallExpression
-            | ObjectCreationExpression => {
+            // Branches: every call the `Call` row owns, plus object
+            // construction, which Fitzpatrick's rule counts and the row
+            // deliberately does not (`roles/php.rs`). A nullsafe call is
+            // the `NullSafe` row's for its `?->`, which ABC does not
+            // score; it is a branch as every call is.
+            _ if call::owns_kind(kind, node, code, ancestors)
+                || kind == ObjectCreationExpression as u16 =>
+            {
                 stats.branches += 1.;
             }
             // Conditions: comparison and identity operators (anonymous tokens

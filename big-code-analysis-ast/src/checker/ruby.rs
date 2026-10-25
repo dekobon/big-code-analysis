@@ -293,17 +293,10 @@ impl Checker for RubyCode {
         crate::roles::ruby::closure::owns(node, &[], ancestors)
     }
 
-    // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the
-    // `call` rule (`Call`, `Call2`, `Call3`, `Call4`); `Call5` ("_call")
-    // is the hidden inner production and does not surface.
-    // role-bypass: allow(NullSafe) — every call is a call; the row claims the kinds for the
-    // safe-navigation `a&.b` a `call` can also be, told by its token
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Ruby::Call | Ruby::Call2 | Ruby::Call3 | Ruby::Call4
-        )
-    }
+    // `Call` and `StringLit` are the rows of `roles/ruby.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(ruby);
+    impl_string_lit_row!(ruby);
 
     fn is_non_arg(node: &Node) -> bool {
         // `PIPE` is included because block parameter lists are delimited
@@ -319,21 +312,6 @@ impl Checker for RubyCode {
                 | Ruby::PIPE
         )
     }
-
-    impl_simple_is_string!(
-        Ruby,
-        String,
-        ChainedString,
-        BareString,
-        Subshell,
-        Regex,
-        HeredocBody,
-        DelimitedSymbol,
-        SimpleSymbol,
-        StringArray,
-        SymbolArray,
-        Character,
-    );
 
     // tree-sitter-ruby exposes `elsif` as its own named clause node, so the
     // dedicated-clause-node strategy applies here (same as Lua/Bash/PHP).

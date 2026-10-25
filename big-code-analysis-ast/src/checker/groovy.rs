@@ -123,23 +123,10 @@ impl Checker for GroovyCode {
         crate::roles::groovy::closure::owns(node, &[], ancestors)
     }
 
-    // `command_chain` is the new grammar's distinct node for Groovy's
-    // command-style juxtaposed calls (`foo bar baz`) which the prior
-    // amaanq grammar mis-modelled as `juxt_function_call`; it is a
-    // genuine method-call form and stays in `is_call`.
-    //
-    // Intentionally excludes `ObjectCreationExpression` (`new Foo()`):
-    // `is_call` follows the Java-family convention (Java's `is_call` =
-    // `MethodInvocation`, C#'s = `InvocationExpression`) of counting
-    // method/function call sites only. Constructor invocations are an
-    // ABC concern — Groovy's ABC `branches` counts `New` separately
-    // (see `groovy_count_token_branch` in metrics/abc.rs).
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Groovy::MethodInvocation | Groovy::CommandChain
-        )
-    }
+    // `Call` and `StringLit` are the rows of `roles/groovy.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(groovy);
+    impl_string_lit_row!(groovy);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -147,8 +134,6 @@ impl Checker for GroovyCode {
             Groovy::LPAREN | Groovy::COMMA | Groovy::RPAREN
         )
     }
-
-    impl_simple_is_string!(Groovy, StringLiteral);
 
     // The dekobon Groovy grammar models `if_statement` with the `else`
     // keyword token emitted inline followed by the inner `if_statement`

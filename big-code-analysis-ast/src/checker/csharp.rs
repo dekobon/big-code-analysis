@@ -136,22 +136,6 @@ impl Checker for CsharpCode {
         crate::roles::csharp::closure::owns(node, &[], ancestors)
     }
 
-    // Invocations only, by the contract on `Checker::is_call`: C#'s three
-    // other call-shaped constructs — `new T(…)`, the `: base(x)` /
-    // `: this(a)` constructor initializer, and the C# 12 primary
-    // constructor's `: Base(x)` — are object construction and constructor
-    // delegation, which ABC's Fitzpatrick branch rule counts and this
-    // filter deliberately does not. The matching arm on the other side of
-    // that split is `csharp_count_token_branch` in
-    // `src/metrics/abc/csharp.rs`; `csharp_is_call_excludes_constructors`
-    // (`checker.rs` tests) pins the exclusion (#1456).
-    fn is_call(node: &Node) -> bool {
-        // The C# grammar emits three aliased `kind_id`s for
-        // `invocation_expression`; matching only the unsuffixed variant
-        // silently drops the rest (lesson #2 in lessons_learned.md).
-        matches!(node.kind_id().into(), csharp_invocation_expr_kinds!())
-    }
-
     /// `x => x + 1` puts a childless `implicit_parameter` in the
     /// `parameters` field, where `(x) => …` puts a `parameter_list`
     /// (#1185). Same shape as Java's bare-identifier lambda.
@@ -159,20 +143,17 @@ impl Checker for CsharpCode {
         node.kind_id() == Csharp::ImplicitParameter as u16
     }
 
+    // `Call` and `StringLit` are the rows of `roles/csharp.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(csharp);
+    impl_string_lit_row!(csharp);
+
     fn is_non_arg(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
             Csharp::LPAREN | Csharp::COMMA | Csharp::RPAREN
         )
     }
-
-    impl_simple_is_string!(
-        Csharp,
-        StringLiteral,
-        VerbatimStringLiteral,
-        RawStringLiteral,
-        InterpolatedStringExpression,
-    );
 
     // tree-sitter-c-sharp models `else if` as an `Else` keyword token
     // followed by a nested `if_statement` (no wrapping `else_clause` node).

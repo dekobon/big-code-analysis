@@ -12,7 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, peel, rows_own, wrapped_operand,
 };
-use crate::roles::python::{case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::python::{call, case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -240,10 +240,10 @@ impl Abc for PythonCode {
             AugmentedAssignment | NamedExpression => {
                 stats.assignments += 1.;
             }
-            // Every call — function call, method call, type
-            // construction — is one branch. Python parses `Foo()` as
-            // `Call`, so object construction folds into this arm.
-            Call => {
+            // Every call — the `Call` row: function call, method call,
+            // type construction, since Python parses `Foo()` as `call`
+            // — is one branch.
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             ElseClause | ExceptClause | FinallyClause => {

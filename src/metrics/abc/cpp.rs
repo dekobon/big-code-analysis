@@ -247,7 +247,7 @@ macro_rules! cpp_family_abc {
                 // scatter one lookup across helpers with no semantic boundary
                 // to split on, and the effort is that table's vocabulary.
                 use $lang::*;
-                use $roles::{case_arm, comparison, short_circuit, ternary};
+                use $roles::{call, case_arm, comparison, short_circuit, ternary};
 
                 // A requires clause or requires-expression is compile-time and
                 // pays no condition, parenthesised or not; cyclomatic and
@@ -292,13 +292,16 @@ macro_rules! cpp_family_abc {
                     InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
                         stats.assignments += 1.;
                     }
-                    // Every call counts (method calls fold in as
-                    // `call_expression` with a `field_expression` callee). The
-                    // C++ grammar exposes two aliased `call_expression` ids.
-                    // `new T(...)` allocations count as a branch — they invoke
-                    // a constructor, mirroring Java's `New` and C#'s
-                    // `ObjectCreationExpression` rule.
-                    CallExpression | CallExpression2 | NewExpression => {
+                    // Every call — the `Call` row, whose two aliased
+                    // `call_expression` ids fold method calls in with a
+                    // `field_expression` callee — counts. `new T(...)`
+                    // allocations count as a branch too — they invoke a
+                    // constructor, mirroring Java's `New` and C#'s
+                    // `ObjectCreationExpression` rule — and are the row's
+                    // deliberate exclusion, read here as ABC's own.
+                    _ if call::owns_kind(kind, node, code, ancestors)
+                        || kind == NewExpression as u16 =>
+                    {
                         stats.branches += 1.;
                     }
                     // Inside a constraint only the A and B arms above apply: a

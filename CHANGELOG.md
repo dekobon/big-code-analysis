@@ -169,6 +169,37 @@ for historical reference.
   and cognitive before the rows, are linear
   (`cyclomatic/elixir-repeated-guards`, `cognitive/nested-and`). (#1695)
 
+- `Checker::is_call` and `is_string` — both spellings — read each
+  language's `Call` and `StringLit` rows in
+  `big-code-analysis-ast/src/roles/<lang>.rs`, declared in all
+  twenty-five languages: the `_with_code` spellings are the rows under
+  their gates (Perl's bareword call, the Tcl family's braced script
+  body, both now a `gated_by` on the row), the byte-less ones the
+  row's kind table through a new `lists_kind`. `find` / `count` and
+  the ABC branch count read the `Call` row (object construction stays
+  each walker's own, as before); every getter's interpolation set and
+  the dump's string flattening read the `StringLit` row's `wraps` and
+  owners (`Alterator::flatten_verbatim` is the shared leaf; the
+  non-string flattening — char and rune literals, Groovy's string
+  fragments, PHP's `string` keyword alias — stays each language's own
+  arm, and the Tcl family's `keeps_children` veto is unchanged). The
+  six `impl_simple_is_string!` / `impl_js_family_is_string!` sites and
+  the per-call alias rationale move onto the rows, which record which
+  aliases the pinned grammars never emit — C's, C++'s and ObjC's
+  `CallExpression`, TypeScript's and TSX's three `call_expression`
+  aliases, C#'s first two `invocation_expression` ids, Ruby's `Call` /
+  `Call2` / `Call4`, the JS family's named `String` — and
+  `roles/call_string_tests.rs` pins each language's calls and
+  literals by text and holds those aliases unseen. The cognitive
+  boundary and lambda arms of Java and Elixir read their rows as the
+  other languages' do. Every `bca ops` vocabulary, every metric, the
+  space tree, `dump`, `find` and `count` are byte-identical on the
+  integration corpora and a fixture per language (0 of 26,992
+  outputs) and on the recovery sweep (0 of 129,042). The bypass
+  baseline falls from 40 to 10, all of which are Elixir's documented
+  byte-less kind table (#275) and the `Exit` row's consumer (R07).
+  (#1698)
+
 - `Checker::is_func`, `is_closure`, `is_func_space` and
   `Getter::get_space_kind` — both spellings — and the npm / npa member
   walks and the cognitive function-boundary and lambda arms read each

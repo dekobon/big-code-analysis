@@ -8,15 +8,20 @@ use crate::role_table;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
     js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
-    js_family_short_circuit_payers,
+    js_family_short_circuit_payers, js_family_strings,
 };
 
 js_family_binding_gates!(Mozjs, MozjsCode, FieldDefinition);
 
 role_table! {
     lang: Mozjs;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // As JavaScript's: the second `call_expression` id is the never
+    // emitted decorator alias, listed defensively.
+    Call { owns [CallExpression, CallExpression2] }
+    // `String2` is MozJS's anonymous string-*literal* alias (the same
+    // production as JS's, e.g. `import "m"` module strings), a string
+    // alongside `String` (#283).
+    StringLit { owns [..js_family_strings!(), String2] wraps [TemplateSubstitution] }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so each row's owner holds its
     // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s

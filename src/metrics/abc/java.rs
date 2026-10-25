@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, rows_own, wrapped_operand,
 };
-use crate::roles::java::{case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::java::{call, case_arm, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`): a parenthesis, a cast
@@ -184,10 +184,19 @@ fn java_count_token_assignment<'a>(
 // production that does not wrap a `MethodInvocation` for the delegation
 // itself, so listing it adds no double count; calls in its argument list
 // are separate nodes and still count on their own.
-fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+fn java_count_token_branch<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Java::*;
-    let is_branch = match node.kind_id().into() {
-        MethodInvocation | New | ExplicitConstructorInvocation => true,
+    let kind = node.kind_id();
+    // The `Call` row's invocation, and the two construction shapes the
+    // row deliberately leaves out and Fitzpatrick's rule counts.
+    let is_branch = match kind.into() {
+        _ if call::owns_kind(kind, node, code, ancestors) => true,
+        New | ExplicitConstructorInvocation => true,
         // An enum constant carrying constructor arguments — `A(1)` in
         // `enum E { A(1), B, C(2); }` — invokes the enum's constructor, so
         // it is an object construction under Fitzpatrick's "function
@@ -307,6 +316,8 @@ fn java_walk_for_conditions<'a>(
             java_count_slot(node.child_by_field_name("condition"), code, conds);
         }
         // `return value;` names no field; the value is its only operand.
+        // role-bypass: allow(Exit) — a return's value as a boolean slot, not
+        // whether the statement is an exit
         ReturnStatement => java_count_negated_slot(wrapped_operand(node), code, conds),
         // The Java 21 pattern-switch guard (`case Integer i when g ->`),
         // modelled as a condition slot exactly like the `if` / `while`
@@ -335,6 +346,8 @@ fn java_walk_for_conditions<'a>(
         AssignmentExpression => {
             java_count_negated_slot(node.child_by_field_name("right"), code, conds);
         }
+        // role-bypass: allow(Closure) — a lambda's body as a boolean slot, not
+        // whether the lambda is a closure
         LambdaExpression => {
             java_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }
@@ -407,7 +420,7 @@ impl Abc for JavaCode {
         if java_count_token_assignment(node, ancestors, stats) {
             return;
         }
-        if java_count_token_branch(node, stats) {
+        if java_count_token_branch(node, code, ancestors, stats) {
             return;
         }
         if java_count_token_condition(node, code, ancestors, stats) {

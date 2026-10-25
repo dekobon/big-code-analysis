@@ -3,7 +3,10 @@
 
 use crate::lang_helpers::case_arms::irules_switch_arm_is_decision;
 use crate::role_table;
-use crate::roles::tcl_family::{tcl_family_comparison_payers, tcl_family_short_circuit_payers};
+use crate::roles::tcl_family::{
+    tcl_family_comparison_payers, tcl_family_short_circuit_payers, tcl_family_string_gates,
+    tcl_family_strings,
+};
 use crate::{Ancestors, Irules, Node};
 
 /// Whether a `switch_arm` is a decision arm rather than `default`,
@@ -12,10 +15,25 @@ fn is_decision_arm<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_
     irules_switch_arm_is_decision(node, code, ancestors)
 }
 
+tcl_family_string_gates!(
+    Irules,
+    IrulesCode,
+    crate::lang_helpers::irules::BRACED_WORD_KINDS
+);
+
 role_table! {
     lang: Irules;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Every command is a call, as in Tcl; the `when` handler and its
+    // event name are not one.
+    Call { owns [Command] }
+    // The Tcl twin's three kinds (`roles/tcl_family.rs`), the braced
+    // word gated on being a literal rather than a handler body — which
+    // matters more here: a `when` handler's body is the whole of a
+    // typical iRules file (#1381).
+    StringLit {
+        owns [..tcl_family_strings!()]
+        wraps [VariableSubstitution, CommandSubstitution]
+    }
     // Tcl's rows (`roles/tcl_family.rs`) plus iRules' own operators.
     // The comparison row adds the string and glob comparators
     // `starts_with`, `ends_with`, `contains`, `equals`, `matches`,

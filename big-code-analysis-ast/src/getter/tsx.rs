@@ -90,6 +90,8 @@ impl Getter for TsxCode {
     // `generic_angles`: see the TS invocation (#1559). A JSX tag's `<` /
     // `>` hang from the JSX element nodes, not from a generic list, so
     // they stay `<` and `>`.
+    // role-bypass: allow(StringLit) — the operand classification of the literal
+    // alias the `StringLit` row owns, a projection the row does not answer
     impl_js_family_get_op_type!(
         Tsx,
         roles: tsx,

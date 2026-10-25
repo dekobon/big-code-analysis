@@ -141,9 +141,10 @@ impl Checker for KotlinCode {
         crate::roles::kotlin::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Kotlin::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/kotlin.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(kotlin);
+    impl_string_lit_row!(kotlin);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -151,8 +152,6 @@ impl Checker for KotlinCode {
             Kotlin::LPAREN | Kotlin::COMMA | Kotlin::RPAREN
         )
     }
-
-    impl_simple_is_string!(Kotlin, StringLiteral, MultilineStringLiteral);
 
     // tree-sitter-kotlin models `else if` as an `else` keyword sibling
     // followed by an `if_expression` (not an `if_statement`, and no

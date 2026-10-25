@@ -281,8 +281,10 @@ impl Getter for ElixirCode {
             // the two disagree on one construct — the divergence that
             // rule exists to remove. Elixir Halstead operator counts
             // drop for interpolated strings, charlists and sigils.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             E::String | E::Charlist | E::Sigil => {
-                Self::string_operand_type(node, &[E::Interpolation as u16])
+                Self::string_operand_type(node, crate::roles::elixir::string_lit::WRAPS)
             }
 
             // Operands: identifiers and literals. Sigil names/modifiers

@@ -147,6 +147,8 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
+            // role-bypass: allow(Call) — which call names a branching macro, read from
+            // the target's text; not whether the node is a call
             E::Call => {
                 if let Some(target) = node.child_by_field_name("target")
                     && target.kind_id() == E::Identifier

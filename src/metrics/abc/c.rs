@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, ScoresItself, Stats, rows_own};
-use crate::roles::c::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::c::{call, case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -61,10 +61,10 @@ impl Abc for CCode {
             InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
                 stats.assignments += 1.;
             }
-            // Every call counts. The C grammar exposes two aliased
-            // `call_expression` ids. C has no `new` allocations, so
-            // (unlike the C++ impl) there is no `NewExpression` branch.
-            CallExpression | CallExpression2 => {
+            // Every call — the `Call` row — counts. C has no `new`
+            // allocations, so (unlike the C++ impl) there is no
+            // `NewExpression` branch.
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             // `else` opens an alternative branch path; `case`

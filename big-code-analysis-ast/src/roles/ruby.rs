@@ -52,8 +52,39 @@ fn is_assignment_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<
 
 role_table! {
     lang: Ruby;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the
+    // `call` rule; `Call5` (`_call`) is the hidden inner production and
+    // does not surface. The `NullSafe` row claims the same kinds for the
+    // safe-navigation `a&.b` a `call` can also be, told by its token.
+    Call { owns [Call, Call2, Call3, Call4] }
+    // The string-like literals: regular and chained strings, the bare
+    // element of a `%w[]` / `%i[]` array and the arrays themselves, the
+    // subshell, the regex, the heredoc body, the delimited and simple
+    // symbols and the character literal. An interpolating form `wraps`
+    // an `interpolation` whose expression is billed on its own; the
+    // array forms `wraps` their elements (`string`, `bare_string`,
+    // `bare_symbol`) — one operand per element, or one for the empty
+    // array (#1353) — which the operand arm reads through the same list
+    // since no kind here admits an element it is not paired with.
+    // `bare_symbol` is an operand by the getter's reading and not a
+    // string to `find`; `simple_symbol` and `character` are the other
+    // way, strings that the operand arm bills as plain operands.
+    StringLit {
+        owns [
+            String,
+            ChainedString,
+            BareString,
+            Subshell,
+            Regex,
+            HeredocBody,
+            DelimitedSymbol,
+            SimpleSymbol,
+            StringArray,
+            SymbolArray,
+            Character,
+        ]
+        wraps [Interpolation, String, BareString, BareSymbol]
+    }
     // The `binary` node — three aliased ids — carries every binary
     // operator; its `operator` field says which, so each row's owner is
     // gated on the field. The ten comparison tokens are the equalities

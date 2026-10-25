@@ -229,6 +229,9 @@ impl Getter for PerlCode {
             // bare token under `call_expression_recursive` with no
             // wrapper at all. `__END__`, `__DATA__` and the section
             // after them end the program and bill nothing.
+            // role-bypass: allow(StringLit) — the operand classification of the
+            // non-interpolating literals and of the `list_item` the row `wraps`, a
+            // projection the row does not answer
             P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
             | P::PackageVariable | P::SpecialScalarVariable | P::PackageName | P::ModuleName
             | P::BarewordImport | P::Typeglob | P::FileHandle | P::ListItem
@@ -277,10 +280,12 @@ impl Getter for PerlCode {
             // rule #1353 settled for Ruby's `%w[]`. One list serves
             // both groups because no string kind admits a `list_item`
             // and `word_list_qw` admits no `interpolation`.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted
             | P::CommandQxQuoted | P::HeredocBodyStatement
             | P::PatternMatcher | P::PatternMatcherM | P::RegexPatternQr | P::WordListQw => {
-                Self::string_operand_type(node, &[P::Interpolation as u16, P::ListItem as u16])
+                Self::string_operand_type(node, crate::roles::perl::string_lit::WRAPS)
             }
             _ => TokenRole::Unknown,
         }

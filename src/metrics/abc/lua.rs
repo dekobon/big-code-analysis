@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, rows_own, wrapped_operand,
 };
-use crate::roles::lua::{comparison, short_circuit};
+use crate::roles::lua::{call, comparison, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -108,7 +108,7 @@ impl Abc for LuaCode {
             Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
                 stats.assignments += 1.;
             }
-            Lua::FunctionCall => {
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             Lua::ElseStatement => {

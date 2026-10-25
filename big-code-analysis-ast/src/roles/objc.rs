@@ -5,8 +5,8 @@
 
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
-    c_family_primitives, c_family_short_circuit_payers,
+    c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
 };
 use crate::{Ancestors, Node, Objc};
 
@@ -29,8 +29,12 @@ fn property_attribute_name<'a>(
 
 role_table! {
     lang: Objc;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // A C `call_expression` (aliased to `CallExpression2`) or a message
+    // send `[receiver method]`.
+    Call { owns [..c_family_calls!(), MessageExpression] }
+    // ObjC has no raw string literal; `@"…"` parses as `AT` + a plain
+    // `string_literal`, so the family's two kinds apply.
+    StringLit { owns [..c_family_strings!()] }
     // The Objective-C binary operators are one `binary_expression`
     // kind, emitted under two production paths (`BinaryExpression`,
     // `BinaryExpression2`) and told apart by the `operator` field, so

@@ -66,6 +66,9 @@ impl Getter for PhpCode {
             // A literal brace in string text (`"lit { brace"`) never
             // reaches here — the grammar folds it into `string_content`
             // — so nothing is over-suppressed.
+            // role-bypass: allow(StringLit) — the `{` and the literal kinds the row
+            // `wraps` / owns, read for which brace is an interpolation opener;
+            // not whether the node is a string
             LBRACE
                 if matches!(
                     ancestors.parent(node).map(|p| p.kind_id().into()),
@@ -83,8 +86,9 @@ impl Getter for PhpCode {
             // the spelling the `Ternary` row's gate leaves out — an
             // optional type's `?int` — which billed before the row
             // existed.
-            // role-bypass: allow(Ternary) — the operator classification of the spelling the row's
-            // `under ConditionalExpression` gate leaves out: an optional type
+            // role-bypass: allow(Ternary, StringLit) — the operator classification of the
+            // spelling the row's `under ConditionalExpression` gate leaves out (an optional
+            // type), and of the `{` the `StringLit` row `wraps` as an interpolation opener
             If | Else | Elseif | Endif
             | Switch | Case | Default | Endswitch
             | For | Endfor | Foreach | Endforeach
@@ -160,6 +164,8 @@ impl Getter for PhpCode {
             // `php_name2_hidden_rule_drift_marker` in `src/metrics/abc.rs`.
             // It rides along defensively so a grammar bump that promotes
             // it inherits the guard rather than the bug.
+            // role-bypass: allow(StringLit) — a name under the variable kinds the row
+            // `wraps`, read for whether it is billed once; not whether it interpolates
             Name | Name2 => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(VariableName | DynamicVariableName) => TokenRole::Unknown,
                 _ => TokenRole::Operand,
@@ -174,6 +180,8 @@ impl Getter for PhpCode {
             // parent handles arbitrary depth (#1259). An inner reference
             // reached through a real expression (`${$x . 'y'}`, whose
             // `$x` hangs off a `binary_expression`) is unaffected.
+            // role-bypass: allow(StringLit) — the operand classification of the variable
+            // kinds the row `wraps`, a projection the row does not answer
             VariableName | DynamicVariableName => {
                 match ancestors.parent(node).map(|p| p.kind_id().into()) {
                     Some(DynamicVariableName) => TokenRole::Unknown,
@@ -268,6 +276,8 @@ impl Getter for PhpCode {
             // nodes that carry the operand themselves (`primitive_type`,
             // `bottom_type`, `cast_type`) are the `Primitive` row's,
             // billed as operands by `get_keyword_role`.
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Integer | Float
             | String | String3
             | Nowdoc
@@ -285,36 +295,17 @@ impl Getter for PhpCode {
             // and #183 for C#). `ShellCommandExpression` was previously
             // omitted entirely (issue #288), so backtick literals
             // contributed no Halstead operand at all even when inert.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             EncapsedString | Heredoc | ShellCommandExpression => {
                 // PHP's interpolation children appear directly on the
                 // wrapping literal, except `Heredoc`, which holds them
                 // one level down under a single `heredoc_body` child —
                 // so the descend below mirrors the original
                 // `php_string_has_interpolation` two-level walk.
-                const PHP_INTERP_KINDS: &[u16] = &[
-                    // `"$name"` → direct `variable_name` child.
-                    VariableName as u16,
-                    // `"${name}"` → direct `dynamic_variable_name` child.
-                    DynamicVariableName as u16,
-                    // `"$arr[0]"` → direct `subscript_expression` child.
-                    // The grammar gives this kind three numeric aliases.
-                    SubscriptExpression as u16,
-                    SubscriptExpression2 as u16,
-                    SubscriptExpression3 as u16,
-                    // `"$obj->prop"` → direct `member_access_expression`
-                    // child. PHP's bare-interpolation syntax does not
-                    // support `?->` (nullsafe) or `::` (scope), so only
-                    // member-access aliases need handling here; nullsafe /
-                    // scope forms always go through the `{ … }` wrapper.
-                    MemberAccessExpression as u16,
-                    MemberAccessExpression2 as u16,
-                    MemberAccessExpression3 as u16,
-                    // `"{$expr}"` → anonymous `{` (LBRACE) opens the
-                    // complex-interpolation wrapper whose body is an
-                    // arbitrary expression; the brace appears as a direct
-                    // child.
-                    LBRACE as u16,
-                ];
+                // The interpolation kinds are the `StringLit` row's `wraps`
+                // list (`roles/php.rs`), which records each spelling.
+                const PHP_INTERP_KINDS: &[u16] = crate::roles::php::string_lit::WRAPS;
                 // Single pass over the direct children: an interpolation
                 // child on the literal itself (EncapsedString /
                 // ShellCommandExpression) OR, for Heredoc, one nested under

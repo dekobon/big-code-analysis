@@ -11,8 +11,9 @@
 use crate::Mozcpp;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_binary_owners,
-    cpp_family_comparison_payers, cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
+    c_family_calls, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
+    c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
+    cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
     cpp_family_short_circuit_payers, cpp_family_space_gates,
 };
 
@@ -21,8 +22,10 @@ cpp_family_space_gates!(Mozcpp);
 
 role_table! {
     lang: Mozcpp;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    Call { owns [..c_family_calls!()] }
+    // `R"(…)"` joins the family's two: it is one string-like token to
+    // `find` and the dump (#398, the peer of #391 for Rust).
+    StringLit { owns [..c_family_strings!(), RawStringLiteral] }
     // The C++ binary operators are one `binary_expression` kind (the
     // aliased `BinaryExpression2` at the pinned grammar; the unsuffixed
     // id is the never-emitted pre-alias) plus the fold, told apart by

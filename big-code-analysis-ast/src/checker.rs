@@ -15,7 +15,6 @@ use regex::bytes::Regex;
 
 use crate::cfg_predicate::attribute_marks_test as rust_attribute_marks_test;
 use crate::lang_helpers::{DocBinding, KeptDocs};
-use crate::macros::csharp_invocation_expr_kinds;
 use crate::*;
 
 static AHO_CORASICK: OnceLock<AhoCorasick> = OnceLock::new();
@@ -27,26 +26,6 @@ static RE: OnceLock<Regex> = OnceLock::new();
 // generator reading (#1186) — lives on the rows since #1696:
 // `roles/js_family.rs`'s `js_family_binding_gates!` emits the walk per
 // dialect, and each dialect's `FuncOpener` / `Closure` rows read it.
-
-// Generate an `is_string` impl for a JS-family `Checker` block: the
-// named `String` literal, `TemplateString`, plus per-language
-// anonymous *literal* aliases passed as extras. The alterator
-// flattens the same kinds; the generic `string` filter must agree
-// (issue #283). Type-keyword aliases (`: string`, which parses as an
-// anonymous `"string"` token under a `predefined_type` wrapper) are
-// not literals and stay out (#1261); per-call rationale sits above
-// each invocation.
-macro_rules! impl_js_family_is_string {
-    ($lang:ident $(, $extra:ident)* $(,)?) => {
-        fn is_string(node: &Node) -> bool {
-            matches!(
-                node.kind_id().into(),
-                $lang::String | $lang::TemplateString
-                    $(| $lang::$extra)*
-            )
-        }
-    };
-}
 
 // Generate the documentation rule for a JS-family `Checker` block: a
 // `/**` comment only — an Annex-B `<!-- -->` `HtmlComment` never — read by
@@ -86,15 +65,11 @@ macro_rules! impl_doxygen_doc_comment {
     };
 }
 
-// Generate an `is_string` impl for languages whose `is_string`
-// predicate is a flat `matches!` against one or more variant
-// kinds. Reduces drift risk for new alias additions and gives a
-// single table that answers "which kinds count as a string for
-// `find string` / `count string`?" per language (issue #301).
-//
-// Languages whose `is_string` needs anything beyond a flat variant
-// list (e.g. JS family's `String` + `String2` + `TemplateString`
-// pattern) keep their own dedicated macros or impls.
+// Generate an `is_string` impl for a language whose string literals
+// are a flat kind list and whose role table declares no `StringLit`
+// row: the two helper grammars (`preproc`, `ccomment`), where the row
+// is `absent` because the pass parses only the literals it must skip.
+// Every language with a table reads `impl_call_and_string_rows!`.
 macro_rules! impl_simple_is_string {
     ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
         fn is_string(node: &Node) -> bool {
@@ -102,6 +77,54 @@ macro_rules! impl_simple_is_string {
                 node.kind_id().into(),
                 $lang::$first $(| $lang::$rest)*
             )
+        }
+    };
+}
+
+// The `Call` and `StringLit` rows of a language's role table, read as
+// the four `Checker` call / string predicates (#1698) — one macro per
+// row, since the bypass gate reads a row-forwarding macro as binding
+// one kind and handing it to one row. The `_with_code` spellings read
+// the rows under their gates — Perl's bareword call, the Tcl family's
+// braced script body — and are what `find` / `count` and the dump ask.
+// The byte-less spellings are each row's kind table, gates aside
+// (`lists_kind`): a Tcl script body is a string to `is_string` and not
+// to `is_string_with_code`, as before the rows, and
+// `tcl_script_body_is_a_string_only_to_the_byteless_spelling` pins that
+// the two disagree — a known-empty chain would not do here, since the
+// Tcl gate reads "no parent" as a script body. Per-row rationale —
+// which alias is hidden, which keyword alias is excluded — sits on the
+// rows (`.claude/rules/macro-comments.md`).
+macro_rules! impl_call_row {
+    ($roles:ident) => {
+        fn is_call(node: &Node) -> bool {
+            let kind = node.kind_id();
+            $crate::roles::$roles::call::lists_kind(kind)
+        }
+
+        fn is_call_with_code<'a>(
+            node: &Node<'a>,
+            code: &[u8],
+            ancestors: Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::$roles::call::owns(node, code, ancestors)
+        }
+    };
+}
+
+macro_rules! impl_string_lit_row {
+    ($roles:ident) => {
+        fn is_string(node: &Node) -> bool {
+            let kind = node.kind_id();
+            $crate::roles::$roles::string_lit::lists_kind(kind)
+        }
+
+        fn is_string_with_code<'a>(
+            node: &Node<'a>,
+            code: &[u8],
+            ancestors: Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::$roles::string_lit::owns(node, code, ancestors)
         }
     };
 }

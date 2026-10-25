@@ -250,6 +250,8 @@ impl Getter for CsharpCode {
             // a `parameter_list`, so the bare spelling dropped its name
             // from both Halstead halves (#1544). Nothing containing it
             // is classified.
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Identifier | Base | ImplicitParameter
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
@@ -260,8 +262,10 @@ impl Getter for CsharpCode {
             // wrapping literal too would double-count the inner
             // identifiers' contribution to `N2` (issue #183, same
             // pattern as #180 for Elixir/Bash).
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             InterpolatedStringExpression => {
-                Self::string_operand_type(node, &[Interpolation as u16])
+                Self::string_operand_type(node, crate::roles::csharp::string_lit::WRAPS)
             }
             _ => TokenRole::Unknown,
         }

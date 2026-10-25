@@ -90,6 +90,8 @@ impl Getter for LuaCode {
             | Lua::BreakStatement => TokenRole::Operator,
 
             // Operands: identifiers and literals
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Lua::Identifier | Lua::Number | Lua::String | Lua::True | Lua::False | Lua::Nil
             | Lua::VarargExpression => TokenRole::Operand,
 

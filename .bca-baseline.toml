@@ -17,7 +17,7 @@ mi_formula = 2
 path = "big-code-analysis-ast/src/alterator.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 550.0
+value = 544.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
@@ -220,8 +220,14 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
+metric = "loc.ploc"
+value = 528.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
+qualified = "<file>"
 metric = "loc.sloc"
-value = 1259.0
+value = 1282.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
@@ -251,25 +257,25 @@ value = 49990.646744445316
 path = "big-code-analysis-ast/src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 75486.9726265324
+value = 70780.1859233888
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 122788.12579974171
+value = 114615.11034682626
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 83178.10787781847
+value = 77488.02857857732
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 112743.07352489111
+value = 101217.532578918
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -359,13 +365,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 663.0
+value = 673.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1368.0
+value = 1391.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -962,10 +968,34 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
+path = "src/metrics/abc/irules.rs"
+qualified = "IrulesCode::compute"
+metric = "halstead.effort"
+value = 49846.575878767566
+
+[[entry]]
+path = "src/metrics/abc/lua.rs"
+qualified = "LuaCode::compute"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc/lua.rs"
+qualified = "LuaCode::compute"
+metric = "halstead.effort"
+value = 49338.02399862417
+
+[[entry]]
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
-value = 16.0
+value = 18.0
+
+[[entry]]
+path = "src/metrics/abc/rust.rs"
+qualified = "RustCode::compute"
+metric = "halstead.effort"
+value = 50701.989459245684
 
 [[entry]]
 path = "src/metrics/cognitive/bash.rs"
@@ -1020,6 +1050,12 @@ path = "src/metrics/cognitive/irules.rs"
 qualified = "IrulesCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/cognitive/java.rs"
+qualified = "JavaCode::compute"
+metric = "cyclomatic"
+value = 15.0
 
 [[entry]]
 path = "src/metrics/cognitive/java.rs"

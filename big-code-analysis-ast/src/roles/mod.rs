@@ -163,6 +163,12 @@
 //!   kind id passed in, for a consumer that asks several rows about one
 //!   node — `kind_id()` is an FFI call per read, and a classifier on
 //!   the walk's hot path reading three rows paid six of them (#1693).
+//! - `lists_kind(kind)`: whether the row names `kind` among its owners,
+//!   gates aside — the byte-less `Checker` spellings (`is_call`,
+//!   `is_string`), which read no bytes and no chain and so answer the
+//!   kind table a gated owner over-approximates on (#1698). A chain the
+//!   caller does not have is not the same as an empty one: the Tcl
+//!   family's braced word reads "no parent" as a script body.
 //! - `pays_at_token_kind`: `pays_at_leaf_kind` restricted to the
 //!   declared payers — a `pays_itself` owner pays at the leaf but has no
 //!   token, so a token-billing consumer (Halstead) reads this one.
@@ -322,6 +328,11 @@ pub mod typescript;
 // of the classifiers that read them (#1696).
 #[cfg(test)]
 mod space_tree_tests;
+
+// The `Call` and `StringLit` rows, pinned independently of the
+// classifiers that read them (#1698).
+#[cfg(test)]
+mod call_string_tests;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -619,6 +630,12 @@ macro_rules! role_table {
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);
             $crate::role_table!(@absent_predicate is_callable);
+            /// Nothing is an absent construct.
+            #[inline]
+            #[must_use]
+            pub fn lists_kind(_kind: u16) -> bool {
+                false
+            }
             $crate::role_table!(@absent_predicate_kind owns_kind);
             $crate::role_table!(@absent_predicate_kind pays_at_leaf_kind);
             $crate::role_table!(@absent_predicate_kind pays_at_token_kind);
@@ -840,6 +857,14 @@ macro_rules! role_table {
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
                 owns_kind(node.kind_id(), node, code, ancestors)
+            }
+
+            /// Whether the row names `kind` among its owners, gates aside:
+            /// the byte-less spelling of [`owns`].
+            #[inline]
+            #[must_use]
+            pub fn lists_kind(kind: u16) -> bool {
+                OWNERS.contains(&kind)
             }
 
             /// [`owns`] with `node`'s kind id already read, for a caller

@@ -103,15 +103,14 @@ impl Checker for GoCode {
         crate::roles::go::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Go::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/go.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(go);
+    impl_string_lit_row!(go);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)
     }
-
-    impl_simple_is_string!(Go, InterpretedStringLiteral, RawStringLiteral);
 
     #[inline]
     fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

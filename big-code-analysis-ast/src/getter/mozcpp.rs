@@ -154,6 +154,8 @@ impl Getter for MozcppCode {
             // in `tests/parity/cpp_mozcpp_parity.rs` is what keeps it
             // from drifting, the same guard the `RawStringLiteral`
             // `LPAREN` arm above relies on.
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | CharLiteral | NumberLiteral | True | False | Null | This | DOTDOTDOT => {
                 TokenRole::Operand

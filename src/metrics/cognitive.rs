@@ -9715,6 +9715,20 @@ end",
     // ----- Elixir -----
 
     // No control flow → cognitive complexity is 0.
+    /// The lambda channel: an anonymous `fn` — the `Closure` row's owner
+    /// since #1698 — charges its own nesting level to the control flow
+    /// inside it. No test depended on the arm before: severing it failed
+    /// nothing, as Go's, PHP's, C#'s and Python's did not (#1696).
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_anonymous_function_contributes_lambda_nesting() {
+        // expected: the `if` is 1 base + 1 for the enclosing `fn`'s
+        // lambda level = 2.
+        check_metrics::<ElixirParser>("f = fn a -> if a, do: 1 end\n", "foo.ex", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_empty_function() {

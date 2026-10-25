@@ -127,16 +127,17 @@ impl Checker for JavaCode {
         crate::roles::java::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Java::MethodInvocation
-    }
-
     /// `x -> x + 1` puts a bare `identifier` in the `parameters` field;
     /// `(x) -> …` and `(x, y) -> …` put an `inferred_parameters` list
     /// and `() -> …` a `formal_parameters` one (#1185).
     fn is_bare_param(node: &Node) -> bool {
         node.kind_id() == Java::Identifier as u16
     }
+
+    // `Call` and `StringLit` are the rows of `roles/java.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(java);
+    impl_string_lit_row!(java);
 
     fn is_non_arg(node: &Node) -> bool {
         // Java's explicit receiver parameter (`void m(S this, int a)`, JLS
@@ -150,8 +151,6 @@ impl Checker for JavaCode {
             Java::LPAREN | Java::COMMA | Java::RPAREN | Java::ReceiverParameter
         )
     }
-
-    impl_simple_is_string!(Java, StringLiteral, MultilineStringLiteral);
 
     // tree-sitter-java models `else if` as an `Else` keyword token followed
     // by a nested `if_statement` (no wrapping `else_clause` node).

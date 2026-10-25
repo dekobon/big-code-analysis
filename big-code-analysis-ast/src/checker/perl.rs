@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::lang_helpers::doc_comment::{node_bytes, pod_comment_region};
-use crate::lang_helpers::perl::perl_bareword_is_call;
 
 impl Checker for PerlCode {
     fn is_comment(node: &Node) -> bool {
@@ -44,24 +43,10 @@ impl Checker for PerlCode {
         crate::roles::perl::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Perl::CallExpressionWithSpacedArgs
-                | Perl::CallExpressionWithSub
-                | Perl::CallExpressionWithArgsWithBrackets
-                | Perl::CallExpressionWithVariable
-                | Perl::CallExpressionWithBareword
-                | Perl::CallExpressionRecursive
-                | Perl::MethodInvocation
-        )
-    }
-
-    fn is_call_with_code<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        Self::is_call(node)
-            && (node.kind_id() != Perl::CallExpressionWithBareword as u16
-                || perl_bareword_is_call(node, ancestors))
-    }
+    // `Call` and `StringLit` are the rows of `roles/perl.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(perl);
+    impl_string_lit_row!(perl);
 
     // `NormalComma` (369) is the separator inside a subroutine signature;
     // the bare `COMMA` (12) it wraps is that node's *child*, so listing
@@ -73,22 +58,6 @@ impl Checker for PerlCode {
             Perl::LPAREN | Perl::COMMA | Perl::RPAREN | Perl::FatComma | Perl::NormalComma
         )
     }
-
-    // `HeredocBodyStatement` wraps the heredoc body text (and any
-    // `Interpolation` children) that appears as a top-level
-    // statement after the heredoc-introducing `<<TAG`; it is the
-    // visible literal node and is treated as a string here, the
-    // same way Bash's `heredoc_body` is treated as a string.
-    impl_simple_is_string!(
-        Perl,
-        StringSingleQuoted,
-        StringDoubleQuoted,
-        StringQQuoted,
-        StringQqQuoted,
-        BacktickQuoted,
-        CommandQxQuoted,
-        HeredocBodyStatement,
-    );
 
     // tree-sitter-perl emits `elsif_clause` as a direct child of the
     // surrounding `if_statement` (not as a wrapper around a nested

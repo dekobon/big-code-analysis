@@ -14,9 +14,9 @@ use super::{
     rows_own, wrapped_operand,
 };
 use crate::lang_helpers::perl::{
-    perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
+    perl_and_is_operator, perl_dash_signs_keyword_key, perl_not_is_key,
 };
-use crate::roles::perl::{case_arm, comparison, null_safe, short_circuit, ternary};
+use crate::roles::perl::{call, case_arm, comparison, null_safe, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -499,6 +499,8 @@ fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: An
 // grandparent is one of them is its arguments. The callee's package is
 // read as well as its name: `My::split` is a user sub, and the pattern
 // it is handed is an ordinary match (grammar-dispatch §10).
+// role-bypass: allow(Call) — which call shapes carry a `split` callee, read for
+// the pattern argument's slot; not whether the node is a call
 fn perl_call_is_split(call: &Node, code: &[u8]) -> bool {
     let text = |node: &Node| code.get(node.start_byte()..node.end_byte());
     matches!(
@@ -518,6 +520,8 @@ fn perl_call_is_split(call: &Node, code: &[u8]) -> bool {
         })
 }
 
+// role-bypass: allow(Call) — which call shapes hold their arguments as direct
+// children, for the slot a negation sits in; not whether the node is a call
 fn perl_is_call_argument_parent(parent: Node) -> bool {
     use Perl as P;
     matches!(
@@ -586,25 +590,13 @@ impl Abc for PerlCode {
             | P::CARETDOTEQ => {
                 stats.assignments += 1.;
             }
-            // Argument-bearing call wrappers always count.
-            P::CallExpressionWithSpacedArgs
-            | P::CallExpressionWithSub
-            | P::CallExpressionWithArgsWithBrackets
-            | P::CallExpressionWithVariable
-            | P::CallExpressionRecursive
-            | P::MethodInvocation => {
-                stats.branches += 1.;
-            }
-            // Bareword-only call (`shift`, `time`, …) — count only
-            // when this node is the outermost dispatch site. When the
-            // bareword sits inside one of the wrappers above, the
-            // outer node has already been counted and this child
-            // would double the branch tally. Nor is an auto-quoted
-            // key a call (FIXME(#1571 upstream)): the grammar reads
-            // `(name => 1)`, `(-name => 1)` and `$h{-name}` as calls of
-            // `name`, and `$h{-foo}` as a file test on a bareword `oo`,
-            // where Perl holds a string (#1545, #1572).
-            P::CallExpressionWithBareword if perl_bareword_is_call(node, ancestors) => {
+            // Every call the `Call` row owns: the argument-bearing wrappers
+            // and a method invocation always, and a bareword-only call
+            // (`shift`, `time`, …) only under the row's `bareword_is_call`
+            // gate — the outermost dispatch site, not a wrapper's callee
+            // already counted, and not an auto-quoted hash key
+            // (`roles/perl.rs` has the derivation).
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             // Each `elsif` / `else` clause of an `if` / `unless` chain.

@@ -8,8 +8,8 @@ use crate::role_table;
 
 role_table! {
     lang: Lua;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    Call { owns [FunctionCall] }
+    StringLit { owns [String] }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so the owner is gated on the
     // field. `~=` is Lua's inequality. `<` / `>` are gated to that

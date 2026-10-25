@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
     wrapped_operand,
 };
-use crate::roles::irules::{comparison, short_circuit, ternary};
+use crate::roles::irules::{call, comparison, short_circuit, ternary};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -106,7 +106,7 @@ impl Abc for IrulesCode {
             // mutator (`incr`/`append`/`lappend`), otherwise a branch — every
             // dispatch counts, including `return`. The `if`/`while`/`switch`/…
             // productions are separate kinds and do not reach this arm.
-            Irules::Command => {
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 if irules_command_is_assignment(node, code) {
                     stats.assignments += 1.;
                 } else {

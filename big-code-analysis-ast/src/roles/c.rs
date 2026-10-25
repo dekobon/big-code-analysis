@@ -6,14 +6,15 @@
 use crate::C;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
-    c_family_primitives, c_family_short_circuit_payers,
+    c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
 };
 
 role_table! {
     lang: C;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    Call { owns [..c_family_calls!()] }
+    // C has no raw string literal.
+    StringLit { owns [..c_family_strings!()] }
     // The C binary operators are one `binary_expression` kind, emitted
     // under two production paths (`BinaryExpression`, `BinaryExpression2`)
     // and told apart by the `operator` field, so each row's owners are

@@ -25,8 +25,11 @@ fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -
 
 role_table! {
     lang: Rust;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // A `macro_invocation` is not a call to this row, as before it.
+    Call { owns [CallExpression] }
+    // A `char_literal` is not a string, though the dump flattens it
+    // beside the two (#391).
+    StringLit { owns [StringLiteral, RawStringLiteral] }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so the owner is gated on the
     // field and `<` / `>` on the parent: a generic list and a turbofish

@@ -169,7 +169,9 @@ impl Getter for ObjcCode {
             // An `identifier` is an operand unless it is a property
             // attribute's word, which the `Modifier` row claims under
             // its gate and `get_keyword_role` bills first.
-            // role-bypass: allow(Modifier) — the operand classification of the ungated spelling
+            // role-bypass: allow(Modifier, StringLit) — the operand classification of the
+            // ungated identifier spelling and of the string literal, a projection
+            // the `StringLit` row does not answer
             Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | CharLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => TokenRole::Operand,
             _ => TokenRole::Unknown,

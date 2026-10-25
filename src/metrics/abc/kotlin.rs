@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, rows_own, wrapped_operand};
-use crate::roles::kotlin::{case_arm, comparison, null_safe, short_circuit};
+use crate::roles::kotlin::{call, case_arm, comparison, null_safe, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -305,7 +305,9 @@ impl Abc for KotlinCode {
             // `: super(…)` / `: this(…)`. It is a distinct production
             // rather than a `CallExpression`, so it scored zero while the
             // same source in Java, C# and Groovy scores one (#1279).
-            CallExpression | ConstructorDelegationCall => {
+            _ if call::owns_kind(kind, node, code, ancestors)
+                || kind == ConstructorDelegationCall as u16 =>
+            {
                 stats.branches += 1.;
             }
             // `ConstructorInvocation` is the *primary*-constructor

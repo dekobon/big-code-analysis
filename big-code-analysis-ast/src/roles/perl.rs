@@ -3,7 +3,7 @@
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
 //! declared; the rest are pending the package that declares each (#1692).
 
-use crate::lang_helpers::perl::perl_and_is_operator;
+use crate::lang_helpers::perl::{perl_and_is_operator, perl_bareword_is_call};
 use crate::role_table;
 use crate::{Ancestors, Node, Perl};
 
@@ -34,10 +34,61 @@ fn applied_and<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) 
         .is_some_and(|parent| perl_and_is_operator(node, &parent))
 }
 
+/// A bareword-only call (`shift`, `time`, …) that is a call: only when
+/// this node is the outermost dispatch site — when the bareword sits
+/// inside one of the argument-bearing wrappers, the outer node is the
+/// call and this child would double it — and not an auto-quoted key
+/// (FIXME(#1571 upstream)): the grammar reads `(name => 1)`, `(-name =>
+/// 1)` and `$h{-name}` as calls of `name`, and `$h{-foo}` as a file test
+/// on a bareword `oo`, where Perl holds a string (#1545, #1572).
+/// `perl_bareword_is_call` reads both off the chain.
+fn bareword_is_call<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    perl_bareword_is_call(node, ancestors)
+}
+
 role_table! {
     lang: Perl;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // The grammar spells a call by its argument shape — six
+    // `call_expression_*` kinds — plus a method invocation. A bareword
+    // call (`foo;`) is the one spelling that is also a hash key
+    // (`{ foo => 1 }`, `-foo`) and the callee of a spaced call, which
+    // `perl_bareword_is_call` tells apart by the parent and the key
+    // position; `NArgs` asks the same question, so the two count the
+    // same calls.
+    Call {
+        owns [
+            CallExpressionWithSpacedArgs,
+            CallExpressionWithSub,
+            CallExpressionWithArgsWithBrackets,
+            CallExpressionWithVariable,
+            CallExpressionWithBareword(gated_by bareword_is_call),
+            CallExpressionRecursive,
+            MethodInvocation,
+        ]
+    }
+    // The seven quoting forms, `heredoc_body_statement` included: it
+    // wraps the body text (and any `interpolation` children) that
+    // appears as a top-level statement after the `<<TAG`, the visible
+    // literal node, treated as a string the way Bash's `heredoc_body`
+    // is (#287). An interpolating form `wraps` an `interpolation` whose
+    // scalar / array / hash variable is billed on its own (#199); the
+    // `list_item` is `qw()`'s element, one operand each (#1353), which
+    // the operand arm reads through the same `wraps` list since no
+    // string admits a `list_item` and `word_list_qw` no `interpolation`
+    // — `word_list_qw` and the pattern values are operands by the
+    // getter's reading (#1314), not strings to `find`.
+    StringLit {
+        owns [
+            StringSingleQuoted,
+            StringDoubleQuoted,
+            StringQQuoted,
+            StringQqQuoted,
+            BacktickQuoted,
+            CommandQxQuoted,
+            HeredocBodyStatement,
+        ]
+        wraps [Interpolation, ListItem]
+    }
     // tree-sitter-perl names no `operator` field, so a
     // `binary_expression` owns a comparison when one of the row's
     // payers is among its children and the projection is the lookup.

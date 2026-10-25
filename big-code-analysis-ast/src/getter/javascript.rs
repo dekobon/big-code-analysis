@@ -63,6 +63,8 @@ impl Getter for JavascriptCode {
     // newline, the static getter whose name starts the next line. It is
     // billed beside the shared `static` (#1563) so that form bills a
     // modifier rather than nothing; being one node it is one operator.
+    // role-bypass: allow(StringLit) — the operand classification of the literal
+    // alias the `StringLit` row owns, a projection the row does not answer
     impl_js_family_get_op_type!(
         Javascript,
         roles: javascript,

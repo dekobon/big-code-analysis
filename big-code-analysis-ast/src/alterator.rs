@@ -85,6 +85,23 @@ where
         AstNode::with_field_name(node.kind(), text, span, field_name, children)
     }
 
+    /// Renders `node` as one leaf holding its whole source text, children
+    /// dropped: what every string literal — the `StringLit` row's
+    /// owners, and the character literals the dump treats alike — becomes
+    /// in the dump (#699), so a raw string's delimiter and
+    /// `string_content` children, a template's `${…}` substitutions and
+    /// a heredoc's fragments all collapse into the flat text payload.
+    #[must_use]
+    fn flatten_verbatim(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+    ) -> AstNode {
+        let (text, span) = Self::get_text_span(node, code, span, true);
+        AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+    }
+
     /// Whether `node` must keep its children even though
     /// [`Self::alterate`] would flatten it into a verbatim leaf.
     ///
@@ -152,27 +169,17 @@ impl Alterator for CppCode {
         field_name: Option<&'static str>,
         mut children: Vec<AstNode>,
     ) -> AstNode {
-        match Cpp::from(node.kind_id()) {
-            // RawStringLiteral (`R"(…)"`) is flattened alongside
-            // StringLiteral/CharLiteral so the AST dump matches what
-            // `Checker::is_string` already treats as a single
-            // string-like token. Without this arm, raw strings fall
-            // through to `get_default` and render with their
-            // structured delimiter / `string_content` children
-            // — see issue #398 (peer of #391 for Rust).
-            // ConcatenatedString (`"a" "b"`) is one string-like literal
-            // that `Checker::is_string` matches; flatten it too so the
-            // dump collapses its adjacent `string_literal` children
-            // rather than diverging from `is_string` (#699).
-            // CharLiteral is operand + flattened but deliberately absent
-            // from `Checker::is_string` (a char is not a string) — the
-            // same split Rust/Go apply to their char / rune literals.
-            Cpp::StringLiteral
-            | Cpp::CharLiteral
-            | Cpp::RawStringLiteral
-            | Cpp::ConcatenatedString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Cpp::from(kind) {
+            // The `StringLit` row's literals (`roles/cpp.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699); a
+            // `char_literal` is flattened beside them and is deliberately not a
+            // string — the same split Rust and Go apply to their char / rune
+            // literals.
+            _ if crate::roles::cpp::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Cpp::CharLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             Cpp::PreprocDef | Cpp::PreprocFunctionDef | Cpp::PreprocCall => {
                 if let Some(last) = children.last()
@@ -195,25 +202,17 @@ impl Alterator for CCode {
         field_name: Option<&'static str>,
         mut children: Vec<AstNode>,
     ) -> AstNode {
-        match C::from(node.kind_id()) {
-            // RawStringLiteral (`R"(…)"`) is flattened alongside
-            // StringLiteral/CharLiteral so the AST dump matches what
-            // `Checker::is_string` already treats as a single
-            // string-like token. Without this arm, raw strings fall
-            // through to `get_default` and render with their
-            // structured delimiter / `string_content` children
-            // — see issue #398 (peer of #391 for Rust).
-            // ConcatenatedString (`"a" "b"`) is one string-like literal
-            // that `Checker::is_string` matches; flatten it too so the
-            // dump collapses its adjacent `string_literal` children
-            // rather than diverging from `is_string` (#699).
-            // CharLiteral is operand + flattened but deliberately absent
-            // from `Checker::is_string` (a char is not a string) — the
-            // same split Rust/Go apply to their char / rune literals.
-            // C has no raw string literals.
-            C::StringLiteral | C::CharLiteral | C::ConcatenatedString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match C::from(kind) {
+            // The `StringLit` row's literals (`roles/c.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699);
+            // a `char_literal` is flattened beside them and is deliberately
+            // not a string — the same split Rust and Go apply to their char /
+            // rune literals.
+            _ if crate::roles::c::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), C::CharLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             C::PreprocDef | C::PreprocFunctionDef | C::PreprocCall => {
                 if let Some(last) = children.last()
@@ -241,17 +240,18 @@ impl Alterator for ObjcCode {
         // alterator. `@"…"` is one `string_literal` whose first child
         // is the `@` token, so the `StringLiteral` arm flattens the
         // whole literal, marker included, exactly as for C.
-        match Objc::from(node.kind_id()) {
-            // CharLiteral is operand + flattened but deliberately absent
-            // from `Checker::is_string` (a char is not a string) — the
-            // same split Rust/Go apply to their char / rune literals.
-            // The C / Cpp / Mozcpp sibling arms have carried this note
-            // since #699; the ObjC clone was missing it (#1316), which
-            // is how the missing operand half stayed unnoticed here
-            // longest.
-            Objc::StringLiteral | Objc::CharLiteral | Objc::ConcatenatedString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Objc::from(kind) {
+            // The `StringLit` row's literals (`roles/objc.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699); a
+            // `char_literal` is flattened beside them and is deliberately not a
+            // string (#1316) — the same split Rust and Go apply to their char /
+            // rune literals; `@"…"` is one `string_literal` whose first child is
+            // the `@` token, flattened whole, marker included.
+            _ if crate::roles::objc::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Objc::CharLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             Objc::PreprocDef | Objc::PreprocFunctionDef | Objc::PreprocCall => {
                 if let Some(last) = children.last()
@@ -274,27 +274,17 @@ impl Alterator for MozcppCode {
         field_name: Option<&'static str>,
         mut children: Vec<AstNode>,
     ) -> AstNode {
-        match Mozcpp::from(node.kind_id()) {
-            // RawStringLiteral (`R"(…)"`) is flattened alongside
-            // StringLiteral/CharLiteral so the AST dump matches what
-            // `Checker::is_string` already treats as a single
-            // string-like token. Without this arm, raw strings fall
-            // through to `get_default` and render with their
-            // structured delimiter / `string_content` children
-            // — see issue #398 (peer of #391 for Rust).
-            // ConcatenatedString (`"a" "b"`) is one string-like literal
-            // that `Checker::is_string` matches; flatten it too so the
-            // dump collapses its adjacent `string_literal` children
-            // rather than diverging from `is_string` (#699).
-            // CharLiteral is operand + flattened but deliberately absent
-            // from `Checker::is_string` (a char is not a string) — the
-            // same split Rust/Go apply to their char / rune literals.
-            Mozcpp::StringLiteral
-            | Mozcpp::CharLiteral
-            | Mozcpp::RawStringLiteral
-            | Mozcpp::ConcatenatedString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Mozcpp::from(kind) {
+            // The `StringLit` row's literals (`roles/mozcpp.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699); a `char_literal` is flattened beside them and is
+            // deliberately not a string — the same split Rust and Go apply to
+            // their char / rune literals.
+            _ if crate::roles::mozcpp::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Mozcpp::CharLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             Mozcpp::PreprocDef | Mozcpp::PreprocFunctionDef | Mozcpp::PreprocCall => {
                 if let Some(last) = children.last()
@@ -317,16 +307,13 @@ impl Alterator for PythonCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Python::from(node.kind_id()) {
-            // `String` (covers f-strings, whose `{…}` interpolations are
-            // collapsed into the flat text payload — same convention as
-            // PHP `EncapsedString` / Ruby interpolated strings / C#
-            // `InterpolatedStringExpression`) and `ConcatenatedString`
-            // (`"a" "b"`) are the kinds `Checker::is_string` matches;
-            // flatten both so the dump agrees with `is_string` (#699).
-            Python::String | Python::ConcatenatedString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Python::from(kind) {
+            // The `StringLit` row's literals (`roles/python.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699).
+            _ if crate::roles::python::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -341,14 +328,12 @@ impl Alterator for JavaCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Java::from(node.kind_id()) {
-            // `StringLiteral` and `MultilineStringLiteral` (text blocks,
-            // `"""…"""`) are the kinds `Checker::is_string` matches;
-            // flatten both so the dump collapses their `string_fragment`
-            // children rather than diverging from `is_string` (#699).
-            Java::StringLiteral | Java::MultilineStringLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Java::from(kind) {
+            // The `StringLit` row's literals (`roles/java.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::java::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -363,14 +348,13 @@ impl Alterator for KotlinCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Kotlin::from(node.kind_id()) {
-            // `StringLiteral` (whose `${…}` interpolations are collapsed
-            // into the flat text payload) and `MultilineStringLiteral`
-            // (`"""…"""`) are the kinds `Checker::is_string` matches;
-            // flatten both so the dump agrees with `is_string` (#699).
-            Kotlin::StringLiteral | Kotlin::MultilineStringLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Kotlin::from(kind) {
+            // The `StringLit` row's literals (`roles/kotlin.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699).
+            _ if crate::roles::kotlin::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -385,14 +369,16 @@ impl Alterator for CsharpCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Csharp::from(node.kind_id()) {
-            Csharp::StringLiteral
-            | Csharp::VerbatimStringLiteral
-            | Csharp::RawStringLiteral
-            | Csharp::InterpolatedStringExpression
-            | Csharp::CharacterLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Csharp::from(kind) {
+            // The `StringLit` row's literals (`roles/csharp.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699); a `character_literal` is flattened beside them and is not
+            // a string.
+            _ if crate::roles::csharp::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Csharp::CharacterLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -407,10 +393,15 @@ impl Alterator for GoCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Go::from(node.kind_id()) {
-            Go::InterpretedStringLiteral | Go::RawStringLiteral | Go::RuneLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Go::from(kind) {
+            // The `StringLit` row's literals (`roles/go.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699); a
+            // `rune_literal` is flattened beside them and is not a string.
+            _ if crate::roles::go::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Go::RuneLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -425,10 +416,12 @@ impl Alterator for LuaCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Lua::from(node.kind_id()) {
-            Lua::String => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Lua::from(kind) {
+            // The `StringLit` row's literals (`roles/lua.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::lua::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -443,19 +436,12 @@ impl Alterator for MozjsCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Mozjs::from(node.kind_id()) {
-            // `String`/`String2` (the anonymous keyword alias) and
-            // `TemplateString` are the kinds `Checker::is_string`
-            // matches. `TemplateString` may carry `${…}` interpolation
-            // children; collapsing them into the flat text payload here
-            // is intentional, matching the dump convention for other
-            // interpolating string literals (PHP `EncapsedString`, Ruby,
-            // C# `InterpolatedStringExpression`). Flatten all three so the
-            // dump agrees with `is_string` (#699; before this the comment
-            // claimed `TemplateString` flattening the arm did not do).
-            Mozjs::String | Mozjs::String2 | Mozjs::TemplateString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Mozjs::from(kind) {
+            // The `StringLit` row's literals (`roles/mozjs.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::mozjs::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -470,13 +456,13 @@ impl Alterator for JavascriptCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Javascript::from(node.kind_id()) {
-            // `TemplateString` joins `String`/`String2` so the dump
-            // matches `Checker::is_string`; its `${…}` interpolations
-            // collapse into the flat text payload (#699).
-            Javascript::String | Javascript::String2 | Javascript::TemplateString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Javascript::from(kind) {
+            // The `StringLit` row's literals (`roles/javascript.rs`, #1698)
+            // render as one verbatim leaf, so the dump agrees with `find string`
+            // (#699).
+            _ if crate::roles::javascript::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -491,15 +477,13 @@ impl Alterator for TypescriptCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Typescript::from(node.kind_id()) {
-            // `TemplateString` joins `String` so the dump matches
-            // `Checker::is_string`; its `${…}` interpolations collapse
-            // into the flat text payload (#699). TS's `String2` (the
-            // `: string` type keyword, a childless leaf for which this
-            // arm is a no-op anyway) left the string set with #1261.
-            Typescript::String | Typescript::TemplateString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Typescript::from(kind) {
+            // The `StringLit` row's literals (`roles/typescript.rs`, #1698)
+            // render as one verbatim leaf, so the dump agrees with `find string`
+            // (#699).
+            _ if crate::roles::typescript::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -514,16 +498,12 @@ impl Alterator for TsxCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Tsx::from(node.kind_id()) {
-            // `TemplateString` joins `String`/`String2` (the
-            // string-literal alias) so the dump matches
-            // `Checker::is_string`; its `${…}` interpolations collapse
-            // into the flat text payload (#699). `String3` (the
-            // `: string` type keyword, a childless leaf for which this
-            // arm is a no-op anyway) left the string set with #1261.
-            Tsx::String | Tsx::String2 | Tsx::TemplateString => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Tsx::from(kind) {
+            // The `StringLit` row's literals (`roles/tsx.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::tsx::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -538,18 +518,16 @@ impl Alterator for RustCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Rust::from(node.kind_id()) {
-            // RawStringLiteral (`r#"…"#`) is flattened alongside
-            // StringLiteral/CharLiteral so the AST dump matches what
-            // `Checker::is_string` and `Getter::get_op_type` already
-            // treat as a single string-like token. Without this arm,
-            // raw strings fall through to `get_default` and render
-            // with their structured `_raw_string_literal_start` /
-            // `string_content` / `_raw_string_literal_end` children
-            // — see issue #391.
-            Rust::StringLiteral | Rust::RawStringLiteral | Rust::CharLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Rust::from(kind) {
+            // The `StringLit` row's literals (`roles/rust.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699); a
+            // `char_literal` is flattened beside them and is not a string
+            // (#391).
+            _ if crate::roles::rust::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Rust::CharLiteral) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -564,22 +542,12 @@ impl Alterator for PerlCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Perl::from(node.kind_id()) {
-            // `HeredocBodyStatement` (`<<TAG … TAG`) is the kind
-            // `Checker::is_string` matches for heredoc bodies; flatten it
-            // so its `Interpolation` children collapse into the flat text
-            // payload rather than diverging from `is_string` (#761, the
-            // gap #699 missed — same convention as Ruby `heredoc_body` /
-            // PHP `heredoc`/`nowdoc`).
-            Perl::StringSingleQuoted
-            | Perl::StringDoubleQuoted
-            | Perl::StringQQuoted
-            | Perl::StringQqQuoted
-            | Perl::BacktickQuoted
-            | Perl::CommandQxQuoted
-            | Perl::HeredocBodyStatement => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Perl::from(kind) {
+            // The `StringLit` row's literals (`roles/perl.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::perl::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -594,20 +562,12 @@ impl Alterator for BashCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Bash::from(node.kind_id()) {
-            // `HeredocBody2` (`<<EOF … EOF`, kind `heredoc_body`) is the
-            // kind `Checker::is_string` matches for heredoc bodies; flatten
-            // it so its interpolation / fragment children collapse into the
-            // flat text payload rather than diverging from `is_string`
-            // (#761, the gap #699 missed — same convention as Ruby
-            // `heredoc_body` / PHP `heredoc`/`nowdoc`).
-            Bash::String
-            | Bash::RawString
-            | Bash::AnsiCString
-            | Bash::TranslatedString
-            | Bash::HeredocBody2 => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Bash::from(kind) {
+            // The `StringLit` row's literals (`roles/bash.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::bash::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -622,18 +582,16 @@ impl Alterator for TclCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Tcl::from(node.kind_id()) {
-            // Preserve string literals verbatim to avoid whitespace trimming.
-            // `BracedWord` is listed for the braced *value* of
-            // `lappend x {a b}` — Tcl evaluates nothing between its
-            // braces, so the value is its whole span. The same kind is
-            // also every script body, which must keep its children;
-            // `keeps_children` below vetoes this arm for those, because
-            // only the enclosing command separates the two roles and
-            // that question needs the ancestor chain (#1381).
-            Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Tcl::from(kind) {
+            // The `StringLit` row's literals (`roles/tcl.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699);
+            // the row gates `braced_word` on being a literal, which needs the
+            // chain `alterate` does not carry; this reads the kind table, gates
+            // aside, and `keeps_children` below vetoes the script bodies
+            // (#1381).
+            _ if crate::roles::tcl::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -652,16 +610,15 @@ impl Alterator for IrulesCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Irules::from(node.kind_id()) {
-            // Preserve string literals verbatim to avoid whitespace trimming.
-            // The twin of the Tcl arm above, `keeps_children` veto and
-            // all. It matters more here: a `when` handler's body is the
-            // whole of a typical iRules file, so flattening every one of
-            // them left the dump with a single leaf per handler and no
-            // structure at all (#1381).
-            Irules::QuotedWord | Irules::BracedWord | Irules::BracedWordSimple => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Irules::from(kind) {
+            // The `StringLit` row's literals (`roles/irules.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699); the twin of the Tcl arm, `keeps_children` veto and all — a
+            // `when` handler's body is the whole of a typical iRules file
+            // (#1381).
+            _ if crate::roles::irules::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -680,33 +637,21 @@ impl Alterator for PhpCode {
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> AstNode {
-        match Php::from(node.kind_id()) {
-            // `String`/`String2`/`String3` are all aliased kind_ids
-            // that the enum maps to `"string"`; flatten every alias to
-            // preserve source text (#288, same pattern as #119 for
-            // JS/TS).
-            //
-            // This is a dump-shape contract, not an `is_string` mirror:
-            // #1474 withdrew `String2` (the `string` *type* keyword)
-            // from `Checker::is_string` and #1293 suppressed it in
-            // `Getter::get_op_type`, while it stays listed here. Both
-            // are right — the question this arm answers is "does the
-            // dump keep this node's source text", and the keyword is a
-            // childless leaf, so listing it is a no-op versus
-            // `get_default` (pinned by the test below). Deleting it
-            // would be grammar-dispatch §6's narrow-by-deletion: a
-            // grammar revision that gave the alias children would then
-            // silently start splitting text this arm exists to keep
-            // whole.
-            Php::String
-            | Php::String2
-            | Php::String3
-            | Php::EncapsedString
-            | Php::Heredoc
-            | Php::Nowdoc
-            | Php::ShellCommandExpression => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Php::from(kind) {
+            // The `StringLit` row's literals (`roles/php.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699);
+            // `String2`, the `string` *type* keyword the row `excludes`, stays
+            // here: this is a dump-shape contract, not an `is_string` mirror
+            // (#1474, #1293), the keyword is a childless leaf so listing it is a
+            // no-op versus `get_default` (pinned by the test below), and
+            // deleting it would be grammar-dispatch §6's narrow-by-deletion — a
+            // grammar revision that gave the alias children would then silently
+            // start splitting text this arm exists to keep whole.
+            _ if crate::roles::php::string_lit::OWNERS.contains(&kind)
+                || matches!(kind.into(), Php::String2) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -725,20 +670,12 @@ impl Alterator for RubyCode {
         // chained strings, heredocs, regexes, subshells, symbol arrays,
         // delimited/simple symbols, character literals). Interpolation
         // children are intentionally collapsed into the flat text payload.
-        match Ruby::from(node.kind_id()) {
-            Ruby::String
-            | Ruby::ChainedString
-            | Ruby::BareString
-            | Ruby::Subshell
-            | Ruby::Regex
-            | Ruby::HeredocBody
-            | Ruby::StringArray
-            | Ruby::SymbolArray
-            | Ruby::DelimitedSymbol
-            | Ruby::SimpleSymbol
-            | Ruby::Character => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Ruby::from(kind) {
+            // The `StringLit` row's literals (`roles/ruby.rs`, #1698) render as
+            // one verbatim leaf, so the dump agrees with `find string` (#699).
+            _ if crate::roles::ruby::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -757,10 +694,13 @@ impl Alterator for ElixirCode {
         // quoted) and `Sigil` (`~r/.../`, `~w[...]`, etc.) are treated
         // alongside ordinary strings so report output never trims their
         // bodies.
-        match Elixir::from(node.kind_id()) {
-            Elixir::String | Elixir::Charlist | Elixir::Sigil => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Elixir::from(kind) {
+            // The `StringLit` row's literals (`roles/elixir.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699).
+            _ if crate::roles::elixir::string_lit::OWNERS.contains(&kind) => {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -781,15 +721,25 @@ impl Alterator for GroovyCode {
         // applied inside different string contexts (single/double-quoted,
         // triple-quoted, slashy, dollar-slashy); each one carries body
         // text we must not collapse.
-        match Groovy::from(node.kind_id()) {
-            Groovy::StringLiteral
-            | Groovy::StringFragment
-            | Groovy::StringFragment2
-            | Groovy::StringFragment3
-            | Groovy::StringFragment4
-            | Groovy::StringFragment5 => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+        let kind = node.kind_id();
+        match Groovy::from(kind) {
+            // The `StringLit` row's literals (`roles/groovy.rs`, #1698) render
+            // as one verbatim leaf, so the dump agrees with `find string`
+            // (#699); the `string_fragment*` aliases — the same rule applied
+            // inside the single / double-quoted, triple-quoted, slashy and
+            // dollar-slashy contexts — carry body text the dump keeps verbatim
+            // too.
+            _ if crate::roles::groovy::string_lit::OWNERS.contains(&kind)
+                || matches!(
+                    kind.into(),
+                    Groovy::StringFragment
+                        | Groovy::StringFragment2
+                        | Groovy::StringFragment3
+                        | Groovy::StringFragment4
+                        | Groovy::StringFragment5
+                ) =>
+            {
+                Self::flatten_verbatim(node, code, span, field_name)
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
@@ -835,6 +785,7 @@ mod tests {
     /// recursively walking the tree.
     #[cfg(any(
         feature = "bash",
+        feature = "c",
         feature = "cpp",
         feature = "go",
         feature = "groovy",
@@ -860,6 +811,7 @@ mod tests {
     /// Builds an AST from source code using the given parser type.
     #[cfg(any(
         feature = "bash",
+        feature = "c",
         feature = "cpp",
         feature = "go",
         feature = "groovy",
@@ -1169,6 +1121,7 @@ mod tests {
     /// Shared by the #699 per-language string-flattening regressions.
     #[cfg(any(
         feature = "bash",
+        feature = "c",
         feature = "cpp",
         feature = "go",
         feature = "java",
@@ -1253,6 +1206,19 @@ mod tests {
         let code = br#"const char* s = "a" "b";"#;
         let root = build_ast::<crate::CppParser>(code, "test.cpp");
         assert_kind_flattened(&root, "concatenated_string");
+    }
+
+    /// C's string flattening reads the `StringLit` row (#1698); it had
+    /// no test of its own — the C++ ones covered the C++ arm only — so
+    /// severing it from the row failed nothing until this.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_string_and_concatenated_string_flattened() {
+        let code = br#"const char *s = "a" "b"; const char *t = "c"; char ch = 'x';"#;
+        let root = build_ast::<crate::CParser>(code, "test.c");
+        assert_kind_flattened(&root, "concatenated_string");
+        assert_kind_flattened(&root, "string_literal");
+        assert_kind_flattened(&root, "char_literal");
     }
 
     #[cfg(feature = "python")]

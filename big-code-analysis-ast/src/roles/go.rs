@@ -8,8 +8,10 @@ use crate::role_table;
 
 role_table! {
     lang: Go;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    Call { owns [CallExpression] }
+    // A `rune_literal` is not a string, though the dump flattens it
+    // beside the two.
+    StringLit { owns [InterpretedStringLiteral, RawStringLiteral] }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so the owner is gated on the
     // field. `<` / `>` are gated to that parent — a type-parameter list

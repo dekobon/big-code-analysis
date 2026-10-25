@@ -97,19 +97,15 @@ impl Checker for ObjcCode {
         crate::roles::objc::closure::owns(node, &[], ancestors)
     }
 
-    // A C `call_expression` (aliased to `CallExpression2`) or an ObjC
-    // message send `[receiver method]` are both calls.
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Objc::CallExpression | Objc::CallExpression2 | Objc::MessageExpression
-        )
-    }
-
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.
     fn is_empty_param_marker(param: &Node, code: &[u8]) -> bool {
         c_family_void_parameter(param, code)
     }
+
+    // `Call` and `StringLit` are the rows of `roles/objc.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(objc);
+    impl_string_lit_row!(objc);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -117,10 +113,6 @@ impl Checker for ObjcCode {
             Objc::LPAREN | Objc::LPAREN2 | Objc::COMMA | Objc::RPAREN
         )
     }
-
-    // ObjC has no raw string literals; `@"…"` parses as `AT` + a plain
-    // `string_literal`, so the same string kinds as C apply.
-    impl_simple_is_string!(Objc, StringLiteral, ConcatenatedString);
 
     impl_is_else_if_parent_clause!(Objc, IfStatement, ElseClause);
 

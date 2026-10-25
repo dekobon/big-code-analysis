@@ -92,6 +92,8 @@ impl Getter for PythonCode {
                 Some(Notin | Isnot) => TokenRole::Unknown,
                 _ => TokenRole::Operator,
             },
+            // role-bypass: allow(Exit) — the operator classification of the `yield`
+            // expression the row owns as an exit, a projection the row does not answer
             Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return
             | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
             | While | Try | Except | Finally | With | DASHGT | Global | Nonlocal | Exec
@@ -118,6 +120,8 @@ impl Getter for PythonCode {
                 TokenRole::Operator
             }
             Identifier | Integer | Float | True | False | None => TokenRole::Operand,
+            // role-bypass: allow(StringLit) — the operand classification of the literal
+            // under the row's `wraps` list, a projection the row does not answer
             String => {
                 // A bare string statement's string — its sole value, or a
                 // fragment of an implicitly concatenated one — is discarded,
@@ -133,7 +137,7 @@ impl Getter for PythonCode {
                 // whose inner expressions are walked and counted separately.
                 // Skip the wrapping literal to avoid double-counting (same
                 // pattern as #180 for Bash/Elixir and #184 for PHP).
-                Self::string_operand_type(node, &[Interpolation as u16])
+                Self::string_operand_type(node, crate::roles::python::string_lit::WRAPS)
             }
             _ => TokenRole::Unknown,
         }

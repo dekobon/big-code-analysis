@@ -108,8 +108,13 @@ fn class_or_interface<'a>(
 
 role_table! {
     lang: Kotlin;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // A `callable_reference` (`::f`) names a function and calls nothing.
+    Call { owns [CallExpression] }
+    // Both literal kinds `wraps` the long `${expr}` interpolation; the
+    // short `$name` form has no node of its own — it is adjacent `$` and
+    // `string_content` tokens the operand arm reads by bytes (#454) —
+    // so the row cannot name it and the getter keeps that half.
+    StringLit { owns [StringLiteral, MultilineStringLiteral] wraps [Interpolation] }
     // A `binary_expression` owns a comparison through its `operator`
     // field, with `<` / `>` gated to that parent; the type test
     // `is_expression` and the membership test `in_expression` own

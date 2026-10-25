@@ -248,7 +248,9 @@ macro_rules! js_family_abc_compute {
             ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
-            use crate::roles::$roles::{case_arm, comparison, null_safe, short_circuit, ternary};
+            use crate::roles::$roles::{
+                call, case_arm, comparison, null_safe, short_circuit, ternary,
+            };
             use $lang::*;
 
             let scores: ScoresItself = js_family_scores_itself!($roles, code);
@@ -266,10 +268,12 @@ macro_rules! js_family_abc_compute {
                 EQ if !$const_binding(node, ancestors) => {
                     stats.assignments += 1.;
                 }
-                // Function invocation and object construction count as
-                // branches. Member calls and chained calls all surface
-                // as `CallExpression`.
-                CallExpression | NewExpression => {
+                // Function invocation — the `Call` row, under which member
+                // and chained calls all surface — and object construction
+                // count as branches.
+                _ if call::owns_kind(kind, node, code, ancestors)
+                    || kind == NewExpression as u16 =>
+                {
                     stats.branches += 1.;
                 }
                 // `??`, `else`, `case`, `catch`, `try`; the comparison

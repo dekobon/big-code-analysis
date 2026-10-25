@@ -5,7 +5,10 @@
 
 use crate::lang_helpers::case_arms::tcl_command_is_switch_arm;
 use crate::role_table;
-use crate::roles::tcl_family::{tcl_family_comparison_payers, tcl_family_short_circuit_payers};
+use crate::roles::tcl_family::{
+    tcl_family_comparison_payers, tcl_family_short_circuit_payers, tcl_family_string_gates,
+    tcl_family_strings,
+};
 use crate::{Ancestors, Node, Tcl};
 
 /// Whether a `command` is a decision arm of a brace-list `switch` — a
@@ -17,10 +20,20 @@ fn is_switch_arm<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>)
     tcl_command_is_switch_arm(node, code, ancestors)
 }
 
+tcl_family_string_gates!(Tcl, TclCode, crate::lang_helpers::tcl::BRACED_WORD_KINDS);
+
 role_table! {
     lang: Tcl;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Every command is a call. The `CaseArm` row claims the same kind
+    // for the `switch` arms a `command` can also be, told by position
+    // and text.
+    Call { owns [Command] }
+    // The three word kinds (`roles/tcl_family.rs`), the braced word
+    // gated on being a literal rather than a script body (#1381).
+    StringLit {
+        owns [..tcl_family_strings!()]
+        wraps [VariableSubstitution, CommandSubstitution]
+    }
     // A `binop_expr` names no operator field; its operator is one token
     // among its children, so each row's owner is gated on holding one
     // of the row's payers, and `project` — the first payer child — is

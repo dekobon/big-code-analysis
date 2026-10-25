@@ -298,13 +298,13 @@ impl Exit for GoCode {
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        if matches!(node.kind_id().into(), Go::ReturnStatement) {
-            stats.exit += 1;
-        } else if node.kind_id() == Go::CallExpression
-            && let Some(function) = node.child_by_field_name("function")
-            && function.kind_id() == Go::Identifier
-            && function.utf8_text(code) == Some("panic")
-        {
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
+        let panics = node.kind_id() == Go::CallExpression
+            && node.child_by_field_name("function").is_some_and(|f| {
+                f.kind_id() == Go::Identifier && f.utf8_text(code) == Some("panic")
+            });
+        if matches!(node.kind_id().into(), Go::ReturnStatement) || panics {
             stats.exit += 1;
         }
     }
@@ -348,6 +348,8 @@ impl Exit for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
         let is_abrupt_exit_builtin = node.kind_id() == Perl::CallExpressionWithBareword
             && matches!(
                 node.utf8_text(code),
@@ -391,12 +393,13 @@ impl Exit for LuaCode {
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        if node.kind_id() == Lua::ReturnStatement {
-            stats.exit += 1;
-        } else if node.kind_id() == Lua::FunctionCall
-            && let Some(name) = node.child_by_field_name("name")
-            && matches!(name.utf8_text(code), Some("error" | "os.exit"))
-        {
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
+        let aborts = node.kind_id() == Lua::FunctionCall
+            && node
+                .child_by_field_name("name")
+                .is_some_and(|name| matches!(name.utf8_text(code), Some("error" | "os.exit")));
+        if node.kind_id() == Lua::ReturnStatement || aborts {
             stats.exit += 1;
         }
     }
@@ -413,6 +416,8 @@ impl Exit for BashCode {
         // ordinary builtins parsed as `Bash::Command` whose `name` field
         // points at a `Bash::CommandName`. Identify them by comparing the
         // command-name text against the literal builtins.
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
         if matches!(node.kind_id().into(), Bash::Command)
             && let Some(name) = node.child_by_field_name("name")
             && matches!(name.utf8_text(code), Some("return" | "exit"))
@@ -479,6 +484,8 @@ impl Exit for IrulesCode {
         // is `return` through the global namespace. This walker resolves
         // the name itself rather than through that helper, so the strip
         // has to be repeated here (#1381 review).
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
         if node.kind_id() == Irules::Command
             && let Some(name) = node.child_by_field_name("name")
             && matches!(
@@ -589,6 +596,8 @@ impl Exit for ElixirCode {
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
+        // callee's text; not whether the node is a call
         if node.kind_id() == Elixir::Call
             && let Some(target) = node.child_by_field_name("target")
             && target.kind_id() == Elixir::Identifier

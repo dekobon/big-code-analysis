@@ -8,15 +8,21 @@ use crate::role_table;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
     js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
-    js_family_short_circuit_payers,
+    js_family_short_circuit_payers, js_family_strings,
 };
 
 js_family_binding_gates!(Javascript, JavascriptCode, FieldDefinition);
 
 role_table! {
     lang: Javascript;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Two `call_expression` ids at the pin; the second is the alias a
+    // decorator call takes, never emitted (probed with `bca dump` over
+    // `@dec(1)`), and listed defensively (grammar-dispatch §1).
+    Call { owns [CallExpression, CallExpression2] }
+    // `String2` (kind id 221) is JS's anonymous string-*literal* alias
+    // (e.g. the module string in `import "m"`), a string alongside
+    // `String` (#283).
+    StringLit { owns [..js_family_strings!(), String2] wraps [TemplateSubstitution] }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so each row's owner holds its
     // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s

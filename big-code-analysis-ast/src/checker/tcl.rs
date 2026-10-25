@@ -2,7 +2,6 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::tcl::BRACED_WORD_KINDS;
 
 impl Checker for TclCode {
     fn is_comment(node: &Node) -> bool {
@@ -34,38 +33,14 @@ impl Checker for TclCode {
         false
     }
 
-    // role-bypass: allow(CaseArm) — every command is a call; the row claims the kind for the
-    // `switch` arms a `command` can also be, told by position and text
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Tcl::Command
-    }
+    // `Call` and `StringLit` are the rows of `roles/tcl.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(tcl);
+    impl_string_lit_row!(tcl);
 
     // Tcl arguments are whitespace-separated; no punctuation to exclude.
     fn is_non_arg(_: &Node) -> bool {
         false
-    }
-
-    // `BracedWord` is listed because it *is* the literal of
-    // `lappend x {a b}` — the grammar reserves `BracedWordSimple` for the
-    // handful of commands it models (`set`, `foreach`, `regexp`, …) and
-    // spells every other command's braced argument `BracedWord`. The same
-    // kind is also the `proc` / `if` body, which this table cannot
-    // exclude; `is_string_with_code` below does, and is what the walk
-    // calls.
-    impl_simple_is_string!(Tcl, QuotedWord, BracedWord, BracedWordSimple);
-
-    // The half of the rule that needs the source bytes (#1381), the twin
-    // of `TclCode::get_op_type_with_code`. Since #1382 both call the same
-    // `Getter::is_braced_script_word` over one kinds table rather than two
-    // copies of the reasoning (grammar-dispatch §7), so the value slots
-    // `is_braced_literal_slot` names (`proc {my proc}`,
-    // `namespace export {…}`) are a literal to both. They part company in
-    // one known place: Halstead's *operand* half keys on whether a body
-    // holds a command, so an empty or comment-only `proc` body is an
-    // operand there and not a string here.
-    fn is_string_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        Self::is_string(node)
-            && !<Self as Getter>::is_braced_script_word(node, code, ancestors, &BRACED_WORD_KINDS)
     }
 
     // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.

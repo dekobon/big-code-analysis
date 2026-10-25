@@ -155,9 +155,10 @@ impl Checker for RustCode {
         crate::roles::rust::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Rust::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/rust.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(rust);
+    impl_string_lit_row!(rust);
 
     fn is_non_arg(node: &Node) -> bool {
         // A *typed* receiver (`self: Box<Self>`, `self: Rc<Self>`,
@@ -185,8 +186,6 @@ impl Checker for RustCode {
                 | Rust::SelfParameter
         ) || is_typed_self_receiver
     }
-
-    impl_simple_is_string!(Rust, StringLiteral, RawStringLiteral);
 
     // Rust models `else if` as a nested `if_expression` (not an
     // `if_statement`) sitting directly inside the `else_clause`.

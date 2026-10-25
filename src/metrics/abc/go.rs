@@ -46,6 +46,8 @@ fn go_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 fn go_is_bool_operand(node: &Node) -> bool {
     use Go as G;
 
+    // role-bypass: allow(Call) — a call is a leaf a boolean slot can hold, read
+    // for the slot's operand; not whether the node is a call
     matches!(node.kind_id().into(), go_bool_terminal_kinds!())
         || (node.kind_id() == G::UnaryExpression
             && node
@@ -234,7 +236,7 @@ impl Abc for GoCode {
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
         use Go as G;
 
-        use crate::roles::go::{case_arm, comparison, short_circuit};
+        use crate::roles::go::{call, case_arm, comparison, short_circuit};
 
         let kind = node.kind_id();
         match kind.into() {
@@ -259,11 +261,11 @@ impl Abc for GoCode {
             G::VarSpec if node.child_by_field_name("value").is_some() => {
                 stats.assignments += 1.;
             }
-            // Every call expression — including method calls
-            // (`r.Method()` parses as `call_expression` whose callee is
-            // a `selector_expression`) — contributes one branch.
-            // Composite literals (`Point{X: 1}`) are NOT calls.
-            G::CallExpression => {
+            // Every call — the `Call` row, which folds method calls in
+            // (`r.Method()` parses as `call_expression` whose callee is a
+            // `selector_expression`) — contributes one branch. Composite
+            // literals (`Point{X: 1}`) are NOT calls.
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             G::Else => {

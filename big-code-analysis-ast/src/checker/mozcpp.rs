@@ -68,22 +68,15 @@ impl Checker for MozcppCode {
         ancestors.parent_has_kind(node, Mozcpp::FriendDeclaration as u16)
     }
 
-    // See `CCode::is_call` (#1254). The Mozilla fork inherits upstream
-    // C++'s always-aliased `preproc_call_expression`, so the unsuffixed
-    // variant never reaches `kind_id()` here either. Kept listed
-    // defensively; `new_expression` deliberately not listed, with the same
-    // scope and the same functional-style caveat as `CppCode::is_call`.
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Mozcpp::CallExpression | Mozcpp::CallExpression2
-        )
-    }
-
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.
     fn is_empty_param_marker(param: &Node, code: &[u8]) -> bool {
         c_family_void_parameter(param, code)
     }
+
+    // `Call` and `StringLit` are the rows of `roles/mozcpp.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(mozcpp);
+    impl_string_lit_row!(mozcpp);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -91,8 +84,6 @@ impl Checker for MozcppCode {
             Mozcpp::LPAREN | Mozcpp::LPAREN2 | Mozcpp::COMMA | Mozcpp::RPAREN
         )
     }
-
-    impl_simple_is_string!(Mozcpp, StringLiteral, ConcatenatedString, RawStringLiteral);
 
     impl_is_else_if_parent_clause!(Mozcpp, IfStatement, ElseClause);
 

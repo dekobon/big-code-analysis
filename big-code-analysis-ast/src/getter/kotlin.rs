@@ -108,14 +108,14 @@ fn kotlin_short_interp_operand_bytes<'a>(node: &Node, code: &'a [u8]) -> &'a [u8
 /// either case so the inner expression is the only counted operand
 /// (#454).
 fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
-    use Kotlin::Interpolation;
-
-    // The scan already holds each child's predecessor, so the short-form
-    // test gets it for free rather than through the `O(depth)`
-    // `Node::previous_sibling` (#1096).
+    // The long form is the `StringLit` row's `wraps` list; the short
+    // form has no node of its own, so the row cannot name it and this
+    // reads the bytes. The scan already holds each child's predecessor,
+    // so the short-form test gets it for free rather than through the
+    // `O(depth)` `Node::previous_sibling` (#1096).
     let mut previous = None;
     node.children().any(|child| {
-        let found = child.kind_id() == Interpolation as u16
+        let found = crate::roles::kotlin::string_lit::WRAPS.contains(&child.kind_id())
             || kotlin_is_short_interp_name(&child, previous, code);
         previous = Some(child);
         found
@@ -295,8 +295,10 @@ impl Getter for KotlinCode {
             // literal `$5`, so it is handled in `get_op_type_with_code`;
             // this byte-less arm sees only the long form. Both single-
             // line and multi-line (triple-quoted) literals interpolate.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             StringLiteral | MultilineStringLiteral => {
-                Self::string_operand_type(node, &[Interpolation as u16])
+                Self::string_operand_type(node, crate::roles::kotlin::string_lit::WRAPS)
             }
             _ => TokenRole::Unknown,
         }
@@ -330,6 +332,8 @@ impl Getter for KotlinCode {
             // either form (long `${expr}` or short `$name`); the inner
             // expression / recovered variable is the only operand. A
             // plain literal has no interpolation and stays one operand.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             StringLiteral | MultilineStringLiteral => {
                 if kotlin_string_has_interp(node, code) {
                     TokenRole::Unknown

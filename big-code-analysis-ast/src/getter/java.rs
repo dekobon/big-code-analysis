@@ -175,6 +175,8 @@ impl Getter for JavaCode {
             // interpolation set is the `StringLit` row's `wraps` list,
             // spelled once in `roles/java.rs`. A plain literal has no
             // such child and stays one operand.
+            // role-bypass: allow(StringLit) — the operand classification of the literal
+            // under the row's `wraps` list, a projection the row does not answer
             StringLiteral => {
                 Self::string_operand_type(node, crate::roles::java::string_lit::WRAPS)
             }

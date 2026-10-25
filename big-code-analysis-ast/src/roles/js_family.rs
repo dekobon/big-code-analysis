@@ -187,8 +187,21 @@ macro_rules! js_family_binding_gates {
     };
 }
 
+/// The string literal every JS grammar has (#1698): `String` and the
+/// template literal, which `wraps` a `template_substitution` — the
+/// `${…}` whose inner expression is walked and billed on its own, so
+/// the wrapper yields no operand of its own (#192, the #420 skip). Each
+/// dialect adds or excludes its own `"string"` alias beside this: the
+/// four grammars give that kind string to different things.
+macro_rules! js_family_strings {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)* String, TemplateString,] $($rest)*);
+    };
+}
+
 pub(crate) use {
     js_family_binding_gates, js_family_closures, js_family_containers, js_family_func_openers,
+    js_family_strings,
 };
 
 /// The two gates TypeScript's and TSX's keyword rows share, emitted per

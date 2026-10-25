@@ -11,7 +11,7 @@
 
 use super::{Abc, Stats};
 use crate::lang_helpers::bash::bash_test_eq_count;
-use crate::roles::bash::{case_arm, comparison, ternary};
+use crate::roles::bash::{call, case_arm, comparison, ternary};
 use crate::*;
 
 impl Abc for BashCode {
@@ -30,10 +30,10 @@ impl Abc for BashCode {
             Bash::VariableAssignment | Bash::VariableAssignment2 => {
                 stats.assignments += 1.;
             }
-            // Every command invocation is a branch in the ABC sense
-            // (function-call / message-pass). `return` and `exit` builtins
-            // are also `Bash::Command` nodes and count here too.
-            Bash::Command => {
+            // Every command invocation — the `Call` row — is a branch in
+            // the ABC sense (function-call / message-pass). `return` and
+            // `exit` builtins are also `command` nodes and count here too.
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
             // Control-flow branches (`if`/`elif`/`while`). A Bash predicate

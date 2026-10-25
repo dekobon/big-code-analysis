@@ -234,13 +234,11 @@ impl Getter for GroovyCode {
             // the short `$name` / `$obj.field` form
             // (`gstring_dollar_interpolation`). A plain non-interpolated
             // literal has neither child and stays a single operand.
-            StringLiteral => Self::string_operand_type(
-                node,
-                &[
-                    GstringBraceInterpolation as u16,
-                    GstringDollarInterpolation as u16,
-                ],
-            ),
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
+            StringLiteral => {
+                Self::string_operand_type(node, crate::roles::groovy::string_lit::WRAPS)
+            }
 
             _ => TokenRole::Unknown,
         }

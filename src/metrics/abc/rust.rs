@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, last_operand, rows_own, wrapped_operand,
 };
-use crate::roles::rust::{case_arm, comparison, guard, short_circuit};
+use crate::roles::rust::{call, case_arm, comparison, guard, short_circuit};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis holds one
@@ -220,7 +220,7 @@ impl Abc for RustCode {
             // contributes one branch. Macro invocations parse as
             // `macro_invocation`, NOT `call_expression`, so they are
             // intentionally NOT counted as branches.
-            CallExpression | TryExpression => {
+            _ if call::owns_kind(kind, node, code, ancestors) || kind == TryExpression as u16 => {
                 stats.branches += 1.;
             }
             // Comparison operators emitted as token children of a

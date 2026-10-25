@@ -134,7 +134,7 @@ impl Cognitive for ElixirCode {
         nesting_map: &mut NestingMap,
     ) {
         // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
-        use crate::roles::elixir::short_circuit;
+        use crate::roles::elixir::{closure, short_circuit};
         use Elixir as E;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -142,6 +142,8 @@ impl Cognitive for ElixirCode {
         let kind = node.kind_id();
 
         match kind.into() {
+            // role-bypass: allow(Call) — which call names a branching or defining
+            // macro, read from the target's text; not whether the node is a call
             E::Call => match elixir_call_keyword(node, code) {
                 Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
                     increase_nesting(stats, &mut nesting);
@@ -235,10 +237,11 @@ impl Cognitive for ElixirCode {
             E::RescueBlock | E::CatchBlock => {
                 increase_nesting(stats, &mut nesting);
             }
-            // Anonymous functions are Elixir's lambdas. Increment the
-            // lambda depth so the cost of control flow inside them is
-            // amplified, matching Kotlin's `LambdaLiteral` rule.
-            E::AnonymousFunction => {
+            // Anonymous functions — the `Closure` row — are Elixir's
+            // lambdas. Increment the lambda depth so the cost of control
+            // flow inside them is amplified, matching Kotlin's
+            // `LambdaLiteral` rule.
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // Short-circuit booleans (token-form `&&` / `||` and word-

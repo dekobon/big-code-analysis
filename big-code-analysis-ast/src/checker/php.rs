@@ -185,23 +185,10 @@ impl Checker for PhpCode {
         crate::roles::php::closure::owns(node, &[], ancestors)
     }
 
-    // Intentionally narrower than ABC's `branches` set: ABC additionally
-    // counts `ObjectCreationExpression` (`new Foo()`) as a branch, but
-    // `is_call` drives the `--ops` CLI feature and should match the
-    // user's mental model of "function/method call sites" (mirrors
-    // Java's `is_call` = `MethodInvocation` while ABC counts
-    // `MethodInvocation | New`).
-    // role-bypass: allow(NullSafe) — every call is a call; the row claims the nullsafe call
-    // for its `?->`, which `find call` reports as the call it is
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Php::FunctionCallExpression
-                | Php::MemberCallExpression
-                | Php::ScopedCallExpression
-                | Php::NullsafeMemberCallExpression
-        )
-    }
+    // `Call` and `StringLit` are the rows of `roles/php.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(php);
+    impl_string_lit_row!(php);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -209,34 +196,6 @@ impl Checker for PhpCode {
             Php::LPAREN | Php::LPAREN2 | Php::COMMA | Php::RPAREN | Php::RPAREN2 | Php::DOTDOTDOT
         )
     }
-
-    // `String` (368) is the named single-quoted literal. `String2` (25)
-    // and `String3` (378) are aliased kind_ids the language enum also
-    // maps to `"string"`, and they are opposites:
-    //
-    // - `String2` is the `string` *type* keyword — `bca dump` finds it
-    //   only as the sole child of a `primitive_type` wrapper, in a
-    //   property type, a parameter type, a `?string`, a `string|int`
-    //   union and a return type. It is deliberately excluded so
-    //   `find string` / `count string` report literals, matching TS's
-    //   `String2` and TSX's `String3` (#1261). #288 listed
-    //   it for kind-name identity and for parity with `get_op_type` and
-    //   the `Alterator`; #1293 then moved it into `get_op_type`'s
-    //   `primitive_type`-suppression arm, so that parity now argues the
-    //   other way (#1474). A `(string)` cast never reaches either
-    //   question — it is a childless `cast_type`.
-    // - `String3` is the hidden `_string` supertype covering any string
-    //   literal, kept as a defensive arm (lesson #34) and pinned
-    //   unreachable by `php_hidden_string_supertype_is_unreachable`.
-    impl_simple_is_string!(
-        Php,
-        String,
-        String3,
-        EncapsedString,
-        Heredoc,
-        Nowdoc,
-        ShellCommandExpression,
-    );
 
     // PHP models `else if` in two distinct shapes, so it cannot use a
     // single is_else_if macro:

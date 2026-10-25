@@ -55,6 +55,8 @@ impl Getter for MozjsCode {
     // `jsx:` bills element text and its entities as operands, for the
     // same reason (#1483). `Staticget`: see the JavaScript invocation
     // (#1563).
+    // role-bypass: allow(StringLit) — the operand classification of the literal
+    // alias the `StringLit` row owns, a projection the row does not answer
     impl_js_family_get_op_type!(
         Mozjs,
         roles: mozjs,

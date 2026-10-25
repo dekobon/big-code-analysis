@@ -149,6 +149,8 @@ impl Getter for RustCode {
             // here silently dropped both into TokenRole::Unknown,
             // deflating n2/N2 and the derived vocabulary/volume/effort
             // estimates (issue #390).
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | RawStringLiteral
             | IntegerLiteral | FloatLiteral | BooleanLiteral | Zelf | CharLiteral | UNDERSCORE => {
                 TokenRole::Operand

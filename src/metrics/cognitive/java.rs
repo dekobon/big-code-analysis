@@ -21,7 +21,7 @@ impl Cognitive for JavaCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::java::{short_circuit, ternary};
+        use crate::roles::java::{closure, func_opener, short_circuit, ternary};
         use Java::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -58,42 +58,27 @@ impl Cognitive for JavaCode {
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);
             }
-            LambdaExpression => {
+            // A lambda — the `Closure` row — charges the lambda channel
+            // and does not reset nesting.
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
-            // At a (possibly nested) method / constructor boundary, reset
-            // structural nesting to zero and bump the function-depth
-            // surcharge when this declaration is itself nested inside
-            // another — matching Rust and the 9-of-13 sibling
-            // families. Without this, a method declared inside a control
-            // construct (Java local / member classes) inherited the
-            // enclosing nesting and every nested method missed the
-            // SonarSource B-nesting amplification (#696).
-            //
-            // A record's compact constructor is its own kind
-            // (`compact_constructor_declaration`) rather than a
-            // `constructor_declaration`, so it needs listing in both the
-            // arm and the `stops` set — otherwise its body's control flow
-            // is charged to the enclosing class space (#1160).
-            // `static { … }` joins them for the same reason (#1184): it
-            // opens a `FuncSpace`, so without this arm an initialiser
-            // written inside a nested class inherited the enclosing
-            // nesting.
-            MethodDeclaration
-            | ConstructorDeclaration
-            | CompactConstructorDeclaration
-            | StaticInitializer => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[
-                        MethodDeclaration,
-                        ConstructorDeclaration,
-                        CompactConstructorDeclaration,
-                        StaticInitializer,
-                    ],
-                );
+            // At a (possibly nested) method / constructor boundary — every
+            // owner of the `FuncOpener` row, `static { … }` included
+            // (#1184: it opens a `FuncSpace`, so without this an
+            // initialiser written inside a nested class inherited the
+            // enclosing nesting), which is why this reads `owns` and
+            // `OWNERS` rather than the callables, as Kotlin and Groovy do
+            // — reset structural nesting to zero and bump the
+            // function-depth surcharge when this declaration is itself
+            // nested inside another. Without this, a method declared
+            // inside a control construct (Java local / member classes)
+            // inherited the enclosing nesting and every nested method
+            // missed the SonarSource B-nesting amplification (#696). A
+            // record's compact constructor is its own kind (#1160) and is
+            // on the row.
+            _ if func_opener::owns(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
             _ => {}
         }

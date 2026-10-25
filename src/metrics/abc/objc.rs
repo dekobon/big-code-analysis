@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, ScoresItself, Stats, rows_own};
-use crate::roles::objc::{case_arm, comparison, short_circuit, ternary};
+use crate::roles::objc::{call, case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -62,18 +62,20 @@ impl Abc for ObjcCode {
             InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
                 stats.assignments += 1.;
             }
-            // Every call counts: C `call_expression` (two aliased ids).
-            CallExpression | CallExpression2 => {
+            // Every call — the `Call` row: a C `call_expression` (two
+            // aliased ids) or an ObjC message send `[obj msg:x]` — counts
+            // (B). A message send's arguments are direct children of
+            // `message_expression` (there is no `argument_list` wrapper,
+            // unlike a C call), so unary conditions in them (`[obj
+            // msg:!x]`, Fitzpatrick Rule 9) are inspected here rather than
+            // via the `ArgumentList` arm below; which of the row's kinds
+            // this is, is that reading.
+            _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
-            }
-            // An ObjC message send `[obj msg:x]` is also a call (B). Its
-            // arguments are direct children of `message_expression` (there
-            // is no `argument_list` wrapper, unlike a C call), so unary
-            // conditions in them (`[obj msg:!x]`, Fitzpatrick Rule 9) are
-            // inspected here rather than via the `ArgumentList` arm below.
-            MessageExpression => {
-                stats.branches += 1.;
-                cpp_count_arguments(node, scores, &mut stats.conditions);
+                // role-bypass: allow(Call) — the message send's argument shape
+                if kind == MessageExpression as u16 {
+                    cpp_count_arguments(node, scores, &mut stats.conditions);
+                }
             }
             // `else` / `case` / `?` branch openers and the `@try` /
             // `@catch` exception conditions. `&&` / `||` are deliberately

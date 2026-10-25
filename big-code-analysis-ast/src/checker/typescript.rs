@@ -66,9 +66,10 @@ impl Checker for TypescriptCode {
         crate::roles::typescript::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Typescript::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/typescript.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(typescript);
+    impl_string_lit_row!(typescript);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -76,14 +77,6 @@ impl Checker for TypescriptCode {
             Typescript::LPAREN | Typescript::COMMA | Typescript::RPAREN
         )
     }
-
-    // TS's only anonymous `"string"` alias, `String2` (kind_id 135),
-    // is the `: string` type-annotation keyword — not a literal — so
-    // it is deliberately excluded: `find string` / `count string`
-    // report literals, and `Getter::get_op_type` classifies the
-    // keyword's `predefined_type` wrapper as an operator (#1261,
-    // retiring the #313 parity that made the keyword an operand).
-    impl_js_family_is_string!(Typescript);
 
     impl_is_else_if_parent_clause!(Typescript, IfStatement, ElseClause);
 

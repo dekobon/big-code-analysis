@@ -210,10 +210,20 @@ fn groovy_count_token_assignment<'a>(
     true
 }
 
-fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+fn groovy_count_token_branch<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
+    use crate::roles::groovy::call;
     use Groovy::*;
-    let is_branch = match node.kind_id().into() {
-        MethodInvocation | CommandChain | New => true,
+    let kind = node.kind_id();
+    // The `Call` row's method invocations and command chains, and the
+    // `new` the row deliberately leaves out — object construction, which
+    // Fitzpatrick's rule counts and ABC reads as its own.
+    let is_branch = match kind.into() {
+        _ if call::owns_kind(kind, node, code, ancestors) || kind == New as u16 => true,
         // An enum constant carrying constructor arguments — `A(1)` in
         // `enum E { A(1), B, C(2) }` — invokes the enum's constructor, so
         // it is an object construction under Fitzpatrick's "function
@@ -413,7 +423,7 @@ impl Abc for GroovyCode {
         if groovy_count_token_assignment(node, ancestors, stats) {
             return;
         }
-        if groovy_count_token_branch(node, stats) {
+        if groovy_count_token_branch(node, code, ancestors, stats) {
             return;
         }
         if groovy_count_token_condition(node, code, ancestors, stats) {

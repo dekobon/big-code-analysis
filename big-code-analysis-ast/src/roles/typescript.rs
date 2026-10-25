@@ -8,7 +8,8 @@ use crate::role_table;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
     js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
-    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_short_circuit_payers, js_family_strings, ts_family_decl_keywords, ts_family_gates,
+    ts_family_modifiers,
 };
 
 ts_family_gates!(Typescript);
@@ -16,8 +17,25 @@ js_family_binding_gates!(Typescript, TypescriptCode, PublicFieldDefinition);
 
 role_table! {
     lang: Typescript;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Four `call_expression` ids at the pin, of which only the first is
+    // emitted — a decorator call, a `typeof f(1)` in a type and a
+    // generic call all arrive as it (probed with `bca dump`); the other
+    // three are the aliases the grammar's `_type_query_call_expression`
+    // and decorator rules take, never reached, and listed defensively so
+    // a bump that starts emitting one counts rather than drops the call
+    // (grammar-dispatch §1, the #1254 shape).
+    Call { owns [CallExpression, CallExpression2, CallExpression3, CallExpression4] }
+    // TS's only anonymous `"string"` alias, `String2` (kind id 135), is
+    // the `: string` type-annotation keyword — not a literal — excluded
+    // so `find string` / `count string` report literals while the
+    // getter classifies the keyword's `predefined_type` wrapper as an
+    // operator (#1261, retiring the #313 parity that made the keyword an
+    // operand).
+    StringLit {
+        owns [..js_family_strings!()]
+        wraps [TemplateSubstitution]
+        excludes [String2 "the `: string` type keyword, not a literal (#1261)"]
+    }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so each row's owner holds its
     // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s

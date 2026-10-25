@@ -8,8 +8,54 @@ use crate::role_table;
 
 role_table! {
     lang: Php;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Intentionally narrower than ABC's `branches` set: ABC additionally
+    // counts `ObjectCreationExpression` (`new Foo()`) as a branch, but
+    // `is_call` drives `bca ops` and should match the user's mental
+    // model of "function / method call sites" (mirrors Java's
+    // `MethodInvocation` while ABC counts `MethodInvocation | New`). The
+    // nullsafe call is a call; the `NullSafe` row claims it for its `?->`.
+    Call {
+        owns [
+            FunctionCallExpression,
+            MemberCallExpression,
+            ScopedCallExpression,
+            NullsafeMemberCallExpression,
+        ]
+    }
+    // `String` (368) is the named single-quoted literal. `String2` (25)
+    // and `String3` (378) are aliased kind ids the enum also maps to
+    // `"string"`, and they are opposites: `String2` is the `string`
+    // *type* keyword — `bca dump` finds it only as the sole child of a
+    // `primitive_type` wrapper, in a property type, a parameter type, a
+    // `?string`, a `string|int` union and a return type — excluded so
+    // `find string` / `count string` report literals, matching TS's
+    // `String2` and TSX's `String3` (#1261; #288 listed it for kind-name
+    // identity and parity with `get_op_type` and the dump, #1293 then
+    // moved it into `get_op_type`'s `primitive_type`-suppression arm, so
+    // that parity argues the other way — #1474; a `(string)` cast never
+    // reaches either question, it is a childless `cast_type`). `String3`
+    // is the hidden `_string` supertype covering any string literal,
+    // kept as a defensive owner (lesson 34) and pinned unreachable by
+    // `php_hidden_string_supertype_is_unreachable`. The interpolating
+    // forms `wraps` a `variable_name` / `dynamic_variable_name` /
+    // subscript / member access / `{` child directly (#184); a
+    // `heredoc` holds them one level down under a `heredoc_body`, which
+    // the operand arm descends on its own.
+    StringLit {
+        owns [String, String3, EncapsedString, Heredoc, Nowdoc, ShellCommandExpression]
+        wraps [
+            VariableName,
+            DynamicVariableName,
+            SubscriptExpression,
+            SubscriptExpression2,
+            SubscriptExpression3,
+            MemberAccessExpression,
+            MemberAccessExpression2,
+            MemberAccessExpression3,
+            LBRACE,
+        ]
+        excludes [String2 "the `string` type keyword, not a literal (#1261, #1474)"]
+    }
     // The one `binary_expression` kind carries every binary operator,
     // `instanceof` included; its `operator` field says which, so the
     // owner is gated on the field. The ten comparison tokens are the

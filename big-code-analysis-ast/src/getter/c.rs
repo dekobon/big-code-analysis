@@ -78,8 +78,10 @@ impl Getter for CCode {
         // `under BinaryExpression` gate leaves out — a token error
         // recovery strands under an `ERROR` — which billed before the
         // rows existed; for those two the row is not what bills them.
-        // role-bypass: allow(Comparison) — the operator classification of the spelling the row's
-        // `under BinaryExpression` gate leaves out: a recovered token
+        // role-bypass: allow(Comparison, StringLit) — the operator classification of the
+        // spelling the row's `under BinaryExpression` gate leaves out (a
+        // recovered token), and the operand classification of the string
+        // literals — a projection the `StringLit` row does not answer
         match node.kind_id().into() {
             LT | GT | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Default | For | While | Goto | Do | EQ

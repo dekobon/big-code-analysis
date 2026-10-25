@@ -61,8 +61,25 @@ fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
 
 role_table! {
     lang: Csharp;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Invocations only, by the contract on `Checker::is_call`: the
+    // grammar emits three aliased `invocation_expression` ids, and
+    // matching the unsuffixed one alone silently drops the rest (lesson
+    // 2). C#'s three other call-shaped constructs — `new T(…)`, the `:
+    // base(x)` / `: this(a)` constructor initializer, and the C# 12
+    // primary constructor's `: Base(x)` — are object construction and
+    // constructor delegation, which ABC's Fitzpatrick branch rule counts
+    // and this row deliberately does not; the matching arm on the other
+    // side of that split is `csharp_count_token_branch`, and
+    // `csharp_is_call_excludes_constructors` pins the exclusion (#1456).
+    Call { owns [InvocationExpression, InvocationExpression2, InvocationExpression3] }
+    // The interpolated string `wraps` its `interpolation` children,
+    // whose expressions are billed on their own (#183); the other three
+    // cannot interpolate. A `character_literal` is not a string, though
+    // the dump flattens it beside them.
+    StringLit {
+        owns [StringLiteral, VerbatimStringLiteral, RawStringLiteral, InterpolatedStringExpression]
+        wraps [Interpolation]
+    }
     // A `binary_expression` (both aliases: `BinaryExpression2` is the
     // second id carrying the kind string, listed per grammar-dispatch
     // §1 and unreachable at this pin, where `#if A == B` parses as the

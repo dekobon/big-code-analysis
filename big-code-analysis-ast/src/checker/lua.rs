@@ -245,9 +245,10 @@ impl Checker for LuaCode {
         crate::roles::lua::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Lua::FunctionCall
-    }
+    // `Call` and `StringLit` are the rows of `roles/lua.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(lua);
+    impl_string_lit_row!(lua);
 
     fn is_non_arg(node: &Node) -> bool {
         // NOTE: `impl NArgs for LuaCode` overrides `compute` with a positive
@@ -258,8 +259,6 @@ impl Checker for LuaCode {
             Lua::LPAREN | Lua::COMMA | Lua::RPAREN
         )
     }
-
-    impl_simple_is_string!(Lua, String);
 
     // Lua uses a dedicated elseif_statement node rather than nesting a
     // second if_statement inside the outer one (as Go does).

@@ -11,15 +11,7 @@ use super::*;
 /// must not be counted on top (#180).
 #[inline]
 fn bash_string_has_expansion(node: &Node) -> bool {
-    node.children().any(|c| {
-        matches!(
-            c.kind_id().into(),
-            Bash::SimpleExpansion
-                | Bash::Expansion
-                | Bash::CommandSubstitution
-                | Bash::ArithmeticExpansion
-        )
-    })
+    node.wraps_any(crate::roles::bash::string_lit::WRAPS)
 }
 
 impl Getter for BashCode {
@@ -134,6 +126,8 @@ impl Getter for BashCode {
             //
             // `translated_string` is deliberately absent (#1358) — see the
             // note on `command_name` below, which it shares a shape with.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             Bash::String | Bash::RawString | Bash::AnsiCString => {
                 if bash_string_has_expansion(node) {
                     TokenRole::Unknown
@@ -205,6 +199,8 @@ impl Getter for BashCode {
             // `bash_hidden_concat_token_is_unreachable`.
             Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
             | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
+            // role-bypass: allow(StringLit) — the operand classification of an expansion
+            // the `StringLit` row `wraps`, a projection the row does not answer
             | Bash::SimpleExpansion
                 => TokenRole::Operand,
 

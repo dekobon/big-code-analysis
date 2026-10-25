@@ -99,8 +99,26 @@ fn not_in_an_import<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, 
 
 role_table! {
     lang: Groovy;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // `command_chain` is the dekobon grammar's distinct node for Groovy's
+    // command-style juxtaposed calls (`foo bar baz`), which the prior
+    // amaanq grammar mis-modelled as `juxt_function_call`; it is a
+    // genuine method-call form. `ObjectCreationExpression` (`new Foo()`)
+    // is deliberately absent: the row follows the Java-family convention
+    // (Java's `MethodInvocation`, C#'s `InvocationExpression`) of
+    // counting method / function call sites only — constructor
+    // invocations are an ABC concern, where Groovy's `branches` counts
+    // `New` on its own (`groovy_count_token_branch`).
+    Call { owns [MethodInvocation, CommandChain] }
+    // One `string_literal` kind for every quoting. A GString `wraps` an
+    // interpolation in either form — the long `${expr}` and the short
+    // `$name` / `$obj.field` — whose inner expression is billed on its
+    // own; a plain literal has neither child and is one operand. The
+    // `string_fragment*` aliases are the body text the dump keeps
+    // verbatim, not literals of their own.
+    StringLit {
+        owns [StringLiteral]
+        wraps [GstringBraceInterpolation, GstringDollarInterpolation]
+    }
     // The worked example of a node / token pairing (#1695). A
     // `binary_expression` owns a comparison through its `operator`
     // field, where `<` / `>` are gated to that parent (the grammar

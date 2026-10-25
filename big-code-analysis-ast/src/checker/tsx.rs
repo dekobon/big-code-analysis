@@ -63,9 +63,10 @@ impl Checker for TsxCode {
         crate::roles::tsx::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Tsx::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/tsx.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(tsx);
+    impl_string_lit_row!(tsx);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -73,13 +74,6 @@ impl Checker for TsxCode {
             Tsx::LPAREN | Tsx::COMMA | Tsx::RPAREN
         )
     }
-
-    // TSX's `String2` (kind_id 261) is its string-*literal* alias —
-    // ordinary and JSX-attribute literals both parse as it — so it
-    // counts as a string (#283). `String3` (kind_id 141) is the
-    // `: string` type-annotation keyword (the role TS's `String2`
-    // plays) and is deliberately excluded, matching TS (#1261).
-    impl_js_family_is_string!(Tsx, String2);
 
     impl_is_else_if_parent_clause!(Tsx, IfStatement, ElseClause);
 

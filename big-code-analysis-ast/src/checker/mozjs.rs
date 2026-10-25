@@ -59,9 +59,10 @@ impl Checker for MozjsCode {
         crate::roles::mozjs::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Mozjs::CallExpression
-    }
+    // `Call` and `StringLit` are the rows of `roles/mozjs.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(mozjs);
+    impl_string_lit_row!(mozjs);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -69,11 +70,6 @@ impl Checker for MozjsCode {
             Mozjs::LPAREN | Mozjs::COMMA | Mozjs::RPAREN
         )
     }
-
-    // `String2` is MozJS's anonymous string-*literal* alias (same
-    // production as JS's, e.g. `import "m"` module strings), so it
-    // counts as a string alongside `String` (#283).
-    impl_js_family_is_string!(Mozjs, String2);
 
     impl_is_else_if_parent_clause!(Mozjs, IfStatement, ElseClause);
 }

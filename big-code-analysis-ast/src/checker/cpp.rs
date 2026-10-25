@@ -80,30 +80,15 @@ impl Checker for CppCode {
         ancestors.parent_has_kind(node, Cpp::FriendDeclaration as u16)
     }
 
-    // See `CCode::is_call` (#1254): the unsuffixed variant is the
-    // grammar's always-aliased `preproc_call_expression` and never
-    // reaches `kind_id()`, so every real call — free, member (`o.m()` /
-    // `p->m()`), qualified (`ns::f()`) and through a function pointer —
-    // arrives as `CallExpression2`. Kept listed defensively.
-    //
-    // `new_expression` is deliberately not listed: object creation is an
-    // ABC concern rather than a call site, matching Groovy / Java / C#
-    // (#430) — note the ABC walker in `src/metrics/abc/cpp.rs` *does*
-    // count it. This excludes `new T(4)` and declaration-position
-    // `T t(1)` only. Functional-style construction (`return T(4)`) is
-    // still counted, because tree-sitter-cpp emits it as an ordinary
-    // `call_expression` and nothing in the tree distinguishes it.
-    fn is_call(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Cpp::CallExpression | Cpp::CallExpression2
-        )
-    }
-
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.
     fn is_empty_param_marker(param: &Node, code: &[u8]) -> bool {
         c_family_void_parameter(param, code)
     }
+
+    // `Call` and `StringLit` are the rows of `roles/cpp.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(cpp);
+    impl_string_lit_row!(cpp);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -111,8 +96,6 @@ impl Checker for CppCode {
             Cpp::LPAREN | Cpp::LPAREN2 | Cpp::COMMA | Cpp::RPAREN
         )
     }
-
-    impl_simple_is_string!(Cpp, StringLiteral, ConcatenatedString, RawStringLiteral);
 
     impl_is_else_if_parent_clause!(Cpp, IfStatement, ElseClause);
 

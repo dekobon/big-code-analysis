@@ -235,17 +235,13 @@ impl Getter for RubyCode {
             // unguarded in the plain operand arm below, so `%I[a#{n}b]`
             // billed the element `a#{n}b` *and* the `n` inside it while
             // the `%W[…]` spelling of the same thing billed only `n`.
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
             R::String | R::ChainedString | R::BareString | R::BareSymbol
             | R::Subshell | R::Regex | R::HeredocBody | R::DelimitedSymbol
-            | R::StringArray | R::SymbolArray => Self::string_operand_type(
-                node,
-                &[
-                    R::Interpolation as u16,
-                    R::String as u16,
-                    R::BareString as u16,
-                    R::BareSymbol as u16,
-                ],
-            ),
+            | R::StringArray | R::SymbolArray => {
+                Self::string_operand_type(node, crate::roles::ruby::string_lit::WRAPS)
+            }
 
             // The numeral inside a suffixed numeric literal. At the
             // pinned tree-sitter-ruby the two suffix forms are wrappers
@@ -319,8 +315,10 @@ impl Getter for RubyCode {
             // Operands: identifiers and literals.
             R::Identifier | R::IdentifierSuffix | R::IdentifierSuffixToken1
             | R::Constant | R::ConstantSuffix | R::ConstantSuffixToken1
-            // role-bypass: allow(Member) — an operand by kind wherever it sits;
-            // the row owns it only as an assignment target
+            // role-bypass: allow(Member, StringLit) — an operand by kind wherever it sits
+            // (the `Member` row owns a variable only as an assignment target) and the
+            // string-like literals that cannot interpolate, which the `StringLit` row owns
+            // and this arm bills as plain operands
             | R::InstanceVariable | R::ClassVariable | R::GlobalVariable
             | R::Integer | R::Float | R::Complex | R::Rational
             | R::Character | R::SimpleSymbol | R::HashKeySymbol

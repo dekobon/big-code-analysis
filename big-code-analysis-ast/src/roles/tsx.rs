@@ -8,7 +8,8 @@ use crate::role_table;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
     js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
-    js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_short_circuit_payers, js_family_strings, ts_family_decl_keywords, ts_family_gates,
+    ts_family_modifiers,
 };
 
 ts_family_gates!(Tsx);
@@ -16,8 +17,18 @@ js_family_binding_gates!(Tsx, TsxCode, PublicFieldDefinition);
 
 role_table! {
     lang: Tsx;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // As TypeScript's: four ids, one emitted, three defensive.
+    Call { owns [CallExpression, CallExpression2, CallExpression3, CallExpression4] }
+    // TSX's `String2` (kind id 261) is its string-*literal* alias —
+    // ordinary and JSX-attribute literals both parse as it — so it is a
+    // string (#283). `String3` (kind id 141) is the `: string`
+    // type-annotation keyword (the role TS's `String2` plays), excluded
+    // as there (#1261).
+    StringLit {
+        owns [..js_family_strings!(), String2]
+        wraps [TemplateSubstitution]
+        excludes [String3 "the `: string` type keyword, not a literal (#1261)"]
+    }
     // The one `binary_expression` kind carries every binary operator;
     // its `operator` field says which, so each row's owner holds its
     // payer (`roles/js_family.rs` has the lists). `??` is `NullSafe`'s

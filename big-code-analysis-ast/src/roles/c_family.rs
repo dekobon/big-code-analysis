@@ -288,9 +288,48 @@ macro_rules! cpp_family_space_gates {
     };
 }
 
+/// The call of every C-family grammar (#1698). Every `call_expression`
+/// the pinned grammars emit carries the aliased `CallExpression2` kind
+/// id: the unsuffixed symbol is the grammar's `preproc_call_expression`,
+/// only ever referenced under an `alias(…, $.call_expression)`, so it
+/// never reaches `kind_id()` (absent from `node-types.json` too).
+/// Matching the unsuffixed variant alone left `is_call` dead — `bca
+/// count -t call` reported 0 on ordinary C (#1254). It stays listed
+/// defensively: it is the symbol a grammar bump is most likely to start
+/// emitting (grammar-dispatch §1), an alias-mapped *visible* rule rather
+/// than the `_`-prefixed hidden rule of §2 / lesson #34 — a different
+/// mechanism with the same symptom and the same treatment. In C++ every
+/// real call — free, member (`o.m()` / `p->m()`), qualified (`ns::f()`)
+/// and through a function pointer — arrives as `CallExpression2`;
+/// `new_expression` is deliberately not here: object creation is an ABC
+/// concern rather than a call site, matching Groovy / Java / C# (#430),
+/// and the ABC walker counts it on its own. That excludes `new T(4)`
+/// and declaration-position `T t(1)` only; functional-style
+/// construction (`return T(4)`) is still a call, because tree-sitter-cpp
+/// emits it as an ordinary `call_expression` and nothing in the tree
+/// distinguishes it.
+macro_rules! c_family_calls {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)* CallExpression, CallExpression2,] $($rest)*);
+    };
+}
+
+/// The string literal of every C-family grammar: a `string_literal` and
+/// a `concatenated_string` (`"a" "b"`, one literal to `find` / `count`
+/// and to the dump, #699). A `char_literal` is deliberately absent — a
+/// char is not a string — the same split Rust and Go apply to their
+/// char / rune literals; the operand and dump arms bill and flatten it
+/// beside the strings on their own. C++ adds the raw literal on its row.
+macro_rules! c_family_strings {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)* StringLiteral, ConcatenatedString,] $($rest)*);
+    };
+}
+
 pub(crate) use {
-    c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
-    c_family_primitives, c_family_short_circuit_payers, cpp_family_binary_owners,
-    cpp_family_comparison_payers, cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
-    cpp_family_short_circuit_payers, cpp_family_space_gates,
+    c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
+    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_containers,
+    cpp_family_func_openers, cpp_family_gates, cpp_family_short_circuit_payers,
+    cpp_family_space_gates,
 };

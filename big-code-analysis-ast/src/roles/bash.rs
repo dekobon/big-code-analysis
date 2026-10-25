@@ -56,8 +56,24 @@ fn short_circuit_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestor
 
 role_table! {
     lang: Bash;
-    Call { pending R08 }
-    StringLit { pending R08 }
+    // Every command is a call: Bash has no other call kind, and the
+    // `command` node covers the builtin, the function and the external
+    // program alike.
+    Call { owns [Command] }
+    // The heredoc body is `HeredocBody2`: tree-sitter-bash 0.25.1 emits
+    // only that `heredoc_body` parser-node symbol in observed trees; the
+    // duplicate `HeredocBody` entry plus the hidden `_heredoc_body`
+    // (`HeredocBody3`) and `_simple_heredoc_body` (`SimpleHeredocBody`)
+    // rules never surface and are left out. An expanding string
+    // `wraps` the four expansion kinds, whose inner names are billed on
+    // their own (#180); `raw_string` and `ansi_c_string` cannot expand,
+    // and the `translated_string` (`$"…"`) is one `$` and a `string`
+    // child that is the keeper in argument position (#1358), so the
+    // operand arm bills the child rather than the wrapper.
+    StringLit {
+        owns [String, RawString, AnsiCString, TranslatedString, HeredocBody2]
+        wraps [SimpleExpansion, Expansion, CommandSubstitution, ArithmeticExpansion]
+    }
     // A comparison inside `[[ … ]]` / `(( … ))` is a `binary_expression`
     // (`BinaryExpression3` at the pinned grammar; the four siblings are
     // listed defensively) owning one of `==` `!=` `<=` `>=` `=~`, or `<`

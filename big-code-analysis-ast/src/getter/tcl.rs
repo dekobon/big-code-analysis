@@ -229,6 +229,8 @@ impl Getter for TclCode {
             // spelled identically and so also counts one — #1318 can
             // now tell the two roles apart, but it revises only the
             // brace, so nothing here changes.
+            // role-bypass: allow(StringLit) — the operand classification of the braced words
+            // and of the substitution the row `wraps`, a projection the row does not answer
             Tcl::SimpleWord
             | Tcl::Number
             | Tcl::BracedWord
@@ -242,13 +244,11 @@ impl Getter for TclCode {
             // contribute their own operands; counting the wrapping
             // `QuotedWord` too would double-count `N2` (issue #277, same
             // pattern as #180/#183/#184 for Bash/C#/PHP).
-            Tcl::QuotedWord => Self::string_operand_type(
-                node,
-                &[
-                    Tcl::VariableSubstitution as u16,
-                    Tcl::CommandSubstitution as u16,
-                ],
-            ),
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
+            Tcl::QuotedWord => {
+                Self::string_operand_type(node, crate::roles::tcl::string_lit::WRAPS)
+            }
 
             _ => TokenRole::Unknown,
         }

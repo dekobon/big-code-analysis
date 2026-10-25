@@ -139,6 +139,8 @@ impl Getter for IrulesCode {
             // dispatch §5). The reference and the index are the two
             // operands, the index being walked because Tcl substitutes
             // inside the parens (`$arr($i)`), unlike inside braces.
+            // role-bypass: allow(StringLit) — the operand classification of the braced words
+            // and of the substitution the row `wraps`, a projection the row does not answer
             Irules::SimpleWord
             | Irules::Number
             | Irules::Boolean
@@ -153,13 +155,11 @@ impl Getter for IrulesCode {
             // separately and contribute their own operands; counting the
             // wrapping `QuotedWord` too would double-count `N2` (same pattern
             // as Tcl #277 / Bash #180 / C# #183 / PHP #184).
-            Irules::QuotedWord => Self::string_operand_type(
-                node,
-                &[
-                    Irules::VariableSubstitution as u16,
-                    Irules::CommandSubstitution as u16,
-                ],
-            ),
+            // role-bypass: allow(StringLit) — the operand classification of the literals
+            // under the row's `wraps` list, a projection the row does not answer
+            Irules::QuotedWord => {
+                Self::string_operand_type(node, crate::roles::irules::string_lit::WRAPS)
+            }
 
             _ => TokenRole::Unknown,
         }

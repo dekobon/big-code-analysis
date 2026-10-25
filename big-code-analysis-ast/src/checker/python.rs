@@ -50,9 +50,10 @@ impl Checker for PythonCode {
         crate::roles::python::closure::owns(node, &[], ancestors)
     }
 
-    fn is_call(node: &Node) -> bool {
-        node.kind_id() == Python::Call
-    }
+    // `Call` and `StringLit` are the rows of `roles/python.rs` (#1698);
+    // the byte-less spellings are their kind tables, gates aside.
+    impl_call_row!(python);
+    impl_string_lit_row!(python);
 
     fn is_non_arg(node: &Node) -> bool {
         // tree-sitter-python emits the PEP 570 positional-only marker `/`
@@ -69,8 +70,6 @@ impl Checker for PythonCode {
                 | Python::KeywordSeparator
         )
     }
-
-    impl_simple_is_string!(Python, String, ConcatenatedString);
 
     // Python models `elif` as a dedicated `elif_clause` node, which is
     // handled directly by cognitive/cyclomatic dispatch as a branch

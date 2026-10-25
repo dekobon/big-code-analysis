@@ -20,7 +20,7 @@ use crate::lang_helpers::elixir_decisions::{
     Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_sole_unguarded_pattern,
     elixir_when_alternative,
 };
-use crate::roles::elixir::{case_arm, comparison, guard, short_circuit};
+use crate::roles::elixir::{call, case_arm, comparison, guard, short_circuit};
 use crate::*;
 
 /// The grammar rule an applied binary operator hangs off. Matched by
@@ -349,7 +349,9 @@ impl Abc for ElixirCode {
             // are intentionally different — both impls use the same
             // helper to look up the keyword, but apply different
             // policies on top.
-            E::Call => elixir_count_call(node, code, stats),
+            _ if call::owns_kind(kind, node, code, ancestors) => {
+                elixir_count_call(node, code, stats);
+            }
             // Guard `when` token: introduces the guard clause of a
             // function head or `case` / `fn` / `receive` arm. The guard
             // is a condition *slot*, so every spelling contributes

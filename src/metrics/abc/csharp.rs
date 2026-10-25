@@ -14,7 +14,7 @@ use super::{
     count_negated_operand, last_operand, peel, rows_own, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
-use crate::roles::csharp::{case_arm, comparison, guard, null_safe, short_circuit, ternary};
+use crate::roles::csharp::{call, case_arm, comparison, guard, null_safe, short_circuit, ternary};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -294,23 +294,18 @@ fn csharp_count_token_assignment<'a>(
 // doc; `csharp_is_call_excludes_constructors` pins the C# half (#1456).
 fn csharp_count_token_branch<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) -> bool {
     use Csharp::*;
-    let is_branch = match node.kind_id().into() {
-        // Spelled out rather than reaching for `csharp_invocation_expr_kinds!()`
-        // (`big-code-analysis-ast/src/macros/kind_sets.rs`), which carries
-        // exactly these three: the macro *is* an or-pattern, so combining it
-        // with further alternatives here trips `clippy::unnested_or_patterns`
-        // at `-D warnings`. `Checker::is_csharp_call` can use it because the
-        // set is that predicate's whole answer. The §1 obligation is met by
-        // listing all three aliases, not by the macro.
-        crate::Csharp::InvocationExpression
-        | crate::Csharp::InvocationExpression2
-        | crate::Csharp::InvocationExpression3
-        | ObjectCreationExpression
-        | ConstructorInitializer => true,
+    let kind = node.kind_id();
+    let is_branch = match kind.into() {
+        // The `Call` row's three aliased `invocation_expression` ids; the
+        // two construction shapes beside it are what the row deliberately
+        // leaves out and Fitzpatrick's rule counts.
+        _ if call::owns_kind(kind, node, code, ancestors) => true,
+        ObjectCreationExpression | ConstructorInitializer => true,
         // The C# 12 primary-constructor superclass call — `class
         // Sub(int x) : Base(x)` — invokes the base constructor exactly as
         // `: base(x)` does, and scored zero until #1406. Kotlin's
@@ -687,7 +682,7 @@ impl Abc for CsharpCode {
         if csharp_count_token_assignment(node, ancestors, stats) {
             return;
         }
-        if csharp_count_token_branch(node, ancestors, stats) {
+        if csharp_count_token_branch(node, code, ancestors, stats) {
             // `class S(bool a) : Base(!a)`: the `argument_list` under the
             // `base_list` is the branch node itself, so the walk below
             // never sees it. The record spelling nests its list inside a

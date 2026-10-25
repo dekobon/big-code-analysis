@@ -263,6 +263,8 @@ impl Getter for CppCode {
             // it and emits `type_identifier "this"` plus an `ERROR`. That
             // spelling is already an operand via `TypeIdentifier`, so the
             // construct is unaffected either way.
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | CharLiteral | NumberLiteral | True | False | Null | This | DOTDOTDOT => {
                 TokenRole::Operand

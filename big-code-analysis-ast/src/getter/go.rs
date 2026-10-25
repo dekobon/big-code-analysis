@@ -52,6 +52,8 @@ impl Getter for GoCode {
             | G::PIPEEQ | G::CARETEQ | G::LTLTEQ | G::GTGTEQ | G::AMPCARETEQ
                 => TokenRole::Operator,
             // Operands: identifiers and literals
+            // role-bypass: allow(StringLit) — the operand classification of the literals,
+            // a projection the `StringLit` row does not answer
             G::Identifier | G::Identifier2 | G::Identifier3 | G::BlankIdentifier
             | G::FieldIdentifier | G::PackageIdentifier | G::TypeIdentifier
             | G::LabelName | G::IntLiteral | G::FloatLiteral | G::ImaginaryLiteral

@@ -17,40 +17,10 @@
 # One entry per line, tab-separated and sorted:
 #   <file> <item> <language> <kind> <shape>#<n>
 # where <n> numbers the sites of one kind and shape within the item.
-big-code-analysis-ast/src/checker/elixir.rs	fn is_call	Elixir	Call	kind_id#1
 big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	AnonymousFunction	matches#1
 big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	Source	matches#1
-big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Charlist	macro_arg#1
-big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Sigil	macro_arg#1
-big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	String	macro_arg#1
-big-code-analysis-ast/src/checker/java.rs	fn is_call	Java	MethodInvocation	kind_id#1
-big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	MultilineStringLiteral	macro_arg#1
-big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	StringLiteral	macro_arg#1
-big-code-analysis-ast/src/checker/python.rs	fn is_call	Python	Call	kind_id#1
-big-code-analysis-ast/src/checker/python.rs	impl_simple_is_string!	Python	ConcatenatedString	macro_arg#1
-big-code-analysis-ast/src/checker/python.rs	impl_simple_is_string!	Python	String	macro_arg#1
-big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	Charlist	arm#1
-big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	Sigil	arm#1
-big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	String	arm#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	AnonymousFunction	arm#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	Source	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	StringLiteral	arm#1
-big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	String	arm#1
-big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Yield	arm#1
-src/metrics/abc/elixir.rs	fn compute	Elixir	Call	arm#1
-src/metrics/abc/java.rs	fn java_count_token_branch	Java	MethodInvocation	arm#1
-src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	LambdaExpression	arm#1
-src/metrics/abc/java.rs	fn java_walk_for_conditions	Java	ReturnStatement	arm#1
-src/metrics/abc/python.rs	fn compute	Python	Call	arm#1
-src/metrics/cognitive/elixir.rs	fn compute	Elixir	AnonymousFunction	arm#1
-src/metrics/cognitive/elixir.rs	fn compute	Elixir	Call	arm#1
-src/metrics/cognitive/java.rs	fn compute	Java	CompactConstructorDeclaration	arm#1
-src/metrics/cognitive/java.rs	fn compute	Java	ConstructorDeclaration	arm#1
-src/metrics/cognitive/java.rs	fn compute	Java	LambdaExpression	arm#1
-src/metrics/cognitive/java.rs	fn compute	Java	MethodDeclaration	arm#1
-src/metrics/cognitive/java.rs	fn compute	Java	StaticInitializer	arm#1
-src/metrics/cyclomatic/elixir.rs	fn compute	Elixir	Call	arm#1
-src/metrics/nexits.rs	fn compute	Elixir	Call	kind_id#1
 src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ReturnStatement	macro_arg#1
 src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ThrowStatement	macro_arg#1
 src/metrics/nexits.rs	impl_exit_match_kinds!	Java	YieldStatement	macro_arg#1

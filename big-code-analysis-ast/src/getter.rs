@@ -61,6 +61,9 @@ macro_rules! get_operator {
             match typ {
                 $language::LPAREN => "()",
                 $language::LBRACK => "[]",
+                // role-bypass: allow(StringLit) — the spelling of a bracket pair in the
+                // vocabulary; PHP's `StringLit` row `wraps` the same `{` as an interpolation
+                // opener, which is a different question
                 $language::LBRACE => "{}",
                 _ => typ.into(),
             }

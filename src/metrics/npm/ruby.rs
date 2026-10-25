@@ -120,6 +120,8 @@ impl<'a> RubyClassBody<'a> {
     // spelling names one.
     fn refile_argument(&mut self, arg: &Node<'a>, singleton: bool, public: bool) {
         let code = self.code;
+        // role-bypass: allow(StringLit) — a `%i[]` array names several methods; the row
+        // owns it as a literal, a different question
         if matches!(arg.kind_id().into(), Ruby::SymbolArray) {
             for name in arg
                 .children()
