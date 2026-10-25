@@ -10,11 +10,12 @@ impl Getter for CCode {
         code: &'a [u8],
         _ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
-        // Issue #285 contract: every `C::FunctionDefinition*` alias must
-        // be enumerated here AND in `get_space_kind` below AND in
-        // `is_func` / `is_func_space` (see `src/checker.rs`). C has no
-        // C++ name forms (operator-cast / destructor / operator / qualified
-        // / template names), so the declarator name is a plain identifier.
+        // Every `C::FunctionDefinition*` alias is enumerated here as on
+        // the `FuncOpener` row (#285). C has no C++ name forms
+        // (operator-cast / destructor / operator / qualified / template
+        // names), so the declarator name is a plain identifier.
+        // role-bypass: allow(FuncOpener) — a naming rule, not whether the
+        // definition opens a space
         match node.kind_id().into() {
             C::FunctionDefinition | C::FunctionDefinition2 => {
                 // The name is not a child of the function node — see
@@ -37,17 +38,19 @@ impl Getter for CCode {
         None
     }
 
+    // The mapping is the `opens` annotations of `roles/c.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use C::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // C has no classes/namespaces, and struct/union/enum hold no
-        // functions, so the only spaces are functions and the unit
-        // (matching `is_func_space` in `src/checker.rs`, #285).
-        match node.kind_id().into() {
-            FunctionDefinition | FunctionDefinition2 => SpaceKind::Function,
-            TranslationUnit => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::c::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(c);

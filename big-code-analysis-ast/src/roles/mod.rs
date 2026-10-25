@@ -182,6 +182,9 @@
 //!   *and* `f` — a function someone names at a call site, as opposed
 //!   to an opener that merely holds a body. Only a `FuncOpener` row is
 //!   expected to mark any; on every other row the predicate is false.
+//!   `CALLABLE` is the declared list of those kinds, gates aside — the
+//!   kind set a consumer that asks "is any ancestor a named function"
+//!   matches ancestors against.
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
@@ -308,6 +311,11 @@ pub mod tcl_family;
 pub mod tsx;
 pub mod typescript;
 
+// The space-tree rows of the kind-only languages, pinned independently
+// of the classifiers that read them (#1696).
+#[cfg(test)]
+mod space_tree_tests;
+
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
 /// `pub` only because a `#[macro_export]` expansion in another crate
@@ -347,6 +355,38 @@ pub const fn kinds_repeat(a: &[u16]) -> bool {
         i += 1;
     }
     false
+}
+
+/// How many of `marked` are `Some`, for sizing `some_kinds`.
+#[doc(hidden)]
+#[must_use]
+pub const fn count_some(marked: &[Option<u16>]) -> usize {
+    let mut n = 0;
+    let mut i = 0;
+    while i < marked.len() {
+        if marked[i].is_some() {
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+/// The `Some` kinds of `marked`, in order: the `CALLABLE` slice of a
+/// row, built at compile time from one `Option` per owner.
+#[doc(hidden)]
+#[must_use]
+pub const fn some_kinds<const N: usize>(marked: &[Option<u16>]) -> [u16; N] {
+    let mut kinds = [0; N];
+    let (mut i, mut j) = (0, 0);
+    while i < marked.len() {
+        if let Some(kind) = marked[i] {
+            kinds[j] = kind;
+            j += 1;
+        }
+        i += 1;
+    }
+    kinds
 }
 
 /// The kinds of an `EXCLUDED` list, for the same checks.
@@ -857,6 +897,27 @@ macro_rules! role_table {
                 PAYERS.contains(&kind) && pays_at_leaf_kind(kind, node, code, ancestors)
             }
 
+            /// Every kind this row marks `callable` or `callable_when`,
+            /// gates aside.
+            pub const CALLABLE: &[u16] = &{
+                // Unused on a row no owner of which is marked, which is
+                // every row but `FuncOpener`.
+                #[allow(unused_mut, clippy::let_and_return)]
+                const MARKED: [Option<u16>; OWNERS.len()] = {
+                    let mut marked = [None; OWNERS.len()];
+                    let mut i = 0;
+                    $(
+                        $crate::role_table!(
+                            @scan callable_kind [] [$lang marked i] $owner [] [] [] [] $($($owner_attr)*)?
+                        );
+                        i += 1;
+                    )*
+                    let _ = i;
+                    marked
+                };
+                $crate::roles::some_kinds::<{ $crate::roles::count_some(&MARKED) }>(&MARKED)
+            };
+
             /// Whether `node` is a `callable` owner of the construct — a
             /// named function, for `Checker::is_func` — under its gate.
             #[inline]
@@ -1005,6 +1066,13 @@ macro_rules! role_table {
     };
     (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    };
+    // In `CALLABLE`: the kind, or nothing. An entry per owner keeps the
+    // repetition's arity, so an unmarked owner contributes an empty
+    // element that `const` slice building drops below.
+    (@callable_kind [] [$l:ident $m:ident $i:ident] $k:ident $g:tt $p:tt $s:tt []) => {};
+    (@callable_kind [] [$l:ident $m:ident $i:ident] $k:ident $g:tt $p:tt $s:tt [callable $($w:ident)?]) => {
+        $m[$i] = Some($l::$k as u16);
     };
     // In `is_callable`: a `callable` owner's clause, under its gate, and
     // a `callable_when w` owner's under its gate *and* `w`; an owner
@@ -1681,6 +1749,18 @@ mod tests {
             ]
         );
         assert_eq!(func_opener::OWNERS.len(), 5);
+        // The declared list, gates aside: the gated-away constructor and
+        // the never-callable lambda are both in it.
+        assert_eq!(
+            func_opener::CALLABLE,
+            &[
+                Java::MethodDeclaration as u16,
+                Java::ConstructorDeclaration as u16,
+                Java::LambdaExpression as u16,
+                Java::CompactConstructorDeclaration as u16,
+            ]
+        );
+        assert_eq!(dsl_gates::guard::CALLABLE, &[] as &[u16]);
     }
 
     // `pays never`: the owner is recognised and pays under neither

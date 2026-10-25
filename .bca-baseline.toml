@@ -220,14 +220,8 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
-metric = "loc.ploc"
-value = 584.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker.rs"
-qualified = "<file>"
 metric = "loc.sloc"
-value = 1412.0
+value = 1236.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -359,13 +353,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 598.0
+value = 645.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1274.0
+value = 1340.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -1006,6 +1000,18 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/irules.rs"
 qualified = "IrulesCode::compute"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/cognitive/irules.rs"
+qualified = "IrulesCode::compute"
+metric = "halstead.effort"
+value = 47587.58021104743
+
+[[entry]]
+path = "src/metrics/cognitive/irules.rs"
+qualified = "IrulesCode::compute"
 metric = "nargs"
 value = 5.0
 
@@ -1061,7 +1067,7 @@ value = 5.0
 path = "src/metrics/cognitive/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
-value = 15.0
+value = 17.0
 
 [[entry]]
 path = "src/metrics/cognitive/rust.rs"
@@ -1259,13 +1265,19 @@ value = 5.0
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 metric = "halstead.effort"
-value = 47869.643574826616
+value = 64433.40972393267
 
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
 metric = "nexits"
 value = 6.0
+
+[[entry]]
+path = "src/metrics/npm/go.rs"
+qualified = "GoCode::compute"
+metric = "halstead.effort"
+value = 47754.83629866036
 
 [[entry]]
 path = "src/ops.rs"

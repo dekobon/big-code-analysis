@@ -42,16 +42,19 @@ impl Getter for RustCode {
         }
     }
 
+    // The mapping is the `opens` annotations of `roles/rust.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Rust::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        match node.kind_id().into() {
-            FunctionItem | ClosureExpression => SpaceKind::Function,
-            TraitItem => SpaceKind::Trait,
-            ImplItem => SpaceKind::Impl,
-            SourceFile => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::rust::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(rust);

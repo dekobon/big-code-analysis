@@ -67,10 +67,12 @@ role_table! {
     Modifier { owns [..c_family_modifiers!(), Auto] }
     DeclKeyword { owns [..c_family_decl_keywords!()] }
     Primitive { owns [..c_family_primitives!()] }
-    FuncOpener { pending R06 }
+    // Both aliased `function_definition` ids (#285, lesson 2). C has no
+    // container space: a `struct` is not a space.
+    FuncOpener { owns [FunctionDefinition(callable opens Function), FunctionDefinition2(callable opens Function)] }
+    Container { owns [TranslationUnit(opens Unit)] }
+    Member { absent "C has no container space to hold a member; a struct is not one" }
     Closure { absent "C has no anonymous function" }
-    Container { pending R06 }
-    Member { pending R06 }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "C documents with comments, not string literals" }

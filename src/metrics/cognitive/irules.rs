@@ -21,7 +21,7 @@ impl Cognitive for IrulesCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::irules::{short_circuit, ternary};
+        use crate::roles::irules::{func_opener, short_circuit, ternary};
         use Irules::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -87,8 +87,12 @@ impl Cognitive for IrulesCode {
             }
             // The two function-space kinds reset nesting and bump the
             // function depth (see the `IrulesCode` Checker impl).
-            Procedure | WhenEvent => {
-                enter_function_boundary(&mut nesting, node, ancestors, &[Procedure, WhenEvent]);
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

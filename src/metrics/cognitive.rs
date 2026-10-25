@@ -5795,6 +5795,35 @@ fn ie(x: bool) -> i32 {
         });
     }
 
+    /// A `func` literal is the `Closure` row's owner and charges its
+    /// lambda level to the `if` inside it; it is not a boundary, so the
+    /// enclosing function's structural nesting is not reset either
+    /// (#1696). Go has no nested *named* function, so the boundary's
+    /// `stops` list — which only a callable nested in a callable would
+    /// read — is unobservable in output: emptying it fails nothing, on
+    /// the base as on the branch, and the row's `CALLABLE` is the
+    /// correct-by-construction answer rather than a tested one.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_function_literal_contributes_lambda_nesting() {
+        // expected: the inner `if` is 1 base + 1 lambda level = 2;
+        // nothing else scores.
+        check_metrics::<GoParser>(
+            "package main
+            func outer() {
+                f := func() {
+                    if a {
+                    }
+                }
+                f()
+            }",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+            },
+        );
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_simple_function() {
@@ -9119,6 +9148,28 @@ end",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 8);
                 assert_eq!(metric.cognitive.cognitive_max(), 5);
+            },
+        );
+    }
+
+    /// The lambda channel: a closure — the `Closure` row's owners since
+    /// #1696 — charges its own nesting level to the control flow inside
+    /// it without resetting the enclosing one. No test depended on the
+    /// arm before: severing it failed nothing, on the base as on the
+    /// branch.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_closure_and_arrow_contribute_lambda_nesting() {
+        // expected: each `if` is 1 base + 1 for the enclosing closure's
+        // lambda level: 2 + 2 = 4.
+        check_metrics::<PhpParser>(
+            "<?php
+            $c = function ($a) { if ($a) { } };
+            $d = fn($b) => $b ? 1 : 0;
+            $e = function ($a) { if ($a) { } };",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
             },
         );
     }

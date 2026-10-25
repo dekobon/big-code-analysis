@@ -37,6 +37,7 @@ fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
             return docs == 2
+                // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not membership: what a file docblock precedes is `DocTarget`'s own row (R09)
                 || !matches!(
                     node.kind_id().into(),
                     Php::ClassDeclaration
@@ -73,6 +74,7 @@ impl Checker for PhpCode {
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
         forward: |comment, code, ancestors| {
             let in_signature = ancestors.parent(comment).is_some_and(|parent| {
+                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment, not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
                 matches!(
                     parent.kind_id().into(),
                     Php::ClassDeclaration
@@ -109,6 +111,7 @@ impl Checker for PhpCode {
     // comment, where phpDocumentor reads it as a constant's; a `use`, a
     // `namespace` or any other statement takes none.
     fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
         matches!(
             node.kind_id().into(),
             Php::ClassDeclaration
@@ -139,6 +142,8 @@ impl Checker for PhpCode {
         _ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
+        // role-bypass: allow(FuncOpener, Closure) — where a comment sits in a
+        // body, not whether the node opens a space
         match ancestor.kind_id().into() {
             Php::FunctionDefinition | Php::MethodDeclaration | Php::AnonymousFunction => {
                 below.kind_id() == Php::CompoundStatement
@@ -150,34 +155,28 @@ impl Checker for PhpCode {
         }
     }
 
+    // The space tree is declared in `roles/php.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Php::Program
-                | Php::FunctionDefinition
-                | Php::MethodDeclaration
-                | Php::AnonymousFunction
-                | Php::ArrowFunction
-                | Php::ClassDeclaration
-                | Php::InterfaceDeclaration
-                | Php::TraitDeclaration
-                | Php::EnumDeclaration
-                | Php::AnonymousClass
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Php::FunctionDefinition | Php::MethodDeclaration
-        )
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::php::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Php::AnonymousFunction | Php::ArrowFunction
-        )
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::php::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::php::closure::owns(node, &[], ancestors)
     }
 
     // Intentionally narrower than ABC's `branches` set: ABC additionally

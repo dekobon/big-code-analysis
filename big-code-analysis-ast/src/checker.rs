@@ -952,6 +952,8 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
 /// whether that item is prunable: `#[cfg(test)] use foo;` keeps both
 /// rows, because a `use_declaration` is not on this list (#1431).
 fn rust_prunable_item(node: &Node) -> bool {
+    // role-bypass: allow(FuncOpener, Container, Member) — which items a
+    // `#[cfg(test)]` prunes, not membership
     matches!(
         node.kind_id().into(),
         Rust::ModItem

@@ -123,10 +123,21 @@ role_table! {
             PrimitiveType16, PrimitiveType17,
         ]
     }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A `fn` item opens a `Function` space and is the one callable; a
+    // closure opens one too and is the `Closure` (Rust's closures open
+    // spaces where Java's and Python's do not — the book's "which
+    // lambdas open a space" paragraph is this row). `impl` and `trait`
+    // blocks are the class-like containers; a `struct_item` is not a
+    // space, so its fields land on the enclosing one (`npa/rust.rs`).
+    FuncOpener { owns [FunctionItem(callable opens Function), ClosureExpression(opens Function)] }
+    Closure { owns [ClosureExpression] }
+    Container { owns [SourceFile(opens Unit), ImplItem(opens Impl), TraitItem(opens Trait)] }
+    // A struct's named field, an `impl` or `trait` body's associated
+    // `const` / `static`, and a trait's associated `type`. Which body a
+    // member sits in, its visibility, and a tuple struct's positional
+    // fields — which are type nodes, not declarations — stay with the
+    // attribute consumer.
+    Member { owns [FieldDeclaration, ConstItem, StaticItem, AssociatedType] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Rust documents with `///` comments, not string literals" }

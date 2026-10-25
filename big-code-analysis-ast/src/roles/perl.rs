@@ -127,10 +127,19 @@ role_table! {
     // unlisted `*_declaration` / `variable_declaration`.
     DeclKeyword { owns [Sub, Package, My, Our, Local, State] }
     Primitive { absent "Perl has no type names" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A `sub f { }` in both grammar spellings is the callable; an
+    // anonymous `sub { }` is the closure and opens a space. A `package`
+    // is not a space, so Perl has no container but the file.
+    FuncOpener {
+        owns [
+            FunctionDefinition(callable opens Function),
+            FunctionDefinitionWithoutSub(callable opens Function),
+            AnonymousFunction(opens Function),
+        ]
+    }
+    Closure { owns [AnonymousFunction] }
+    Container { owns [SourceFile(opens Unit)] }
+    Member { absent "Perl has no container space to hold a member; a package is not one" }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Perl documents with POD, not string literals" }

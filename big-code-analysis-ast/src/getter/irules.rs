@@ -6,17 +6,19 @@ use super::*;
 use crate::lang_helpers::irules::BRACED_WORD_KINDS;
 
 impl Getter for IrulesCode {
+    // The mapping is the `opens` annotations of `roles/irules.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        match node.kind_id().into() {
-            // Event handlers and procs are the function units (see the
-            // `IrulesCode` Checker impl for the handler-as-function
-            // rationale, and for why `try` handlers are excluded — this arm
-            // must stay gated by the same set as `is_func_space`,
-            // grammar-dispatch §6/§7).
-            Irules::Procedure | Irules::WhenEvent => SpaceKind::Function,
-            Irules::SourceFile => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::irules::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(irules);

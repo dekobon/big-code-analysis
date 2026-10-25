@@ -65,9 +65,11 @@ role_table! {
     // dialect exists for.
     DeclKeyword { owns [Proc, When, Namespace2, Set2, Global2] }
     Primitive { absent "Tcl has no type names" }
-    FuncOpener { pending R06 }
+    // A `proc` and a `when EVENT { … }` handler are both callables that
+    // open a `Function` space.
+    FuncOpener { owns [Procedure(callable opens Function), WhenEvent(callable opens Function)] }
+    Container { owns [SourceFile(opens Unit)] }
     Closure { absent "Tcl has no anonymous function kind; `apply` takes a list" }
-    Container { pending R06 }
     Member { absent "Tcl has no container to hold a member" }
     Comment { pending R09 }
     DocComment { pending R09 }

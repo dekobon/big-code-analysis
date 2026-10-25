@@ -70,9 +70,9 @@ role_table! {
     // are the keyword kinds.
     DeclKeyword { owns [Proc, Namespace2, Set2, Global2] }
     Primitive { absent "Tcl has no type names" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
+    FuncOpener { owns [Procedure(callable opens Function)] }
+    Closure { absent "Tcl has no anonymous function kind; `apply` takes a list" }
+    Container { owns [SourceFile(opens Unit)] }
     Member { absent "Tcl has no container to hold a member" }
     Comment { pending R09 }
     DocComment { pending R09 }

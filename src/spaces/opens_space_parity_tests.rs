@@ -103,6 +103,88 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::tsx::opens_space,
     },
+    // A closure opens a space in Rust.
+    #[cfg(feature = "rust")]
+    Row {
+        lang: LANG::Rust,
+        source: b"struct S;\ntrait T { fn tm(&self); }\nimpl T for S { fn tm(&self) { let c = |x: i32| x; c(1); } }\nfn f() {}\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::RustCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::rust::opens_space,
+    },
+    #[cfg(feature = "go")]
+    Row {
+        lang: LANG::Go,
+        source: b"package p\ntype S struct{}\nfunc (s *S) M() { f := func(x int) int { return x }; f(1) }\nfunc top() {}\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::GoCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::go::opens_space,
+    },
+    #[cfg(feature = "lua")]
+    Row {
+        lang: LANG::Lua,
+        source: b"function M.f(a) return a end\nlocal function g() local c = function(x) return x end; return c(1) end\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::LuaCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::lua::opens_space,
+    },
+    #[cfg(feature = "bash")]
+    Row {
+        lang: LANG::Bash,
+        source: b"f() { echo 1; }\nfunction g { f; }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::BashCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::bash::opens_space,
+    },
+    #[cfg(feature = "tcl")]
+    Row {
+        lang: LANG::Tcl,
+        source: b"proc f {a} { return $a }\nproc g {} { f 1 }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::TclCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::tcl::opens_space,
+    },
+    #[cfg(feature = "irules")]
+    Row {
+        lang: LANG::Irules,
+        source: b"when HTTP_REQUEST {\n  f 1\n}\nproc f {a} { return $a }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::IrulesCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::irules::opens_space,
+    },
+    #[cfg(feature = "perl")]
+    Row {
+        lang: LANG::Perl,
+        source: b"package P;\nsub f { my $c = sub { 1 }; $c->(); }\nmethod m { 1 }\n1;\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::PerlCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::perl::opens_space,
+    },
+    #[cfg(feature = "php")]
+    Row {
+        lang: LANG::Php,
+        source: b"<?php\ninterface I { public function m(); }\ntrait T { function tm() {} }\nenum E { case A; function em() {} }\nclass C { function m() { $c = function ($x) { return $x; }; $a = fn($y) => $y; $o = new class { function z() {} }; } }\nfunction top() {}\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::PhpCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::php::opens_space,
+    },
+    #[cfg(feature = "c")]
+    Row {
+        lang: LANG::C,
+        source: b"static int helper(int x) { return x; }\nint main(void) { return helper(1); }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::CCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::c::opens_space,
+    },
 ];
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
@@ -114,9 +196,18 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
 // The gate is the union of the rows' features; `assert_fixtures_present`
 // fails rather than skips when a build enables none of them.
 #[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "go",
+    feature = "irules",
     feature = "java",
     feature = "javascript",
+    feature = "lua",
     feature = "mozjs",
+    feature = "perl",
+    feature = "php",
+    feature = "rust",
+    feature = "tcl",
     feature = "typescript"
 ))]
 #[test]

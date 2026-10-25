@@ -11,10 +11,11 @@ use super::*;
 impl Npa for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::php::member;
         use Php::*;
 
         // Class / trait / anonymous-class / interface bodies all share
@@ -36,12 +37,18 @@ impl Npa for PhpCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
+        // A member's chain is the body's plus the body; the row reads
+        // neither. A class body counts the row's properties and an
+        // interface body its constants, so the body decides which of
+        // the row's members this consumer reads.
+        // role-bypass: allow(Container, Member) — which container's body
+        // the members sit in, and which of the row's kinds that body
+        // counts: the bucket, not membership
         match parent_kind {
             ClassDeclaration | TraitDeclaration | AnonymousClass => {
-                for declaration in node
-                    .children()
-                    .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
-                {
+                for declaration in node.children().filter(|c| {
+                    c.kind_id() == PropertyDeclaration as u16 && member::owns(c, code, ancestors)
+                }) {
                     let attributes = declaration
                         .children()
                         .filter(|c| matches!(c.kind_id().into(), PropertyElement))
@@ -57,7 +64,10 @@ impl Npa for PhpCode {
             InterfaceDeclaration => {
                 let count: usize = node
                     .children()
-                    .filter(|c| matches!(c.kind_id().into(), ConstDeclaration | ConstDeclaration2))
+                    .filter(|c| {
+                        c.kind_id() != PropertyDeclaration as u16
+                            && member::owns(c, code, ancestors)
+                    })
                     .map(|decl| {
                         decl.children()
                             .filter(|n| matches!(n.kind_id().into(), ConstElement | ConstElement2))

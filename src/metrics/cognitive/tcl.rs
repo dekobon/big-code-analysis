@@ -27,7 +27,7 @@ impl Cognitive for TclCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::tcl::{short_circuit, ternary};
+        use crate::roles::tcl::{func_opener, short_circuit, ternary};
         use Tcl::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -109,8 +109,12 @@ impl Cognitive for TclCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
-            Procedure => {
-                enter_function_boundary(&mut nesting, node, ancestors, &[Procedure]);
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

@@ -24,18 +24,27 @@ impl Checker for IrulesCode {
     // Listing them here fabricated an anonymous nested function space (and
     // a `nom` function) per handler; they are branch points, counted by
     // the Cognitive / Cyclomatic impls instead (issue #1266).
+    // The space tree is declared in `roles/irules.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Irules::SourceFile | Irules::Procedure | Irules::WhenEvent
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::irules::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     // Event handlers count as functions (not closures): `nom.functions` on
     // a typical iRules file is then the handler count, the intuitive
     // metric. `try` handlers are excluded — see `is_func_space`.
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(node.kind_id().into(), Irules::Procedure | Irules::WhenEvent)
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::irules::func_opener::is_callable(node, &[], ancestors)
     }
 
     // iRules has no anonymous lambda node (`apply` is an ordinary command).

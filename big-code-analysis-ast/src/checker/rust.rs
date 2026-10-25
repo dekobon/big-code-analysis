@@ -12,6 +12,8 @@ use crate::lang_helpers::doc_comment::node_bytes;
 /// comment is a hard error (E0753), so for valid Rust the block alone
 /// decides. Only rustc-rejected input could tell a prefix scan apart, and
 /// that is left undecided (grammar-dispatch rule 6).
+// role-bypass: allow(FuncOpener) — where an inner doc comment sits, not
+// whether the item opens a space
 fn rust_inner_doc_opens_body(function: &Node, body: &Node) -> bool {
     function.kind_id() == Rust::FunctionItem
         && function
@@ -94,6 +96,8 @@ impl Checker for RustCode {
         if ancestors.parent_has_kind(node, Rust::OrderedFieldDeclarationList as u16) {
             return node.is_named() && !Self::is_comment(node);
         }
+        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
+        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
         matches!(
             node.kind_id().into(),
             Rust::ModItem
@@ -127,23 +131,28 @@ impl Checker for RustCode {
         code.starts_with(b"/// cbindgen:")
     }
 
+    // The space tree is declared in `roles/rust.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Rust::SourceFile
-                | Rust::FunctionItem
-                | Rust::ImplItem
-                | Rust::TraitItem
-                | Rust::ClosureExpression
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Rust::FunctionItem
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::rust::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Rust::ClosureExpression
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::rust::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::rust::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {

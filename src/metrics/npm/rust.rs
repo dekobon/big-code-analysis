@@ -27,18 +27,23 @@ use super::*;
 impl Npm for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Rust::*;
 
-        // A method is a `function_item` or `function_signature_item`
-        // whose parent is the `declaration_list` of an `impl` or
-        // `trait`. Gating on the kind, parent, and grandparent keeps
-        // free-standing functions out of the count without needing to
-        // walk the parent list eagerly.
-        if !matches!(node.kind_id().into(), FunctionItem | FunctionSignatureItem) {
+        // A method is the `FuncOpener` row's callable (`fn` with a body)
+        // or a bodiless `function_signature_item`, whose parent is the
+        // `declaration_list` of an `impl` or `trait`; the signature is
+        // no opener, so it is this consumer's own, as is which body
+        // decides the bucket. Gating on the kind, parent, and
+        // grandparent keeps free-standing functions out of the count
+        // without walking the parent list eagerly.
+        use crate::roles::rust::func_opener;
+        if !(func_opener::is_callable(node, code, ancestors)
+            || node.kind_id() == FunctionSignatureItem as u16)
+        {
             return;
         }
         let mut climb = ancestors.iter(node);
@@ -51,6 +56,8 @@ impl Npm for RustCode {
         let Some((grand, _)) = climb.next() else {
             return;
         };
+        // role-bypass: allow(Container) — which container's body the
+        // method sits in, for the bucket; not whether it opens a space
         match grand.kind_id().into() {
             ImplItem => {
                 stats.class_nm += 1;

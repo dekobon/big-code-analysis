@@ -18,6 +18,8 @@ fn go_outside_function_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -
         FoldLane::DocScope,
         0,
         |outside, ancestor, _, _| match ancestor.kind_id().into() {
+            // role-bypass: allow(Container) — the doc scope's top, not
+            // whether the file opens a space
             Go::SourceFile => 1,
             Go::StatementList | Go::Block => 0,
             _ => outside,
@@ -38,6 +40,9 @@ impl Checker for GoCode {
         // (methods and embedded types); never an import. It never reads
         // a declaration inside a function body, nor a field of a type
         // declared there, so a comment above one stays a working comment.
+        // role-bypass: allow(FuncOpener, Member) — doc attachment, not
+        // membership: what a doc comment binds to is `DocTarget`'s own
+        // row (R09), which overlaps these without being them
         match node.kind_id().into() {
             Go::PackageClause | Go::FunctionDeclaration | Go::MethodDeclaration => true,
             Go::TypeDeclaration
@@ -74,22 +79,28 @@ impl Checker for GoCode {
         go_directive(node_bytes(node, code))
     }
 
+    // The space tree is declared in `roles/go.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Go::SourceFile | Go::FunctionDeclaration | Go::MethodDeclaration | Go::FuncLiteral
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Go::FunctionDeclaration | Go::MethodDeclaration
-        )
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::go::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Go::FuncLiteral
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::go::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::go::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {

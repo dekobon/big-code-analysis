@@ -77,6 +77,7 @@ impl Npa for GoCode {
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::go::member;
         use Go as G;
 
         if !matches!(node.kind_id().into(), G::StructType) {
@@ -100,9 +101,11 @@ impl Npa for GoCode {
         // export rule; the total is unconditional.
         let mut total = 0usize;
         let mut public = 0usize;
+        // A declaration's chain is the list's plus the list; the row
+        // reads neither.
         for declaration in body
             .children()
-            .filter(|c| matches!(c.kind_id().into(), G::FieldDeclaration))
+            .filter(|c| member::owns(c, code, Ancestors::unknown()))
         {
             let (declared, exported) = go_count_declaration_names(&declaration, code);
             total += declared;

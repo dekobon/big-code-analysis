@@ -51,27 +51,30 @@ use super::*;
 impl Npa for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::rust::member;
         use Rust::*;
 
-        match node.kind_id().into() {
-            // Counted on the StructItem so each struct's fields are
-            // tallied exactly once. The enclosing func_space (Unit or
-            // nested) is the recipient — marking it a class space
-            // makes the npa metric visible.
-            StructItem => rust_count_struct_attrs(node, stats),
-            // Associated const/static declared in an `impl` block.
-            // The current top-of-stack is the Impl space (because we
-            // are inside its body), so attribution lands there.
-            ConstItem | StaticItem => rust_count_assoc_const(node, ancestors, stats),
-            // `type Foo;` inside a trait body is an associated type —
-            // a placeholder bound that the implementer must supply.
-            // Counted as an interface attribute, public by default.
-            AssociatedType => rust_count_assoc_type(node, ancestors, stats),
-            _ => {}
+        // A struct's fields are counted on the `struct_item` so each is
+        // tallied exactly once, on whichever space is open (Unit or a
+        // nested one), which the count marks a class space. A `Member`
+        // met directly — an associated `const` / `static` in an `impl`
+        // or `trait` body, a trait's associated `type` — lands on the
+        // Impl or Trait space the walk has open; which of the two, and
+        // what it is, is this consumer's reading of the row.
+        if node.kind_id() == StructItem as u16 {
+            rust_count_struct_attrs(node, code, stats);
+        } else if member::owns(node, code, ancestors) {
+            // role-bypass: allow(Member) — which associated item the
+            // row's member is, for the bucket it lands in
+            match node.kind_id().into() {
+                ConstItem | StaticItem => rust_count_assoc_const(node, ancestors, stats),
+                AssociatedType => rust_count_assoc_type(node, ancestors, stats),
+                _ => {}
+            }
         }
     }
 }
@@ -81,7 +84,8 @@ impl Npa for RustCode {
 // that function's stats and reaches the nearest enclosing container —
 // or the file root — through the usual merge; which space *serializes*
 // the block is decided later, by its kind alone (#1203).
-fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
+fn rust_count_struct_attrs<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    use crate::roles::rust::member;
     use Rust::*;
 
     let mut attrs = 0;
@@ -92,9 +96,11 @@ fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
             // is one attribute. Visibility is the
             // `visibility_modifier` first child.
             FieldDeclarationList => {
+                // A field's chain is the list's plus the list; the row
+                // reads neither.
                 for field in body
                     .children()
-                    .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
+                    .filter(|c| member::owns(c, code, Ancestors::unknown()))
                 {
                     attrs += 1;
                     if rust_item_is_public(&field) {
@@ -136,6 +142,8 @@ fn rust_count_assoc_const<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, sta
     let Some((grand, _)) = climb.next() else {
         return;
     };
+    // role-bypass: allow(Container) — which container's body the
+    // member sits in, for the bucket; not whether it opens a space
     match grand.kind_id().into() {
         ImplItem if matches!(parent.kind_id().into(), DeclarationList) => {
             stats.class_na += 1;
@@ -163,6 +171,8 @@ fn rust_count_assoc_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stat
     let Some((grand, _)) = climb.next() else {
         return;
     };
+    // role-bypass: allow(Container) — which container's body the
+    // member sits in, for the bucket; not whether it opens a space
     if matches!(grand.kind_id().into(), TraitItem)
         && matches!(parent.kind_id().into(), DeclarationList)
     {

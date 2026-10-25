@@ -123,10 +123,36 @@ role_table! {
     // `cast_type` (`(int)`) are leaves of their own and bill with it;
     // a cast never emits a keyword node (#1484).
     Primitive { owns [PrimitiveType, BottomType, CastType] }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A function and a method are the callables; a `function () {}` and
+    // an `fn () =>` are the closures, each opening a space. A trait is
+    // a class-like mixin whose methods roll into the consuming class's
+    // WMC, so it opens `Class` (load-bearing: `wmc.rs`'s PHP impl
+    // matches no `Trait`); an anonymous class opens one like a named
+    // one; an enum is class-like.
+    FuncOpener {
+        owns [
+            FunctionDefinition(callable opens Function),
+            MethodDeclaration(callable opens Function),
+            AnonymousFunction(opens Function),
+            ArrowFunction(opens Function),
+        ]
+    }
+    Closure { owns [AnonymousFunction, ArrowFunction] }
+    Container {
+        owns [
+            Program(opens Unit),
+            ClassDeclaration(opens Class),
+            AnonymousClass(opens Class),
+            EnumDeclaration(opens Class),
+            TraitDeclaration(opens Class),
+            InterfaceDeclaration(opens Interface),
+        ]
+    }
+    // A property declaration (`public $a, $b;` — one declaration, two
+    // `property_element`s the consumer counts) and a class constant in
+    // its two aliased ids, which only an interface counts as a member
+    // (`npa/php.rs`); an enum case is a tag, not a member.
+    Member { owns [PropertyDeclaration, ConstDeclaration, ConstDeclaration2] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "PHP documents with PHPDoc comments, not string literals" }

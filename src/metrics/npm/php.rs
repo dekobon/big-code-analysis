@@ -29,6 +29,9 @@ impl Npm for PhpCode {
                 let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
                     return;
                 };
+                // role-bypass: allow(Container) — which container's body
+                // the methods sit in, for the bucket; not whether it opens
+                // a space
                 match parent_kind {
                     ClassDeclaration | TraitDeclaration | AnonymousClass => {
                         for method in direct_child_funcs::<Self>(node) {

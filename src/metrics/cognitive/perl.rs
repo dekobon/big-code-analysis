@@ -67,7 +67,7 @@ impl Cognitive for PerlCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::perl::ternary;
+        use crate::roles::perl::{closure, func_opener, ternary};
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -137,15 +137,16 @@ impl Cognitive for PerlCode {
             P::BinaryExpression | P::UnaryExpression => {
                 compute_perl_booleans(node, code, stats);
             }
-            P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[P::FunctionDefinition, P::FunctionDefinitionWithoutSub],
-                );
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
-            P::AnonymousFunction => {
+            // A closure — the `Closure` row — charges the lambda channel
+            // and does not reset nesting.
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

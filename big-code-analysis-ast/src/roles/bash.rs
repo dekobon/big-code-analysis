@@ -168,9 +168,9 @@ role_table! {
     // the inverse and bill with the commands.
     DeclKeyword { owns [Function, Local, Declare, Typeset, Export, Readonly] }
     Primitive { absent "Bash has no type names" }
-    FuncOpener { pending R06 }
+    FuncOpener { owns [FunctionDefinition(callable opens Function)] }
+    Container { owns [Program(opens Unit)] }
     Closure { absent "Bash has no anonymous function" }
-    Container { pending R06 }
     Member { absent "Bash has no container to hold a member" }
     Comment { pending R09 }
     DocComment { pending R09 }

@@ -27,19 +27,25 @@ impl Checker for CCode {
     // `FunctionDefinition2` is the grammar's `function_definition` alias
     // (kind_id 197); enumerate it alongside the primary so neither is
     // silently dropped from FuncSpace creation (#285, lesson 2).
+    // The space tree is declared in `roles/c.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            C::TranslationUnit | C::FunctionDefinition | C::FunctionDefinition2
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::c::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     // Keep in sync with `is_func_space` and the C getters (#285).
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            C::FunctionDefinition | C::FunctionDefinition2
-        )
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::c::func_opener::is_callable(node, &[], ancestors)
     }
 
     // C has no closures/lambdas.

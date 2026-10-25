@@ -21,7 +21,7 @@ impl Cognitive for CCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::c::{short_circuit, ternary};
+        use crate::roles::c::{func_opener, short_circuit, ternary};
         use C::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -58,13 +58,12 @@ impl Cognitive for CCode {
             // construct inherited the enclosing nesting and every nested
             // definition missed the SonarSource B-nesting amplification
             // (#696).
-            FunctionDefinition | FunctionDefinition2 => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition, FunctionDefinition2],
-                );
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

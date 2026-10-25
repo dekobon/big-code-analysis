@@ -46,9 +46,19 @@ role_table! {
     // `function_declaration` / `variable_declaration` / `function_definition`.
     DeclKeyword { owns [Local, Function] }
     Primitive { absent "Lua has no type names" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
+    // The three aliased `function_declaration` ids (`function f`,
+    // `function M.f`, `local function f`) are the callables; an
+    // anonymous `function () … end` is the closure and opens a space.
+    FuncOpener {
+        owns [
+            FunctionDeclaration(callable opens Function),
+            FunctionDeclaration2(callable opens Function),
+            FunctionDeclaration3(callable opens Function),
+            FunctionDefinition(opens Function),
+        ]
+    }
+    Closure { owns [FunctionDefinition] }
+    Container { owns [Chunk(opens Unit)] }
     Member { absent "Lua has no container to hold a member" }
     Comment { pending R09 }
     DocComment { pending R09 }

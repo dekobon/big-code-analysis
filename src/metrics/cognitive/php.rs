@@ -26,7 +26,7 @@ impl Cognitive for PhpCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::php::{null_safe, short_circuit, ternary};
+        use crate::roles::php::{closure, func_opener, null_safe, short_circuit, ternary};
         use Php::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -98,7 +98,9 @@ impl Cognitive for PhpCode {
                 // `&&=` / `||=`.
                 compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
-            AnonymousFunction | ArrowFunction => {
+            // A closure — the `Closure` row — charges the lambda channel
+            // and does not reset nesting.
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // At a (possibly nested) named-function / method boundary, reset
@@ -111,13 +113,12 @@ impl Cognitive for PhpCode {
             // Closures (`AnonymousFunction` / `ArrowFunction`) are handled by
             // the lambda arm above and intentionally do *not* reset nesting,
             // mirroring how the siblings treat lambda vs named-function arms.
-            FunctionDefinition | MethodDeclaration => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition, MethodDeclaration],
-                );
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

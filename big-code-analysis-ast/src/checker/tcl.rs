@@ -9,12 +9,24 @@ impl Checker for TclCode {
         node.kind_id() == Tcl::Comment
     }
 
+    // The space tree is declared in `roles/tcl.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(node.kind_id().into(), Tcl::SourceFile | Tcl::Procedure)
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Tcl::Procedure
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::tcl::opens_space(node, code, ancestors) != SpaceKind::Unknown
+    }
+
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::tcl::func_opener::is_callable(node, &[], ancestors)
     }
 
     // Tcl closures (`apply`) are ordinary commands; the grammar has no distinct closure node.

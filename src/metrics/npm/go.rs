@@ -12,9 +12,10 @@ impl Npm for GoCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::go::func_opener;
         use Go as G;
 
         match node.kind_id().into() {
@@ -23,7 +24,12 @@ impl Npm for GoCode {
             // the parent's merge bubbles it up to the Unit, which is
             // where a Go file's npm is reported — Go has no container
             // space to attach it to.
-            G::MethodDeclaration => {
+            // A method is the callable with a receiver: of the row's two
+            // callables only this one has a `receiver` field, which is
+            // what tells it from a function here.
+            _ if func_opener::is_callable(node, code, ancestors)
+                && node.child_by_field_name("receiver").is_some() =>
+            {
                 stats.class_nm += 1;
                 // Go's export rule is lexical (issue #458): the method
                 // is public iff its own name's first character is an

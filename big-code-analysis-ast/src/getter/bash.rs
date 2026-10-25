@@ -23,12 +23,19 @@ fn bash_string_has_expansion(node: &Node) -> bool {
 }
 
 impl Getter for BashCode {
+    // The mapping is the `opens` annotations of `roles/bash.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        match node.kind_id().into() {
-            Bash::FunctionDefinition => SpaceKind::Function,
-            Bash::Program => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::bash::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(bash);

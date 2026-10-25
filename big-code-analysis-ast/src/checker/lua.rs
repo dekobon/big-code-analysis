@@ -14,6 +14,8 @@ use crate::lang_helpers::doc_comment::{
 /// and `[`, so `local a, b = …`, `local x <const> = …` and `M[1] = …`
 /// name no item.
 fn lua_ldoc_item(node: &Node) -> bool {
+    // role-bypass: allow(FuncOpener) — doc attachment, not membership:
+    // what an LDoc block documents is `DocTarget`'s own row (R09)
     match node.kind_id().into() {
         Lua::FunctionDeclaration | Lua::FunctionDeclaration2 | Lua::FunctionDeclaration3 => true,
         Lua::AssignmentStatement | Lua::AssignmentStatement2 => lua_assigns_one_name(node),
@@ -40,6 +42,8 @@ fn lua_ldoc_item(node: &Node) -> bool {
             })
             .and_then(|list| list.children().find(Node::is_named))
             .is_some_and(|value| {
+                // role-bypass: allow(Closure) — what an assigned value
+                // documents as, not whether it is a closure
                 matches!(
                     value.kind_id().into(),
                     Lua::FunctionDefinition | Lua::TableConstructor
@@ -123,6 +127,8 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
     // token (`if`, `do`, `{`), and the grammar parks a comment above a
     // body's first statement after it, so the first-token test below would
     // reject a nested block too — after a scan this skips.
+    // role-bypass: allow(Container) — where the first comment sits,
+    // not whether the chunk opens a space
     if ancestors
         .parent(first)
         .is_none_or(|parent| parent.kind_id() != Lua::Chunk)
@@ -215,26 +221,28 @@ impl Checker for LuaCode {
         node.kind_id() == Lua::Comment && lua_long_comment(node_bytes(node, code))
     }
 
+    // The space tree is declared in `roles/lua.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Lua::Chunk
-                | Lua::FunctionDeclaration
-                | Lua::FunctionDeclaration2
-                | Lua::FunctionDeclaration3
-                | Lua::FunctionDefinition
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Lua::FunctionDeclaration | Lua::FunctionDeclaration2 | Lua::FunctionDeclaration3
-        )
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::lua::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Lua::FunctionDefinition
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::lua::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::lua::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {

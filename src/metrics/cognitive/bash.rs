@@ -102,7 +102,7 @@ impl Cognitive for BashCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::bash::{short_circuit, ternary};
+        use crate::roles::bash::{func_opener, short_circuit, ternary};
         use Bash::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -167,8 +167,12 @@ impl Cognitive for BashCode {
                     });
                 }
             }
-            FunctionDefinition => {
-                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
+            // A named function — the `FuncOpener` row's callable owners —
+            // resets structural nesting and bumps the function-depth
+            // surcharge when nested in another (#696); the stop list is
+            // the row's callable kinds.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

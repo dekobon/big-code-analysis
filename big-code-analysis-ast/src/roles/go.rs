@@ -57,10 +57,24 @@ role_table! {
     DeclKeyword { owns [Func, Type, Struct, Interface, Const, Var, Package, Import] }
     Primitive { absent "Go's built-in types (`int`, `string`) are ordinary `type_identifier`s, \
          operands like every other type name" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A function and a method declaration are the callables; a `func`
+    // literal is the closure, and opens a space of its own. Go has no
+    // container space: a `struct` type is not a space, so its fields
+    // land on the enclosing one (`npa/go.rs`), and an interface's
+    // method set on its own (`npm/go.rs`).
+    FuncOpener {
+        owns [
+            FunctionDeclaration(callable opens Function),
+            MethodDeclaration(callable opens Function),
+            FuncLiteral(opens Function),
+        ]
+    }
+    Closure { owns [FuncLiteral] }
+    Container { owns [SourceFile(opens Unit)] }
+    // A struct's field declaration (`A, b int` is one declaration, two
+    // names — the consumer counts the names, and reads the export rule
+    // from the bytes).
+    Member { owns [FieldDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Go documents with comments, not string literals" }
