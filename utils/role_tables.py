@@ -405,10 +405,12 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `pays_itself_when`")
             pays_itself = True
             i += 2
-        elif a == "opens":
+        elif a in ("opens", "opens_by"):
             if opens is not None or i + 1 >= len(attrs):
-                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `opens`")
-            opens = attrs[i + 1]
+                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `{a}`")
+            # `opens_by f` is recorded as the fn's name prefixed `by `, so a
+            # reader can tell a kind from a resolver.
+            opens = attrs[i + 1] if a == "opens" else "by " + attrs[i + 1]
             i += 2
         elif a == "callable":
             if callable_:

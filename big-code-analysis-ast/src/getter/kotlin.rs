@@ -161,6 +161,8 @@ impl Getter for KotlinCode {
         code: &'a [u8],
         ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
+        // role-bypass: allow(FuncOpener) — a naming rule, not whether the
+        // node opens a space
         match node.kind_id().into() {
             Kotlin::Getter => Some("<get>"),
             Kotlin::Setter => Some("<set>"),
@@ -169,58 +171,19 @@ impl Getter for KotlinCode {
         }
     }
 
+    // The mapping is the `opens` annotations of `roles/kotlin.rs`
+    // (#1696); the byte-less spelling forwards with no bytes and no
+    // chain, as the old one read neither.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Kotlin::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        match node.kind_id().into() {
-            // The Kotlin grammar models classes and interfaces under a single
-            // `class_declaration` node with the discriminating keyword
-            // (`class` vs `interface`) appearing as a direct child token.
-            // Distinguishing them at the space-kind level lets the OOP
-            // metrics (`wmc`, `npa`, `npm`) attribute counts to the right
-            // bucket without re-inspecting the AST.
-            ClassDeclaration => {
-                if node.first_child(|id| id == Interface).is_some() {
-                    SpaceKind::Interface
-                } else {
-                    SpaceKind::Class
-                }
-            }
-            // `object MyObject { ... }` is a singleton; treat it as a class
-            // for OOP metric purposes (it has properties, methods, init
-            // blocks, exactly like a class).
-            //
-            // `companion object { ... }` is the anonymous (or named)
-            // singleton nested in a class. Its body is a `class_body`
-            // holding methods and properties, exactly like a named
-            // object, so it opens its own Class space rather than
-            // folding its members into the enclosing class (#431). The
-            // default `get_func_space_name` reads the optional `name`
-            // field, yielding the declared name for `companion object
-            // Named` and `<anonymous>` for the nameless form.
-            //
-            // `object : T { ... }` (`object_literal`) is the anonymous
-            // object expression — Kotlin's analogue of a Java anonymous
-            // class. The grammar models its body as a `class_body` of
-            // methods and properties, identical in shape to a named
-            // object, so it opens its own Class space rather than folding
-            // its members into the enclosing function (#463). It is always
-            // nameless, so the default `get_func_space_name` yields
-            // `<anonymous>`.
-            ObjectDeclaration | CompanionObject | ObjectLiteral => SpaceKind::Class,
-            FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
-                SpaceKind::Function
-            }
-            // Property accessors and `init { … }` (#1184). Fully
-            // qualified deliberately: the enclosing `use Kotlin::*` would
-            // otherwise put the `Getter` *variant* and the `Getter`
-            // *trait* (in scope from `use super::*`) in the same
-            // namespace. `src/getter/ruby.rs` hit the same collision and
-            // solved it with `use Ruby as R;`.
-            Kotlin::Getter | Kotlin::Setter | Kotlin::AnonymousInitializer => SpaceKind::Function,
-            SourceFile => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::kotlin::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(kotlin);

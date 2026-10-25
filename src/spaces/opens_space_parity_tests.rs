@@ -226,6 +226,39 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::csharp::opens_space,
     },
+    // Kotlin: accessors and `init` open a space without being callable;
+    // a lambda and an anonymous `fun` open none; one `class_declaration`
+    // kind is a class or an interface by its keyword.
+    #[cfg(feature = "kotlin")]
+    Row {
+        lang: LANG::Kotlin,
+        source: b"interface I {\n  fun m()\n}\nobject O {\n  val o = 1\n}\nclass C : I {\n  var q: Int = 1\n    get() = field\n    set(v) { field = v }\n  init { println(1) }\n  constructor(x: Int) : this()\n  override fun m() {\n    val l = { x: Int -> x }\n    val a = fun(y: Int) = y\n    val o = object : I {\n      override fun m() {}\n    }\n    l(1); a(2); o.m()\n  }\n}\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::KotlinCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::kotlin::opens_space,
+    },
+    // Groovy: `static { }` opens a space, a closure none.
+    #[cfg(feature = "groovy")]
+    Row {
+        lang: LANG::Groovy,
+        source: b"interface I { void m() }\ntrait Tr { def tm() {} }\nclass C implements I {\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::GroovyCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::groovy::opens_space,
+    },
+    // Ruby: both block spellings as iterator blocks (spaces) and as
+    // stabby-lambda bodies (not).
+    #[cfg(feature = "ruby")]
+    Row {
+        lang: LANG::Ruby,
+        source: b"module M\n  class C\n    def m; l = ->(y) { y }; l2 = -> do 1 end; [1].each { |i| i }; [1].each do |i| i end; l.call(1); end\n    def self.sm; end\n    class << self; def eig; end; end\n  end\nend\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::RubyCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::ruby::opens_space,
+    },
 ];
 
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
@@ -245,15 +278,18 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
     feature = "java",
     feature = "javascript",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "mozjs",
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
     feature = "typescript"

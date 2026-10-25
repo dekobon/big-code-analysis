@@ -12,7 +12,6 @@
 )]
 
 use super::*;
-use crate::checker::ruby::is_stabby_lambda_body;
 
 /// Folds a Ruby `binary`'s short-circuit operator children — the
 /// `ShortCircuit` row's four payers (`&&`, `||`, word-form `and`,
@@ -37,7 +36,7 @@ impl Cognitive for RubyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::ruby::{short_circuit, ternary};
+        use crate::roles::ruby::{closure, func_opener, short_circuit, ternary};
         use Ruby as R;
 
         // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
@@ -143,25 +142,18 @@ impl Cognitive for RubyCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_ruby_booleans(node, stats);
             }
-            R::Method | R::SingletonMethod => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[R::Method, R::SingletonMethod],
-                );
+            // A `def` — the `FuncOpener` row's callables — is the boundary
+            // and the stop.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
-            // Blocks, do-blocks and lambdas are the closure/lambda forms.
-            // A stabby lambda's own body block is skipped: the wrapping
-            // `Lambda` node already paid the surcharge, so counting the
-            // body too made a stabby lambda's contents inherit
-            // lambda-nesting 2 where the keyword form (`lambda { … }`)
-            // inherits 1. Same shared discriminator as `is_closure` and
-            // the space tree (#1257).
-            R::Lambda => {
-                nesting.lambda += 1;
-            }
-            R::Block | R::DoBlock if !is_stabby_lambda_body(node, ancestors) => {
+            // Blocks, do-blocks and lambdas are the closure forms — the
+            // `Closure` row, whose gate skips a stabby lambda's own body
+            // block: the wrapping `Lambda` node already paid the
+            // surcharge, so counting the body too made a stabby lambda's
+            // contents inherit lambda-nesting 2 where the keyword form
+            // (`lambda { … }`) inherits 1 (#1257).
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

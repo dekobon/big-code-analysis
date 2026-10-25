@@ -353,13 +353,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 645.0
+value = 663.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1343.0
+value = 1366.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -1020,6 +1020,18 @@ path = "src/metrics/cognitive/java.rs"
 qualified = "JavaCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/cognitive/kotlin.rs"
+qualified = "KotlinCode::compute"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/cognitive/kotlin.rs"
+qualified = "KotlinCode::compute"
+metric = "halstead.effort"
+value = 49856.11703112131
 
 [[entry]]
 path = "src/metrics/cognitive/kotlin.rs"

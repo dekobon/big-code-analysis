@@ -6,7 +6,7 @@
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::kotlin_when_entry_is_else;
 use crate::role_table;
-use crate::{Ancestors, Kotlin, Node};
+use crate::{Ancestors, Kotlin, Node, Search};
 
 /// Whether `node`, a modifier keyword leaf, sits in a modifier list the
 /// grammar built (#1558), rather than in the recovery of a soft-keyword
@@ -88,6 +88,22 @@ fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) 
 /// fallback, which has no `condition` field (lesson 11, #469).
 fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     !kotlin_when_entry_is_else(node)
+}
+
+/// Which space a `class_declaration` opens: the grammar models classes
+/// and interfaces under one node with the discriminating keyword as a
+/// direct child token, so an `interface` token makes it `Interface`
+/// and anything else `Class`.
+fn class_or_interface<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    _ancestors: Ancestors<'a, '_>,
+) -> crate::SpaceKind {
+    if node.first_child(|id| id == Kotlin::Interface).is_some() {
+        crate::SpaceKind::Interface
+    } else {
+        crate::SpaceKind::Class
+    }
 }
 
 role_table! {
@@ -223,10 +239,42 @@ role_table! {
     // hard keyword.
     DeclKeyword { owns [Class, Interface, Fun, Object, Val, Var, Typealias] }
     Primitive { absent "Kotlin's built-in types are ordinary type names (`Int`, `String`)" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A function and a secondary constructor are the callables. A
+    // property accessor (`get()` / `set(v)`) and `init { … }` carry
+    // executable code and open a space (#1184) without being callable:
+    // in Kotlin one writes `p.foo`, not `p.getFoo()`, and a callable
+    // accessor would have the method count score a property twice. A
+    // lambda and an anonymous `fun` are closures that open no space —
+    // the walk never promoted one (`is_func_space` left both out), even
+    // though the byte-less `get_space_kind` labelled them `Function` if
+    // asked, the "pair that fails quietly" of grammar-dispatch §7; the
+    // row records the walk's answer, as Java's does.
+    FuncOpener {
+        owns [
+            FunctionDeclaration(callable opens Function),
+            SecondaryConstructor(callable opens Function),
+            Getter(opens Function),
+            Setter(opens Function),
+            AnonymousInitializer(opens Function),
+        ]
+    }
+    Closure { owns [LambdaLiteral, AnonymousFunction] }
+    // One `class_declaration` kind spells a class and an interface,
+    // told apart by the keyword token (`class_or_interface`). A named
+    // or companion object and an object literal (`object : T { … }`,
+    // #463) are class-like singletons.
+    Container {
+        owns [
+            SourceFile(opens Unit),
+            ClassDeclaration(opens_by class_or_interface),
+            ObjectDeclaration(opens Class),
+            CompanionObject(opens Class),
+            ObjectLiteral(opens Class),
+        ]
+    }
+    // A property declaration in a class body — `val a = 1`, or a
+    // destructuring `val (a, b) = …` the consumer counts by variable.
+    Member { owns [PropertyDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Kotlin documents with KDoc comments, not string literals" }

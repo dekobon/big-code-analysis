@@ -44,6 +44,8 @@ impl Checker for GroovyCode {
     // The nodes `AstBuilder` hands to `GroovydocManager::handle`: a type,
     // a method or constructor, a field or property, an enum constant.
     fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
+        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
         matches!(
             node.kind_id().into(),
             Groovy::ClassDeclaration
@@ -69,6 +71,8 @@ impl Checker for GroovyCode {
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
+            // role-bypass: allow(FuncOpener) — where a comment sits in a body, not
+            // whether the node opens a space
             || ancestor.kind_id() == Groovy::StaticInitializer
     }
 
@@ -77,27 +81,23 @@ impl Checker for GroovyCode {
     // spaces so `Npa`/`Npm`/`Wmc` walk their bodies. Cross-language parity
     // with Java is the point — identical-shape sources must agree on
     // class-shaped metrics (issue #280).
+    // The space tree is declared in `roles/groovy.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain, so the byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Groovy::SourceFile
-                | Groovy::ClassDeclaration
-                | Groovy::TraitDeclaration
-                | Groovy::InterfaceDeclaration
-                | Groovy::EnumDeclaration
-                | Groovy::RecordDeclaration
-                | Groovy::AnnotationTypeDeclaration
-                // `static { … }` — see `JavaCode::is_func_space`, which
-                // this mirrors (#1184).
-                | Groovy::StaticInitializer
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Groovy::MethodDeclaration | Groovy::ConstructorDeclaration
-        )
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::groovy::opens_space(node, code, ancestors) != SpaceKind::Unknown
+    }
+
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::groovy::func_opener::is_callable(node, &[], ancestors)
     }
 
     // A primitive type is a name kind spelled `int`, `void`, … (#1568),
@@ -115,8 +115,8 @@ impl Checker for GroovyCode {
         )
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(node.kind_id().into(), Groovy::Closure)
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::groovy::closure::owns(node, &[], ancestors)
     }
 
     // `command_chain` is the new grammar's distinct node for Groovy's

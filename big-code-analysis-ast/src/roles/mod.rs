@@ -114,7 +114,11 @@
 //! gates the owner on its projection landing on one of the row's payers
 //! — the one gate every field-projected owner of a shared kind reads,
 //! so a `binary_expression` owns a comparison when its `operator` is a
-//! comparison token; `opens K` records the `SpaceKind` the owner opens;
+//! comparison token; `opens K` records the `SpaceKind` the owner opens,
+//! and `opens_by f` the `SpaceKind` a named `fn(&Node, &[u8],
+//! Ancestors) -> SpaceKind` answers for a kind that spells two
+//! containers at once (Kotlin's `class_declaration` is a class or an
+//! interface by its keyword token) — `Unknown` meaning it opens none;
 //! `callable` marks a `FuncOpener` owner that is a *named function* —
 //! what `Checker::is_func` answers — beside openers that are not
 //! (Java's `static { … }` opens a `Function` space and is nobody's
@@ -1054,6 +1058,9 @@ macro_rules! role_table {
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens $s:ident $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $c $($r)*);
     };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens_by $f:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g $p [by $f] $c $($r)*);
+    };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt [] callable $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable] $($r)*);
     };
@@ -1112,6 +1119,9 @@ macro_rules! role_table {
     };
     // In `opens_space`: an `opens K` owner returns its kind, under its gate.
     (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [] $c:tt) => {};
+    (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [by $f:ident] $c:tt) => {
+        $crate::role_table!(@space_clause_by $ctx $k $f $(gated_by $g)?);
+    };
     (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [$s:ident] $c:tt) => {
         $crate::role_table!(@space_clause $ctx $k $s $(gated_by $g)?);
     };
@@ -1179,6 +1189,19 @@ macro_rules! role_table {
     (@space_clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident) => {
         if $kind == $l::$k as u16 {
             return $crate::SpaceKind::$s;
+        }
+    };
+    // An `opens_by f` owner: `f` answers the kind, `Unknown` for none.
+    (@space_clause_by [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:ident) => {
+        if $kind == $l::$k as u16 {
+            return $f($n, $c, $a);
+        }
+    };
+    (@space_clause_by
+        [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:ident gated_by $g:ident
+    ) => {
+        if $kind == $l::$k as u16 && $g($n, $c, $a) {
+            return $f($n, $c, $a);
         }
     };
     (@space_clause
@@ -1462,7 +1485,7 @@ mod tests {
     // production table declares since #1695, kept here so its two
     // projections stay pinned.
     mod dsl_gates {
-        use super::{always, never};
+        use super::{always, class_or_interface, never};
         use crate::Java;
 
         role_table! {
@@ -1492,6 +1515,25 @@ mod tests {
                     CompactConstructorDeclaration(opens Function callable_when always),
                 ]
             }
+            Container { owns [ClassDeclaration(opens_by class_or_interface)] }
+        }
+    }
+
+    /// `opens_by`'s proof: a class named `I` is an `Interface`, any
+    /// other a `Class`.
+    pub(super) fn class_or_interface<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        _: Ancestors<'a, '_>,
+    ) -> crate::SpaceKind {
+        if node
+            .child_by_field_name("name")
+            .and_then(|n| n.utf8_text(code))
+            == Some("I")
+        {
+            crate::SpaceKind::Interface
+        } else {
+            crate::SpaceKind::Class
         }
     }
 
@@ -1736,7 +1778,9 @@ mod tests {
             }
         });
         // The constructor is declared (five owners) and gated away on
-        // every predicate, so it is absent here rather than listed.
+        // every predicate, so it is absent here rather than listed. The
+        // class is the table's `Container` row (`opens_by`), not an
+        // opener: it labels and neither owns nor is callable here.
         assert_eq!(
             seen,
             [
@@ -1746,6 +1790,7 @@ mod tests {
                     true,
                     SpaceKind::Function
                 ),
+                ("class_declaration", false, false, SpaceKind::Class),
                 ("method_declaration", true, true, SpaceKind::Function),
                 ("lambda_expression", true, false, SpaceKind::Function),
                 ("static_initializer", true, false, SpaceKind::Function),
@@ -1764,6 +1809,25 @@ mod tests {
             ]
         );
         assert_eq!(dsl_gates::guard::CALLABLE, &[] as &[u16]);
+    }
+
+    // `opens_by f`: one kind, two space kinds, by what `f` reads.
+    #[cfg(feature = "java")]
+    #[test]
+    fn an_opens_by_owner_opens_what_its_fn_answers() {
+        use crate::JavaCode;
+        use crate::SpaceKind;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::opens_space;
+        let source = b"class I { }\nclass A { }\n";
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let kind = opens_space(node, source, Ancestors::known(chain));
+            if kind != SpaceKind::Unknown {
+                seen.push(kind);
+            }
+        });
+        assert_eq!(seen, [SpaceKind::Interface, SpaceKind::Class]);
     }
 
     // `pays never`: the owner is recognised and pays under neither

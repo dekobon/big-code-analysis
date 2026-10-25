@@ -25,6 +25,8 @@ use crate::lang_helpers::doc_comment::{node_bytes, ruby_directive_opener, ruby_m
 /// `tree_sitter` resolves it by descending from the root (#1088).
 #[must_use]
 pub fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    // role-bypass: allow(FuncOpener, Closure) — the gate the rows read:
+    // whether the parent is the lambda, not whether a node opens a space
     ancestors
         .parent(node)
         .is_some_and(|parent| parent.kind_id() == Ruby::Lambda)
@@ -58,6 +60,8 @@ fn ruby_documented_core<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 /// assignment, a method alias (`alias` or `alias_method`), an `attr` /
 /// `attr_*` call or a visibility-wrapped `def`.
 fn ruby_documented_statement(node: &Node, code: &[u8]) -> bool {
+    // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
+    // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
     match node.kind_id().into() {
         Ruby::Method | Ruby::SingletonMethod | Ruby::Class | Ruby::Module => true,
         // `Alias` is the `alias new old` statement (305), which YARD's alias
@@ -83,6 +87,7 @@ fn ruby_documented_statement(node: &Node, code: &[u8]) -> bool {
         // productions of the same rules (grammar-dispatch rule 1).
         Ruby::Assignment | Ruby::Assignment2 => {
             node.child_by_field_name("left").is_some_and(|left| {
+                // role-bypass: allow(Member) — doc attachment, not membership
                 matches!(
                     left.kind_id().into(),
                     Ruby::Constant
@@ -124,6 +129,8 @@ fn ruby_documented_call(node: &Node, code: &[u8]) -> bool {
                     .child_by_field_name("arguments")
                     .and_then(|arguments| arguments.children().find(Node::is_named))
                     .is_some_and(|argument| {
+                        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
+                        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
                         matches!(
                             argument.kind_id().into(),
                             Ruby::Method | Ruby::SingletonMethod
@@ -171,13 +178,17 @@ fn ruby_yard_reads<'a>(is_def: bool, scope: &Node<'a>, ancestors: Ancestors<'a, 
         0,
         FoldLane::DocScope,
         BOTH,
+        // Where YARD reads a doc comment, not whether a node opens a space:
+        // each arm below that names a space opener is exempt for that.
         |above, ancestor, _, _| match ancestor.kind_id().into() {
+            // role-bypass: allow(Container) — the file, where YARD reads
             Ruby::Program => BOTH,
             // Each opens a namespace only where one already reads it. For a
             // class or module — Ruby rejects one in a method body — that
             // closes it only under a `case`, `begin` or loop, whose bodies
             // YARD never parses; a singleton class or conditional in a
             // method body closes as before.
+            // role-bypass: allow(Container) — the namespaces, where YARD reads
             Ruby::Class
             | Ruby::Module
             | Ruby::SingletonClass
@@ -190,6 +201,7 @@ fn ruby_yard_reads<'a>(is_def: bool, scope: &Node<'a>, ancestors: Ancestors<'a, 
                     BOTH
                 }
             }
+            // role-bypass: allow(FuncOpener) — a `def` body, where YARD reads
             Ruby::Method | Ruby::SingletonMethod => above & DEF_READS,
             Ruby::Case | Ruby::CaseMatch | Ruby::Begin | Ruby::While | Ruby::Until | Ruby::For => 0,
             _ => above,
@@ -215,6 +227,8 @@ impl Checker for RubyCode {
         ruby_documented_core(&statement).is_some_and(|core| {
             ruby_documented_statement(&core, code)
                 && ruby_yard_reads(
+                    // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
+                    // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
                     matches!(core.kind_id().into(), Ruby::Method | Ruby::SingletonMethod),
                     node,
                     ancestors,
@@ -251,48 +265,30 @@ impl Checker for RubyCode {
     // no ancestor access. The walker promotes through the
     // [`Checker::is_func_space_with_code`] override below, which
     // carries the lambda-body gate (#1257).
+    // The space tree is declared in `roles/ruby.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The block rows read the chain — a `block` is a space only outside a stabby lambda (#465, #1257) — so the byte-less spelling is the kind table that over-approximates on them, and the walk calls the `_with_code` one.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Ruby::Program
-                | Ruby::Method
-                | Ruby::SingletonMethod
-                | Ruby::Lambda
-                | Ruby::Block
-                | Ruby::DoBlock
-                | Ruby::Class
-                | Ruby::SingletonClass
-                | Ruby::Module
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    // Derives from `is_func_space` so the kind set lives in one place;
-    // this override only subtracts the stabby-lambda body blocks the
-    // byte-less spelling over-approximates on.
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
-        _code: &[u8],
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        Self::is_func_space(node)
-            && !(matches!(node.kind_id().into(), Ruby::Block | Ruby::DoBlock)
-                && is_stabby_lambda_body(node, ancestors))
+        crate::roles::ruby::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(node.kind_id().into(), Ruby::Method | Ruby::SingletonMethod)
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::ruby::func_opener::is_callable(node, &[], ancestors)
     }
 
     // Ruby is the one non-JS grammar whose closure test is not
-    // answerable from the node's own kind: a `Block` / `DoBlock` counts
-    // only when it is not a stabby lambda's own body (#465, see
-    // `is_stabby_lambda_body`).
+    // answerable from the node's own kind: the `Closure` row gates a
+    // `block` / `do_block` on not being a stabby lambda's own body.
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        match node.kind_id().into() {
-            Ruby::Lambda => true,
-            Ruby::Block | Ruby::DoBlock => !is_stabby_lambda_body(node, ancestors),
-            _ => false,
-        }
+        crate::roles::ruby::closure::owns(node, &[], ancestors)
     }
 
     // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the

@@ -21,20 +21,20 @@ use super::*;
 impl Npa for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::groovy::member;
         use Groovy::*;
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {
                 let is_interface_like = groovy_body_is_interface_like(node, ancestors);
 
-                for declaration in node
-                    .children()
-                    .filter(|n| matches!(n.kind_id().into(), FieldDeclaration))
-                {
+                // A member's chain is the body's plus the body; the row
+                // reads neither.
+                for declaration in node.children().filter(|n| member::owns(n, code, ancestors)) {
                     let attributes = declaration
                         .children()
                         .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))

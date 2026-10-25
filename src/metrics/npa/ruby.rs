@@ -23,6 +23,8 @@ impl Npa for RubyCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
+        // role-bypass: allow(Container) — which container's body this is;
+        // not whether it opens a space
         if !matches!(parent_kind, Class | SingletonClass) {
             return;
         }

@@ -26,7 +26,7 @@ impl Cognitive for GroovyCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::groovy::{null_safe, short_circuit, ternary};
+        use crate::roles::groovy::{closure, func_opener, null_safe, short_circuit, ternary};
         use Groovy::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -88,24 +88,20 @@ impl Cognitive for GroovyCode {
             // identically across languages (lesson #11). The grammar node
             // is `Groovy::Closure` — also recognized by `is_closure` and
             // the `nargs` `closure_parameters` path.
-            Closure => {
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
-            // At a (possibly nested) method / constructor boundary, reset
-            // structural nesting to zero and bump the function-depth
-            // surcharge when this declaration is itself nested inside
-            // another — matching Rust and the 9-of-13 sibling
-            // families. Groovy methods can nest inside inner classes; a
-            // nested method previously inherited the enclosing nesting and
-            // missed the SonarSource B-nesting amplification (#696).
-            // `static { … }` — see `java.rs`, which this mirrors (#1184).
-            MethodDeclaration | ConstructorDeclaration | StaticInitializer => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[MethodDeclaration, ConstructorDeclaration, StaticInitializer],
-                );
+            // At a (possibly nested) method / constructor boundary — every
+            // owner of the `FuncOpener` row, `static { … }` included
+            // (#1184), which is why this reads `owns` and `OWNERS` rather
+            // than the callables — reset structural nesting to zero and
+            // bump the function-depth surcharge when this declaration is
+            // itself nested inside another. Groovy methods can nest
+            // inside inner classes; a nested method previously inherited
+            // the enclosing nesting and missed the SonarSource B-nesting
+            // amplification (#696).
+            _ if func_opener::owns(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
             _ => {}
         }

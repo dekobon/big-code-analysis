@@ -247,10 +247,40 @@ role_table! {
             TypeIdentifier(text_gated_by spells_primitive_type),
         ]
     }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A method and a constructor are the callables; `static { … }`
+    // opens a space without being one (#1184). A closure opens no
+    // space: the walk never promoted one (`is_func_space` left it out),
+    // though the byte-less `get_space_kind` labelled it `Function` if
+    // asked — the "pair that fails quietly" of grammar-dispatch §7; the
+    // row records the walk's answer, as Java's does for its lambda. An
+    // anonymous class opens nothing either: the pinned dekobon grammar
+    // parses `new Runnable() { … }` as a bare
+    // `object_creation_expression` followed by a separate `closure`, an
+    // upstream-grammar limitation, not a row's.
+    FuncOpener {
+        owns [
+            MethodDeclaration(callable opens Function),
+            ConstructorDeclaration(callable opens Function),
+            StaticInitializer(opens Function),
+        ]
+    }
+    Closure { owns [Closure] }
+    // A trait is an interface with default method bodies (#247), so
+    // it opens `Interface` as an annotation type does (#280).
+    Container {
+        owns [
+            SourceFile(opens Unit),
+            ClassDeclaration(opens Class),
+            EnumDeclaration(opens Class),
+            RecordDeclaration(opens Class),
+            InterfaceDeclaration(opens Interface),
+            TraitDeclaration(opens Interface),
+            AnnotationTypeDeclaration(opens Interface),
+        ]
+    }
+    // A field declaration — `def field` included, whose `Def` modifier
+    // the consumer reads for visibility — in a class or enum body.
+    Member { owns [FieldDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Groovy documents with comments, not string literals" }

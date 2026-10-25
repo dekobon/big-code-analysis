@@ -27,6 +27,8 @@ pub(crate) fn groovy_body_is_interface_like<'a>(
 ) -> bool {
     use Groovy::*;
     ancestors.parent(body).is_some_and(|p| {
+        // role-bypass: allow(Container) — which container the body belongs to,
+        // for the interface bucket; not whether it opens a space
         matches!(
             p.kind_id().into(),
             InterfaceDeclaration | TraitDeclaration | AnnotationTypeDeclaration
@@ -379,12 +381,13 @@ fn ruby_wrapped_attr_count(call: &Node, source: &[u8]) -> usize {
 // Attribute assignments to instance/class variables are visible only
 // via the methods that wrap them, so the visibility flag at the point
 // of declaration is what `npa` should reflect.
-pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats) {
+pub(crate) fn ruby_walk_class_body(body: &Node<'_>, source: &[u8], stats: &mut Stats) {
     // bca: suppress(cognitive) — grammar dispatch match, clearest whole
     // One pass over the body carrying Ruby's body-wide visibility flag, with
     // an arm per attribute-declaring shape (`@x = …`, `attr_*` macros). The
     // flag must be readable at every arm, so the arms cannot be lifted out
     // without threading it back through each helper.
+    use crate::roles::ruby::member;
     use Ruby::*;
 
     let mut visibility = RubyVisibility::Public;
@@ -394,11 +397,16 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
             continue;
         }
         match child.kind_id().into() {
+            // A class-scope `@x = …` / `@@n = …`: the `Member` row's
+            // variable where it is an assignment target. The lhs's chain
+            // is the body's plus the statement, which is all the gate
+            // reads.
             Assignment | Assignment2 => {
                 let Some(lhs) = child.children().next() else {
                     continue;
                 };
-                if matches!(lhs.kind_id().into(), InstanceVariable | ClassVariable) {
+                let under = [*body, child];
+                if member::owns(&lhs, source, Ancestors::known(&under)) {
                     ruby_add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
                 }
             }
@@ -626,6 +634,8 @@ pub(crate) fn kotlin_class_body_is_interface<'a>(
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
     ancestors.parent(class_body).is_some_and(|p| {
+        // role-bypass: allow(Container) — which container the body belongs to,
+        // for the interface bucket; not whether it opens a space
         matches!(p.kind_id().into(), Kotlin::ClassDeclaration)
             && p.first_child(|id| id == Kotlin::Interface).is_some()
     })

@@ -45,6 +45,8 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
     let Some(parent) = ancestors.parent(eq_node) else {
         return false;
     };
+    // role-bypass: allow(Member) — the binding shape a `=` initialises, a
+    // local or a property alike; not whether it is a container's member
     if !matches!(
         parent.kind_id().into(),
         PropertyDeclaration | ClassParameter

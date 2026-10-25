@@ -32,10 +32,11 @@ fn kotlin_count_property_attrs(decl: &Node) -> usize {
 impl Npa for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::kotlin::member;
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -69,10 +70,9 @@ impl Npa for KotlinCode {
                 // and `declaration` rule layers when those rules are pure
                 // forwarding choices, so property declarations appear as
                 // direct children of `class_body`.
-                for prop in node
-                    .children()
-                    .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
-                {
+                // A member's chain is the body's plus the body; the row
+                // reads neither.
+                for prop in node.children().filter(|c| member::owns(c, code, ancestors)) {
                     let attrs = kotlin_count_property_attrs(&prop);
                     if is_interface {
                         stats.interface_na += attrs;

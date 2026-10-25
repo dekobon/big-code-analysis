@@ -40,7 +40,7 @@ impl Cognitive for KotlinCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::kotlin::{null_safe, short_circuit};
+        use crate::roles::kotlin::{closure, func_opener, null_safe, short_circuit};
         use Kotlin::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -99,21 +99,13 @@ impl Cognitive for KotlinCode {
             // Java's compact constructor. They are `is_func_space`
             // without being `is_func`, which does not matter here: this
             // arm matches kinds directly.
-            FunctionDeclaration | SecondaryConstructor | Getter | Setter | AnonymousInitializer => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[
-                        FunctionDeclaration,
-                        SecondaryConstructor,
-                        Getter,
-                        Setter,
-                        AnonymousInitializer,
-                    ],
-                );
+            // Every owner of the `FuncOpener` row — the accessors and
+            // `init` included, which are openers without being callable
+            // — so this reads `owns` and `OWNERS`, not the callables.
+            _ if func_opener::owns(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
-            LambdaLiteral | AnonymousFunction => {
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

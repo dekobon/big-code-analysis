@@ -47,54 +47,27 @@ impl Getter for GroovyCode {
         code: &'a [u8],
         ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
+        // role-bypass: allow(FuncOpener) — a naming rule, not whether the
+        // block opens a space
         if node.kind_id() == Groovy::StaticInitializer as u16 {
             return Some("<static-init>");
         }
         crate::getter::default_func_space_name(node, code, ancestors)
     }
 
+    // The mapping is the `opens` annotations of `roles/groovy.rs`
+    // (#1696); the byte-less spelling forwards with no bytes and no
+    // chain, as the old one read neither.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Groovy::{
-            AnnotationTypeDeclaration, ClassDeclaration, Closure, ConstructorDeclaration,
-            EnumDeclaration, InterfaceDeclaration, MethodDeclaration, RecordDeclaration,
-            SourceFile, TraitDeclaration,
-        };
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // Mirrors `impl Getter for JavaCode::get_space_kind` for class/
-        // method shapes (issue #280, lesson 11). `Closure` tags as
-        // `Function` because Groovy closures are first-class callable
-        // bodies, the same way Java's `LambdaExpression` is tagged.
-        // The new dekobon grammar models `TraitDeclaration` as a
-        // distinct node (the prior amaanq grammar mis-parsed `trait`
-        // as `juxt_function_call` + `closure` — see #247); it gets
-        // `Interface` because Groovy traits are interfaces with default
-        // method bodies.
-        // Groovy anonymous classes (`new Runnable() { ... }`) get no
-        // Class space here, unlike Java (#463): the pinned dekobon
-        // grammar does not attach the body to the
-        // `object_creation_expression`. It parses `new Runnable()` as a
-        // bare `object_creation_expression` and the following `{ ... }`
-        // as a separate `closure`, so the members already land in that
-        // closure's `Function` space rather than being mis-attributed to
-        // the enclosing method. This is an upstream-grammar limitation,
-        // not a wrapper bug; adding an `ObjectCreationExpression` +
-        // `class_body` arm here (as Java does) would be permanently
-        // inert under this grammar. Revisit if/when the grammar is
-        // bumped to model anonymous-class bodies as `class_body`.
-        match node.kind_id().into() {
-            ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
-            InterfaceDeclaration | TraitDeclaration | AnnotationTypeDeclaration => {
-                SpaceKind::Interface
-            }
-            // `Groovy::` qualified: this module imports an explicit list
-            // rather than glob-importing, so a bare name here would parse
-            // as a binding and match everything.
-            MethodDeclaration | ConstructorDeclaration | Closure | Groovy::StaticInitializer => {
-                SpaceKind::Function
-            }
-            SourceFile => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::groovy::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(groovy);

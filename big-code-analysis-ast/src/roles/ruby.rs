@@ -3,6 +3,7 @@
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
 //! declared; the rest are pending the package that declares each (#1692).
 
+use crate::checker::ruby::is_stabby_lambda_body;
 use crate::lang_helpers::case_arms::ruby_in_clause_counts;
 use crate::role_table;
 use crate::{Ancestors, Node, Ruby};
@@ -26,6 +27,27 @@ fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
 /// `_`, or it carries an `if` / `unless` guard (#977; lesson 11).
 fn is_decision_in_clause<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     ruby_in_clause_counts(node, code)
+}
+
+/// Whether a `block` / `do_block` is a closure and a space of its own:
+/// not the body of a stabby lambda (`->(z) { … }` / `->(z) do … end`),
+/// whose `lambda` wrapper already is both (#465, #1257). The keyword
+/// forms `lambda { }` / `proc { }` and iterator blocks parse as a
+/// `call` carrying the block, so those classify once.
+fn not_a_lambda_body<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    !is_stabby_lambda_body(node, ancestors)
+}
+
+/// Whether an `@ivar` / `@@cvar` is the assignment target it declares:
+/// the first child of an `assignment` (`@x = 1`); a read or an operand
+/// is no declaration.
+fn is_assignment_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(node).is_some_and(|parent| {
+        matches!(
+            parent.kind_id().into(),
+            Ruby::Assignment | Ruby::Assignment2
+        ) && parent.child(0).is_some_and(|first| first.id() == node.id())
+    })
 }
 
 role_table! {
@@ -137,10 +159,47 @@ role_table! {
     // closer every construct shares and bills with the control tokens.
     DeclKeyword { owns [Def, Class2, Module2, Alias2, Undef2] }
     Primitive { absent "Ruby has no type names" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // A `def` and a `def self.` are the callables. A stabby lambda is
+    // a closure and opens a space; a `{ … }` / `do … end` block is both
+    // too, unless it is a stabby lambda's own body (`not_a_lambda_body`
+    // — #465, #1257), in which case the `lambda` above it already is.
+    FuncOpener {
+        owns [
+            Method(callable opens Function),
+            SingletonMethod(callable opens Function),
+            Lambda(opens Function),
+            Block(opens Function gated_by not_a_lambda_body),
+            DoBlock(opens Function gated_by not_a_lambda_body),
+        ]
+    }
+    Closure {
+        owns [
+            Lambda,
+            Block(gated_by not_a_lambda_body),
+            DoBlock(gated_by not_a_lambda_body),
+        ]
+    }
+    // A `module` opens `Namespace`; `class << self` is a class-like
+    // body.
+    Container {
+        owns [
+            Program(opens Unit),
+            Class(opens Class),
+            SingletonClass(opens Class),
+            Module(opens Namespace),
+        ]
+    }
+    // An instance or class variable where it is declared — the target
+    // of an assignment (`@x = 1`, `@@n = 0`); where in the body it
+    // sits, the `attr_*` macro calls that declare attributes by name,
+    // and the visibility markers between them are the consumer's
+    // reading (`npa/shared.rs`).
+    Member {
+        owns [
+            InstanceVariable(gated_by is_assignment_target),
+            ClassVariable(gated_by is_assignment_target),
+        ]
+    }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Ruby documents with RDoc / YARD comments, not string literals" }

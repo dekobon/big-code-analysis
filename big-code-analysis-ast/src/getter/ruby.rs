@@ -4,18 +4,19 @@
 use super::*;
 
 impl Getter for RubyCode {
+    // The mapping is the `opens` annotations of `roles/ruby.rs`
+    // (#1696); the byte-less spelling forwards with no bytes and no
+    // chain, as the old one read neither.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Ruby as R;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        match node.kind_id().into() {
-            R::Class | R::SingletonClass => SpaceKind::Class,
-            R::Module => SpaceKind::Namespace,
-            R::Method | R::SingletonMethod | R::Lambda | R::Block | R::DoBlock => {
-                SpaceKind::Function
-            }
-            R::Program => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::ruby::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(ruby);
@@ -313,6 +314,8 @@ impl Getter for RubyCode {
             // Operands: identifiers and literals.
             R::Identifier | R::IdentifierSuffix | R::IdentifierSuffixToken1
             | R::Constant | R::ConstantSuffix | R::ConstantSuffixToken1
+            // role-bypass: allow(Member) — an operand by kind wherever it sits;
+            // the row owns it only as an assignment target
             | R::InstanceVariable | R::ClassVariable | R::GlobalVariable
             | R::Integer | R::Float | R::Complex | R::Rational
             | R::Character | R::SimpleSymbol | R::HashKeySymbol

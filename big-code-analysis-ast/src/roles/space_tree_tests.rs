@@ -15,12 +15,15 @@ use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
 ))]
@@ -29,6 +32,7 @@ type Answers = (bool, bool, bool, SpaceKind, bool);
     feature = "bash",
     feature = "c",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
     feature = "lua",
     feature = "objc",
@@ -45,12 +49,15 @@ type OpensSpace = fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> bool;
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
 ))]
@@ -62,6 +69,7 @@ const F: Answers = (true, false, true, SpaceKind::Function, false);
     feature = "lua",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
 ))]
 const C: Answers = (false, true, true, SpaceKind::Function, false);
@@ -69,6 +77,8 @@ const C: Answers = (false, true, true, SpaceKind::Function, false);
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
+    feature = "kotlin",
     feature = "mozcpp",
     feature = "objc",
     feature = "php",
@@ -81,12 +91,15 @@ const M: Answers = (false, false, false, SpaceKind::Unknown, true);
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
 ))]
@@ -98,12 +111,15 @@ const NONE: Answers = (false, false, false, SpaceKind::Unknown, false);
     feature = "cpp",
     feature = "csharp",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
+    feature = "kotlin",
     feature = "lua",
     feature = "mozcpp",
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "ruby",
     feature = "rust",
     feature = "tcl",
 ))]
@@ -119,6 +135,7 @@ fn container(kind: SpaceKind) -> Answers {
     feature = "bash",
     feature = "c",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
     feature = "lua",
     feature = "objc",
@@ -617,6 +634,218 @@ fn csharp_space_tree_rows() {
                 false,
                 SpaceKind::Unknown
             ),
+        ]
+    );
+    for &k in [
+        func_opener::OWNERS,
+        closure::OWNERS,
+        container::OWNERS,
+        member::OWNERS,
+    ]
+    .iter()
+    .copied()
+    .flatten()
+    {
+        assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
+    }
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_space_tree_rows() {
+    use crate::roles::kotlin::{closure, container, func_opener, member};
+    // Multi-line bodies: the pinned grammar rejects `object O { val o = 1 }`
+    // on one line.
+    let source = b"interface I {\n  val p: Int\n  fun m()\n}\nobject O {\n  val o = 1\n}\nclass C(private val f: Int) : I {\n  override val p: Int = 1\n  var q: String = \"q\"\n    get() = field\n    set(v) { field = v }\n  companion object {\n    val K = 1\n  }\n  init { println(1) }\n  constructor() : this(1)\n  override fun m() {\n    val l = { x: Int -> x }\n    val a = fun(y: Int) = y\n    val o = object : I {\n      override val p = 2\n      override fun m() {}\n    }\n    l(1); a(2); o.m()\n  }\n}\n";
+    let mut classes = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<crate::KotlinCode>(source, |node, chain| {
+        use crate::{Checker, Getter, KotlinCode};
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = KotlinCode::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            KotlinCode::is_func(node, ancestors),
+            KotlinCode::is_closure(node, ancestors),
+            promoted,
+            KotlinCode::get_space_kind_with_code(node, source, ancestors),
+            member::owns(node, source, ancestors),
+        );
+        seen_kinds.insert(node.kind_id());
+        // One kind, two space kinds, by the keyword token.
+        if kind == "class_declaration" {
+            classes.push((
+                node.utf8_text(source)
+                    .unwrap_or("?")
+                    .chars()
+                    .take(11)
+                    .collect::<String>(),
+                got.3,
+            ));
+            assert_eq!(got, (false, false, true, got.3, false), "{kind}");
+            return;
+        }
+        let want = [
+            ("source_file", container(SpaceKind::Unit)),
+            ("object_declaration", container(SpaceKind::Class)),
+            ("companion_object", container(SpaceKind::Class)),
+            ("object_literal", container(SpaceKind::Class)),
+            ("function_declaration", F),
+            ("secondary_constructor", F),
+            ("getter", (false, false, true, SpaceKind::Function, false)),
+            ("setter", (false, false, true, SpaceKind::Function, false)),
+            (
+                "anonymous_initializer",
+                (false, false, true, SpaceKind::Function, false),
+            ),
+            (
+                "lambda_literal",
+                (false, true, false, SpaceKind::Unknown, false),
+            ),
+            (
+                "anonymous_function",
+                (false, true, false, SpaceKind::Unknown, false),
+            ),
+            ("property_declaration", M),
+        ]
+        .iter()
+        .find(|(k, _)| *k == kind && node.is_named())
+        .map_or(NONE, |(_, v)| *v);
+        assert_eq!(
+            got,
+            want,
+            "{kind} `{}`",
+            node.utf8_text(source).unwrap_or("?")
+        );
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+    });
+    assert_eq!(
+        classes,
+        [
+            ("interface I".to_owned(), SpaceKind::Interface),
+            ("class C(pri".to_owned(), SpaceKind::Class),
+        ]
+    );
+    for &k in [
+        func_opener::OWNERS,
+        closure::OWNERS,
+        container::OWNERS,
+        member::OWNERS,
+    ]
+    .iter()
+    .copied()
+    .flatten()
+    {
+        assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
+    }
+}
+
+#[cfg(feature = "groovy")]
+#[test]
+fn groovy_space_tree_rows() {
+    use crate::roles::groovy::{closure, container, func_opener, member};
+    check::<crate::GroovyCode>(
+        b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+        &[
+            ("source_file", container(SpaceKind::Unit)),
+            ("class_declaration", container(SpaceKind::Class)),
+            ("enum_declaration", container(SpaceKind::Class)),
+            ("record_declaration", container(SpaceKind::Class)),
+            ("interface_declaration", container(SpaceKind::Interface)),
+            ("trait_declaration", container(SpaceKind::Interface)),
+            ("annotation_type_declaration", container(SpaceKind::Interface)),
+            ("method_declaration", F),
+            ("constructor_declaration", F),
+            ("static_initializer", (false, false, true, SpaceKind::Function, false)),
+            ("closure", (false, true, false, SpaceKind::Unknown, false)),
+            ("field_declaration", M),
+        ],
+        member::owns,
+        &[func_opener::OWNERS, closure::OWNERS, container::OWNERS, member::OWNERS],
+        &[],
+    );
+}
+
+/// Ruby: a `{ }` / `do end` block is a closure and a space except as a
+/// stabby lambda's own body, in either spelling (#465, #1257); an
+/// `@ivar` / `@@cvar` is a member only as an assignment target.
+#[cfg(feature = "ruby")]
+#[test]
+fn ruby_space_tree_rows() {
+    use crate::roles::ruby::{closure, container, func_opener, member};
+    let source = b"module M\n  class C\n    @@cv = 1\n    def initialize(x); @x = x; @x += 1; puts @x; end\n    def m; l = ->(y) { y }; l2 = -> do 1 end; [1].each { |i| i }; [1].each do |i| i end; l.call(1); end\n    def self.sm; end\n    class << self; def eig; end; end\n  end\nend\n";
+    let mut blocks = Vec::new();
+    let mut vars = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<crate::RubyCode>(source, |node, chain| {
+        use crate::{Checker, Getter, RubyCode};
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = RubyCode::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            RubyCode::is_func(node, ancestors),
+            RubyCode::is_closure(node, ancestors),
+            promoted,
+            RubyCode::get_space_kind_with_code(node, source, ancestors),
+            member::owns(node, source, ancestors),
+        );
+        seen_kinds.insert(node.kind_id());
+        let text = node.utf8_text(source).unwrap_or("?");
+        if matches!(kind, "block" | "do_block") {
+            blocks.push((text.to_owned(), got.1, got.2, got.3));
+            return;
+        }
+        if matches!(kind, "instance_variable" | "class_variable") {
+            vars.push((text.to_owned(), got.4));
+            assert_eq!(
+                (got.0, got.1, got.2, got.3),
+                (false, false, false, SpaceKind::Unknown)
+            );
+            return;
+        }
+        let want = [
+            ("program", container(SpaceKind::Unit)),
+            ("class", container(SpaceKind::Class)),
+            ("singleton_class", container(SpaceKind::Class)),
+            ("module", container(SpaceKind::Namespace)),
+            ("method", F),
+            ("singleton_method", F),
+            ("lambda", C),
+        ]
+        .iter()
+        .find(|(k, _)| *k == kind && node.is_named())
+        .map_or(NONE, |(_, v)| *v);
+        assert_eq!(got, want, "{kind} `{text}`");
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+    });
+    // The two lambda bodies are neither closure nor space; the two
+    // iterator blocks are both.
+    assert_eq!(
+        blocks,
+        [
+            ("{ y }".to_owned(), false, false, SpaceKind::Unknown),
+            ("do 1 end".to_owned(), false, false, SpaceKind::Unknown),
+            ("{ |i| i }".to_owned(), true, true, SpaceKind::Function),
+            ("do |i| i end".to_owned(), true, true, SpaceKind::Function),
+        ]
+    );
+    // Only the two plain assignments declare; `+=` is an operator
+    // assignment, a read, and `puts @x` a read.
+    assert_eq!(
+        vars,
+        [
+            ("@@cv".to_owned(), true),
+            ("@x".to_owned(), true),
+            ("@x".to_owned(), false),
+            ("@x".to_owned(), false),
         ]
     );
     for &k in [

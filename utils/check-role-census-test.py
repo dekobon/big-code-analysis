@@ -340,7 +340,7 @@ class CensusTests(unittest.TestCase):
             "    lang: Java;\n"
             "    FuncOpener { owns [MethodDeclaration(callable opens Function), "
             "StaticInitializer(opens Function), Lambda(opens Function gated_by bound callable), "
-            "Arrow(opens Function callable_when bound)] }\n",
+            "Arrow(opens Function callable_when bound), ClassDeclaration(opens_by class_or_iface)] }\n",
         )
         table = rt.parse_table(self.t.roles / "java.rs")
         owners = table.rows["FuncOpener"].owners
@@ -351,8 +351,15 @@ class CensusTests(unittest.TestCase):
                 ("StaticInitializer", False, None, "Function", None),
                 ("Lambda", True, None, "Function", "bound"),
                 ("Arrow", True, "bound", "Function", None),
+                ("ClassDeclaration", False, None, "by class_or_iface", None),
             ],
         )
+        self.t.write(
+            "java",
+            "    lang: Java;\n    FuncOpener { owns [MethodDeclaration(opens Function opens_by f)] }\n",
+        )
+        with self.assertRaises(rt.RoleTableError):
+            rt.parse_table(self.t.roles / "java.rs")
         for repeat in ("callable callable", "callable callable_when f", "callable_when f callable"):
             self.t.write(
                 "java",

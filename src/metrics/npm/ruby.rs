@@ -149,6 +149,8 @@ impl<'a> RubyClassBody<'a> {
 
         let public = keyword.visibility == RubyVisibility::Public;
         for arg in ruby_call_named_arguments(call) {
+            // role-bypass: allow(FuncOpener) — the singleton bucket of a
+            // `def` passed to a visibility macro, not whether it is one
             let singleton = match arg.kind_id().into() {
                 Method => false,
                 SingletonMethod => true,
@@ -163,6 +165,7 @@ impl<'a> RubyClassBody<'a> {
 
     // Reads one direct child of the class body.
     fn visit(&mut self, child: &Node<'a>) {
+        use crate::roles::ruby::func_opener;
         use Ruby::*;
 
         if let Some(marker) = ruby_visibility_marker(child, self.code) {
@@ -170,8 +173,13 @@ impl<'a> RubyClassBody<'a> {
             return;
         }
         let kind = child.kind_id().into();
+        // A `def` — the `FuncOpener` row's callable — declares a method;
+        // the row's two callables differ in the bucket (`def self.` is
+        // the singleton), which is this consumer's reading. The chain
+        // the gate would read is none: the row reads no chain.
         match kind {
-            Method | SingletonMethod => {
+            _ if func_opener::is_callable(child, self.code, Ancestors::unknown()) => {
+                // role-bypass: allow(FuncOpener) — the singleton bucket
                 self.declare(child, matches!(kind, SingletonMethod), None);
             }
             // role-bypass: allow(NullSafe) — the visibility macro calls, which the row's
@@ -223,10 +231,13 @@ impl Npm for RubyCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
+        // role-bypass: allow(Container) — which container's body this is,
+        // for the bucket; not whether it opens a space
         if !matches!(parent_kind, Class | SingletonClass) {
             return;
         }
 
+        // role-bypass: allow(Container) — the singleton-class bucket
         let mut body = RubyClassBody::new(code, matches!(parent_kind, SingletonClass));
         for child in node.children() {
             body.visit(&child);

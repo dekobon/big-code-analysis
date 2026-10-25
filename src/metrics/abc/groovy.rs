@@ -175,13 +175,15 @@ fn groovy_eq_initializes_final_binding<'a>(
         ancestors,
         |parent| parent.kind_id() == VariableDeclarator,
         |declaration| {
+            // role-bypass: allow(Member, Modifier) — the binding shape a `=`
+            // initialises, a local or a field alike, and which modifier it
+            // carries; not whether it is a container's member or a modifier
             matches!(
                 declaration.kind_id().into(),
                 FieldDeclaration | LocalVariableDeclaration
             ) && declaration
                 .children()
                 .take_while(|child| child.kind_id() != VariableDeclarator)
-                // role-bypass: allow(Modifier) — which modifier, not whether the node is one
                 .any(|child| child.kind_id() == Final)
         },
     )
