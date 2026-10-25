@@ -32,27 +32,33 @@ impl Checker for JavascriptCode {
         |_| true
     );
 
+    // The space tree is declared in `roles/javascript.rs` (#1696): the
+    // `FuncOpener` row (every function form, the ES2022 `static { … }`
+    // block — #1184) and the `Container` row are what the walk
+    // promotes, and `opens_space` labels them; which function form is
+    // a *function* rather than a closure is the binding-site question
+    // the rows' gates answer off the chain (#1188). The byte-less
+    // `is_func_space` is the legacy wrapper: no `opens` here is gated,
+    // so it answers the same with no chain.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Javascript::Program
-                | Javascript::FunctionExpression
-                | Javascript::Class
-                | Javascript::GeneratorFunction
-                | Javascript::FunctionDeclaration
-                | Javascript::MethodDefinition
-                | Javascript::GeneratorFunctionDeclaration
-                | Javascript::ClassDeclaration
-                | Javascript::ArrowFunction
-                // ES2022 `static { … }`. Referenced nowhere
-                // outside the generated enum before #1184, so a
-                // class static block opened no space and its
-                // control flow was charged to the class.
-                | Javascript::ClassStaticBlock
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    is_js_func_and_closure_checker!(Javascript, FieldDefinition);
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::javascript::opens_space(node, code, ancestors) != SpaceKind::Unknown
+    }
+
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::javascript::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::javascript::closure::owns(node, &[], ancestors)
+    }
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Javascript::CallExpression

@@ -4,22 +4,18 @@
 use super::*;
 
 impl Getter for MozjsCode {
+    // The mapping is the `opens` annotations of `roles/mozjs.rs` (#1696);
+    // see `getter/javascript.rs`.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Mozjs::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        match node.kind_id().into() {
-            // `ClassStaticBlock` is ES2022 `static { … }` (#1184).
-            FunctionExpression
-            | MethodDefinition
-            | GeneratorFunction
-            | FunctionDeclaration
-            | GeneratorFunctionDeclaration
-            | ArrowFunction
-            | ClassStaticBlock => SpaceKind::Function,
-            Class | ClassDeclaration => SpaceKind::Class,
-            Program => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::mozjs::opens_space(node, code, ancestors)
     }
 
     fn get_func_space_name<'a, 'tree>(
@@ -30,6 +26,8 @@ impl Getter for MozjsCode {
         // A class static block has no name token and no naming parent to
         // fall back on, so it would otherwise land on `<anonymous>`
         // alongside every arrow and function expression (#1184).
+        // role-bypass: allow(FuncOpener) — a naming rule, not whether
+        // the block opens a space
         if node.kind_id() == Mozjs::ClassStaticBlock as u16 {
             return Some("<static-init>");
         }

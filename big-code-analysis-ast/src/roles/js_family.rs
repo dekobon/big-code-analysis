@@ -37,6 +37,158 @@ macro_rules! js_family_decl_keywords {
 
 pub(crate) use {js_family_decl_keywords, js_family_modifiers};
 
+/// The function openers every JS grammar has (#1696). Every one opens a
+/// `Function` space — the walk promotes each, a class static block
+/// included (#1184) — and which are *functions* rather than closures is
+/// the binding question: a declaration, a generator declaration and a
+/// method are named by construction; a function expression, a
+/// generator expression and an arrow are named only when bound, which
+/// `bound_function` / `bound_arrow` (`js_family_binding_gates!`) read
+/// off the chain. A generator is a function, not a closure (#1186), and
+/// the two generator kinds are not symmetrical: a
+/// `generator_function_declaration` has a required name and is
+/// unconditionally a function, a `generator_function` an optional one
+/// and routes through the binding walk as a function expression does —
+/// otherwise `run(function*(){})` would be a function while
+/// `run(function(){})` stays a closure. The gates resolve at the
+/// dialect's row, since each reads the dialect's kind ids and
+/// field-definition spelling.
+macro_rules! js_family_func_openers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            FunctionDeclaration(callable opens Function),
+            GeneratorFunctionDeclaration(callable opens Function),
+            MethodDefinition(callable opens Function),
+            FunctionExpression(opens Function callable_when bound_function),
+            GeneratorFunction(opens Function callable_when bound_function),
+            ArrowFunction(opens Function callable_when bound_arrow),
+            ClassStaticBlock(opens Function),
+        ] $($rest)*);
+    };
+}
+
+/// The closures: the same three expression kinds where they are *not*
+/// bound — the complement of the `callable_when` gates above, through
+/// the same two readers negated, so one rule answers both rows.
+macro_rules! js_family_closures {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            FunctionExpression(gated_by unbound_function),
+            GeneratorFunction(gated_by unbound_function),
+            ArrowFunction(gated_by unbound_arrow),
+        ] $($rest)*);
+    };
+}
+
+/// The containers every JS grammar has: the file, and a class in its
+/// declaration and expression spellings (`class C {}` / `const C =
+/// class {}`), both `Class`.
+macro_rules! js_family_containers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            Program(opens Unit),
+            ClassDeclaration(opens Class),
+            Class(opens Class),
+        ] $($rest)*);
+    };
+}
+
+/// The binding-site walk, emitted per dialect (#1188) — `$code` is the
+/// dialect's `Checker`, whose `is_else_if` the climb consults: is this
+/// expression *bound* to a name, or used positionally? The walk climbs
+/// the chain until it meets a binding frame — a `variable_declarator`,
+/// an assignment, a label, an object `pair`, a class field (`$field`,
+/// the dialect's spelling: `field_definition` in the JS grammars,
+/// `public_field_definition` in the TS ones) — or a positional one — a
+/// block, `return`, `new`, a call or its arguments — and the first met
+/// decides; an `else if` on the way is not a frame. The chain is what
+/// makes a two-step climb `O(1)` rather than `Node::parent`'s
+/// `O(depth)` (#1088); a chain of expression-bodied arrows is the one
+/// shape no chain flattens, and stays `O(depth)` per node.
+///
+/// The two forms differ in one clause, and must: a function
+/// expression's `identifier` child is its own name (`run(function g()
+/// {})` is a function), an arrow's is its un-parenthesised parameter
+/// (`run(x => x)` is a closure), so the arrow asks for a
+/// `property_identifier` *sibling* instead — a bare-key object method
+/// (`{ m: () => 1 }`) or a class field by name. An IIFE in either
+/// spelling is a closure, since the call frame is met first.
+macro_rules! js_family_binding_gates {
+    ($lang:ident, $code:ident, $field:ident) => {
+        fn bound<'a>(
+            node: &$crate::Node<'a>,
+            ancestors: $crate::Ancestors<'a, '_>,
+            extra: bool,
+        ) -> bool {
+            use $lang::*;
+            node.count_specific_ancestors::<$crate::$code>(
+                ancestors,
+                |node| {
+                    matches!(
+                        node.kind_id().into(),
+                        VariableDeclarator
+                            | AssignmentExpression
+                            | LabeledStatement
+                            | Pair
+                            | $field
+                    )
+                },
+                |node| {
+                    matches!(
+                        node.kind_id().into(),
+                        StatementBlock
+                            | ReturnStatement
+                            | NewExpression
+                            | CallExpression
+                            | Arguments
+                    )
+                },
+            ) > 0
+                || extra
+        }
+
+        fn bound_function<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            bound(node, ancestors, node.is_child($lang::Identifier as u16))
+        }
+
+        fn bound_arrow<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            bound(
+                node,
+                ancestors,
+                node.has_sibling(ancestors, $lang::PropertyIdentifier as u16),
+            )
+        }
+
+        fn unbound_function<'a>(
+            node: &$crate::Node<'a>,
+            code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            !bound_function(node, code, ancestors)
+        }
+
+        fn unbound_arrow<'a>(
+            node: &$crate::Node<'a>,
+            code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            !bound_arrow(node, code, ancestors)
+        }
+    };
+}
+
+pub(crate) use {
+    js_family_binding_gates, js_family_closures, js_family_containers, js_family_func_openers,
+};
+
 /// The two gates TypeScript's and TSX's keyword rows share, emitted per
 /// grammar because each reads that grammar's kind ids.
 ///
@@ -149,3 +301,182 @@ pub(crate) use {
     js_family_comparison_payers, js_family_short_circuit_payers, ts_family_decl_keywords,
     ts_family_gates, ts_family_modifiers,
 };
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::for_each_node_with_chain;
+    use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
+
+    /// The binding shapes #1188 and #1186 settled, with the answer each
+    /// classifier gave before the rows and must give after. Every
+    /// function form opens a `Function` space; which are functions is
+    /// the binding question, and the arrow and function-expression
+    /// forms answer it differently in exactly one clause: a function
+    /// expression's own name makes it a function (`run(function g() {})`),
+    /// an arrow's single bare parameter does not (`run(x => x)`).
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const SOURCE: &str = "function f(a) { return a; }\n\
+function* gen() { yield 1; }\n\
+const g = function (b) { return b; };\n\
+const h = function named(c) { return c; };\n\
+const gg = function* (c) { yield c; };\n\
+const i = (d) => d;\n\
+const j = e => e;\n\
+let l; l = function () {};\n\
+label: function m() {}\n\
+const o = { p: function () {}, q: () => 1, \"r\": () => 2, [s]: () => 3 };\n\
+class K extends Object {\n\
+  static { let z = 1; }\n\
+  fld = () => 1;\n\
+  \"str\" = function () {};\n\
+  [\"comp\"] = () => 3;\n\
+  constructor() { super(); }\n\
+  method() { return f(1); }\n\
+}\n\
+const K2 = class {};\n\
+run(function () {});\n\
+run(function named2() {});\n\
+run(x => x);\n\
+run((x) => x);\n\
+(function () {})();\n\
+(() => {})();\n\
+new Foo(() => 1);\n\
+run(function* () {});\n";
+
+    /// The forms in `SOURCE`, in document order, each with its
+    /// expectation: `F` a function, `C` a closure. Every one opens a
+    /// `Function` space.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const FORMS: &[(&str, char)] = &[
+        ("function f(a) { return a; }", 'F'),
+        ("function* gen() { yield 1; }", 'F'),
+        ("function (b) { return b; }", 'F'),
+        ("function named(c) { return c; }", 'F'),
+        ("function* (c) { yield c; }", 'F'),
+        ("(d) => d", 'F'),
+        ("e => e", 'F'),
+        ("function () {}", 'F'),
+        ("function m() {}", 'F'),
+        ("function () {}", 'F'),
+        ("() => 1", 'F'),
+        ("() => 2", 'F'),
+        ("() => 3", 'F'),
+        ("() => 1", 'F'),
+        ("function () {}", 'F'),
+        ("() => 3", 'F'),
+        ("constructor() { super(); }", 'F'),
+        ("method() { return f(1); }", 'F'),
+        ("function () {}", 'C'),
+        ("function named2() {}", 'F'),
+        ("x => x", 'C'),
+        ("(x) => x", 'C'),
+        ("function () {}", 'C'),
+        ("() => {}", 'C'),
+        ("() => 1", 'C'),
+        ("function* () {}", 'C'),
+    ];
+
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    fn check<L: LanguageInfo + Checker + Getter>(
+        opens_space: fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> SpaceKind,
+        func_owners: &[u16],
+        closure_owners: &[u16],
+    ) {
+        let source = SOURCE.as_bytes();
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<L>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let kind = node.kind();
+            let got = (
+                L::is_func(node, ancestors),
+                L::is_closure(node, ancestors),
+                L::promotes_to_func_space_with_code(node, source, ancestors),
+                L::get_space_kind_with_code(node, source, ancestors),
+            );
+            let text = node.utf8_text(source).expect("fixture is UTF-8");
+            if matches!(
+                kind,
+                "function_declaration"
+                    | "generator_function_declaration"
+                    | "function_expression"
+                    | "generator_function"
+                    | "arrow_function"
+                    | "method_definition"
+            ) {
+                let (form, verdict) = FORMS[seen.len()];
+                assert_eq!(text, form, "form #{} of the fixture", seen.len());
+                let want = match verdict {
+                    'F' => (true, false, true, SpaceKind::Function),
+                    _ => (false, true, true, SpaceKind::Function),
+                };
+                assert_eq!(got, want, "{kind} `{text}`");
+                seen.push(text.to_owned());
+            } else if kind == "class_static_block" {
+                assert_eq!(got, (false, false, true, SpaceKind::Function), "{kind}");
+            } else if kind == "class_declaration" || (kind == "class" && node.is_named()) {
+                // The `class` *keyword* leaf shares the kind string
+                // (`Class2`); only the named node is the container.
+                assert_eq!(got, (false, false, true, SpaceKind::Class), "{kind}");
+            } else if kind == "program" {
+                assert_eq!(got, (false, false, true, SpaceKind::Unit));
+            } else {
+                assert_eq!(
+                    got,
+                    (false, false, false, SpaceKind::Unknown),
+                    "{kind} `{text}`"
+                );
+            }
+            assert_eq!(
+                got.3 != SpaceKind::Unknown,
+                got.2,
+                "{kind}: opens_space vs promotion"
+            );
+            assert_eq!(
+                got.3,
+                opens_space(node, source, ancestors),
+                "{kind}: the getter reads the fold"
+            );
+        });
+        // Every form in the fixture reached an expectation, and every
+        // declared owner was met.
+        assert_eq!(seen.len(), FORMS.len(), "{seen:?}");
+        let kinds: std::collections::BTreeSet<u16> = {
+            let mut k = std::collections::BTreeSet::new();
+            for_each_node_with_chain::<L>(source, |node, _| {
+                k.insert(node.kind_id());
+            });
+            k
+        };
+        for &owner in func_owners.iter().chain(closure_owners) {
+            assert!(kinds.contains(&owner), "fixture never emits kind {owner}");
+        }
+    }
+
+    #[cfg(feature = "javascript")]
+    #[test]
+    fn javascript_binding_shapes() {
+        use crate::roles::javascript::{closure, func_opener, opens_space};
+        check::<crate::JavascriptCode>(opens_space, func_opener::OWNERS, closure::OWNERS);
+    }
+
+    #[cfg(feature = "mozjs")]
+    #[test]
+    fn mozjs_binding_shapes() {
+        use crate::roles::mozjs::{closure, func_opener, opens_space};
+        check::<crate::MozjsCode>(opens_space, func_opener::OWNERS, closure::OWNERS);
+    }
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_binding_shapes() {
+        use crate::roles::typescript::{closure, func_opener, opens_space};
+        check::<crate::TypescriptCode>(opens_space, func_opener::OWNERS, closure::OWNERS);
+    }
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn tsx_binding_shapes() {
+        use crate::roles::tsx::{closure, func_opener, opens_space};
+        check::<crate::TsxCode>(opens_space, func_opener::OWNERS, closure::OWNERS);
+    }
+}

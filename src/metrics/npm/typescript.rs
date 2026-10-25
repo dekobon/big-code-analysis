@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npm for TypescriptCode {
-    ts_npm_compute!(Typescript);
+    ts_npm_compute!(Typescript, typescript);
 }

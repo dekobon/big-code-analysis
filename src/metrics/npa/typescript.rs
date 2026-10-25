@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npa for TypescriptCode {
-    ts_npa_compute!(Typescript);
+    ts_npa_compute!(Typescript, typescript);
 }

@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npm for JavascriptCode {
-    js_npm_compute!(Javascript);
+    js_npm_compute!(Javascript, javascript);
 }

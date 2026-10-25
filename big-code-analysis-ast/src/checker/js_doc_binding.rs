@@ -43,6 +43,8 @@ macro_rules! impl_js_family_doc_binding {
             if !Self::is_func(ancestor, ancestors) && !Self::is_closure(ancestor, ancestors) {
                 return false;
             }
+            // role-bypass: allow(FuncOpener, Closure) — where a comment
+            // sits in an arrow's body, not whether the arrow is one
             if ancestor.kind_id() == $lang::ArrowFunction {
                 return below.end_byte() == ancestor.end_byte()
                     && below.start_byte() != ancestor.start_byte()

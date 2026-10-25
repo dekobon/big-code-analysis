@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npa for JavascriptCode {
-    js_npa_compute!(Javascript);
+    js_npa_compute!(Javascript, javascript);
 }

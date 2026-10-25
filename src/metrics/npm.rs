@@ -392,41 +392,43 @@ macro_rules! impl_npm_java_like {
 // type-system declarations whose implementation is the `method_definition`
 // they precede. Counting them would double-count overloaded methods.
 macro_rules! ts_npm_compute {
-    ($lang:ident) => {
+    ($lang:ident, $roles:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use $crate::roles::$roles::{func_opener, member};
             use $lang::*;
 
+            // A method is the `FuncOpener` row's *callable* owner met as
+            // a body's child (a `method_definition`; the row's gated
+            // expression forms never sit there directly), an abstract
+            // signature, or a `Member` whose initialiser is a function —
+            // a method written as a field. Which is which, and whether
+            // it is public, is this consumer's reading; a child's chain
+            // is the body's plus the body itself, which the callable
+            // gate does not consult for a method.
             match node.kind_id().into() {
                 ClassBody => {
                     for member in node.children() {
-                        match member.kind_id().into() {
-                            MethodDefinition | AbstractMethodSignature => {
-                                stats.class_nm += 1;
-                                if ts_member_is_public!($lang, member) {
-                                    stats.class_npm += 1;
-                                }
-                            }
-                            // Field-as-arrow-function (`foo = () => …`) is a
-                            // class method written as a field initializer.
-                            PublicFieldDefinition
-                                if member
+                        // Field-as-arrow-function (`foo = () => …`) is a
+                        // class method written as a field initializer.
+                        let method = func_opener::is_callable(&member, code, ancestors)
+                            || member.kind_id() == AbstractMethodSignature as u16
+                            || (member::owns(&member, code, ancestors)
+                                && member
                                     .first_child(|id| {
                                         id == $lang::ArrowFunction
                                             || id == $lang::FunctionExpression
                                     })
-                                    .is_some() =>
-                            {
-                                stats.class_nm += 1;
-                                if ts_member_is_public!($lang, member) {
-                                    stats.class_npm += 1;
-                                }
+                                    .is_some());
+                        if method {
+                            stats.class_nm += 1;
+                            if ts_member_is_public!($lang, member) {
+                                stats.class_npm += 1;
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -466,36 +468,37 @@ macro_rules! ts_npm_compute {
 // bytes, so prototype-shaped methods are intentionally not counted.
 // Modern ES2015+ class syntax is unaffected.
 macro_rules! js_npm_compute {
-    ($lang:ident) => {
+    ($lang:ident, $roles:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use $crate::roles::$roles::{func_opener, member};
             use $lang::*;
 
             if !matches!(node.kind_id().into(), ClassBody) {
                 return;
             }
 
+            // A method is the `FuncOpener` row's *callable* owner met as
+            // a body's child (a `method_definition`), or a `Member` whose
+            // initialiser is a function — a method written as a field;
+            // which is which is this consumer's reading. A child's chain
+            // is the body's plus the body itself, which the callable gate
+            // does not consult for a method.
             for member in node.children() {
-                match member.kind_id().into() {
-                    MethodDefinition => {
-                        stats.class_nm += 1;
-                        stats.class_npm += 1;
-                    }
-                    FieldDefinition
-                        if member
+                let method = func_opener::is_callable(&member, code, ancestors)
+                    || (member::owns(&member, code, ancestors)
+                        && member
                             .first_child(|id| {
                                 id == $lang::ArrowFunction || id == $lang::FunctionExpression
                             })
-                            .is_some() =>
-                    {
-                        stats.class_nm += 1;
-                        stats.class_npm += 1;
-                    }
-                    _ => {}
+                            .is_some());
+                if method {
+                    stats.class_nm += 1;
+                    stats.class_npm += 1;
                 }
             }
         }

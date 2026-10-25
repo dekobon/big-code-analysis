@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npa for TsxCode {
-    ts_npa_compute!(Tsx);
+    ts_npa_compute!(Tsx, tsx);
 }

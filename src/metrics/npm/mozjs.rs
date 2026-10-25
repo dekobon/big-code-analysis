@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npm for MozjsCode {
-    js_npm_compute!(Mozjs);
+    js_npm_compute!(Mozjs, mozjs);
 }

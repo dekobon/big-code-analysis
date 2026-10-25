@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npa for MozjsCode {
-    js_npa_compute!(Mozjs);
+    js_npa_compute!(Mozjs, mozjs);
 }

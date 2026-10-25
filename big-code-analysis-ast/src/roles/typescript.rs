@@ -6,11 +6,13 @@
 use crate::Typescript;
 use crate::role_table;
 use crate::roles::js_family::{
-    js_family_comparison_payers, js_family_decl_keywords, js_family_modifiers,
+    js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
+    js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
     js_family_short_circuit_payers, ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Typescript);
+js_family_binding_gates!(Typescript, TypescriptCode, PublicFieldDefinition);
 
 role_table! {
     lang: Typescript;
@@ -133,10 +135,20 @@ role_table! {
             Never "the `predefined_type` wrapper is the operator; its keyword child is the same token",
         ]
     }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // The shared JS-family openers, closures and containers
+    // (`roles/js_family.rs`); the binding gates are emitted above, with
+    // this grammar's class-field kind.
+    FuncOpener { owns [..js_family_func_openers!()] }
+    Closure { owns [..js_family_closures!()] }
+    // An abstract class is its own kind in the TS grammars (`Class`);
+    // an interface opens `Interface`.
+    Container { owns [..js_family_containers!(), AbstractClassDeclaration(opens Class), InterfaceDeclaration(opens Interface)] }
+    // A class field (`x: T = v;`, any accessibility) and an interface's
+    // property signature; an index or method signature is the method
+    // consumer's. A field whose initialiser is a function is a method
+    // written as a field, which the consumers tell apart themselves —
+    // the row recognises the declaration, the consumer reads its value.
+    Member { owns [PublicFieldDefinition, PropertySignature] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "TypeScript documents with JSDoc comments, not string literals" }

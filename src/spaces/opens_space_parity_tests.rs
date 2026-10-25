@@ -63,14 +63,62 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::java::opens_space,
     },
+    // Every function form, bound and positional, a class in both
+    // spellings and ES2022 `static { … }`.
+    #[cfg(feature = "javascript")]
+    Row {
+        lang: LANG::Javascript,
+        source: JS_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::JavascriptCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::javascript::opens_space,
+    },
+    #[cfg(feature = "mozjs")]
+    Row {
+        lang: LANG::Mozjs,
+        source: JS_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::MozjsCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::mozjs::opens_space,
+    },
+    // The same plus an abstract class, an interface and a namespace
+    // (which opens nothing).
+    #[cfg(feature = "typescript")]
+    Row {
+        lang: LANG::Typescript,
+        source: TS_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::TypescriptCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::typescript::opens_space,
+    },
+    #[cfg(feature = "typescript")]
+    Row {
+        lang: LANG::Tsx,
+        source: TS_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::TsxCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::tsx::opens_space,
+    },
 ];
 
-// test-lang-gates: hand-written(java) — the sweep reads `ROWS`, whose
-//     entries are each behind their own language `cfg`, so the body
-//     names no parser the derivation can attribute; the gate is the
-//     union of the rows, and `assert_fixtures_present` fails rather
-//     than skips when a build enables none of them.
-#[cfg(feature = "java")]
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+const JS_SOURCE: &[u8] = b"function f(a) { const g = (b) => b; return g(a); }\nfunction* h(n) { yield n; }\nconst i = function () {};\nclass K { static { let z = 1; } m() { run(x => x); } fld = () => 1; }\nconst L = class {};\n(function () {})();\n";
+
+#[cfg(feature = "typescript")]
+const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number) => b; return g(a); }\nabstract class A { abstract am(): void; m(): void { run((x: number) => x); } fld = () => 1; static { } }\ninterface I { m(): void; }\nconst L = class {};\nnamespace NS { export function nf() {} }\n";
+
+// The gate is the union of the rows' features; `assert_fixtures_present`
+// fails rather than skips when a build enables none of them.
+#[cfg(any(
+    feature = "java",
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "typescript"
+))]
 #[test]
 fn the_walk_promotes_exactly_what_opens_space_labels() {
     assert_fixtures_present(ROWS);

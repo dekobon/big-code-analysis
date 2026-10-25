@@ -9,5 +9,5 @@
 use super::*;
 
 impl Npm for TsxCode {
-    ts_npm_compute!(Tsx);
+    ts_npm_compute!(Tsx, tsx);
 }

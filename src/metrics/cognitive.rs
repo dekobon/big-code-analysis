@@ -401,7 +401,7 @@ macro_rules! js_cognitive {
             stats: &mut Stats,
             nesting_map: &mut NestingMap,
         ) {
-            use crate::roles::$roles::{null_safe, short_circuit, ternary};
+            use crate::roles::$roles::{func_opener, null_safe, short_circuit, ternary};
             use $lang::*;
             let mut nesting = get_nesting_from_map(node, nesting_map);
 
@@ -463,101 +463,41 @@ macro_rules! js_cognitive {
                         matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
                     });
                 }
-                FunctionDeclaration
-                | MethodDefinition
-                | FunctionExpression
-                | GeneratorFunctionDeclaration
-                | GeneratorFunction
-                    if Self::is_func(node, ancestors) =>
+                // A function boundary: every *callable* opener of the
+                // `FuncOpener` row — a declaration, a method, a generator
+                // declaration, and a function or generator expression the
+                // row's binding gate marks bound (`const f = function ()
+                // {}` and `run(function f () {})` are functions, `run(
+                // function () {})` a closure that keeps falling through
+                // to `_`; #1188) — plus the class static block, which
+                // opens a space without being callable (#1184) and so
+                // needs the second disjunct. That classification is
+                // inherited from the row, not endorsed here: it is also
+                // what makes `nom` call the same node a function or a
+                // closure, so cognitive disagreeing with it would be the
+                // larger bug. An arrow is never here: bound or not it
+                // owns the lambda channel in the arm below, though it is
+                // a `stop` for the depth surcharge since #1187, so `(()
+                // => { function g() {…} })()` charges `g` a depth of 1
+                // as the IIFE spelling does. Listing `FunctionDeclaration`
+                // alone left a method or a bound function expression
+                // inheriting the enclosing conditional nesting (#1159);
+                // both generator kinds are here and in `stops` since
+                // #1186, which moved them from closure to function.
+                //
+                // `stops` is every opener the row names, arrows and the
+                // static block included: an anonymous IIFE is a lexical
+                // function scope, so a `function` declared inside one
+                // really is nested in a function.
+                _ if kind != ArrowFunction as u16
+                    && (func_opener::is_callable(node, code, ancestors)
+                        || kind == ClassStaticBlock as u16) =>
                 {
-                    // The kind set is `is_js_func!` minus `ArrowFunction`,
-                    // and the `function_expression` half is re-derived by
-                    // asking `Self::is_func` rather than copied flat, because
-                    // `function_expression` covers both a function and a
-                    // closure. `check_if_func!` is what separates them: its
-                    // ancestor walk marks the expression a function when a
-                    // binding frame (`var x = …`, `x = …`, `label:`, object
-                    // `pair`) is reached before a positional one, and its
-                    // `$extra` disjunct additionally marks any expression
-                    // carrying its own `identifier` name child. So
-                    // `const f = function () {}` and `run(function f () {})`
-                    // are functions, while `run(function () {})` is a closure
-                    // and must keep falling through to `_`. That
-                    // classification is inherited from `is_func`, not
-                    // endorsed here — it is also what makes `nom` call the
-                    // same node a function or a closure, so cognitive
-                    // disagreeing with it would be the larger bug.
-                    // `ArrowFunction` stays out because it owns the lambda
-                    // channel in the arm below. Listing `FunctionDeclaration`
-                    // alone left a method or a bound function expression
-                    // inheriting the enclosing conditional nesting (#1159).
-                    //
-                    // `stops` takes bare kinds, so re-applying that gate to
-                    // an *ancestor* would mean changing
-                    // `increment_function_depth`'s signature. Leaving it
-                    // ungated is deliberate rather than a shortcut: an
-                    // anonymous IIFE is a lexical function scope —
-                    // `get_space_kind` maps every `function_expression` to
-                    // `SpaceKind::Function` — so a `function` declared inside
-                    // one really is nested in a function.
-                    //
-                    // `ArrowFunction` is in the list since #1187, which is
-                    // what makes `(function () { function g() {…} })()` and
-                    // `(() => { function g() {…} })()` both charge `g` a
-                    // depth of 1; the arrow form charged 0 while the kind
-                    // was absent. It cannot double-charge, because the sole
-                    // caller resets `nesting.lambda` first.
-                    //
-                    // Both generator kinds are in the arm and in `stops`
-                    // since #1186, which moved them from `is_js_closure!`
-                    // to `is_js_func!`. The two halves are independent
-                    // and had to move together: the arm decides whether
-                    // `function* g()` resets its own inherited nesting,
-                    // while `stops` decides whether a plain `function`
-                    // nested *inside* a generator gets a depth surcharge.
-                    // `GeneratorFunction` is gated by `Self::is_func` for
-                    // the same reason `FunctionExpression` is — it has an
-                    // optional name and covers both a function and a
-                    // closure — while `GeneratorFunctionDeclaration`,
-                    // like `FunctionDeclaration`, is unconditional.
-                    enter_function_boundary(
-                        &mut nesting,
-                        node,
-                        ancestors,
-                        &[
-                            FunctionDeclaration,
-                            MethodDefinition,
-                            FunctionExpression,
-                            GeneratorFunctionDeclaration,
-                            GeneratorFunction,
-                            ArrowFunction,
-                            ClassStaticBlock,
-                        ],
-                    );
+                    enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
                 }
-                // A class static block is a function boundary but is
-                // deliberately *not* in `is_func` (#1184), so it needs
-                // its own ungated arm rather than joining the gated one
-                // above — gated, it would never fire. It is in the
-                // `stops` list below for the same reason a
-                // `function_expression` is: a `function` declared inside
-                // a `static { … }` really is nested in one.
-                ClassStaticBlock => {
-                    enter_function_boundary(
-                        &mut nesting,
-                        node,
-                        ancestors,
-                        &[
-                            FunctionDeclaration,
-                            MethodDefinition,
-                            FunctionExpression,
-                            GeneratorFunctionDeclaration,
-                            GeneratorFunction,
-                            ArrowFunction,
-                            ClassStaticBlock,
-                        ],
-                    );
-                }
+                // role-bypass: allow(FuncOpener, Closure) — the lambda
+                // channel, bound or not; its space and closure readings are
+                // the rows' (above)
                 ArrowFunction => {
                     nesting.lambda += 1;
                 }

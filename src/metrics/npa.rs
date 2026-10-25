@@ -419,76 +419,78 @@ use crate::lang_helpers::python::python_is_block;
 // `index_signature` and `method_signature` are NOT attributes — they
 // belong to `npm`.
 macro_rules! ts_npa_compute {
-    ($lang:ident) => {
+    ($lang:ident, $roles:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use $crate::roles::$roles::{func_opener, member};
             use $lang::*;
 
+            // Membership is the `Member` row's (a class field, an
+            // interface's property signature); which body the member
+            // sits in, whether it is public, and whether a field's
+            // initialiser makes it a method rather than an attribute
+            // are this consumer's reading. A child's chain is the
+            // body's plus the body itself; the row reads neither.
             match node.kind_id().into() {
                 ClassBody => {
                     for member in node.children() {
-                        match member.kind_id().into() {
-                            // Plain field declaration (`x: T = expr;`, `private x: T;`,
-                            // `static x: T = expr;`). Each is one attribute.
-                            // Skip fields whose initializer is an arrow function or
-                            // function expression — those are methods written as
-                            // field initializers and are counted by `npm` instead.
-                            PublicFieldDefinition
-                                if member
-                                    .first_child(|id| {
-                                        id == $lang::ArrowFunction
-                                            || id == $lang::FunctionExpression
-                                    })
-                                    .is_none() =>
+                        // Plain field declaration (`x: T = expr;`, `private x: T;`,
+                        // `static x: T = expr;`). Each is one attribute.
+                        // Skip fields whose initializer is an arrow function or
+                        // function expression — those are methods written as
+                        // field initializers and are counted by `npm` instead.
+                        if member::owns(&member, code, ancestors) {
+                            if member
+                                .first_child(|id| {
+                                    id == $lang::ArrowFunction || id == $lang::FunctionExpression
+                                })
+                                .is_none()
                             {
                                 stats.class_na += 1;
                                 if ts_member_is_public!($lang, member) {
                                     stats.class_npa += 1;
                                 }
                             }
-                            // Parameter properties on any `method_definition`. In
-                            // practice these only appear on the constructor.
-                            // Scan formal_parameters at the class-body level so
-                            // the attribute lands on the class space, not the
-                            // method's own function space.
-                            MethodDefinition => {
-                                let Some(params) =
-                                    member.first_child(|id| id == $lang::FormalParameters)
-                                else {
-                                    continue;
-                                };
-                                for param in params.children().filter(|c| {
-                                    matches!(
-                                        c.kind_id().into(),
-                                        RequiredParameter | RequiredParameter2
-                                    )
-                                }) {
-                                    if param
-                                        .first_child(|id| {
-                                            id == $lang::AccessibilityModifier
-                                                || id == $lang::Readonly
-                                        })
-                                        .is_some()
-                                    {
-                                        stats.class_na += 1;
-                                        if ts_member_is_public!($lang, param) {
-                                            stats.class_npa += 1;
-                                        }
-                                    }
+                            continue;
+                        }
+                        // Parameter properties on any method — a callable
+                        // opener met as a body's child, the
+                        // `method_definition`. In practice these only appear
+                        // on the constructor. Scan formal_parameters at the
+                        // class-body level so the attribute lands on the
+                        // class space, not the method's own function space.
+                        if !func_opener::is_callable(&member, code, ancestors) {
+                            continue;
+                        }
+                        let Some(params) = member.first_child(|id| id == $lang::FormalParameters)
+                        else {
+                            continue;
+                        };
+                        for param in params.children().filter(|c| {
+                            matches!(c.kind_id().into(), RequiredParameter | RequiredParameter2)
+                        }) {
+                            if param
+                                .first_child(|id| {
+                                    id == $lang::AccessibilityModifier || id == $lang::Readonly
+                                })
+                                .is_some()
+                            {
+                                stats.class_na += 1;
+                                if ts_member_is_public!($lang, param) {
+                                    stats.class_npa += 1;
                                 }
                             }
-                            _ => {}
                         }
                     }
                 }
                 InterfaceBody => {
                     let count = node
                         .children()
-                        .filter(|c| matches!(c.kind_id().into(), PropertySignature))
+                        .filter(|c| member::owns(c, code, ancestors))
                         .count();
                     stats.interface_na += count;
                     stats.interface_npa = stats.interface_na;
@@ -537,21 +539,26 @@ pub(crate) use ts_member_is_public;
 // signature change (see `Abc::compute` for the existing pattern).
 
 macro_rules! js_npa_compute {
-    ($lang:ident) => {
+    ($lang:ident, $roles:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
+            use $crate::roles::$roles::member;
             use $lang::*;
 
             if !matches!(node.kind_id().into(), ClassBody) {
                 return;
             }
 
+            // Membership is the `Member` row's; a field whose initialiser
+            // is a function is a method written as a field, this
+            // consumer's reading. A child's chain is the body's plus the
+            // body itself; the row reads neither.
             for member in node.children() {
-                if matches!(member.kind_id().into(), FieldDefinition)
+                if member::owns(&member, code, ancestors)
                     && member
                         .first_child(|id| {
                             id == $lang::ArrowFunction || id == $lang::FunctionExpression

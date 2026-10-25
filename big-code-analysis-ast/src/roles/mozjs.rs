@@ -6,9 +6,12 @@
 use crate::Mozjs;
 use crate::role_table;
 use crate::roles::js_family::{
-    js_family_comparison_payers, js_family_decl_keywords, js_family_modifiers,
+    js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
+    js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
     js_family_short_circuit_payers,
 };
+
+js_family_binding_gates!(Mozjs, MozjsCode, FieldDefinition);
 
 role_table! {
     lang: Mozjs;
@@ -84,10 +87,17 @@ role_table! {
     Modifier { owns [..js_family_modifiers!(), Staticget] }
     DeclKeyword { owns [..js_family_decl_keywords!()] }
     Primitive { absent "JavaScript has no type names" }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // The shared JS-family openers, closures and containers
+    // (`roles/js_family.rs`); the binding gates are emitted above, with
+    // this grammar's class-field kind.
+    FuncOpener { owns [..js_family_func_openers!()] }
+    Closure { owns [..js_family_closures!()] }
+    Container { owns [..js_family_containers!()] }
+    // A class field (`x = v;`); one whose initialiser is a function is
+    // a method written as a field, which the consumers tell apart
+    // themselves — the row recognises the declaration, the consumer
+    // reads its value.
+    Member { owns [FieldDefinition] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "JavaScript documents with JSDoc comments, not string literals" }
