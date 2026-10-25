@@ -1,24 +1,23 @@
 # Local threshold gates
 
-CI is the last line of defence, not the first. By the time
-`bca check` (reading the repo-root `bca.toml` manifest and its
-`.bca-baseline.toml`) fires red on a pull request, the offending
-change has already been
-pushed, the author has context-switched, and someone has to revisit
-the diff to nudge a metric back under its limit. A local threshold
-gate moves that feedback to the moment of `git commit` — the same
-moment `cargo fmt --check` and `cargo clippy -- -D warnings` already
-fire — so the regression never makes it past the developer's
-keyboard.
+Run the threshold gate before committing to catch complexity
+regressions before CI. This recipe runs the same checker and
+configuration (the repo-root `bca.toml` manifest and its
+`.bca-baseline.toml`) locally and in CI, with an additional local tier
+for values approaching their limits. The local gate fires at
+`git commit`, alongside `cargo fmt --check` and
+`cargo clippy -- -D warnings`, while the author still has the change in
+hand.
 
 This recipe captures the pattern `big-code-analysis` uses on its own
 source ([`Makefile`'s `self-scan*` targets](https://github.com/dekobon/big-code-analysis/blob/main/Makefile),
 backed by a consolidated [`bca.toml`](https://github.com/dekobon/big-code-analysis/blob/main/bca.toml)
 manifest) and distils it into something you can drop into your own
 repo's `Makefile`, `justfile`, `package.json` script, or `pre-commit`
-config. The underlying idea is provider-neutral: any threshold
-checker (`bca`, ESLint, clippy, SonarLint, Qodana) can be wired the
-same way.
+config. The idea is provider-neutral: any threshold checker (`bca`,
+[ESLint](https://eslint.org/), [clippy](https://doc.rust-lang.org/clippy/),
+[SonarLint](https://www.sonarsource.com/products/sonarlint/),
+[Qodana](https://www.jetbrains.com/qodana/)) can be wired the same way.
 
 ## Principles
 
@@ -29,30 +28,29 @@ default Quality Gate to focus on
 and that the broader ratchet pattern formalises.
 
 1. **Gate locally, mirror CI exactly.** The local gate must run the
-   same binary with the same arguments and the same threshold /
-   baseline / exclude files as CI. If the local gate is "almost
+   same binary with the same arguments and the same threshold,
+   baseline, and exclude files as CI. If the local gate is "almost
    what CI runs", it stops catching regressions the moment one
-   diverges from the other. The cost of running the gate once before
-   pushing is cheap; the cost of a red PR-bot ping is not.
-2. **Ratchet, don't reset.** When you introduce thresholds on an
+   diverges from the other. Running the gate once before pushing is
+   cheap; a red PR-bot ping is not.
+2. **Ratchet, do not reset.** When you introduce thresholds on an
    existing codebase, *every* reasonable limit fires on dozens of
    pre-existing functions. The realistic adoption path is "absorb
    today's offenders into a baseline file, fail only on new or
    worsening ones, shrink the baseline over time". This is the same
    strategy that lets a multi-year codebase introduce strict TypeScript
    or strict clippy lints without a months-long boil-the-ocean pass.
-   See the [Baselines recipe](baselines.md) for the bootstrap → CI
-   → refresh → retire flow.
-3. **Warn before you fail.** A hard 100% gate fails *at* the limit
-   and gives no signal as a function creeps from 80% to 95% to 99%
-   of its threshold. A second, looser tier that fires at e.g. 95%
-   of every limit gives a one-or-two-commit early warning. The
-   author still has the file open, the test cases in their head,
-   and the freedom to refactor before the offender hardens into
-   "well, it's in main now". Sonar's "new code" Quality Gate, the
-   GCC `-Wall` / `-Werror` split, and clippy's `warn` vs. `deny`
-   lint levels all encode the same insight: a tier between *clean*
-   and *broken* is where teams actually catch drift.
+   See the [Baselines recipe](baselines.md) for the bootstrap, CI,
+   refresh, and retire flow.
+3. **Warn before you fail.** A hard 100% gate fails only once a value
+   *exceeds* the limit and gives no signal as a function creeps from
+   80% to 95% to 99% of its threshold. A stricter tier reports values
+   approaching the hard limit. The author still has the file open, the
+   test cases in their head, and the freedom to refactor before the
+   offender hardens into "well, it's in main now". Sonar's "new code" Quality Gate, the
+   GCC `-Wall` / `-Werror` split, and clippy's `warn` vs. `deny` lint
+   levels all encode the same insight: a tier between *clean* and
+   *broken* is where teams catch drift.
 
 ## The two tiers
 
@@ -69,9 +67,9 @@ recipes for refreshing the baseline at each tier.
 The hard tier and the soft tier consume the **same**
 `[thresholds]` table and the **same** `.bca-baseline.toml`. The
 only difference between them is the `HEADROOM` ratio applied to
-every threshold value before `bca check` sees it — tightening each
-limit, which for the lower-is-worse `mi.*` family means *raising* it
-rather than lowering it.
+every threshold value before `bca check` sees it. The ratio tightens
+each limit, which for the lower-is-worse `mi.*` family means *raising*
+it rather than lowering it.
 
 Write the shared baseline at the **soft** tier
 (`self-scan-write-baseline-headroom`). A v5 baseline records the tier
@@ -83,11 +81,11 @@ the baseline at the hard tier instead would make the soft
 `self-scan-headroom` warn that it is the stricter gate. See
 [Tier/headroom provenance](./baselines.md#tierheadroom-provenance).
 
-This matters: it means a contributor who wants the soft tier to be
-stricter (catch encroachment further out) bumps a single
-environment variable rather than maintaining a parallel
-soft-threshold file that will drift out of sync with the
-hard config the first time anyone forgets to update both files.
+A contributor who wants the soft tier to be stricter (to catch
+encroachment further out) therefore bumps a single environment
+variable rather than maintaining a parallel soft-threshold file, which
+drifts out of sync with the hard config the first time anyone forgets
+to update both.
 
 ## Two-tier thresholds {#two-tier-thresholds}
 
@@ -99,17 +97,15 @@ against. `hard` (the default) compares against `[thresholds]` verbatim.
 2. If a `[thresholds.soft]` table exists, merge its overrides on top.
    Metrics absent from the soft table inherit their hard limit (no
    soft band). When a soft table is present, the blanket `RATIO` does
-   not apply — explicit per-metric limits win over the scalar.
+   not apply; explicit per-metric limits win over the scalar.
 3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
    for a bare `soft`, so `--tier=soft` is never a silent no-op;
    `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
 
-A bare `--tier=soft` (ratio `0.95`) is the zero-config entry point. A
-`[thresholds.soft]` table is the surface a mature project grows into,
-because it expresses a different soft band per metric — and keeps that
-band recorded next to the hard limit instead of buried in a runtime
-multiplier:
+A bare `--tier=soft` (ratio `0.95`) is the zero-config entry point.
+Use `[thresholds.soft]` when metrics need different warning bands. The
+table records each soft limit beside the hard limits:
 
 ```toml
 [thresholds]
@@ -128,22 +124,21 @@ values than as float-scaled ones: prefer `nargs = 6` (for a hard
 `nargs = 7`) over the `0.95 × 7 = 6.65` a scalar would produce. Use
 the `"<ratio>x"` form for the large-valued metrics (`halstead.*`,
 `loc.*`) where an exact integer soft limit is fussy to pick. The
-scale factor must be in `(0, 1]` — the soft tier is an early-warning
+scale factor must be in `(0, 1]`: the soft tier is an early-warning
 band that fires *before* the hard gate, never looser than it.
 
 That "tighter, never looser" rule is what fixes the *direction* of the
 scaling, and it is not always a multiplication. A `mi.*` limit is a
-floor rather than a ceiling — a value **below** it is the violation —
+floor rather than a ceiling (a value **below** it is the violation),
 and the index has no true zero, so `RATIO` raises it by `1 − RATIO` of
 one maintainability band (17.1 points of `mi.original`) instead:
 `"mi.original" = 20` under `--tier=soft=0.9` resolves to `21.71`, not
-`18`. The intuition that a soft band is
-"90% of the limit" is right for every other metric and exactly
-backwards here.
+`18`. The intuition that a soft band is "90% of the limit" is right
+for every other metric and exactly backwards here.
 
 Both tiers ratchet through the **same** `.bca-baseline.toml` (no
 separate soft baseline file). `bca check --print-effective-config
---tier=soft` prints the resolved limits — paste its `[thresholds]`
+--tier=soft` prints the resolved limits; paste its `[thresholds]`
 output into `[thresholds.soft]` to migrate from a blanket-ratio band
 to explicit per-metric limits.
 
@@ -155,7 +150,7 @@ recipe, drop a `bca.toml` at the repo root and let `bca check`
 discover it:
 
 ```toml
-# bca.toml — discovered automatically at (or above) the working dir.
+# bca.toml, discovered automatically at (or above) the working dir.
 paths        = ["."]
 exclude_from = ".bcaignore"
 jobs         = "auto"          # or an integer (was `num_jobs`)
@@ -177,9 +172,9 @@ wmc          = 60
 > The `headroom` key is the **soft-tier scale ratio**: it only takes
 > effect under `--tier=soft`, so a bare `bca check` (hard tier) stays the
 > exact CI mirror regardless of any `headroom` key. For per-metric soft
-> limits, prefer a `[thresholds.soft]` table (below) over the scalar — it
-> records the band you chose next to the hard limit instead of leaving
-> it to a runtime multiplier.
+> limits, prefer a `[thresholds.soft]` table over the scalar; it records
+> the band you chose next to the hard limit instead of leaving it to a
+> runtime multiplier.
 
 With that file in place the four recipes collapse to one flag each:
 
@@ -209,31 +204,32 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   manifest's own directory, so a `bca.toml` above the current
   directory still points at the right files.
 - **Scalars and positive scope keys: CLI wins.** Any explicit
-  `--baseline`, `--tier`, `--jobs`, etc. overrides the
+  `--baseline`, `--tier`, `--jobs`, and so on overrides the
   corresponding manifest key, and the *positive scope* list keys
   (`paths`, `include`) are **replaced** by any explicit CLI value
   (`bca check one.rs` with manifest `paths = ["src"]` checks just
   `one.rs`). `--config <file>` *merges* on top of the manifest
   `[thresholds]` table (config keys win on collision), and repeated
   `--threshold name=value` flags apply last as absolute limits. The
-  full resolution order — `[thresholds]` → `--config` → tier
+  full resolution order is `[thresholds]`, then `--config`, then tier
   resolution (`[thresholds.soft]` or the soft `RATIO` scaling, only
-  under `--tier=soft`) → `--threshold` overrides — is shared across all
-  of `--config` / `--tier` / the manifest.
+  under `--tier=soft`), then `--threshold` overrides. It is shared
+  across `--config`, `--tier`, and the manifest.
 - **Negative filter keys: CLI unions with the manifest.** The
   *exclude* list keys (top-level `exclude`, `[check] exclude`) are
   **merged**, not replaced: a CLI `--exclude` / `--check-exclude` is
-  *added to* the manifest's deny-set.
-  This way a command-line filter can never silently un-exclude a
-  directory the project config deliberately skipped (e.g. `vendor/`).
-  Duplicates across the two sources collapse; CLI patterns sort first.
-  This mirrors ruff/ESLint's `exclude` (replace) vs `extend-exclude`
-  (add), generalized: **targets replace, filters add.** As always,
-  `--x` and `--x-from` union with each other regardless. Reach for
-  `--no-config` when you need the manifest excludes gone entirely.
+  *added to* the manifest's deny-set. A command-line filter can
+  therefore never silently un-exclude a directory the project config
+  deliberately skipped (such as `vendor/`). Duplicates across the two
+  sources collapse; CLI patterns sort first. This mirrors
+  [ruff](https://docs.astral.sh/ruff/settings/#extend-exclude) and
+  ESLint's `exclude` (replace) vs `extend-exclude` (add), generalized:
+  **targets replace, filters add.** `--x` and `--x-from` union with
+  each other regardless. Reach for `--no-config` when you need the
+  manifest excludes gone entirely.
 - `--no-config` skips discovery entirely, for reproducible
   fully-explicit invocations that must not pick up repo-level config.
-  `bca init` also ignores any existing manifest — it scaffolds config
+  `bca init` also ignores any existing manifest; it scaffolds config
   rather than consuming it.
 - The top-level `include` / `exclude` keys are the global file-filter
   globs (the `--include` / `--exclude` flags) that decide which files
@@ -260,7 +256,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `headroom` under `[check]`. When a key is set in both places, the
   `[check]` value wins.
 - A `[vcs]` table sets change-history ranking options for `bca vcs`. Its
-  `file_types` key (`"metrics"` — the default — / `"all"` / a
+  `file_types` key (`"metrics"`, the default, or `"all"`, or a
   `"rs,py"`-style extension list) scopes which files are ranked; as a
   positive scope key, an explicit `--file-types` CLI flag **replaces** it
   (see [`bca vcs` file-type scope](../commands/vcs.md#file-type-scope)).
@@ -269,7 +265,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `exclude_tests = true` prunes Rust inline-test subtrees (`#[test]`,
   `#[cfg(test)]`, …) before metric computation. Both are Rust-only and
   inert for other grammars. `--exclude-tests` is presence-only (no
-  `=false` form), so its manifest key can only turn pruning **on** — a
+  `=false` form), so its manifest key can only turn pruning **on**: a
   CLI `--exclude-tests` wins, but the manifest cannot turn off a key the
   CLI did not set.
 - `mi_charges_docs` mirrors `--mi-charges-docs`: `true` has `mi.sei`'s
@@ -289,18 +285,18 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   including a `manifest` provenance line, so you can see exactly what
   the merge produced.
 
-> The explicit-flag skeletons below remain fully supported — the
+> The explicit-flag skeletons below remain fully supported; the
 > manifest is sugar over the same flags, not a replacement. Reach for
-> them when you can't drop a file at the repo root, or when one CI job
+> them when you cannot drop a file at the repo root, or when one CI job
 > needs a different layout than the committed manifest (pair the flags
 > with `--no-config`).
 
 ## Skeleton: GNU Make (explicit flags)
 
 The four recipes below are a self-contained drop-in that thread every
-flag explicitly — the long form of the manifest recipe above. Adjust
+flag explicitly, the long form of the manifest recipe above. Adjust
 the `BCA` variable to point at whatever invocation gives you the
-checker (a pinned release binary, `cargo run --release`, an npm /
+checker (a pinned release binary, `cargo run --release`, an npm or
 pip wrapper). Adjust `PATHS` and `EXCLUDE_FROM` to match your
 layout.
 
@@ -344,7 +340,7 @@ self-scan:
 # would otherwise run both gates in parallel and the soft tier's scaled
 # error message could land before the true regression on the hard tier.
 # `--tier=soft=$(BCA_HEADROOM)` scales every config limit before the
-# offender comparison — no helper script, no second TOML file.
+# offender comparison: no helper script, no second TOML file.
 self-scan-headroom: self-scan
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$(BCA_HEADROOM))..."
 	@$(BCA) check $(BCA_BASE_ARGS) \
@@ -374,22 +370,19 @@ self-scan-write-baseline-headroom:
 
 <!-- rumdl-enable MD010 -->
 
-`bca check --tier=soft=<ratio>` tightens every limit from `--config`
-before the offender comparison — a count ceiling scaled by the ratio
-(default `0.95` for a bare `--tier=soft`), an `mi.*` floor raised by
-`1 − ratio` of one band, as described above — then filters against the
-same `.bca-baseline.toml` the hard tier writes.
-Explicit `--threshold name=value` overrides are absolute and are
-not rescaled. There is no separate helper script or second TOML
-file to maintain — the soft tier is the hard-tier invocation plus
-one flag.
+The soft tier tightens limits from `--config`, then applies the shared
+baseline. It multiplies count ceilings by the ratio (default `0.95`
+for a bare `--tier=soft`) and raises `mi.*` floors by `1 − ratio` of
+one maintainability band. Explicit `--threshold` values apply last and
+are not scaled. There is no separate helper script or second TOML file
+to maintain; the soft tier is the hard-tier invocation plus one flag.
 
 ### Exit codes {#exit-codes}
 
 The gate exit codes propagate verbatim from `bca check`: **`0`
 clean, `2` on any threshold violation (hard or soft), `1` on tool
-error**. The soft tier is a real gate — never wrap
-`make self-scan-headroom` in `|| true` thinking it's advisory; the
+error**. The soft tier is a real gate. Never wrap
+`make self-scan-headroom` in `|| true` thinking it is advisory; the
 non-zero exit is the whole point of the encroachment band.
 
 Pass `--exit-codes=tiered` (or set `[check] exit_codes = "tiered"`)
@@ -406,9 +399,9 @@ the `[new]` / `[regr …]` row tags.
 Add the soft gate to whatever umbrella target your developers
 already run before pushing. The hard gate runs as its prerequisite
 (see the `self-scan-headroom: self-scan` edge above), so listing
-only the soft target is enough — and crucially survives
-`make -j`, which would otherwise schedule both leaves in parallel
-and interleave their output:
+only the soft target is enough. That edge also survives `make -j`,
+which would otherwise schedule both leaves in parallel and interleave
+their output:
 
 ```make
 .PHONY: pre-commit
@@ -429,8 +422,8 @@ In CI, run **only** the hard tier:
 The soft tier is a developer feedback knob, not a release gate.
 Running it in CI either duplicates the hard tier (when nothing has
 encroached) or fires noisily on a baseline-absorbed offender that
-crept upward without crossing 100% — neither buys you anything CI
-doesn't already cover.
+crept upward without crossing 100%. Neither buys you anything CI
+does not already cover.
 
 ## The headroom knob
 
@@ -439,9 +432,9 @@ is narrow:
 
 | `BCA_HEADROOM` | Fires when a function reaches… | Use case                                            |
 | -------------- | ------------------------------ | --------------------------------------------------- |
-| `0.99`         | 99% of a count ceiling         | Tightest possible warning, fires on the last commit before the hard gate would. |
-| `0.95`         | 95% of a count ceiling (default) | One-or-two-commit lead time. Good default.        |
-| `0.90`         | 90% of a count ceiling         | Wider band — useful immediately after raising a limit, while the new ceiling settles. |
+| `0.99`         | 99% of a count ceiling         | Narrow warning band.                                |
+| `0.95`         | 95% of a count ceiling (default) | Default warning band.                             |
+| `0.90`         | 90% of a count ceiling         | Wider band, useful immediately after raising a limit, while the new ceiling settles. |
 | `1.00`         | 100% (parity with hard gate)   | Sanity check that the two tiers agree.              |
 
 An `mi.*` floor is raised by `1 − BCA_HEADROOM` of one band instead
@@ -456,27 +449,26 @@ early-warning signal.
 ### When the soft tier fires
 
 A failed soft gate is a decision point, not a bug report. There
-are exactly three legitimate resolutions:
+are three legitimate resolutions:
 
-1. **Refactor.** Same workflow as any other complexity regression —
+1. **Refactor.** Same workflow as any other complexity regression:
    extract a helper, collapse a dispatch arm, split the function.
    This is the common case, and the soft tier exists to give you
    the time to do it on the same branch.
 2. **Raise the limit.** Edit the `[thresholds]` table (in `bca.toml`
-   for this repo, or your own threshold file), leave a
-   why-comment explaining what changed (a new language module, a
-   genuine algorithmic floor, a re-classified macro). Re-run
-   `make self-scan-headroom` to confirm the new value covers the
-   offender with room to spare.
+   for this repo, or your own threshold file) and leave a why-comment
+   explaining what changed (a new language module, a real algorithmic
+   floor, a re-classified macro). Re-run `make self-scan-headroom` to
+   confirm the new value covers the offender with room to spare.
 3. **Absorb into the baseline.** Run
    `make self-scan-write-baseline` (hard tier) or
    `make self-scan-write-baseline-headroom` (soft tier) when the
-   value is legitimate forever — a parser dispatch arm whose width
+   value is legitimate forever: a parser dispatch arm whose width
    matches the grammar it covers, a stable state machine, generated
    code. Commit the diff in `.bca-baseline.toml` in the same PR
    as the code that produced it.
 
-Don't pick "raise the limit" silently to make the gate go away.
+Do not pick "raise the limit" silently to make the gate go away.
 The committed why-comment is the only audit trail the next reader
 has; without it the bumped limit looks indistinguishable from
 neglect.
@@ -513,7 +505,7 @@ self-scan-write-baseline:
         --config {{thresholds}} --write-baseline {{baseline}}
 
 # Like the Make skeleton, never compose this with `self-scan-write-baseline`
-# in parallel — they race on the same {{baseline}} file.
+# in parallel; they race on the same {{baseline}} file.
 self-scan-write-baseline-headroom:
     {{bca}} check {{base_args}} \
         --config {{thresholds}} --tier=soft={{headroom}} --write-baseline {{baseline}}
@@ -539,8 +531,8 @@ when debugging:
 }
 ```
 
-Because the soft tier is now a plain `bca check` invocation, the npm
-scripts are byte-identical across shells — no helper script, no
+Because the soft tier is a plain `bca check` invocation, the npm
+scripts are byte-identical across shells: no helper script, no
 `python3`-vs-`py` alias to paper over, no env-var-vs-shell-expansion
 portability traps. To widen the band, edit the literal `0.95` in the
 script (or wire it through your task runner of choice); the flag
@@ -553,7 +545,7 @@ Pair with [`husky`](https://typicode.github.io/husky/) or
 ## Skeleton: `pre-commit` hook
 
 If you use the [`pre-commit`](https://pre-commit.com/) framework
-(**version 3.2.0 or newer** — see the version note below), both
+(**version 3.2.0 or newer**; see the version note below), both
 tiers are local hooks that shell out to `make`:
 
 ```yaml
@@ -573,7 +565,7 @@ tiers are local hooks that shell out to `make`:
       stages: [pre-commit]
 ```
 
-`pass_filenames: false` is deliberate — `bca` discovers its own
+`pass_filenames: false` is deliberate: `bca` discovers its own
 inputs from `--paths` plus the baseline. Letting `pre-commit`
 pass the changed files in would shrink the scan to just those
 files and miss the cross-file effect of a baseline refresh.
@@ -581,20 +573,19 @@ files and miss the cross-file effect of a baseline refresh.
 > **Minimum `pre-commit` version 3.2.0.** The `stages:` vocabulary
 > was renamed in
 > [pre-commit 3.2.0](https://github.com/pre-commit/pre-commit/releases/tag/v3.2.0)
-> (March 2024) — `commit` → `pre-commit`, `push` → `pre-push`, etc.
-> Older installs (notably RHEL 8 EPEL, Ubuntu 20.04 default
-> packages, and any `.pre-commit-config.yaml` pinned to the legacy
-> vocabulary) reject `stages: [pre-commit]` as an unknown stage
-> name and the hook never registers. If you must support older
-> installations, substitute `stages: [commit]`; in mixed fleets,
-> pin the framework with `pre-commit --version` ≥ 3.2.0 in the
-> dev-tooling docs so this contradiction does not surface
-> silently.
+> (2023-03-17): `commit` became `pre-commit`, `push` became
+> `pre-push`, and so on. Older installs (notably RHEL 8 EPEL, Ubuntu
+> 20.04 default packages, and any `.pre-commit-config.yaml` pinned to
+> the legacy vocabulary) reject `stages: [pre-commit]` as an unknown
+> stage name and the hook never registers. If you must support older
+> installations, substitute `stages: [commit]`; in mixed fleets, pin
+> the framework with `pre-commit --version` ≥ 3.2.0 in the dev-tooling
+> docs so this contradiction does not surface silently.
 
 ## Composition with the broader baseline workflow
 
 The four `self-scan*` targets above are not a replacement for the
-documented [Baselines recipe](baselines.md) — they *are* that
+documented [Baselines recipe](baselines.md); they *are* that
 recipe, mechanised into developer-machine commands. The same
 ordering still applies:
 
@@ -609,10 +600,6 @@ ordering still applies:
    just `version = 6` (the bare schema stamp with no offender entries),
    drop the `--baseline` flag and delete the file. The thresholds now
    stand on their own.
-
-The local tiers shorten the feedback loop on steps 2 and 3 from
-"red CI on a pull request" to "red Make recipe before
-`git commit` returns". That is the whole pitch.
 
 ## Related industry patterns
 
@@ -638,4 +625,4 @@ over:
 - **`-Wall` + `-Werror` in C/C++.** A first pass with `-Wall`
   reveals the noise; promoting to `-Werror` after the baseline
   reaches zero is the same retirement step as deleting
-  `.bca-baseline.toml` once it's empty.
+  `.bca-baseline.toml` once it is empty.

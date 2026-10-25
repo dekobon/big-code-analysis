@@ -1,16 +1,11 @@
 # Error handling
 
-The bindings split errors into two domains:
-
-* **Caller errors** are raised — `ValueError` for bad arguments,
-  `TypeError` for the wrong type, `OSError` and its subclasses
-  for filesystem failures.
-* **Per-file analysis errors** in a batch are *returned* as
-  `bca.AnalysisFailure` values inside the result list. They are
-  not exceptions and never raise.
-
-The single-file `bca.analyze` walks the first path; the batch
-`bca.analyze_batch` walks the second.
+Single-file analysis raises exceptions for file and analysis
+failures. Batch analysis returns those failures as `AnalysisFailure`
+values and continues. Invalid caller arguments (`ValueError` for a bad
+value, `TypeError` for the wrong type) still raise and abort the
+batch. This page lists every exception each entry point can raise
+and the one value type a batch returns instead.
 
 ```python
 {{#include ../../../big-code-analysis-py/examples/errors_taxonomy.py:30:74}}
@@ -23,9 +18,9 @@ The single-file `bca.analyze` walks the first path; the batch
 | Exception | Subclass of | Triggered by |
 |-----------|-------------|--------------|
 | `bca.UnsupportedLanguageError` | `ValueError` | Unknown extension + no shebang / emacs-mode hit |
-| `bca.ParseError` | `ValueError` | tree-sitter rejected the source |
-| `ValueError` (raw) | — | Non-UTF-8 path with `allow_lossy_path=False` (the default) |
-| `OSError` and subclasses | — | `std::fs::read` failed |
+| `bca.ParseError` | `ValueError` | [tree-sitter](https://tree-sitter.github.io/tree-sitter/) rejected the source |
+| `ValueError` (raw) | (builtin) | Non-UTF-8 path with `allow_lossy_path=False` (the default) |
+| `OSError` and subclasses | (builtin) | `std::fs::read` failed |
 
 The `OSError` raised by `analyze` dispatches to the canonical
 subclass based on `errno`:
@@ -75,23 +70,22 @@ for slot in bca.analyze_batch(paths):
 
 `error_kind` is a closed `Literal`:
 
-* `"UnsupportedLanguage"` — extension and shebang / emacs-mode
+* `"UnsupportedLanguage"`: extension and shebang / emacs-mode
   resolution both came up empty.
-* `"ParseError"` — tree-sitter rejected the input, or (rare) a
+* `"ParseError"`: tree-sitter rejected the input, or (rarely) a
   Rust-side JSON serialisation of the result failed. The
   serialisation case is prefixed with `internal: serialization error:`
   in the `error` string; check for the prefix when the
-  distinction matters (serialisation failures are not recoverable
-  by re-reading the file).
-* `"IoError"` — the most common kind: `std::fs::read` failed. The
-  closed taxonomy also folds in non-UTF-8 path failures, so a
-  path-encoding error surfaces as `"IoError"` rather than as a
+  distinction matters, since re-reading the file does not recover
+  from a serialisation failure.
+* `"IoError"`: a filesystem read or path-encoding failure. The
+  closed taxonomy folds non-UTF-8 paths in here rather than adding a
   distinct fourth value.
 
 For `"IoError"` instances the underlying OS `errno` is preserved
 in the `error` string via Rust's default formatting (`"<msg> (os
-error <N>)"` on Unix). Parse with regex if you need it for retry
-classification:
+error <N>)"` on Unix). Parse it with a regex if you need it for
+retry classification:
 
 ```python
 import re
@@ -101,7 +95,7 @@ errno = int(match.group(1)) if match else None
 ```
 
 If you need typed `OSError` subclasses, call `bca.analyze` per
-file instead of `analyze_batch` — single-file `analyze` raises
+file instead of `analyze_batch`; single-file `analyze` raises
 `FileNotFoundError` / `PermissionError` / `IsADirectoryError`
 directly.
 
@@ -155,13 +149,13 @@ except bca.VcsError as err:
 ```
 
 `analyze(..., vcs=True)` is the exception to the
-`NotARepositoryError` rule: a file outside any repository simply yields
-no `vcs` block rather than raising, so only the option-parsing
+`NotARepositoryError` rule: a file outside any repository yields no
+`vcs` block rather than raising, so only the option-parsing
 `VcsError` reaches the caller from that path.
 
 ## Logging recipe
 
-A small logging helper for batch output keeps successes /
+A small logging helper for batch output keeps successes and
 failures aligned without bespoke formatting:
 
 ```python
@@ -182,7 +176,7 @@ def report(paths: list[str]) -> None:
         elif slot is None:
             # Nothing to parse: three bytes or fewer, a UTF-16 BOM, or a
             # binary leading window. The slot is held open so the zip
-            # above stays aligned (#1238) — it is not a failure.
+            # above stays aligned (#1238); it is not a failure.
             log.info("skip %s: empty or binary", path)
         else:
             log.info(
@@ -193,11 +187,11 @@ def report(paths: list[str]) -> None:
 
 ## See also
 
-* [Batch processing](batch.md) — the never-raise contract that
+* [Batch processing](batch.md): the never-raise contract that
   routes per-file failures into `AnalysisFailure` slots.
-* [Async patterns](async.md) — `asyncio.gather(...,
+* [Async patterns](async.md): `asyncio.gather(...,
   return_exceptions=True)` is the async-side equivalent of the
-  batch contract: per-task exceptions land in the result list
+  batch contract; per-task exceptions land in the result list
   instead of cancelling the whole gather.
-* [Quick start](quick-start.md) — the single-file `analyze`
+* [Quick start](quick-start.md): the single-file `analyze`
   path that raises typed `OSError` subclasses.

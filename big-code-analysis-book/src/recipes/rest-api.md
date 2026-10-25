@@ -1,14 +1,14 @@
 # Driving the REST API
 
-`bca-web` exposes the same analysis primitives over
+`bca-web` exposes the same analysis primitives as the `bca` CLI over
 HTTP. Use it when the consumer is a long-running service (an editor
 plugin, CI worker, or web app) that should not pay the cost of
-spawning the CLI per file.
+spawning the CLI per file. This page is a set of end-to-end
+[`curl`](https://curl.se/) calls, one per endpoint; the
+[REST API reference](../commands/rest.md) documents every field.
 
-For the full endpoint reference, see [Rest API](../commands/rest.md).
-The recipes below show practical end-to-end calls with `curl`. Every
-endpoint is mounted under the `/v1` prefix; the old unprefixed paths
-were removed at the 2.0 release (#637) and now return `404`.
+Every endpoint is mounted under the `/v1` prefix; the old unprefixed
+paths were removed at the 2.0 release (#637) and now return `404`.
 
 ## Start the server
 
@@ -16,14 +16,14 @@ were removed at the 2.0 release (#637) and now return `404`.
 bca-web --host 127.0.0.1 --port 8080 -j "$(nproc)"
 ```
 
-Verify it's up:
+Verify it is up:
 
 ```bash
 curl -sf http://127.0.0.1:8080/v1/ping && echo "ok"
 # => ok
 ```
 
-`/ping` returns `200 OK` with an empty body — `curl -sf` exits 0 on
+`/ping` returns `200 OK` with an empty body. `curl -sf` exits 0 on
 success and non-zero on any HTTP error, which is what scripts want.
 
 For building, flag and environment-variable tuning, resource limits,
@@ -50,8 +50,8 @@ language from `file_name`, so the extension matters.
 
 ## Compute metrics for a file from disk
 
-`curl --data-binary` plus `jq` makes it easy to package a real file
-into the JSON envelope the server expects:
+`curl --data-binary` plus [`jq`](https://jqlang.github.io/jq/)
+packages a real file into the JSON envelope the server expects:
 
 ```bash
 jq -nc \
@@ -65,21 +65,22 @@ jq -nc \
   | jq '.root.metrics.cyclomatic, .root.metrics.cognitive'
 ```
 
-This pattern — `jq -n --rawfile` to build the request, `curl
---data-binary @-` to stream it — is the easiest way to avoid quoting
-problems with multi-line source code.
+This pattern (`jq -n --rawfile` to build the request, `curl
+--data-binary @-` to stream it) avoids quoting problems with
+multi-line source code.
 
 ## Strip comments through the API
 
 The endpoint is `/comment` (singular). It has two variants selected
 by `Content-Type`:
 
-- `application/json` — wraps the request and response in JSON. The
-  response `code` field is a **byte array**, not a string, because
-  the underlying API is byte-oriented.
-- `application/octet-stream` — accepts the source as the raw request
+- `application/json` wraps the request and response in JSON. The
+  response `code` field is a **string** holding the stripped source
+  (the request `code` arrived as a JSON string, so the result is
+  valid UTF-8; #629 replaced the earlier byte-array shape).
+- `application/octet-stream` accepts the source as the raw request
   body and returns the stripped source as the raw response body. This
-  is by far the easiest variant to use from the shell.
+  is the simpler variant to use from the shell.
 
 Octet-stream form (recommended for one-off shell use):
 
@@ -90,8 +91,7 @@ curl -s "http://127.0.0.1:8080/v1/comment?file_name=demo.py" \
 # => print("hi")
 ```
 
-JSON form (use when your client speaks JSON natively). Decode the
-byte array with `jq … | implode` for ASCII / UTF-8 source:
+JSON form (use when your client speaks JSON natively):
 
 ```bash
 curl -s http://127.0.0.1:8080/v1/comment \
@@ -101,7 +101,7 @@ curl -s http://127.0.0.1:8080/v1/comment \
           "file_name": "demo.py",
           "code": "# leading comment\nprint(\"hi\")  # trailing"
         }' \
-  | jq -r '.code | implode'
+  | jq -r '.code'
 ```
 
 The JSON response carries the same `id` you sent, so a client that
@@ -122,10 +122,10 @@ curl -s http://127.0.0.1:8080/v1/function \
   | jq '.spans'
 ```
 
-Each entry has `name`, `start_line`, `end_line`, and an `error`
-boolean (set when the parser flagged the function span as
-malformed) — enough for an editor to draw a function navigator
-without re-parsing the file locally.
+Each entry has `name`, `start_line`, and `end_line`; `name` is `null`
+when the parser could not resolve the function's name (an anonymous
+or malformed definition). That is enough for an editor to draw a
+function navigator without re-parsing the file locally.
 
 ## Rank a repository by change-history risk
 
@@ -149,27 +149,31 @@ curl -s http://127.0.0.1:8080/v1/vcs \
           "repo_path": "/srv/checkouts/my-project",
           "top": 20
         }' \
-  | jq '.files[] | {path, risk_score, churn_recent}'
+  | jq '.files[] | {path, risk_score: .vcs.risk_score, churn_recent: .vcs.churn_recent}'
 ```
 
 The body accepts the same knobs as `bca vcs` (`long_window`,
 `recent_window`, `top`, `ref`, `risk_formula`, `file_types`,
 `full_history`, `include_merges`, `follow_renames`, `exclude_bots`,
-`bot_pattern`, `as_of`, `emit_author_details`, `include_deleted`,
-`bus_factor_threshold`, `no_cache`, `cache_dir`) as optional fields.
-`file_types` scopes the ranking (`metrics` — the default — / `all` / a
-`rs,py`-style extension list), mirroring the CLI `--file-types`. A
-`repo_path` that is not a git working tree, or a malformed window /
-timestamp / formula / scope, returns `400` with the uniform JSON error
-body.
+`bot_pattern`, `as_of`, `emit_author_details`, `author_hash_key`,
+`include_deleted`, `bus_factor_threshold`, `no_cache`, `cache_dir`) as
+optional fields; `top` defaults to `50` like the CLI, and `0` returns
+every file. `file_types` scopes the ranking (`metrics`, the default,
+or `all`, or a `rs,py`-style extension list), mirroring the CLI
+`--file-types`. A `repo_path` that does not exist or is not a git
+working tree, or a malformed window / timestamp / formula / scope,
+returns `400` with the uniform JSON error body. Unknown fields are
+rejected with `400` too.
 
 ### Trend over time
 
 `POST /vcs/trend` samples the same metrics at several points in time and
 returns a per-file time series (see [Historical
 trend](../commands/vcs.md#historical-trend-over-time)). The body takes the
-`/vcs` fields plus `points` (>= 2), `span` (default `12mo`), and
-`top_deltas`.
+`/vcs` fields except the cache controls (`no_cache` / `cache_dir` are
+rejected with `400`, since trend does not cache) plus `points` (>= 2,
+default `12`), `span` (default `12mo`), and `top_deltas` (default
+`10`; `0` returns all).
 
 ```bash
 curl -s http://127.0.0.1:8080/v1/vcs/trend \
@@ -206,7 +210,7 @@ curl -s http://127.0.0.1:8080/v1/vcs/jit \
 
 To score an arbitrary diff instead, send a `diff` field carrying the
 unified diff (no `repo_path` needed). The response is then the *partial*
-report — `source: "diff"`, a `partial_risk_score`, and **no** history /
+report: `source: "diff"`, a `partial_risk_score`, and **no** history /
 experience / purpose groups, which are absent rather than zero. The
 partial score is **not comparable** to a commit score.
 
@@ -222,9 +226,8 @@ not a git working tree) returns `400` with the uniform JSON error body.
 
 ## Calling the API from CI
 
-The server starts in milliseconds, so for short-lived CI jobs it's
-often simplest to start it as a background process inside the job and
-tear it down at the end:
+For a short-lived CI job, start the server as a background process
+and stop it when the job finishes:
 
 ```bash
 bca-web --port 8080 &
@@ -237,5 +240,6 @@ until curl -sf http://127.0.0.1:8080/v1/ping >/dev/null; do sleep 0.1; done
 # … run your analysis calls here …
 ```
 
-For longer-lived workers, run the server as a systemd unit (or
-container) and point your jobs at its host/port.
+For longer-lived workers, run the server as a
+[systemd](https://www.freedesktop.org/wiki/Software/systemd/) unit (or
+a container) and point your jobs at its host and port.

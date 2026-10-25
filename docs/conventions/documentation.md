@@ -1,5 +1,10 @@
 # Documentation: prose, markdown, docstrings
 
+The writing rules for this repository: which document carries which
+kind of content, how prose docs are written and revised, and what the
+Markdown linter expects. It is for contributors and agents editing any
+`.md` file or doc comment here.
+
 ## Audience separation
 
 Keep these channels distinct. Mixing them creates documents that age
@@ -16,7 +21,8 @@ badly:
   or module. Not a spec.
 - `docs/conventions/`: how contributors and agents work in this
   repository.
-- `big-code-analysis-book/`: the mdBook: end-user and library
+- `big-code-analysis-book/`: the
+  [mdBook](https://rust-lang.github.io/mdBook/): end-user and library
   documentation (metrics, commands, languages, recipes).
 
 ## Prose documents
@@ -88,7 +94,8 @@ most in docs:
 - No throat-clearing ("It's important to note that..."), no
   "leverage" or "utilize" where "use" works, no "in order to" where
   "to" works.
-- No em dashes or other generative-AI tells. No AI sentence
+- No em dashes or other generative-AI tells; replace an em dash with
+  a comma, a colon, parentheses, or a new sentence. No AI sentence
   structures: correlative conjunctions ("not only... but also",
   "whether... or"), contrastive-emphasis prepositional phrases,
   participial-phrase pile-ups.
@@ -127,8 +134,8 @@ which are point-in-time records. Be consistent within a doc.
 
 ### Dates
 
-Use ISO 8601 (`YYYY-MM-DD`) for all dates, matching existing project
-practice.
+Use [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html)
+(`YYYY-MM-DD`) for all dates, matching existing project practice.
 
 ### Terminology and word choice
 
@@ -182,8 +189,8 @@ Before committing a prose doc, confirm:
   the errors they can return.
 - Include a usage example for non-obvious APIs; doc examples are
   compiled and run by `cargo test`, so keep them correct.
-- Don't write comments that restate what the code does; do write
-  comments that explain *why* when the reason isn't local. Default to
+- Do not write comments that restate what the code does; do write
+  comments that explain *why* when the reason is not local. Default to
   no comment unless the *why* is non-obvious.
 
 Example:

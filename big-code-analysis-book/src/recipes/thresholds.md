@@ -2,8 +2,8 @@
 
 `bca check` compares each metric against a limit you configure. This page explains where the
 shipped defaults come from, how to adjust them for the language you are gating, and how to pick a
-different set for a different job. It is for anyone editing a `[thresholds]` table, whether by hand
-or through a coding agent.
+different set for a different job. It is for anyone editing a `[thresholds]` table, manually or
+through a coding agent.
 
 If you have not set up a gate yet, start with [Local threshold gates](./local-gates.md) for the
 mechanics and [Baselines](./baselines.md) for absorbing the offenders you already have. This page is
@@ -12,7 +12,9 @@ about the numbers.
 ## The shipped defaults {#shipped-defaults}
 
 `bca init` scaffolds this table. It is defined once in
-`big-code-analysis-cli/src/default_thresholds.rs`.
+`big-code-analysis-cli/src/default_thresholds.rs`. The anchor column cites
+[MISRA](https://misra.org.uk/) and [Flog](https://github.com/seattlerb/flog) alongside the tools
+linked inline.
 
 | Metric | Limit | Scope | Anchor |
 | --- | --- | --- | --- |
@@ -32,7 +34,7 @@ apply to each class, struct, trait, impl, namespace, or interface; `loc.*` appli
 root. `bca check` will not compare a container's method count against a per-function limit. See
 [Check](../commands/check.md) for the full scope rules.
 
-Two of these limits deserve their reasoning spelled out.
+Two of these limits need their reasoning spelled out.
 
 `loc.ploc` and `loc.sloc` are a pair. PLOC counts physical lines of code with blanks and comments
 excluded, so it is the working file-size limit: growing a file by documenting a decision costs
@@ -51,10 +53,12 @@ would call a problem.
 ## How the defaults were derived {#derivation}
 
 Published thresholds disagree with each other by wide margins. For cyclomatic complexity alone the
-defaults in common tools span 7 (RuboCop) to 30 (`gocyclo`), with Checkstyle and PMD at 10, lizard
-and MISRA at 15, and ESLint at 20. Picking one by authority means picking an authority.
+defaults in common tools span 7 (RuboCop) to 30
+([`gocyclo`](https://github.com/fzipp/gocyclo)), with [Checkstyle](https://checkstyle.org/) and PMD
+at 10, lizard and MISRA at 15, and [ESLint](https://eslint.org/) at 20. Picking one by authority means picking an authority.
 
-So each limit here is checked against measurement as well. The reference corpus is 43 real-world
+So each limit here is checked against measurement as well. The reference corpus, as measured for
+[#1140](https://github.com/dekobon/big-code-analysis/issues/1140), was 43 real-world
 repositories across 20 languages, cloned at their default branch on 2026-07-31, with test trees,
 vendored code, and generated files excluded. Measured with `bca metrics`, that is roughly a quarter
 of a million function spaces, forty thousand container spaces, and twenty-seven thousand files.
@@ -69,12 +73,15 @@ approach in
 who derive risk bands at the 70th, 80th, and 90th percentiles. Their 90th percentile is a useful
 "worth looking at" line; it is far too noisy to fail a build on.
 
-Two of the previous defaults failed that rule and changed as a result. `nargs` at 7 fired on under
-1% of functions in the median language and on nothing at all in this project's own source, which
-makes it a limit that cannot catch anything. (That corpus measurement predates
-[#1196](https://github.com/dekobon/big-code-analysis/issues/1196), which narrowed `nargs` to a
-function's own parameters. Re-measuring would move the figure *down*, and most for closure-heavy
-languages, so the "cannot catch anything" conclusion holds a fortiori.) `cognitive` at 25 was inherited from
+Two of the previous defaults failed that rule and changed as a result. The original corpus
+measurement found that `nargs = 7` flagged fewer than 1% of functions in the median language, and
+nothing at all in this project's own source: a limit that cannot catch anything. That measurement
+includes nested-closure parameters, which
+[#1196](https://github.com/dekobon/big-code-analysis/issues/1196) later removed from `nargs`; the
+current own-parameter metric cannot produce a higher count on the same inputs, and the drop is
+largest for closure-heavy languages, so the conclusion holds. The shipped limit is therefore
+stricter. `cognitive` at 25 was
+inherited from
 [clippy](https://rust-lang.github.io/rust-clippy/master/#cognitive_complexity), which is
 deliberately conservative because it lints rather than gates; 15 is what the metric's designers
 chose.
@@ -182,35 +189,35 @@ wmc = 40
 **Compact, heavily-abstracted languages.** Java, Ruby, Kotlin, C#, and Elixir sit far under the
 defaults on every per-function metric except C#'s `halstead.effort`. Their 97.5th percentile
 `cyclomatic` is 4 to 8. Gating them
-at 15 means the gate will effectively never fire, so tighten if you want it to do work.
+at 15 means the gate will almost never fire, so tighten if you want it to do work.
 
 Read the C# row with care. Its distribution is dominated by property accessors, which `bca` counts
 as functions and which are almost always trivial, so its percentiles sit lower than the code a
-reviewer would actually be looking at. The same effect applies more weakly to Java, Kotlin, and
+reviewer would be looking at. The same effect applies more weakly to Java, Kotlin, and
 Ruby. Prefer re-deriving from your own repository over adopting any of those four rows directly; see
 [Re-deriving for your own codebase](#re-deriving).
 
 ### Metrics that do not apply to every language {#language-gaps}
 
 `nargs` reports 0 for every Bash function, and that is correct and permanent: the shell has no
-formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is simply inert. A
+formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is inert. A
 `nargs` limit therefore passes unconditionally on a Bash codebase, which reads as "no offenders"
 rather than "not measured". Bash is the only language left in that position.
 
 Perl is counted, but only where the source declares a signature (`sub add($x, $y)`, stable since
 5.20 and on by default under `use v5.36`). A sub *without* a signature takes its arguments from `@_`
-and has no formal parameter list to measure, so it reads 0 — correctly. Perl's `nargs` distribution
+and has no formal parameter list to measure, so it reads 0, correctly. Perl's `nargs` distribution
 is therefore sparse on codebases predating `use v5.36`, and one anonymous-sub form still reads 0
 because the grammar misparses its signature.
 
 `wmc`, `npm`, and `npa` are only produced for languages with a class-like container. They are absent
 from Bash, C, Lua, Perl, and Tcl output. Go is a half case: it has no container space at all, so
 `wmc` is absent and `npm` / `npa` are reported only on the file `unit` root. `bca check` gates both
-on container spaces and never on the root, so **no `npm` or `npa` limit can fire on Go source** — see
+on container spaces and never on the root, so **no `npm` or `npa` limit can fire on Go source**; see
 [Which spaces carry NPA, NPM and WMC](../metrics.md#oop-emission-scope).
 
 A per-language override cannot fix any of these. Bash `nargs` is `0` for every function, so no
-limit — not even `0`, which fires only on a value *above* it — can make the gate say anything. The
+limit (not even `0`, which fires only on a value *above* it) can make the gate say anything. The
 override mechanism tunes limits; it does not add a measurement the grammar cannot supply.
 
 ### Applying overrides {#applying-overrides}
@@ -248,19 +255,19 @@ The key is the canonical language slug, the same vocabulary `--language` accepts
 `objc`, `tsx`, `mozcpp`, `mozjs`); an unknown one is a tool error rather than a silent no-op. A
 language with no table of its own is gated by `[thresholds]`. Under `--tier=soft` each language's
 soft band is derived from *its own* resolved limit, so a language that raises a limit gets a soft
-band scaled from the raised number rather than the project-wide one. The full reference — including
-how `--print-effective-config` renders the resolved tables — is in
+band scaled from the raised number rather than the project-wide one. The full reference, including
+how `--print-effective-config` renders the resolved tables, is in
 [`bca check`](../commands/check.md#per-language-limits).
 
 Two things to watch when splitting a table this way. `.h` is analyzed with the C++ grammar, not the
 C one, so a C project's headers are gated by `[thresholds.lang.cpp]`; see
 [Supported Languages](../languages.md) for the extension map. And `--threshold` on the command line
-stays global — it overrides every per-language table too, which is what you want for a one-off run
+stays global: it overrides every per-language table too, which is what you want for a one-off run
 and a surprise if you expected it to compose.
 
 The alternative is still available and still worse: keep one table sized for the loosest language
-and let per-file baselines carry the rest. It is simpler to maintain and strictly weaker, because
-the stricter languages stop being gated at all.
+and let per-file baselines carry the rest. It is simpler to maintain and weaker, because the
+stricter languages stop being gated at all.
 
 ## Per-use-case profiles {#profiles}
 
@@ -304,7 +311,7 @@ essential rather than accidental.
 ### Legacy audit and triage {#profile-legacy}
 
 When the goal is to rank an unfamiliar codebase rather than to gate it, you want the handful of
-functions that are genuinely worst, not a list of thousands. Set limits at roughly twice the
+functions that are worst, not a list of thousands. Set limits at roughly twice the
 defaults so only extreme outliers surface, run without a baseline, and use
 `bca report markdown` rather than `bca check`.
 
@@ -371,14 +378,14 @@ by design quality.
 ## Tightening a limit onto a cluster {#converging-onto-a-cluster}
 
 **Converging a limit onto a cluster of existing values is never free while a proportional soft tier
-is active.** Measure a candidate at *both* tiers before calling it free — the hard-tier reading is
+is active.** Measure a candidate at *both* tiers before calling it free. The hard-tier reading is
 the one you naturally take, and it is the one that misleads.
 
 The soft tier measures distance to the limit. A limit chosen to sit exactly on a population's value
 therefore maximises soft-tier breach by construction: every function at that value is inside the
 band the moment the limit lands, and no amount of tidying moves it out, because it *is* the limit.
 
-This project walked into it. `nargs` was at `7`, and tightening it to `6` looked free — every
+This project walked into it. `nargs` was at `7`, and tightening it to `6` looked free: every
 offender at the tighter limit was already in the baseline, so `bca check --threshold nargs=6`
 reported nothing:
 
@@ -388,7 +395,7 @@ reported nothing:
 | 6 (proposed) | 60 | 5.7 | 134 |
 
 Seventy-four functions sit at exactly `6`. A limit of `6` puts all of them `0.3` inside the soft
-band at once — 74 baseline entries bought for no hard-tier gain, none of which can ever be retired
+band at once: 74 baseline entries bought for no hard-tier gain, none of which can ever be retired
 short of rewriting the signatures. The limit stayed at `7`; the honest alternative was the real
 `6 → 5` work. ([#1143](https://github.com/dekobon/big-code-analysis/issues/1143),
 [#1169](https://github.com/dekobon/big-code-analysis/issues/1169).)
@@ -406,16 +413,17 @@ in its body. Re-measured on the same tree under own-parameter gating:
 | 6 | 16 | 0 | 38 | 17 |
 | 5 | 38 | 17 | 129 | 99 |
 
-The cluster trap itself is unchanged and is the reason this section exists — 91 functions now sit
-at exactly `5`, so a limit of `5` still puts every one of them permanently inside the soft band.
+The cluster trap itself is unchanged and is the reason this section exists: the re-measurement for
+[#1143](https://github.com/dekobon/big-code-analysis/issues/1143) found 91 functions sitting at
+exactly `5`, so a limit of `5` still put every one of them permanently inside the soft band.
 What changed is the size of the real work behind it: signatures rather than mixed cases.
 
 The convergence landed on that evidence. One thing measuring it clarified, which this section
 previously got wrong: the cluster effect is **structural for every integer metric**, not a property
 of landing on a population's mode. A function sitting exactly at limit `L` is always above
-`0.95 x L`, so it is always in the soft band — the ten functions at exactly `7` were in it before
-the change, just as the ninety-one at exactly `5` are after. What the limit choice controls is only
-*how many* sit there. Read `#1143`'s objection that way: it was sound because the hard-tier gain
+`0.95 x L`, so it is always in the soft band. In that measurement the ten functions at exactly `7`
+were in it before the change, just as the ninety-one at exactly `5` were after. What the limit choice
+controls is only *how many* sit there. Read `#1143`'s objection that way: it was sound because the hard-tier gain
 was zero, not because `6` was near a mode.
 
 That also means the soft tier carries little information for a small-integer metric, where
@@ -436,7 +444,7 @@ nargs: candidate limit 6
 
 The trap is not confined to the global table. A
 [per-language override](#per-language) is another way to converge a limit onto a population, and it
-has the same cliff — `--explain-threshold` reports a language keeping its own limit on a separate
+has the same cliff; `--explain-threshold` reports a language keeping its own limit on a separate
 line rather than folding it into the count.
 
 The rule generalises past the soft tier: a limit that lands on a cluster leaves the population with
@@ -458,7 +466,7 @@ care about, filter by `kind` to match the metric's scope (`"function"`, `"unit"`
 container kind for `nom` and `wmc`), and take the 97.5th percentile. Setting a limit there flags
 your worst 2.5%.
 
-Two checks are worth running afterwards. Count the offenders the limit produces: if it is more than
+Run two checks afterwards. Count the offenders the limit produces: if it is more than
 a few percent of your spaces, the gate will be ignored rather than obeyed. Then look at where the
 values pile up. A natural distribution tails off smoothly, so a cluster of files sitting just under
 the limit means the limit is shaping the code rather than measuring it, and people are trimming to

@@ -5,14 +5,15 @@ node types, counting them, or dumping the tree.
 
 > **Library-side equivalents.** Every recipe below has an in-process
 > Rust counterpart in
-> [Walking the AST directly](../library/ast-traversal.md) — useful
+> [Walking the AST directly](../library/ast-traversal.md). Use that
 > when shelling out per file is too slow or when you want to compose
 > metrics with custom AST analysis in one parse.
 
 ## Detect parse errors before committing
 
-Tree-sitter exposes a synthetic `ERROR` node anywhere it could not
-parse. Use `find` to surface them:
+[Tree-sitter](https://tree-sitter.github.io/tree-sitter/) exposes a
+synthetic `ERROR` node anywhere it could not parse. Use `find` to
+surface them:
 
 ```bash
 bca find \
@@ -78,7 +79,7 @@ bca dump \
 ```
 
 `--line-start` / `--line-end` apply to `dump` and `find`, so the same
-range can be used to scope a search to a single function:
+range scopes a search to a single function:
 
 ```bash
 bca find \
@@ -100,13 +101,14 @@ bca functions \
 ```
 
 The output is a tree per file: an `In file …` header followed by an
-indented row per function with name and line span. It is intended for
+indented row per function with name and line span. It is meant for
 reading, not parsing.
 
-For tooling that needs a structured inventory — coverage mapping,
-documentation generation, code-owner reports — use the JSON `metrics`
-output instead and walk `.spaces[]` recursively, taking entries whose
-`kind` is `function`:
+For tooling that needs a structured inventory (coverage mapping,
+documentation generation, code-owner reports), use the JSON `metrics`
+output instead and walk `.spaces[]` recursively with
+[`jq`](https://jqlang.github.io/jq/), taking entries whose `kind` is
+`function`:
 
 ```bash
 bca metrics \
@@ -121,5 +123,5 @@ bca metrics \
     '
 ```
 
-This emits one JSON object per function and is safe to pipe into
+This emits one JSON object per function, ready to pipe into
 downstream tooling.

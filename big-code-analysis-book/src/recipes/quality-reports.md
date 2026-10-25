@@ -3,8 +3,10 @@
 Recipes for producing aggregated, human-readable Markdown reports.
 
 > **Wiring reports into CI?** See the
-> [CI integration recipe](ci.md) for runnable GitHub Actions and
-> GitLab CI examples that post the Markdown report as a PR/MR comment
+> [CI integration recipe](ci.md) for runnable
+> [GitHub Actions](https://docs.github.com/en/actions) and
+> [GitLab CI](https://docs.gitlab.com/ci/) examples that post the
+> Markdown report as a PR/MR comment
 > and surface threshold violations through the platform's native code
 > quality widgets.
 
@@ -12,9 +14,8 @@ Recipes for producing aggregated, human-readable Markdown reports.
 
 `big-code-analysis` publishes the output of `bca report -O markdown
 --vcs` and `bca report -O html --vcs` against its own source tree on
-every push to
-`main`. Open either to see exactly what the recipes on this page produce
-on a multi-language Rust + Python codebase:
+every push to `main`. Open either to see what the recipes on this page
+produce on a multi-language Rust + Python codebase:
 
 - HTML hotspot report (sortable tables, per-language sections, plus a
   "Change-history risk" section from `--vcs`):
@@ -45,11 +46,11 @@ bca report \
 ```
 
 - `--strip-prefix` keeps the file paths short and stable across
-  machines — without it every row carries the absolute path of the
+  machines. Without it every row carries the absolute path of the
   current checkout.
 - `--top` controls how many rows appear in each hotspot table. 20 is
-  a good default for a PR comment; drop to 5 for a dashboard tile, or
-  pass `0` to list every row.
+  a reasonable default for a PR comment; drop to 5 for a dashboard
+  tile, or pass `0` to list every row.
 - `--jobs` defaults to the effective CPU count
   (cgroup-/cpuset-aware on Linux); pass `--jobs 1` only to force
   serial mode for debugging.
@@ -83,7 +84,7 @@ bca report \
 > **Leading `./` is optional.** A bare-relative pattern and its
 > `./`-prefixed spelling are equivalent: `--exclude "vendor/**"` matches
 > exactly what `--exclude "./vendor/**"` does. This holds for every glob
-> surface — `--include`, `--exclude`, `--exclude-from`, `.bcaignore`, and
+> surface: `--include`, `--exclude`, `--exclude-from`, `.bcaignore`, and
 > the `[check.exclude]` gate-exemption set.
 
 For a stable repo-wide deny-set, keep the patterns in a file at the
@@ -127,14 +128,14 @@ diff -u /tmp/before.md /tmp/after.md | less
 ```
 
 Because both reports use the same `--strip-prefix` shape, the path
-columns line up and the diff is dominated by metric changes rather
-than path noise.
+columns line up and the diff shows metric changes rather than path
+noise.
 
 ## C/C++ preprocessor-aware reports
 
-Macro-heavy C/C++ codebases benefit from feeding preprocessor data
-into the analyzer so that conditional compilation is interpreted the
-way the compiler sees it. The workflow is two steps:
+For macro-heavy C/C++ codebases, feed preprocessor data into the
+analyzer so conditional compilation is interpreted the way the
+compiler sees it. The workflow is two steps:
 
 ```bash
 # 1. Build a preprocessor-data JSON from the headers and sources.
@@ -149,26 +150,25 @@ bca report \
     -O markdown --output report.md
 ```
 
-`--preproc-data` is accepted by every metric-computing walking
-subcommand (`metrics`, `ops`, `functions`, `report`, `check`, …) —
-anywhere accurate C/C++ analysis matters. Subcommands that do not
-consume it (`vcs`, `preproc`, `list-metrics`, `diff-baseline`)
-reject it as a usage error.
+Every metric-computing walking subcommand (`metrics`, `ops`,
+`functions`, `report`, `check`, …) accepts `--preproc-data`.
+Subcommands that do not consume it (`vcs`, `preproc`, `list-metrics`,
+`diff-baseline`) reject it as a usage error.
 
-Step 1's document is deterministic: the `files` map is written in
-sorted path order and each entry's `direct_includes`,
+Step 1's document is deterministic. The `files` map is written in
+sorted path order, and each entry's `direct_includes`,
 `indirect_includes`, and `macros` arrays in sorted name order, so two
 `bca preproc` runs over an unchanged tree produce byte-identical
-output — on stdout as well as through `--output`. Check
+output, on stdout as well as through `--output`. Check
 `/tmp/preproc.json` into a build cache or diff it between branches
-without spurious churn, the same way you can a `metrics --output` or
+without spurious churn, as you can a `metrics --output` or
 `ops --output` document.
 
-Two comparators are in play, which matters only if you re-derive an
-order yourself. The `files` keys are paths and sort component-wise, so
-`a/x.h` precedes `a-b/x.h`; the include and macro arrays are plain
-strings and sort by bytes, where `a-b/x.h` precedes `a/x.h`. Reading
-the document needs neither, and `jq` preserves what was written.
+You need the sorting rules only when reproducing the output order. The
+`files` keys sort by path component, so `a/x.h` precedes `a-b/x.h`.
+Include and macro arrays sort by bytes, so `a-b/x.h` precedes `a/x.h`.
+You do not need to reproduce either sort when reading the document;
+[`jq`](https://jqlang.github.io/jq/) preserves the stored order.
 
 ## Analyze only files changed in a PR
 
@@ -181,7 +181,7 @@ git diff --name-only --diff-filter=AM origin/main...HEAD \
 ```
 
 - `--diff-filter=AM` keeps Added and Modified files and drops
-  Deletions — you cannot analyze a file that no longer exists.
+  Deletions, since a file that no longer exists cannot be analyzed.
 - `--paths-from -` reads newline-separated paths from stdin. A file
   argument works the same way: `--paths-from changed.txt`.
 - Paths fed in this way are treated as **explicit**, so they bypass
@@ -198,8 +198,8 @@ git diff --name-only --diff-filter=AM origin/main...HEAD \
         --top 10 --output pr-report.md
 ```
 
-`.gitignore` is honored automatically when walking a directory, so
-recipes earlier in this page no longer need an explicit
-`-X "**/target/**" -X "**/node_modules/**"` if those paths are already
-covered by your project's `.gitignore`. Add `--no-ignore` if you do
-need to analyze gitignored trees.
+A directory walk honors `.gitignore` automatically, so the recipes
+earlier on this page need no explicit
+`-X "**/target/**" -X "**/node_modules/**"` when your project's
+`.gitignore` already covers those paths. Add `--no-ignore` to analyze
+gitignored trees.

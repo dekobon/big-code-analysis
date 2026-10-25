@@ -4,18 +4,20 @@ In-source suppression markers silence threshold violations without
 editing the offending function or excluding the file from the walk.
 Drop a marker in any comment in the source file and `bca check`
 treats the covered metrics as if they were within limits for that
-scope. Metric computation is unaffected — raw `bca metrics` output
-still reports every number. Suppression is a measurement-display
-concern: `bca check` drops the covered violations from the gate, and
+scope. Metric computation is unaffected: raw `bca metrics` output
+still reports every number. Suppression is a display concern.
+`bca check` drops the covered violations from the gate, and
 `bca report markdown|html` omits the covered functions from the
 matching hotspot tables by default (pass `bca report --no-suppress`
-for the raw audit view — see [report](report.md)).
+for the raw audit view; see [report](report.md)).
 
-Markers exist for the cases editing the code is not an option:
-generated-style legacy modules awaiting rewrite, accepted exceptions
-documented in the comment, and migration from
+Markers exist for the cases where editing the code is not an option:
+legacy modules awaiting rewrite, accepted exceptions documented in the
+comment, and migration from
 [Lizard](https://github.com/terryyin/lizard)'s `#lizard forgives`
-convention.
+convention. This page is the marker reference: the syntax, the metric
+names it accepts, where a marker may sit, and the flags that audit or
+bypass markers.
 
 ## Native markers (`bca:`)
 
@@ -31,7 +33,7 @@ forms:
 | `bca: suppress-file`                | File              | Suppress every metric           |
 | `bca: suppress-file(metric, ...)`   | File              | Suppress only the listed metrics |
 
-The two metric-list forms may carry a **rationale** — free text on the
+The two metric-list forms may carry a **rationale**: free text on the
 same line, after the marker itself:
 
 ```rust
@@ -40,7 +42,7 @@ same line, after the marker itself:
 
 No separator is required and none is privileged: `— why`, `- why`,
 `: why`, `// why`, and bare prose all read the same. The two *bare*
-verbs take no trailing text at all — `bca: suppress see #123` is not a
+verbs take no trailing text at all; `bca: suppress see #123` is not a
 marker, whatever punctuation opens the trailing words. See
 [Rationale text](#rationale-text) for why.
 
@@ -49,10 +51,10 @@ A function-scope marker attaches to the innermost `FuncSpace`
 whose source range contains the comment.
 A function-scope marker outside every function body is silently
 ignored; for file-wide silencing use the explicit `suppress-file` verb.
-A file-scope marker may appear anywhere in the source — there is no
+A file-scope marker may appear anywhere in the source; there is no
 "must be in first N lines" rule.
 
-### `bca: suppress` — function-scoped, all metrics (Rust)
+### `bca: suppress`: function-scoped, all metrics (Rust) {#bca-suppress--function-scoped-all-metrics-rust}
 
 ```rust
 // bca: suppress
@@ -62,7 +64,7 @@ fn legacy_dispatch(opcode: u8) -> Action {
 }
 ```
 
-### `bca: suppress(metric, ...)` — function-scoped, listed metrics (Python)
+### `bca: suppress(metric, ...)`: function-scoped, listed metrics (Python) {#bca-suppressmetric---function-scoped-listed-metrics-python}
 
 ```python
 def parse_token_stream(tokens):
@@ -74,7 +76,7 @@ def parse_token_stream(tokens):
 
 Other thresholds (cyclomatic, halstead, loc, ...) still apply.
 
-### `bca: suppress-file` — file-scoped, all metrics (JavaScript)
+### `bca: suppress-file`: file-scoped, all metrics (JavaScript) {#bca-suppress-file--file-scoped-all-metrics-javascript}
 
 ```javascript
 // bca: suppress-file
@@ -83,7 +85,7 @@ function transform(input) { /* ... */ }
 function validate(input) { /* ... */ }
 ```
 
-### `bca: suppress-file(metric, ...)` — file-scoped, listed metrics (C++)
+### `bca: suppress-file(metric, ...)`: file-scoped, listed metrics (C++) {#bca-suppress-filemetric---file-scoped-listed-metrics-c}
 
 ```cpp
 /* bca: suppress-file(halstead) */
@@ -91,16 +93,17 @@ function validate(input) { /* ... */ }
 // other metric is still enforced file-wide.
 ```
 
-> **Prefer a narrower tool first.** Since [threshold scope](./check.md#threshold-scope)
-> (#969), a metric's file-wide or `impl`-wide *aggregate* no longer fires
-> as a per-function limit, so the most common reason `suppress-file` was
-> reached for — muting a file-level `halstead` / `nargs` / `nexits` /
-> `nom` total — is gone. Reach for `suppress-file` only when you genuinely
-> want to silence a metric for *every* function in the file. To excuse one
-> irreducibly-complex function, use a function-scoped `bca: suppress(...)`
-> inside it; to grandfather existing offenders without blinding the gate
-> to future regressions, prefer a [baseline](./check.md) entry, which keeps
-> firing once a function gets *worse* than its recorded value.
+> **Prefer a narrower tool first.** Thresholds apply at each metric's
+> [defined scope](./check.md#threshold-scope). A file-wide or
+> `impl`-wide aggregate does not trigger a per-function limit, so muting
+> a file-level `halstead` / `nargs` / `nexits` / `nom` total is no longer
+> a reason to reach for `suppress-file` (#969). Use `suppress-file` when
+> you intend to silence the metric throughout the file. To excuse one
+> irreducibly complex function, use a function-scoped
+> `bca: suppress(...)` inside it.
+> To grandfather existing offenders without blinding the gate to future
+> regressions, prefer a [baseline](./check.md#baselines) entry, which
+> keeps firing once a function gets *worse* than its recorded value.
 
 ## Lizard compatibility markers
 
@@ -115,7 +118,7 @@ Lizard-instrumented codebases need no rewrites:
 The compatibility layer is intentionally narrow: only these two
 shapes are accepted. Other Lizard directives parse as ordinary
 comments. Lizard offers no per-metric scoping, so the native form's
-`bca: suppress(metric, ...)` list has no Lizard analogue — every
+`bca: suppress(metric, ...)` list has no Lizard analogue; every
 Lizard-style marker silences every metric.
 
 Lizard's `GENERATED CODE` marker is **not** handled here; it is part
@@ -143,10 +146,10 @@ The identifiers accepted inside `bca: suppress(...)` and
 These match the threshold names and the JSON field names emitted on
 `CodeMetrics`, with one deliberate exclusion:
 
-- `nexits` is the canonical spelling — `bca: suppress(nexits)` silences
+- `nexits` is the canonical spelling: `bca: suppress(nexits)` silences
   a `nexits` threshold violation. The legacy `exit` alias was retired
-  in #555 and is no longer accepted; spelling it `exit` is an unknown
-  identifier, which warns and is skipped — the recognized names beside
+  in #555 and is no longer accepted. Spelling it `exit` is an unknown
+  identifier, which warns and is skipped; the recognized names beside
   it still suppress (see below).
 - `tokens` is a threshold-checkable metric (and a `CodeMetrics` JSON
   field) but is deliberately absent from the suppression list: a
@@ -165,30 +168,30 @@ warning: path/to/file.rs:42: unknown metric 'no_such_metric' in bca suppression 
 ```
 
 Only the offending identifier is dropped: `bca: suppress(cognitive,
-exit)` still silences `cognitive`. Skipping can only ever shrink what a
+exit)` still silences `cognitive`. Skipping can only shrink what a
 marker covers, so a typo never widens scope to a metric the author did
-not name — while voiding the whole marker, which is what earlier
-releases did, produced the opposite hazard: a suppression its author
-believed was active and the gate did not.
+not name. Rejecting the whole marker, which is what earlier releases
+did, would also discard valid metric names, leaving intended
+suppressions inactive.
 
 Unknown verbs (anything other than `suppress` / `suppress-file`) and
 bodies that parse to no directive at all (an unbalanced parenthesis, a
 bare verb followed by any trailing text) produce the same shape of
-warning, and those *do* void the marker — there is nothing left of it to
-honour. None of these are fatal: a typo in one file does not derail a
-workspace walk, and a doc comment that merely mentions the syntax does
-not fail your gate.
+warning, and those *do* void the marker, since there is nothing left of
+it to honour. None of these are fatal: a typo in one file does not
+derail a workspace walk, and a doc comment that merely mentions the
+syntax does not fail your gate.
 
 ### Rationale text {#rationale-text}
 
 Text after a metric list is yours; `bca` parses past it and does not
 interpret it. The asymmetry between the two forms is deliberate:
 
-- **After a metric list** — `bca: suppress(nargs) threaded context` —
+- **After a metric list** (`bca: suppress(nargs) threaded context`)
   anything goes. The parentheses are a positive signal that this comment
   is a marker, and the list has already stated the intent unambiguously,
   so whatever follows is prose.
-- **After a bare verb** — `bca: suppress — irreducible dispatch` — there
+- **After a bare verb** (`bca: suppress — irreducible dispatch`) there
   is no trailing text. Nothing in this shape separates a rationale from
   a sentence *about* the feature, and no separator can: `-`, `:`, `//`,
   `#` and the dashes are exactly the punctuation someone writing
@@ -196,8 +199,8 @@ interpret it. The asymmetry between the two forms is deliberate:
   Accepting them silences every metric in the enclosing function on the
   strength of a comment, so the whole shape warns instead.
 
-  If you want to record a reason, name the metrics —
-  `bca: suppress(cognitive, cyclomatic) — reason` — which is more
+  To record a reason, name the metrics
+  (`bca: suppress(cognitive, cyclomatic) — reason`), which is more
   precise than the `All` hammer anyway. If `All` really is what you
   mean, put the reason on the line above the marker.
 
@@ -217,7 +220,7 @@ whitespace. That covers every comment shape `bca` parses today:
 Function-scope markers attach to the innermost `Function`-kind
 `FuncSpace` whose `(start_line..=end_line)` range contains the
 comment's line. Markers buried in a class or struct body but outside
-every method are silently ignored — for class-wide silencing use
+every method are silently ignored; for class-wide silencing use
 `bca: suppress-file` or repeat the marker on each method.
 
 File-scope markers are merged into the top-level `Unit` space and
@@ -230,10 +233,10 @@ block comment will not be recognized.
 
 ## `--no-suppress` (CI auditing)
 
-`bca check --no-suppress` ignores every suppression marker — native
-and Lizard alike — and reports every threshold violation in the
-walk. Use it in audit pipelines that need the raw, un-silenced
-offender list:
+`bca check --no-suppress` ignores every suppression marker, native
+and Lizard alike, and reports every threshold violation in the walk.
+Use it in audit pipelines that need the raw, un-silenced offender
+list:
 
 ```bash
 bca check --paths src/ --no-suppress
@@ -247,9 +250,9 @@ markers in its hotspot tables by default and accepts its own
 ## Surfacing suppressed debt (`--report-suppressed`)
 
 Suppression keeps an offender out of the gate, which also keeps it out of
-the `--format` document — so a suppressed module disappears from the
-code-scan report entirely. `bca check --report-suppressed` puts it back, as
-*suppressed* rather than active:
+the `--report-format` document, so a suppressed module disappears from
+the code-scan report entirely. `bca check --report-suppressed` puts it
+back, as *suppressed* rather than active:
 
 ```bash
 bca check --report-format sarif --no-fail --report-suppressed \
@@ -257,35 +260,35 @@ bca check --report-format sarif --no-fail --report-suppressed \
 ```
 
 Offenders silenced by an in-source marker or covered by the baseline are
-emitted into the SARIF document with a SARIF `suppressions` entry —
+emitted into the
+[SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+document with a SARIF `suppressions` entry:
 `kind: "inSource"` for markers, `kind: "external"` for the baseline. The
 suppression never fails the gate (exit code and the human offender rows
 are unaffected); the `suppressions` entry lets downstream tooling tell
 suppressed debt apart from active offenders.
 
-> **GitHub Code Scanning caveat.** GitHub does **not** honor the SARIF
-> `suppressions` property natively — it ingests suppressed results as
-> *open* alerts, not closed ones. To dismiss them on the Security tab you
-> need a follow-up step such as the
-> [`advanced-security/dismiss-alerts`](https://github.com/advanced-security/dismiss-alerts)
-> action, which reads `suppressions[]` and dismisses the matching alerts.
-> If you only want active offenders to appear, omit `--report-suppressed`
-> from the upload (this repo's own Pages workflow does exactly that).
+> **[GitHub Code Scanning](https://docs.github.com/en/code-security/code-scanning).**
+> GitHub renders a result that carries a
+> `suppressions` entry as a suppressed (closed) alert, so the debt
+> stays visible on the Security tab without failing the gate. If you
+> only want active offenders to appear, omit `--report-suppressed` from
+> the upload (this repo's own Pages workflow does exactly that).
 
 Notes:
 
-- Only the SARIF format represents suppression; other `--format`
-  values ignore the flag and emit the active offenders alone.
-- Pair it with `--tier=soft=0.95` (matching your baseline's
-  provenance) so baseline-covered offenders that sit below the hard limit
-  still appear.
-- Mutually exclusive with `--no-suppress` (which un-silences markers to
-  show the raw offender list) and `--write-baseline`.
+- Use SARIF to export suppressed offenders; other report formats emit
+  only active offenders.
+- Match the tier to your baseline's provenance (`--tier=soft=0.95` for
+  a soft-`0.95` baseline) so offenders below the hard limit still
+  appear.
+- Do not combine `--report-suppressed` with `--no-suppress` or
+  `--write-baseline`.
 
 ## Auditing exemptions (`bca exemptions`) {#auditing-exemptions-bca-exemptions}
 
 `--no-suppress` shows you the offenders a marker *silences*, but not
-the markers themselves — to find every silencer you previously had to
+the markers themselves; to find every silencer you previously had to
 diff a `--no-suppress` run against a normal one. `bca exemptions`
 replaces that workaround with a direct listing of everything the
 `bca check` gate skips, across all three exemption tiers, in one
@@ -317,7 +320,7 @@ bca exemptions --paths src/
 
 The surrounding function (for function-scoped markers) gives scope
 context; file-scoped markers read `(whole file)`, and a function-scoped
-marker written outside any function — which silences nothing — reads
+marker written outside any function, which silences nothing, reads
 `(no enclosing fn)` so dead markers are visible.
 
 ### Formats and section filters
@@ -334,10 +337,10 @@ In the JSON form an omitted section is `null` (not requested via a
 `--*-only` flag) while a requested-but-empty section is `[]`, so
 filters can tell the two apart.
 
-The mutually-exclusive `--markers-only` / `--excludes-only` /
-`--baseline-only` flags narrow the report to a single tier for PR-bot
-specialisation (e.g. a bot that only comments on newly-added in-source
-markers). The baseline (`bca.toml` top-level `baseline`) and
+The mutually exclusive `--markers-only` / `--excludes-only` /
+`--baseline-only` flags narrow the report to a single tier for a
+specialised PR bot, such as one that only comments on newly added
+in-source markers. The baseline (`bca.toml` top-level `baseline`) and
 `[check.exclude]` (`[check] exclude`) inputs default to the same
 sources `bca check` reads, so the audit reflects exactly what the gate
 would skip; override the baseline with `--baseline <path>`.
@@ -348,7 +351,7 @@ existing PR-bot invocations working; prefer the `--<section>-only`
 forms, which match the `diff-baseline` section filters.
 
 Unlike `bca check`, `bca exemptions` is informational and always exits
-0 on success — it is a review surface, not a gate.
+0 on success. It is a review surface, not a gate.
 
 See also the [Baselines recipe](../recipes/baselines.md) for using
 `bca exemptions` alongside `bca diff-baseline` during PR review.
@@ -378,12 +381,10 @@ suitable for dashboards and audit logs.
 
 The compatibility layer means migration is incremental:
 
-1. Existing `#lizard forgives` and `#lizard forgive global` markers
-   continue to work with no change. `bca check` honors them out of
-   the box.
-2. Rewrite to the native form opportunistically. `bca: suppress(...)`
-   gives per-metric scoping (the Lizard form silences everything) and
-   is the form future audit-trail features will extend.
+1. Keep existing `#lizard forgives` and `#lizard forgive global`
+   markers during migration; `bca check` recognizes them.
+2. Replace markers with `bca: suppress(...)` when you need per-metric
+   scoping; the Lizard form silences every metric.
 
 The project will keep the Lizard compatibility layer indefinitely;
 there is no removal date.
@@ -393,13 +394,13 @@ there is no removal date.
 These shapes are reserved for future use and are **not** parsed
 today:
 
-- `bca: suppress-next` — silence the immediately following declaration
+- `bca: suppress-next`: silence the immediately following declaration
   rather than the enclosing function. Rejected today as an unknown verb;
   it will be promoted to first-class behavior in a future release
   without breaking existing markers.
 
 The `reason = "..."` argument this section used to reserve is no longer
-planned. Write the rationale after the metric list instead — see
-[Rationale text](#rationale-text) — which is the spelling authors
+planned. Write the rationale after the metric list instead (see
+[Rationale text](#rationale-text)), which is the spelling authors
 already reach for. Inside the parentheses, `reason = "..."` is still an
 unknown metric identifier and is skipped with a stderr warning.

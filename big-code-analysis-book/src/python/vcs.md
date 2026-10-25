@@ -1,11 +1,13 @@
 # Change-history (VCS) metrics
 
 The `big_code_analysis.vcs` submodule ranks files and scores commits
-by **change-history risk** — signals derived from
-[version-control](https://git-scm.com/) history rather than the source
-AST. It is the Python analogue of the [`bca vcs`](../commands/vcs.md)
-CLI command, and the same Rust engine backs both, so the returned
-dicts match the CLI's structured output field-for-field.
+by **change-history risk**: signals derived from
+[git](https://git-scm.com/) history rather than the source AST. It is
+the Python analogue of the [`bca vcs`](../commands/vcs.md) CLI
+command, and the same Rust engine backs both, so the returned dicts
+match the CLI's structured output field-for-field. This page is for
+a caller who already knows what the signals mean and wants the
+Python call shapes.
 
 ```python
 from big_code_analysis import vcs
@@ -101,7 +103,7 @@ ranked where it did.
 ## Scoring an arbitrary diff
 
 `vcs.score_diff(diff)` scores a git-style unified diff that has not been
-committed yet — the shape a pre-commit hook or code-review bot works
+committed yet, the shape a pre-commit hook or code-review bot works
 with. It returns a `JitDiffReportDict`.
 
 ```python
@@ -144,7 +146,8 @@ for delta in trend["deltas"]["regressed"]:
     print(f"  +{delta['delta']:.2f}  {delta['path']}")
 ```
 
-`points` (at least 2) samples span `span` (default `12mo`), ending at
+The trend contains `points` samples, with a minimum of 2. They cover
+the interval specified by `span` (default `12mo`) and end at
 `options.as_of`. The `files` map aligns each file's series 1:1 with
 `as_of_points`, with a `None` element where the file did not yet exist.
 The `deltas` summary splits files into `improved` and `regressed` lists;
@@ -152,8 +155,8 @@ The `deltas` summary splits files into `improved` and `regressed` lists;
 
 ## Shared options
 
-The three repository-walking entry points — `rank`, `trend`, and
-`commit` — accept the same `vcs.Options` object, so one configuration
+The three repository-walking entry points (`rank`, `trend`, and
+`commit`) accept the same `vcs.Options` object, so one configuration
 can drive a rank plus a trend pass without restating the common knobs.
 Every field is keyword-only and optional, and the defaults reproduce the
 `bca vcs` CLI defaults, so `Options()` matches the default ranking.
@@ -176,26 +179,27 @@ report = vcs.rank("path/to/repo", options=options, top=20)
 The widened option kwargs (issue #619) each accept more than a bare
 string:
 
-* `file_types` selects which files to rank: `"metrics"` (the default —
+* `file_types` selects which files to rank: `"metrics"` (the default:
   only files bca computes metrics for), `"all"` (every tracked text
   file), a comma-separated extension allow-list (`"rs,py"`), or a
   `Sequence[str]` of extensions (`["rs", "py"]`).
 * `as_of` pins the reference "now" for reproducible snapshots, as either
   a `datetime` or a string ([RFC 3339](https://www.rfc-editor.org/rfc/rfc3339),
-  `@unix`, or a git date). Pinning `as_of` makes a run reproducible: the
-  ranking is computed as it stood at that moment, not against the wall
-  clock.
+  `@unix`, or a git date). With `as_of` pinned, the ranking is computed
+  as it stood at that moment, not against the wall clock.
 * `cache_dir` (on `rank`, not `Options`) accepts a `str` or any
-  `os.PathLike` — a `pathlib.Path` passes straight through.
+  `os.PathLike`; a `pathlib.Path` passes straight through.
 
 The history-walk toggles mirror the CLI flags: `full_history`,
 `include_merges`, `follow_renames` (default `True`), `exclude_bots`
 (default `True`), and `bot_pattern` to override the bot-author regular
 expression. `bus_factor_threshold` sets the coverage fraction for the
 bus-factor flag (default `0.5`), and `emit_author_details` includes
-SHA-256-hashed canonical author identities. `author_hash_key` (requires
-`emit_author_details`) hardens those digests into a keyed HMAC-SHA256, the
-same opt-in described under
+[SHA-256](https://www.rfc-editor.org/rfc/rfc6234)-hashed canonical author
+identities. `author_hash_key` (requires `emit_author_details`) hardens
+those digests into a keyed
+[HMAC-SHA256](https://www.rfc-editor.org/rfc/rfc2104), the same opt-in
+described under
 [Author-detail privacy](../commands/vcs.md#author-detail-privacy).
 
 ## Caching
@@ -219,14 +223,15 @@ vcs.rank("path/to/repo", cache_dir="/tmp/bca")     # override the directory
 
 By default the cache lives under the platform cache directory. Author
 identities are stored only as their SHA-256 digests, never plaintext.
-Note that hashing is pseudonymization, not anonymization: the digests are
-recoverable against a candidate email set — see
+Hashing is pseudonymization, not anonymization: the digests are
+recoverable against a candidate email set. See
 [Author-detail privacy](../commands/vcs.md#author-detail-privacy).
 
 ## Releasing the GIL
 
 The repository-walking calls (`vcs.rank`, `vcs.trend`, and the commit
-score in `vcs.commit`) release the [GIL](https://docs.python.org/3/glossary.html#term-global-interpreter-lock)
+score in `vcs.commit`) release the
+[GIL](https://docs.python.org/3/glossary.html#term-global-interpreter-lock)
 across the history walk (issue #620), so a `ThreadPoolExecutor` can rank
 several repositories in parallel without serialising on the interpreter
 lock:
@@ -253,9 +258,9 @@ taxonomy and which call raises which type.
 
 ## See also
 
-* [Change-history (VCS) metrics](../commands/vcs.md) — the CLI chapter,
+* [Change-history (VCS) metrics](../commands/vcs.md): the CLI chapter,
   with the signal definitions, the composite risk-score formula, and the
   defect-prediction literature behind them.
-* [Batch processing](batch.md) — `analyze_batch(..., vcs=True)` attaches
+* [Batch processing](batch.md): `analyze_batch(..., vcs=True)` attaches
   a per-file `vcs` block while sharing one history index per repository.
-* [Error handling](errors.md) — the VCS exception taxonomy.
+* [Error handling](errors.md): the VCS exception taxonomy.

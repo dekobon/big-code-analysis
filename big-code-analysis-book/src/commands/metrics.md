@@ -1,14 +1,20 @@
 # Metrics
 
-`bca metrics` computes per-file metrics and emits them either to stdout,
-to a single aggregate file (`--output`), or to a directory of per-file
-structured files (`--output-dir`).
+`bca metrics` computes per-file metrics and emits them to stdout, to a
+single aggregate file (`--output`), or to a directory of per-file
+structured files (`--output-dir`). It is the command for feeding
+downstream tooling; for a human-readable summary see
+[`bca report`](report.md), and for a pass/fail gate see
+[`bca check`](check.md). The shared walker flags (paths, includes,
+ignore handling) are described in [Commands](README.md).
 
 > **Migrating?** This command replaces the pre-restructure `--metrics`
 > flag. The aggregated report previously selected with `-O markdown`
 > now lives under [`bca report`](report.md), and the CI/IDE offender
-> formats (Checkstyle, SARIF, code-climate, clang-warning,
-> msvc-warning) moved to
+> formats ([Checkstyle](https://checkstyle.org/),
+> [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html),
+> [code-climate](https://github.com/codeclimate/platform/blob/master/spec/analyzers/SPEC.md),
+> clang-warning, msvc-warning) moved to
 > [`bca check --report-format <fmt>`](check.md). See the
 > [migration guide](../migration.md).
 
@@ -24,33 +30,28 @@ bca metrics --paths /path/to/your/file/or/directory
   provided, metrics are computed for every supported file it contains.
   Paths may also be given positionally (`bca metrics file.rs dir/`).
 
-> **Explicitly-named files must be parseable.** When you name a file
-> directly (positionally or via `--paths`/`--paths-from`) whose language
-> the tool cannot recognize, `bca` prints a warning on stderr and — if
-> the run produced no output at all — exits 1, mirroring the way a
-> nonexistent explicit path fails. A mixed run that analyzed at least one
-> file still exits 0 with the warning. Pass `--language <lang>` to force
-> a parser when a file's extension lies about its contents. Files reached
-> only by walking a *directory* are skipped silently (a tree full of
-> READMEs and configs must not be noisy); pass `-w` to surface those
-> skips too.
+> **Explicitly named files must be parseable.** When you name a file
+> directly (positionally or via `--paths` / `--paths-from`) whose
+> language the tool cannot recognize, `bca` prints a warning on stderr.
+> If the run produced no output at all it exits 1, the same way a
+> nonexistent explicit path fails; a mixed run that analyzed at least
+> one file still exits 0 with the warning. Pass `--language <lang>` to
+> force a parser when a file's extension lies about its contents. Files
+> reached only by walking a *directory* are skipped silently, since a
+> tree full of READMEs and configs must not be noisy; pass `-w` to
+> surface those skips too.
 >
 > A file that *is* recognized but cannot be **read** is a stricter case
 > and follows the [unreadable-input rule](README.md#unreadable-input):
 > the run exits 1 even when other files analyzed fine, because a
-> silently-shorter metrics document reads as a complete one.
+> silently shorter metrics document reads as a complete one.
 
 ## Exporting metrics
 
 `bca metrics` supports five per-file output formats:
-
-- CBOR
-- CSV
-- JSON
-- TOML
-- YAML
-
-Both JSON and TOML can be exported as pretty-printed.
+[CBOR](https://cbor.io/), [CSV](https://www.rfc-editor.org/rfc/rfc4180),
+[JSON](https://www.rfc-editor.org/rfc/rfc8259), [TOML](https://toml.io/),
+and [YAML](https://yaml.org/). JSON and TOML can also be pretty-printed.
 
 The three top-level output kinds map to three separate commands so
 each one stays consistent with its data model:
@@ -63,12 +64,11 @@ each one stays consistent with its data model:
 
 The CI/IDE offender formats (Checkstyle, SARIF, code-climate,
 clang-warning, msvc-warning) used to live on `bca metrics -O <fmt>`.
-They moved to
-`bca check --report-format <fmt>` because their input is a
-list of threshold violations, not the per-file metric tree that the
-other formats above carry. See the
-[`bca check` chapter](check.md#exporting-offender-records) for the
-new invocation.
+They moved to `bca check --report-format <fmt>` because their input is
+a list of threshold violations, not the per-file metric tree the other
+formats carry. See
+[Exporting offender records](check.md#exporting-offender-records) for
+the new invocation.
 
 ### Export command
 
@@ -79,14 +79,14 @@ bca metrics --paths /path/to/your/file/or/directory \
     -O json --output metrics.json
 ```
 
-- `-O, --format`: output format. Defaults to `text` — a human-readable
+- `-O, --format`: output format. Defaults to `text`, a human-readable
   colored metric tree printed to stdout; pass `--format text` to request
   that default explicitly (for example to override a `bca.toml` that set
   a structured format). The structured per-file serializers are `cbor`,
   `csv`, `json`, `toml`, and `yaml`. `--output-format` is accepted as a
   deprecated alias and is slated for removal in the next major.
 - `-o, --output`: a single file holding one aggregate document for the
-  whole run — a top-level array of the per-file results (TOML wraps the
+  whole run, a top-level array of the per-file results (TOML wraps the
   array under a `files` key; CSV concatenates each file's rows). If
   omitted, results are printed to stdout.
 - `--output-dir`: a directory holding one document per input file, named
@@ -96,43 +96,44 @@ bca metrics --paths /path/to/your/file/or/directory \
   `--output-dir`). Passing either destination without a structured
   `--format` is an error (the default `text` format streams to stdout
   and writes no files), so a destination never silently no-ops (#661).
-- `--metrics <name,…>`: restrict computation to a subset of metrics
-  (comma-separated and/or repeated, e.g. `--metrics cyclomatic,cognitive
-  --metrics loc`). Names are the canonical ids `bca list-metrics` prints
-  — the same vocabulary `bca check --threshold` and `bca diff --metric`
-  use; dotted (`cyclomatic.modified`) and bare `loc` sub-metric (`sloc`)
-  spellings are accepted, as is a family name (`loc`). Each selects its
-  whole family: `--metrics sloc` prints the full `loc` block. The Python
-  bindings' `metrics=` takes the same names. Derived metrics pull in
-  their dependencies automatically. An unknown name errors with a "did
-  you mean" hint.
-  Omit it to compute every metric (#691).
+- `--metrics <name,…>`: restrict computation to a subset of metrics,
+  comma-separated or repeated (`--metrics cyclomatic,cognitive
+  --metrics loc`). Names are the canonical ids `bca list-metrics`
+  prints, the same vocabulary `bca check --threshold` and `bca diff
+  --metric` use. Dotted (`cyclomatic.modified`) and bare `loc`
+  sub-metric (`sloc`) spellings are accepted, as is a family name
+  (`loc`). Each selects its whole family: `--metrics sloc` prints the
+  full `loc` block. The Python bindings' `metrics=` takes the same
+  names. Derived metrics pull in their dependencies automatically. An
+  unknown name errors with a "did you mean" hint. Omit it to compute
+  every metric (#691).
 
-### CSV (spreadsheets and Pandas)
+### CSV (spreadsheets and pandas) {#csv-spreadsheets-and-pandas}
 
 ```bash
 bca metrics --paths /path/to/your/code \
     -O csv --output-dir csv-output
 ```
 
-The CSV writer emits one row per `FuncSpace` (function, class,
-struct, unit, etc.) with the entire metric matrix as columns. Header
-order is fixed — see `CSV_HEADER` in
+The CSV writer emits one row per `FuncSpace` (function, class, struct,
+unit, and so on) with the entire metric matrix as columns, a shape a
+spreadsheet or [pandas](https://pandas.pydata.org/) loads directly.
+Header order is fixed; `CSV_HEADER` in
 [`src/output/csv.rs`](https://github.com/dekobon/big-code-analysis/blob/main/src/output/csv.rs)
-for the canonical list. Identity columns come first
-(`path`, `space_name`, `space_kind`, `start_line`, `end_line`)
-followed by every leaf metric using the same dotted JSON-style names
-(`loc.lloc`, `halstead.volume`, `cyclomatic.modified.average`, etc.)
-so a single column name addresses the metric in both CSV and JSON.
+is the canonical list. Identity columns come first (`path`,
+`space_name`, `space_kind`, `start_line`, `end_line`), followed by every
+leaf metric under the same dotted JSON-style names (`loc.lloc`,
+`halstead.volume`, `cyclomatic.modified.average`), so a single column
+name addresses the metric in both CSV and JSON.
 
-Empty cells (no value, not `0`) signal "not applicable for this
-space" — for example, the OOP-only metrics (`wmc.*`, `npm.*`,
-`npa.*`) appear empty for procedural code. [RFC
-4180](https://www.rfc-editor.org/rfc/rfc4180) quoting is
-delegated to the [`csv`] crate, so paths and names containing commas,
-quotes, or newlines round-trip cleanly.
+Empty cells (no value, not `0`) signal "not applicable for this space";
+for example, the OOP-only metrics (`wmc.*`, `npm.*`, `npa.*`) appear
+empty for procedural code. [RFC
+4180](https://www.rfc-editor.org/rfc/rfc4180) quoting is delegated to
+the [`csv`](https://docs.rs/csv/) crate, so paths and names containing
+commas, quotes, or newlines round-trip cleanly.
 
-Stream the result to a single file with `-`:
+Redirect stdout to collect the CSV output in one file:
 
 ```bash
 bca metrics --paths /path/to/your/code -O csv \
@@ -147,7 +148,7 @@ CSV.
 > An aggregated HTML *report* covering the whole walk is available
 > via [`bca report html`](report.md#html-format). The previous
 > per-file `bca metrics -O html` writer was removed because it
-> degraded to an unopenable single-file table on real-world repos —
+> degraded to an unopenable single-file table on real-world repos;
 > CSV is the right shape for flat per-`FuncSpace` rows.
 
 ### Pretty print
@@ -170,8 +171,9 @@ metrics that mix production and test code together.
 
 Pass `--exclude-tests` to elide test-only subtrees before any metric
 is computed. The flag is recognised by every subcommand that walks
-the AST (`metrics`, `report`, `check`), and currently understands the
-following Rust attribute shapes:
+a source tree (`metrics`, `ops`, `report`, `check`, `dump`, `find`,
+`count`, `functions`, and the rest of the walker group), and currently
+understands the following Rust attribute shapes:
 
 - `#[test]` and `#[rstest]` / `#[test_case]` / `#[wasm_bindgen_test]`
 - `#[cfg(test)]`, `#[cfg(all(test, ...))]`, `#[cfg(any(test, ...))]`
@@ -179,29 +181,29 @@ following Rust attribute shapes:
   (any path ending in `::test`)
 - `#![cfg(test)]` on `mod` items (inner attribute form)
 
-Languages without a `Checker::should_skip_subtree` override simply
-ignore the flag — only Rust applies the pruning today. The default
-remains off so existing metric numbers stay byte-identical for users
-who do not opt in.
+Languages without a `Checker::should_skip_subtree` override ignore the
+flag; only Rust applies the pruning today. The default remains off so
+existing metric numbers stay byte-identical for users who do not opt
+in.
 
 To opt a whole project in without repeating the flag, set
 `exclude_tests = true` in the repo's [`bca.toml`
 manifest](../recipes/local-gates.md#zero-config-the-bcatoml-manifest).
 Because `--exclude-tests` is presence-only (no `=false` form), the
 manifest key can only turn pruning **on**; a CLI `--exclude-tests`
-still wins, but the manifest cannot turn it back off. Pruning lowers
-the node-counted metrics (cyclomatic, cognitive, Halstead, `nom`,
-`nargs`, …) and `loc.sloc` drops with them. That needs saying because
-`sloc` is the one loc sub-metric derived from a span rather than
-accumulated node by node, so it does not fall out of the traversal for
-free: each pruned subtree's rows are recorded and subtracted from the
-enclosing span, at every level up to the unit. Rows a pruned item
-*shares* with retained code or comments are kept, so `sloc` never
-falls below the `ploc` and `cloc` that survive the prune.
+still wins, but the manifest cannot turn it back off.
+
+Pruning lowers the node-counted metrics (cyclomatic, cognitive,
+Halstead, `nom`, `nargs`, and the rest), and `loc.sloc` drops with
+them. Unlike node-counted metrics, `loc.sloc` comes from source spans.
+The walker subtracts each pruned subtree's rows from every enclosing
+span, up to the file. Rows a pruned item *shares* with retained code or
+comments are kept, so `sloc` never falls below the `ploc` and `cloc`
+that survive the prune.
 
 ## Aggregated report
 
-For a comprehensive, human-readable quality report, use
+For a human-readable quality report, use
 [`bca report markdown`](report.md). That command aggregates metrics
 across all analyzed files and produces per-language hotspot tables.
 

@@ -3,18 +3,18 @@
 `big-code-analysis` never requires source to live on disk. The
 recommended entry point [`analyze`] takes a [`Source`] carrying the
 language, source bytes, and an *optional* caller-supplied display
-name; no filesystem path is involved unless the C/C++ preprocessor
+name. No filesystem path is involved unless the C/C++ preprocessor
 lookup needs one (`Source::preproc_path`).
 
 This is useful for:
 
 - Scoring **generated code** before it is written out.
-- Scoring **pre-processed** or **bundled** source (e.g. after a
-  template expansion).
+- Scoring **pre-processed** or **bundled** source, such as the output
+  of a template expansion.
 - Driving the analyzer from a **language server** or **editor
   plugin** that already holds the buffer in memory.
-- **Stdin pipelines** and unit tests that should not touch the
-  filesystem.
+- Running **stdin pipelines** and unit tests that should not touch
+  the filesystem.
 
 ## Reading from a buffer
 
@@ -36,10 +36,10 @@ fn analyze_buffer(source: &[u8]) -> Option<u64> {
 }
 ```
 
-`Source::new` borrows the source bytes — the caller retains
-ownership. If your downstream pipeline needs to highlight findings
-on the same bytes, you can keep using the original buffer after
-`analyze` returns.
+`Source::new` borrows the source bytes; the caller keeps ownership.
+If your downstream pipeline needs to highlight findings on the same
+bytes, you can keep using the original buffer after `analyze`
+returns.
 
 ## Reading from stdin
 
@@ -72,8 +72,10 @@ fn main() -> io::Result<()> {
 ## Picking the language from content
 
 If you do not know the language up front, combine
-[`guess_language`] with `analyze`. `guess_language` peeks at the
-path extension, an Emacs mode-line, and the shebang in that order:
+[`guess_language`] with `analyze`. `guess_language` checks the path
+extension, an
+[Emacs mode declaration](https://www.gnu.org/software/emacs/manual/html_node/emacs/Specifying-File-Variables.html),
+and the shebang, in that order:
 
 ```rust
 use std::path::PathBuf;
@@ -96,20 +98,20 @@ fn analyze_unknown(path: PathBuf, source: Vec<u8>) -> Option<()> {
 }
 ```
 
-`guess_language` returns `(None, _)` for unrecognised extensions —
-treat that as "skip" rather than as a hard error.
+`guess_language` returns `(None, _)` when the extension, the mode
+line, and the shebang all fail to name a language. Treat that as
+"skip" rather than as a hard error.
 
 ## Watch out for these
 
 - **Name identity matters.** Top-level `FuncSpace::name` is whatever
   string you put in `Source::name`. Two analyses sharing the same
-  name will look identical to a downstream consumer that keys on
-  it. Use distinct labels for distinct buffers.
+  name look identical to a downstream consumer that keys on it. Use
+  distinct labels for distinct buffers.
 - **`Source::name` is `Option<String>`.** Passing `None` leaves the
-  top-level `FuncSpace::name` as `None` — useful for ad-hoc
-  snippets that have no meaningful identity. Downstream consumers
-  that *require* a stable identifier should check for `None`
-  explicitly.
+  top-level `FuncSpace::name` as `None`, which suits ad-hoc snippets
+  with no meaningful identity. Downstream consumers that *require* a
+  stable identifier should check for `None` explicitly.
 - **No filesystem fallback.** Unlike the CLI, the library does not
   read sibling files, follow `#include`s, or interpret a
   `.gitignore`. Feed it exactly the bytes you want analyzed.
@@ -117,10 +119,10 @@ treat that as "skip" rather than as a hard error.
 ## Reusing one parse for several passes
 
 [`analyze`] is the one-shot entry point: bytes in, [`FuncSpace`] out.
-When you need more than metrics from a single parse — operators and
-operands, an AST dump, a function-span list — parse once with
+When you need more than metrics from a single parse (operators and
+operands, an AST dump, a function-span list), parse once with
 [`Ast::parse`] and call the per-pass methods on the returned handle
-(`metrics`, `ops`, `dump`, `functions`, …). See
+(`metrics`, `ops`, `dump`, `functions`, and so on). See
 [Parse once, run metrics many times](parse-once.md).
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html

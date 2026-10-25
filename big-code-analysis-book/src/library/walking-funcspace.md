@@ -2,10 +2,10 @@
 
 [`FuncSpace`][FuncSpace] is the tree the library hands back from
 [`analyze`]. The top-level node represents the whole file; its
-`spaces` field holds nested function / class / impl / trait /
+`spaces` field holds nested function, class, impl, trait and
 namespace spaces. Each node carries the same
 [`CodeMetrics`][CodeMetrics] payload, so any metric is available at
-any level of granularity.
+any level.
 
 ## Anatomy of a `FuncSpace`
 
@@ -21,8 +21,8 @@ The fields you reach for most often are:
 | `metrics`     | `CodeMetrics`       | All per-space metric values                   |
 | `suppressed`  | `SuppressionScope`  | In-source suppression markers                 |
 
-[`SpaceKind`][SpaceKind] is an enum — match on it to filter what
-you care about (`Function` only, or "anything that owns methods").
+[`SpaceKind`][SpaceKind] is an enum; match on it to filter what you
+care about (`Function` only, or "anything that owns methods").
 
 `start_line..=end_line` is inclusive and never runs past the end of
 the file, and a nested space's range always lies inside its parent's,
@@ -76,8 +76,8 @@ fn hard(x: i32) -> i32 {
 
 ## Iterative walk
 
-For deep trees, prefer an explicit stack — Rust does not
-tail-call-optimise, and pathological generated code can be
+For deep trees, prefer an explicit stack. Rust does not guarantee
+tail-call optimisation, and pathological generated code can be
 arbitrarily nested:
 
 ```rust
@@ -98,9 +98,9 @@ fn total_functions(root: &FuncSpace) -> usize {
 
 ## Reading per-metric numbers
 
-`CodeMetrics` exposes each metric as its own `Stats` struct.
-Inside, each struct offers integer-valued summary accessors plus
-per-space derived ones. A few patterns:
+`CodeMetrics` exposes each metric as its own `Stats` struct. Each
+struct offers integer-valued summary accessors plus per-space
+derived ones. A few patterns:
 
 ```rust
 use big_code_analysis::FuncSpace;
@@ -108,8 +108,8 @@ use big_code_analysis::FuncSpace;
 fn summary(space: &FuncSpace) {
     let m = &space.metrics;
 
-    println!("cognitive (this space):     {}", m.cognitive.cognitive_sum());
-    println!("cyclomatic (this space):    {}", m.cyclomatic.cyclomatic_sum());
+    println!("cognitive (this space):     {}", m.cognitive.cognitive());
+    println!("cyclomatic (this space):    {}", m.cyclomatic.cyclomatic());
     println!("# functions in this space:  {}", m.nom.functions_sum());
     println!("source lines (sloc):        {}", m.loc.sloc());
     println!("physical lines (ploc):      {}", m.loc.ploc());
@@ -122,12 +122,11 @@ accessors like `m.loc.sloc()` are the value attributable to *this*
 node. The full list of fields and methods lives in the
 [per-metric rustdoc][docs-metrics].
 
-## Don't rely on traversal order
+## Do not rely on traversal order {#dont-rely-on-traversal-order}
 
-The library walks the AST in source order, but the contract is
-only that every space appears once in the tree. If you need a
-stable order across versions, sort by `start_line` after the
-walk:
+The library walks the AST in source order, but the contract is only
+that every space appears once in the tree. If you need a stable
+order across versions, sort by `start_line` after the walk:
 
 ```rust
 use big_code_analysis::FuncSpace;

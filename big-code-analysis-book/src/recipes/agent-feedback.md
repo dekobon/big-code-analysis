@@ -7,16 +7,17 @@ It assumes you can run [`bca check`](../commands/check.md) in your project
 and configure your coding agent. The findings are advice for the agent;
 the project's final validation gate still decides when a change is ready.
 
-The hooks use the existing `bca check` command:
+The hooks use the existing `bca check` command, which provides:
 
 - A machine-parseable offender list (per-violation rows on stdout, or
   `--report-format sarif | code-climate | clang-warning | msvc-warning
   | checkstyle` for a structured document).
-- Exit codes distinguish current findings (`2`, or `2–5` in tiered mode),
-  a clean check (`0`), and tool errors (`1`). Findings need not be caused by the latest edit.
-- Baselines, in-source suppression markers, and `[check] exclude` globs
-  filter findings using the project's policy. Put exclusions that must
-  apply to explicitly named files under
+- Exit codes that distinguish current findings (`2`, or `2–5` in
+  tiered mode), a clean check (`0`), and tool errors (`1`). The
+  findings cover the whole file, not only the latest edit.
+- Filtering by the project's policy: baselines, in-source suppression
+  markers, and `[check] exclude` globs. Put exclusions that must apply
+  to explicitly named files under
   [`[check]`](#put-the-hooks-exclusions-under-check).
 
 ## After-edit, not keystroke-time
@@ -61,63 +62,74 @@ Use the same configuration and tier as CI when you want the same threshold polic
 
 ### Put the hook's exclusions under `[check]` {#put-the-hooks-exclusions-under-check}
 
-One thing does *not* carry over from the CI invocation, and it will
-produce false positives if you skip it. A hook names one file per run,
-and [an explicitly named path overrides every walker
-exclude](../commands/index.html#explicit-paths-bypass-the-filter) — the
-`rg` convention that a path you named is a direct request. So a file
-your project keeps out of scope with `-X`, `--exclude-from`, a
-`.bcaignore`, or a manifest `exclude` list is nonetheless analyzed the
-moment the hook passes it by name, and reported as an offender under an
-`exit 2` that frames it as a problem to address.
+One thing does *not* carry over from the CI invocation, and skipping
+it produces false positives. A hook names one file per run, and
+[an explicitly named path overrides every walker
+exclude](../commands/index.html#explicit-paths-bypass-the-filter),
+following the [`rg`](https://github.com/BurntSushi/ripgrep) convention
+that a path you named is a direct request. So a file your project keeps out of scope with `-X`,
+`--exclude-from`, a `.bcaignore`, or a manifest `exclude` list is
+still analyzed the moment the hook passes it by name, and reported as
+an offender under an `exit 2` that frames it as a problem to address.
 
 Walker excludes shape what gets **analyzed**. Check excludes shape what
 gets **gated**. A per-file hook invocation only respects the second:
 
 ```toml
-# bca.toml — survives an explicit path, so the hook sees what CI sees.
+# bca.toml: survives an explicit path, so the hook sees what CI sees.
 [check]
 exclude = ["./utils/**", "./benches/**"]
 ```
 
 `bca` warns on stderr whenever an explicitly named path overrides a
-walker exclude, naming the glob, so the miswiring is visible rather than
-silent:
+walker exclude, naming the glob, so the miswiring is visible:
 
 ```text
-bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was named explicitly; analyzing anyway
+warning: utils/gate.py matches an exclude pattern (./utils/**) but was named explicitly; analyzing anyway
 ```
 
-Treat that line as a to-do: the entry it names wants moving to
-`[check] exclude`. This repository moved its own dev-tooling globs there
-for exactly this reason.
+Treat that line as a to-do: move the entry it names to
+`[check] exclude`. This repository moved its own dev-tooling globs
+there for this reason.
 
-Preserve the nearest `bca.toml` above the session's working directory, stopping at its checkout boundary.
-The reference hooks also recognize targets inside another nested checkout and apply that checkout's policy.
+The hook uses the nearest `bca.toml` above the session's working
+directory, stopping at the checkout boundary. The reference hooks
+also recognize targets inside another nested checkout and apply that
+checkout's policy.
 
 ## Claude Code {#claude-code}
 
-Use a [Claude Code `PostToolUse` hook](https://code.claude.com/docs/en/hooks#posttooluse)
-to send current threshold findings to the model after a successful file edit.
-The reference hook returns `hookSpecificOutput.additionalContext` on stdout
-and exits 0. The tool's original result remains intact.
+Use a
+[Claude Code `PostToolUse` hook](https://code.claude.com/docs/en/hooks#posttooluse)
+to send current threshold findings to the model after a successful
+file edit. The reference hook returns
+`hookSpecificOutput.additionalContext` on stdout and exits 0. The
+tool's original result remains intact.
 
-Use Claude Code **2.1.139 or later**; that release added the hook `args` field
-used below (see the [official changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139)).
-Install [Node.js](https://nodejs.org/) LTS and `bca`.
-Run `bca init` in your project, or supply a nonempty `[thresholds]` table in
-[`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest).
-Run `bca check path/to/a/source-file` directly to confirm the configuration loads.
+Prerequisites:
+
+- Claude Code **2.1.139 or later**; that release added the hook `args`
+  field used below (see the
+  [official changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139)).
+- [Node.js](https://nodejs.org/) LTS and `bca`.
+- A nonempty `[thresholds]` table in
+  [`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest), from
+  `bca init` or written by hand. Run `bca check path/to/a/source-file`
+  directly to confirm the configuration loads.
+
 Then copy these files into the same paths in your project:
 
 - [`.claude/hooks/bca-check.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.mjs):
   reads the hook event and returns advisory JSON.
 - [`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs):
-  runs the analyzer and bounds its output; the OpenCode plugin uses this helper too.
+  runs the analyzer and bounds its output; the OpenCode plugin uses
+  this helper too.
 - [`.claude/hooks/bca-guidance.txt`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-guidance.txt):
-  supplies the short runtime reminder. Replace its final `make` commands with your project's validation commands.
+  supplies the short runtime reminder. Replace its final `make`
+  commands with your project's validation commands.
 
-Merge this configuration into `.claude/settings.json`, preserving existing settings:
+Merge this configuration into `.claude/settings.json`, preserving
+existing settings:
 
 ```json
 {
@@ -140,71 +152,95 @@ Merge this configuration into `.claude/settings.json`, preserving existing setti
 ```
 
 The [exec form](https://code.claude.com/docs/en/hooks#exec-form-and-shell-form)
-passes the script path as one argument, including spaces and shell metacharacters.
-The hook requires Node on `PATH`; its JSON handling uses no npm packages or `jq`.
-For an existing `bca-check.sh` registration, replace the old script with the
+passes the script path as one argument, including spaces and shell
+metacharacters. The hook requires Node on `PATH`; its JSON handling
+uses no [npm](https://www.npmjs.com/) packages or
+[`jq`](https://jqlang.github.io/jq/). For an existing `bca-check.sh`
+registration, replace the old script with the
 [current wrapper](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.sh)
-and copy the `.mjs` files alongside it. Alternatively, replace that registration
-with the Node configuration above. Keep only one registration to avoid duplicate checks.
+and copy the `.mjs` files alongside it, or replace that registration
+with the Node configuration above. Keep only one registration to avoid
+duplicate checks.
 
-The event's `cwd` selects the nearest manifest within the current checkout.
-For a target in a different nested checkout, the hook discovers configuration from that target's directory.
-`CLAUDE_PROJECT_DIR` locates the script, but stays at the original project when Claude enters a worktree.
-Using it to select the analyzer configuration would check the wrong tree.
-The analyzer selection is `$BCA`, the current checkout's executable `target/release/bca`
-(`bca.exe` on Windows), then `bca` on `PATH`.
-An explicit but unavailable `$BCA` stays unavailable rather than selecting another binary.
+How the hook finds its configuration and analyzer:
 
-Within one checkout, the session's manifest also applies when it edits a sibling package.
-Change the session directory to select that package's own manifest.
-Nested checkouts, including Git submodules, are separate configuration boundaries.
-If a nested checkout has no thresholds, the check is unavailable; it does not inherit the parent's policy.
+- The event's `cwd` selects the nearest manifest within the current
+  checkout. For a target in a different nested checkout, the hook
+  discovers configuration from that target's directory.
+- `CLAUDE_PROJECT_DIR` locates the script, but stays at the original
+  project when Claude enters a worktree. Using it to select the
+  analyzer configuration would check the wrong tree.
+- Select `$BCA` first, then the current checkout's executable
+  `target/release/bca` (`bca.exe` on Windows), then `bca` on `PATH`.
+  An explicit but unavailable `$BCA` stays unavailable rather than
+  falling back to another binary.
+- Within one checkout, the session's manifest also applies when it
+  edits a sibling package. Change the session directory to select
+  that package's own manifest.
+- Nested checkouts, including Git submodules, are separate
+  configuration boundaries. If a nested checkout has no thresholds,
+  the check is unavailable; it does not inherit the parent's policy.
 
 The hook handles analyzer results as follows; the hook itself exits 0:
 
 - **Exit 0:** no model context for a clean or excluded file.
-- **Exits 2–5:** stdout findings become advisory context, capped at 4,000 characters with a truncation notice.
-- **Analyzer failure:** no model context for a missing binary, exit 1, abnormal exit, timeout, or output overflow.
-  Each subprocess has a three-second deadline and a 64 KiB output limit per stream.
-  Timeout, cancellation, and output overflow terminate the owned process group on POSIX or process tree on Windows.
-- **Concurrent file change:** findings are discarded if the file's identity, size, or timestamps change during analysis.
+- **Exits 2–5:** stdout findings become advisory context, capped at
+  4,000 characters with a truncation notice.
+- **Analyzer failure:** no model context for a missing binary, exit 1,
+  abnormal exit, timeout, or output overflow. Each subprocess has a
+  three-second deadline and a 64 KiB output limit per stream. Timeout,
+  cancellation, and output overflow terminate the owned process group
+  on POSIX or process tree on Windows.
+- **Concurrent file change:** findings are discarded if the file's
+  identity, size, or timestamps change during analysis.
 
-The adapter keeps no persistent deduplication state, so an unchanged offender can reappear on a later edit.
-It checks the whole file: `[new]` and `[regr]` compare against the configured baseline, not the preceding edit.
-Use the [standing guidance](#agent-guidance-ship-this-verbatim) to keep any response within the task's scope.
-This matcher covers Edit, Write and MultiEdit; shell commands and external editors need separate integration.
+The adapter keeps no persistent deduplication state, so an unchanged
+offender can reappear on a later edit. It checks the whole file:
+`[new]` and `[regr]` compare against the configured baseline, not the
+preceding edit. Use the
+[standing guidance](#agent-guidance-ship-this-verbatim) to keep any
+response within the task's scope. This matcher covers Edit, Write and
+MultiEdit; shell commands and external editors need separate
+integration.
 
-**Verify model delivery after installation.** Create a disposable supported source file that breaches a configured limit
-using Claude's Write tool, and ask it to quote the finding it receives.
-Then simplify the file through Edit and confirm the clean result adds no advisory.
-In [debug output](https://code.claude.com/docs/en/hooks#debug-hooks), `[bca-check]` JSON records distinguish
-findings, clean/excluded files, out-of-scope paths, superseded results, and unavailable checks.
-These records go to stderr with exit 0, so Claude does not receive them as additional context.
-They record the checkout, analyzer, outcome, and up to 1,000 characters of analyzer stderr for troubleshooting.
-Offender rows remain in the advisory; CI annotations and summary-file side effects are disabled.
-The reference suite runs with `make plugin-test`, including the shared OpenCode helper regressions.
+**Verify model delivery after installation.** Using Claude's Write
+tool, create a disposable supported source file that breaches a
+configured limit, and ask Claude to quote the finding it receives.
+Then simplify the file through Edit and confirm the clean result adds
+no advisory. In
+[debug output](https://code.claude.com/docs/en/hooks#debug-hooks),
+`[bca-check]` JSON records distinguish findings, clean/excluded files,
+out-of-scope paths, superseded results, and unavailable checks. These
+records go to stderr with exit 0, so Claude does not receive them as
+additional context. They record the checkout, analyzer, outcome, and
+up to 1,000 characters of analyzer stderr for troubleshooting.
+Offender rows remain in the advisory; CI annotations and summary-file
+side effects are disabled. The reference suite runs with
+`make plugin-test`, including the shared OpenCode helper regressions.
 
 ## OpenCode V1 (legacy)
 
-The example in this section uses the V1 plugin API.
-The repository's [current V2 plugin](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js)
-uses the [V2 hook API](https://opencode.ai/v2/docs/build/plugins) and also requires
+The example in this section uses the V1 plugin API. The repository's
+[current V2 plugin](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js)
+uses the [V2 hook API](https://opencode.ai/v2/docs/build/plugins) and
+also requires
 [`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs).
-Use the [migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) when porting a V1 plugin.
+Use the
+[migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1)
+when porting a V1 plugin.
 
-**Mechanism:** a [plugin](https://opencode.ai/docs/plugins/) — a
-JavaScript or TypeScript module exporting an async function that
-returns a hooks object — using the **`tool.execute.after`** hook,
-which fires after a tool runs (including the `write` and `edit`
-file-modification tools).
+**Mechanism:** implement a [plugin](https://opencode.ai/docs/plugins/):
+a JavaScript or TypeScript module that exports an async function
+returning a hooks object. Register **`tool.execute.after`**, which
+runs after a tool completes, including the `write` and `edit` tools.
 
 **Feedback channel:** the after-hook surfaces a problem to the agent by
-**throwing**. opencode's public plugins page documents the throw-to-signal
-pattern but not an advisory return value for the after-hook, so this
-recipe defaults to throwing — a thrown `Error` carries its message back
-to the agent as the tool's failure.
+**throwing**. opencode's public plugins page documents the
+throw-to-signal pattern but not an advisory return value for the
+after-hook, so this recipe defaults to throwing. A thrown `Error`
+carries its message back to the agent as the tool's failure.
 
-**Mind the argument shape — it differs from the `before` hook.** The
+**Mind the argument shape; it differs from the `before` hook.** The
 published `@opencode-ai/plugin` types give `tool.execute.after` the
 signature `(input, output)` where the tool name is `input.tool` and the
 **tool arguments are on `input.args`** (the file path is
@@ -212,15 +248,16 @@ signature `(input, output)` where the tool name is `input.tool` and the
 is for `tool.execute.before`, where args live on `output.args` (mutable,
 pre-execution). Copy that into an *after* hook and `output.args` is
 `undefined`, the guard below always trips, and the plugin silently never
-runs — a no-op that looks installed. Read `input.args.filePath` in the
+runs: a no-op that looks installed. Read `input.args.filePath` in the
 after hook.
 
-Drop this file in `.opencode/plugins/` (project-level; auto-loaded —
-no `opencode.json` entry needed, that key is for npm-published
-plugins). The plugin below is plain JavaScript; for a TypeScript plugin,
-`import type { Plugin } from "@opencode-ai/plugin"` and annotate the
-export, and declare any extra deps in `.opencode/package.json` (opencode
-installs it with Bun):
+Drop this file in `.opencode/plugins/`. It is project-level and
+auto-loaded; no `opencode.json` entry is needed, since that key is for
+npm-published plugins. The plugin below is plain JavaScript. For a
+TypeScript plugin, `import type { Plugin } from "@opencode-ai/plugin"`
+and annotate the export, and declare any extra deps in
+`.opencode/package.json` (opencode installs it with
+[Bun](https://bun.sh/)):
 
 ```javascript
 // .opencode/plugins/bca-check.js
@@ -269,7 +306,7 @@ export const BcaCheck = async ({ $ }) => {
 
 Keep the `GUIDANCE` string in sync with the verbatim block below (or
 read it from a shared file). Because the channel is a thrown error,
-opencode reports it as a failed post-edit step — which is the intended
+opencode reports it as a failed post-edit step, which is the intended
 "address this before continuing" framing. The edit itself still lands:
 `tool.execute.after` runs once the `write` or `edit` tool has already
 written the file, so the throw frames the next step without undoing the
@@ -277,15 +314,16 @@ change.
 
 **Restart opencode after adding the plugin.** Plugins are loaded once at
 startup and are not hot-reloaded. A freshly dropped
-`.opencode/plugins/bca-check.js` does nothing in the running session;
-quit and relaunch opencode, then confirm by editing a file you know is
+`.opencode/plugins/bca-check.js` does nothing in the running session.
+Quit and relaunch opencode, then confirm by editing a file you know is
 over threshold and checking that the `edit`/`write` tool reports the
 `bca` failure. An installed-but-inert plugin is the most likely symptom,
 and a stale session is the most likely cause.
 
-The repository now ships a V2 reference at
+The repository ships a V2 reference at
 [`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js).
-It uses a different plugin API and adds guards worth porting to a V1 setup:
+It uses a different plugin API and adds guards worth porting to a V1
+setup:
 
 - **Repo-scope guard.** Resolve the path and skip anything outside the
   project root, so the hook never runs `bca` on a file the agent edits

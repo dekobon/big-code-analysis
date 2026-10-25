@@ -1,22 +1,22 @@
 # Per-language Cargo features
 
-Every tree-sitter grammar this library bundles is gated behind its
-own Cargo feature. The default feature set is `all-languages`, so
-the default
+Every [tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+grammar this library bundles is gated behind its own
+[Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html).
+The default feature set is `all-languages`, so the default
 
 ```toml
 [dependencies]
 big-code-analysis = "2.4.0"
 ```
 
-pulls every grammar in — matching the library's historical
-behaviour and what the `bca` / `bca-web` binaries themselves ship
-with. The cost is concrete: every grammar crate compiles when the
-library compiles, and every grammar's parsing tables stay live in
-the final binary.
+pulls every grammar in, matching the library's historical behaviour
+and what the `bca` / `bca-web` binaries ship with. The cost is
+concrete: every grammar crate compiles when the library compiles,
+and every grammar's parsing tables stay live in the final binary.
 
-Library consumers that only need a subset of languages can opt out
-of the defaults and re-enable just the grammars they care about.
+Library consumers that need only a subset of languages can opt out
+of the defaults and re-enable just the grammars they use.
 
 ## A worked example
 
@@ -41,7 +41,7 @@ per-language pipeline depends on).
 |--------------|--------------------------------------------------------------------------------|
 | `bash`       | `tree-sitter-bash`                                                             |
 | `c`          | `tree-sitter-c` (+ `c-family-helpers`); dedicated `C` variant owning `.c`, added in #721 |
-| `c-family-helpers` | `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` — **internal**, enabled automatically by `c` / `cpp` / `mozcpp`; gates the `Ccomment` / `Preproc` helper variants. Not meant to be selected directly |
+| `c-family-helpers` | `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc`; **internal**, enabled automatically by `c` / `cpp` / `mozcpp`; gates the `Ccomment` / `Preproc` helper variants. Not meant to be selected directly |
 | `cpp`        | `tree-sitter-cpp` (+ `c-family-helpers`); the `Cpp` variant, upstream grammar since #720. Also enables the `Ccomment` / `Preproc` helper variants |
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |
@@ -52,7 +52,7 @@ per-language pipeline depends on).
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |
 | `lua`        | `tree-sitter-lua`                                                              |
-| `mozcpp`     | `bca-tree-sitter-mozcpp` (+ `c-family-helpers`); opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant — owns no extensions, selected by name |
+| `mozcpp`     | `bca-tree-sitter-mozcpp` (+ `c-family-helpers`); opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant; owns no extensions, selected by name |
 | `mozjs`      | `bca-tree-sitter-mozjs`                                                        |
 | `objc`       | `tree-sitter-objc`; the `Objc` variant (Objective-C). Owns `.m`; `.mm` Objective-C++ stays on `Cpp` |
 | `perl`       | `tree-sitter-perl`                                                             |
@@ -81,11 +81,13 @@ trick that keeps consumer call sites unchanged.
 
 ## What happens when a feature is off
 
-The `LANG` enum keeps every variant defined regardless of the
-active feature set — disabling a feature does not change the enum
-surface or any of the file-extension / emacs-mode detection
-helpers. Selecting a `LANG` whose feature is off only affects the
-dispatch path.
+The `LANG` enum keeps every variant defined regardless of the active
+feature set. Disabling a feature does not change the enum surface or
+any of the file-extension and
+[Emacs mode declaration](https://www.gnu.org/software/emacs/manual/html_node/emacs/Specifying-File-Variables.html)
+detection helpers.
+Selecting a `LANG` whose feature is off only affects the dispatch
+path.
 
 Every dispatch entry point that returns a `Result` surfaces the
 disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
@@ -93,7 +95,7 @@ disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
 - [`analyze`]
 - `Ast::parse` / `Ast::from_tree_sitter` (and the `metrics` / `ops`
   methods on the returned `Ast`)
-- [`LANG::tree_sitter_language`] — this returns
+- [`LANG::tree_sitter_language`], which returns
   `Result<tree_sitter::Language, MetricsError>` rather than the bare
   `Language` the upstream project returned
 
@@ -114,8 +116,8 @@ This pairs well with the
 [`get_language_for_file`](https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_language_for_file.html) /
 [`guess_language`](https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.guess_language.html)
 helpers, which still hand back any `LANG` variant for a recognised
-extension — callers walking a directory may want to skip files
-whose language is not enabled in the current build.
+extension. Callers walking a directory may want to skip files whose
+language is not enabled in the current build.
 
 ## Stability
 

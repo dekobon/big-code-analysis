@@ -1,7 +1,8 @@
 # Stability policy
 
 `big-code-analysis` is on the `2.x` line (currently `2.4.0`). This
-document is the public-API stability contract: what is stable, what
+document is the public-API stability contract for library consumers,
+CLI integrators, and the Python and REST users: what is stable, what
 counts as an additive change, what is reserved for a major bump, and
 the narrow seams where the contract deliberately does not reach.
 Within `2.x`, callers can pin a minor version and expect a working
@@ -25,8 +26,9 @@ would qualify as a SemVer break is held for the next major bump
 (`3.0`) and will be called out in the [changelog][changelog] under
 **(breaking)**.
 
-Why patch and minor bumps can still move metric values: a grammar
-pin bump (any `tree-sitter-*` crate in the root `Cargo.toml`) or a
+Patch and minor bumps can still move metric values because a grammar
+pin bump (any [tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+`tree-sitter-*` crate in the root `Cargo.toml`) or a
 regression fix in a metric definition is by definition a value
 change but does not break the API surface. Callers who need
 bit-for-bit reproducibility should pin to an exact version
@@ -75,7 +77,7 @@ section.
     `io::Result<Result<Vec<u8>, SkipReason>>`, of which
     `read_file_with_eol` is the `.map(Result::ok)` projection.
     `SkipReason` carries `#[non_exhaustive]`, so a future gate adds a
-    variant in a minor bump — match it with a wildcard arm or render
+    variant in a minor bump. Match it with a wildcard arm or render
     it through `Display`, whose per-variant wording is *not*
     SemVer-protected.
 - **Top-level entry points**
@@ -83,7 +85,7 @@ section.
     library entry point. `Source` carries `#[non_exhaustive]` and its
     fields are private (`pub(crate)`): construct via `Source::new` plus
     `with_*` setters. Only that builder API is the contract: the field
-    set, names, and types (e.g. `code: &[u8]`, `name: String`) are
+    set, names, and types (such as `code: &[u8]`, `name: String`) are
     free to change and are **not** SemVer-protected (#533).
   - `MetricsOptions` carries `#[non_exhaustive]` and, like `Source`,
     has private (`pub(crate)`) fields as of `2.0`. Construct via
@@ -149,7 +151,7 @@ section.
     replaces those bytes with U+FFFD, which is not order-preserving,
     so the contract is over what a caller actually receives rather
     than over the source bytes behind it. The order is part of the
-    contract now — callers may diff or hash `ops` output — and will
+    contract now (callers may diff or hash `ops` output) and will
     not change before `3.0`.
   - `ConcurrentRunner` in `src/concurrent_files.rs`: `new`'s `num_jobs`
     is the number of consumer threads. Through the `2.0` line it was a
@@ -161,7 +163,7 @@ section.
     `without_path_verification` (added #1114) opts out of the per-path
     `is_file()` check for a caller whose own traversal already
     classified every entry. `ConcurrentErrors::Producer` is no longer
-    constructed — the enum is `#[non_exhaustive]`, but removing a
+    constructed. The enum is `#[non_exhaustive]`, but removing a
     variant would still break a downstream `match`, so it stays until
     `3.0`.
   - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560): the
@@ -187,7 +189,7 @@ section.
     `Display` impls are stable; the exact wording of `Display` output
     is not.
 - **Result shapes**
-  - `FuncSpace`, `CodeMetrics`, `Metrics` in `src/spaces.rs`, and
+  - `FuncSpace` and `CodeMetrics` in `src/spaces.rs`, and
     `SpaceKind` in `big-code-analysis-ast/src/space_kind.rs`
     (re-exported at `crate::SpaceKind`). These are the JSON / YAML / TOML / CBOR
     serialization roots and have downstream consumers. `FuncSpace`
@@ -200,7 +202,7 @@ section.
 
     `FuncSpace` implements `Drop` (as do `Ops`, `AstNode`, and their
     `wire` counterparts), so its fields cannot be moved out of a value
-    by name — `let m = space.metrics;` is `E0509`; clone or borrow
+    by name: `let m = space.metrics;` is `E0509`; clone or borrow
     instead. This is the one source-level shape break landed under a
     minor bump rather than held for `3.0` (#1056): the
     compiler-generated `Drop` glue recursed once per nesting level and
@@ -208,30 +210,30 @@ section.
     `bca-web`'s body cap, and an explicit `Drop` that flattens
     descendants into a work list is the only way to break that
     recursion. Treat the `Drop` impls themselves as an implementation
-    detail — the contract is that these trees tear down in constant
+    detail. The contract is that these trees tear down in constant
     stack, not the presence of any particular `Drop` body.
   - `FunctionSpan` in `src/function.rs`.
   - `PreprocResults` and `PreprocFile` in
-    `big-code-analysis-ast/src/preproc.rs` (re-exported from the root) — the
-    serialization roots of a `bca preproc` document, on `--output` and
-    on stdout alike (one `to_string` feeds both destinations). Their
-    fields keep their `HashMap` / `HashSet` types, so *iteration* order
-    is unspecified as it always was, but since #1304 their `Serialize`
-    impls emit in sorted order. Before that both came straight off hash
-    order and the document differed byte for byte between runs over an
-    unchanged tree.
+    `big-code-analysis-ast/src/preproc.rs` (re-exported from the root):
+    the serialization roots of a `bca preproc` document, on `--output`
+    and on stdout alike (one `to_string` feeds both destinations).
+    Their fields keep their `HashMap` / `HashSet` types, so *iteration*
+    order is unspecified as it always was, but since #1304 their
+    `Serialize` impls emit in sorted order. Before that both came
+    straight off hash order and the document differed byte for byte
+    between runs over an unchanged tree.
 
     The document uses **two** comparators, and a consumer re-deriving
     either order needs the right one for the field it is reading. The
-    `files` map sorts its `PathBuf` keys **component-wise**, the key
-    `metrics --output` and `ops --output` sort their aggregates on, so
-    the three documents agree. `direct_includes`, `indirect_includes`,
-    and `macros` hold `String`s and sort **byte-lexicographically**.
+    `files` map sorts its `PathBuf` keys **component-wise**, as
+    `metrics --output` and `ops --output` do, so the three documents
+    agree. The `direct_includes`, `indirect_includes` and `macros`
+    collections contain strings and sort **byte-lexicographically**.
     The two disagree wherever a separator interleaves with a byte below
     `/`: `a-b/x.h` sorts *after* `a/x.h` as a key and *before* it
     inside an include array, even when both name the same file. The
-    emitted order is part of the contract now — callers may diff or
-    hash a `preproc` document — and will not change before `3.0`.
+    emitted order is part of the contract now (callers may diff or
+    hash a `preproc` document) and will not change before `3.0`.
 - **Offender / catalog enums**
   - `Severity` in `src/output/offenders.rs` (re-exported from the
     crate root): an ordered severity scale carrying
@@ -295,7 +297,8 @@ section.
   compare two compute-side `Stats` directly without round-tripping
   through `to_wire()`. `Eq` is intentionally **not** derived: the
   float fields (ratios, averages, ABC `magnitude`, the derived
-  Halstead scores) preclude it. Comparing `Stats` from two analyses
+  [Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures)
+  scores) preclude it. Comparing `Stats` from two analyses
   of the *same* deterministic source is exact-equal-safe (identical
   code path, identical `f64` bits); do not rely on cross-input float
   equality. Adding `PartialEq` is additive: it only widens the
@@ -303,9 +306,9 @@ section.
 
   **An empty Maintainability Index is an in-band `0.0` in 2.x.** A
   space with no code to measure (zero Halstead volume or a zero size
-  term — an `#include`-only header, an empty module) has no defined
-  MI, yet `mi::Stats::{original, sei, visual_studio}` all return
-  `0.0`, which cannot be told apart from a measured 0 or from
+  term, as in an `#include`-only header or an empty module) has no
+  defined MI, yet `mi::Stats::{original, sei, visual_studio}` all
+  return `0.0`, which cannot be told apart from a measured 0 or from
   `mi.visual_studio`'s clamp at its floor. `mi::Stats::is_empty()`
   (added #1621, additive) answers the question on the compute side;
   consumers that average or rank MI should skip spaces for which it
@@ -316,13 +319,14 @@ section.
   below) is a wire-shape break reserved for `3.0`.
 - **Prelude**: `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
-  `MetricsOptions`, `MetricsError`, `LANG`, `FuncSpace`,
-  `CodeMetrics`, `SpaceKind`, `Metric`). The `metrics_from_tree`
+  `MetricsOptions`, `MetricsError`, `FromPathError`, `LANG`,
+  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`). The `metrics_from_tree`
   entry was removed at `2.0` along with the free function it named;
   tree adoption now goes through `Ast::from_tree_sitter`. New
   items may be added; nothing in the set is removed before `3.0`.
-- **Per-language Cargo features**: the feature set
-  (`all-languages`, plus per-language features `rust`,
+- **Per-language
+  [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html)**:
+  the feature set (`all-languages`, plus per-language features `rust`,
   `typescript`, `python`, `cpp`, …) is itself part of the contract.
   Adding a new language feature is additive. Removing one is a
   `3.0` break. The `all-languages` default is permanent within
@@ -334,31 +338,36 @@ default for the library; on by default for the `bca` / `bca-web` /
 Python builds). When enabled, the following join the shape contract:
 the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
 `Stats`, `HistoryIndex`, `RiskFormula`, `FileTypeScope`, `parse_window`,
-`parse_timestamp`, `workdir_root`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
-subcommand (including its `--file-types {metrics|all|EXT,…}` scope flag
-and the matching `bca.toml` `[vcs] file_types` key) and `bca metrics
---vcs` flag, the `POST /vcs` REST endpoint, and the Python
-`vcs_metrics()` function plus the `analyze(vcs=True)` keyword. `bca vcs --format markdown|html` and the `bca report
-markdown|html --vcs` "Change-history risk" section (#573) are **one-way
-rendered projections** (like the AST `bca report` output): the page
-*structure* is stable within `2.x`, but the exact bytes are not a
-round-trip format; do not parse them. The 2.0 line restructured the AST
-report's presentation deliberately: hotspot section titles now follow one
-`<Concept> hotspots (top N by <column>)` template (#677), the WMC table is
-labeled "Types" (#687), and the HTML section anchors derive from a stable
-`<Concept> hotspots` slug independent of `--top`, so a deep link minted
-against a `1.x` report may need re-fragmenting. The VCS report's `(total)`
-column headers became `(long)` (#592). These are presentation changes only;
-no round-trip / wire shape moved. `bca vcs --output` names a single
-file (a whole-repo report is one document); as of 2.0 `bca metrics`/`bca
-ops --output` also names a single aggregate file, with the per-file
-*directory* tree now written by `--output-dir` (#669). The composite
-`risk_score` is **ordinal, not cardinal** (only
-relative ranks are meaningful) and is formula-versioned
-(`risk_score_version`): the formula may change within `2.x`, but any
-change bumps that field, and the serialized field *set* is versioned by
-`vcs_schema_version`. Per-file score *magnitudes* therefore carry the
-same "not byte-stable across bumps" caveat as every other metric value.
+`parse_timestamp`, `workdir_root`), `wire::Vcs`, `CodeMetrics::vcs`,
+the `bca vcs` subcommand (including its `--file-types
+{metrics|all|EXT,…}` scope flag and the matching `bca.toml` `[vcs]
+file_types` key) and `bca metrics --vcs` flag, the `POST /vcs` REST
+endpoint, and the Python `vcs_metrics()` function plus the
+`analyze(vcs=True)` keyword.
+
+`bca vcs --format markdown|html` and the `bca report markdown|html
+--vcs` "Change-history risk" section (#573) are **one-way rendered
+projections** (like the AST `bca report` output): the page *structure*
+is stable within `2.x`, but the exact bytes are not a round-trip
+format; do not parse them. The 2.0 line restructured the AST report's
+presentation deliberately: hotspot section titles now follow one
+`<Concept> hotspots (top N by <column>)` template (#677), the WMC table
+is labeled "Types" (#687), and the HTML section anchors derive from a
+stable `<Concept> hotspots` slug independent of `--top`, so a deep
+link minted against a `1.x` report may need re-fragmenting. The VCS
+report's `(total)` column headers became `(long)` (#592). These are
+presentation changes only; no round-trip / wire shape moved. `bca vcs
+--output` names a single file (a whole-repo report is one document);
+as of 2.0 `bca metrics`/`bca ops --output` also names a single
+aggregate file, with the per-file *directory* tree now written by
+`--output-dir` (#669).
+
+The composite `risk_score` is **ordinal, not cardinal** (only relative
+ranks are meaningful) and is formula-versioned (`risk_score_version`):
+the formula may change within `2.x`, but any change bumps that field,
+and the serialized field *set* is versioned by `vcs_schema_version`.
+Per-file score *magnitudes* therefore carry the same "not byte-stable
+across bumps" caveat as every other metric value.
 
 In `2.0` the per-file VCS block became a **nested `vcs` object** under
 each ranked file (and each `/vcs/trend` point), replacing the former
@@ -422,9 +431,11 @@ public field and serialized key were renamed `schema_version` →
 `bus_factor_schema_version` (`BUS_FACTOR_SCHEMA_VERSION` bumped 1 → 2) for
 cross-surface consistency (#591, 2.0). The
 `bus_factor` count is a small integer with a direct reading (key
-departures that abandon a subsystem), but it inherits the Avelino
-heuristic's caveats (a single-author or very young repository skews it
-downward), so treat it as a planning signal, not a guarantee.
+departures that abandon a subsystem), but it inherits the caveats of
+the
+[Avelino degree-of-authorship heuristic](big-code-analysis-book/src/metrics-vcs.md#bus-factor)
+(a single-author or very young repository skews it downward), so
+treat it as a planning signal, not a guarantee.
 
 Historical metric **trend** (#333) adds one more opt-in slice:
 `big_code_analysis::vcs::{build_trend, Trend, TrendDelta, TrendDeltas}`
@@ -486,22 +497,22 @@ The following are explicitly **not** part of the shape contract:
 - Anything marked `#[doc(hidden)]`. These exist for macro plumbing
   and may move at any time, including in patch bumps.
 - **The `big-code-analysis-ast` crate.** Since #1376 the parse and
-  classification layer — the generated kind enums, the per-language
-  `*Code` / `*Parser` types (`RustCode`, `PythonCode`, …), `Parser<T>`,
-  `ParserTrait`, `LanguageInfo`, `Search`, `Filter`, `Cursor`,
-  `Ancestors`, the `Checker` / `Getter` / `Alterator` traits and their
-  per-language impls, `AnyParser` and the `with_any_parser!` dispatch
-  macro — lives in a separate published crate that this one pins at an
-  exact `=X.Y.Z` version. Those items are `pub` *there* because this
-  crate needs them, and they are documented there, but **none of them
-  is part of this contract**: this crate does not re-export them, and
-  the sub-crate promises nothing about its own names, signatures or
-  module paths from one release to the next (see its README). The
-  items this crate *does* re-export from it — `LANG`, `ParseLangError`,
-  `Node`, `MetricsError`, `SpaceKind`, `metrics::halstead::TokenRole`,
-  the AST dump types, `Count` / `CountCollector`, the preprocessor types
-  and functions, and the file readers — are covered exactly as the
-  sections above describe, through this crate's paths. Depend on
+  classification layer lives in a separate published crate that this
+  one pins at an exact `=X.Y.Z` version: the generated kind enums, the
+  per-language `*Code` / `*Parser` types (`RustCode`, `PythonCode`, …),
+  `Parser<T>`, `ParserTrait`, `LanguageInfo`, `Search`, `Filter`,
+  `Cursor`, `Ancestors`, the `Checker` / `Getter` / `Alterator` traits
+  and their per-language impls, `AnyParser` and the `with_any_parser!`
+  dispatch macro. Those items are `pub` *there* because this crate
+  needs them, and they are documented there, but **none of them is
+  part of this contract**: this crate does not re-export them, and the
+  sub-crate promises nothing about its own names, signatures or module
+  paths from one release to the next (see its README). The items this
+  crate *does* re-export from it (`LANG`, `ParseLangError`, `Node`,
+  `MetricsError`, `SpaceKind`, `metrics::halstead::TokenRole`, the AST
+  dump types, `Count` / `CountCollector`, the preprocessor types and
+  functions, and the file readers) are covered exactly as the sections
+  above describe, through this crate's paths. Depend on
   `big-code-analysis`; depend on `big-code-analysis-ast` directly only
   if you accept re-pinning on every release.
 - The per-metric compute traits (`Cognitive`, `Cyclomatic`, `Halstead`,
@@ -517,7 +528,7 @@ The following are explicitly **not** part of the shape contract:
 **Metric values are not guaranteed to be byte-stable across
 versions, even within `2.x`.** Concretely:
 
-- A grammar bump (e.g. `tree-sitter-python =0.25.0` →
+- A grammar bump (say, `tree-sitter-python =0.25.0` →
   `tree-sitter-python =0.26.0`) can shift any metric on any file in
   any direction. Such bumps land under patch or minor versions and
   are noted in the changelog.
@@ -555,7 +566,9 @@ detect change; compare the parsed numbers with a tolerance, or
 compare the integer-valued fields (which *are* exact).
 
 The human-readable diagnostic path (`bca check` warning lines and
-the Checkstyle / SARIF message strings) is **intentionally
+the Checkstyle /
+[SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+message strings) is **intentionally
 different**: it rounds float magnitudes to six decimal places for
 legibility. Machine output favors fidelity (full precision); human
 output favors readability (rounded). The two are not expected to
@@ -585,21 +598,22 @@ struct per metric (`wire::Abc`, `wire::Cognitive`, `wire::Cyclomatic`,
 `wire::Nargs`, `wire::Nom`, `wire::Npa`, `wire::Npm`, `wire::Tokens`,
 `wire::Wmc`) plus the `wire::CyclomaticModified` sub-record, the
 `modified` projection nested inside `wire::Cyclomatic`. Each derives
-`Serialize` + `Deserialize`. These are the **single definition of the
+[Serde](https://serde.rs/)'s `Serialize` + `Deserialize`. These are
+the **single definition of the
 serialized shape** (the compute types' own `Serialize` impls delegate
 to them), so the document a compute type emits is exactly the document
 the matching `wire` type parses.
 
 **Field additions are additive within `2.x`.** A `wire` struct gains a
-field whenever the serialized shape does — `cyclomatic.value`,
+field whenever the serialized shape does (`cyclomatic.value`,
 `cyclomatic.modified.value`, `cognitive.value` and `abc.value` in #958,
-`nargs.value` in #1236 — and each new field carries a serde default, so
-a document written by an older version still parses. These structs
+`nargs.value` in #1236), and each new field carries a serde default,
+so a document written by an older version still parses. These structs
 carry public fields and no `#[non_exhaustive]`, so a field addition
 *does* break code that builds one with struct-literal syntax or
-destructures it exhaustively; treat them the way the *Per-metric
-`Stats`* rule above asks — read fields by name, construct by
-deserializing rather than by literal — and a field addition costs you
+destructures it exhaustively. Treat them the way the *Per-metric
+`Stats`* rule above asks (read fields by name, construct by
+deserializing rather than by literal) and a field addition costs you
 nothing. Removing or renaming a field remains a `3.0` break.
 
 **Round-trip contract.** For a value produced by this library and read
@@ -625,12 +639,12 @@ therefore stops at `wire::MAX_SPACE_SERIALIZE_DEPTH` (128) nested
 `AstNode` levels, failing with an ordinary serializer error naming the
 type and the limit (#1056). The space limit mirrors the 128-level
 recursion limit `serde_json`'s `Deserializer` already applies on the
-way in — which, at two JSON levels per space, caps *reading* a document
+way in. At two JSON levels per space, that caps *reading* a document
 back near 61 levels, so the emit limit is the more generous of the two.
-For scale, the deepest space nesting across the 14 450-file corpus
-under `tests/repositories` is 10 levels, and the deepest AST is 188.
-Both limits may be raised in a minor bump; lowering one is a `3.0`
-break.
+For scale, the corpus under `tests/repositories` (roughly fourteen
+thousand files) measured 10 levels of space nesting and an AST depth
+of 188 when #1056 set the limits. Both limits may be raised in a
+minor bump; lowering one is a `3.0` break.
 
 The bit-exactness of float magnitudes is a property of *this library's*
 parser configuration, not of JSON text in general: a downstream consumer
@@ -639,10 +653,9 @@ may differ by up to 1 ULP. Per the value-stability carve-out above, do
 not treat float magnitudes as a stable cross-version identity; compare
 them with a tolerance.
 
-Note that `bca --version` prints the CLI
-binary's own version, not the library version. To record the
-library version from a CLI run, capture it from `Cargo.lock` or
-the resolved `cargo metadata` output for the
+`bca --version` prints the CLI binary's own version, not the library
+version. To record the library version from a CLI run, capture it
+from `Cargo.lock` or the resolved `cargo metadata` output for the
 `big-code-analysis` package.
 
 The next major re-baseline at `3.0` (whenever it happens) is the
@@ -671,21 +684,21 @@ reach the raw tree-sitter surface.
   `Node` from this surface.
 
   Since the #1376 split `Node` also exposes the accessors the metric
-  walk itself uses — `kind`, `kind_id`, `id`, `is_named`, `utf8_text`,
+  walk itself uses: `kind`, `kind_id`, `id`, `is_named`, `utf8_text`,
   `start_byte` / `end_byte`, `start_position` / `end_position`,
   `start_row` / `end_row` / `end_line`, `child`, `child_count`,
   `child_by_field_name`, `children`, `children_with`, `cursor`,
   `parent` and `previous_sibling`. Their *signatures* are shape-stable
-  within `2.x` (additive from here). Their
-  *values* follow the tree-sitter pin exactly as `as_tree_sitter` does:
-  `kind()` strings and `kind_id()` numbers are the pinned grammar's and
-  move when it is bumped. `parent` and `previous_sibling` resolve from
-  the tree root and cost `O(depth)` per call; a walk over a whole tree
-  should keep its own ancestor chain instead.
+  within `2.x` (additive from here). Their *values* follow the
+  tree-sitter pin exactly as `as_tree_sitter` does: `kind()` strings
+  and `kind_id()` numbers are the pinned grammar's and move when it is
+  bumped. `parent` and `previous_sibling` resolve from the tree root
+  and cost `O(depth)` per call; a walk over a whole tree should keep
+  its own ancestor chain instead.
 
-  `Node`'s remaining methods — the `Search` walk helpers and the
+  `Node`'s remaining methods, the `Search` walk helpers and the
   ancestor-chain-taking `has_sibling` / `count_specific_ancestors` /
-  `parent_grandparent_match` — are deliberately **not** covered. They
+  `parent_grandparent_match`, are deliberately **not** covered. They
   name `Search`, `Ancestors` and `Checker`, which this crate does not
   re-export, so they are not callable from `big-code-analysis` alone;
   reaching them means depending on `big-code-analysis-ast` directly,
@@ -729,12 +742,16 @@ reach the raw tree-sitter surface.
   `tree_sitter::Tree`; that single method follows the `tree-sitter`
   pin in the same value-not-stable sense as the `tree_sitter`
   re-export. The rest of `Ast`'s API surface (`parse`,
-  `from_tree_sitter`, `metrics`, `ops`, `strip_comments`, `functions`,
-  `dump`, `dump_cursor`, `dump_indexed`, `count`, `find`, `root_node`,
-  `suppressions`, `language`, `source`, `name`) is shape-stable.
+  `from_tree_sitter`, `from_path`, `metrics`, `ops`, `strip_comments`,
+  `functions`, `dump`, `dump_cursor`, `dump_indexed`, `count`, `find`,
+  `root_node`, `suppressions`, `language`, `source`, `name`) is
+  shape-stable. `from_path` (#727) is the file-backed counterpart to
+  `parse`; it returns the `#[non_exhaustive]` `FromPathError` (`Io`,
+  `NonUtf8Path`, `Unreadable`, `UnknownLanguage`, `Parse(MetricsError)`),
+  which the prelude also re-exports.
   `dump_cursor` and `dump_indexed` (#1684) name the two export
-  strategies explicitly — one cursor walk, or `Node::child`-indexed
-  enumeration — and both produce the same tree as `dump`, which runs
+  strategies explicitly (one cursor walk, or `Node::child`-indexed
+  enumeration), and both produce the same tree as `dump`, which runs
   the cursor walk; the indexed strategy is a supported choice, not a
   test-only reference. `Ast::root_node` / `Ast::find`
   return the public `Node` wrapper (#728), whose own `preorder()` /
@@ -791,10 +808,10 @@ mis-matching. Recent transitions:
 
 - **v5 → v6** ([#1170](https://github.com/dekobon/big-code-analysis/issues/1170)):
   `start_line` became optional and is written only for an entry whose
-  `(path, qualified, metric)` identity is shared with another — the
+  `(path, qualified, metric)` identity is shared with another, the
   sole case matching consults it. Elsewhere the field re-rendered on
   every edit above the function, churning diffs and conflicting on
-  every merge. v2–v5 baselines read unchanged: a recorded line is
+  every merge. v2 to v5 baselines read unchanged: a recorded line is
   still honored exactly as before. A v6 file read by a pre-v6 bca
   fails to parse (a required field is missing) rather than
   mis-matching; upgrade bca or regenerate with `--write-baseline`.
@@ -839,10 +856,10 @@ between them is itself part of the contract:
 - **One-way projections**: CSV, SARIF, Checkstyle, code-climate,
   the Clang/MSVC warning lines, and the AST / `dump_*` output. These
   are lossy, write-only views with **no reader** in this crate. They
-  drop or reshape data the round-trip formats keep: e.g. the CSV row
-  carries no per-`FuncSpace` `suppressed` scope (it is present in
-  `wire::FuncSpace` but absent from the flattened CSV columns). Do not
-  expect to parse a projection back into a `FuncSpace`; pin to a
+  drop or reshape data the round-trip formats keep: for example, the
+  CSV row carries no per-`FuncSpace` `suppressed` scope (it is present
+  in `wire::FuncSpace` but absent from the flattened CSV columns). Do
+  not expect to parse a projection back into a `FuncSpace`; pin to a
   structured format if you need round-trip fidelity.
 
 The writer free functions are SemVer-protected in signature within
@@ -856,7 +873,7 @@ at the crate root from `src/output/`:
 | `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_sarif_with_suppressed` | `(active, in_source, baseline: &[OffenderRecord], writer: W) -> io::Result<()>`. The two suppressed slices stay separate because they render different `suppressions[].kind` values: `in_source` gives `"inSource"`, `baseline` gives `"external"` |
 | `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
-| `write_clang_warning` | `(offenders: &[OffenderRecord], …, writer: W) -> io::Result<()>` |
+| `write_clang_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_msvc_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_code_climate` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 
@@ -954,8 +971,9 @@ the Python bindings' `to_sarif`, where no CLI is involved.
 
 #### code-climate
 
-`write_code_climate` emits the strict GitLab *Code Quality* subset of
-the upstream Code Climate spec. The emitted field set is stable within
+`write_code_climate` emits the strict
+[GitLab *Code Quality*](https://docs.gitlab.com/ci/testing/code_quality/)
+subset of the upstream Code Climate spec. The emitted field set is stable within
 `2.x`: `description`, `check_name` (`"big-code-analysis/<metric>"`),
 `fingerprint`, `severity`, `location.path`, `location.lines.{begin,end}`,
 and `location.positions.begin.{line,column}` (the last two emitted only
@@ -986,17 +1004,23 @@ fingerprint of their own, receive a new, distinct value.
 
 `dump_*` and the `AstNode` / `Span` types (re-exported with
 `AstPayload` / `AstResponse` / `AstCfg`) serialize a
-**one-way projection** of the parse tree: `Serialize` only, by
-design. There is intentionally **no** `Deserialize`: the AST output is
-a debugging / inspection view like CSV and SARIF, not a wire format you
-round-trip through. The JSON shape uses `snake_case` keys and is pinned
+**one-way projection** of the parse tree: `AstNode` and `AstResponse`
+are `Serialize` only, by design. There is intentionally **no**
+`Deserialize` for the tree: the AST output is a debugging / inspection
+view like CSV and SARIF, not a wire format you round-trip through.
+(`Span` alone derives `Deserialize`, for parity with the `wire`
+types.) The JSON shape uses `snake_case` keys and is pinned
 by `ast::tests::serialized_json_uses_snake_case_keys`:
 
 - `AstNode` → `{type, value, span, field_name, children}`. `field_name`
   is the tree-sitter grammar field through which the parent reaches the
   node (`None` for the root, anonymous tokens, and unnamed children);
   `children` is a nested array of `AstNode`.
-- `Span` → `{start_row, start_col, end_row, end_col}`.
+- `Span` → `{start_line, start_col, end_line, end_col, start_byte,
+  end_byte}` (1-based lines and columns; 0-based half-open byte
+  offsets). The `*_line` keys replaced the former `*_row` keys at `2.0`
+  (#638, see *REST schema* below); the byte offsets were appended at
+  `2.0` (#727) and carry a serde default. `Span` is `#[non_exhaustive]`.
 
 The snake_case key scheme is stable within `2.x`. The former
 PascalCase keys (`Type`/`TextValue`/`Span`/`Children`) were dropped at
@@ -1042,11 +1066,11 @@ The schema author owns this checklist. The release-prep section of
 caught by it.** A key an older reader ignores keeps the file readable
 there, which is the point; the cost is that the older reader cannot
 know what the key meant. The `mi_formula` stamp (#1607) is the live
-case: a baseline `bca ≥ 2.4` writes records its `mi.*` values under
-formula revision 2, together with negative `mi.original` / `mi.sei`
-entries (#1611). A `bca ≤ 2.3` reading it drops the unknown key, drops
-every negative entry as unrecordable, and compares the revision-2
-values with its own revision-1 numbers — silently, since only the
+case. A baseline written by `bca ≥ 2.4` records MI formula revision 2
+and can contain negative `mi.original` / `mi.sei` entries (#1611). A
+reader running `bca ≤ 2.3` ignores the revision key, drops negative
+entries as unrecordable, and compares the remaining revision-2 values
+with its revision-1 measurements. It does so silently, since only the
 newer reader carries the revision warning. **Pin `bca ≥ 2.4` wherever
 a 2.4-written baseline is read** (the `BCA_VERSION` block of the CI
 recipe), the same way a schema bump would have forced. The reverse
@@ -1135,7 +1159,7 @@ list, how the two are combined depends on the *meaning* of the list
   values with the manifest list.** A CLI `--exclude`/`--check-exclude`
   is *added to* the manifest's exemptions, never a replacement, so a
   command-line filter can never silently un-exclude a directory the
-  project config deliberately skipped (e.g. `vendor/`). Duplicates
+  project config deliberately skipped (`vendor/`, say). Duplicates
   across the two sources collapse; CLI patterns sort first. This
   mirrors ruff/ESLint's `exclude` (replace) vs `extend-exclude` (add),
   generalized: targets replace, filters add.
@@ -1148,7 +1172,7 @@ as part of the 2.0 line.
 
 ## Python bindings
 
-`big-code-analysis-py` is the PyO3 wrapper published from this
+`big-code-analysis-py` is the [PyO3](https://pyo3.rs/) wrapper published from this
 workspace to PyPI. The names below are locked: none of them can
 change without breaking every consumer's imports.
 
@@ -1200,7 +1224,7 @@ the existing values are frozen.
 
 A batch slot is not always a result or a failure. `analyze_batch` /
 `analyze_paths` emit a `None` element, under `skip_generated=False`
-only, for a file the shared read gate declines to parse — three bytes
+only, for a file the shared read gate declines to parse: three bytes
 or fewer, a UTF-16 BOM, a leading window that is not valid UTF-8, or
 (rarely) a file that shrank between the size probe and the read.
 That gate is unconditional, so before #1238 those files produced no
@@ -1213,7 +1237,7 @@ or unreadable, still yields no element.
 
 The placeholder is a **behaviour break for existing
 `skip_generated=False` callers**, in both directions. A caller that
-looped over the results untyped — `for r in results: r["metrics"]` —
+looped over the results untyped (`for r in results: r["metrics"]`)
 previously ran to completion on a batch containing such a file (having
 silently mis-paired every later entry) and now raises `TypeError:
 'NoneType' object is not subscriptable` at the placeholder. A caller
@@ -1221,7 +1245,7 @@ that counted `len(results)` sees a larger number. Both are the intended
 direction: the failure is now loud and local instead of silent and
 downstream, and the count is now the truth. `analyze_paths` shares the
 change, so a directory walk under `skip_generated=False` gains one
-element per discovered file the gate declined — on a tree with binary
+element per discovered file the gate declined; on a tree with binary
 assets that can be a substantial fraction of the list.
 
 Per-file failures from `analyze_batch` / `analyze_paths` are
@@ -1256,7 +1280,8 @@ raise.
 
 The package ships [PEP 561][pep561] type information: a `py.typed`
 marker and a hand-written `_native.pyi` stub, with the public facade
-typed directly. `mypy --strict` and `pyright` are gated in CI. The
+typed directly. [`mypy --strict`](https://mypy.readthedocs.io/) and
+[`pyright`](https://github.com/microsoft/pyright) are gated in CI. The
 stub shape (function signatures, the `error_kind` `Literal`, the
 `Lang` / `MetricName` enums) is covered by the same shape contract
 as the library: additive in minor bumps, breaking only at a major.
@@ -1284,7 +1309,7 @@ direction. `wmc` is narrower in two language-level ways: Go emits no
 `wmc` block on any space, including the file root, and a `namespace`
 space carries `npm` and `npa` but no `wmc`. A language
 with no class-like construct emits them nowhere. Which spaces carry
-which block is not part of the shape contract — the `wire` struct
+which block is not part of the shape contract; the `wire` struct
 definitions are. The VCS *report* dicts are now single-sourced and typed too
 (#664): `vcs.rank` returns `VcsReportDict`, `vcs.trend` returns
 `VcsTrendDict`, `vcs.commit` returns `JitCommitReportDict`, and
@@ -1296,9 +1321,9 @@ gone. The same additive / major-only shape contract applies.
 One documented exception to that contract, on the 2.x line: #1238
 widened the `analyze_batch` / `analyze_paths` return element to
 `FuncSpaceDict | AnalysisFailure | None`. Widening a *return* union is
-not additive — a `mypy --strict` consumer that indexed a slot without a
-`None` check newly fails to type-check, which is the point: the runtime
-values it would have received were already wrong. It landed in a minor
+not additive: a `mypy --strict` consumer that indexed a slot without a
+`None` check newly fails to type-check, which is the point, because the
+runtime values it would have received were already wrong. It landed in a minor
 rather than waiting for the next major because the alternative was
 leaving a silent data-corruption defect in the released line, and
 because the runtime contract the widening makes true is the one both
@@ -1398,7 +1423,7 @@ contract points are:
   answered `400` there, but reported the catch-all `vcs_internal_error`,
   so a client branching on the token saw its own mistake as a server
   fault (#1245). Adding a token is additive, and correcting one that
-  named the wrong cause is a bug fix rather than a rename — but a client
+  named the wrong cause is a bug fix rather than a rename, but a client
   that has to interoperate with both must treat `vcs_internal_error` on
   a `400` as the older spelling of this case.
 - **`/vcs`-family defaults.** The web defaults match the CLI's bounded
@@ -1445,10 +1470,10 @@ crates (`big-code-analysis`, `big-code-analysis-cli`,
   consumers treat a toolchain bump as a build break, even though
   it is not a source-level shape break under SemVer.
 - We do not commit to supporting a specific N-back window of Rust
-  releases; the policy is simply "we bump when we want a 2024
-  edition feature or a meaningfully better stdlib API, and we call
-  it out in the changelog".
-- The crate uses edition 2024 (`let-else`, let-chains, etc.).
+  releases. The policy is "we bump when we want a 2024 edition
+  feature or a meaningfully better stdlib API, and we call it out in
+  the changelog".
+- The crate uses edition 2024 (`let-else`, let-chains, and so on).
 
 ## Process
 
@@ -1464,13 +1489,16 @@ Every release MUST update [`CHANGELOG.md`][changelog]:
   (see [MSRV policy](#msrv-policy)), which is a toolchain break, not
   a source-level shape break. Treat that as the single permitted
   routine exception; any other `(breaking)` entry in a minor section
-  needs the justification spelled out in the entry itself. Exactly one
-  such entry exists: the `Drop` impls on the result trees in `2.1.0`
+  needs the justification spelled out in the entry itself. Two such
+  entries exist: the `Drop` impls on the result trees in `2.1.0`
   (#1056), landed early because holding them for `3.0` would have left
-  a remotely-reachable process abort open.
+  a remotely-reachable process abort open; and the Python
+  `analyze_batch` / `analyze_paths` `None` placeholder in `2.2.0`
+  (#1238), landed early because the previous shape silently
+  misattributed results to the wrong path.
 - **Patch bumps** list every *known* value change and any
-  internal-only refactors that have user-visible effects (e.g. a
-  default that flips). A patch bump never carries **(breaking)**.
+  internal-only refactors that have user-visible effects (a default
+  that flips, say). A patch bump never carries **(breaking)**.
 
 If you find a value change that was not flagged in the changelog,
 or a shape break that landed in a patch or minor bump, that is a

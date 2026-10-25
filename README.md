@@ -15,11 +15,13 @@ English | [日本語](README.ja.md)
 **big-code-analysis** measures how maintainable your code is. The `bca`
 command line tool computes per-function metrics for
 [more than twenty programming languages](https://dekobon.github.io/big-code-analysis/languages.html):
-cyclomatic and
+[cyclomatic](https://en.wikipedia.org/wiki/Cyclomatic_complexity) and
 [cognitive](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
 complexity,
 [Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures),
-maintainability index, ABC, lines-of-code variants, and the rest of
+[maintainability index](https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning),
+[ABC](https://en.wikipedia.org/wiki/ABC_Software_Metric), lines-of-code
+variants, and the rest of
 [the metric suite](https://dekobon.github.io/big-code-analysis/metrics.html). It parses with
 [tree-sitter](https://tree-sitter.github.io/tree-sitter/), so it needs
 no compiler, build step, or language runtime: point it at a directory
@@ -46,10 +48,10 @@ that grows the metric engine into a code-quality toolchain:
 the result, so you can see what a real run looks like before
 installing anything:
 
-- [**Live HTML hotspot report**](https://dekobon.github.io/big-code-analysis/reports/index.html)
-  — the browsable per-file, per-function view.
-- [**Live Markdown report**](https://dekobon.github.io/big-code-analysis/reports/report.md)
-  — the same run as a pull-request comment.
+- [**Live HTML hotspot report**](https://dekobon.github.io/big-code-analysis/reports/index.html):
+  the browsable per-file, per-function view.
+- [**Live Markdown report**](https://dekobon.github.io/big-code-analysis/reports/report.md):
+  the same run as a pull-request comment.
 
 The full documentation lives in
 [**the book**](https://dekobon.github.io/big-code-analysis/): metrics
@@ -62,7 +64,8 @@ them a function has become too complex to maintain. `bca check` closes
 that loop: it checks each file the agent edits and reports the
 offending functions back into the model's context the moment the edit
 lands. Install `bca` on `PATH` (see [Quick start](#quick-start)) and
-configure the hook. The Claude Code hook also needs [Node.js](https://nodejs.org/) on `PATH`.
+configure the hook. The Claude Code hook also needs
+[Node.js](https://nodejs.org/) on `PATH`.
 
 - **Claude Code**: a `PostToolUse` hook sends advisory context after
   successful edits. This repository enables the Node-based
@@ -107,12 +110,7 @@ format.
 `bca.toml`, so CI, local runs, and agent hooks all gate on the same
 signal. `bca report` turns the same run into a Markdown comment for a
 pull request or an HTML hotspot page. This repository gates itself on
-every push and publishes the result:
-
-- HTML hotspot report:
-  <https://dekobon.github.io/big-code-analysis/reports/index.html>
-- Markdown PR/MR comment:
-  <https://dekobon.github.io/big-code-analysis/reports/report.md>
+every push and publishes the live reports linked above.
 
 The [CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
 is the adoption guide: a pinned-release install with checksum
@@ -137,7 +135,9 @@ not promised.
 big-code-analysis = "2"
 ```
 
-Every grammar sits behind a per-language Cargo feature; the default is
+Every grammar sits behind a per-language
+[Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html);
+the default is
 all of them, and consumers who need a subset can disable default
 features and re-enable individual languages. See
 [Per-language Cargo features](https://dekobon.github.io/big-code-analysis/library/cargo-features.html)
@@ -181,7 +181,8 @@ metric, and updating grammars.
 
 - The vendored grammar crates (`tree-sitter-ccomment`,
   `tree-sitter-mozcpp`, `tree-sitter-mozjs`, `tree-sitter-preproc`,
-  `tree-sitter-tcl`) are released under the MIT license.
+  `tree-sitter-tcl`) are released under the
+  [MIT license](https://opensource.org/license/mit).
 
 - **big-code-analysis**, **big-code-analysis-ast**, **big-code-analysis-cli**,
   **big-code-analysis-web**, and **big-code-analysis-py** are released

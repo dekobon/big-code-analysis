@@ -8,8 +8,7 @@ public GitHub issue.**
 
 Please report vulnerabilities via one of the following:
 
-- **GitHub Security Advisories** (preferred, once the repository is
-  public): use the
+- **GitHub Security Advisories** (preferred): use the
   ["Report a vulnerability"](https://github.com/dekobon/big-code-analysis/security/advisories/new)
   button on this repository.
 - **Email**: <elijah@zupancic.name>.

@@ -1,19 +1,24 @@
 # Parse once, run metrics many times
 
-`big-code-analysis`'s one-shot entry point [`analyze`][analyze] re-parses
-its [`Source`][source] on every call. For pipelines that score a file
-multiple times — different metric subsets, an interleaved custom
-tree-sitter walk, or a metric re-run after a configuration change — that
-re-parse is wasted work.
+The one-shot entry point [`analyze`][analyze] re-parses its
+[`Source`][source] on every call. For pipelines that score a file
+several times (different metric subsets, an interleaved custom
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) walk, or a
+metric re-run after a configuration change) that re-parse is wasted
+work.
 
-The [`Ast`][ast] type, added in `1.1.0`, exposes the seam:
-parse the source once, then call [`Ast::metrics`][ast_metrics] as many
-times as you need against the held parse.
+The [`Ast`][ast] type, added in `1.1.0`, exposes the seam: parse the
+source once, then call [`Ast::metrics`][ast_metrics] as many times as
+you need against the held parse. [`Ast::from_path`][ast_from_path] is
+the file-backed counterpart: it reads, language-detects and parses
+one file, returning a `FromPathError` naming the reason when it
+cannot.
 
 [analyze]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 [ast]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
 [ast_metrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.metrics
+[ast_from_path]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_path
 
 ## When to use this
 
@@ -22,15 +27,15 @@ Reach for `Ast` when any of the following applies:
 - **Selective metric runs.** You compute one set of metrics for a
   report, then another for a CI threshold gate, against the same file.
 - **Custom tree-sitter walks.** You already drive a `tree_sitter::Tree`
-  for queries / highlighting / symbol extraction and want to fold the
+  for queries, highlighting or symbol extraction and want to fold the
   metric walker into the same parse.
-- **Cached analysis.** An LSP-like service that holds parsed files in
-  memory should be able to re-run metrics on demand when configuration
+- **Cached analysis.** A language-server-like service that holds
+  parsed files in memory re-runs metrics on demand when configuration
   changes, without going back to bytes.
 
 If you only ever compute every metric once per file, stick with
-[`analyze`][analyze] — it now delegates to `Ast` internally, so the
-shapes line up but the one-shot API stays simpler.
+[`analyze`][analyze]. It delegates to `Ast` internally, so the shapes
+line up, but the one-shot API stays simpler.
 
 ## Selective metrics across calls
 
@@ -66,8 +71,8 @@ obtained from it resolve against `Ast::source` (see the [note on the
 C++ preprocessor](#c-preprocessor) below for what `source` returns
 under macro expansion).
 
-> **For realistic AST work** — counting node kinds, finding constructs
-> by name, detecting parse errors, building a symbol table — see
+> **For realistic AST work** (counting node kinds, finding constructs
+> by name, detecting parse errors, building a symbol table) see
 > [Walking the AST directly](ast-traversal.md). The example below is a
 > minimal smoke test; the dedicated chapter shows the full pattern
 > (reusable depth-first walker, field-name lookup, error detection).
@@ -91,11 +96,13 @@ println!("name = {:?}", space.name);
 
 ## Operators and operands on the same parse
 
-[`Ast::ops`][ast_ops] returns the per-space operator/operand `Ops`
-tree (the data behind the Halstead metrics). The top-level
-`Ops::name` is the `Source::name` you supplied — carried
-explicitly, including the `None` case — rather than a lossy-path
-string, so `Ops::name_was_lossy` is never set on this path.
+[`Ast::ops`][ast_ops] returns the per-space operator and operand
+`Ops` tree, the data behind the
+[Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures)
+metrics. The top-level `Ops::name` is the `Source::name` you
+supplied, carried explicitly (including the `None` case) rather than
+a lossy-path string, so `Ops::name_was_lossy` is never set on this
+path.
 
 ```rust,no_run
 use big_code_analysis::{Ast, LANG, Source};
@@ -115,10 +122,10 @@ assert!(ops.operators.iter().any(|op| op == "+"));
 
 ## Adopting a caller-built tree {#adopting-a-caller-built-tree}
 
-If you already build the `tree_sitter::Tree` yourself (e.g. because
-your editor / LSP has its own parser pool),
+If you already build the `tree_sitter::Tree` yourself (for example,
+because your editor or language server has its own parser pool),
 [`Ast::from_tree_sitter`][ast_from_ts] is the tree-adoption seam. It
-carries an explicit `name: Option<String>` end-to-end instead of
+carries an explicit `name: Option<String>` end to end instead of
 deriving one from a path via lossy UTF-8 conversion.
 
 [ast_from_ts]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_tree_sitter
@@ -144,34 +151,38 @@ let ast = Ast::from_tree_sitter(LANG::Rust, tree, source, None)
 let _ = ast.metrics(MetricsOptions::default()).expect("walker succeeds");
 ```
 
-The tree must have been produced from `code` with the grammar returned
-by [`LANG::tree_sitter_language`][lang_grammar] for `lang`; a
-mismatch is not `unsafe`, but the metric walker matches on tree-sitter
-`kind_id` values that come from the language's enum, so values from a
-different grammar yield nonsensical results.
+The tree must have been produced from `code` with the grammar
+returned by [`LANG::tree_sitter_language`][lang_grammar] for `lang`.
+A mismatch is not `unsafe`, but it is a precondition violation. The
+walk slices `code` by node byte ranges, so a tree built from *longer*
+source than `code` indexes out of bounds and panics. A tree from a
+different grammar that stays in bounds yields nonsensical results
+instead, because the metric walker matches on tree-sitter `kind_id`
+values from the language's enum.
 
 [lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
 ## C++ preprocessor {#c-preprocessor}
 
-When `Ast::parse` is called on a [`Source`][source] carrying preprocessor
-inputs (`Source::with_preproc_path` + `Source::with_preproc`) and the
-language is [`LANG::Cpp`][lang], the macro pre-pass runs before
-`tree-sitter` does — and `Ast::source` returns the *expanded* bytes the
-parser actually saw, not the original input.
+When `Ast::parse` is called on a [`Source`][source] carrying
+preprocessor inputs (`Source::with_preproc_path` plus
+`Source::with_preproc`) and the language is a C-family one
+([`LANG::C`][lang], `LANG::Cpp` or `LANG::Mozcpp`), the macro
+pre-pass runs before `tree-sitter` does. `Ast::source` then returns
+the *expanded* bytes the parser saw, not the original input.
 
 `Ast::from_tree_sitter` is unaffected: it adopts whatever tree the
-caller built. Whatever expansion (or lack thereof) the caller applied
-before building the tree is what `Ast::source` reflects.
+caller built. `Ast::source` reflects whatever expansion, if any, the
+caller applied before building the tree.
 
 [lang]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html
 
 ## Concurrency
 
-`Ast` is `Send + Sync`. Running `Ast::metrics` from multiple threads
-against the same `&Ast` is safe — the walker only reads from the held
-`tree_sitter::Tree`. (Benchmarking parallel metric runs is a separate
-follow-up.)
+`Ast` is `Send + Sync`. Running `Ast::metrics` from several threads
+against the same `&Ast` is safe, because the walker only reads from
+the held `tree_sitter::Tree`. Benchmarking parallel metric runs is a
+separate follow-up.
 
 ## Out of scope
 

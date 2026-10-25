@@ -2,10 +2,11 @@
 
 The parse and classification layer behind
 [`big-code-analysis`](https://crates.io/crates/big-code-analysis): the
-tree-sitter wrappers (`Node`, `Ancestors`), the generated per-grammar
-kind enums, the `LANG` enum and language detection, the `Checker` /
-`Getter` / `Alterator` classifiers, the C-family preprocessor pass,
-comment stripping, and the AST dump. It computes no metric.
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) wrappers
+(`Node`, `Ancestors`), the generated per-grammar kind enums, the
+`LANG` enum and language detection, the `Checker` / `Getter` /
+`Alterator` classifiers, the C-family preprocessor pass, comment
+stripping, and the AST dump. It computes no metric.
 
 ## This crate is internal plumbing
 
@@ -20,13 +21,15 @@ preprocessor types, the file readers), which its
 covers. Depend on this crate directly only when you accept re-pinning
 on every release.
 
-The split exists (#1376) so a second structural consumer — a linter, a
-call-graph builder, a language server — can share one classification
-layer without the metric machinery. Every per-language Cargo feature
-of `big-code-analysis` (`rust`, `python`, …, `all-languages`) is a
-feature of this crate under the same name, and the grammar crates are
-dependencies here.
+The split exists (#1376) so a second structural consumer (a linter, a
+call-graph builder, a language server) can share one classification
+layer without the metric machinery. Every per-language
+[Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html)
+of `big-code-analysis` (`rust`, `python`, and so on, up to
+`all-languages`) is a feature of this crate under the same name, and
+the grammar crates are dependencies here.
 
 ## License
 
-MPL-2.0, like the rest of the repository.
+[MPL-2.0](https://www.mozilla.org/en-US/MPL/2.0/), like the rest of
+the repository.

@@ -7,12 +7,10 @@ API. This page is for the operator running the daemon: how to build
 and start it, which flags and environment variables tune it, and the
 trust boundaries to respect before exposing it.
 
-It is the operations companion to two reference pages. The
-[REST API reference](rest.md) documents every endpoint, its request
-and response shapes, and the error contract. The
-[Driving the REST API](../recipes/rest-api.md) recipe shows
-end-to-end `curl` calls. This page covers the process itself and links
-to those two rather than repeating them.
+Use the [REST API reference](rest.md) for request and response
+fields, and [Driving the REST API](../recipes/rest-api.md) for
+complete [`curl`](https://curl.se/) examples. This page covers the
+process itself and links to those two rather than repeating them.
 
 ## Build and run
 
@@ -39,9 +37,10 @@ can restart or alert.
 
 ### Building with a subset of languages does not work
 
-The shipped `bca-web` binary compiles every supported tree-sitter
-grammar in. The `big-code-analysis-web` crate pins the library's
-`all-languages` feature set explicitly, so passing
+The shipped `bca-web` binary compiles every supported
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammar in.
+The `big-code-analysis-web` crate pins the library's `all-languages`
+feature set explicitly, so passing
 `--no-default-features` or a custom `--features` list to
 `cargo build -p big-code-analysis-web` does **not** drop grammars from
 the resulting binary. Dropping a grammar silently from a user-facing
@@ -74,7 +73,8 @@ and `cpuset`-aware on Linux: in a container with a CPU quota it
 resolves to the quota rather than the host's physical core count,
 matching the `bca` CLI's `--num-jobs`. This count sizes the worker
 pool and the parse-admission semaphore, so it caps how many parses run
-concurrently. The minimum is `1`; `0` is rejected at parse time.
+concurrently. The minimum is `1`; `0` is rejected when the flag is
+parsed.
 
 `--parse-timeout-secs` bounds how long a single parse may run before
 the request returns `504 Gateway Timeout`. The default of `30` guards
@@ -84,11 +84,12 @@ below; use `0` only when an unbounded parse is acceptable. See the
 [REST API reference](rest.md) for the response body the timeout
 returns.
 
-CORS is off by default. The [CORS](rest.md#cors) section of the
-reference documents it in full, covering preflight handling, the
-wildcard form, and the absence of credentials. The short version: pass
-`--cors` with an explicit origin allow-list to let browser tooling
-read responses; omit it to emit no `Access-Control-*` headers at all.
+[CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) is off
+by default. The [CORS](rest.md#cors) section of the reference
+documents it in full, covering preflight handling, the wildcard form,
+and the absence of credentials. The short version: pass `--cors` with
+an explicit origin allow-list to let browser tooling read responses;
+omit it to emit no `Access-Control-*` headers at all.
 
 ## Environment variables
 
@@ -119,11 +120,10 @@ because tree-sitter cannot be interrupted mid-parse. To stop sustained
 pathological input from piling up unbounded background work, new
 requests are rejected with `503 Service Unavailable` once the count of
 orphaned tasks reaches a soft cap. The cap defaults to
-`max(num_jobs * 2, 4)` and is overridable through
-`BCA_MAX_ORPHANED_TASKS` (parsed as an unsigned integer; an invalid or
-zero value falls back to the default). Setting `--parse-timeout-secs 0`
-disables this mechanism entirely, since with no deadline no task is
-ever orphaned.
+`max(num_jobs * 2, 4)`; `BCA_MAX_ORPHANED_TASKS` overrides it (parsed
+as an unsigned integer; an invalid or zero value falls back to the
+default). Setting `--parse-timeout-secs 0` disables this mechanism
+entirely, since with no deadline no task is ever orphaned.
 
 ## Security and trust boundaries
 

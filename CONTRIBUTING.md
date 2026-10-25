@@ -1,7 +1,8 @@
 # Contributing to big-code-analysis
 
-Thanks for considering a contribution. This document covers the
-essentials; the deeper conventions live in
+Thanks for considering a contribution. This document covers what a
+contributor needs to set up a checkout, run the validation gate, and
+open a pull request. The deeper conventions live in
 [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), and the
 [developer guide under `big-code-analysis-book/`](big-code-analysis-book/src/developers/).
 
@@ -24,11 +25,12 @@ cargo build --workspace
 cargo test --workspace --all-features
 ```
 
-`make worktree-setup` checks out the integration corpora and, if `uv` is
-installed, the Python-bindings venv. It is idempotent, so re-run it any
-time the environment looks wrong — including after an interrupted corpus
-checkout, which leaves the submodule empty at the recorded SHA where a
-plain `git submodule update --init` is a silent no-op.
+`make worktree-setup` checks out the integration corpora and, if
+[uv](https://docs.astral.sh/uv/) is installed, the Python-bindings
+venv. It is idempotent, so re-run it any
+time the environment looks wrong, including after an interrupted corpus
+checkout. That interruption leaves the submodule empty at the recorded
+SHA, where a plain `git submodule update --init` is a silent no-op.
 
 MSRV is `1.94`, declared once in the root `Cargo.toml`
 (`[workspace.package] rust-version = "1.94"`) and inherited by every
@@ -36,20 +38,20 @@ member crate.
 
 Integration snapshots live in the
 [`big-code-analysis-output`](https://github.com/dekobon/big-code-analysis-output)
-submodule under `tests/repositories/`. Initialize submodules before
-running the test suite, otherwise 24 tests fail; each says so.
+submodule under `tests/repositories/`. The corpus-backed tests fail
+until the submodules are checked out, and each says so.
 
-The out-of-band benchmark harness (`make bench-*`) additionally walks
+The out-of-band benchmark harness (`make bench-*`) also walks
 `DeepSpeech`'s own submodules, which the corpus tests exclude and
 `worktree-setup` therefore does not fetch. See
 [Benchmarking](docs/development/benchmarking.md) for its recursive
 checkout.
 
-The `cargo-fuzz` targets (`make fuzz-*`) are likewise out of band and
-need a nightly toolchain plus `cargo install cargo-fuzz --locked`; every
-recipe skips with a printed reason when either is missing, so a
-stable-only checkout is not blocked. See
-[Fuzzing](docs/development/fuzzing.md).
+The [`cargo-fuzz`](https://rust-fuzz.github.io/book/cargo-fuzz.html)
+targets (`make fuzz-*`) are likewise out of band and need a nightly
+toolchain plus `cargo install cargo-fuzz --locked`; every recipe skips
+with a printed reason when either is missing, so a stable-only checkout
+is not blocked. See [Fuzzing](docs/development/fuzzing.md).
 
 The two binaries shipped with the workspace are:
 
@@ -60,8 +62,9 @@ The two binaries shipped with the workspace are:
 
 ### Optional: a faster linker
 
-Every test binary in this workspace statically links the tree-sitter
-runtime and all twenty-odd grammars, so linking — not compiling — is the
+Every test binary in this workspace statically links the
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) runtime and
+all twenty-odd grammars, so linking, not compiling, is the
 tail of an incremental `cargo test` after a one-line edit. GNU `ld`,
 still the default on most Linux toolchains, is single-threaded and is
 usually the slowest part of that.
@@ -73,34 +76,41 @@ everyone who does not have it. Install one yourself and add it to a
 **local, untracked** `.cargo/config.toml`:
 
 ```toml
-# mold — https://github.com/rui314/mold (apt: mold, brew: mold)
+# mold: https://github.com/rui314/mold (apt: mold, brew: mold)
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 ```
 
-For LLVM's `lld` (`apt install lld`, or bundled with a Homebrew LLVM),
-substitute `-fuse-ld=lld`. On macOS the platform linker is already
-parallel and neither is needed. Note that `.cargo/config.toml` *is*
-tracked here — it carries the `cargo mutants` and `cargo xtask`
-aliases — so add the stanza without committing it, or put it in your
-user-level `~/.cargo/config.toml` instead.
+For LLVM's [`lld`](https://lld.llvm.org/) (`apt install lld`, or
+bundled with a Homebrew LLVM), substitute `-fuse-ld=lld`. On macOS the
+platform linker is already parallel and neither is needed.
+`.cargo/config.toml` *is* tracked here, carrying the `cargo mutants`
+and `cargo xtask` aliases, so add the stanza without committing it, or
+put it in your user-level `~/.cargo/config.toml` instead.
 
 ## Local validation gate
 
 `make pre-commit` is the canonical entry point for the full validation
 gate. In one parallel pass it runs, among other stages:
 
-- `cargo fmt --check`.
-- `cargo clippy --workspace --all-targets -- -D warnings` in both
+- `cargo fmt --check` ([rustfmt](https://github.com/rust-lang/rustfmt)).
+- `cargo clippy --workspace --all-targets -- -D warnings`
+  ([Clippy](https://doc.rust-lang.org/clippy/)) in both
   default-features and `--all-features` flavours.
-- The full test suite via `make test` (`cargo-nextest` when present,
-  otherwise `cargo test`) plus `make test-doc` for doctests.
+- The full test suite via `make test`
+  ([`cargo-nextest`](https://nexte.st/) when present, otherwise
+  `cargo test`) plus `make test-doc` for doctests.
 - `cargo doc --no-deps --workspace --all-features` with
   `RUSTDOCFLAGS="-D warnings"`.
-- `cargo +nightly udeps`.
+- `cargo +nightly udeps`
+  ([`cargo-udeps`](https://crates.io/crates/cargo-udeps)).
 - Markdown / TOML / shell / Makefile / GitHub Actions lint families
-  (`rumdl`, `taplo`, `shellcheck`, `shfmt`, `checkmake`,
-  `actionlint`).
+  ([`rumdl`](https://github.com/rvben/rumdl),
+  [`taplo`](https://taplo.tamasfe.dev/),
+  [`shellcheck`](https://www.shellcheck.net/),
+  [`shfmt`](https://github.com/mvdan/sh),
+  [`checkmake`](https://github.com/checkmake/checkmake),
+  [`actionlint`](https://github.com/rhysd/actionlint)).
 - The man-page drift gate and the `bca` self-scan threshold gates.
 - `./utils/check-snapshot-anchors.py` (see "Snapshot anchors" below).
 - The Python lint / type-check / test stages (see below), skipped
@@ -121,13 +131,13 @@ BCA_GATE: pass (gate=pre-commit)
 BCA_GATE: fail (gate=pre-commit, exit=2, stage=_pc-fmt)
 ```
 
-Grep for a line *starting* `BCA_GATE:` — nothing else in the repository
+Grep for a line *starting* `BCA_GATE:`. Nothing else in the repository
 emits one, there is exactly one per run, and it is the last thing either
 gate writes.
 
 Do **not** read an outcome out of make's `Error N` lines. The gate is a
 parallel DAG, so `make[2]: *** [… _pc-fmt] Error 2` is printed the
-instant a stage fails, while other stages are still running — it is
+instant a stage fails, while other stages are still running, and it is
 routinely followed by several more stages' *successful* output. In one
 measured run the failing stage was reported at line 58 of a 236-line
 log, with 174 lines of green output after it.
@@ -138,7 +148,7 @@ stages already running finish and can fail too. It reads `unknown` when
 the gate died before make named a stage.
 
 **No `BCA_GATE:` line at all is a third state, not a pass.** It means
-the run never finished — it crashed, was killed, or was interrupted. On
+the run never finished: it crashed, was killed, or was interrupted. On
 the failure path make appends its own `make: *** [… pre-commit] Error 2`
 epilogue after the verdict, because the gate exits non-zero and make
 says so; the verdict line does not change either gate's exit status.
@@ -172,50 +182,53 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 ```
 
-If `pre-commit` is installed, also run `pre-commit run --all-files`;
-the project's `.pre-commit-config.yaml` wires clippy, `cargo +nightly
-udeps`, the test suite, `ruff-check` + `ruff-format`, and a local
-`mypy --strict` hook into the standard hook flow.
+If [`pre-commit`](https://pre-commit.com/) is installed, also run
+`pre-commit run --all-files`; the project's `.pre-commit-config.yaml`
+wires clippy, `cargo +nightly udeps`, the test suite, `ruff-check` +
+`ruff-format`, and a local `mypy --strict` hook into the standard hook
+flow.
 
 ### Python bindings (`big-code-analysis-py`)
 
-The Python bindings use `ruff` for lint + format and `mypy --strict`
-plus `pyright` for type checking. `make pre-commit` and `make ci`
-run these alongside the Rust gates when the tools are present.
+The Python bindings use [`ruff`](https://docs.astral.sh/ruff/) for
+lint + format and [`mypy --strict`](https://mypy.readthedocs.io/) plus
+[`pyright`](https://microsoft.github.io/pyright/) for type checking.
+`make pre-commit` and `make ci` run these alongside the Rust gates when
+the tools are present.
 
-**Canonical install path: `make py-bootstrap`** (requires
-[uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`,
+**Canonical install path: `make py-bootstrap`** (requires uv:
+`curl -LsSf https://astral.sh/uv/install.sh | sh`,
 `brew install uv`, or `pipx install uv`). This runs
 `uv sync --locked --extra dev` against the checked-in `uv.lock`, so
-the resolved ruff/mypy/pyright/maturin/pytest versions are identical
-across every contributor on this path.
+the resolved ruff / mypy / pyright /
+[maturin](https://www.maturin.rs/) / [pytest](https://docs.pytest.org/)
+versions are identical across every contributor on this path.
 
 After editing the `dev` extra in `pyproject.toml`, run
 `make py-relock`, which regenerates `uv.lock` **and** the hash-pinned
 exports under `big-code-analysis-py/requirements/` (`dev.txt`,
-`examples.txt`). `make py-bootstrap` will refuse to silently rewrite
-`uv.lock` (intentional, so lockfile churn is always a deliberate,
-reviewable commit). Resolve `uv.lock` rebase conflicts by re-running
-`make py-relock` rather than hand-merging the file. CI consumes
-`uv.lock` through the requirements exports (`pip install
---require-hashes -r …` in the workflows), so a `uv.lock` change and
-its regenerated exports must land in the same commit.
+`examples.txt`). `make py-bootstrap` refuses to silently rewrite
+`uv.lock`, so lockfile churn is always a deliberate, reviewable commit.
+Resolve `uv.lock` rebase conflicts by re-running `make py-relock`
+rather than hand-merging the file. CI consumes `uv.lock` through the
+requirements exports (`pip install --require-hashes -r …` in the
+workflows), so a `uv.lock` change and its regenerated exports must land
+in the same commit.
 
-Note that `make py-relock` re-resolves but does not *upgrade*: `uv
-lock` keeps a package at its locked version as long as that version
-still satisfies the requirement, so widening a bound alone changes
-nothing. Adopting a newer release is a second, explicit step —
-`uv lock --upgrade-package <name>` from `big-code-analysis-py`,
-followed by the two `uv export` commands `py-relock` runs. #1222
-raised ruff's ceiling to `<0.17` and would have shipped a still-locked
-0.15.22 without it.
+`make py-relock` re-resolves but does not *upgrade*: `uv lock` keeps a
+package at its locked version as long as that version still satisfies
+the requirement, so widening a bound alone changes nothing. Adopting a
+newer release is a second, explicit step: `uv lock --upgrade-package
+<name>` from `big-code-analysis-py`, followed by the two `uv export`
+commands `py-relock` runs. #1222 raised ruff's ceiling to `<0.17` and
+would have shipped a still-locked 0.15.22 without it.
 
 Alternative install paths (`mise install` via `mise.toml`, direct
 `pipx install ruff/mypy/pyright/maturin`, `python -m venv .venv &&
 pip install -e ".[dev]"`) still work but bypass `uv.lock`; resolved
 versions can drift from peers and from CI. They remain documented
 for contributors with environment constraints that preclude uv.
-None of them pins ruff, deliberately — see below.
+None of them pins ruff, deliberately; see below.
 
 #### The ruff version is gated
 
@@ -225,12 +238,12 @@ One ruff version is adopted, and `uv.lock` is where it is decided.
 declarations agree with it:
 
 - the `ruff-pre-commit` `rev:` in `.pre-commit-config.yaml`, which must
-  be `v` + the locked version — otherwise `pre-commit run --all-files`
+  be `v` + the locked version, otherwise `pre-commit run --all-files`
   runs a different ruff than CI;
 - the `ruff==` pin in `big-code-analysis-py/requirements/dev.txt`, the
   hash-pinned export CI installs from;
 - the `ruff` bound in `pyproject.toml`, which must match the one uv
-  recorded resolving against — a bound edited without `make py-relock`
+  recorded resolving against; a bound edited without `make py-relock`
   leaves CI installing a version the manifest no longer admits.
 
 Adopting a newer ruff is therefore `uv lock --upgrade-package ruff`
@@ -255,7 +268,7 @@ maturin develop
 python -m pytest
 ```
 
-Or simply `make py-test` from the repo root, which performs the
+Or run `make py-test` from the repo root, which performs the
 maturin-develop step implicitly. CI runs the same flow across
 Linux / macOS / Windows on every supported Python version,
 gated by a `dorny/paths-filter` job so Rust-only PRs skip it
@@ -265,6 +278,45 @@ To remove Python build artifacts (`.venv`, compiled extension,
 per-tool caches, `__pycache__` trees), run `make py-clean`. For a
 full wipe of both cargo `target/` and Python state, run
 `make distclean`.
+
+## Project conventions
+
+- **Rust style**: `cargo fmt`, clippy clean with
+  `--workspace --all-targets -- -D warnings`. No `unsafe` code (one
+  narrow PyO3 FFI exception; see `AGENTS.md`). Avoid
+  `unwrap` / `expect` / `panic!` / `assert!` in non-test code;
+  propagate errors with `?`.
+- **Visibility**: prefer `pub(crate)` over `pub`; widen visibility
+  only when an item is re-exported from `lib.rs`.
+- **Edition**: 2024; `let-else`, let-chains, and other 2024 features
+  are available.
+- **Borrowing**: prefer `&str` over `String` parameters unless
+  ownership is required downstream. Never use `to_string_lossy()` on
+  paths used as identifiers (map keys, JSON output, error correlation);
+  use `to_str()` with explicit error handling.
+- **Per-language modules mirror each other**: a bug in one
+  `big-code-analysis-ast/src/languages/language_<lang>.rs` typically
+  exists in several. Fix every affected sibling together.
+- **Public API**: this is a published library on crates.io. Treat
+  `lib.rs` re-exports, public traits (`ParserTrait`, `LanguageInfo`,
+  …), and public types (`CodeMetrics`, `FuncSpace`, language enums) as
+  a stable surface; break them only with an intentional version bump.
+
+## Commits and pull requests
+
+- Follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `feat(scope): …`, `fix(scope): …`, `refactor(scope): …`,
+  `docs(scope): …`, and so on.
+- Commit in small, reviewable steps. Each commit should build and pass
+  tests on its own where practical.
+- When fixing a bug, add a regression test that would catch the exact
+  bug if reintroduced.
+- For user-visible changes (API additions, behaviour changes, bug
+  fixes), add an entry to [`CHANGELOG.md`](CHANGELOG.md) under
+  `## [Unreleased]`. Refactors, docs-only, and CI changes don't need a
+  changelog entry.
+- Open the pull request against `main`. Link the issue with
+  `Fixes #NNN` in the PR body.
 
 ## Snapshot anchors
 
@@ -331,45 +383,6 @@ See lesson 8 in
 [`docs/development/lessons_learned.md`](docs/development/lessons_learned.md)
 for why this matters.
 
-## Project conventions
-
-- **Rust style**: `cargo fmt`, clippy clean with
-  `--workspace --all-targets -- -D warnings`. No `unsafe` code (one
-  narrow PyO3 FFI exception; see `AGENTS.md`). Avoid
-  `unwrap` / `expect` / `panic!` / `assert!` in non-test code;
-  propagate errors with `?`.
-- **Visibility**: prefer `pub(crate)` over `pub`; widen visibility
-  only when an item is re-exported from `lib.rs`.
-- **Edition**: 2024; `let-else`, let-chains, and other 2024 features
-  are available.
-- **Borrowing**: prefer `&str` over `String` parameters unless
-  ownership is required downstream. Never use `to_string_lossy()` on
-  paths used as identifiers (map keys, JSON output, error correlation);
-  use `to_str()` with explicit error handling.
-- **Per-language modules mirror each other**: a bug in one
-  `big-code-analysis-ast/src/languages/language_<lang>.rs` typically exists in several. Fix
-  every affected sibling together.
-- **Public API**: this is a published library on crates.io. Treat
-  `lib.rs` re-exports, public traits (`ParserTrait`, `LanguageInfo`,
-  …), and public types (`Metrics`, `FuncSpace`, language enums) as a
-  stable surface; break them only with an intentional version bump.
-
-## Commits and pull requests
-
-- Follow [Conventional Commits](https://www.conventionalcommits.org/):
-  `feat(scope): …`, `fix(scope): …`, `refactor(scope): …`,
-  `docs(scope): …`, etc.
-- Commit in small, reviewable steps. Each commit should build and pass
-  tests on its own where practical.
-- When fixing a bug, add a regression test that would catch the exact
-  bug if reintroduced.
-- For user-visible changes (API additions, behaviour changes, bug
-  fixes), add an entry to [`CHANGELOG.md`](CHANGELOG.md) under
-  `## [Unreleased]`. Refactors, docs-only, and CI changes don't need a
-  changelog entry.
-- Open the pull request against `main`. Link the issue with
-  `Fixes #NNN` in the PR body.
-
 ## Adding a new language or bumping a grammar
 
 The two workflows most likely to trip a new contributor have dedicated
@@ -378,10 +391,10 @@ guides under `big-code-analysis-book/src/developers/`:
 - [Adding a new language](big-code-analysis-book/src/developers/new-language.md).
 - [Updating tree-sitter grammars](big-code-analysis-book/src/developers/update-grammars.md).
 
-External grammar crates are version-pinned (`=0.23.x`, etc.) in the
-root `Cargo.toml`. Do not loosen those pins without explicit approval;
-a grammar bump is a deliberate, separate change and snapshot tests
-shift accordingly.
+External grammar crates are version-pinned (`=0.23.5`, `=0.25.1`, and
+so on) in the root `Cargo.toml`. Do not loosen those pins without
+explicit approval; a grammar bump is a deliberate, separate change and
+snapshot tests shift accordingly.
 
 ## Code review
 

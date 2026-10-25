@@ -1,74 +1,29 @@
 # Check
 
-`bca check` evaluates per-function metrics against thresholds and exits
-non-zero when any function exceeds a limit. It is the CI integration
-point: wire it into a build step and a regression in code complexity
-fails the pipeline before the change lands.
+`bca check` compares metrics against thresholds at each metric's own
+scope (function, file, or container) and exits non-zero when any value
+exceeds its limit. It is the CI integration point: wire it into a build
+step and a regression in code complexity fails the pipeline before the
+change lands.
 
-> **Looking for full CI recipes?** The
-> [CI integration recipe](../recipes/ci.md) consolidates the
-> `--report-format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
-> examples, the baseline / ratchet pattern, and the GitLab Code Quality
-> path. This page documents the command itself; the recipe documents
-> how to wire it into a pipeline.
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| `0`  | All functions within thresholds (or `--no-fail` set). |
-| `2`  | At least one threshold exceeded. |
-| `1`  | Tool error (bad arguments, unreadable config or input, unknown metric). |
-
-`1` is reserved so CI can distinguish a regression (`2`) from a tool
-misconfiguration (`1`).
-
-A gate that could not read all of its input has no verdict to report,
-so three input problems exit `1` rather than `0`: nothing matched
-`--paths` / `--include` / `--exclude`, any input file that failed to
-read, and any directory the walk could not
-[list](README.md#unlistable-directories). The last two are the
-workspace-wide [unreadable-input rule](README.md#unreadable-input) —
-`check` is not special here, it is just where the rule matters most,
-since a gate reporting clean on a tree it could not read is
-indistinguishable from a gate that passed. All three run before the gate
-is evaluated and are not suppressed by `--no-fail`, which suppresses
-threshold failures, not broken input, so none of them lets
-`--write-baseline` record a partial run.
-
-### Tiered exit codes (`--exit-codes=tiered`) {#tiered-exit-codes---exit-codestiered}
-
-`--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
-`bca.toml`) splits the single violation code `2` by severity so CI can
-branch on it without parsing the `[new]` / `[regr …]` row tags:
-
-| Code | Meaning (tiered mode) |
-|------|-----------------------|
-| `0`  | All functions within thresholds (or `--no-fail` set). |
-| `1`  | Tool error. |
-| `2`  | New offenders only (no `--baseline` entry matched). |
-| `3`  | Baseline regressions only (a baselined offender worsened). |
-| `4`  | Both new offenders and regressions. |
-| `5`  | A `--tier=soft` violation that also breaches the hard limit. |
-
-The tiered codes are opt-in; the default contract above stays
-`0`/`1`/`2`. Every fail-state remains non-zero, so `exit != 0 → fail`
-wrappers keep working — only tooling that tests `$? -eq 2` explicitly
-needs to widen to `2`-`5`. `--no-fail` still forces exit `0`. Code `5`
-is emitted only at the soft tier; at the hard tier every violation is a
-hard breach by definition, so the `2`/`3`/`4` split applies instead.
-`--exit-codes <default|tiered>` is value-taking; the CLI value overrides
-the `[check] exit_codes` manifest key in either direction. An invalid
-`exit_codes` value is a tool error (`1`). `--print-effective-config`
-reports the resolved `exit_codes` style. The deprecated
-`--strict-exit-codes` flag is a one-cycle alias for `--exit-codes
-tiered` (warns; removed at the next major).
+This page documents the command. The first half covers what most runs
+need: declaring thresholds, exit codes, offender output, baselines, and
+CI wiring. The second half covers the exemption mechanisms, per-language
+limits, the soft tier, and the edge cases in how they combine. For
+runnable pipeline examples see the
+[CI integration recipe](../recipes/ci.md), which covers the
+`--report-format` matrix,
+[GitHub Actions](https://docs.github.com/en/actions) and
+`.gitlab-ci.yml` examples, the baseline ratchet, and the
+[GitLab Code Quality](https://docs.gitlab.com/ci/testing/code_quality/)
+path.
 
 ## Declaring thresholds
 
 Pass `--threshold <metric>=<limit>` once per metric (repeatable). Metric
-names match `bca list-metrics`; sub-metrics use a dotted form. `0` is a
-valid limit and means "no value permitted".
+names match `bca list-metrics`; sub-metrics use a dotted form. A value
+violates its limit only when it *exceeds* it, so `0` is a valid limit
+that permits exactly zero.
 
 ```bash
 bca check --paths src/ \
@@ -77,9 +32,9 @@ bca check --paths src/ \
     --threshold loc.lloc=200
 ```
 
-Or keep thresholds in the `bca.toml` manifest (one place to version CI
-thresholds alongside the code). Dropped at the repo root, it is
-auto-discovered — a bare `bca check` reads it with no `--config` flag:
+Or keep thresholds in the `bca.toml` manifest, so CI thresholds are
+versioned alongside the code. A manifest at the repo root is discovered
+automatically: a bare `bca check` reads it with no `--config` flag.
 
 ```toml
 # bca.toml
@@ -130,7 +85,7 @@ ignored.
 
 ### Threshold scope {#threshold-scope}
 
-A threshold is checked only against the space kind its metric actually
+A threshold is checked only against the space kind its metric
 measures, so a metric's whole-file or whole-`impl` aggregate is never
 mistaken for a per-function limit. Each metric has a fixed scope; there
 is nothing to configure.
@@ -142,232 +97,83 @@ is nothing to configure.
 | Container | classes, structs, traits, impls, namespaces, interfaces | `nom`, `wmc`, `npm`, `npa` |
 
 The Function-scoped metrics include the subtree sums (`nargs`, `nexits`,
-`tokens`, `halstead.*`): these still roll a function's own nested closures
-into its figure, but they are no longer summed across an entire file or
-`impl`. The Container-scoped metrics describe a type's method set (methods
-per class, weighted methods, public members), so they gate the container
-rather than every leaf function. This means a clean file whose functions
-are individually fine no longer trips an additive limit purely from the
-file-wide total — the false positive that `bca: suppress-file` markers
-used to mask.
+`tokens`, `halstead.*`). These still roll a function's own nested closures
+into its figure, but they are not summed across an entire file or
+`impl`. The Container-scoped metrics describe a type's method set
+(methods per class, weighted methods, public members), so they gate the
+container rather than every leaf function. A file whose functions are
+individually fine therefore never trips an additive limit on the
+file-wide total, which is the false positive `bca: suppress-file`
+markers used to mask.
 
 The bare `bca diff --metric` spelling of a `loc` sub-metric is accepted
-as an alias for its dotted form (`sloc` is equivalent to `loc.sloc`, and
-so on for `ploc`/`lloc`/`cloc`/`blank`/`dloc`), so a name copied from a `diff`
-run gates correctly. A bare family head with no single threshold scalar
+as an alias for its dotted form (`sloc` for `loc.sloc`, and so on for
+`ploc`/`lloc`/`cloc`/`blank`/`dloc`), so a name copied from a `diff` run
+gates correctly. A bare family head with no single threshold scalar
 (`halstead`, `mi`) is ambiguous and rejected with a "did you mean" hint
-listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).
+listing the concrete sub-metrics; pick one, such as `halstead.volume`.
 
 The two spellings name one metric, so they override each other wherever
-limits merge: a `[thresholds.lang.c] ploc = 100` replaces the global
-`"loc.ploc"`, and `--threshold ploc=100` replaces either. Within a single
-table, writing both is an error rather than a silent winner — set the
+limits merge: a [per-language](#per-language-limits)
+`[thresholds.lang.c] ploc = 100` replaces the global `"loc.ploc"`, and
+`--threshold ploc=100` replaces either. Within a single
+table, writing both is an error rather than a silent winner. Set the
 metric once, under whichever spelling you prefer.
 
-### Per-language limits (`[thresholds.lang.<slug>]`) {#per-language-limits}
+## Exit codes
 
-Metric distributions vary by language more than by project — the
-measured 97.5th-percentile per-function `cognitive` value runs from 4 in
-C# to 50 in C. A `[thresholds.lang.<slug>]` table gives one language its
-own limits, layered over the project-wide table:
+| Code | Meaning |
+|------|---------|
+| `0`  | All functions within thresholds (or `--no-fail` set). |
+| `2`  | At least one threshold exceeded. |
+| `1`  | Tool error (bad arguments, unreadable config or input, unknown metric). |
 
-```toml
-[thresholds]
-cognitive = 15
-cyclomatic = 15
-"loc.ploc" = 600
+`1` is reserved so CI can distinguish a regression (`2`) from a tool
+misconfiguration (`1`).
 
-[thresholds.lang.c]
-cognitive = 30
-"loc.ploc" = 1200
+A gate that could not read all of its input has no verdict to report,
+so three input problems exit `1` rather than `0`: nothing matched
+`--paths` / `--include` / `--exclude`, any input file that failed to
+read, and any directory the walk could not
+[list](README.md#unlistable-directories). The last two are the
+workspace-wide [unreadable-input rule](README.md#unreadable-input).
+`check` is not special here; it is where the rule matters most, because
+a gate reporting clean on a tree it could not read looks the same as a
+gate that passed. All three checks run before the gate is evaluated.
+`--no-fail` does not suppress them, since it suppresses threshold
+failures rather than broken input, so none of them lets
+`--write-baseline` record a partial run.
 
-[thresholds.lang.elixir]
-nom = 150
-wmc = 300
-```
+### Tiered exit codes (`--exit-codes=tiered`) {#tiered-exit-codes---exit-codestiered}
 
-C is now gated at `cognitive = 30` and `loc.ploc = 1200` while keeping
-the project's `cyclomatic = 15`; every other language keeps all three.
-The override is **per metric**, not a replacement table — a language
-inherits every limit it does not restate. Which numbers to change, and
-the two cases where an override is a correction rather than tuning, are
-in [Choosing thresholds](../recipes/thresholds.md#per-language).
+`--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
+`bca.toml`) splits the single violation code `2` by severity so CI can
+branch on it without parsing the `[new]` / `[regr …]` row tags a
+[baseline](#baselines) run prints:
 
-The key is the canonical language slug, the same vocabulary `--language`
-accepts: `rust`, `python`, `cpp`, `csharp`, `objc`, `tsx`, `mozcpp`,
-`mozjs`, and so on — `bca check --language nonsense` prints the full
-list. Two rules point in opposite directions here:
+| Code | Meaning (tiered mode) |
+|------|-----------------------|
+| `0`  | All functions within thresholds (or `--no-fail` set). |
+| `1`  | Tool error. |
+| `2`  | New offenders only (no `--baseline` entry matched). |
+| `3`  | Baseline regressions only (a baselined offender worsened). |
+| `4`  | Both new offenders and regressions. |
+| `5`  | A `--tier=soft` violation that also breaches the hard limit. |
 
-- An **unknown slug in the manifest** is a tool error (exit `1`) with a
-  did-you-mean hint. A typo'd `[thresholds.lang.rust-lang]` must not
-  silently leave a gate at the project limit while the author believes
-  it was loosened.
-- An **unrecognised file language** falls through to the global table,
-  as does any language with no override of its own. Nothing is silently
-  ungated. (A file whose extension maps to no grammar at all is skipped
-  by the walk before the gate ever sees it — with a warning if you named
-  it explicitly.)
+The tiered codes are opt-in; the default contract above stays
+`0`/`1`/`2`. Every fail-state remains non-zero, so `exit != 0 → fail`
+wrappers keep working. Only tooling that tests `$? -eq 2` explicitly
+needs to widen to `2`-`5`. `--no-fail` still forces exit `0`. Code `5`
+is emitted only at the [soft tier](#two-tier-thresholds---tier); at the
+hard tier every violation is a hard breach by definition, so the
+`2`/`3`/`4` split applies instead.
 
-`--threshold` on the command line stays global and still applies last
-and absolutely: it overrides the project table *and* every per-language
-one, so a limit you type is the limit that runs.
-
-`--print-effective-config` prints one fully resolved table per
-overridden language — inherited limits included, not a diff — so the
-number that will actually fire is the number you read:
-
-```toml
-[thresholds]
-cognitive = 15.0
-cyclomatic = 15.0
-
-[thresholds.lang.c]
-cognitive = 30.0
-cyclomatic = 15.0
-```
-
-## Two-tier thresholds (`--tier`)
-
-`--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
-compares against. `hard` (the default) uses the `[thresholds]` table
-verbatim; `soft` is an early-warning tier that fires *before* the hard
-gate, tightening every limit by `RATIO`. A bare `--tier`
-means `soft`; `soft` alone uses the default ratio `0.95`; `soft=0.90`
-pins the ratio to `0.90`; `soft=1.0` disables the blanket scale.
-
-`RATIO` scales the *band*, not the number. For most metrics a limit is
-a ceiling, so tightening it means multiplying: `cognitive = 15` with
-`soft=0.9` warns at `13.5`. For the lower-is-worse `mi.*` family a
-limit is a **floor**, a value below it is the violation, and the index
-has no true zero: `mi.original` and `mi.sei` go negative on large
-functions. So the floor is *raised* by `1 − RATIO` of one
-maintainability band rather than scaled. One band is 10 points of
-`mi.visual_studio`, whose 20/10 cut-offs Visual Studio and radon use,
-and the same 17.1 points on the 171-point `mi.original` / `mi.sei`
-scale. `"mi.original" = 20` with `soft=0.9` warns at `20 + 0.1 × 17.1 =
-21.71`, and a floor of `-50` at `-48.29`. Multiplying a floor would
-move the warning to `18`, *under* the hard gate, and dividing a
-negative one would do the same (`-50 / 0.9 = -55.6`). Either way
-nothing could reach the soft band first.
-
-Limits must be finite. A count limit must also be non-negative; an
-`mi.original` or `mi.sei` floor may be negative. A limit that cannot
-fire, or fires on every value, still parses but prints a warning:
-`mi.visual_studio` is clamped to `[0, 100]`, so `= 0` reads
-`warning: limit mi.visual_studio=0 cannot fire: 0 is the metric's
-floor; gate mi.original instead`, and `= 101` warns that it fires on
-every value.
-
-A `[thresholds.soft]` table sets per-metric soft limits, each either an
-absolute number or a `"<ratio>x"` string that scales the metric's hard
-limit:
-
-```toml
-[thresholds]
-cognitive  = 25
-cyclomatic = 15
-nargs      = 7
-
-[thresholds.soft]
-cognitive  = 22       # absolute soft limit
-cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
-# nargs absent → soft tier inherits the hard limit (no soft band)
-```
-
-```bash
-bca check --paths src/ --tier=soft
-```
-
-The soft tier resolves in a fixed order:
-
-1. Start from `[thresholds]` (a `bca.toml` manifest, merged with
-   `--config`).
-2. If a `[thresholds.soft]` table exists, merge its overrides on top;
-   metrics absent from it inherit their hard limit. The blanket `RATIO`
-   does not apply (explicit per-metric limits win).
-3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
-   for a bare `soft`; `soft=1.0` disables scaling).
-4. Repeated `--threshold name=value` flags apply last, absolutely.
-
-Steps 1 to 3 run **once per language**, against that language's own
-resolved hard limits. There is no `[thresholds.lang.<slug>].soft` table
-and none is needed: with `[thresholds] cognitive = 15`,
-`[thresholds.lang.c] cognitive = 30`, and `--tier=soft=0.9`, C's soft
-band is `27` — nine tenths of *its* limit, and the ceiling a C offender
-is measured against for the exit-`5` escalation is `30`, not `15`.
-Derive either from the project's `15` and every C function between 15
-and 30 reports "also breaches the hard limit" while sitting inside the
-limit the project configured for it.
-
-The one combination that *can* invert the two tiers is an absolute
-`[thresholds.soft]` value looser than the hard limit it shadows —
-`[thresholds.soft] cognitive = 12` alongside
-`[thresholds.lang.csharp] cognitive = 4`, or an `mi.*` soft floor
-*below* its hard floor. That is a tool error (exit
-`1`) naming the offending table, for the same reason a `"<ratio>x"`
-factor above `1` is rejected at parse time: a soft tier that fires
-*after* the hard gate is never the intent.
-
-The soft `RATIO` (and the scale factor in a `"<ratio>x"` string) must
-be in `(0, 1]`. The `[check] headroom` manifest key supplies the ratio
-for a bare `--tier=soft`. The deprecated `--headroom <R>` flag is a
-one-cycle alias for `--tier=soft=<R>` (warns; removed at the next
-major) — it now promotes a hard run to the soft tier. Both tiers
-ratchet through the same `--baseline`, and `--print-effective-config`
-reports the resolved `tier` alongside the post-merge limits. See the
-[Local threshold gates](../recipes/local-gates.md#two-tier-thresholds)
-recipe for the migration tip and rationale.
-
-## Previewing a candidate limit (`--explain-threshold`) {#explain-threshold}
-
-`--explain-threshold <metric>=<limit>` reports what a candidate limit
-would cost — at **both** tiers — instead of gating. It is repeatable,
-takes one candidate per metric, and writes nothing.
-
-```console
-$ bca check --explain-threshold nargs=6
-nargs: candidate limit 6
-  hard tier (limit 6): 60 offenders, 60 already baselined, 0 new
-  soft tier (limit 5.7, 0.95x): 135 offenders, 61 already baselined, 74 new
-  cluster: 75 of 75 soft-band offenders sit at exactly 6 — the candidate
-  limit itself. The soft tier measures distance to the limit, so a limit
-  of 6 places them inside the 5.7 band by construction and none of them
-  can clear it without real work.
-```
-
-The `new` column is the figure to weigh: it is how many baseline
-entries adopting the limit would add. Here the hard tier reads as free
-and the soft tier costs 74 entries, none of which any amount of tidying
-can retire — which is the whole reason the flag exists.
-
-`--threshold nargs=6` cannot tell you this. Its limits are applied last
-and **absolutely, never scaled**, so a candidate trialled that way has
-no soft tier at all. Passing both flags for the same metric is
-rejected rather than silently resolved.
-
-The soft limit is derived from the candidate exactly as a real run
-would derive it: a `[thresholds.soft]` entry for the metric wins, then
-the `--tier=soft=RATIO` ratio if one was given, then `0.95`. A
-`[thresholds.lang.<slug>]` table that overrides the metric keeps its own
-limit — a candidate *global* limit does not reach it — and the report
-says so on its own line. A ratio-derived soft limit names its
-arithmetic: `5.7, 0.95x` for a count, and for an `mi.*` floor the
-additive step, as in `mi.original=20` → `20.855, +0.855 (0.05 × 17.1)`.
-
-Everything else matches the run being predicted: `exclude_tests`,
-`[check] exclude`, in-source suppression markers, `--changed-only`, and
-the baseline all apply as usual. The one difference is that
-baseline-covered offenders are counted rather than dropped, which is
-what makes the `already baselined` / `new` split possible.
-
-The preview replaces the gate, so it never fails: the exit code is `0`
-unless a tool error (exit `1`) stops the run, and a one-line reminder of
-that goes to stderr. It conflicts with `--write-baseline`,
-`--print-effective-config`, `--report-format`, and `--output`, each of
-which would produce a second, different artifact.
-
-See [Choosing thresholds](../recipes/thresholds.md#converging-onto-a-cluster)
-for the rule this flag exists to make visible.
+`--exit-codes <default|tiered>` takes a value, and the CLI value
+overrides the `[check] exit_codes` manifest key in either direction. An
+invalid `exit_codes` value is a tool error (`1`).
+`--print-effective-config` reports the resolved `exit_codes` style. The
+deprecated `--strict-exit-codes` flag is a one-cycle alias for
+`--exit-codes tiered` (warns; removed at the next major).
 
 ## Offender output
 
@@ -404,9 +210,13 @@ Everything the run says *about itself* goes to **stderr**:
 - every `warning:` and `error:` diagnostic.
 
 One combination inverts this. `--report-format <dialect>` without
-`--output` puts the aggregated SARIF / Checkstyle / Code Climate
-document on stdout, so the human rows fall back to stderr rather than
-corrupting it:
+`--output` puts the aggregated
+[SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) /
+[Checkstyle](https://checkstyle.org/) /
+[Code Climate](https://github.com/codeclimate/platform/blob/master/spec/analyzers/SPEC.md)
+document on stdout, so the human rows move to stderr rather than
+corrupting it (the first example counts results with
+[`jq`](https://jqlang.github.io/jq/)):
 
 ```bash
 bca check --report-format sarif | jq '.runs[0].results | length'   # document on stdout
@@ -417,212 +227,26 @@ The `--summary-file` digest is a file, not a stream, and appears on
 neither.
 
 Earlier releases sent the rows to stderr along with everything else,
-which made `| wc -l` and `2>/dev/null` report an empty offender list —
+which made `| wc -l` and `2>/dev/null` report an empty offender list,
 indistinguishable from a clean tree. A pipeline that reads the rows
 through `2>&1` needs no change; one that captured them with `2>file`
 should now use `>file`.
 
-## Silencing violations with suppression markers
-
-In-source comments can silence threshold violations on individual
-functions or whole files without editing the offending code or
-excluding it from the walk. The native dialect is `bca: suppress` /
-`bca: suppress-file`; Lizard's `#lizard forgives` is recognized as a
-compatibility shim. See [Suppression markers](suppression.md) for
-the full reference and the `--no-suppress` CI-audit flag.
-
-## Exempting whole file categories (`[check.exclude]`) {#exempting-whole-file-categories-checkexclude}
-
-Some files should be **analysed and reported but never gated**: test
-fixtures that intentionally trip cognitive/cyclomatic, generated
-bindings, macro-dispatch modules whose complexity is structural and
-will never be "fixed". Putting these in `.bcaignore` is too blunt — it
-removes them from the walk entirely, so `bca report` loses them too.
-Baselining them is also wrong — they are not debt being paid down, and
-they churn the baseline diff forever.
-
-`[check.exclude]` is the glob-level middle ground: matching files are
-walked, parsed, metric'd, and shown by `bca report`, but `bca check`
-drops their violations before emitting offenders **and before
-`--write-baseline` records anything**, so the structural exemptions
-stay out of `.bca-baseline.toml`.
-
-In `bca.toml`:
-
-```toml
-[check]
-exclude = [
-    "tests/**",
-    "big-code-analysis-ast/src/languages/language_*.rs",
-    "xtask/**",
-]
-```
-
-Or on the command line (`--check-exclude` is repeatable and unions with
-`--check-exclude-from`):
-
-```bash
-bca check --check-exclude "tests/**" --check-exclude "xtask/**"
-bca check --check-exclude-from .bcacheckignore
-```
-
-`--check-exclude-from` reads a `.gitignore`-style file (blank lines and
-`#`-comments skipped); the conventional name is `.bcacheckignore`,
-mirroring `.bcaignore` for the walker. Globs match the path exactly as
-the walker matched it for `--exclude`. As a *negative filter* key, an
-explicit `--check-exclude` list **unions with** (does not replace) the
-manifest `[check] exclude` list — a CLI exemption is added to the
-project's, never a replacement, so you cannot accidentally re-gate a
-path the manifest deliberately exempted.
-Duplicates collapse; CLI patterns sort first. Pass `--no-config` to drop
-the manifest's exemptions entirely. (Positive scope keys like `paths` /
-`include` still *replace* on the CLI — only the exclude filters merge.)
-
-### What a relative glob is relative to {#what-a-relative-glob-is-relative-to}
-
-The two sources anchor to different roots, and this is the part nobody
-guesses right:
-
-| Source | A relative glob is resolved against |
-| --- | --- |
-| `bca.toml` `[check] exclude` / `exclude_from` | the directory holding the `bca.toml` |
-| `--check-exclude` / `--check-exclude-from` | the directory you ran `bca` from |
-
-So `exclude = ["./vendor/**"]` in a manifest at the repo root means
-`<repo>/vendor/`, whichever directory you invoke `bca check` from —
-including from inside `vendor/` itself. The same glob passed as
-`--check-exclude './vendor/**'` means `vendor/` *under your shell's
-current directory*, because that is where you typed it.
-
-This matters most for per-file callers — editor integrations, pre-commit
-hooks, the agent hooks in [Agent feedback](../recipes/agent-feedback.md)
-— which run `bca check <one file>` from whatever directory they happen
-to be in. Their exemptions belong in the manifest, where the anchor is
-the project's and not the caller's.
-
-The walker's `exclude` / `--exclude` pair is split by origin the same
-way, but only where an explicit path is involved: the warning that a
-named file overrode an exclude resolves a manifest glob against the
-manifest root. A *directory* walk still matches manifest globs against
-the walk's own root, which is the same directory only when the walk
-starts at the manifest — the usual `paths = ["."]` case. Naming a
-subdirectory (`bca metrics -p sub`) can therefore let a manifest
-`exclude` stop matching; that gap is tracked in
-[#1189](https://github.com/dekobon/big-code-analysis/issues/1189).
-
-### Precedence with the other suppression mechanisms
-
-Most-specific to least, `bca check` resolves exemptions in this order:
-
-1. **In-source markers** (`bca: suppress` / `bca: suppress-file`) —
-   always win; applied during the walk so the function never becomes a
-   violation.
-2. **`[check.exclude]` globs** — exempt *categories* of files (tests,
-   generated code).
-3. **`.bca-baseline.toml`** — known offenders being paid down.
-
-`--print-effective-config` reports the resolved `check_exclude` globs
-alongside the other gate inputs.
-
-Globs resolve against different roots depending on where they came
-from: one you pass on the command line resolves against your working
-directory, one from a `bca.toml` against that file's directory. The
-resolved `check_exclude` array is the union of both and cannot express
-that split, so a `manifest_check_exclude` key names the manifest-origin
-subset, with the anchor being the reported `manifest` file's directory.
-The walker's own `exclude` surface reports the same pair. Both keys are
-omitted when no manifest contributed a glob.
-
-`manifest_exclude_from` and `manifest_check_exclude_from` follow the
-same idea for the `exclude_from` *files*, with one difference worth
-knowing: a command-line `--exclude-from` **replaces** the manifest's
-file rather than adding to it, so the manifest key is present only when
-the manifest's file is the one actually in effect. The inline glob
-lists union; the files do not.
-
-## Untrusted-input mode (`--strict`) {#strict-mode}
-
-Two default behaviors shrink the set of files the gate looks at, and
-both read their inputs from the tree under test: the
-[generated-code detector](index.html#skipping-generated-code) skips any
-file whose header carries a marker phrase, and the walker honors
-[`.gitignore` files](index.html#respecting-gitignore) found inside the
-walked tree. Both are right for a trusted checkout. In a pull-request
-gate they are levers the change under review can pull: one added
-comment line or one `.gitignore` entry takes a file out of the gate.
-The [CI recipe](../recipes/ci.md#gate-trust-boundary) shows both
-reproductions.
-
-`--strict` turns both off in one flag, equivalent to passing
-`--no-skip-generated --no-ignore`:
-
-```bash
-bca check --strict --paths src/
-```
-
-Projects opt in once in `bca.toml` instead of per workflow:
-
-```toml
-[check]
-strict = true
-```
-
-The key is presence-only, like the top-level `exclude_tests`: it can
-turn the profile on, never off, so a CI workflow cannot silently
-weaken a committed policy (there is no `--no-strict`).
-
-Even without the profile, `bca check` reports what it declined to
-look at. Whenever either mechanism dropped files, a one-line stderr
-summary gives the counts:
-
-```text
-bca: 2 files not checked (1 generated, 1 ignored) — pass --report-skipped to list them
-```
-
-Clean runs print nothing, and the summary changes no exit code.
-`--report-skipped` lists each dropped entry with a
-`note: skipped (generated): <path>`, `note: skipped (ignored): <path>`,
-or `note: skipped (ignored directory): <path>` line. Under `--strict`
-nothing is skipped, so there is nothing to summarize.
-
-The counts come from the walk's prune points: for every directory the
-walker entered, the gate checks which immediate children ignore rules
-dropped. Only files a parser owns are counted, on both sides — an
-ignored log file, or a generated `Cargo.lock` (whose header matches
-`@generated`), would have been read and dropped rather than checked,
-and counting either would make the summary fire on every run. A file
-named explicitly on the command line bypasses ignore rules and is
-analyzed, so it is never counted. Ignored *directories* are reported
-only under `--report-skipped`, as `N ignored directories not walked`
-entries, and are never entered: essentially every checkout has an
-ignored build tree on disk, and enumerating a `target/`-sized tree
-would cost a full second traversal for a million-file count with no
-signal in it. Note the ignored tally reflects every source the walker
-honors — in-tree `.gitignore`/`.ignore` files, but also the global
-gitignore and ancestor ignore files — so local and CI counts can
-differ.
-
-With content sniffing off, genuinely generated trees still need an
-exemption; give them one the reviewers own, either a committed
-walker deny-set (`--exclude-from .bcaignore`) or a
-[`[check.exclude]`](#exempting-whole-file-categories-checkexclude)
-glob, rather than a marker the submitter controls.
-
 ## Baselines
 
-When you adopt thresholds on an existing codebase you typically face a
-binary choice between "raise the limit until nothing fires" and "fix
-every offender before turning the gate on". A baseline file is the
-ratchet-down alternative: record today's offenders, fail only on
-regressions and new offenders, and shrink the file over time as the
-team pays down debt.
+Adopting thresholds on an existing codebase usually presents a choice
+between "raise the limit until nothing fires" and "fix every offender
+before turning the gate on". A baseline file is the ratchet-down
+alternative: record today's offenders, fail only on regressions and new
+offenders, and shrink the file over time as the team pays down debt.
 
-Baselines are **complementary to** the suppression markers from
-[Suppression markers](suppression.md), not a substitute. Suppressions
-express "this function is intentionally exempt forever" and live in
-source; baselines express "this is tech debt we're paying down" and
-live in a committed TOML file. `bca check` honors suppressions first
-and applies the baseline filter to whatever remains.
+Baselines complement the [suppression markers](suppression.md); they
+are not a substitute. A suppression says "this function is
+intentionally exempt forever" and lives in source; a baseline says
+"this is tech debt we are paying down" and lives in a committed TOML
+file. `bca check` applies in-source suppressions first, then
+[`[check.exclude]`](#exempting-whole-file-categories-checkexclude)
+globs, then the baseline filter.
 
 ### Writing a baseline
 
@@ -633,7 +257,7 @@ bca check --paths src/ \
 
 This walks the tree, captures every threshold violation that would
 otherwise fail the check, and writes them to the file as sorted TOML.
-The run exits `0` regardless of offender count — the point is to
+The run exits `0` regardless of offender count, since the point is to
 capture them.
 
 ```toml
@@ -653,22 +277,23 @@ metric = "cyclomatic"
 value = 22.0
 ```
 
-The `qualified` field is the function's qualified symbol (the
-`::`-joined chain of enclosing named containers plus the function
-name). An entry carries a `start_line` only when its
-`(path, qualified, metric)` identity is shared with another entry, the
-one case matching consults a line number; recording it elsewhere would
-only rewrite the file every time an edit above the function shifted it.
-With `--baseline-fuzzy-match`, each entry also carries a `body_hash`
-for rename-tolerant matching.
+The `qualified` field is the function's qualified symbol: the
+`::`-joined chain of enclosing named containers plus the function name.
+An entry carries a `start_line` only when another entry shares its
+`(path, qualified, metric)` identity, the one case where matching
+consults a line number. Recording it elsewhere would rewrite the file
+every time an edit above the function shifted it. With
+`--baseline-fuzzy-match`, each entry also carries a `body_hash` for
+rename-tolerant matching.
 
 Functions already covered by an in-source suppression marker are
 excluded. Pass `--no-suppress` together with `--write-baseline` to
-record every violation (CI-auditor flow).
+include violations hidden by source markers (the CI-auditor flow);
+`[check.exclude]` exemptions still apply.
 
 `--write-baseline` cannot be combined with `--baseline`,
-`--report-format`, `--output`, `--since`, or `--changed-only` — the
-baseline file *is* the output.
+`--report-format`, `--output`, `--since`, or `--changed-only`, because
+the baseline file *is* the output.
 
 ### Reading a baseline
 
@@ -679,16 +304,17 @@ bca check --paths src/ \
 
 A violation is suppressed when both conditions hold:
 
-- An entry matches by `(path, qualified_symbol, metric)` — independent
-  of line number — or, failing that and with `--baseline-fuzzy-match`,
-  by body hash. (See the [Baselines recipe](../recipes/baselines.md#how-matching-works)
-  for the full resolution order.)
+- An entry matches by `(path, qualified_symbol, metric)`, independent
+  of line number, or, failing that and with `--baseline-fuzzy-match`,
+  by body hash. See the
+  [Baselines recipe](../recipes/baselines.md#how-matching-works) for
+  the full resolution order.
 - The current `value` is **less than or equal to** the recorded value.
 
 A function that gets worse than its baseline value still fails. New
 offenders not listed in the baseline still fail. Improvements pass
-silently (the entry remains at its older, higher value until the next
-`--write-baseline` refresh).
+silently; the entry keeps its older, higher value until the next
+`--write-baseline` refresh.
 
 A baseline file that does not exist, is empty, has a missing or
 unsupported `version`, or fails to parse is a tool error (exit `1`),
@@ -696,18 +322,19 @@ not a silent zero-match.
 
 Path keys are canonicalised relative to the baseline file's own
 directory (the *anchor*), so `--paths .`, `--paths src/`, and
-`--paths "$PWD"` produce byte-identical baselines and a `--baseline`
-run matches regardless of which `--paths` form generated the file —
-switch between them freely without re-running `--write-baseline`.
+`--paths "$PWD"` produce byte-identical baselines, and a `--baseline`
+run matches whichever `--paths` form generated the file. Switch between
+them freely without re-running `--write-baseline`.
 
 ### Limitations
 
-- **Ambiguous symbols / anonymous functions.** Entries key on the
-  qualified symbol, so inserting code above a *named* function no
-  longer re-keys it. The exceptions: functions sharing a qualified
-  symbol that drift beyond `--baseline-line-tolerance` apart, and
-  anonymous closures/lambdas (whose synthetic symbol embeds the line).
-  Both re-key as "new" on movement; refresh with `--write-baseline`.
+- **Ambiguous symbols and anonymous functions.** Entries key on the
+  qualified symbol, so inserting code above a *named* function does not
+  re-key it. Two exceptions re-key as "new" on movement: functions
+  sharing a qualified symbol that drift more than
+  `--baseline-line-tolerance` apart, and anonymous closures or lambdas,
+  whose synthetic symbol embeds the line. Refresh with
+  `--write-baseline`.
 - **OS portability.** Paths are stored with forward slashes so a
   baseline written on one OS matches the same tree on another. Paths
   that are not valid UTF-8 fall back to a lossy display form
@@ -718,8 +345,8 @@ adoption flow and CI integration patterns.
 
 ## Reporting without failing
 
-`--no-fail` reports offenders as usual but exits `0`. Useful while
-adopting baselines without flipping CI red. Other CI tools call this
+`--no-fail` reports offenders as usual but exits `0`. Use it while
+adopting baselines without turning CI red. Other CI tools call this
 behavior `--report-only` or `--soft-fail`; here the flag is spelled
 `--no-fail`.
 
@@ -727,13 +354,33 @@ behavior `--report-only` or `--soft-fail`; here the flag is spelled
 bca check --paths src/ --no-fail
 ```
 
+## CI example (GitHub Actions) {#ci-example-github-actions}
+
+```yaml
+- name: Check code complexity thresholds
+  run: |
+    bca check
+  # Thresholds and paths come from the auto-discovered `bca.toml`
+  # manifest at the repo root. The default non-zero exit fails the
+  # step, which is the behaviour wanted here. No extra wiring.
+```
+
+To keep the job green and surface offenders as a build annotation while
+you reduce the count, swap in `--no-fail`:
+
+```yaml
+- name: Surface complexity hot spots (non-blocking)
+  run: |
+    bca check --paths src/ --no-fail
+```
+
 ## Actionable failure output
 
 When `bca check` fails, five flags shape the failure stream so a
-developer skimming a CI log can see what tripped, where in their
-PR it tripped, and what to do next. Each flag is independent and
-all auto-detect from GitHub Actions env vars when present, so the
-common CI case needs zero explicit configuration.
+developer skimming a CI log can see what tripped, where in their PR it
+tripped, and what to do next. Each flag is independent, and all of them
+auto-detect from GitHub Actions environment variables when present, so
+the common CI case needs no explicit configuration.
 
 | Flag                       | Effect                                                                   | Auto-detect env                                                  |
 | -------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
@@ -743,57 +390,37 @@ common CI case needs zero explicit configuration.
 | `--summary-file <path\|auto\|never>` | Append markdown digest (per-file rollup + breakdown + top-10 offenders); `never` suppresses it | `auto` detects `GITHUB_STEP_SUMMARY` |
 | `--no-remediation`         | Suppress the trailing `--- next steps ---` block                         | Block emitted on failure unless this flag is passed              |
 
-The per-violation rows and the per-file rollup footer remain
-unchanged in *content* when none of the above are active, so CI
-tooling that grep-anchors on the legacy text keeps working — but
-see [Which stream](#which-stream) for where each now lands.
+The per-violation rows and the per-file rollup footer keep the same
+*content* when none of the above are active, so CI tooling that
+grep-anchors on the legacy text keeps working. See
+[Which stream](#which-stream) for where each now lands.
 
 See the [CI integration recipe](../recipes/ci.md#actionable-failure-output)
-for worked examples — including a "putting it all together" GHA
-snippet that composes all five into one step — and the
-[Baselines recipe](../recipes/baselines.md) for the
-`--write-baseline` refresh flow the remediation block links to.
+for worked examples, including a GitHub Actions snippet that composes
+all five flags into one step, and the
+[Baselines recipe](../recipes/baselines.md) for the `--write-baseline`
+refresh flow the remediation block links to.
 
 ### Diff-base auto-detection precedence
 
-When `--since` is omitted, `bca` consults env vars in this order:
+When `--since` is omitted, `bca` consults environment variables in this
+order:
 
-1. `BCA_DIFF_BASE` — explicit override hatch for local shells or
-   non-GHA CI runners.
-2. `GITHUB_BASE_REF` — set by GHA on `pull_request` events.
+1. `BCA_DIFF_BASE`: an explicit override for local shells or CI runners
+   other than GitHub Actions.
+2. `GITHUB_BASE_REF`: set by GitHub Actions on `pull_request` events.
    Expanded to `origin/<value>`; the runner is responsible for the
    corresponding `git fetch` (`fetch-depth: 0` on `actions/checkout`).
-3. `GITHUB_EVENT_BEFORE` — set by GHA on `push` events to the SHA
-   at HEAD before the push. The all-zeroes sentinel (force push,
+3. `GITHUB_EVENT_BEFORE`: set by GitHub Actions on `push` events to the
+   SHA at HEAD before the push. The all-zeroes sentinel (force push,
    brand-new branch) is treated as no signal.
 
-Failing to resolve a base is non-fatal **unless `--changed-only`
-is passed**, in which case the gate dies — silently suppressing
-every violation under a misconfigured base would be the worst
-failure mode this feature exists to prevent. `--write-baseline`
-also conflicts with `--since` / `--changed-only` (a partial
-baseline would silently mask every offender outside the diff scope
-on the next full-tree run).
-
-## CI example (GitHub Actions) {#ci-example-github-actions}
-
-```yaml
-- name: Check code complexity thresholds
-  run: |
-    bca check
-  # Thresholds and paths come from the auto-discovered `bca.toml`
-  # manifest at the repo root. The default behavior — non-zero exit
-  # fails the step — is exactly what we want here. No extra wiring.
-```
-
-If you want to keep the job green and surface offenders as a build
-annotation while you reduce the count, swap in `--no-fail`:
-
-```yaml
-- name: Surface complexity hot spots (non-blocking)
-  run: |
-    bca check --paths src/ --no-fail
-```
+Failing to resolve a base is non-fatal **unless `--changed-only` is
+passed**, in which case the gate dies. Silently suppressing every
+violation under a misconfigured base is the failure mode this feature
+exists to prevent. `--write-baseline` also conflicts with `--since` /
+`--changed-only`: a partial baseline would silently mask every offender
+outside the diff scope on the next full-tree run.
 
 ## Exporting offender records {#exporting-offender-records}
 
@@ -801,16 +428,16 @@ annotation while you reduce the count, swap in `--no-fail`:
 offender in the walk. Pass `--report-format <fmt>` to pick the
 shape and `--output <file>` to write it to disk (stdout if omitted).
 The `--format`, `-O`, and `--output-format` spellings are accepted as
-deprecated aliases and will be removed in a future release. The
-exit-code contract is unaffected by these flags: 0 clean, 2 on any
-violation (unless `--no-fail`), 1 on tool error.
+deprecated aliases and will be removed in a future release. These flags
+do not change the exit-code contract: 0 clean, 2 on any violation
+(unless `--no-fail`), 1 on tool error.
 
 When `--output` is given without `--report-format`, the format is
 **inferred from the output extension**: `.sarif` selects `sarif` and
 `.xml` selects `checkstyle`. An extension with no unique format
 (notably `.json`, which both `sarif` and `code-climate` produce) or no
-extension at all is a usage error (exit `1`) naming `--report-format` —
-an explicit `--output` is never silently ignored. An explicit
+extension at all is a usage error (exit `1`) naming `--report-format`,
+so an explicit `--output` is never silently ignored. An explicit
 `--report-format` always wins over the extension.
 
 | Format          | Audience                                                |
@@ -822,11 +449,10 @@ an explicit `--output` is never silently ignored. An explicit
 | `msvc-warning`  | Visual Studio, VS Code, Windows CI runners              |
 
 When no offenders exist the writer emits a well-formed but empty
-document — empty `runs[].results` array for SARIF, empty JSON array
-(`[]`) for Code Climate, no `<file>` children under the
-`<checkstyle>` root for Checkstyle, and zero bytes for the two
-warning-line formats — so CI consumers can ingest clean runs
-unchanged.
+document, so CI consumers can ingest clean runs unchanged: an empty
+`runs[].results` array for SARIF, an empty JSON array (`[]`) for Code
+Climate, no `<file>` children under the `<checkstyle>` root for
+Checkstyle, and zero bytes for the two warning-line formats.
 
 ### Checkstyle (CI integration) {#checkstyle-ci-integration}
 
@@ -838,10 +464,10 @@ bca check --paths src/ \
 ```
 
 The Checkstyle writer emits a single `<checkstyle version="4.3">`
-document containing one `<file>` element per source path, each
-holding one `<error>` per metric-threshold violation. The schema is
-the Checkstyle 4.3 XSD that Jenkins and SonarQube's "Warnings Next
-Generation" / "Generic Issue" importers consume directly.
+document containing one `<file>` element per source path, each holding
+one `<error>` per metric-threshold violation. The schema is the Checkstyle 4.3 XSD that Jenkins and
+SonarQube's "Warnings Next Generation" / "Generic Issue" importers
+consume directly.
 
 ### SARIF (GitHub Code Scanning)
 
@@ -896,24 +522,26 @@ bca check --paths src/ \
 ```
 
 The Code Climate writer emits a single JSON array of issue objects
-matching [GitLab's strict subset](https://docs.gitlab.com/ci/testing/code_quality/)
-of the upstream Code Climate engine spec — one entry per
-metric-threshold violation, no byte-order-mark, one trailing
-newline (empty input renders as `[]\n`). Each issue carries a
-namespaced `check_name` (`big-code-analysis/<metric>`), a stable
-SHA-256 `fingerprint` over `path \0 function \0 metric` (line- and
-value-insensitive so cosmetic edits still dedup in the MR widget),
-and a `severity` mapped onto GitLab's five-level enum from the same
-severity key `bca check` ranks its own offenders by: `≤ 1.5` →
-`minor`, `≤ 2` → `major`, `≤ 4` → `critical`, `> 4` → `blocker`. For a
-count the key is `value / limit`, and a breach of a zero limit is
+matching GitLab's strict subset of the upstream Code Climate engine
+spec: one entry per metric-threshold violation, no byte-order-mark,
+one trailing newline (empty input renders as `[]\n`).
+
+Each issue carries three fields of note. The `check_name` is
+namespaced as `big-code-analysis/<metric>`. The `fingerprint` is a
+stable SHA-256 over `path \0 function \0 metric`; it ignores line and
+value, so cosmetic edits still dedup in the MR widget. The `severity`
+maps GitLab's five-level enum from the same severity key `bca check`
+ranks its own offenders by: `≤ 1.5` → `minor`, `≤ 2` → `major`, `≤ 4`
+→ `critical`, `> 4` → `blocker`.
+
+For a count the key is `value / limit`, and a breach of a zero limit is
 always `blocker`. For the `mi.*` family, where lower is worse and the
 index has no true zero, it is `1 + (limit − value) / unit`: one step
 per maintainability band (17.1 points of `mi.original` / `mi.sei`, 10
 of `mi.visual_studio`) below the floor. An `mi.original` of 0 against
 a floor of 20 is `critical`; one of −40 is `blocker`. The full enum is
-`info`/`minor`/`major`/`critical`/`blocker`; `bca` never emits
-`info` — a threshold violation always lands at `minor` or higher.
+`info`/`minor`/`major`/`critical`/`blocker`; `bca` never emits `info`,
+because a threshold violation always lands at `minor` or higher.
 
 To wire the artifact into GitLab's MR Code Quality widget:
 
@@ -959,12 +587,13 @@ path/to/file.rs:42:5: warning: cyclomatic 17 exceeds limit 15 [big-code-analysis
 ```
 
 This is the format `clang -fdiagnostics-format=` produces and the
-shape every editor quickfix parser (VS Code, IntelliJ, Vim) and most
-CI annotators understand without configuration.
+shape editor quickfix parsers (VS Code, IntelliJ, Vim) and most CI
+annotators understand without configuration.
 
-GitHub Actions surfaces the lines as inline annotations on the PR
-diff via the built-in GCC problem matcher (or any community
-`compiler-problem-matchers` action):
+GitHub Actions surfaces the lines as inline annotations on the PR diff
+through the built-in
+[GCC problem matcher](https://github.com/actions/toolkit/blob/main/docs/problem-matchers.md)
+(or any community `compiler-problem-matchers` action):
 
 ```yaml
 name: bca-clang-warnings
@@ -1003,9 +632,401 @@ The MSVC format emits one offender per line in Visual Studio's
 path\to\file.rs(42,5): warning : cyclomatic 17 exceeds limit 15
 ```
 
-Note the space before the colon after `warning`/`error` — that is
-the MSVC convention. On Windows the path is normalized to use `\`
-separators (matching cl.exe output); on other platforms the path is
-emitted as-is. Visual Studio, VS Code with the C/C++ extension, and
-Windows CI runners (Azure Pipelines, GitHub Actions on
-`windows-latest`) parse these inline without extra configuration.
+The space before the colon after `warning`/`error` is the MSVC
+convention. On Windows the path is normalized to `\` separators,
+matching `cl.exe` output; on other platforms the path is emitted as-is.
+Visual Studio, VS Code with the C/C++ extension, and Windows CI runners
+(Azure Pipelines, GitHub Actions on `windows-latest`) parse these
+inline without extra configuration.
+
+## Silencing violations with suppression markers
+
+In-source comments can silence threshold violations on individual
+functions or whole files without editing the offending code or
+excluding it from the walk. The native dialect is `bca: suppress` /
+`bca: suppress-file`; Lizard's `#lizard forgives` is recognized as a
+compatibility shim. See [Suppression markers](suppression.md) for
+the full reference and the `--no-suppress` CI-audit flag.
+
+## Exempting whole file categories (`[check.exclude]`) {#exempting-whole-file-categories-checkexclude}
+
+Some files should be **analysed and reported but never gated**: test
+fixtures that intentionally trip cognitive or cyclomatic, generated
+bindings, macro-dispatch modules whose complexity is structural and
+will never be "fixed". Putting these in `.bcaignore` is too blunt: it
+removes them from the walk entirely, so `bca report` loses them too.
+Baselining them is also wrong, because they are not debt being paid
+down, and they churn the baseline diff forever.
+
+`[check.exclude]` is the glob-level middle ground. Matching files are
+walked, parsed, measured, and shown by `bca report`, but `bca check`
+drops their violations before emitting offenders **and before
+`--write-baseline` records anything**, so the structural exemptions
+stay out of `.bca-baseline.toml`.
+
+In `bca.toml`:
+
+```toml
+[check]
+exclude = [
+    "tests/**",
+    "big-code-analysis-ast/src/languages/language_*.rs",
+    "xtask/**",
+]
+```
+
+Or on the command line (`--check-exclude` is repeatable and unions with
+`--check-exclude-from`):
+
+```bash
+bca check --check-exclude "tests/**" --check-exclude "xtask/**"
+bca check --check-exclude-from .bcacheckignore
+```
+
+`--check-exclude-from` reads a `.gitignore`-style file (blank lines and
+`#` comments skipped); the conventional name is `.bcacheckignore`,
+mirroring `.bcaignore` for the walker. Globs match the path exactly as
+the walker matched it for `--exclude`. As a *negative filter* key, an
+explicit `--check-exclude` list **unions with** the manifest
+`[check] exclude` list rather than replacing it. A CLI exemption is
+added to the project's, so you cannot accidentally re-gate a path the
+manifest deliberately exempted. Duplicates collapse; CLI patterns sort
+first. Pass `--no-config` to drop the manifest's exemptions entirely.
+Positive scope keys like `paths` / `include` still *replace* on the
+CLI; only the exclude filters merge.
+
+### What a relative glob is relative to {#what-a-relative-glob-is-relative-to}
+
+The source of a glob determines its root:
+
+| Source | A relative glob is resolved against |
+| --- | --- |
+| `bca.toml` `[check] exclude` / `exclude_from` | the directory holding the `bca.toml` |
+| `--check-exclude` / `--check-exclude-from` | the directory you ran `bca` from |
+
+So `exclude = ["./vendor/**"]` in a manifest at the repo root means
+`<repo>/vendor/`, whichever directory you invoke `bca check` from,
+including from inside `vendor/` itself. The same glob passed as
+`--check-exclude './vendor/**'` means `vendor/` *under your shell's
+current directory*, because that is where you typed it.
+
+This matters most for per-file callers (editor integrations, pre-commit
+hooks, the agent hooks in [Agent feedback](../recipes/agent-feedback.md)),
+which run `bca check <one file>` from whatever directory they happen to
+be in. Their exemptions belong in the manifest, where the anchor is the
+project's and not the caller's.
+
+The walker's `exclude` / `--exclude` pair is split by origin the same
+way: a `--exclude` glob is matched against each file's path relative to
+the seed you named, and a manifest `exclude` glob is resolved against
+the manifest's own directory, whatever seed you name and wherever you
+run from. So `bca metrics` and `bca metrics -p sub` honour the same
+manifest exclusions (#1189), and the warning that a named file overrode
+an exclude resolves each glob at its own root (#1164).
+
+### Precedence with the other suppression mechanisms
+
+Most-specific to least, `bca check` resolves exemptions in this order:
+
+1. **In-source markers** (`bca: suppress` / `bca: suppress-file`)
+   always win; they apply during the walk, so the function never
+   becomes a violation.
+2. **`[check.exclude]` globs** exempt *categories* of files (tests,
+   generated code).
+3. **`.bca-baseline.toml`** lists known offenders being paid down.
+
+`--print-effective-config` reports the resolved `check_exclude` globs
+alongside the other gate inputs.
+
+`check_exclude` lists the combined CLI and manifest globs.
+`manifest_check_exclude` identifies the manifest subset; resolve those
+globs relative to the reported `manifest` directory. The walker uses
+`exclude` and `manifest_exclude` in the same way. The manifest-specific
+keys are absent when the manifest contributes no globs.
+
+`manifest_exclude_from` and `manifest_check_exclude_from` follow the
+same idea for the `exclude_from` *files*, with one difference: a
+command-line `--exclude-from` **replaces** the manifest's file rather
+than adding to it, so the manifest key is present only when the
+manifest's file is the one in effect. The inline glob lists union; the
+files do not.
+
+## Per-language limits (`[thresholds.lang.<slug>]`) {#per-language-limits}
+
+Metric distributions vary by language more than by project: the
+measured 97.5th-percentile per-function `cognitive` value runs from 4 in
+C# to 50 in C. A `[thresholds.lang.<slug>]` table gives one language its
+own limits, layered over the project-wide table:
+
+```toml
+[thresholds]
+cognitive = 15
+cyclomatic = 15
+"loc.ploc" = 600
+
+[thresholds.lang.c]
+cognitive = 30
+"loc.ploc" = 1200
+
+[thresholds.lang.elixir]
+nom = 150
+wmc = 300
+```
+
+C is now gated at `cognitive = 30` and `loc.ploc = 1200` while keeping
+the project's `cyclomatic = 15`; every other language keeps all three.
+The override is **per metric**, not a replacement table: a language
+inherits every limit it does not restate. Which numbers to change, and
+the two cases where an override is a correction rather than tuning, are
+in [Choosing thresholds](../recipes/thresholds.md#per-language).
+
+The key is the canonical language slug, the same vocabulary `--language`
+accepts: `rust`, `python`, `cpp`, `csharp`, `objc`, `tsx`, `mozcpp`,
+`mozjs`, and so on. `bca check --language nonsense` prints the full
+list. Two rules point in opposite directions here:
+
+- An **unknown slug in the manifest** is a tool error (exit `1`) with a
+  did-you-mean hint. A typo'd `[thresholds.lang.rust-lang]` must not
+  silently leave a gate at the project limit while the author believes
+  it was loosened.
+- An **unrecognised file language** falls through to the global table,
+  as does any language with no override of its own. Nothing is silently
+  ungated. A file whose extension maps to no grammar at all is skipped
+  by the walk before the gate sees it, with a warning if you named it
+  explicitly.
+
+`--threshold` on the command line stays global and still applies last
+and absolutely: it overrides the project table *and* every per-language
+one, so a limit you type is the limit that runs.
+
+`--print-effective-config` prints one fully resolved table per
+overridden language, inherited limits included rather than a diff, so
+the number that will fire is the number you read:
+
+```toml
+[thresholds]
+cognitive = 15.0
+cyclomatic = 15.0
+
+[thresholds.lang.c]
+cognitive = 30.0
+cyclomatic = 15.0
+```
+
+## Two-tier thresholds (`--tier`) {#two-tier-thresholds---tier}
+
+`--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
+compares against. `hard` (the default) uses the `[thresholds]` table
+verbatim; `soft` is an early-warning tier that fires *before* the hard
+gate, tightening every limit by `RATIO`. A bare `--tier` means `soft`;
+`soft` alone uses the default ratio `0.95`; `soft=0.90` pins the ratio
+to `0.90`; `soft=1.0` disables the blanket scale.
+
+`RATIO` scales the *band*, not the number. For most metrics a limit is
+a ceiling, so tightening it means multiplying: `cognitive = 15` with
+`soft=0.9` warns at `13.5`.
+
+The lower-is-worse `mi.*` family is different. Its limit is a
+**floor**, a value below it is the violation, and the index has no true
+zero (`mi.original` and `mi.sei` go negative on large functions). So
+the floor is *raised* by `1 − RATIO` of one maintainability band rather
+than scaled. One band is 10 points of `mi.visual_studio`, whose 20/10
+cut-offs Visual Studio and
+[radon](https://radon.readthedocs.io/en/latest/intro.html#maintainability-index)
+use, and the same 17.1 points on the 171-point `mi.original` / `mi.sei`
+scale. `"mi.original" = 20` with `soft=0.9` warns at
+`20 + 0.1 × 17.1 = 21.71`, and a floor of `-50` at `-48.29`.
+Multiplying a floor would move the warning to `18`, *under* the hard
+gate, and dividing a negative one would do the same
+(`-50 / 0.9 = -55.6`). Either way nothing could reach the soft band
+first.
+
+Limits must be finite. A count limit must also be non-negative; an
+`mi.original` or `mi.sei` floor may be negative. A limit that cannot
+fire, or fires on every value, still parses but prints a warning:
+`mi.visual_studio` is clamped to `[0, 100]`, so `= 0` reads
+`warning: limit mi.visual_studio=0 cannot fire: 0 is the metric's
+floor; gate mi.original instead`, and `= 101` warns that it fires on
+every value.
+
+A `[thresholds.soft]` table sets per-metric soft limits, each either an
+absolute number or a `"<ratio>x"` string that scales the metric's hard
+limit:
+
+```toml
+[thresholds]
+cognitive  = 25
+cyclomatic = 15
+nargs      = 7
+
+[thresholds.soft]
+cognitive  = 22       # absolute soft limit
+cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
+# nargs absent → soft tier inherits the hard limit (no soft band)
+```
+
+```bash
+bca check --paths src/ --tier=soft
+```
+
+The soft tier resolves in a fixed order:
+
+1. Start from `[thresholds]` (a `bca.toml` manifest, merged with
+   `--config`).
+2. If a `[thresholds.soft]` table exists, merge its overrides on top;
+   metrics absent from it inherit their hard limit. The blanket `RATIO`
+   does not apply (explicit per-metric limits win).
+3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
+   for a bare `soft`; `soft=1.0` disables scaling).
+4. Repeated `--threshold name=value` flags apply last, absolutely.
+
+Steps 1 to 3 run **once per language**, against that language's own
+resolved hard limits. There is no `[thresholds.lang.<slug>].soft` table
+and none is needed. With `[thresholds] cognitive = 15`,
+`[thresholds.lang.c] cognitive = 30`, and `--tier=soft=0.9`, C's soft
+band is `27`, nine tenths of *its* limit, and the ceiling a C offender
+is measured against for the exit-`5` escalation is `30`, not `15`.
+Derive either from the project's `15` and every C function between 15
+and 30 reports "also breaches the hard limit" while sitting inside the
+limit the project configured for it.
+
+The one combination that *can* invert the two tiers is an absolute
+`[thresholds.soft]` value looser than the hard limit it shadows:
+`[thresholds.soft] cognitive = 12` alongside
+`[thresholds.lang.csharp] cognitive = 4`, or an `mi.*` soft floor
+*below* its hard floor. That is a tool error (exit `1`) naming the
+offending table, for the same reason a `"<ratio>x"` factor above `1`
+is rejected at parse time: a soft tier that fires *after* the hard gate
+is never the intent.
+
+The soft `RATIO` (and the scale factor in a `"<ratio>x"` string) must
+be in `(0, 1]`. The `[check] headroom` manifest key supplies the ratio
+for a bare `--tier=soft`. The deprecated `--headroom <R>` flag is a
+one-cycle alias for `--tier=soft=<R>` (warns; removed at the next
+major); it now promotes a hard run to the soft tier. Both tiers ratchet
+through the same `--baseline`, and `--print-effective-config` reports
+the resolved `tier` alongside the post-merge limits. See the
+[Local threshold gates](../recipes/local-gates.md#two-tier-thresholds)
+recipe for the migration tip and rationale.
+
+## Previewing a candidate limit (`--explain-threshold`) {#explain-threshold}
+
+`--explain-threshold <metric>=<limit>` reports what a candidate limit
+would cost at **both** tiers instead of gating. It is repeatable,
+takes one candidate per metric, and writes nothing.
+
+```console
+$ bca check --explain-threshold nargs=6
+nargs: candidate limit 6
+  hard tier (limit 6): 60 offenders, 60 already baselined, 0 new
+  soft tier (limit 5.7, 0.95x): 135 offenders, 61 already baselined, 74 new
+  cluster: 75 of 75 soft-band offenders sit at exactly 6 — the candidate
+  limit itself. The soft tier measures distance to the limit, so a limit
+  of 6 places them inside the 5.7 band by construction and none of them
+  can clear it without real work.
+```
+
+The `new` column is the figure to weigh: it is how many baseline
+entries adopting the limit would add. Here the hard tier reads as free
+and the soft tier costs 74 entries, none of which any amount of tidying
+can retire. Making that visible is the reason the flag exists.
+
+`--threshold nargs=6` cannot tell you this. Its limits are applied last
+and **absolutely, never scaled**, so a candidate trialled that way has
+no soft tier at all. Passing both flags for the same metric is
+rejected rather than silently resolved.
+
+The soft limit is derived from the candidate exactly as a real run
+would derive it: a `[thresholds.soft]` entry for the metric wins, then
+the `--tier=soft=RATIO` ratio if one was given, then `0.95`. A
+`[thresholds.lang.<slug>]` table that overrides the metric keeps its own
+limit, since a candidate *global* limit does not reach it, and the
+report says so on its own line. A ratio-derived soft limit names its
+arithmetic: `5.7, 0.95x` for a count, and for an `mi.*` floor the
+additive step, as in `mi.original=20` → `20.855, +0.855 (0.05 × 17.1)`.
+
+Everything else matches the run being predicted: `exclude_tests`,
+`[check] exclude`, in-source suppression markers, `--changed-only`, and
+the baseline all apply as usual. The one difference is that
+baseline-covered offenders are counted rather than dropped, which is
+what makes the `already baselined` / `new` split possible.
+
+The preview replaces the gate, so it never fails: the exit code is `0`
+unless a tool error (exit `1`) stops the run, and a one-line reminder of
+that goes to stderr. It conflicts with `--write-baseline`,
+`--print-effective-config`, `--report-format`, `--output`, and an
+explicit `--summary-file <path>` (the `auto` / `never` keywords are
+still accepted), each of which would produce a second, different
+artifact.
+
+See [Choosing thresholds](../recipes/thresholds.md#converging-onto-a-cluster)
+for the rule this flag exists to make visible.
+
+## Untrusted-input mode (`--strict`) {#strict-mode}
+
+Two default behaviors shrink the set of files the gate looks at, and
+both read their inputs from the tree under test: the
+[generated-code detector](index.html#skipping-generated-code) skips any
+file whose header carries a marker phrase, and the walker honors
+[`.gitignore` files](index.html#respecting-gitignore) found inside the
+walked tree. Both are right for a trusted checkout. In a pull-request
+gate they are levers the change under review can pull: one added
+comment line or one `.gitignore` entry takes a file out of the gate.
+The [CI recipe](../recipes/ci.md#gate-trust-boundary) shows both
+reproductions.
+
+`--strict` turns both off in one flag, equivalent to passing
+`--no-skip-generated --no-ignore`:
+
+```bash
+bca check --strict --paths src/
+```
+
+Projects opt in once in `bca.toml` instead of per workflow:
+
+```toml
+[check]
+strict = true
+```
+
+The key is presence-only, like the top-level `exclude_tests`: it can
+turn the profile on, never off, so a CI workflow cannot silently
+weaken a committed policy (there is no `--no-strict`).
+
+Even without the profile, `bca check` reports what it declined to
+look at. Whenever either mechanism dropped files, a one-line stderr
+summary gives the counts:
+
+```text
+bca: 2 files not checked (1 generated, 1 ignored) — pass --report-skipped to list them
+```
+
+Clean runs print nothing, and the summary changes no exit code.
+`--report-skipped` lists each dropped entry with a
+`note: skipped (generated): <path>`, `note: skipped (ignored): <path>`,
+or `note: skipped (ignored directory): <path>` line. Under `--strict`
+nothing is skipped, so there is nothing to summarize.
+
+The counts come from the walk's prune points: for every directory the
+walker entered, the gate checks which immediate children the ignore
+rules dropped. Only files a parser owns are counted, on both sides. An
+ignored log file, or a generated `Cargo.lock` (whose header matches
+`@generated`), would have been read and dropped rather than checked,
+and counting either would make the summary fire on every run. A file
+named explicitly on the command line bypasses ignore rules and is
+analyzed, so it is never counted.
+
+Ignored *directories* are reported only under `--report-skipped`, as
+`N ignored directories not walked` entries, and are never entered.
+Nearly every checkout has an ignored build tree on disk, and
+enumerating a `target/`-sized tree would cost a full second traversal
+for a million-file count with no signal in it. The ignored tally
+reflects every source the walker honors (in-tree `.gitignore` and
+`.ignore` files, the global gitignore, and ancestor ignore files), so
+local and CI counts can differ.
+
+With content sniffing off, generated trees still need an
+exemption. Give them one the reviewers own, either a committed walker
+deny-set (`--exclude-from .bcaignore`) or a
+[`[check.exclude]`](#exempting-whole-file-categories-checkexclude)
+glob, rather than a marker the submitter controls.

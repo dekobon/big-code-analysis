@@ -1,24 +1,29 @@
 # Benchmarking the metric walk
 
 `big-code-analysis-bench` is the benchmark harness for the metric
-walk. It exists so that a performance claim about this project can be
-reproduced by someone who did not make it, and so that a change in
-*complexity class* fails loudly instead of quietly making deeply
-nested files unanalysable.
+walk. It is for contributors changing AST traversal, a `Checker` or
+`Getter` predicate, or a metric's `compute`. It exists so that a
+performance claim about this project can be reproduced by someone who
+did not make it, and so that a change in *complexity class* fails
+loudly instead of quietly making deeply nested files unanalysable.
 
 It has two halves, and they answer different questions.
 
 - **The complexity-class gate** (`benches/scaling.rs`) answers "does
-  doubling the input — its nesting depth, or one parent's child
-  count — roughly double the cost?" It fails the process when a
-  probe's measured exponent exceeds the bound that probe declares.
+  doubling the input (its nesting depth, or one parent's child count)
+  roughly double the cost?" It fails the process when a probe's
+  measured exponent exceeds the bound that probe declares.
 - **The criterion benchmarks** (`benches/metric_walk.rs`) answer "how
   fast is this, and did my change help?" They use
   [criterion][criterion], which reports a confidence interval rather
   than a point estimate and can compare two builds against a saved
   baseline.
 
-Neither runs in per-PR CI. See [Why not in CI](#why-not-in-ci).
+Neither runs in per-PR CI. See [Why not in CI](#why-not-in-ci). The
+first two sections cover running the gate and reading its output. The
+per-probe histories after them record why each probe exists and what
+it was measured catching; read those when a probe fails or when adding
+one.
 
 [criterion]: https://bheisler.github.io/criterion.rs/book/index.html
 
@@ -58,7 +63,7 @@ git submodule update --init --recursive
 ## The complexity-class gate {#complexity-gate}
 
 Each probe pairs a generated source shape with the workload that
-exercises one hot path — a metric selection through `Ast::metrics`,
+exercises one hot path: a metric selection through `Ast::metrics`,
 the operator/operand walk behind `Ast::ops`, or a `--type` filter
 through `Ast::count`. The shape is rendered at three doubling
 sizes, every (probe, size) cell is measured once per round with the
@@ -69,15 +74,17 @@ a quadratic one sits near 2.0.
 A probe declares which **axis** its size parameter grows along, because
 a walk can be linear in one and quadratic in the other:
 
-- `Axis::Depth` — the size is the shape's nesting depth. Most probes
-  are on this axis, and they exist because `tree_sitter` stores no
+- `Axis::Depth`: the size is the shape's nesting depth. Most probes
+  are on this axis, and they exist because
+  [tree-sitter](https://tree-sitter.github.io/tree-sitter/) stores no
   parent pointer, so any predicate that resolves an ancestor by
   climbing is `O(depth)` per node.
-- `Axis::Width` — the size is the number of siblings under one parent,
+- `Axis::Width`: the size is the number of siblings under one parent,
   at a depth that does not move. `nom/wide-attributed-fn` exists
   because #1100's fix trades the two axes against each other, and
   `halstead/wide-distinct-fn` because per-child work at a space-merge
-  boundary is priced by the parent's child count (both below).
+  boundary is priced by the parent's child count (both under
+  [Why each probe exists](#why-each-probe-exists)).
 
 The axis also selects the shape invariant a probe must satisfy in
 `shapes.rs`: a depth shape has to gain AST levels in proportion to its
@@ -106,8 +113,8 @@ Read it as follows.
   would read as superlinear in its size parameter.
 - `ns/byte` drifts up with size on a depth shape even for a linear
   walk, because the tree outgrows cache. That drift is why the linear
-  bound is 1.5 and not 1.05. The width shape shows no such drift —
-  `nom/wide-attributed-fn` holds ~180 across its ladder — which is
+  bound is 1.5 and not 1.05. The width shape shows no such drift
+  (`nom/wide-attributed-fn` holds ~180 across its ladder), which is
   observed rather than explained; do not read a cache argument into
   it.
 - `iter` is how many walks were folded into one timed sample. The
@@ -118,8 +125,8 @@ Read it as follows.
   probe that stopped measuring anything is visible: a shape paired with
   a workload that scores zero on it would time the walk's fixed
   overhead and report an excellent exponent forever. A reading that
-  does not grow with the size is fine as long as it is non-zero — the
-  scaling signal lives in the timing column — but say so in the
+  does not grow with the size is fine as long as it is non-zero, since
+  the scaling signal lives in the timing column, but say so in the
   probe's `rationale`, as `ops/nested-fn` does.
 
 ### What the probes cover
@@ -158,19 +165,19 @@ Read it as follows.
 | `loc/go-comment-run` | Go | width | `leading_doc_run`'s walk back over a lead comment run (#1597) | linear |
 | `loc/rust-nested-doc-mods` | Rust | depth | the in-body doc test, memoised per ancestor by `Ancestors::fold_down` (#1597) | linear |
 | `loc/rust-inner-doc-run` | Rust | width | the inner-doc test of each `//!` opening a function body, with no prefix scan | linear |
-| `loc/java-dangling-docs` | Java | width | `bound_doc_run`'s once-per-stretch decision over dangling Javadoc (#1613) | linear |
+| `loc/java-dangling-docs` | Java | width | `bound_doc_run`'s once-per-stretch decision over dangling [Javadoc](https://docs.oracle.com/en/java/javase/21/javadoc/javadoc.html) (#1613) | linear |
 | `loc/java-package-docs` | Java | width | the package Javadoc's look-ahead for a type, stopped at the next package (#1613) | linear |
 | `loc/rust-attributed-docs` | Rust | width | the same decision through the attributes between `///` comments (#1613) | linear |
-| `loc/csharp-dangling-docs` | C# | width | Roslyn's reverse trivia scan over doc comments split by plain ones (#1613) | linear |
-| `loc/php-file-docblock` | PHP | width | phpDocumentor's file-DocBlock test, a forward scan from the first DocBlock only (#1613) | linear |
-| `loc/js-standalone-tags` | JavaScript | width | JSDoc's virtual-comment test on each `@file` block (#1613) | linear |
-| `loc/c-dangling-docs` | C | width | Doxygen's stretch over doc blocks alternating with the `#include`s it reads past (#1613) | linear |
+| `loc/csharp-dangling-docs` | C# | width | [Roslyn](https://github.com/dotnet/roslyn)'s reverse trivia scan over doc comments split by plain ones (#1613) | linear |
+| `loc/php-file-docblock` | PHP | width | [phpDocumentor](https://www.phpdoc.org/)'s file-DocBlock test, a forward scan from the first DocBlock only (#1613) | linear |
+| `loc/js-standalone-tags` | JavaScript | width | [JSDoc](https://jsdoc.app/)'s virtual-comment test on each `@file` block (#1613) | linear |
+| `loc/c-dangling-docs` | C | width | [Doxygen](https://www.doxygen.nl/)'s stretch over doc blocks alternating with the `#include`s it reads past (#1613) | linear |
 | `loc/cpp-structural-docs` | C++ | width | the `@file` scan and the gathering walk of a stretch ending at no target (#1613) | linear |
 | `loc/c-nested-conditional-docs` | C | depth | Doxygen's "does this conditional hold an entry" test, memoised per conditional for the walk (#1613) | linear |
 | `loc/python-additional-docstrings` | Python | width | additional docstrings classified once per consecutive run | linear |
 | `loc/csharp-accessor-docs` | C# | width | the in-body doc test of each comment in a property's accessor list (#1612) | linear |
 | `loc/php-signature-docs` | PHP | width | the in-body doc test of each docblock between a signature and its body (#1612) | linear |
-| `loc/kotlin-signature-docs` | Kotlin | width | the same test for KDoc in a Kotlin signature (#1612) | linear |
+| `loc/kotlin-signature-docs` | Kotlin | width | the same test for [KDoc](https://kotlinlang.org/docs/kotlin-doc.html) in a Kotlin signature (#1612) | linear |
 | `halstead/python-nested-paren` | Python | depth | the climb from each parenthesis to its statement, capped at CPython's nesting limit (#1610) | linear |
 | `loc/python-paren-bare-strings` | Python | depth | each parenthesis of a bare string statement asking whether it wraps the string, memoised per statement under the cap (#1610) | linear |
 | `ops/python-paren-bare-strings` | Python | depth | the same test in the `bca ops` walk, which keeps its own fold cache (#1610) | linear |
@@ -209,20 +216,85 @@ Read it as follows.
 | `halstead/elixir-repeated-guards` | Elixir | depth | `ElixirCode::get_paying_role` billing `when` without the `Guard` row's position climb, which is per token and quadratic on a nested-`when` chain (#1695) | linear |
 | `cyclomatic/elixir-repeated-guards` | Elixir | depth | the `Guard` row's position climb, memoised per `when` operator under `MemoQuestion::GuardOperator` so a nested-`when` chain is climbed once per walk rather than once per token (#1695) | linear |
 | `cognitive/nested-and` | Python | depth | `python_apply_boolean_operator` asking whether *any* enclosing `boolean_operator` already paid, stopping at the first, where counting them all was quadratic in the chain (#1695) | linear |
+| `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
+| `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
+| `abc/elixir-many-timeouts` | Elixir | width | malformed `receive` timeout clauses that must not each rescan every message clause | linear |
 
-Four of these were quadratic when the harness landed, and they shared
-one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
+### The control probes
+
+The twelve control probes are what make the other readings mean
+something.
+
+- `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
+  **metric** controls.
+  `Cognitive` declares `Nom` as a dependency in `src/metric_set.rs`, so
+  the cognitive-attributable cost of each `cognitive/…` row is its
+  difference from the `nom/…` row on the same shape, not the
+  `cognitive` reading alone. `nom/nested-fn-rows` plays the same part
+  for `loc/nested-fn-rows`: `Nom`'s merge is a counter add, so the
+  difference is the cost of `Loc`'s per-space row sets.
+- `loc/nested-while`, `cognitive/nested-while`,
+  `nom/nested-declared-function`, `halstead/nested-paren`,
+  `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
+  `loc/nested-fn` and `dump/wide-distinct-fns` are **shape** controls:
+  each is the same nesting (or, for the last, the same width) as the
+  probe it sits next to, with the one node that triggers the walk
+  removed. Before [#1084][parent-walk] each fitted near 1.0 where its
+  counterpart fitted near 2.0, which is what attributed the quadratic
+  cost to that call rather than to nesting in general. Now that every
+  probe fits near 1.0, the pair is what would localise a relapse: a
+  probe drifting up while its control holds means the ancestor lookup,
+  not the shape.
+
+  `loc/nested-fn` is the shape control of a different kind: it is the
+  same function nesting as `loc/nested-fn-rows` compressed onto a single
+  physical row, so the space stack still merges at every level but each
+  merge carries one row. A regression in the per-*row* fold moves
+  `loc/nested-fn-rows` and leaves it flat; a regression in the
+  per-*merge* overhead moves both.
+
+  `loc/nested-quote` is the one #1096 probe with no shape control of its
+  own: its Elixir arm fires for every named node, so there is no version
+  of the shape with the trigger removed. `nom/nested-quote`, the same
+  source under a metric that does not ask for a parent, is the metric
+  control that stands in for one.
+
+### Adding a probe
+
+Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
+The unit tests in that module enforce what a probe has to satisfy:
+bytes affine in the size parameter, no parse errors at the smallest
+declared size (or, for a probe listed in `RECOVERY_PROBES`, an `ERROR`
+root), a non-zero workload reading there, sizes that double,
+and the invariant its `axis` selects: AST levels growing with the size
+on `Axis::Depth`, children growing while AST depth holds still on
+`Axis::Width`. Set `max_exponent` from a measurement on an idle host,
+not from theory, and say in `rationale` which call the probe is
+watching.
+
+Then falsify it. Reintroduce the regression the probe claims to catch
+behind a local patch, confirm the probe goes red and its controls stay
+green, and record both numbers; a probe nobody has made fail is a
+guard on paper. The width probe's own run is quoted below.
+
+### Why each probe exists
+
+Each probe below is paired with the issue that added it and the
+measurement that showed it failing. Four of the probes in the table
+above were quadratic when the harness landed, and they shared one
+cause: `tree_sitter` stores no parent pointer, so `Node::parent`
 resolves by descending from the root and is itself `O(depth)`. Any
 predicate in the walk that asked a node for its parent was therefore
 `O(depth)` per node and `O(depth^2)` over a deeply nested file, however
 few steps it took. [#1084][parent-walk] fixed three of them by having
 the metric walk carry the ancestor chain down with it (`Ancestors` in
-`big-code-analysis-ast/src/node.rs`), so a predicate reads an ancestor as a slice index. Their
-bounds moved to the linear bound in that same change, which is what now
+`big-code-analysis-ast/src/node.rs`), so a predicate reads an ancestor
+as a slice index. Their bounds moved to the linear bound in that same
+change, which is what now
 catches a relapse. `cognitive/nested-fn` is the fourth of the same
 family: `increment_function_depth` was deferred out of #1084 and fixed
 the same way in [#1062][cognitive-parent], which is also where that
-probe comes from — it fitted 2.04 against the climb and 1.21 against the
+probe comes from: it fitted 2.04 against the climb and 1.21 against the
 chain.
 
 `nom/nested-arrow` is the fifth, added by [#1088][remaining-climbs] with
@@ -231,14 +303,15 @@ the chain into the JS-family predicates was *not enough* to make it
 linear. The walk they run is two steps long on that shape, and the
 remaining `O(depth)` term was hiding in `Node::wraps_any`, which scanned
 a node's children with `child(0)` + `next_sibling()`. A sibling step
-resolves its parent, so that scan was `O(children × depth)` — the same
+resolves its parent, so that scan was `O(children × depth)`: the same
 defect one level down, in a helper whose doc comment asserted it was
 `O(1)` per step. Moving the scan onto a cursor took the probe from 17.6 s
-to 6.3 ms at depth 4000 (`k` 1.97 to 1.03), and a walk over the 384-file `pdf.js` corpus
-from ~443 ms to ~370 ms. The lesson generalises: a chain-fed predicate
-is only as linear as the primitives it calls.
+to 6.3 ms at depth 4000 (`k` 1.97 to 1.03), and a walk over the
+384-file `pdf.js` corpus from ~443 ms to ~370 ms. The lesson
+generalises: a chain-fed predicate is only as linear as the primitives
+it calls.
 
-The last three probes come from [#1096][halstead-climbs], which
+Three more probes come from [#1096][halstead-climbs], which
 retired the remaining `Node::parent` calls in the per-language metric
 bodies: the Halstead `get_op_type` getters, every `Abc` impl, and the
 `loc` / `npm` / `npa` / `cyclomatic` / `is_useful_comment` arms.
@@ -246,7 +319,7 @@ bodies: the Halstead `get_op_type` getters, every `Abc` impl, and the
 `Cyclomatic::compute`, and `Checker::is_useful_comment` gained an
 `Ancestors` parameter there, and the comment-removal walk grew a chain
 of its own. A fourth call the issue had not listed turned up
-during review — Python's `Cyclomatic` `else` arm, reached through
+during review: Python's `Cyclomatic` `else` arm, reached through
 `Node::parent_grandparent_match`, which no `rg '\.parent\(\)'` sweep
 finds at the call site. All four probes fitted 1.99-2.06 before and
 0.99-1.27 after; at depth 4000 `halstead/nested-not` dropped from
@@ -259,30 +332,32 @@ That change also confirmed #1088's lesson a second time from the other
 direction. The ABC condition walkers reach a slot's parent to decide
 whether it sits in boolean context, and the same walkers used to ask
 `Node::previous_sibling` whether a ternary's `?` / `:` precedes the
-operand — and `ts_node__prev_sibling` opens with `ts_node_parent`, so
+operand, and `ts_node__prev_sibling` opens with `ts_node_parent`, so
 it carries the same `O(depth)`. Passing the parent in and scanning its
 children (`Node::previous_sibling_under`) was what made the fix hold on
-a ternary shape, not only on the shapes the probes render.
+a ternary shape as well as on the shapes the probes render.
 
 That helper no longer exists: #1181 moved every ternary slot onto
 `child_by_field_name`, which needs no sibling scan at all, and the
 method was removed with its last caller. The sibling cost described
 above is still the reason to reach for a field lookup first.
 
-The `Ancestors::unknown()` call sites that remain are deliberate rather
-than deferred: the two synthetic-`Unit`-root pushes hand it a node that
-*is* the root, and the `Npm` arms that test a node's children cannot
-extend a borrowed slice by one element without allocating. The
-`parser.rs` filter predicates were the third until #1381 routed `find`
-and `count` through `Search::act_on_node`'s chain.
+The `Ancestors::unknown()` call sites that remain in production code
+are deliberate rather than deferred, and each says why at the site:
+the two synthetic-`Unit`-root pushes hand it a node that *is* the root,
+the `Npm` arms that test a node's children cannot extend a borrowed
+slice by one element without allocating, and the role-owner gates the
+ABC slot helpers and Python's cognitive `and` chain ask through
+`rows_own!` / `short_circuit::owns` read no ancestors at all. The
+`parser.rs` filter predicates were once another until #1381 routed
+`find` and `count` through `Search::act_on_node`'s chain.
 
 `nom/nested-attributed-fn` and `nom/wide-attributed-fn` are the first
 probes that walk under a non-default `MetricsOptions`. Both hot paths
-are reachable only with
-`exclude_tests` set, which `Workload::Metrics` now carries as its own
-field — it sits on that variant rather than on `Probe` because
-`Ast::ops` takes no options at all, so an `Ops` probe setting it would
-be setting something nothing reads.
+are reachable only with `exclude_tests` set, which `Workload::Metrics`
+now carries as its own field. It sits on that variant rather than on
+`Probe` because `Ast::ops` takes no options at all, so an `Ops` probe
+setting it would be setting something nothing reads.
 
 `nom/nested-attributed-fn` guards [#1100][attribute-scan]. Under
 `exclude_tests` the walker asks every node whether it opens a test-only
@@ -291,16 +366,17 @@ an item. Walking that run backward with `Node::previous_sibling` costs
 `O(attributes x depth)`, so the probe fitted 2.00 and took 2.05 s at
 depth 4000 against 8.3 ms for `nom/nested-fn`, the same nesting without
 the attributes. Reading the run forward from the parent the walker
-already holds took it to 1.21 and 8.1 ms — level with that control.
+already holds took it to 1.21 and 8.1 ms, level with that control.
 
 That fix trades one axis against the other, and the probe alone would
 not have caught why. A forward pass over the parent's children is
 `O(children)` and flat in depth; the backward walk is the reverse. The
 measured costs behind that trade, and the break-even they put it at,
 live on `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` and
-`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in `big-code-analysis-ast/src/checker.rs` — one
-copy, so re-measuring updates one place. Reading forward
-unconditionally fixed the depth axis and broke the width one: a
+`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in
+`big-code-analysis-ast/src/checker.rs`, one copy, so re-measuring
+updates one place. Reading forward unconditionally fixed the depth axis
+and broke the width one: a
 generated file of 2 000 top-level attributed items went from 6.0 ms to
 569 ms, which is the shape `bindgen` output has. The scan now budgets
 the parent's child count against the node's depth, so it reads forward
@@ -308,30 +384,30 @@ only where that is the cheaper bound and a shallow wide parent keeps
 exactly the walk it had.
 
 **Both halves of that trade are now measured** (#1133).
-`nom/wide-attributed-fn` renders the wide shape — a flat file of
-`n` top-level `#[inline] fn f() {}` items, 500 / 1 000 / 2 000 — under
+`nom/wide-attributed-fn` renders the wide shape (a flat file of
+`n` top-level `#[inline] fn f() {}` items, 500 / 1 000 / 2 000) under
 the same `exclude_tests` walk. It fits 0.97-1.00 against the budgeted
 dispatch. Reintroducing the rejected forward-always scan behind a local
 patch takes it to **1.99**, at 35.6 / 145.5 / 560.6 ms against
-1.9 / 3.8 / 7.2 ms — 78x at the top of the ladder, the same order as
-the 94x #1100 measured — while every depth probe stayed inside its
-1.5 bound, `nom/nested-attributed-fn` (the same scan, nesting instead
-of widening) among them at 1.06. That is the evidence that the probe
-covers what it claims and that the depth probes do not.
+1.9 / 3.8 / 7.2 ms: 78x at the top of the ladder, the same order as
+the 94x #1100 measured. Every depth probe stayed inside its 1.5 bound,
+`nom/nested-attributed-fn` (the same scan, nesting instead of widening)
+among them at 1.06. That is the evidence that the probe covers what it
+claims and that the depth probes do not.
 
 **Two axes are not a plane** (#1446). Both probes above pin one axis
 with the other held still, and the scan's cost is a product of the two,
 so a shape that grows them *together* is outside the region either
 covers. [#1431][attribute-row] made the prune answer for every `#[…]`
 row rather than only for the item, and each answer re-derived the whole
-run — which is `O(run)` done `run` times. It is invisible to
+run, which is `O(run)` done `run` times. It is invisible to
 `nom/nested-attributed-fn`, where every run is one attribute long, and
 to `nom/wide-attributed-fn`, where depth 1 keeps the budget at six
 children and the reading on the sibling walk.
 
 `nom/deep-attribute-run` renders the diagonal: `depth` nested `fn f`,
 then one run of `3 * depth` `#[cfg(test)]` rows on a single innermost
-item. The `3 *` is the point rather than a round number — it is exactly
+item. The `3 *` is the point rather than a round number: it is exactly
 `forward_attribute_scan_budget`, so the parent is guaranteed to stay
 inside the budget and take the forward `O(children)` reading. The
 budget that exists to bound that scan selects *into* it on this shape.
@@ -343,8 +419,8 @@ verdict is now taken once and reused across its members
 this diagonal the forward pass is still the cheaper of the two
 readings, and what was quadratic was asking once per attribute.
 
-Its ladder is `ATTRIBUTE_RUN_DEPTHS` — half `LINEAR_DEPTHS` at every
-rung — because the shape renders four rows per unit of depth. A
+Its ladder is `ATTRIBUTE_RUN_DEPTHS`, half `LINEAR_DEPTHS` at every
+rung, because the shape renders four rows per unit of depth. A
 4 000-deep cell is a 200 KB tree under an 8 000-entry ancestor chain,
 and its per-byte cost drifts 1.7x up the ladder against the ~1.25x
 `LINEAR_BOUND` is set from: enough to fit 1.37 with the walk linear,
@@ -353,11 +429,12 @@ reaches a 6 000-attribute run, well past where the quadratic shows.
 
 The unit suite still pins the *dispatch* separately:
 `the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
-in `big-code-analysis-ast/src/node.rs` asserts which arm each boundary shape takes, so
-widening the budget past a shallow parent fails a test rather than
+in `big-code-analysis-ast/src/node.rs` asserts which arm each boundary
+shape takes, so widening the budget past a shallow parent fails a test
+rather than
 slipping through. The break-even *numbers* the budget is derived from
-remain unguarded — the gate sees the complexity class, not the
-constant — so re-measure by hand when touching either constant.
+remain unguarded, because the gate sees the complexity class and not
+the constant, so re-measure by hand when touching either constant.
 
 `nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
 probe that grows one *attribute* rather than the code around it:
@@ -365,21 +442,21 @@ probe that grows one *attribute* rather than the code around it:
 mini-parser reading the attribute's text, which re-scanned each
 region's whole interior to find its split points. It fits 1.00 against
 the indexed scan that replaced it. `nom/nested-fn` is not a control for
-it — the file keeps its two items at every depth — so the bound alone
-is the guard.
+it, because the file keeps its two items at every depth, so the bound
+alone is the guard.
 
 `halstead/wide-distinct-fn` is the second width probe, and it comes
 from a different family than every row above it. Nothing here climbs an
 ancestor chain: [#1106][space-merge] found the parent's Halstead `Stats`
 being re-derived from its occurrence maps *once per popped child space*,
-which is three map traversals — one of them over the parent's whole
-accumulated operand vocabulary — for work the parent's own finalize
+which is three map traversals (one of them over the parent's whole
+accumulated operand vocabulary) for work the parent's own finalize
 repeats and overwrites. That is `O(children × vocabulary)` where
 `O(vocabulary)` suffices: quadratic in a file's function count, and
 invisible to every depth probe, because the cost is charged per popped
 child and a nesting shape has one child per space however deep it
-goes. The shape is `n` sibling `fn f000000() { let v000000 = 000000; }` items,
-each with an identifier set unique to itself, because
+goes. The shape is `n` sibling `fn f000000() { let v000000 = 000000; }`
+items, each with an identifier set unique to itself, because
 `HalsteadMaps::operands` is keyed by source text and a file of `n`
 *identical* functions has a constant vocabulary that keeps the arm
 linear no matter how it is written.
@@ -388,12 +465,12 @@ Its ladder is 4 000 / 8 000 / 16 000, eight times the other width
 probe's, and that is load-bearing rather than incidental. The redundant
 pass is a second visit to data the walk already touched, so its cost
 sits against the walk's own per-token cost in a ratio fixed by the
-sibling count alone — giving each function a richer vocabulary raises
+sibling count alone; giving each function a richer vocabulary raises
 both terms together. At 500 / 1 000 / 2 000 the regression fits
 1.37-1.39 against a 1.07-1.09 baseline: a real 2.1x slowdown that the
 1.5 bound passes. At 4 000 / 8 000 / 16 000 the gate reads **1.09**
 clean and **2.17** with the per-child pass restored behind a local
-patch — the only failing probe in that run, at 507.4 ms against
+patch, the only failing probe in that run, at 507.4 ms against
 45.6 ms on the 16 000-sibling cell. Do not harmonise the two width
 ladders; the shorter one cannot see this class.
 
@@ -404,13 +481,14 @@ parenthesised `requires (A<T> && B<T>)` parses as an ordinary
 cyclomatic, cognitive and ABC climbed from every `&&` to the enclosing
 `requires_clause`. In a left-nested `a && a && …` the operator at depth
 *k* has *k* chain ancestors, so the climb cost an 8 000-term chain 4.4 s
-in a debug build, against 0.09 s once reverted. With that climb reinstated behind
-a local patch the three probes fit 1.97, 1.97 and 1.95 —
-`cyclomatic/cpp-and-chain` reads 0.74 ms clean and 104.6 ms climbing at
-depth 4 000 — while `cyclomatic/cpp-plus-chain`, the same chain through
-`+`, holds at 0.92 and every other probe stays inside its bound. Each
-metric has its own probe because each reaches the chain through its own
-arm, and a climb added to one of them would leave the other two flat.
+in a debug build, against 0.09 s once reverted. With that climb
+reinstated behind a local patch the three probes fit 1.97, 1.97 and
+1.95 (`cyclomatic/cpp-and-chain` reads 0.74 ms clean and 104.6 ms
+climbing at depth 4 000), while `cyclomatic/cpp-plus-chain`, the same
+chain through `+`, holds at 0.92 and every other probe stays inside its
+bound. Each metric has its own probe because each reaches the chain
+through its own arm, and a climb added to one of them would leave the
+other two flat.
 
 The seven Perl and Bash probes guard walks that went quadratic during
 the #1273, #1536 and #1540 work and were caught only by a hand-timed
@@ -475,15 +553,16 @@ root here holds every skipped token as a direct child and is the
 measured flat case, but a root whose skipped run stayed under a hidden
 `_ERROR` repeat is balanced, and a nested `ERROR` wrapping a few popped
 tokens is flat. The probe shape is the one that is known to be wide
-and flat. `Ast::dump` now walks one cursor, which
-steps to a sibling in amortised `O(1)` whatever the parent's shape and
-reads a node's field off the hidden levels above it, so enumerating
-the tree is `O(n log n)` over a balanced list and `O(n)` over a flat
-one. That bounds the enumeration, not the alterator, whose predicates
+and flat. `Ast::dump` now walks one cursor, which steps to a sibling
+in amortised `O(1)` whatever the parent's shape and reads a node's
+field off the hidden levels above it, so enumerating the tree is
+`O(n log n)` over a balanced list and `O(n)` over a flat one.
+
+That bounds the enumeration, not the alterator, whose predicates
 are the language's to keep linear. Tcl's was not until
 [#1686][tcl-slots]: `keeps_children` asks
 `argument_slots_are_readable` of every braced word under a `word_list`
-that holds an error, and the answer is an `O(width)` sibling scan — so
+that holds an error, and the answer is an `O(width)` sibling scan, so
 a wide `eval` line with one stray `]` among its arguments was quadratic
 in its width on either strategy, and on every other walk that reaches
 a braced word's role (`Ast::metrics` through `braced_word_op_type`,
@@ -491,17 +570,18 @@ a braced word's role (`Ast::metrics` through `braced_word_op_type`,
 rides in the `FoldCache` each walk lends with its chain, keyed by the
 list's id, so it runs once per list per walk. Four probes price it,
 one per walk, because each lends its cache independently and a
-regression in one is invisible from the others — and the two
+regression in one is invisible from the others. The two
 Halstead-shaped rows have a second way to regress: they reach the
 question through `Ancestors::iter`, which has to carry the cache onto
-the ancestor's chain. The
-indexed walk stays reachable as `Ast::dump_indexed`, and routing the
-default back to it is what `dump/perl-error-tail-calls` prices; the
+the ancestor's chain.
+
+The indexed walk stays reachable as `Ast::dump_indexed`, and routing
+the default back to it is what `dump/perl-error-tail-calls` prices; the
 export also carries the ancestor chain `keeps_children` reads, and
 handing that an unknown chain is what `dump/tcl-nested-eval` prices.
 The `Dump` workload's reading is the exported node count, taken on a
 second pass over the result before it is dropped, so each timing is
-construction + that count + teardown. The count is a constant factor —
+construction + that count + teardown. The count is a constant factor:
 2-5 % of the region on the width shapes and real files, 8-11 % on the
 depth probe, where each level's two-element extend has poor locality.
 It is `O(nodes)`, so it preserves the walk's complexity class; on a
@@ -530,13 +610,13 @@ Temporary storage was measured once with a counting Rust
 `#[global_allocator]`, at the flat `ERROR` at width 4 000 (twice the
 probe's top rung), the wide list at 2 000, the depth probe at 4 000 and
 on `src/spaces/compute.rs`, as peak live bytes during the export less
-the finished tree's own capacity. That counter sees the frame stack and the
-ancestor chain and **not** the `TreeCursor`'s own stack: the C library
+the finished tree's own capacity. That counter sees the frame stack and
+the ancestor chain and **not** the `TreeCursor`'s own stack: the C library
 allocates that through `ts_current_malloc`, which is libc's `malloc`
 unless `ts_set_allocator` was called. Both walks share one `Frame` and
 one `Export`, so what it saw was byte-identical on both sides, and
 every figure is a `Vec` capacity after doubling rather than a live
-length — 448 bytes on the flat `ERROR`, 896 on the wide list, 3.5 KB
+length: 448 bytes on the flat `ERROR`, 896 on the wide list, 3.5 KB
 on `compute.rs`, 1.84 MB on the depth probe, where
 16 384 slots of one 80-byte frame plus one 32-byte chain entry hold the
 12 000 exported levels. The cursor's unmeasured stack is one 32-byte
@@ -558,7 +638,7 @@ ladder itself.
 ### Child scans, and where the allocation actually was {#child-scans}
 
 `Node::children` builds a `tree_sitter::TreeCursor`, which heap-allocates
-its stack and frees it on drop — so a traversal that calls it per node
+its stack and frees it on drop, so a traversal that calls it per node
 pays a `malloc`/`free` pair per node. [#1112][child-cursor] expected that
 cost to be spread across the walk's predicates, on the strength of ~137
 call sites. Counting it says otherwise. Per-language, over the corpus
@@ -574,20 +654,21 @@ slice, a full `metrics()` walk reaches `children` on:
 
 The predicates are a rounding error; one scan was not. Python's
 instance-attribute walk in `metrics::npa::python` visits every node of
-every method body, and was 381 k of that language's 417 k child scans —
+every method body, and was 381 k of that language's 417 k child scans,
 92 % of them. The metric walk's other per-node `children` consumers are
-`Preorder` and the suppression DFS. Crate-wide there are two more —
-`Search::act_on_node` and `output::dump`'s tree renderer — neither of
+`Preorder` and the suppression DFS. Crate-wide there are two more,
+`Search::act_on_node` and `output::dump`'s tree renderer, neither of
 which a `metrics()` call runs, so they are absent from the figures
 above.
 
 `Node::children_with` lets all five hoist one cursor out of their loop,
-and the counter `child_scan_cursors` in `big-code-analysis-ast/src/node.rs` is what keeps
-them there, since the change moves no metric value. All five are
+and the counter `child_scan_cursors` in
+`big-code-analysis-ast/src/node.rs` is what keeps them there, since the
+change moves no metric value. All five are
 asserted: the walks reachable from `node.rs` in
 `the_converted_traversals_scan_a_tree_on_one_cursor`, and the renderer
 in `output::dump`'s own `dump_holds_one_cursor_for_the_whole_tree`.
-The counter records in `Node::children` — the allocating form — so a
+The counter records in `Node::children`, the allocating form, so a
 hoisted cursor records **zero** and a per-node one records once per
 interior node; each assertion pins the exact zero, and each was
 verified by reverting its call site and watching that test alone fail
@@ -596,7 +677,7 @@ verified by reverting its call site and watching that test alone fail
 Measured on 400 Python corpus files (694 k nodes), interleaved
 best-of-nine: **414 620 cursor allocations down to 33 328 (−92 %), walk
 time 159.0 ms to 155.2 ms (−2.4 %)**. Every other language is under 1 %,
-which is the useful part of the result — the remaining call sites are
+which is the useful part of the result: the remaining call sites are
 predicates holding a bare `&Node`, and threading a cursor to them would
 cross the `Checker` / `Getter` trait surface to save roughly 17 ns per
 call on the 3-6 % of nodes above (16 % in C#). Not worth it; measure
@@ -606,17 +687,20 @@ before widening this.
 
 ### The chain audit {#chain-audit}
 
+`make chain-audit` re-runs the library tests with the exact
+ancestor-chain assertion restored. Run it around any change to a walk's
+truncate/push bookkeeping.
+
 The chain those bounds depend on is only as good as the walker's
 truncate/push bookkeeping, and `Ancestors::parent` reads `chain.last()`
-without checking it — so a slip feeds every predicate a wrong ancestor
+without checking it, so a slip feeds every predicate a wrong ancestor
 silently rather than failing. `Ancestors::checked` is the guard, and
 until [#1122][chain-audit-issue] it asked the exact question:
 `chain.last() == node.parent()`. That is `Node::parent` again, per node,
-on all five walks that build a chain — which made every *debug* walk
+on all five walks that build a chain, which made every *debug* walk
 quadratic while the shipped one stayed linear, and put the cost in every
-`cargo test`. The deep-nesting regression tests paid it worst, which is
-to say the tests that exist to pin the walk's linearity were the slowest
-thing about not shipping it.
+`cargo test`. The assertion made the deep-nesting regression tests
+especially slow, even though release builds did not contain it.
 
 The exact assertion now lives behind `--cfg chain_audit`:
 
@@ -630,8 +714,8 @@ and `deeply_nested_spaces_convert_to_wire_without_stack_overflow` from
 ~1.8 s to ~0.02 s.
 
 What a plain debug build keeps is an `O(1)` consequence of the same
-invariant — a parent's byte span contains its child's, and no node is
-its own parent — which catches a `push` moved ahead of the per-node
+invariant (a parent's byte span contains its child's, and no node is
+its own parent), which catches a `push` moved ahead of the per-node
 computes and a dropped `truncate`, but not a chain that is short by
 exactly one (a grandparent contains the node too). That gap is the
 lane's whole justification: run `make chain-audit` around any change to
@@ -639,57 +723,6 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 `chain-audit` CI job runs it per PR over the library's tests.
 
 [chain-audit-issue]: https://github.com/dekobon/big-code-analysis/issues/1122
-
-[parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
-[cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
-[remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
-[halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
-[attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
-[cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
-[attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
-[space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
-[perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
-[flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
-[find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
-[dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
-[tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
-
-The twelve control probes are what make the other readings mean
-something.
-
-- `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
-  **metric** controls.
-  `Cognitive` declares `Nom` as a dependency in `src/metric_set.rs`, so
-  the cognitive-attributable cost of each `cognitive/…` row is its
-  difference from the `nom/…` row on the same shape, not the
-  `cognitive` reading alone. `nom/nested-fn-rows` plays the same part
-  for `loc/nested-fn-rows`: `Nom`'s merge is a counter add, so the
-  difference is the cost of `Loc`'s per-space row sets.
-- `loc/nested-while`, `cognitive/nested-while`,
-  `nom/nested-declared-function`, `halstead/nested-paren`,
-  `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
-  `loc/nested-fn` and `dump/wide-distinct-fns` are **shape** controls:
-  each is the same nesting — or, for the last, the same width — as the
-  probe it sits next to, with the one node that triggers the walk
-  removed. Before [#1084][parent-walk] each fitted near 1.0 where its
-  counterpart fitted near 2.0, which is what attributed the quadratic
-  cost to that call rather than to nesting in general. Now that every
-  probe fits near 1.0, the pair is what would localise a relapse: a
-  probe drifting up while its control holds means the ancestor lookup,
-  not the shape.
-
-  `loc/nested-fn` is the shape control of a different kind: it is the
-  same function nesting as `loc/nested-fn-rows` compressed onto a single
-  physical row, so the space stack still merges at every level but each
-  merge carries one row. A regression in the per-*row* fold moves
-  `loc/nested-fn-rows` and leaves it flat; a regression in the
-  per-*merge* overhead moves both.
-
-  `loc/nested-quote` is the one #1096 probe with no shape control of its
-  own: its Elixir arm fires for every named node, so there is no version
-  of the shape with the trigger removed. `nom/nested-quote` — the same
-  source under a metric that does not ask for a parent — is the metric
-  control that stands in for one.
 
 ### What `ops/nested-fn` does not cover {#ops-vocabulary}
 
@@ -712,24 +745,6 @@ the public type, which is a breaking change (#1110).
 the vocabulary is four operands at any depth and the timing is the walk
 alone.
 
-### Adding a probe
-
-Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
-The unit tests in that module enforce what a probe has to satisfy:
-bytes affine in the size parameter, no parse errors at the smallest
-declared size (or, for a probe listed in `RECOVERY_PROBES`, an `ERROR`
-root), a non-zero workload reading there, sizes that double,
-and the invariant its `axis` selects — AST levels growing with the size
-on `Axis::Depth`, children growing while AST depth holds still on
-`Axis::Width`. Set `max_exponent` from a measurement on an idle host,
-not from theory, and say in `rationale` which call the probe is
-watching.
-
-Then falsify it. Reintroduce the regression the probe claims to catch
-behind a local patch, confirm the probe goes red and its controls stay
-green, and record both numbers — a probe nobody has made fail is a
-guard on paper. The width probe's own run is quoted above.
-
 ## Criterion measurements
 
 Three groups:
@@ -747,7 +762,7 @@ The slice is bounded and deterministic: sorted traversal, a per-
 language file quota, and size limits, which given the pinned submodule
 commits select the same files on every run. Directories are deduplicated
 by canonical path, because `Path::is_dir` follows symlinks and the
-corpus contains aliased subtrees — without it the same file is selected
+corpus contains aliased subtrees; without it the same file is selected
 twice under two paths, which is how the Java bucket first reported
 sixteen files that were really eight. Before measuring anything,
 the bench prints what it selected, and says so explicitly when the byte
@@ -802,9 +817,9 @@ cargo bench -p big-code-analysis-bench --bench metric_walk --no-run
 cp target/release/deps/metric_walk-* /tmp/metric_walk_before
 ```
 
-Then alternate them round by round — flipping which side goes first,
-so a one-way drift does not always land on the same arm — and narrow
-each run to the benchmarks under test:
+Then alternate them round by round, flipping which side goes first so
+a one-way drift does not always land on the same arm, and narrow each
+run to the benchmarks under test:
 
 ```bash
 taskset -c 3 /tmp/metric_walk_before --bench --discard-baseline --noplot \
@@ -815,7 +830,7 @@ Summarise the result as a *paired* series: one after/before ratio per
 round, reported by its median and by how many rounds went the right
 way. A sign test over those rounds is the honest headline, because a
 preempted core produces single-round ratios of 5x or 0.2x that no mean
-survives. Keep the controls in the same table — a control that moves
+survives. Keep the controls in the same table: a control that moves
 as far as the effect means the run measured the host, not the change.
 
 `taskset` is the smaller half of this: pinning both sides to one core
@@ -881,9 +896,23 @@ treating it as a regression.
 
 ## Related
 
-- [`docs/development/mutation_testing.md`](mutation_testing.md) — the
+- [`docs/development/mutation_testing.md`](mutation_testing.md): the
   other out-of-band quarterly gate.
-- `big-code-analysis-bench/src/shapes.rs` — the probe set, with a
+- `big-code-analysis-bench/src/shapes.rs`: the probe set, with a
   per-probe rationale.
-- `big-code-analysis-bench/src/scaling.rs` — the measurement and fit,
+- `big-code-analysis-bench/src/scaling.rs`: the measurement and fit,
   with the reasoning behind interleaving and three-point fitting.
+
+[parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
+[cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
+[remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
+[halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
+[attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
+[cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
+[attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
+[space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
+[perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
+[flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
+[find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
+[dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
+[tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686

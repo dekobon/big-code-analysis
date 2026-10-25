@@ -1,21 +1,41 @@
 # Dev container
 
-A self-contained image for running [Claude Code](https://docs.claude.com/en/docs/claude-code)
-and this project's MCP servers against a mounted checkout, plus the full
-`make pre-commit` / `make ci` validation gate. It bundles every runtime and
-tool the workspace needs:
+A self-contained [Docker](https://www.docker.com/) image for contributors
+who want to run [Claude Code](https://docs.claude.com/en/docs/claude-code)
+and this project's [MCP](https://modelcontextprotocol.io/) servers against
+a mounted checkout, with the full `make pre-commit` / `make ci` validation
+gate available inside. It bundles every runtime and tool the workspace
+needs:
 
-- **Rust** — stable `1.94` (matching `Cargo.toml`) plus `nightly` for
-  `cargo +nightly udeps`; components `rustfmt`, `clippy`, `rust-analyzer`
-  (the Rust LSP), `llvm-tools-preview`; and the cargo tools the gate uses
-  (`cargo-udeps`, `cargo-insta`, `cargo-nextest`, `cargo-llvm-cov`,
-  `cargo-about`, `cargo-deny`, `mdbook`).
-- **Python** — 3.12 with `uv` (the canonical `make py-bootstrap` path),
-  `maturin`, `ruff`, `mypy`, and `pyright` (the Python LSP).
-- **Node** — for the npx-launched MCP servers, plus `bash-language-server`.
-- **Lint tooling** pinned to the CI versions and SHA256-verified: `rumdl`,
-  `taplo`, `shellcheck`, `shfmt`, `checkmake` (amd64 only), `actionlint`.
-- **MCP servers** — [Context7](https://github.com/upstash/context7),
+- **[Rust](https://www.rust-lang.org/)**: stable `1.94` (matching
+  `Cargo.toml`) plus `nightly` for `cargo +nightly udeps`; components
+  `rustfmt`, `clippy`,
+  [`rust-analyzer`](https://rust-analyzer.github.io/) (the Rust LSP),
+  `llvm-tools-preview`; and the cargo tools the gate uses
+  ([`cargo-udeps`](https://github.com/est31/cargo-udeps),
+  [`cargo-insta`](https://insta.rs/),
+  [`cargo-nextest`](https://nexte.st/),
+  [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov),
+  [`cargo-about`](https://github.com/EmbarkStudios/cargo-about),
+  [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny),
+  [`mdbook`](https://rust-lang.github.io/mdBook/)).
+- **Python**: 3.12 with [`uv`](https://docs.astral.sh/uv/) (the canonical
+  `make py-bootstrap` path), [`maturin`](https://www.maturin.rs/),
+  [`ruff`](https://docs.astral.sh/ruff/),
+  [`mypy`](https://mypy-lang.org/), and
+  [`pyright`](https://github.com/microsoft/pyright) (the Python LSP,
+  installed through npm).
+- **[Node.js](https://nodejs.org/)**: for Claude Code, the npm-installed
+  MCP servers, `pyright`, and
+  [`bash-language-server`](https://github.com/bash-lsp/bash-language-server).
+- **Lint tooling** pinned to the CI versions and SHA256-verified:
+  [`rumdl`](https://github.com/rvben/rumdl),
+  [`taplo`](https://taplo.tamasfe.dev/),
+  [`shellcheck`](https://www.shellcheck.net/),
+  [`shfmt`](https://github.com/mvdan/sh),
+  [`checkmake`](https://github.com/mrtazz/checkmake) (amd64 only),
+  [`actionlint`](https://github.com/rhysd/actionlint).
+- **MCP servers**: [Context7](https://github.com/upstash/context7),
   [codegraph](https://github.com/optave/ops-codegraph-tool), and
   [Serena](https://github.com/oraios/serena).
 
@@ -23,7 +43,7 @@ tool the workspace needs:
 
 The three servers are defined once in [`docker/mcp.json`](./mcp.json) and
 registered into Claude Code's **user scope** at image-build time. Claude
-launches each as a stdio subprocess automatically — there is no
+launches each as a stdio subprocess automatically; there is no
 docker-compose and no separate server container. Verify inside the
 container with:
 
@@ -63,10 +83,11 @@ ownership on the host.
 One directory inside that checkout is deliberately *not* shared:
 `big-code-analysis-py/.venv`. `make dev-env-run` mounts
 `~/.cache/big-code-analysis-dev/py-venv` over it (`$XDG_CACHE_HOME` wins
-where it is set), so the container gets its own virtualenv. A venv records absolute interpreter paths in
-`pyvenv.cfg` and in every console-script shebang, so a single directory
-cannot serve both sides of the bind mount — whichever environment ran
-`uv sync` last owns it, and the other gets
+where it is set), so the container gets its own virtualenv. A venv
+records absolute interpreter paths in `pyvenv.cfg` and in every
+console-script shebang, so a single directory cannot serve both sides of
+the bind mount: whichever environment ran `uv sync` last owns it, and
+the other gets
 
 ```text
 bash: .venv/bin/mypy: /…/.venv/bin/python: bad interpreter
@@ -77,11 +98,12 @@ in-container path is still spelled `.venv`, no `py-*` recipe needs to
 know about the split. Run `make py-bootstrap` once inside the container
 to populate it; the host's own venv contents are untouched.
 
-The cache directory outlives the container, but the container's home —
-and with it the uv-managed interpreter the venv points at — does not. So
-after a `make dev-env-rm` / `make dev-env-run` cycle the cached venv can
-name an interpreter that no longer exists, and uv cannot repair it in
-place because a mount point cannot be deleted. Reset it from the host:
+The cached venv survives container removal. The container's home
+directory does not, so the uv-managed interpreter referenced by the
+venv disappears. After a `make dev-env-rm` / `make dev-env-run` cycle,
+the cached venv can therefore reference a missing interpreter. uv
+cannot repair it in place because it cannot delete a mount point.
+Reset it from the host:
 
 ```bash
 rm -rf ~/.cache/big-code-analysis-dev/py-venv/*
@@ -100,7 +122,7 @@ either way:
 - **Interactive**: run `claude` and log in once; the session persists
   across `make dev-env-shell` invocations.
 - **API key**: `export ANTHROPIC_API_KEY=…` on the host before
-  `make dev-env-run` — it is forwarded into the container.
+  `make dev-env-run`; it is forwarded into the container.
   `CODEGRAPH_LLM_API_KEY` is forwarded the same way for codegraph's
   optional LLM features.
 

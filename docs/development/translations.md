@@ -1,7 +1,8 @@
 # Documentation translations
 
-The mdBook under `big-code-analysis-book/` is translated with the
-gettext workflow from
+The [mdBook](https://rust-lang.github.io/mdBook/) under
+`big-code-analysis-book/` is translated with the
+[gettext](https://www.gnu.org/software/gettext/) workflow from
 [mdbook-i18n-helpers](https://github.com/google/mdbook-i18n-helpers).
 The English sources under `src/` are the single source of truth;
 translations live in one PO file per language under
@@ -34,8 +35,8 @@ mdbook 0.5 and the two pins must move together.
 
 A mismatch fails in one of two ways, neither of which is a normal
 build error. Helpers 0.3.x under mdbook 0.5.x aborts with
-`missing field 'sections'` — loud, and `make book-pot` now refuses to
-run rather than reaching it. The dangerous direction is helpers 0.4.x
+`missing field 'sections'`, which is loud, and `make book-pot` now
+refuses to run rather than reaching it. The dangerous direction is helpers 0.4.x
 under any mdbook: extraction succeeds but splits fenced code blocks
 one entry per line instead of one entry per block, so the next
 `msgmerge` marks every code-block entry fuzzy and shreds `ja.po`
@@ -49,8 +50,8 @@ package manager.
 
 ## Editing English docs
 
-Nothing extra is required. Changed paragraphs simply render in English
-on the Japanese site until someone refreshes the translation. When a
+Nothing extra is required. Changed paragraphs render in English on the
+Japanese site until someone refreshes the translation. When a
 doc PR wants to keep `ja.po` current in the same change, run the
 refresh workflow below; otherwise refreshing periodically is fine.
 
@@ -76,7 +77,7 @@ msgattrib --only-fuzzy   big-code-analysis-book/po/ja.po
 ```
 
 Translate those entries (drop the `#, fuzzy` marker once an entry is
-verified — fuzzy entries still render as English), then validate and
+verified; fuzzy entries still render as English), then validate and
 preview:
 
 ```console
@@ -92,7 +93,7 @@ index). Prose style is です・ます調. Inline code, flags, paths, link
 targets, and product names stay verbatim.
 
 `messages.pot` is generated on demand (`make book-pot`) and is
-gitignored — only `ja.po` is tracked.
+gitignored; only `ja.po` is tracked.
 
 ## Adding another language
 

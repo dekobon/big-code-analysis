@@ -1,16 +1,18 @@
 # Selecting metrics
 
-By default, every call to [`analyze`] computes the full metric
-suite — ABC, cognitive, cyclomatic, Halstead, LoC, MI, NArgs,
-NExits, NOM, NPA, NPM, tokens, and WMC. That is the right default
-for the CLI, where the user has just asked for *the* metrics, but
-it is heavyweight for callers that only want one number per file.
+By default, every call to [`analyze`] computes the full metric suite:
+ABC, cognitive, cyclomatic,
+[Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures),
+LoC, MI, NArgs, NExits, NOM, NPA, NPM, tokens, and WMC (see
+[Metrics](../metrics.md) for what each measures). That is the right default for the CLI, where the user has
+asked for *the* metrics, but it is heavyweight for callers that only
+want one number per file.
 
-`MetricsOptions::with_only(&[Metric])` lets you restrict the walker
-to a subset of metrics. Unselected metrics are skipped at the
-per-node level — no `T::Halstead::compute`, no
-`T::Cognitive::compute`, etc. — and elided from the
-[`CodeMetrics`][CodeMetrics] serialization output.
+`MetricsOptions::with_only(&[Metric])` restricts the walker to a
+subset of metrics. Unselected metrics are skipped at the per-node
+level (no `T::Halstead::compute`, no `T::Cognitive::compute`, and so
+on) and elided from the [`CodeMetrics`][CodeMetrics] serialization
+output.
 
 ## A worked example
 
@@ -29,7 +31,7 @@ fn main() {
     )
     .expect("parses");
 
-    // LoC was selected — it carries real numbers.
+    // LoC was selected, so it carries real numbers.
     println!("ploc = {}", space.metrics.loc.ploc());
 
     // Halstead, cognitive, cyclomatic, … were skipped. Their
@@ -44,23 +46,25 @@ every other metric is absent.
 
 ## Dependencies between metrics
 
-Two metrics are *derived* — they consume the outputs of other
-metrics during the finalize step:
+Some metrics are *derived*: they consume the outputs of other
+metrics during the finalize step, or divide by a count another
+metric owns. `Metric::dependencies` is the source of truth:
 
 | Metric | Dependencies |
 |---|---|
 | `Metric::Mi`  | `Loc`, `Cyclomatic`, `Halstead` |
 | `Metric::Wmc` | `Cyclomatic`, `Nom` |
+| `Metric::Cognitive`, `Metric::Nexits`, `Metric::Nargs` | `Nom` (the per-function average's divisor) |
 
-`with_only` resolves these closures silently. Asking for `Mi`
-alone still computes `Loc + Cyclomatic + Halstead`, so the MI
-value is meaningful rather than a function of zero-default
-inputs:
+`with_only` automatically adds the selected metrics' dependencies.
+Selecting `Mi` therefore also computes `Loc`, `Cyclomatic` and
+`Halstead`, rather than calculating MI from default-zero inputs:
 
 ```rust
-# use big_code_analysis::{Metric, MetricSet, MetricsOptions};
+# use big_code_analysis::{Metric, MetricsOptions};
 let opts = MetricsOptions::default().with_only(&[Metric::Mi]);
-// opts.metrics now contains Mi + Loc + Cyclomatic + Halstead.
+// The stored set now contains Mi + Loc + Cyclomatic + Halstead;
+// `MetricsOptions::with_metric_set` closes a `MetricSet` the same way.
 ```
 
 You can introspect the final set from the resulting
@@ -85,19 +89,18 @@ same JSON it always did.
 
 ## What about "everything except *X*"?
 
-There is no built-in complement API — `with_only` takes a positive
-selection, not an exclusion list. The intentional asymmetry keeps
-the dependency closure unambiguous: a positive list always grows
-through `Metric::dependencies`, whereas an exclusion list would
-need to decide what to do when the caller excludes a dependency
-of a metric they kept.
+There is no built-in complement API: `with_only` takes a positive
+selection, not an exclusion list. The asymmetry is deliberate and
+keeps the dependency closure unambiguous. A positive list always
+grows through `Metric::dependencies`, whereas an exclusion list would
+need to decide what to do when the caller excludes a dependency of a
+metric they kept.
 
-If you genuinely want "all except Halstead", build the list
-explicitly. Because `Metric` is `#[non_exhaustive]`, downstream
-crates can construct the variants but cannot exhaustively `match`
-on them, so the conventional pattern is to enumerate the variants
-you want and accept that adding a future `Metric` variant will not
-silently opt you in:
+If you want "all except Halstead", build the list explicitly.
+Because `Metric` is `#[non_exhaustive]`, downstream crates can
+construct the variants but cannot exhaustively `match` on them. The
+conventional pattern is to enumerate the variants you want and
+accept that a future `Metric` variant will not silently opt you in:
 
 ```rust
 use big_code_analysis::{Metric, MetricsOptions};
@@ -120,23 +123,23 @@ let opts = MetricsOptions::default().with_only(&[
 ```
 
 Note the trap: keeping `Metric::Mi` re-adds `Metric::Halstead`
-through `Metric::dependencies`. To truly drop Halstead you must
-also drop `Mi`.
+through `Metric::dependencies`. To drop Halstead you must also drop
+`Mi`.
 
 ## When to reach for `with_only`
 
-- **Hot paths** that need only one or two metrics per file —
-  Halstead in particular owns its own per-space `HalsteadMaps`
-  allocation and is the headline saving for an LoC-only run.
-- **CI integrations** that only display one number (e.g. a
-  cognitive-complexity gate) and want the rest of `CodeMetrics`
-  to drop out of the cached JSON payload.
+- **Hot paths** that need only one or two metrics per file. Halstead
+  in particular owns its own per-space `HalsteadMaps` allocation and
+  is the headline saving for an LoC-only run.
+- **CI integrations** that display one number (a cognitive-complexity
+  gate, say) and want the rest of `CodeMetrics` to drop out of the
+  cached JSON payload.
 - **Library callers** wiring `big-code-analysis` into their own
-  reports who would otherwise see fields for every metric in
-  their own UI.
+  reports who would otherwise see fields for every metric in their
+  own UI.
 
-Per-metric Cargo features (compile-time stripping) are not
-covered by this knob.
+Per-metric Cargo features (compile-time stripping) are not covered
+by this knob.
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
