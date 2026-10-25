@@ -18,16 +18,34 @@ use super::*;
 // them when the class node itself is visited, where `stats` is already the
 // class space. `@property` accessors are auto-generated and
 // carry no `method_declaration` node, so they are not counted here.
+/// Whether a container member is a method: a bodiless
+/// `method_declaration`, or the `FuncOpener` row's callable that the
+/// container *owns* — a `method_definition`. A free C function inside
+/// `@implementation` is a callable too, and the one the container does
+/// not own (#1356), so it is the callable `is_non_member_function`
+/// declines. `ancestors` is the container's chain standing in for the
+/// member's; the row reads none.
+fn objc_is_method<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    use crate::roles::objc::func_opener;
+    member.kind_id() == Objc::MethodDeclaration as u16
+        || (func_opener::is_callable(member, code, ancestors)
+            && !ObjcCode::is_non_member_function(member, code, ancestors))
+}
+
 impl Npm for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Objc::*;
 
+        // Which container this is, for the interface / class bucket; not
+        // whether it opens a space.
+        // role-bypass: allow(Container) — the interface bucket
         let is_interface = matches!(node.kind_id().into(), ClassInterface | ProtocolDeclaration);
+        // role-bypass: allow(Container) — the class bucket
         if !is_interface && node.kind_id() != ClassImplementation as u16 {
             return;
         }
@@ -48,11 +66,10 @@ impl Npm for ObjcCode {
                 // functions and `@synthesize`, also wrapped by the former,
                 // are not methods, so they are skipped).
                 ImplementationDefinition | QualifiedProtocolInterfaceDeclaration => {
-                    for inner in child.children() {
-                        if matches!(inner.kind_id().into(), MethodDeclaration | MethodDefinition) {
-                            methods += 1;
-                        }
-                    }
+                    methods += child
+                        .children()
+                        .filter(|inner| objc_is_method(inner, code, ancestors))
+                        .count();
                 }
                 _ => {}
             }

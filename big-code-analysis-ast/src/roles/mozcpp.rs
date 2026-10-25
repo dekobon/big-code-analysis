@@ -12,10 +12,12 @@ use crate::Mozcpp;
 use crate::role_table;
 use crate::roles::c_family::{
     c_family_decl_keywords, c_family_modifiers, c_family_primitives, cpp_family_binary_owners,
-    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_payers,
+    cpp_family_comparison_payers, cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_short_circuit_payers, cpp_family_space_gates,
 };
 
 cpp_family_gates!(Mozcpp);
+cpp_family_space_gates!(Mozcpp);
 
 role_table! {
     lang: Mozcpp;
@@ -86,10 +88,16 @@ role_table! {
     }
     DeclKeyword { owns [..c_family_decl_keywords!(), Class, Namespace, Template, Typename, Using] }
     Primitive { owns [..c_family_primitives!()] }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // The shared C++ openers and containers (`roles/c_family.rs`); the
+    // lambda is a closure that opens no space.
+    FuncOpener { owns [..cpp_family_func_openers!()] }
+    Closure { owns [LambdaExpression] }
+    Container { owns [..cpp_family_containers!()] }
+    // A `field_declaration` in a class body — a data member, or a
+    // bodiless member function the method consumer tells apart by its
+    // declarator (#1300). Which it is, and the access section it sits
+    // in, is the consumers' reading.
+    Member { owns [FieldDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "C++ documents with comments, not string literals" }

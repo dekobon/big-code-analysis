@@ -11,10 +11,11 @@ use super::*;
 impl Npa for CppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::cpp::member;
         use Cpp::*;
 
         if !matches!(node.kind_id().into(), FieldDeclarationList) {
@@ -24,6 +25,8 @@ impl Npa for CppCode {
             return;
         };
         // C++ `class` defaults to private; `struct` defaults to public.
+        // role-bypass: allow(Container) — which container's body this is,
+        // for the default access; not whether it opens a space
         let mut current_is_public = match parent.kind_id().into() {
             ClassSpecifier => false,
             StructSpecifier => true,
@@ -46,7 +49,9 @@ impl Npa for CppCode {
                         })
                         .is_some_and(|tok| tok.kind_id() == Cpp::Public);
                 }
-                FieldDeclaration => {
+                // The `Member` row's declaration; a child's chain is the
+                // list's plus the list, which the row reads neither of.
+                _ if member::owns(&child, code, ancestors) => {
                     // Member functions surface as `field_declaration`
                     // when declared without a body. They are counted
                     // by `Npm`, not as attributes — detect them by

@@ -185,7 +185,39 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::c::opens_space,
     },
+    // Bodied and bodiless specifiers (#1555), a lambda (closure, no
+    // space), a namespace; Mozcpp reads the same source.
+    #[cfg(feature = "cpp")]
+    Row {
+        lang: LANG::Cpp,
+        source: CPP_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::CppCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::cpp::opens_space,
+    },
+    #[cfg(feature = "mozcpp")]
+    Row {
+        lang: LANG::Mozcpp,
+        source: CPP_SOURCE,
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::MozcppCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::mozcpp::opens_space,
+    },
+    #[cfg(feature = "objc")]
+    Row {
+        lang: LANG::Objc,
+        source: b"@interface Foo : NSObject\n- (void)m:(int)x;\n@end\n@implementation Foo\n- (void)m:(int)x { void (^blk)(int) = ^(int y) { }; blk(1); }\nstatic void helper(void) {}\n@end\n@protocol P\n- (void)pm;\n@end\nint cfun(int a) { return a; }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::ObjcCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::objc::opens_space,
+    },
 ];
+
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+const CPP_SOURCE: &[u8] = b"namespace ns { int x; }\nstruct S;\nstruct S2 { int a; void m(); };\nclass C { int f; void m() { auto l = [](int x) { return x; }; l(1); } };\nvoid g(struct S *q) {}\nint main() { return 0; }\n";
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
 const JS_SOURCE: &[u8] = b"function f(a) { const g = (b) => b; return g(a); }\nfunction* h(n) { yield n; }\nconst i = function () {};\nclass K { static { let z = 1; } m() { run(x => x); } fld = () => 1; }\nconst L = class {};\n(function () {})();\n";
@@ -198,12 +230,15 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
 #[cfg(any(
     feature = "bash",
     feature = "c",
+    feature = "cpp",
     feature = "go",
     feature = "irules",
     feature = "java",
     feature = "javascript",
     feature = "lua",
+    feature = "mozcpp",
     feature = "mozjs",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",

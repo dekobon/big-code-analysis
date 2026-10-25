@@ -128,10 +128,35 @@ role_table! {
     // The shared list plus `_Complex` / `__complex`, a type keyword this
     // grammar files as a qualifier.
     Primitive { owns [..c_family_primitives!(), Complex, Complex2] }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // Both aliased `function_definition` ids (#285) and a
+    // `method_definition` — the `@implementation`-side method with a
+    // body; the `@interface`-side `method_declaration` has none and is
+    // no function — are the callables. A block literal (`^{ … }`) is a
+    // closure that opens no space, as the C++ lambda. `@implementation`
+    // carries the method bodies and opens `Class`; `@interface` and
+    // `@protocol` declare without bodies and open `Interface`.
+    FuncOpener {
+        owns [
+            FunctionDefinition(callable opens Function),
+            FunctionDefinition2(callable opens Function),
+            MethodDefinition(callable opens Function),
+        ]
+    }
+    Closure { owns [BlockLiteral] }
+    Container {
+        owns [
+            TranslationUnit(opens Unit),
+            ClassImplementation(opens Class),
+            ClassInterface(opens Interface),
+            ProtocolDeclaration(opens Interface),
+        ]
+    }
+    // A `@property` declaration, direct in an `@interface` /
+    // `@implementation` / `@protocol` or grouped under a
+    // `@required` / `@optional` marker, and an instance variable in
+    // the `{ … }` block, which the consumer counts by declarator and
+    // reads the access section of.
+    Member { owns [PropertyDeclaration, InstanceVariable] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Objective-C documents with comments, not string literals" }

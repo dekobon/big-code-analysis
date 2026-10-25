@@ -31,35 +31,31 @@ impl Checker for CppCode {
     //
     // A struct / class specifier opens a space only when it has a body,
     // gated by the same predicate as `get_space_kind` (#1555).
+    // The space tree is declared in `roles/cpp.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain (the
+    // body gate reads the node's own fields), so the byte-less spelling
+    // forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        match node.kind_id().into() {
-            Cpp::StructSpecifier | Cpp::ClassSpecifier => cpp_specifier_has_body(node),
-            kind => matches!(
-                kind,
-                Cpp::TranslationUnit
-                    | Cpp::FunctionDefinition
-                    | Cpp::FunctionDefinition2
-                    | Cpp::FunctionDefinition3
-                    | Cpp::FunctionDefinition4
-                    | Cpp::NamespaceDefinition
-            ),
-        }
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::cpp::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     // Issue #285 contract: keep this in sync with `is_func_space` and
     // the C++ getters — see comment above `is_func_space`.
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Cpp::FunctionDefinition
-                | Cpp::FunctionDefinition2
-                | Cpp::FunctionDefinition3
-                | Cpp::FunctionDefinition4
-        )
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::cpp::func_opener::is_callable(node, &[], ancestors)
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Cpp::LambdaExpression
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::cpp::closure::owns(node, &[], ancestors)
     }
 
     // A `friend` with an inline body sits inside the class braces but is

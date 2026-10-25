@@ -239,8 +239,58 @@ macro_rules! cpp_family_gates {
     };
 }
 
+/// The four aliased `function_definition` ids of the C++ grammars
+/// (#285, lesson 2) — a method, a constructor, a destructor, an operator
+/// and a conversion operator share them — each a callable opening a
+/// `Function` space (#1696). A lambda opens no space in C++: it is the
+/// `Closure` row's, and the book's "which lambdas open a space"
+/// paragraph is pinned by the Cpp rows.
+macro_rules! cpp_family_func_openers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            FunctionDefinition(callable opens Function),
+            FunctionDefinition2(callable opens Function),
+            FunctionDefinition3(callable opens Function),
+            FunctionDefinition4(callable opens Function),
+        ] $($rest)*);
+    };
+}
+
+/// The C++ containers: the file, a namespace, and a `struct` / `class`
+/// specifier — which opens a space only with a body (#1555): `struct S;`
+/// and the parameter type in `void f(struct S *q)` carry no `body`
+/// field, so they are gated on `has_body`, emitted per dialect by
+/// `cpp_family_space_gates!`. A `union` and an `enum` open nothing.
+macro_rules! cpp_family_containers {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            TranslationUnit(opens Unit),
+            NamespaceDefinition(opens Namespace),
+            StructSpecifier(opens Struct gated_by has_body),
+            ClassSpecifier(opens Class gated_by has_body),
+        ] $($rest)*);
+    };
+}
+
+/// The gate the C++ `Container` rows read, per dialect.
+macro_rules! cpp_family_space_gates {
+    ($lang:ident) => {
+        /// Whether a `struct` / `class` specifier carries a `body` field
+        /// — a definition rather than a forward declaration or a
+        /// parameter type (#1555).
+        fn has_body<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::checker::cpp_specifier_has_body(node)
+        }
+    };
+}
+
 pub(crate) use {
     c_family_binary_owners, c_family_comparison_payers, c_family_decl_keywords, c_family_modifiers,
     c_family_primitives, c_family_short_circuit_payers, cpp_family_binary_owners,
-    cpp_family_comparison_payers, cpp_family_gates, cpp_family_short_circuit_payers,
+    cpp_family_comparison_payers, cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_short_circuit_payers, cpp_family_space_gates,
 };

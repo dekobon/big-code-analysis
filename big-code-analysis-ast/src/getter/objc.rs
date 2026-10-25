@@ -54,12 +54,14 @@ impl Getter for ObjcCode {
         // `class_implementation`, `protocol_declaration`) carry no `name`
         // field, so their name is the first `identifier` child — the
         // class / protocol name, or a method's first selector keyword.
+        // role-bypass: allow(FuncOpener, Container, Modifier) — a naming
+        // rule: which node is named, and which declarator leaf is the
+        // name; not whether the node opens a space or an identifier is a
+        // property-attribute word
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
-                // role-bypass: allow(Modifier) — naming: which declarator leaf is the name, not
-                // whether an identifier is a property-attribute word
                 if let Some(name) = declarator_name::<Self>(node)
                     && matches!(
                         name.kind_id().into(),
@@ -86,23 +88,19 @@ impl Getter for ObjcCode {
         None
     }
 
+    // The mapping is the `opens` annotations of `roles/objc.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Objc::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // `@interface` / `@protocol` declare members without bodies →
-        // `Interface`; `@implementation` carries the method bodies →
-        // `Class`; free functions and `method_definition`s are
-        // `Function` spaces. ObjC blocks (`^{ … }`) are closures counted
-        // by `nom` rather than their own space, mirroring the C++ lambda
-        // (so they fall through to `Unknown` here). Keep the
-        // `FunctionDefinition*` aliases listed (#285).
-        match node.kind_id().into() {
-            FunctionDefinition | FunctionDefinition2 | MethodDefinition => SpaceKind::Function,
-            ClassImplementation => SpaceKind::Class,
-            ClassInterface | ProtocolDeclaration => SpaceKind::Interface,
-            TranslationUnit => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::objc::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(objc);

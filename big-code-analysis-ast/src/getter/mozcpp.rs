@@ -28,6 +28,8 @@ impl Getter for MozcppCode {
         // currently pinned `tree-sitter-mozcpp` parse tables, so a
         // dropped variant would silently fall through to the
         // `_ => name-field` arm and yield the wrong name (or `None`).
+        // role-bypass: allow(FuncOpener) — a naming rule, not whether the
+        // definition opens a space
         match node.kind_id().into() {
             Mozcpp::FunctionDefinition
             | Mozcpp::FunctionDefinition2
@@ -66,22 +68,19 @@ impl Getter for MozcppCode {
         None
     }
 
+    // The mapping is the `opens` annotations of `roles/mozcpp.rs`
+    // (#1696). The rows read no bytes and no chain, so the byte-less
+    // spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Mozcpp::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // Issue #285 contract: keep every `FunctionDefinition*` alias
-        // listed here — see the comment above `get_func_space_name`.
-        match node.kind_id().into() {
-            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
-            | FunctionDefinition4 => SpaceKind::Function,
-            // Bodiless specifiers open no space (#1555); see
-            // `cpp_specifier_has_body`.
-            StructSpecifier if crate::checker::cpp_specifier_has_body(node) => SpaceKind::Struct,
-            ClassSpecifier if crate::checker::cpp_specifier_has_body(node) => SpaceKind::Class,
-            NamespaceDefinition => SpaceKind::Namespace,
-            TranslationUnit => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::mozcpp::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(mozcpp);

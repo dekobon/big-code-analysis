@@ -21,7 +21,7 @@ impl Cognitive for ObjcCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::objc::{short_circuit, ternary};
+        use crate::roles::objc::{closure, func_opener, short_circuit, ternary};
         use Objc::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -54,20 +54,17 @@ impl Cognitive for ObjcCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
-            // ObjC blocks `^{ … }` are the language's closures.
-            BlockLiteral => {
+            // ObjC blocks `^{ … }` are the language's closures — the
+            // `Closure` row — and charge the lambda channel.
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
-            // Functions and `@implementation` methods are definition
-            // boundaries: reset structural nesting and bump the
-            // function-depth surcharge when nested inside another (#696).
-            FunctionDefinition | FunctionDefinition2 | MethodDefinition => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition, FunctionDefinition2, MethodDefinition],
-                );
+            // Functions and `@implementation` methods — the `FuncOpener`
+            // row's callables — are definition boundaries: reset structural
+            // nesting and bump the function-depth surcharge when nested
+            // inside another (#696), the row's callable kinds the stops.
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

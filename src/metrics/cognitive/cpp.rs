@@ -33,7 +33,7 @@ macro_rules! cpp_family_cognitive {
                 // table's vocabulary; the row reads (#1695) are arms like the
                 // kind arms they replaced.
                 use $lang::*;
-                use $roles::{short_circuit, ternary};
+                use $roles::{closure, func_opener, short_circuit, ternary};
 
                 // Macro expansion is not tracked; macros are treated as opaque tokens.
                 let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -83,29 +83,26 @@ macro_rules! cpp_family_cognitive {
                             _ => None,
                         });
                     }
-                    LambdaExpression => {
+                    // A lambda — the `Closure` row — charges the lambda channel
+                    // and does not reset nesting.
+                    _ if closure::owns(node, code, ancestors) => {
                         nesting.lambda += 1;
                     }
-                    // At a (possibly nested) function-definition boundary, reset
-                    // structural nesting to zero and bump the function-depth
-                    // surcharge when this definition is itself nested inside
-                    // another — matching Rust and the 9-of-13 sibling
-                    // families. Without this, a method defined inside a control
-                    // construct inherited the enclosing nesting and every nested
-                    // definition missed the SonarSource B-nesting amplification
-                    // (#696).
-                    FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
-                    | FunctionDefinition4 => {
+                    // At a (possibly nested) function-definition boundary — the
+                    // `FuncOpener` row's callables, the four aliased
+                    // `function_definition` ids — reset structural nesting to
+                    // zero and bump the function-depth surcharge when this
+                    // definition is itself nested inside another, with the
+                    // row's callable kinds as the stop list. Without this, a
+                    // method defined inside a control construct inherited the
+                    // enclosing nesting and every nested definition missed the
+                    // SonarSource B-nesting amplification (#696).
+                    _ if func_opener::is_callable(node, code, ancestors) => {
                         enter_function_boundary(
                             &mut nesting,
                             node,
                             ancestors,
-                            &[
-                                FunctionDefinition,
-                                FunctionDefinition2,
-                                FunctionDefinition3,
-                                FunctionDefinition4,
-                            ],
+                            func_opener::CALLABLE,
                         );
                     }
                     _ => {}

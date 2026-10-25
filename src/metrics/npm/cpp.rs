@@ -11,10 +11,11 @@ use super::*;
 impl Npm for CppCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::cpp::func_opener;
         use Cpp::*;
 
         if !matches!(node.kind_id().into(), FieldDeclarationList) {
@@ -24,6 +25,8 @@ impl Npm for CppCode {
             return;
         };
         // C++ `class` defaults to private; `struct` defaults to public.
+        // role-bypass: allow(Container) — which container's body this is,
+        // for the default access; not whether it opens a space
         let mut current_is_public = match parent.kind_id().into() {
             ClassSpecifier => false,
             StructSpecifier => true,
@@ -41,12 +44,13 @@ impl Npm for CppCode {
                         })
                         .is_some_and(|tok| tok.kind_id() == Cpp::Public);
                 }
-                // Inline-defined member function (with a body): regular
-                // methods, constructors, destructors, operator overloads,
-                // and conversion operators all share these aliased
-                // `function_definition` kind-ids.
-                FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
-                | FunctionDefinition4 => {
+                // Inline-defined member function (with a body): the
+                // `FuncOpener` row's callables — regular methods,
+                // constructors, destructors, operator overloads and
+                // conversion operators all share the aliased
+                // `function_definition` kind-ids. A child's chain is the
+                // list's plus the list; the row reads neither.
+                _ if func_opener::is_callable(&child, code, ancestors) => {
                     stats.class_nm += 1;
                     if current_is_public {
                         stats.class_npm += 1;
@@ -90,6 +94,10 @@ impl Npm for CppCode {
                 // nested `template_declaration` as a child, which the
                 // helper declines because the two-header form it would
                 // spell is not valid C++ at class scope.
+                // role-bypass: allow(Member) — the row's member read as a
+                // bodiless *method* by its declarator, beside the
+                // non-member wrappers; the attribute consumer reads the
+                // same row the other way
                 FieldDeclaration | Declaration | Declaration2 | Declaration3 | Declaration4
                 | TemplateDeclaration
                     if super::npa::cpp_declares_function(&child) =>

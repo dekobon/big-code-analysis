@@ -29,28 +29,29 @@ impl Checker for ObjcCode {
     // `get_space_kind` (see `src/getter.rs`); the `FunctionDefinition2`
     // alias must ride alongside the primary or it is silently dropped
     // from FuncSpace creation (#285, lesson 2).
+    // The space tree is declared in `roles/objc.rs` (#1696): the
+    // `FuncOpener` and `Container` rows are what the walk promotes and
+    // `opens_space` labels. The rows read no bytes and no chain (the
+    // body gate reads the node's own fields), so the byte-less spelling
+    // forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Objc::TranslationUnit
-                | Objc::FunctionDefinition
-                | Objc::FunctionDefinition2
-                | Objc::MethodDefinition
-                | Objc::ClassInterface
-                | Objc::ClassImplementation
-                | Objc::ProtocolDeclaration
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::objc::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     // Keep in sync with `is_func_space` and the ObjC getters (#285).
     // A `method_definition` is the `@implementation`-side method with a
     // body; the `@interface`-side `method_declaration` has no body and
     // is therefore not a function.
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Objc::FunctionDefinition | Objc::FunctionDefinition2 | Objc::MethodDefinition
-        )
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::objc::func_opener::is_callable(node, &[], ancestors)
     }
 
     // A plain C function written inside `@implementation` / `@interface`
@@ -82,6 +83,9 @@ impl Checker for ObjcCode {
         _code: &[u8],
         _ancestors: Ancestors<'a, '_>,
     ) -> bool {
+        // role-bypass: allow(FuncOpener) — which of the row's callables
+        // the enclosing container does not own (a C function, never a
+        // method); not whether it opens a space
         matches!(
             node.kind_id().into(),
             Objc::FunctionDefinition | Objc::FunctionDefinition2
@@ -89,8 +93,8 @@ impl Checker for ObjcCode {
     }
 
     // ObjC blocks `^{ … }` are the language's closures.
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Objc::BlockLiteral
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::objc::closure::owns(node, &[], ancestors)
     }
 
     // A C `call_expression` (aliased to `CallExpression2`) or an ObjC

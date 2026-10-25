@@ -12,9 +12,12 @@ use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
 #[cfg(any(
     feature = "bash",
     feature = "c",
+    feature = "cpp",
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "mozcpp",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -27,6 +30,7 @@ type Answers = (bool, bool, bool, SpaceKind, bool);
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -37,9 +41,12 @@ type OpensSpace = fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> bool;
 #[cfg(any(
     feature = "bash",
     feature = "c",
+    feature = "cpp",
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "mozcpp",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -55,14 +62,24 @@ const F: Answers = (true, false, true, SpaceKind::Function, false);
     feature = "rust",
 ))]
 const C: Answers = (false, true, true, SpaceKind::Function, false);
-#[cfg(any(feature = "go", feature = "php", feature = "rust"))]
+#[cfg(any(
+    feature = "cpp",
+    feature = "go",
+    feature = "mozcpp",
+    feature = "objc",
+    feature = "php",
+    feature = "rust",
+))]
 const M: Answers = (false, false, false, SpaceKind::Unknown, true);
 #[cfg(any(
     feature = "bash",
     feature = "c",
+    feature = "cpp",
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "mozcpp",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -73,9 +90,12 @@ const NONE: Answers = (false, false, false, SpaceKind::Unknown, false);
 #[cfg(any(
     feature = "bash",
     feature = "c",
+    feature = "cpp",
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "mozcpp",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -95,6 +115,7 @@ fn container(kind: SpaceKind) -> Answers {
     feature = "go",
     feature = "irules",
     feature = "lua",
+    feature = "objc",
     feature = "perl",
     feature = "php",
     feature = "rust",
@@ -328,5 +349,181 @@ fn c_space_tree_rows() {
         // inline` and bodied spellings at the pin; the alias is defensive
         // (#285).
         &[crate::C::FunctionDefinition2 as u16],
+    );
+}
+
+/// The C++ fixture both dialects read: bodied and bodiless struct /
+/// class specifiers (#1555), a lambda (closure, no space), a namespace,
+/// a data member, a bodiless member function (a `field_declaration` the
+/// method consumer reads by declarator) and an inline method.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+const CPP_SOURCE: &[u8] = b"namespace ns { int x; }\nstruct S;\nstruct S2 { int a; void m(); };\nclass C { int f; void m() { auto l = [](int x) { return x; }; l(1); } };\nvoid g(struct S *q) {}\nint main() { return 0; }\n";
+
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+const CPP_EXPECTED: &[(&str, Answers)] = &[
+    (
+        "translation_unit",
+        (false, false, true, SpaceKind::Unit, false),
+    ),
+    (
+        "namespace_definition",
+        (false, false, true, SpaceKind::Namespace, false),
+    ),
+    ("function_definition", F),
+    (
+        "lambda_expression",
+        (false, true, false, SpaceKind::Unknown, false),
+    ),
+    ("field_declaration", M),
+];
+
+/// The two specifier kinds answer by their body: the definitions open
+/// a space, `struct S;` and the parameter type `struct S *q` open none
+/// (#1555). Checked by text since one kind spells both.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn check_cpp<L: LanguageInfo + Checker + Getter>(
+    owners: &[&[u16]],
+    struct_kind: u16,
+    class_kind: u16,
+    defensive: &[u16],
+) {
+    let source = CPP_SOURCE;
+    let mut specifiers = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<L>(source, |node, chain| {
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = L::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            L::is_func(node, ancestors),
+            L::is_closure(node, ancestors),
+            promoted,
+            L::get_space_kind_with_code(node, source, ancestors),
+            false,
+        );
+        seen_kinds.insert(node.kind_id());
+        if node.kind_id() == struct_kind || node.kind_id() == class_kind {
+            specifiers.push((
+                node.utf8_text(source).unwrap_or("?").to_owned(),
+                got.2,
+                got.3,
+            ));
+            return;
+        }
+        let want = CPP_EXPECTED
+            .iter()
+            .find(|(k, _)| *k == kind && node.is_named())
+            .map_or(NONE, |(_, v)| *v);
+        let want = (want.0, want.1, want.2, want.3, false);
+        assert_eq!(
+            got,
+            want,
+            "{kind} `{}`",
+            node.utf8_text(source).unwrap_or("?")
+        );
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+    });
+    assert_eq!(
+        specifiers,
+        [
+            ("struct S".to_owned(), false, SpaceKind::Unknown),
+            (
+                "struct S2 { int a; void m(); }".to_owned(),
+                true,
+                SpaceKind::Struct
+            ),
+            (
+                "class C { int f; void m() { auto l = [](int x) { return x; }; l(1); } }"
+                    .to_owned(),
+                true,
+                SpaceKind::Class
+            ),
+            ("struct S".to_owned(), false, SpaceKind::Unknown),
+        ]
+    );
+    for &k in owners.iter().copied().flatten() {
+        if defensive.contains(&k) {
+            assert!(
+                !seen_kinds.contains(&k),
+                "defensive kind {k} is now emitted; its row needs a look"
+            );
+        } else {
+            assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
+        }
+    }
+}
+
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_space_tree_rows() {
+    use crate::roles::cpp::{closure, container, func_opener, member};
+    check_cpp::<crate::CppCode>(
+        &[
+            func_opener::OWNERS,
+            closure::OWNERS,
+            container::OWNERS,
+            member::OWNERS,
+        ],
+        crate::Cpp::StructSpecifier as u16,
+        crate::Cpp::ClassSpecifier as u16,
+        // One `function_definition` id for a free function, a method, a
+        // constructor, a destructor, a conversion operator, a template
+        // and an out-of-line definition at the pin (probed with `bca
+        // dump`); the three aliases are defensive (#285, lesson 2).
+        &[
+            crate::Cpp::FunctionDefinition2 as u16,
+            crate::Cpp::FunctionDefinition3 as u16,
+            crate::Cpp::FunctionDefinition4 as u16,
+        ],
+    );
+}
+
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_space_tree_rows() {
+    use crate::roles::mozcpp::{closure, container, func_opener, member};
+    check_cpp::<crate::MozcppCode>(
+        &[
+            func_opener::OWNERS,
+            closure::OWNERS,
+            container::OWNERS,
+            member::OWNERS,
+        ],
+        crate::Mozcpp::StructSpecifier as u16,
+        crate::Mozcpp::ClassSpecifier as u16,
+        &[
+            crate::Mozcpp::FunctionDefinition2 as u16,
+            crate::Mozcpp::FunctionDefinition3 as u16,
+            crate::Mozcpp::FunctionDefinition4 as u16,
+        ],
+    );
+}
+
+#[cfg(feature = "objc")]
+#[test]
+fn objc_space_tree_rows() {
+    use crate::roles::objc::{closure, container, func_opener, member};
+    check::<crate::ObjcCode>(
+        b"@interface Foo : NSObject { int ivar; }\n@property (nonatomic) int p;\n- (void)m:(int)x;\n@end\n@implementation Foo\n- (void)m:(int)x { void (^blk)(int) = ^(int y) { }; blk(1); }\nstatic void helper(void) {}\n@end\n@protocol P\n- (void)pm;\n@required\n@property int q;\n@end\nint cfun(int a) { return a; }\n",
+        &[
+            ("translation_unit", container(SpaceKind::Unit)),
+            ("class_implementation", container(SpaceKind::Class)),
+            ("class_interface", container(SpaceKind::Interface)),
+            ("protocol_declaration", container(SpaceKind::Interface)),
+            ("function_definition", F),
+            ("method_definition", F),
+            ("block_literal", (false, true, false, SpaceKind::Unknown, false)),
+            ("property_declaration", M),
+            ("instance_variable", M),
+        ],
+        member::owns,
+        &[func_opener::OWNERS, closure::OWNERS, container::OWNERS, member::OWNERS],
+        // One `function_definition` id for every spelling at the pin; the
+        // alias is defensive (#285).
+        &[crate::Objc::FunctionDefinition2 as u16],
     );
 }
