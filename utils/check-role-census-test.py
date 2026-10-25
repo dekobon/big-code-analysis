@@ -332,6 +332,35 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(row.pays_mode, "split")
         self.assertEqual([(p.kind, p.gate) for p in row.payers], [("EQEQ", None), ("BANGEQ", "applied"), ("LT", "under_binary")])
 
+    def test_callable_is_read_once_per_owner(self) -> None:
+        # `callable` marks a `FuncOpener` owner that is a named function
+        # beside one that only opens a space (#1696); a repeat is an error.
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    FuncOpener { owns [MethodDeclaration(callable opens Function), "
+            "StaticInitializer(opens Function), Lambda(opens Function gated_by bound callable), "
+            "Arrow(opens Function callable_when bound)] }\n",
+        )
+        table = rt.parse_table(self.t.roles / "java.rs")
+        owners = table.rows["FuncOpener"].owners
+        self.assertEqual(
+            [(o.kind, o.callable, o.callable_when, o.opens, o.gate) for o in owners],
+            [
+                ("MethodDeclaration", True, None, "Function", None),
+                ("StaticInitializer", False, None, "Function", None),
+                ("Lambda", True, None, "Function", "bound"),
+                ("Arrow", True, "bound", "Function", None),
+            ],
+        )
+        for repeat in ("callable callable", "callable callable_when f", "callable_when f callable"):
+            self.t.write(
+                "java",
+                f"    lang: Java;\n    FuncOpener {{ owns [MethodDeclaration({repeat})] }}\n",
+            )
+            with self.assertRaises(rt.RoleTableError):
+                rt.parse_table(self.t.roles / "java.rs")
+
     def test_holds_payer_and_under_are_read(self) -> None:
         # `holds_payer` on an owner and `under P` / `under [P, Q]` on a
         # payer (#1695) — the second inside a fragment, whose `]` must not

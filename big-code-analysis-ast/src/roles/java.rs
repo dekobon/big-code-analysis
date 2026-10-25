@@ -102,23 +102,24 @@ role_table! {
         wraps [StringInterpolation]
     }
 
-    // Mapping. Every function opener is a `Function` space. `static { … }`
-    // is `is_func_space` rather than `is_func` today (#1184), so it opens
-    // a space without being a callable. The lambda is *not* here: the
-    // walk promotes on `promotes_to_func_space_with_code`, and Java's
-    // `is_func` and `is_func_space` both leave `lambda_expression` out,
-    // so no lambda opens a space today — even though `get_space_kind`
-    // would label one `Function` if asked. That is a live disagreement
-    // between the two halves of the space tree (grammar-dispatch §7,
-    // "the pair that fails quietly"), reachable only by a caller that
-    // asks the getter about a node the walk never promoted; the row
-    // records the walk's answer, and the parity test below pins it
-    // against the walk's predicate rather than the getter's.
+    // Mapping. Every function opener is a `Function` space. The three
+    // `callable` owners are what `is_func` answers — a method, a
+    // constructor, and a record's compact constructor (#1160), each a
+    // function someone names at a call site. `static { … }` is not:
+    // it opens a space (#1184) and is nobody's callee, so it carries no
+    // `callable` and `nom` / `nargs` / `npm` never see it as a method.
+    // The lambda is *not* here: the walk promotes on
+    // `promotes_to_func_space_with_code`, and Java's `is_func` and
+    // `is_func_space` both leave `lambda_expression` out, so no lambda
+    // opens a space today — even though the byte-less `get_space_kind`
+    // labelled one `Function` before #1696. The row records the walk's
+    // answer, and the parity test below pins it against the walk's
+    // predicate.
     FuncOpener {
         owns [
-            MethodDeclaration(opens Function),
-            ConstructorDeclaration(opens Function),
-            CompactConstructorDeclaration(opens Function),
+            MethodDeclaration(callable opens Function),
+            ConstructorDeclaration(callable opens Function),
+            CompactConstructorDeclaration(callable opens Function),
             StaticInitializer(opens Function),
         ]
     }
@@ -223,7 +224,15 @@ role_table! {
     // none is keyed by text and `Checker::is_primitive` stays the
     // default. `void` bills with them.
     Primitive { owns [Byte, Short, Int, Long, Char, Float, Double, BooleanType, VoidType] }
-    Member { pending R06 }
+    // A field (`int a, b;` — one declaration, two `variable_declarator`
+    // children, which the attribute count walks) in a class, enum or
+    // record body, and an interface's or annotation type's constant.
+    // Recognition only: whether a member is public, and which body it
+    // sits in, is the consumers' reading (`npa/java.rs`). An annotation
+    // type's `int v() default 1;` (`annotation_type_element_declaration`)
+    // is an abstract method at the bytecode level and is counted by the
+    // method consumer, not here.
+    Member { owns [FieldDeclaration, ConstantDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "Java documents with comments, not string literals" }
@@ -271,72 +280,124 @@ mod tests {
         seen
     }
 
-    // The rows restate `checker/java.rs` and `getter/java.rs`; this pins
-    // the restatement node by node, on a fixture holding every kind the
-    // membership rows name, so a kind dropped from a row (or added to
-    // the classifier alone) fails here rather than drifting silently
-    // (lesson 35). The per-shape tests above do not cover membership:
-    // dropping `YieldStatement` from `Exit` or `EnumDeclaration` from
-    // `Container` failed none of them.
+    // Until #1696 the rows restated `checker/java.rs` and `getter/java.rs`
+    // and this compared the two; now the classifiers *read* the rows, so
+    // a comparison would be a forwarding check. The expected answer per
+    // kind is pinned independently here instead — on a fixture holding
+    // every kind the membership rows name, so a kind dropped from a row,
+    // or a classifier that stops reading its row, fails here rather than
+    // drifting silently (lesson 35). The per-shape tests above do not
+    // cover membership: dropping `YieldStatement` from `Exit` or
+    // `EnumDeclaration` from `Container` failed none of them.
+    /// `(is_func, is_closure, promoted, SpaceKind, is_member)`: the five
+    /// answers the space-tree and member consumers read of one node.
+    #[cfg(feature = "java")]
+    type Answers = (bool, bool, bool, SpaceKind, bool);
+
     #[cfg(feature = "java")]
     #[test]
-    fn membership_rows_agree_with_the_live_classifiers() {
-        let source = b"enum E { A; }\nrecord R(int a) { R { } }\ninterface I { }\n@interface An { }\nclass C {\n  static { }\n  C() { }\n  String s = \"x\";\n  void m() { Runnable r = () -> m(); Object o = new Object() { }; Object p = new Object(); throw new RuntimeException(); }\n  int y(int s) { return switch (s) { default -> { yield 1; } }; }\n}\n";
+    #[allow(clippy::too_many_lines)]
+    fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
+        let source = b"enum E { A; int f; }\nrecord R(int a) { R { } int g; }\ninterface I { int K = 1; void im(); }\n@interface An { int v() default 1; int C = 2; }\nclass C {\n  static { }\n  C() { }\n  String s = \"x\";\n  void m() { Runnable r = () -> m(); Object o = new Object() { }; Object p = new Object(); throw new RuntimeException(); }\n  int y(int s) { return switch (s) { default -> { yield 1; } }; }\n}\n";
+        // Per kind, as the classifiers answered before the rows and must
+        // answer after. A kind absent here answers all-false.
+        let expected: &[(&str, Answers)] = &[
+            ("program", (false, false, true, SpaceKind::Unit, false)),
+            (
+                "class_declaration",
+                (false, false, true, SpaceKind::Class, false),
+            ),
+            (
+                "enum_declaration",
+                (false, false, true, SpaceKind::Class, false),
+            ),
+            (
+                "record_declaration",
+                (false, false, true, SpaceKind::Class, false),
+            ),
+            (
+                "interface_declaration",
+                (false, false, true, SpaceKind::Interface, false),
+            ),
+            (
+                "annotation_type_declaration",
+                (false, false, true, SpaceKind::Interface, false),
+            ),
+            (
+                "method_declaration",
+                (true, false, true, SpaceKind::Function, false),
+            ),
+            (
+                "constructor_declaration",
+                (true, false, true, SpaceKind::Function, false),
+            ),
+            (
+                "compact_constructor_declaration",
+                (true, false, true, SpaceKind::Function, false),
+            ),
+            (
+                "static_initializer",
+                (false, false, true, SpaceKind::Function, false),
+            ),
+            (
+                "lambda_expression",
+                (false, true, false, SpaceKind::Unknown, false),
+            ),
+            (
+                "field_declaration",
+                (false, false, false, SpaceKind::Unknown, true),
+            ),
+            (
+                "constant_declaration",
+                (false, false, false, SpaceKind::Unknown, true),
+            ),
+        ];
         let mut seen_kinds = std::collections::BTreeSet::new();
+        let mut anonymous = Vec::new();
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let kind = node.kind();
+            let promoted = JavaCode::promotes_to_func_space_with_code(node, source, ancestors);
+            let got = (
+                JavaCode::is_func(node, ancestors),
+                JavaCode::is_closure(node, ancestors),
+                promoted,
+                JavaCode::get_space_kind_with_code(node, source, ancestors),
+                member::owns(node, source, ancestors),
+            );
+            if kind == "object_creation_expression" {
+                // Gated on the body: `new Object() { }` opens a class;
+                // `new Object()` and `new RuntimeException()` nothing
+                // (#463), told apart by the gate.
+                anonymous.push((got.2, got.3));
+            } else {
+                let want = expected.iter().find(|(k, _)| *k == kind).map_or(
+                    (false, false, false, SpaceKind::Unknown, false),
+                    |(_, v)| *v,
+                );
+                assert_eq!(got, want, "{kind}");
+            }
+            // Promotion and labelling are the two halves of one answer.
+            assert_eq!(
+                got.3 != SpaceKind::Unknown,
+                promoted,
+                "{kind}: opens_space vs promotion"
+            );
+            assert_eq!(
+                JavaCode::is_func_space_with_code(node, source, ancestors),
+                promoted,
+                "{kind}: is_func_space is what the walk promotes"
+            );
             assert_eq!(
                 call::owns(node, source, ancestors),
-                JavaCode::is_call_with_code(node, source, ancestors),
+                kind == "method_invocation",
                 "{kind}: Call"
             );
             assert_eq!(
                 string_lit::owns(node, source, ancestors),
-                JavaCode::is_string_with_code(node, source, ancestors),
+                kind == "string_literal",
                 "{kind}: StringLit"
             );
-            assert_eq!(
-                closure::owns(node, source, ancestors),
-                JavaCode::is_closure(node, ancestors),
-                "{kind}: Closure"
-            );
-            // The space tree: `FuncOpener` ∪ `Container` owners are what
-            // the walk promotes — its predicate, unaugmented — and
-            // `opens_space` is the kind it labels a promoted node with.
-            // The getter is asked only about promoted nodes, because for
-            // a lambda it answers `Function` while the walk opens
-            // nothing; the `FuncOpener` row says why.
-            let promoted = func_opener::owns(node, source, ancestors)
-                || container::owns(node, source, ancestors);
-            assert_eq!(
-                promoted,
-                JavaCode::promotes_to_func_space_with_code(node, source, ancestors),
-                "{kind}: space promotion"
-            );
-            let labelled = opens_space(node, source, ancestors);
-            assert_eq!(
-                labelled != SpaceKind::Unknown,
-                promoted,
-                "{kind}: opens_space vs promotion"
-            );
-            if promoted {
-                assert_eq!(
-                    labelled,
-                    JavaCode::get_space_kind_with_code(node, source, ancestors),
-                    "{kind}: SpaceKind"
-                );
-            }
-            if kind == "lambda_expression" {
-                assert_eq!(
-                    JavaCode::get_space_kind_with_code(node, source, ancestors),
-                    SpaceKind::Function,
-                    "the getter's lambda answer the walk never reads"
-                );
-            }
-            // `Exit` has no classifier in this crate — its oracle is the
-            // root's exit arm — so the fixture's three exit statements
-            // are pinned by kind rather than by comparison.
             assert_eq!(
                 exit::owns(node, source, ancestors),
                 matches!(
@@ -347,6 +408,14 @@ mod tests {
             );
             seen_kinds.insert(node.kind_id());
         });
+        assert_eq!(
+            anonymous,
+            [
+                (true, SpaceKind::Class),
+                (false, SpaceKind::Unknown),
+                (false, SpaceKind::Unknown)
+            ]
+        );
         // Fixture guard: every kind the membership rows name was walked.
         for kinds in [
             exit::OWNERS,
@@ -355,6 +424,7 @@ mod tests {
             closure::OWNERS,
             func_opener::OWNERS,
             container::OWNERS,
+            member::OWNERS,
         ] {
             for &k in kinds {
                 // The hidden `_multiline_string_literal` is pinned unseen

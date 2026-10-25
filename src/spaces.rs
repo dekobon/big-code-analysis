@@ -525,3 +525,9 @@ pub struct MetricsOptions {
 )]
 #[path = "spaces_tests.rs"]
 mod tests;
+
+// The walk-vs-`opens_space` parity check (#1696); one table that each
+// migrated language's row set is added to.
+#[cfg(test)]
+#[path = "spaces/opens_space_parity_tests.rs"]
+mod opens_space_parity_tests;

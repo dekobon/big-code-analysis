@@ -139,6 +139,9 @@ fn java_eq_initializes_final_binding<'a>(eq_node: &Node<'a>, ancestors: Ancestor
         ancestors,
         |parent| parent.kind_id() == VariableDeclarator,
         |declaration| {
+            // role-bypass: allow(Member) — the binding shape a `=`
+            // initialises, a local or a field alike; not whether the
+            // declaration is a container's member
             matches!(
                 declaration.kind_id().into(),
                 LocalVariableDeclaration | FieldDeclaration

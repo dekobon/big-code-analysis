@@ -42,7 +42,7 @@
 //! | `FuncOpener` | a node that opens a `Function` space |
 //! | `Closure` | an anonymous function, whether or not it opens a space |
 //! | `Container` | a node that opens a class-like, unit or namespace space |
-//! | `Member` | a field, property or attribute declared directly in a `Container` |
+//! | `Member` | a field, property or attribute of a `Container` (see below) |
 //! | `Comment` | any comment |
 //! | `DocComment` | a comment a documentation tool reads |
 //! | `Docstring` | a string literal that serves as documentation |
@@ -66,6 +66,13 @@
 //!   doc run that is not documentation text and is not billed as such,
 //!   such as `//go:generate` or a Ruby shebang or magic comment. It is
 //!   not a markup directive like `@param`.
+//! - `Member` is what the attribute count walks: the declaration node
+//!   of a field, property or attribute. In most grammars that is a
+//!   child of the container's body (`field_declaration`); in Python it
+//!   is a `self.x` / `cls.x` binding inside a method, which is the
+//!   attribute's only declaration. The row recognises the node; which
+//!   body it sits in, its visibility, and how many names one node binds
+//!   are the consumer's reading.
 //! - `HoldsDocInBody` is `Checker::holds_doc_comment_in_body`: an
 //!   ancestor whose body is executable-code context, in which a comment
 //!   is documentation only where the language's tool reads one there.
@@ -107,7 +114,15 @@
 //! gates the owner on its projection landing on one of the row's payers
 //! — the one gate every field-projected owner of a shared kind reads,
 //! so a `binary_expression` owns a comparison when its `operator` is a
-//! comparison token; `opens K` records the `SpaceKind` the owner opens.
+//! comparison token; `opens K` records the `SpaceKind` the owner opens;
+//! `callable` marks a `FuncOpener` owner that is a *named function* —
+//! what `Checker::is_func` answers — beside openers that are not
+//! (Java's `static { … }` opens a `Function` space and is nobody's
+//! callee; Elixir's `fn … end` opens one and is a `Closure`), and
+//! `callable_when f` one that is a named function only where `f` says
+//! so, under a gate of its own beside the owner's — a JS
+//! `function_expression` opens a space wherever it sits and is a
+//! function only when bound to a name, a closure otherwise.
 //! A payer takes `gated_by f` or `text_gated_by f` bare, after its
 //! kind, or `under P` / `under [P, Q]`, which gates it on its parent's
 //! kind — the one gate a token the grammar spells in several
@@ -162,9 +177,18 @@
 //!   one payer, for a consumer that scores some of a row's payers and
 //!   not others.
 //!
+//! - `is_callable(node, code, ancestors)`: the `callable` owners under
+//!   their gates, and the `callable_when f` owners under their gates
+//!   *and* `f` — a function someone names at a call site, as opposed
+//!   to an opener that merely holds a body. Only a `FuncOpener` row is
+//!   expected to mark any; on every other row the predicate is false.
+//!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
-//! `FuncOpener` or `Container` row names are not restated.
+//! `FuncOpener` or `Container` row names are not restated. The fold
+//! answers with the first `opens` clause whose gate admits the node, in
+//! row order; a kind two rows both `opens` must have gates that cannot
+//! both admit one node, or the earlier row decides.
 //!
 //! Every emitted predicate takes `(node, code, ancestors)`. There is no
 //! byte-less spelling: the legacy `Checker::is_*` forms are hand-written
@@ -415,8 +439,9 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 /// # fn main() {}
 /// ```
 ///
-/// A second gate, `pays_itself` or `opens` on one owner finds its slot
-/// in the attribute scan already filled and matches no rule:
+/// A second gate, `pays_itself`, `opens` or `callable` on one owner
+/// finds its slot in the attribute scan already filled and matches no
+/// rule:
 ///
 /// ```compile_fail
 /// # #[macro_use] extern crate big_code_analysis_ast;
@@ -435,6 +460,16 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 /// role_table! {
 ///     lang: Java;
 ///     Container { owns [ClassDeclaration(opens Class opens Unit)] }
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::Java;
+/// role_table! {
+///     lang: Java;
+///     FuncOpener { owns [MethodDeclaration(callable opens Function callable)] }
 /// }
 /// # fn main() {}
 /// ```
@@ -468,12 +503,14 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 ///         excludes [QMARK "type syntax"]
 ///     }
 ///     Container { owns [ClassDeclaration(opens Class), Program(opens Unit)] }
+///     FuncOpener { owns [MethodDeclaration(callable opens Function), StaticInitializer(opens Function)] }
 ///     Guard { owns [Guard] pays never }
 ///     NullSafe { absent "no `?.`" }
 ///     Branch { pending R07 }
 /// }
 /// # fn main() {
 /// assert_eq!(exit::OWNERS.len(), 2);
+/// assert_eq!(func_opener::OWNERS.len(), 2);
 /// assert_eq!(comparison::PAYERS, &[Java::EQEQ as u16, Java::LT as u16]);
 /// assert_eq!((exit::PAYS_NEVER, guard::PAYS_NEVER), (false, true));
 /// # }
@@ -532,6 +569,7 @@ macro_rules! role_table {
             $crate::role_table!(@absent_predicate owns);
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);
+            $crate::role_table!(@absent_predicate is_callable);
             $crate::role_table!(@absent_predicate_kind owns_kind);
             $crate::role_table!(@absent_predicate_kind pays_at_leaf_kind);
             $crate::role_table!(@absent_predicate_kind pays_at_token_kind);
@@ -668,7 +706,7 @@ macro_rules! role_table {
     (@owners [$l:ident $k:ident $n:ident $c:ident $a:ident]
         [ $($owner:ident $(( $($owner_attr:tt)* ))?,)* ]) => {
         $( $crate::role_table!(
-            @scan opens_done [] [$l $k $n $c $a] $owner [] [] [] $($($owner_attr)*)?
+            @scan opens_done [] [$l $k $n $c $a] $owner [] [] [] [] $($($owner_attr)*)?
         ); )*
     };
     (@row_body $lang:ident $role:ident [$mode:ident] {
@@ -767,7 +805,7 @@ macro_rules! role_table {
             ) -> bool {
                 $( $crate::role_table!(
                     @scan owner_done [] [$lang kind node code ancestors] $owner
-                        [] [] [] $($($owner_attr)*)?
+                        [] [] [] [] $($($owner_attr)*)?
                 ); )*
                 let _ = (kind, node, code, ancestors);
                 false
@@ -800,7 +838,7 @@ macro_rules! role_table {
                 ); )*
                 $( $crate::role_table!(
                     @scan self_payer_done [$mode] [$lang kind node code ancestors] $owner
-                        [] [] [] $($($owner_attr)*)?
+                        [] [] [] [] $($($owner_attr)*)?
                 ); )*
                 OWNERS_PAY && owns_kind(kind, node, code, ancestors)
             }
@@ -817,6 +855,23 @@ macro_rules! role_table {
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
                 PAYERS.contains(&kind) && pays_at_leaf_kind(kind, node, code, ancestors)
+            }
+
+            /// Whether `node` is a `callable` owner of the construct — a
+            /// named function, for `Checker::is_func` — under its gate.
+            #[inline]
+            pub fn is_callable<'a>(
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
+                let kind = node.kind_id();
+                $( $crate::role_table!(
+                    @scan callable_done [] [$lang kind node code ancestors] $owner
+                        [] [] [] [] $($($owner_attr)*)?
+                ); )*
+                let _ = (kind, node, code, ancestors);
+                false
             }
 
             /// Whether `node` is the owning node, for a consumer that
@@ -897,52 +952,69 @@ macro_rules! role_table {
     // ---- the owner-attribute scan -----------------------------------------
     //
     // One left-to-right walk over an owner's attributes, normalising them
-    // into three slots — `[gate]`, `[pays_itself]`, `[space kind]` — and
-    // then handing the slots to the terminal named by `$done`. A second
-    // gate, a second `pays_itself` or a second `opens` finds its slot
-    // already filled and matches no rule, so it fails to expand.
+    // into four slots — `[gate]`, `[pays_itself]`, `[space kind]`,
+    // `[callable]` — and then handing the slots to the terminal named by
+    // `$done`. A second gate, a second `pays_itself`, a second `opens` or
+    // a second `callable` finds its slot already filled and matches no
+    // rule, so it fails to expand.
 
-    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt) => {
-        $crate::role_table!(@$d $m $ctx $k $g $p $s);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        $crate::role_table!(@$d $m $ctx $k $g $p $s $c);
     };
     // `holds_payer` is a gate of its own, carried in the gate slot as
     // `[holds_payer]` or, with a gate beside it, `[holds_payer g]`.
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer text_gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer text_gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt holds_payer $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident] $p:tt $s:tt holds_payer $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt text_gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt text_gated_by $g:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt pays_itself $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt $c:tt pays_itself $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt pays_itself_when $w:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself $w] $s $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt $c:tt pays_itself_when $w:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself $w] $s $c $($r)*);
     };
-    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] opens $s:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $($r)*);
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens $s:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $c $($r)*);
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt [] callable $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable] $($r)*);
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt [] callable_when $w:ident $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable $w] $($r)*);
     };
 
     // ---- the scan's terminals ----------------------------------------------
 
     // In `owns`: the owner's clause, gated or not.
-    (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt) => {
+    (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause_payer $ctx $k $(gated_by $g)?);
     };
-    (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt) => {
+    (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    };
+    // In `is_callable`: a `callable` owner's clause, under its gate, and
+    // a `callable_when w` owner's under its gate *and* `w`; an owner
+    // without either mark emits nothing.
+    (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt []) => {};
+    (@callable_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt [callable]) => {
+        $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    };
+    (@callable_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt [callable $w:ident]) => {
+        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g)?);
     };
     // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate,
     // and a `pays_itself_when w` owner under its gate *and* `w` — the
@@ -952,24 +1024,24 @@ macro_rules! role_table {
     // only meaningful on a split row — on a plain row every owner
     // already pays, and under `pays never` it would contradict the row
     // — so the other two modes reject it.
-    (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt) => {};
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself] $s:tt) => {
+    (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt $c:tt) => {};
+    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself] $s:tt $c:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
     };
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself $w:ident] $s:tt) => {
+    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself $w:ident] $s:tt $c:tt) => {
         $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g)?);
     };
-    (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt) => {
+    (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt $c:tt) => {
         compile_error!("`pays_itself` contradicts `pays never`: the row says nothing pays");
     };
-    (@self_payer_done [owners] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt) => {
+    (@self_payer_done [owners] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt $c:tt) => {
         compile_error!(
             "`pays_itself` is redundant without a `pays` list: every owner already pays"
         );
     };
     // In `opens_space`: an `opens K` owner returns its kind, under its gate.
-    (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt []) => {};
-    (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [$s:ident]) => {
+    (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [] $c:tt) => {};
+    (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [$s:ident] $c:tt) => {
         $crate::role_table!(@space_clause $ctx $k $s $(gated_by $g)?);
     };
 
@@ -1340,6 +1412,15 @@ mod tests {
                 project "operator"
             }
             Guard { owns [Guard] pays never }
+            FuncOpener {
+                owns [
+                    MethodDeclaration(callable opens Function),
+                    StaticInitializer(opens Function),
+                    ConstructorDeclaration(opens Function gated_by never callable),
+                    LambdaExpression(opens Function callable_when never),
+                    CompactConstructorDeclaration(opens Function callable_when always),
+                ]
+            }
         }
     }
 
@@ -1556,6 +1637,50 @@ mod tests {
         // `always`, and owns through the same gate.
         assert_eq!(owns, ["o instanceof String"]);
         assert_eq!(pays, ["o instanceof String", "?"]);
+    }
+
+    // `callable` on an owner: `is_callable` answers for the marked owners
+    // only, under their gates, and `owns` / `opens_space` are unchanged
+    // by the mark — the static initializer opens a space and is not
+    // callable, the gated constructor is marked and gated away. A
+    // `callable_when w` owner opens its space regardless and is callable
+    // only where `w` admits it: the lambda never, the compact
+    // constructor always.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_callable_owner_is_told_from_an_opener_that_merely_opens() {
+        use crate::JavaCode;
+        use crate::SpaceKind;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::{func_opener, opens_space};
+        let source = b"record R(int a) { R { } }\nclass A { A() { } void m() { Runnable r = () -> { }; } static { } }\n";
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let owns = func_opener::owns(node, source, ancestors);
+            let callable = func_opener::is_callable(node, source, ancestors);
+            let space = opens_space(node, source, ancestors);
+            if owns || callable || space != SpaceKind::Unknown {
+                seen.push((node.kind(), owns, callable, space));
+            }
+        });
+        // The constructor is declared (five owners) and gated away on
+        // every predicate, so it is absent here rather than listed.
+        assert_eq!(
+            seen,
+            [
+                (
+                    "compact_constructor_declaration",
+                    true,
+                    true,
+                    SpaceKind::Function
+                ),
+                ("method_declaration", true, true, SpaceKind::Function),
+                ("lambda_expression", true, false, SpaceKind::Function),
+                ("static_initializer", true, false, SpaceKind::Function),
+            ]
+        );
+        assert_eq!(func_opener::OWNERS.len(), 5);
     }
 
     // `pays never`: the owner is recognised and pays under neither

@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_npa_java_like!(JavaCode, Java);
+impl_npa_java_like!(JavaCode, Java, java);

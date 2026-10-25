@@ -257,7 +257,7 @@ value = 75486.9726265324
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 123605.93956681546
+value = 122788.12579974171
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"
@@ -359,7 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 570.0
+value = 598.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/roles/mod.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1274.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"

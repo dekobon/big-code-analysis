@@ -157,7 +157,6 @@ Java DocTarget R09
 Java ElseIf R07
 Java HoldsDocInBody R09
 Java Loop R07
-Java Member R06
 Java Switch R07
 Javascript Branch R07
 Javascript Call R08

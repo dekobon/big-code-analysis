@@ -321,21 +321,30 @@ where
 // (default class members are package-private under `@CompileStatic`,
 // public otherwise; we conservatively follow Java).
 macro_rules! impl_npa_java_like {
-    ($code:ty, $lang:ident) => {
+    ($code:ty, $lang:ident, $roles:ident) => {
         impl Npa for $code {
             fn compute<'a>(
                 node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
+                use $crate::roles::$roles::member;
                 use $lang::*;
 
+                // Which of a body's children are members is the `Member`
+                // row's; which body a member sits in, and whether it is
+                // public, is this consumer's reading. A `class_body` or an
+                // enum's declarations block holds fields, and an interface
+                // or annotation body holds constants (`node-types.json`
+                // at the pin admits no other member in either), so the
+                // body decides the bucket and the row decides membership.
+                // A child's chain is the body's plus the body itself: the
+                // row reads neither, so the body's own chain stands in.
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
-                        for declaration in node
-                            .children()
-                            .filter(|n| matches!(n.kind_id().into(), FieldDeclaration))
+                        for declaration in
+                            node.children().filter(|n| member::owns(n, code, ancestors))
                         {
                             let attributes = declaration
                                 .children()
@@ -356,7 +365,7 @@ macro_rules! impl_npa_java_like {
                     InterfaceBody | AnnotationTypeBody => {
                         stats.interface_na += node
                             .children()
-                            .filter(|n| matches!(n.kind_id().into(), ConstantDeclaration))
+                            .filter(|n| member::owns(n, code, ancestors))
                             .flat_map(|n| n.children())
                             .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
                             .count();

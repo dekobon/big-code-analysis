@@ -264,6 +264,11 @@ class Owner:
     # `holds_payer`: the owner's projection lands on one of the row's
     # payers (#1695); a gate may sit beside it.
     holds_payer: bool = False
+    # `callable`: a `FuncOpener` owner that is a named function, as
+    # opposed to one that only opens a space; `callable_when f` names
+    # the gate under which it is one (#1696).
+    callable: bool = False
+    callable_when: str | None = None
 
 
 @dataclass(frozen=True)
@@ -373,6 +378,8 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
     pays_itself = False
     opens = None
     holds_payer = False
+    callable_ = False
+    callable_when = None
     attrs = (m.group(3) or "").split()
     i = 0
     while i < len(attrs):
@@ -403,9 +410,20 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `opens`")
             opens = attrs[i + 1]
             i += 2
+        elif a == "callable":
+            if callable_:
+                raise RoleTableError(f"{path}:{line}: `{kind}` repeats `callable`")
+            callable_ = True
+            i += 1
+        elif a == "callable_when":
+            if callable_ or i + 1 >= len(attrs):
+                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `callable_when`")
+            callable_ = True
+            callable_when = attrs[i + 1]
+            i += 2
         else:
             raise RoleTableError(f"{path}:{line}: unknown owner attribute `{a}` on `{kind}`")
-    return Owner(kind, gate, text_gated, pays_itself, opens, holds_payer)
+    return Owner(kind, gate, text_gated, pays_itself, opens, holds_payer, callable_, callable_when)
 
 
 def _split_list(text: str) -> list[str]:

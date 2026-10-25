@@ -25,18 +25,6 @@ big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Charli
 big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	Sigil	macro_arg#1
 big-code-analysis-ast/src/checker/elixir.rs	impl_simple_is_string!	Elixir	String	macro_arg#1
 big-code-analysis-ast/src/checker/java.rs	fn is_call	Java	MethodInvocation	kind_id#1
-big-code-analysis-ast/src/checker/java.rs	fn is_closure	Java	LambdaExpression	kind_id#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	CompactConstructorDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	ConstructorDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func	Java	MethodDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	AnnotationTypeDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	ClassDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	EnumDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	InterfaceDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	ObjectCreationExpression	kind_id#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	Program	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	RecordDeclaration	matches#1
-big-code-analysis-ast/src/checker/java.rs	fn is_func_space	Java	StaticInitializer	matches#1
 big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	MultilineStringLiteral	macro_arg#1
 big-code-analysis-ast/src/checker/java.rs	impl_simple_is_string!	Java	StringLiteral	macro_arg#1
 big-code-analysis-ast/src/checker/python.rs	fn is_call	Python	Call	kind_id#1
@@ -52,18 +40,6 @@ big-code-analysis-ast/src/getter/elixir.rs	fn get_op_type	Elixir	String	arm#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	AnonymousFunction	arm#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	Source	arm#1
 big-code-analysis-ast/src/getter/java.rs	fn get_op_type	Java	StringLiteral	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	AnnotationTypeDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ClassDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	CompactConstructorDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ConstructorDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	EnumDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	InterfaceDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	LambdaExpression	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	MethodDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	ObjectCreationExpression	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	Program	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	RecordDeclaration	arm#1
-big-code-analysis-ast/src/getter/java.rs	fn get_space_kind	Java	StaticInitializer	arm#1
 big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	String	arm#1
 big-code-analysis-ast/src/getter/python.rs	fn get_op_type	Python	Yield	arm#1
 big-code-analysis-ast/src/getter/python.rs	fn get_space_kind	Python	ClassDefinition	arm#1

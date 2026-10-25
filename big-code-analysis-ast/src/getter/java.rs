@@ -45,46 +45,25 @@ impl Getter for JavaCode {
         crate::getter::default_func_space_name(node, code, ancestors)
     }
 
+    // The mapping is the `opens` annotations of `roles/java.rs` (#1696):
+    // `EnumDeclaration` and `RecordDeclaration` are class-like and share
+    // `Class`; `AnnotationTypeDeclaration` maps to `Interface` (#280); an
+    // anonymous class opens `Class` only with a body (#463); a record's
+    // compact constructor shares the constructor's kind (#1160); `static
+    // { … }` is a `Function` (#1184). A lambda opens nothing — the walk
+    // never promoted one, and before #1696 this answered `Function` for
+    // a node it was never asked about. Java's rows read no bytes and no
+    // chain, so the byte-less spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Java::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // `EnumDeclaration` and `RecordDeclaration` are class-like
-        // (they extend `Object`, hold fields, and can declare methods)
-        // so they share `SpaceKind::Class`. `AnnotationTypeDeclaration`
-        // implicitly extends `java.lang.annotation.Annotation` (an
-        // interface) and its elements are abstract methods at the
-        // bytecode level, so it maps to `SpaceKind::Interface`.
-        match node.kind_id().into() {
-            ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
-            // `CompactConstructorDeclaration` is a record's compact
-            // constructor (`R { … }`); it is a constructor with an
-            // implicit parameter list, so it shares the canonical
-            // constructor's space kind (#1160). It carries a required
-            // `name` field holding the record's simple name, so the
-            // default `get_func_space_name` already names the space `R` —
-            // identical to what the canonical spelling would produce.
-            // `StaticInitializer` is `static { … }` (#1184).
-            MethodDeclaration
-            | ConstructorDeclaration
-            | CompactConstructorDeclaration
-            | LambdaExpression
-            | StaticInitializer => SpaceKind::Function,
-            InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
-            // An anonymous class (`new Runnable() { ... }`) is an
-            // `object_creation_expression` carrying a `class_body` child;
-            // it opens a Class space, matching PHP's `AnonymousClass` and
-            // C#'s anonymous forms (#463). A plain `new Foo()` has no
-            // `class_body`, so it falls through to `Unknown` (no space).
-            // The shared helper keeps this gate identical to the one in
-            // `JavaCode::is_func_space`.
-            ObjectCreationExpression
-                if crate::checker::java_anonymous_class_body(node).is_some() =>
-            {
-                SpaceKind::Class
-            }
-            Program => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::java::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(java);

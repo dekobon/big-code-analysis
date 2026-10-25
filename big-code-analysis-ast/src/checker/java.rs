@@ -6,9 +6,10 @@ use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 
 /// A declaration javac attaches a doc comment to, the package aside.
 fn java_declaration(node: &Node) -> bool {
-    // role-bypass: allow(FuncOpener, Container) — doc attachment, not
-    // membership: what a doc comment binds to is `DocTarget`'s own row
-    // (R09), which overlaps the space openers without being them.
+    // role-bypass: allow(FuncOpener, Container, Member) — doc attachment,
+    // not membership: what a doc comment binds to is `DocTarget`'s own
+    // row (R09), which overlaps the space openers and the members
+    // without being them.
     matches!(
         node.kind_id().into(),
         Java::ModuleDeclaration
@@ -94,65 +95,36 @@ impl Checker for JavaCode {
             )
     }
 
-    // `EnumDeclaration`, `RecordDeclaration`, and `AnnotationTypeDeclaration`
-    // are class-like declarations that can contain fields and methods,
-    // so they open a class space alongside `ClassDeclaration` /
-    // `InterfaceDeclaration` (issue #280). Without them, `Npa`/`Npm`/`Wmc`
-    // never see their bodies as class scopes and silently produce zero
-    // counts. Annotation types map to `Interface` in `get_space_kind`
-    // (their elements are abstract methods at the bytecode level);
-    // enums and records map to `Class`.
-    //
-    // An `object_creation_expression` carrying a `class_body` child is
-    // an anonymous class (`new Runnable() { ... }`); it opens its own
-    // Class space so its members are attributed to it, not the
-    // enclosing method (#463). A plain `new Foo()` has no `class_body`
-    // child and must not open a space, so the arm is gated on the
-    // body's presence. This mirrors PHP's `AnonymousClass` handling and
-    // brings Java to parity with PHP/C# anonymous forms.
+    // The space tree is declared in `roles/java.rs` (#1696): the
+    // `Container` row (class-like declarations, an anonymous class gated
+    // on its body — #280, #463) and the `FuncOpener` row (the callables
+    // and `static { … }`, #1184) are what the walk promotes;
+    // `opens_space` labels them. The byte-less spellings here are the
+    // legacy wrappers: Java's rows read no bytes and no chain, so they
+    // answer identically with none.
     fn is_func_space(node: &Node) -> bool {
-        if node.kind_id() == Java::ObjectCreationExpression as u16 {
-            return java_anonymous_class_body(node).is_some();
-        }
-        matches!(
-            node.kind_id().into(),
-            Java::Program
-                | Java::ClassDeclaration
-                | Java::InterfaceDeclaration
-                | Java::EnumDeclaration
-                | Java::RecordDeclaration
-                | Java::AnnotationTypeDeclaration
-                // `static { … }` carries executable code — conventionally
-                // the class's initialisation logic — but was referenced
-                // nowhere outside the generated enum, so it opened no
-                // space and its control flow was charged to the class
-                // (#1184). `is_func_space` rather than `is_func`: it is
-                // not a callable anyone names at a call site.
-                | Java::StaticInitializer
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+    }
+
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::java::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     // A record's compact constructor (`record R(int a) { R { … } }`, JLS
-    // 8.10.4) parses as its own `compact_constructor_declaration` kind
-    // rather than as a `constructor_declaration`, so it has to be listed
-    // separately. It is a constructor in every sense that matters here —
-    // it has a body, it can be arbitrarily complex, and it is where
-    // record validation conventionally lives — so it opens a function
-    // space alongside the canonical spelling (#1160). Everything keyed on
-    // `is_func` follows for free: `Nom`, `NArgs`, `Npm`'s
-    // `direct_child_funcs`, and the space tree that `Wmc` and `NExits`
-    // are attributed through.
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Java::MethodDeclaration
-                | Java::ConstructorDeclaration
-                | Java::CompactConstructorDeclaration
-        )
+    // 8.10.4) is a `callable` owner of the `FuncOpener` row beside the
+    // canonical constructor (#1160). Everything keyed on `is_func`
+    // follows from the row: `Nom`, `NArgs`, `Npm`'s `direct_child_funcs`,
+    // and the space tree that `Wmc` and `NExits` are attributed through.
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::java::func_opener::is_callable(node, &[], ancestors)
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Java::LambdaExpression
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::java::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {
