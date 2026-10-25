@@ -22,7 +22,7 @@
 
 # Digest-pinned (OpenSSF Scorecard Pinned-Dependencies); Dependabot's
 # `docker` entry in .github/dependabot.yml moves the digest.
-FROM ubuntu:noble@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+FROM ubuntu:noble@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 
 # UID/GID for the in-container `dev` user. Defaults match the maintainer's
 # host (2424); `make dev-env-build` overrides them with the caller's
