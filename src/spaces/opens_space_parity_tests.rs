@@ -259,6 +259,27 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::ruby::opens_space,
     },
+    // Python: a `def` and a class open spaces, a lambda none.
+    #[cfg(feature = "python")]
+    Row {
+        lang: LANG::Python,
+        source: b"class C:\n    def m(self):\n        f = lambda x: x\n        def inner(): return 1\n        return f(1) + inner()\ndef top(): pass\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::PythonCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::python::opens_space,
+    },
+    // Elixir: text-gated `defmodule` / `def` / `defp` / `defmacro`, a
+    // quoted `def` that opens nothing (#310), and `fn … end`.
+    #[cfg(feature = "elixir")]
+    Row {
+        lang: LANG::Elixir,
+        source: b"defmodule M do\n  def f(x), do: fn y -> y + x end\n  defp g(a), do: a\n  defmacro m(x) do\n    quote do\n      def h(unquote(x)), do: unquote(x)\n    end\n  end\nend\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::ElixirCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::elixir::opens_space,
+    },
 ];
 
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
@@ -277,6 +298,7 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
     feature = "c",
     feature = "cpp",
     feature = "csharp",
+    feature = "elixir",
     feature = "go",
     feature = "groovy",
     feature = "irules",
@@ -289,6 +311,7 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
     feature = "objc",
     feature = "perl",
     feature = "php",
+    feature = "python",
     feature = "ruby",
     feature = "rust",
     feature = "tcl",

@@ -160,6 +160,11 @@ impl Cognitive for ElixirCode {
                 // +nesting via `RescueBlock` / `CatchBlock`). Adding the
                 // `try` itself would double-count, matching Java /
                 // C#'s "try is a wrapper, only catch counts" rule.
+                // Not the `FuncOpener` row's callable: the row declines a
+                // `def` inside a `quote` template (#310), which opens no
+                // space, while this arm resets on the keyword wherever it
+                // sits — a template's `def` body is still a function body
+                // to read. Reading the row here would move that reset.
                 Some(kw) if elixir_is_method_macro(kw) => {
                     // Method-defining macros reset nesting at the
                     // function boundary, mirroring Bash's

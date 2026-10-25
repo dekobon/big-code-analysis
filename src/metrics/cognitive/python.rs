@@ -135,7 +135,7 @@ impl Cognitive for PythonCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::python::{short_circuit, ternary};
+        use crate::roles::python::{closure, func_opener, short_circuit, ternary};
         use Python::*;
 
         // Get nesting of the parent
@@ -228,12 +228,10 @@ impl Cognitive for PythonCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 python_apply_boolean_operator(node, code, ancestors, stats);
             }
-            // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the
-            // hidden alias `python_is_lambda` also accepts. A match arm
-            // cannot route through the predicate, so the alias set is
-            // spelled out here and kept in sync with it (#422; the
+            // A lambda — the `Closure` row, whose `Lambda` / `Lambda2`
+            // alias set is what `python_is_lambda` accepts (#422; the
             // drift guard in checker.rs flags a bump that emits Lambda2).
-            Lambda | Lambda2 => {
+            _ if closure::owns(node, code, ancestors) => {
                 // A lambda amplifies the enclosing nesting rather than
                 // replacing it, so it deliberately does NOT take the
                 // function-boundary reset below: every sibling lambda arm
@@ -259,8 +257,8 @@ impl Cognitive for PythonCode {
             // macro reset the channel — which is why the same body
             // scored 3 or 2 in Rust, Java, C++, PHP and C# depending on
             // whether something two levels up was a closure.
-            FunctionDefinition => {
-                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}
         }

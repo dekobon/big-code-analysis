@@ -31,14 +31,17 @@ use super::*;
 impl Npm for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::python::func_opener;
         use Python::*;
 
         // Only a `ClassDefinition` owns methods, so nothing else can
         // contribute to the count.
+        // role-bypass: allow(Container) — which container's body to walk;
+        // not whether it opens a space
         if !matches!(node.kind_id().into(), ClassDefinition) {
             return;
         }
@@ -50,15 +53,19 @@ impl Npm for PythonCode {
             return;
         };
 
-        // Count direct-child method declarations. Decorated methods
-        // appear under a `DecoratedDefinition` wrapper; walk into
-        // that wrapper to find the inner `FunctionDefinition`.
+        // Count direct-child method declarations — the `FuncOpener`
+        // row's callable. Decorated methods appear under a
+        // `DecoratedDefinition` wrapper; walk into that wrapper to find
+        // the inner `def`. A child's chain is the body's plus the body,
+        // which the row reads none of.
         let count = body
             .children()
-            .filter(|stmt| match stmt.kind_id().into() {
-                FunctionDefinition => true,
-                DecoratedDefinition => stmt.children().any(|c| c.kind_id() == FunctionDefinition),
-                _ => false,
+            .filter(|stmt| {
+                func_opener::is_callable(stmt, code, Ancestors::unknown())
+                    || (stmt.kind_id() == DecoratedDefinition as u16
+                        && stmt
+                            .children()
+                            .any(|c| func_opener::is_callable(&c, code, Ancestors::unknown())))
             })
             .count();
 

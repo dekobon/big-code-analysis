@@ -4,6 +4,7 @@
 //! consumer reads is decided where that consumer lives, not here.
 
 use crate::lang_helpers::case_arms::python_case_clause_counts;
+use crate::lang_helpers::python::python_is_bound_self_attribute;
 use crate::role_table;
 use crate::{Ancestors, Node, Python};
 
@@ -19,6 +20,11 @@ fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'
 /// attribute) does not spell.
 fn under_case_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Python::CaseClause as u16)
+}
+
+/// `python_is_bound_self_attribute`, under the row's gate signature.
+fn is_bound_self_attribute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    python_is_bound_self_attribute(node, code, ancestors)
 }
 
 role_table! {
@@ -48,8 +54,15 @@ role_table! {
     // `checker/python.rs` pins it unseen.
     Closure { owns [Lambda, Lambda2] }
 
-    FuncOpener { owns [FunctionDefinition(opens Function)] }
+    FuncOpener { owns [FunctionDefinition(callable opens Function)] }
     Container { owns [Module(opens Unit), ClassDefinition(opens Class)] }
+    // A `self.x` / `cls.x` where it is bound — the target of an
+    // assignment inside a method, in the flat and the destructuring
+    // spellings — which the attribute count reads by name (#412). The
+    // row recognises the binding; which class it belongs to, the
+    // nested-scope boundary, a class-level `x = 1`'s plain name and the
+    // dedup across both are the consumer's reading (`npa/python.rs`).
+    Member { owns [Attribute(text_gated_by is_bound_self_attribute)] }
     Exit { owns [ReturnStatement, RaiseStatement, Yield] }
     Call { owns [Call] }
     // `"a" "b"` is a `concatenated_string` holding two `string`s; the
@@ -128,7 +141,6 @@ role_table! {
         ]
     }
     Primitive { absent "Python's built-in types are ordinary identifiers" }
-    Member { pending R06 }
     Comment { pending R09 }
     DocComment { absent "Python documents with docstrings, not comments" }
     Docstring { pending R09 }
@@ -167,18 +179,59 @@ mod tests {
         assert_eq!(arms, ["case 1 if b: pass", "case _ if b: pass"]);
     }
 
-    // The rows restate `checker/python.rs` and `getter/python.rs`; this
-    // pins the restatement node by node (lesson 35). The per-shape tests
-    // below do not cover membership: emptying `Exit` or dropping
-    // `Lambda2` from `Closure` failed none of them.
+    // Until #1696 the space rows restated `checker/python.rs` and
+    // `getter/python.rs` and this compared the two; now the classifiers
+    // read the rows, so the expected `(is_func, is_closure, promoted,
+    // SpaceKind, is_member)` per node is pinned independently. The
+    // `Call` and `StringLit` comparisons stay until R08 reads those rows.
+    // The per-shape tests below do not cover membership: emptying `Exit`
+    // or dropping `Lambda2` from `Closure` failed none of them.
     #[cfg(feature = "python")]
     #[test]
-    fn membership_rows_agree_with_the_live_classifiers() {
-        let source = b"class C:\n    def m(self):\n        f = lambda x: x\n        s = \"a\" \"b\"\n        g(1)\n        yield 1\n        raise E\n    def n(self):\n        return 1\n";
+    fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
+        let source = b"class C:\n    cv = 1\n    def m(self):\n        f = lambda x: x\n        s = \"a\" \"b\"\n        g(1)\n        self.x = 1\n        self.a, (self.b, c) = t\n        self.x += 1\n        print(self.x)\n        other.y = 2\n        w = self.z\n        yield 1\n        raise E\n    @classmethod\n    def n(cls):\n        cls.k = 1\n        return 1\n";
+        let mut attributes = Vec::new();
         let mut seen_kinds = std::collections::BTreeSet::new();
         for_each_node_with_chain::<PythonCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let kind = node.kind();
+            let promoted = PythonCode::promotes_to_func_space_with_code(node, source, ancestors);
+            let got = (
+                PythonCode::is_func(node, ancestors),
+                PythonCode::is_closure(node, ancestors),
+                promoted,
+                PythonCode::get_space_kind_with_code(node, source, ancestors),
+                member::owns(node, source, ancestors),
+            );
+            seen_kinds.insert(node.kind_id());
+            assert_eq!(
+                got.3 != SpaceKind::Unknown,
+                promoted,
+                "{kind}: opens_space vs promotion"
+            );
+            assert_eq!(
+                PythonCode::is_func_space_with_code(node, source, ancestors),
+                promoted,
+                "{kind}: is_func_space is what the walk promotes"
+            );
+            if kind == "attribute" {
+                attributes.push((node.utf8_text(source).expect("UTF-8").to_owned(), got.4));
+                assert_eq!(
+                    (got.0, got.1, got.2, got.3),
+                    (false, false, false, SpaceKind::Unknown)
+                );
+                return;
+            }
+            // The `lambda` *keyword* leaf (`Lambda3`) shares the kind
+            // string; only the named node is the closure.
+            let want = match kind {
+                "module" => (false, false, true, SpaceKind::Unit, false),
+                "class_definition" => (false, false, true, SpaceKind::Class, false),
+                "function_definition" => (true, false, true, SpaceKind::Function, false),
+                "lambda" if node.is_named() => (false, true, false, SpaceKind::Unknown, false),
+                _ => (false, false, false, SpaceKind::Unknown, false),
+            };
+            assert_eq!(got, want, "{kind}");
             assert_eq!(
                 call::owns(node, source, ancestors),
                 PythonCode::is_call_with_code(node, source, ancestors),
@@ -189,22 +242,6 @@ mod tests {
                 PythonCode::is_string_with_code(node, source, ancestors),
                 "{kind}: StringLit"
             );
-            assert_eq!(
-                closure::owns(node, source, ancestors),
-                PythonCode::is_closure(node, ancestors),
-                "{kind}: Closure"
-            );
-            assert_eq!(
-                func_opener::owns(node, source, ancestors)
-                    || container::owns(node, source, ancestors),
-                PythonCode::promotes_to_func_space_with_code(node, source, ancestors),
-                "{kind}: space promotion"
-            );
-            assert_eq!(
-                opens_space(node, source, ancestors),
-                PythonCode::get_space_kind_with_code(node, source, ancestors),
-                "{kind}: SpaceKind"
-            );
             // `Exit` has no classifier in this crate; its three kinds are
             // pinned by name. `yield` is the expression node, not the
             // `Yield2` keyword inside it.
@@ -214,8 +251,25 @@ mod tests {
                     && node.kind_id() != Python::Yield2 as u16,
                 "{kind}: Exit"
             );
-            seen_kinds.insert(node.kind_id());
         });
+        // A bound `self.` / `cls.` attribute is a member — flat and
+        // nested unpacking included; an augmented assignment, a call's
+        // argument, a foreign receiver and an assignment's *value*
+        // (`w = self.z`, the same `assignment` kind on the other side)
+        // are not.
+        assert_eq!(
+            attributes,
+            [
+                ("self.x".to_owned(), true),
+                ("self.a".to_owned(), true),
+                ("self.b".to_owned(), true),
+                ("self.x".to_owned(), false),
+                ("self.x".to_owned(), false),
+                ("other.y".to_owned(), false),
+                ("self.z".to_owned(), false),
+                ("cls.k".to_owned(), true),
+            ]
+        );
         for kinds in [
             exit::OWNERS,
             call::OWNERS,
@@ -223,6 +277,7 @@ mod tests {
             closure::OWNERS,
             func_opener::OWNERS,
             container::OWNERS,
+            member::OWNERS,
         ] {
             for &k in kinds {
                 // `Lambda2` is the hidden alias, pinned unseen in

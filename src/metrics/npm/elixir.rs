@@ -42,10 +42,16 @@ impl Npm for ElixirCode {
             return;
         }
 
-        // Direct-child method Calls of the module's do_block. We do
-        // not descend deeper — methods nested inside another
-        // `defmodule` are attributed to that inner module via its own
-        // pass.
+        // Direct-child method Calls of the module's do_block, read by
+        // keyword rather than through the `FuncOpener` row: the row
+        // declines a `def` inside a `quote` template (#310), where it
+        // opens no space, but a `defmodule` quoted whole is still a
+        // class whose `def`s are its methods
+        // (`elixir_npm_counts_a_quoted_defmodule_as_a_class`), so this
+        // consumer counts the macro wherever the module sits. We do not
+        // descend deeper — methods nested inside another `defmodule`
+        // are attributed to that inner module via its own pass. Which of
+        // the four macros is public is this consumer's reading too.
         for stmt in elixir_do_block_call_children(node) {
             match elixir_call_keyword(&stmt, code) {
                 Some("def" | "defmacro") => {

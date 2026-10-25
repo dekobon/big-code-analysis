@@ -23,12 +23,18 @@ pub fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a
     if node.kind_id() != Elixir::Call as u16 {
         return None;
     }
+    call_keyword_reads::record();
     let target = node.child_by_field_name("target")?;
     if target.kind_id() != Elixir::Identifier as u16 {
         return None;
     }
     target.utf8_text(code)
 }
+
+// How many `call` targets were read for their keyword: the walk's
+// promotion must read one per `call`, not one per row that gates on it
+// (#310, #1696). Only the count tells a second read apart.
+crate::observation::counter!(call_keyword_reads, cfg(test));
 
 /// Method-defining macros (`def`, `defp`, `defmacro`, `defmacrop`). The set
 /// is duplicated across checker, getter, and several metric impls
@@ -46,6 +52,41 @@ pub fn elixir_is_method_macro(kw: &str) -> bool {
 #[must_use]
 pub fn elixir_is_class_macro(kw: &str) -> bool {
     kw == "defmodule"
+}
+
+/// What a `call` declares, read from its target text once: a module, a
+/// method (outside a `quote` template — #310), or nothing. The
+/// `FuncOpener` and `Container` rows and the walk's combined promotion
+/// lookup all read this one answer, so a `call` pays one keyword scan
+/// however many of them ask (#310 follow-on perf, #1696).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElixirDeclaration {
+    /// `defmodule`.
+    Module,
+    /// `def` / `defp` / `defmacro` / `defmacrop`, outside any `quote`.
+    Method,
+    /// Any other call, and a method macro inside a `quote` template.
+    None,
+}
+
+/// [`ElixirDeclaration`] of `node`; `None` for anything but a `call`
+/// whose target spells a declaring macro.
+#[must_use]
+pub fn elixir_declaration<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> ElixirDeclaration {
+    match elixir_call_keyword(node, code) {
+        Some(kw) if elixir_is_class_macro(kw) => ElixirDeclaration::Module,
+        Some(kw)
+            if elixir_is_method_macro(kw)
+                && !elixir_is_inside_quote_block(node, code, ancestors) =>
+        {
+            ElixirDeclaration::Method
+        }
+        _ => ElixirDeclaration::None,
+    }
 }
 
 /// Returns true when `node` is lexically nested inside the `do_block` of a

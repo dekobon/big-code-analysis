@@ -19,29 +19,35 @@ impl Checker for PythonCode {
                 .is_match(&code[node.start_byte()..node.end_byte()])
     }
 
+    // The space tree is declared in `roles/python.rs` (#1696): a `def`
+    // opens a `Function` space and is the callable, a class a `Class`;
+    // a `lambda` is a closure and opens none (contract 2 of #1690). The
+    // rows read no bytes and no chain, so the byte-less spelling
+    // forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Python::Module | Python::FunctionDefinition | Python::ClassDefinition
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Python::FunctionDefinition
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::python::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        // Route through the single lambda-alias chokepoint so closure
-        // detection here and the cognitive lambda-scope walks accept the
-        // exact same set: `Lambda` (196, the concrete production emitted
-        // today) and `Lambda2` (197, the currently-unseen hidden alias).
-        // `Lambda3` (73, the `lambda` keyword token) is intentionally
-        // excluded. Centralizing means a future grammar bump that
-        // promotes `Lambda2` cannot silently undercount closures in
-        // nom/nargs or desync from cognitive (issues #419/#422; lesson 2
-        // in lessons_learned.md). The drift-guard test below asserts
-        // `Lambda2` stays unseen until then.
-        crate::lang_helpers::python::python_is_lambda(node)
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::python::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    // The `Closure` row lists `Lambda` (196, the concrete production
+    // emitted today) and `Lambda2` (197, the currently-unseen hidden
+    // alias) — the same set `python_is_lambda` accepts for the cognitive
+    // lambda-scope walks — and not `Lambda3` (73, the `lambda` keyword
+    // token). The drift-guard test below asserts `Lambda2` stays unseen
+    // until a grammar bump promotes it (#419, #422; lesson 2).
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::python::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {

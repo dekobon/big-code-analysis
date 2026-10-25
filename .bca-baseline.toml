@@ -1280,12 +1280,6 @@ metric = "halstead.effort"
 value = 64433.40972393267
 
 [[entry]]
-path = "src/metrics/npa/python.rs"
-qualified = "python_self_attr_name_bytes"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
 path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"

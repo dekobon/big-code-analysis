@@ -81,7 +81,6 @@ Elixir Docstring R09
 Elixir Exit R07
 Elixir HoldsDocInBody R09
 Elixir Loop R07
-Elixir Member R06
 Elixir Switch R07
 Go Branch R07
 Go Call R08
@@ -257,7 +256,6 @@ Python Docstring R09
 Python ElseIf R07
 Python HoldsDocInBody R09
 Python Loop R07
-Python Member R06
 Python Switch R07
 Ruby Branch R07
 Ruby Call R08

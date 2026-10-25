@@ -36,6 +36,11 @@ fn elixir_extract_head_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> 
 }
 
 impl Getter for ElixirCode {
+    // The byte-less spelling is the kind table alone: an anonymous
+    // function and the file root. `defmodule` / `def` / `defp` /
+    // `defmacro` / `defmacrop` are `call`s told apart by their target
+    // text, so only the `_with_code` spelling — the `opens` annotations
+    // of `roles/elixir.rs` (#275, #310, #1696) — labels those.
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Elixir as E;
 
@@ -46,39 +51,12 @@ impl Getter for ElixirCode {
         }
     }
 
-    // Source-aware classifier (#275). Elixir's `defmodule` /
-    // `def` / `defp` / `defmacro` / `defmacrop` are not distinct
-    // grammar productions — they all parse as `Call` nodes whose
-    // `target` Identifier text spells the keyword. The walker promotes
-    // these Calls to func spaces via `Checker::is_func_space_with_code`;
-    // this method labels the promoted space with the right `SpaceKind`
-    // so `Wmc` / `Npm` / `Npa` see a Class for `defmodule` and a
-    // Function for the method-defining macros.
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> SpaceKind {
-        use crate::lang_helpers::elixir::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
-            elixir_is_method_macro,
-        };
-        let kind = Self::get_space_kind(node);
-        if kind != SpaceKind::Unknown {
-            return kind;
-        }
-        match elixir_call_keyword(node, code) {
-            Some(kw) if elixir_is_class_macro(kw) => SpaceKind::Class,
-            // Method-defining macros nested inside a `quote do … end`
-            // template are not real method declarations (#310).
-            Some(kw)
-                if elixir_is_method_macro(kw)
-                    && !elixir_is_inside_quote_block(node, code, ancestors) =>
-            {
-                SpaceKind::Function
-            }
-            _ => SpaceKind::Unknown,
-        }
+        crate::roles::elixir::opens_space(node, code, ancestors)
     }
 
     // Source-aware name extraction for the macro-shaped declarations.

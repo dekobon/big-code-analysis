@@ -26,10 +26,11 @@ impl Npa for ElixirCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_do_block_call_children};
+        use crate::roles::elixir::member;
 
         // The space-opening node for a `defmodule` Call is the node
         // itself, and the walker pushes that space before running any
@@ -48,8 +49,10 @@ impl Npa for ElixirCode {
             return;
         }
 
+        // The `Member` row's `defstruct` call, under the module's chain
+        // standing in for the child's; the row reads none.
         for stmt in elixir_do_block_call_children(node) {
-            if matches!(elixir_call_keyword(&stmt, code), Some("defstruct")) {
+            if member::owns(&stmt, code, ancestors) {
                 let fields = count_defstruct_fields(&stmt);
                 stats.class_na += fields;
                 stats.class_npa += fields;

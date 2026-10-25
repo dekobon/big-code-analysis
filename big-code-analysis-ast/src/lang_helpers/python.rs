@@ -572,6 +572,83 @@ fn is_sphinx_doc_comment(node: &Node, code: &[u8]) -> bool {
     node.kind_id() == Python::Comment && node_bytes(node, code).starts_with(b"#:")
 }
 
+/// Conventional receiver names that denote the enclosing object inside
+/// a method body: `self` for instance methods, `cls` for classmethods.
+/// Matched against the receiver bytes rather than by resolving the
+/// enclosing function's first parameter (#412): a non-conventionally
+/// named first parameter is rare enough that under-counting it is
+/// preferable to the over-count of treating every foreign-object write
+/// as an attribute, which the structural-only proxy did.
+const PYTHON_SELF_RECEIVERS: [&[u8]; 2] = [b"self", b"cls"];
+
+/// The attribute name of a `self.<attr>` / `cls.<attr>` `attribute`
+/// node, or `None` when the receiver is not a self / cls alias — the
+/// bytes the `Member` row's gate and the attribute count both read.
+///
+/// The node's first child is the receiver:
+///   self.x       → receiver is Identifier "self"      → counts
+///   db.x         → receiver is Identifier "db"        → foreign, skip
+///   self.f.g     → receiver is itself an Attribute    → skip
+/// The last named child is the attribute identifier. Only a direct
+/// `self.<name>` names an attribute of the class; `self.f.g` writes `g`
+/// on `self.f`, so the nested-attribute receiver is rejected. Borrows
+/// from `code` so the slice is the canonical dedup key.
+#[must_use]
+pub fn python_self_attribute_name<'a>(attr: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
+    // Fully-qualified names: `use Python::*` would shadow `Option::None`.
+    let receiver = attr
+        .child(0)
+        .filter(|receiver| receiver.kind_id() == Python::Identifier)?;
+    let receiver_bytes = code.get(receiver.start_byte()..receiver.end_byte())?;
+    if !PYTHON_SELF_RECEIVERS.contains(&receiver_bytes) {
+        return None;
+    }
+    // The trailing identifier is the attribute name; the degenerate
+    // single-identifier case has none distinct from the receiver.
+    let id = attr
+        .children()
+        .filter(|c| c.kind_id() == Python::Identifier)
+        .last()
+        .filter(|id| id.start_byte() != receiver.start_byte())?;
+    code.get(id.start_byte()..id.end_byte())
+}
+
+/// Whether an `attribute` node is a `self.x` / `cls.x` being *bound* —
+/// a target of the enclosing `assignment` (`self.x = …`, `self.a,
+/// self.b = …`, `self.a, (self.b, c) = …`), as opposed to a read or an
+/// operand. The target is the assignment's first child; a destructuring
+/// target wraps its elements in `pattern_list` / `expression_list` /
+/// the aliased `tuple_pattern` / `list_pattern` kinds, climbed here
+/// until the assignment is met. `ancestors` is the node's chain.
+#[must_use]
+pub fn python_is_bound_self_attribute<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    if python_self_attribute_name(node, code).is_none() {
+        return false;
+    }
+    let mut below = *node;
+    for (ancestor, _) in ancestors.iter(node) {
+        match ancestor.kind_id().into() {
+            Python::Assignment => {
+                return ancestor
+                    .child(0)
+                    .is_some_and(|first| first.id() == below.id());
+            }
+            Python::PatternList
+            | Python::ExpressionList
+            | Python::TuplePattern
+            | Python::TuplePattern2
+            | Python::ListPattern
+            | Python::ListPattern2 => below = ancestor,
+            _ => return false,
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

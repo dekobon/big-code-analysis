@@ -5334,7 +5334,6 @@
 199 named visible 'augmented_assignment'
 200 named visible 'pattern_list'
 201 anon hidden '_right_hand_side'
-203 named visible 'attribute'
 204 named visible 'subscript'
 205 named visible 'slice'
 207 named visible 'typed_parameter'

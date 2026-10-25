@@ -7,6 +7,7 @@
 )]
 
 use super::*;
+use crate::lang_helpers::python::python_self_attribute_name;
 
 // Python attribute counting.
 //
@@ -44,6 +45,8 @@ impl Npa for PythonCode {
         // Gate on `ClassDefinition` specifically: `is_func_space` is
         // also true for `Module` / `FunctionDefinition`, which would
         // over-eagerly mark every space as a class space.
+        // role-bypass: allow(Container) — which container's body to walk;
+        // not whether it opens a space
         if !matches!(node.kind_id().into(), ClassDefinition) {
             return;
         }
@@ -225,6 +228,8 @@ fn python_collect_self_attrs_in_subtree<'a>(
     while let Some(node) = stack.pop() {
         // Boundary: do not descend into nested classes, functions, or
         // lambdas. Their attributes belong to their inner scope.
+        // role-bypass: allow(FuncOpener, Container, Closure) — the scope
+        // boundary of a traversal, not whether a node opens a space
         if matches!(
             node.kind_id().into(),
             FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
@@ -252,77 +257,55 @@ fn python_collect_self_attrs_from_target<'a>(
     code: &'a [u8],
     seen: &mut std::collections::HashSet<&'a [u8]>,
 ) {
+    use crate::roles::python::member;
     let Some(target) = assignment.child(0) else {
         return;
     };
-    // Collect only the `self`/`cls` attribute elements; unpacking may mix
-    // them with foreign targets (`self.a, x = …`), which are filtered out
-    // here because they are not `self`/`cls` attributes.
-    python_walk_target_elements(&target, &mut |element| {
-        if element.kind_id() == Python::Attribute
-            && let Some(name) = python_self_attr_name_bytes(element, code)
+    // Collect only the `Member` row's elements — a bound `self` / `cls`
+    // attribute; unpacking may mix them with foreign targets (`self.a,
+    // x = …`), which the row declines. The element's chain is rebuilt
+    // from the assignment down through the pattern wrappers, which is
+    // what the row's gate climbs.
+    let mut chain = vec![*assignment];
+    python_walk_target_elements_with_chain(&target, &mut chain, &mut |element, chain| {
+        if member::owns(element, code, Ancestors::known(chain))
+            && let Some(name) = python_self_attribute_name(element, code)
         {
             seen.insert(name);
         }
     });
 }
 
-// Conventional receiver names that denote the enclosing object inside
-// a method body: `self` for instance methods, `cls` for classmethods.
-// We match the receiver bytes against these literals rather than
-// resolving the enclosing function's first parameter. The pragmatic
-// choice (per #412): reading source bytes and matching `self`/`cls` is
-// clearly better than the prior structural-only proxy (which counted
-// ANY `obj.x = …` as an instance attribute) and covers the
-// overwhelming majority of real code. A non-conventionally-named first
-// parameter is rare enough that under-counting it is preferable to the
-// over-count of treating every foreign-object write as an attribute.
-const PYTHON_SELF_RECEIVERS: [&[u8]; 2] = [b"self", b"cls"];
-
-// Returns the byte slice for the attribute identifier of a
-// `self.<attr>` / `cls.<attr>` Attribute node, or `None` when the
-// receiver is not a self/cls alias.
-//
-// `attr` is an `Attribute` node. Its first child is the receiver:
-//   self.x       → receiver is Identifier "self"      → counts
-//   db.x         → receiver is Identifier "db"        → foreign, skip
-//   self.f.g     → receiver is itself an Attribute    → skip
-// The last named child is the attribute identifier (the `.` and the
-// preceding receiver are siblings; the identifier comes last). Only a
-// direct `self.<name> = …` introduces an attribute of the class;
-// `self.f.g = …` writes attribute `g` on `self.f`, not a new attribute
-// of the class, so the nested-Attribute receiver is intentionally
-// rejected. Borrows directly from `code` so the returned slice is the
-// canonical dedup key — two `self.value` writes share the same key.
-fn python_self_attr_name_bytes<'a>(attr: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
-    // Fully-qualified `Python::*` names — this function deliberately
-    // does NOT `use Python::*;` so unqualified `None` keeps its
-    // `Option` meaning rather than being shadowed by `Python::None`.
-    let receiver = attr.child(0)?;
-    if receiver.kind_id() != Python::Identifier {
-        return None;
+// `python_walk_target_elements`, carrying the chain from the assignment
+// down to each leaf element, for a reader that gates on it.
+fn python_walk_target_elements_with_chain<'a>(
+    target: &Node<'a>,
+    chain: &mut Vec<Node<'a>>,
+    collect: &mut impl FnMut(&Node<'a>, &[Node<'a>]),
+) {
+    match target.kind_id().into() {
+        Python::PatternList
+        | Python::ExpressionList
+        | Python::TuplePattern
+        | Python::TuplePattern2
+        | Python::ListPattern
+        | Python::ListPattern2 => {
+            chain.push(*target);
+            for element in target.children() {
+                python_walk_target_elements_with_chain(&element, chain, collect);
+            }
+            chain.pop();
+        }
+        _ => collect(target, chain),
     }
-    let receiver_bytes = code.get(receiver.start_byte()..receiver.end_byte())?;
-    if !PYTHON_SELF_RECEIVERS.contains(&receiver_bytes) {
-        return None;
-    }
-    // The trailing identifier is the last `Identifier` child of the
-    // Attribute node; `.last()` walks the children once and yields it.
-    let id = attr
-        .children()
-        .filter(|c| c.kind_id() == Python::Identifier)
-        .last()?;
-    // Guard the degenerate single-identifier case: only count when the
-    // attribute name is a distinct Identifier from the receiver.
-    if id.start_byte() == receiver.start_byte() {
-        return None;
-    }
-    code.get(id.start_byte()..id.end_byte())
 }
 
 fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     // Use fully-qualified names here: `use Python::*` would shadow
     // `Option::None` with `Python::None` and break the last arm.
+    // role-bypass: allow(FuncOpener) — a traversal step into the body
+    // whose attributes are walked, decorated or not; not whether it
+    // opens a space
     match node.kind_id().into() {
         Python::FunctionDefinition => Some(*node),
         Python::DecoratedDefinition => node

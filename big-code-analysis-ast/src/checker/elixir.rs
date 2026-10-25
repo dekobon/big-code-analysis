@@ -8,18 +8,16 @@ impl Checker for ElixirCode {
         node.kind_id() == Elixir::Comment
     }
 
-    // Elixir has no syntactic function-definition node: `def`/`defp` /
-    // `defmacro`/`defmacrop` / `defmodule` are ordinary `Call` nodes
-    // with the macro identifier in the `target` field. The byte-less
-    // [`is_func_space`] and [`is_func`] cannot distinguish them from
-    // any other `Call`, so they conservatively return zero (only the
-    // file root and explicit anonymous functions surface as func
-    // spaces). The text-aware [`is_func_space_with_code`] /
-    // [`is_func_with_code`] overrides below promote the macro-shaped
-    // declarations to first-class function / class spaces (#275). The
-    // walker passes the source bytes through, so the metrics
-    // attributed to a `def`'s body now correctly nest under a Function
-    // space and `Wmc` / `Npm` / `Npa` see a `defmodule` Class.
+    // Elixir has no syntactic function-definition node: `def` / `defp`
+    // / `defmacro` / `defmacrop` / `defmodule` are ordinary `call`s with
+    // the macro identifier in the `target` field, so the rows that name
+    // them (`roles/elixir.rs`) read source bytes and, for a `def` inside
+    // a `quote` template (#310), the chain. The byte-less `is_func_space`
+    // and `is_func` cannot read either and so answer the kind table
+    // alone: the file root and an anonymous function. The `_with_code`
+    // spellings read the rows, and the walk promotes through
+    // `promotes_to_func_space_with_code` below, which reads the one
+    // keyword lookup both rows share rather than each row in turn.
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
@@ -36,34 +34,11 @@ impl Checker for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        use crate::lang_helpers::elixir::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
-            elixir_is_method_macro,
-        };
-        if Self::is_func_space(node) {
-            return true;
-        }
-        let Some(kw) = elixir_call_keyword(node, code) else {
-            return false;
-        };
-        if elixir_is_class_macro(kw) {
-            return true;
-        }
-        // A `def` / `defp` / `defmacro` / `defmacrop` nested inside a
-        // `quote do … end` template does NOT declare a method of any
-        // enclosing module — the syntax tree there is a code template
-        // emitted later, on macro expansion (#310).
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
+        crate::roles::elixir::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
     fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        use crate::lang_helpers::elixir::{
-            elixir_call_keyword, elixir_is_inside_quote_block, elixir_is_method_macro,
-        };
-        let Some(kw) = elixir_call_keyword(node, code) else {
-            return false;
-        };
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
+        crate::roles::elixir::func_opener::is_callable(node, code, ancestors)
     }
 
     fn promotes_to_func_space_with_code<'a>(
@@ -71,22 +46,22 @@ impl Checker for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
+        use crate::lang_helpers::elixir::{ElixirDeclaration, elixir_declaration};
         // The default is `is_func_with_code || is_func_space_with_code`,
-        // which costs two `elixir_call_keyword` lookups. Here the second
-        // predicate already subsumes the first — its final clause *is*
-        // `is_func_with_code`, since a method macro outside a `quote`
-        // block satisfies both — so forwarding to it alone answers the
-        // combined question with one lookup (#310 follow-on perf) and
-        // keeps a single copy of the rule. Spelling the body out a
-        // second time is what let this override and
-        // `is_func_space_with_code` drift apart unnoticed: only the
-        // override was reachable from the walk, so no test could see
-        // the copy it was not using.
-        Self::is_func_space_with_code(node, code, ancestors)
+        // which would scan a `call`'s target text once per row; the two
+        // rows' gates read `elixir_declaration`, so the walk reads it
+        // once and promotes on either answer (#310 follow-on perf). The
+        // kind-only owners — the file root, an anonymous function — are
+        // the byte-less table. Spelling the rule out a second time is
+        // what let this override and `is_func_space_with_code` drift
+        // apart before (#1130); `roles/elixir.rs`'s tests hold the two
+        // to each other node by node.
+        Self::is_func_space(node)
+            || elixir_declaration(node, code, ancestors) != ElixirDeclaration::None
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Elixir::AnonymousFunction
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::elixir::closure::owns(node, &[], ancestors)
     }
 
     fn is_call(node: &Node) -> bool {

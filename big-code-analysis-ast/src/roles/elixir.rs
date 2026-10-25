@@ -5,8 +5,7 @@
 //! `quote do … end` template reads the ancestor chain (#275, #310).
 
 use crate::lang_helpers::elixir::{
-    elixir_applying_operator, elixir_call_keyword, elixir_is_class_macro,
-    elixir_is_inside_quote_block, elixir_is_method_macro,
+    ElixirDeclaration, elixir_applying_operator, elixir_call_keyword, elixir_declaration,
 };
 use crate::lang_helpers::elixir_decisions::{
     elixir_clause_is_decision, elixir_is_when_operator, elixir_when_is_guard,
@@ -29,15 +28,23 @@ fn applied<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> b
 }
 
 /// A `call` whose target spells a method-defining macro, outside any
-/// `quote` block — `ElixirCode::is_func_with_code`'s rule.
+/// `quote` block — `ElixirCode::is_func_with_code`'s rule. Both space
+/// gates read `elixir_declaration`, one keyword scan; the walk's
+/// combined promotion reads it once more directly rather than through
+/// both rows (`checker/elixir.rs`).
 fn method_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    elixir_call_keyword(node, code).is_some_and(elixir_is_method_macro)
-        && !elixir_is_inside_quote_block(node, code, ancestors)
+    elixir_declaration(node, code, ancestors) == ElixirDeclaration::Method
 }
 
 /// A `call` whose target spells `defmodule`.
-fn class_macro<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    elixir_call_keyword(node, code).is_some_and(elixir_is_class_macro)
+fn class_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_declaration(node, code, ancestors) == ElixirDeclaration::Module
+}
+
+/// A `call` whose target spells `defstruct`, directly in a module body:
+/// the struct's fields are the module's attributes (`npa/elixir.rs`).
+fn struct_macro<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_call_keyword(node, code) == Some("defstruct")
 }
 
 /// Whether a `stab_clause` is a decision arm — of a `case`, `cond`,
@@ -74,7 +81,7 @@ role_table! {
     // (`fn … end`) opens a space and is a closure (`checker/elixir.rs`).
     FuncOpener {
         owns [
-            Call(text_gated_by method_macro opens Function),
+            Call(text_gated_by method_macro callable opens Function),
             AnonymousFunction(opens Function),
         ]
     }
@@ -173,7 +180,12 @@ role_table! {
     // any other call by its text, and is `FuncOpener` / `Container`
     // territory (R06); the `Call` row (R08) bills the call.
     DeclKeyword { owns [Fn] }
-    Member { pending R06 }
+    // A `defstruct` call is the closest thing to a field-set
+    // declaration: its arguments are the module's attributes, which the
+    // consumer counts in the three spellings the docs admit. A third
+    // row gating the same `Call` kind on its target text, beside the
+    // two space rows.
+    Member { owns [Call(text_gated_by struct_macro)] }
     Comment { pending R09 }
     Docstring { pending R09 }
     DocTarget { pending R09 }
@@ -188,58 +200,136 @@ mod tests {
     use crate::test_support::for_each_node_with_chain;
     use crate::{Checker, ElixirCode, Getter, SpaceKind};
 
-    // The rows restate `checker/elixir.rs` and `getter/elixir.rs`; this
-    // pins the restatement node by node (lesson 35), against the
-    // `_with_code` spellings the walk reads (grammar-dispatch §7). The
-    // per-shape tests below do not cover membership: emptying `Call` or
-    // dropping `Sigil` from `StringLit` failed none of them.
+    // Until #1696 the rows restated `checker/elixir.rs` and
+    // `getter/elixir.rs` and this compared the two; now the classifiers
+    // read the rows, so the expected answer per node is pinned
+    // independently here — `(is_func, is_closure, promoted, SpaceKind,
+    // is_member)`, by the call's target text where the kind is `call`.
+    // The per-shape tests below do not cover membership: emptying
+    // `Call` or dropping `Sigil` from `StringLit` failed none of them.
     #[cfg(feature = "elixir")]
     #[test]
-    fn membership_rows_agree_with_the_live_classifiers() {
-        let source = b"defmodule M do\n  def f(x), do: fn y -> y end\n  defp g, do: ~s(a)\n  defmacro m do\n    quote do\n      def h, do: 'c'\n    end\n  end\n  IO.puts(\"a #{b}\")\nend\n";
+    fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
+        let source = b"defmodule M do\n  defstruct [:a]\n  def f(x), do: fn y -> y end\n  defp g, do: ~s(a)\n  defmacro m do\n    quote do\n      def h, do: 'c'\n    end\n  end\n  IO.puts(\"a #{b}\")\nend\n";
+        let mut calls = Vec::new();
         let mut seen_kinds = std::collections::BTreeSet::new();
         for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let kind = node.kind();
+            let promoted = ElixirCode::promotes_to_func_space_with_code(node, source, ancestors);
+            let got = (
+                ElixirCode::is_func_with_code(node, source, ancestors),
+                ElixirCode::is_closure(node, ancestors),
+                promoted,
+                ElixirCode::get_space_kind_with_code(node, source, ancestors),
+                member::owns(node, source, ancestors),
+            );
+            seen_kinds.insert(node.kind_id());
             assert_eq!(
-                call::owns(node, source, ancestors),
-                ElixirCode::is_call_with_code(node, source, ancestors),
-                "{kind}: Call"
+                got.3 != SpaceKind::Unknown,
+                promoted,
+                "{kind}: opens_space vs promotion"
+            );
+            assert_eq!(
+                ElixirCode::is_func_space_with_code(node, source, ancestors),
+                promoted,
+                "{kind}: is_func_space is what the walk promotes"
+            );
+            if node.kind_id() == Elixir::Call as u16 {
+                let target = node
+                    .child_by_field_name("target")
+                    .and_then(|t| t.utf8_text(source))
+                    .unwrap_or("<none>")
+                    .to_owned();
+                calls.push((target, got));
+                return;
+            }
+            let want = match kind {
+                "source" => (false, false, true, SpaceKind::Unit, false),
+                "anonymous_function" => (false, true, true, SpaceKind::Function, false),
+                _ => (false, false, false, SpaceKind::Unknown, false),
+            };
+            assert_eq!(got, want, "{kind}");
+            assert!(
+                !call::owns(node, source, ancestors),
+                "{kind}: only a `call` is a Call"
             );
             assert_eq!(
                 string_lit::owns(node, source, ancestors),
-                ElixirCode::is_string_with_code(node, source, ancestors),
+                matches!(kind, "string" | "charlist" | "sigil"),
                 "{kind}: StringLit"
             );
-            assert_eq!(
-                closure::owns(node, source, ancestors),
-                ElixirCode::is_closure(node, ancestors),
-                "{kind}: Closure"
-            );
-            assert_eq!(
-                func_opener::owns(node, source, ancestors)
-                    || container::owns(node, source, ancestors),
-                ElixirCode::promotes_to_func_space_with_code(node, source, ancestors),
-                "{kind}: space promotion"
-            );
-            assert_eq!(
-                opens_space(node, source, ancestors),
-                ElixirCode::get_space_kind_with_code(node, source, ancestors),
-                "{kind}: SpaceKind"
-            );
-            seen_kinds.insert(node.kind_id());
         });
+        // By target: `defmodule` a class, `defstruct` a member, the three
+        // method macros functions, the quoted `def` nothing (#310), and
+        // the plain calls nothing.
+        let f = (true, false, true, SpaceKind::Function, false);
+        let none = (false, false, false, SpaceKind::Unknown, false);
+        assert_eq!(
+            calls,
+            [
+                (
+                    "defmodule".to_owned(),
+                    (false, false, true, SpaceKind::Class, false)
+                ),
+                (
+                    "defstruct".to_owned(),
+                    (false, false, false, SpaceKind::Unknown, true)
+                ),
+                ("def".to_owned(), f),
+                ("f".to_owned(), none),
+                ("defp".to_owned(), f),
+                ("defmacro".to_owned(), f),
+                ("quote".to_owned(), none),
+                ("def".to_owned(), none),
+                ("IO.puts".to_owned(), none),
+            ]
+        );
         for kinds in [
             call::OWNERS,
             string_lit::OWNERS,
             closure::OWNERS,
             func_opener::OWNERS,
             container::OWNERS,
+            member::OWNERS,
         ] {
             for &k in kinds {
                 assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
             }
         }
+    }
+
+    // The walk's promotion reads a `call`'s own target once, however
+    // many rows gate on it — one keyword read per `call` — which only
+    // the count can tell from one per row (#310, #1696). The two method
+    // macros also climb for a `quote` (#310), reading each ancestor's
+    // target once on an unmemoised chain; on the walk that climb is a
+    // memoised fold. The fixture's nesting makes that climb exactly one
+    // read per `def`: the `defmodule` above it.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn promotion_reads_each_calls_keyword_once() {
+        use crate::lang_helpers::elixir::call_keyword_reads;
+        let source = b"defmodule M do\n  def f(x), do: g(x)\n  defp g(x), do: IO.puts(x)\nend\n";
+        let (mut calls, mut defs) = (0, 0);
+        let before = call_keyword_reads::observed();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() == Elixir::Call as u16 {
+                calls += 1;
+                if node
+                    .child_by_field_name("target")
+                    .and_then(|t| t.utf8_text(source))
+                    .is_some_and(|t| t.starts_with("def") && t != "defmodule")
+                {
+                    defs += 1;
+                }
+            }
+            let _promoted =
+                ElixirCode::promotes_to_func_space_with_code(node, source, Ancestors::known(chain));
+        });
+        assert_eq!((calls, defs), (7, 2));
+        // Reading both rows in turn would be 2 × calls + the climbs.
+        assert_eq!(call_keyword_reads::observed() - before, calls + defs);
     }
 
     // Every `call` in the fixture, with what the two text-gated rows

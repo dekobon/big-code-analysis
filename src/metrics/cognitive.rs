@@ -3687,6 +3687,21 @@ mod tests {
         }
     }
 
+    /// The lambda channel: a `lambda` — the `Closure` row's owner since
+    /// #1696 — charges its own nesting level to the control flow inside
+    /// it. A lambda body is one expression, so the only control flow it
+    /// can hold is a conditional expression. No test depended on the
+    /// arm before: severing it failed nothing.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_lambda_contributes_lambda_nesting() {
+        // expected: the conditional expression is 1 base + 1 for the
+        // enclosing lambda's level = 2.
+        check_metrics::<PythonParser>("f = lambda a: 1 if a else 0\n", "foo.py", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+    }
+
     #[cfg(feature = "python")]
     #[test]
     fn python_nested_functions_lambdas() {
