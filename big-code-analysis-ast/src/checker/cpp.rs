@@ -37,7 +37,7 @@ impl Checker for CppCode {
     // body gate reads the node's own fields), so the byte-less spelling
     // forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

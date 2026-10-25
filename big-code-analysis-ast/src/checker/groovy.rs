@@ -83,9 +83,10 @@ impl Checker for GroovyCode {
     // class-shaped metrics (issue #280).
     // The space tree is declared in `roles/groovy.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The rows read no bytes and no chain, so the byte-less spelling forwards with none and answers the same.
+    // `opens_space` labels. The rows read no bytes and no chain, so the
+    // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

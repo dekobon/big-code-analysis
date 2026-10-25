@@ -192,10 +192,12 @@ for historical reference.
   of a `call`'s target for both space rows, pinned by a counter.
   Halstead's text-key selection reads a new
   `Checker::keys_operator_by_text(node, code, ancestors)` instead of
-  the byte-less `is_primitive`, so Groovy's and Objective-C's
-  `is_primitive` answer what their name says (a plain identifier is no
-  primitive) and the key selection reads the `Primitive` row's text
-  gate and ObjC's text-keyed modifier kinds (#1599). Every `bca ops`
+  the byte-less `is_primitive`: the `Primitive` row's text gate for
+  Groovy, that plus the text-keyed modifier kinds for Objective-C
+  (#1599). Objective-C's `is_primitive` now answers from the row's
+  kinds (an identifier is no primitive); Groovy's byte-less one is
+  still the kind table — every `identifier` / `type_identifier`, since
+  its primitives are told by text alone — and says so. Every `bca ops`
   vocabulary, every metric, the space tree, `dump`, `find` and `count`
   are byte-identical on the integration corpora and a fixture per
   language (26,992 CLI and library-export outputs), and on a sweep of

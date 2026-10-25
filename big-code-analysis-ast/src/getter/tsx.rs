@@ -14,7 +14,7 @@ impl Getter for TsxCode {
     // The mapping is the `opens` annotations of `roles/tsx.rs` (#1696);
     // see `getter/typescript.rs`.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn get_space_kind_with_code<'a>(

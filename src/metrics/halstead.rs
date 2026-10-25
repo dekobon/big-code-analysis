@@ -8625,9 +8625,12 @@ end",
     /// gate for Groovy, that row plus the text-keyed modifier kinds for
     /// Objective-C — rather than the byte-less `is_primitive`, which
     /// answered `true` for every Groovy name and every ObjC identifier.
-    /// Distinct primitive spellings stay distinct operators, an ordinary
-    /// name stays an operand, and `is_primitive` now answers its own
-    /// question: a plain identifier is no primitive to either language.
+    /// Distinct primitive spellings stay distinct operators and an
+    /// ordinary name stays an operand. ObjC's `is_primitive` now answers
+    /// from the row's kinds; Groovy's byte-less one cannot — a primitive
+    /// there is an identifier told by its text — so it stays the kind
+    /// table, and the recorded limitation is pinned below rather than
+    /// claimed away.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_text_keyed_operators_are_the_primitives_1599() {

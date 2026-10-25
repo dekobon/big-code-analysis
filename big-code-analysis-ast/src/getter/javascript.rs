@@ -11,7 +11,7 @@ impl Getter for JavascriptCode {
     // chain, but none of them decides an `opens`, so the byte-less
     // spelling forwards with no chain and answers the same.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn get_space_kind_with_code<'a>(

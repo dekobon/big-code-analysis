@@ -115,10 +115,14 @@ macro_rules! js_family_containers {
 /// spelling is a closure, since the call frame is met first.
 macro_rules! js_family_binding_gates {
     ($lang:ident, $code:ident, $field:ident) => {
+        // `extra` is a closure, not a value: the arrow form's sibling scan
+        // is `O(width)` over the parent's children, and a bound arrow —
+        // the common case — never needs it. Evaluated eagerly it made a
+        // 4,000-element array of arrows 200× slower (#1696 review).
         fn bound<'a>(
             node: &$crate::Node<'a>,
             ancestors: $crate::Ancestors<'a, '_>,
-            extra: bool,
+            extra: impl FnOnce() -> bool,
         ) -> bool {
             use $lang::*;
             node.count_specific_ancestors::<$crate::$code>(
@@ -144,7 +148,7 @@ macro_rules! js_family_binding_gates {
                     )
                 },
             ) > 0
-                || extra
+                || extra()
         }
 
         fn bound_function<'a>(
@@ -152,7 +156,7 @@ macro_rules! js_family_binding_gates {
             _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
-            bound(node, ancestors, node.is_child($lang::Identifier as u16))
+            bound(node, ancestors, || node.is_child($lang::Identifier as u16))
         }
 
         fn bound_arrow<'a>(
@@ -160,11 +164,9 @@ macro_rules! js_family_binding_gates {
             _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
-            bound(
-                node,
-                ancestors,
-                node.has_sibling(ancestors, $lang::PropertyIdentifier as u16),
-            )
+            bound(node, ancestors, || {
+                node.has_sibling(ancestors, $lang::PropertyIdentifier as u16)
+            })
         }
 
         fn unbound_function<'a>(

@@ -717,6 +717,17 @@ pub fn nested_arrows(depth: usize) -> String {
     )
 }
 
+/// JavaScript: `const cb = [() => 1, () => 2, …];` — `width` arrows as
+/// siblings in one array literal.
+#[must_use]
+pub fn wide_arrow_array(width: usize) -> String {
+    let arrows = (0..width)
+        .map(|i| format!("() => {i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("const cb = [{arrows}];\n")
+}
+
 /// C++: `bool f(bool a){ return a && a && … && a; }`.
 ///
 /// `&&` is left-associative, so the chain parses as a left-nested
@@ -2019,6 +2030,26 @@ pub const PROBES: &[Probe] = &[
                     steps now index the walker's ancestor chain. \
                     `nom/nested-declared-function` is the same nesting \
                     without the walk.",
+    },
+    Probe {
+        name: "nom/wide-arrow-array",
+        lang: LANG::Javascript,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: wide_arrow_array,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1696: the arrow form of the JS binding walk asks for a \
+                    `property_identifier` sibling, an `O(width)` scan of the \
+                    parent's children, and only when the ancestor test has \
+                    not already bound the arrow. Evaluated unconditionally — \
+                    which the first row-based spelling of the walk did — the \
+                    scan ran once per arrow and an array of arrows was \
+                    quadratic (4,000 arrows: 0.02 s → 4 s).",
     },
     Probe {
         name: "nom/nested-attributed-fn",

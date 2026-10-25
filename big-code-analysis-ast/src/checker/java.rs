@@ -103,7 +103,7 @@ impl Checker for JavaCode {
     // legacy wrappers: Java's rows read no bytes and no chain, so they
     // answer identically with none.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

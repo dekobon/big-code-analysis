@@ -259,17 +259,19 @@ impl Checker for RubyCode {
             && ruby_yard_reads(false, first, ancestors)
     }
 
-    // Over-approximates for `Block` / `DoBlock`: a stabby lambda's own
-    // body block is NOT a space of its own (the wrapping `Lambda` is),
-    // but telling the two apart needs the parent and this spelling has
-    // no ancestor access. The walker promotes through the
-    // [`Checker::is_func_space_with_code`] override below, which
-    // carries the lambda-body gate (#1257).
     // The space tree is declared in `roles/ruby.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The block rows read the chain — a `block` is a space only outside a stabby lambda (#465, #1257) — so the byte-less spelling is the kind table that over-approximates on them, and the walk calls the `_with_code` one.
+    // `opens_space` labels. The block rows read the chain — a `block` is
+    // a space only outside a stabby lambda (#465, #1257) — so this
+    // byte-less spelling stays the kind table, which over-approximates
+    // on a lambda's own body block exactly as it did before the rows:
+    // it forwards with a *known-empty* chain, the node read as if it
+    // were the root, so the parent gate sees no lambda. Not
+    // `Ancestors::unknown()`, which climbs through `Node::parent` and
+    // would answer the gated result here — a change in this spelling's
+    // answer no output could see. The walk calls the `_with_code` one.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

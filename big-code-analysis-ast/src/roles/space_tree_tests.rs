@@ -862,6 +862,57 @@ fn ruby_space_tree_rows() {
     }
 }
 
+/// The byte-less `Checker::is_func_space` / `Getter::get_space_kind`
+/// are the kind table, gates aside — a stabby lambda's own body block
+/// answers `(true, Function)` there as it did before the rows, while
+/// the `_with_code` spellings the walk reads decline it (#1257). The
+/// byte-less pair forwards with a known-empty chain for that reason;
+/// `Ancestors::unknown()` would climb and answer the gated result.
+#[cfg(feature = "ruby")]
+#[test]
+fn ruby_byte_less_spellings_stay_the_kind_table() {
+    use crate::{Checker, Getter, RubyCode};
+    let source = b"l = ->(y) { y }\nm = -> do 1 end\n[1].each { |i| i }\n";
+    let mut blocks = Vec::new();
+    for_each_node_with_chain::<RubyCode>(source, |node, chain| {
+        if !matches!(node.kind(), "block" | "do_block") {
+            return;
+        }
+        let ancestors = Ancestors::known(chain);
+        blocks.push((
+            node.utf8_text(source).unwrap_or("?").to_owned(),
+            (
+                RubyCode::is_func_space(node),
+                RubyCode::get_space_kind(node),
+            ),
+            (
+                RubyCode::is_func_space_with_code(node, source, ancestors),
+                RubyCode::get_space_kind_with_code(node, source, ancestors),
+            ),
+        ));
+    });
+    assert_eq!(
+        blocks,
+        [
+            (
+                "{ y }".to_owned(),
+                (true, SpaceKind::Function),
+                (false, SpaceKind::Unknown)
+            ),
+            (
+                "do 1 end".to_owned(),
+                (true, SpaceKind::Function),
+                (false, SpaceKind::Unknown)
+            ),
+            (
+                "{ |i| i }".to_owned(),
+                (true, SpaceKind::Function),
+                (true, SpaceKind::Function)
+            ),
+        ]
+    );
+}
+
 /// Which languages' closures open a space, read from the rows: a
 /// `Closure` owner that the same table's `FuncOpener` row also owns is
 /// a closure with a space of its own (contract 2 of #1690). The book's

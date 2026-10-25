@@ -5,10 +5,15 @@ use super::*;
 
 impl Getter for RubyCode {
     // The mapping is the `opens` annotations of `roles/ruby.rs`
-    // (#1696); the byte-less spelling forwards with no bytes and no
-    // chain, as the old one read neither.
+    // (#1696). This byte-less spelling is the kind table, gates aside —
+    // a stabby lambda's own body block labels `Function` here as it did
+    // before the rows, while the `_with_code` spelling the walk reads
+    // declines it (#1257). It forwards with a *known-empty* chain — the
+    // node read as if it were the root, so the parent gate sees no
+    // lambda — and not `Ancestors::unknown()`, which climbs through
+    // `Node::parent` and would answer the gated result.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn get_space_kind_with_code<'a>(

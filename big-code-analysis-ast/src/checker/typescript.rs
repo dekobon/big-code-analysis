@@ -47,7 +47,7 @@ impl Checker for TypescriptCode {
     // `is_func_space` is the legacy wrapper: no `opens` here is gated,
     // so it answers the same with no chain.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

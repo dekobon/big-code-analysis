@@ -37,7 +37,9 @@ fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
             return docs == 2
-                // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not membership: what a file docblock precedes is `DocTarget`'s own row (R09)
+                // role-bypass: allow(FuncOpener, Container, Member) — doc
+                // attachment, not membership: what a file docblock precedes
+                // is `DocTarget`'s own row (R09)
                 || !matches!(
                     node.kind_id().into(),
                     Php::ClassDeclaration
@@ -74,7 +76,9 @@ impl Checker for PhpCode {
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
         forward: |comment, code, ancestors| {
             let in_signature = ancestors.parent(comment).is_some_and(|parent| {
-                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment, not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
+                // Doc attachment, not membership: what a doc comment binds
+                // to is `DocTarget`'s own row (R09).
+                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment
                 matches!(
                     parent.kind_id().into(),
                     Php::ClassDeclaration
@@ -111,7 +115,9 @@ impl Checker for PhpCode {
     // comment, where phpDocumentor reads it as a constant's; a `use`, a
     // `namespace` or any other statement takes none.
     fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
-        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
+        // role-bypass: allow(FuncOpener, Container, Member) — doc
+        // attachment, not membership: what a doc comment binds to is
+        // `DocTarget`'s own row (R09)
         matches!(
             node.kind_id().into(),
             Php::ClassDeclaration
@@ -160,7 +166,7 @@ impl Checker for PhpCode {
     // `opens_space` labels. The rows read no bytes and no chain, so the
     // byte-less spelling forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn is_func_space_with_code<'a>(

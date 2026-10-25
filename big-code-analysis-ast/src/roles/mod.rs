@@ -550,7 +550,9 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 ///         excludes [QMARK "type syntax"]
 ///     }
 ///     Container { owns [ClassDeclaration(opens Class), Program(opens Unit)] }
-///     FuncOpener { owns [MethodDeclaration(callable opens Function), StaticInitializer(opens Function)] }
+///     FuncOpener {
+///         owns [MethodDeclaration(callable opens Function), StaticInitializer(opens Function)]
+///     }
 ///     Guard { owns [Guard] pays never }
 ///     NullSafe { absent "no `?.`" }
 ///     Branch { pending R07 }

@@ -97,7 +97,7 @@ impl Getter for CsharpCode {
     // accessor-less form opens `Function` (#464, #472). The rows read no
     // bytes and no chain, so the byte-less spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn get_space_kind_with_code<'a>(

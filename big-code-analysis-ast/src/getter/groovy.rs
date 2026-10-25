@@ -59,7 +59,7 @@ impl Getter for GroovyCode {
     // (#1696); the byte-less spelling forwards with no bytes and no
     // chain, as the old one read neither.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
     fn get_space_kind_with_code<'a>(

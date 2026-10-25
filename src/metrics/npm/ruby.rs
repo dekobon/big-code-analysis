@@ -145,20 +145,21 @@ impl<'a> RubyClassBody<'a> {
     // method `x` (a NameError in practice), never the singleton, and
     // only `private_class_method` reaches a `def self.`.
     fn apply_visibility_call(&mut self, call: &Node<'a>, keyword: RubyVisibilityCall) {
+        use crate::roles::ruby::func_opener;
         use Ruby::*;
 
         let public = keyword.visibility == RubyVisibility::Public;
         for arg in ruby_call_named_arguments(call) {
-            // role-bypass: allow(FuncOpener) — the singleton bucket of a
-            // `def` passed to a visibility macro, not whether it is one
-            let singleton = match arg.kind_id().into() {
-                Method => false,
-                SingletonMethod => true,
-                _ => {
-                    self.refile_argument(&arg, keyword.targets_singleton, public);
-                    continue;
-                }
-            };
+            // A `def` passed to the macro (`private def x; end`) is the
+            // `FuncOpener` row's callable, as a bare one is; the row reads
+            // no chain. Which of its two callables decides the singleton
+            // bucket is this consumer's reading.
+            if !func_opener::is_callable(&arg, self.code, Ancestors::unknown()) {
+                self.refile_argument(&arg, keyword.targets_singleton, public);
+                continue;
+            }
+            // role-bypass: allow(FuncOpener) — the singleton bucket
+            let singleton = arg.kind_id() == SingletonMethod as u16;
             self.declare(&arg, singleton, Some(keyword));
         }
     }
