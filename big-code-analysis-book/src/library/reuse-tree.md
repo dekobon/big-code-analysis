@@ -1,18 +1,17 @@
 # Reusing an existing tree-sitter Tree
 
-A common pain point is that callers who already drive
-[tree-sitter] for syntax highlighting, code folding, or queries
-end up parsing every file twice: once for their own tree, once
-inside the metric walker. The parse seam lets you
-hand `big-code-analysis` an already-parsed `tree_sitter::Tree` and
-get the same `FuncSpace` back without re-parsing.
+Callers who already drive [tree-sitter] for syntax highlighting,
+code folding, or queries otherwise parse every file twice: once for
+their own tree, once inside the metric walker. The parse seam lets
+you hand `big-code-analysis` an already-parsed `tree_sitter::Tree`
+and get the same `FuncSpace` back without re-parsing.
 
 > **Use [`Ast::from_tree_sitter`][aft].** It adopts a caller-built
 > `tree_sitter::Tree` and lets you run the metric walker more than
-> once against the same parse (different
+> once against the same parse: different
 > [`MetricsOptions::with_only`][with_only] selections, custom
-> tree-sitter walks interleaved with metrics, `Ast::ops` for
-> operator/operand extraction, etc.). See
+> tree-sitter walks interleaved with metrics, or `Ast::ops` for
+> operator and operand extraction. See
 > [Parse once, run metrics many times](parse-once.md). It carries an
 > explicit `name: Option<String>` rather than deriving the top-level
 > [`FuncSpace::name`][fsn] from a path via lossy UTF-8 conversion.
@@ -27,20 +26,20 @@ get the same `FuncSpace` back without re-parsing.
 
 Use the parse seam if you:
 
-- Already keep a `tree_sitter::Tree` per open buffer (editor, LSP,
+- Already keep a `tree_sitter::Tree` per open buffer (editor,
   language server, custom static-analysis pipeline) and want to
   reuse that parse for metrics rather than paying the byte-based
   cost again.
-- Want to run multiple passes (metrics + AST dump + custom
-  analysis) against one parse result.
-- Intend to pin `tree-sitter` on your side without taking a
-  separate dependency from this library. The re-exported
-  `big_code_analysis::tree_sitter` module is the same crate we
-  link against, so the types agree by definition.
+- Want to run several passes (metrics, AST dump, custom analysis)
+  against one parse result.
+- Intend to pin `tree-sitter` on your side without taking a separate
+  dependency from this library. The re-exported
+  `big_code_analysis::tree_sitter` module is the same crate we link
+  against, so the types agree by definition.
 
 Use the byte-based entry point [`analyze`][analyze] (with a
-[`Source`][source]) if you do not already have a tree — it
-constructs the parser internally and owns the parse end to end.
+[`Source`][source]) if you do not already have a tree. It constructs
+the parser internally and owns the parse end to end.
 
 [analyze]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
@@ -91,36 +90,37 @@ assert_eq!(
 );
 ```
 
-The same shape works for any [`LANG`][lang] variant — pass the
+The same shape works for any [`LANG`][lang] variant: pass the
 matching grammar to `tree_sitter::Parser::set_language` (via
-[`LANG::tree_sitter_language`][lang_grammar]) and the metric
-walker will produce the same `FuncSpace` it would have produced
-from bytes.
+[`LANG::tree_sitter_language`][lang_grammar]) and the metric walker
+produces the same `FuncSpace` it would have produced from bytes.
 
 [lang]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html
 [lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
 ## The single tree-adoption seam
 
-[`Ast::from_tree_sitter`][aft] is *the* entry point for tree reuse —
-it dispatches on a `LANG` at runtime and hides the parser plumbing
+[`Ast::from_tree_sitter`][aft] is *the* entry point for tree reuse.
+It dispatches on a `LANG` at runtime and hides the parser plumbing
 entirely. The former lower-level path (the generic `Parser<T>` /
-`ParserTrait` and the per-language `*Parser` / `*Code` tag types)
-is now crate-private (`pub(crate)`) and is no longer part of the
-public surface; see [STABILITY.md][stab]. Library consumers should
-adopt a tree through `Ast::from_tree_sitter`, which does not expose
-any per-language tag types or trait bounds.
+`ParserTrait` and the per-language `*Parser` / `*Code` tag types) is
+now crate-private (`pub(crate)`) and no longer part of the public
+surface; see [STABILITY.md][stab]. `Ast::from_tree_sitter` exposes
+no per-language tag types or trait bounds.
 
 [stab]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md
 
 ## Out of scope
 
 - **Incremental re-computation.** Applying a `tree_sitter::InputEdit`
-  and re-querying only the changed spans is not supported yet —
-  the metric walker still walks the entire tree on every call. The
-  parse seam is the first step; making the walker itself
-  incremental is a follow-up.
-- **Promoting all of `Node`'s `pub(crate)` traversal methods.**
-  `Node` still exposes its inner `tree_sitter::Node` through the
-  public `.0` field for ad-hoc traversal; the wrapper helpers
-  remain crate-private.
+  and re-querying only the changed spans is not supported yet; the
+  metric walker still walks the entire tree on every call. The parse
+  seam is the first step; making the walker itself incremental is a
+  follow-up.
+- **Promising every `Node` method.** `Node` exposes its inner
+  `tree_sitter::Node` through `Node::as_tree_sitter()` for ad-hoc
+  traversal, and only the accessor list in
+  [STABILITY.md § Escape hatches][stab-escape] is shape-stable; the
+  helpers that take a `Search` or `Ancestors` are not covered.
+
+[stab-escape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches

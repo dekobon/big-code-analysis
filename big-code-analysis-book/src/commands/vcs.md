@@ -1,16 +1,18 @@
 # Change-history (VCS) metrics
 
-`bca vcs` ranks files by **change-history risk** — signals derived from
-version-control history rather than the source AST. It is the project's
-first language-agnostic, non-AST metric family. The
-goal is to surface the files most likely to harbour bugs or
-vulnerabilities, using the signals the empirical defect- and
-vulnerability-prediction literature most consistently backs.
+`bca vcs` ranks files by **change-history risk**: signals derived from
+[git](https://git-scm.com/) history rather than the source AST. It is
+the project's one language-agnostic, non-AST metric family. The goal is
+to surface the files most likely to harbour bugs or vulnerabilities,
+using the signals the empirical defect- and vulnerability-prediction
+literature most consistently backs. This page is the command reference;
+[Change-history metrics](../metrics-vcs.md) defines each signal and
+cites its source.
 
 A single history walk runs once per invocation (never per file) and
-produces per-file signals over two configurable windows — a **long**
-window (default `12mo` ≈ 365 days) and a **recent** window (default
-`90d`).
+produces per-file signals over two configurable windows: a **long**
+window (default `12mo`, about 365 days) and a **recent** window
+(default `90d`).
 
 ## Quick start
 
@@ -28,20 +30,19 @@ With no `--format`, a human-readable ranked table is printed. Pass
 `--format json|yaml|toml|cbor|csv` for structured output. Unlike
 `bca metrics` / `bca ops` (whose `--output-dir` is a *directory* of
 per-file emissions), a change-history report is a single whole-repo
-document, so
-`bca vcs --output <file>` writes **one file** (CBOR, being binary,
-requires `--output`). The global `--paths` / `--include` / `--exclude` /
-`--no-ignore` filters are reused to pick which tracked files to report.
+document, so `bca vcs --output <file>` writes **one file** (CBOR, being
+binary, requires `--output`). The shared `--paths` / `--include` /
+`--exclude` / `--no-ignore` filters pick which tracked files to report.
 
-`bca vcs` errors clearly when run outside a git working tree.
+`bca vcs` exits with an error when run outside a git working tree.
 
 ### File-type scope {#file-type-scope}
 
-By default `bca vcs` ranks **only the files bca computes metrics for** —
+By default `bca vcs` ranks **only the files bca computes metrics for**,
 the same set `bca metrics` would analyse. High-churn non-source files
 (`CHANGELOG.md`, `Cargo.lock`, generated config) carry no maintainability
 meaning yet maximise the churn / commit / author signals, so ranking them
-beside source code is noise; scoping to files-with-metrics also keeps the
+beside source code is noise. Scoping to files-with-metrics also keeps the
 standalone ranking aligned with the AST hotspot tables in
 [`bca report --vcs`](report.md).
 
@@ -60,7 +61,7 @@ bca vcs --file-types rs,py       # rank only Rust and Python files
 ```
 
 The check is **extension-only** (no file content is read) and ANDs with
-the `--paths` / `--include` / `--exclude` / `--no-ignore` filters — a
+the `--paths` / `--include` / `--exclude` / `--no-ignore` filters: a
 file must pass both to be ranked. Extension-less files (`Makefile`,
 `Dockerfile`, `LICENSE`) and unknown extensions are out of the `metrics`
 scope; a custom list is a literal extension filter, so it can include a
@@ -74,12 +75,13 @@ bca vcs --top 50 --format html --output vcs.html
 bca vcs --top 50 --format markdown --output vcs.md
 ```
 
-`--format html` produces a self-contained, sortable page styled exactly
-like `bca report html` (click any column header to re-sort); `--format
-markdown` produces the same ranked table as GitHub-Flavored Markdown.
-Both render every signal column (the complete, sortable view of the same
-data the structured formats carry). The column set is defined once and
-shared by both renderers, so they cannot drift.
+`--format html` produces a self-contained, sortable page styled like
+`bca report html` (click any column header to re-sort); `--format
+markdown` produces the same ranked table as
+[GitHub-Flavored Markdown](https://github.github.com/gfm/). Both render
+every signal column, the same data the structured formats carry. The
+column set is defined once and shared by both renderers, so they cannot
+drift.
 
 To fold the ranking into the aggregated quality report instead of a
 standalone page, pass [`bca report --vcs`](report.md), which appends a
@@ -101,49 +103,57 @@ standalone page, pass [`bca report --vcs`](report.md), which appends a
 | `last_modified_days` | u32 | Days since the file's most recent in-window commit |
 | `change_entropy_long` / `change_entropy_recent` | f64 | Change entropy in bits per window (see below) |
 | `cochange_entropy_long` / `cochange_entropy_recent` | f64 | Co-change graph entropy in bits per window (see below) |
-| `risk_score` | f64 | Composite, formula-versioned (see below) — **ordinal, not cardinal** |
+| `risk_score` | f64 | Composite, formula-versioned (see below); **ordinal, not cardinal** |
 | `hotspot_score` | f64? | `complexity × churn_recent`; present only when AST metrics are computed alongside |
-| `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps. Carried **once on the report envelope**, alongside `long_window_days` / `recent_window_days` — not repeated inside each per-file `vcs` block (issue #635) |
+| `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps. Carried **once on the report envelope**, alongside `long_window_days` / `recent_window_days`, not repeated inside each per-file `vcs` block (issue #635) |
 
-Author identities are canonicalised through the repository `.mailmap`
-and counted by lowercased email; `Co-authored-by:` trailers add
-participants. Bot identities (`dependabot[bot]`, `renovate[bot]`,
-`github-actions[bot]`, …) are excluded by default. The pattern —
-the built-in one or your own `--bot-pattern` — is matched
-case-insensitively as a substring against both the author name and the
-email, so `--bot-pattern renovate` catches `Renovate Bot`; prefix
-`(?-i)` to match case exactly. Binary files and
-symlinks are skipped; an untracked file has no record at all (distinct
-from a tracked file with zero in-window activity).
+Author identities are canonicalised through the repository
+[`.mailmap`](https://git-scm.com/docs/gitmailmap) and counted by
+lowercased email; `Co-authored-by:` trailers add participants. Bot
+identities (`dependabot[bot]`, `renovate[bot]`, `github-actions[bot]`,
+and the like) are excluded by default. Both the built-in bot pattern
+and a custom `--bot-pattern` match case-insensitively against
+substrings of the author name and email. For example, `--bot-pattern
+renovate` matches `Renovate Bot`. Prefix the pattern with `(?-i)` for
+case-sensitive matching. Binary files and symlinks are skipped; an untracked
+file has no record at all (distinct from a tracked file with zero
+in-window activity).
 
 ## Change & co-change entropy
 
 Two process-entropy signals (added in `risk_score_version` 2) capture
 *how* a file changes, not just how much:
 
-- **Change entropy** (Hassan, 2009 — _Predicting Faults Using the
-  Complexity of Code Changes_). For each commit, the Shannon entropy (in
-  bits) of its churn distribution across the files it touched measures
-  how *scattered* that change was: a one-file commit is 0; a commit
-  spreading churn evenly across *n* files approaches log₂(*n*). Each file
-  is then credited its churn share `pᵢ·H` of every commit it took part in
-  (Hassan's History Complexity Metric). Higher = the file is repeatedly
-  caught up in diffuse, cross-cutting changes. Later work (arXiv
-  2504.18511, below) measured file-level change entropy at a Pearson
-  correlation up to 0.54 with defect counts on eight Apache projects.
-- **Co-change graph entropy** (arXiv 2504.18511, 2025). Files that change
-  in the same commit are joined by a weighted edge (weight = number of
-  shared commits). A file's co-change entropy is the Shannon entropy of
-  its edge-weight distribution: low when it always co-changes with the
-  same partner, high when its changes ripple across many different files.
-  Combined with change entropy it improved AUROC in 82.5% of cases over
-  the v1 signal set on eight Apache projects.
+- **Change entropy** (Hassan, 2009, [*Predicting Faults Using the
+  Complexity of Code
+  Changes*](https://dl.acm.org/doi/10.1109/ICSE.2009.5070510)). For
+  each commit, the
+  [Shannon entropy](https://en.wikipedia.org/wiki/Entropy_(information_theory))
+  (in bits) of its churn distribution across the files it touched
+  measures how *scattered* that change was: a one-file commit is 0; a
+  commit spreading churn evenly across *n* files approaches log₂(*n*).
+  Each file is then credited its churn share `pᵢ·H` of every commit it
+  took part in (Hassan's History Complexity Metric). Higher means the
+  file is repeatedly caught up in diffuse, cross-cutting changes. Later
+  work (arXiv 2504.18511, below) measured file-level change entropy at
+  a Pearson correlation up to 0.54 with defect counts on eight Apache
+  projects.
+- **Co-change graph entropy** ([arXiv
+  2504.18511](https://arxiv.org/abs/2504.18511), 2025). Files that
+  change in the same commit are joined by a weighted edge (weight =
+  number of shared commits). A file's co-change entropy is the Shannon
+  entropy of its edge-weight distribution: low when it always
+  co-changes with the same partner, high when its changes ripple across
+  many different files. Combined with change entropy it improved the
+  [area under the receiver operating characteristic curve
+  (AUROC)](https://en.wikipedia.org/wiki/Receiver_operating_characteristic)
+  in 82.5% of cases over the v1 signal set on eight Apache projects.
 
 Both are reported per window. A `0.0` is **computed**, not missing: the
 file only ever changed alone (no co-change neighbours, or single-file
-commits with zero change entropy). Bulk-import commits touching more than
-1000 files are excluded from the co-change graph — its edge count grows
-O(width²) — but still contribute their O(width) change entropy.
+commits with zero change entropy). Bulk-import commits touching more
+than 1000 files are excluded from the co-change graph, whose edge count
+grows O(width²), but still contribute their O(width) change entropy.
 
 ## Composite risk score {#composite-risk-score}
 
@@ -187,12 +197,12 @@ co-change-entropy terms enter additively (Hassan 2009; arXiv 2504.18511).
 The full derivation lives in `src/vcs/score.rs`.
 
 The score is **ordinal**: only relative ranks have meaning. A single
-`risk_score_version` (now `2`) versions **both** formulas — any change
-to the weighted sum *or* the `--risk-formula percentile` blend bumps it;
-the recent entropy pair joins both.
+`risk_score_version` (now `2`) versions **both** formulas: any change
+to the weighted sum *or* the `--risk-formula percentile` blend bumps it,
+and the recent entropy pair joins both.
 
 `--risk-formula percentile` is an alternative: each signal is re-ranked
-to its percentile within the analyzed set, then averaged — the
+to its percentile within the analyzed set, then averaged. The
 literature recommends relative triggers over hard thresholds for
 cross-project robustness.
 
@@ -209,10 +219,10 @@ cross-project robustness.
 | `--include-merges` | off | Include merge commits |
 | `--no-follow-renames` | off | Stop following renames (default: follow) |
 | `--no-exclude-bots` / `--bot-pattern <RE>` | exclude | Bot-author filtering |
-| `--as-of <WHEN>` | wall clock | Reference "now" (RFC 3339 / `@unix` / git date) for reproducible snapshots |
+| `--as-of <WHEN>` | wall clock | Reference "now" ([RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) / `@unix` / git date) for reproducible snapshots |
 | `--risk-formula {weighted\|percentile}` | `weighted` | Composite formula |
-| `--emit-author-details` | off | Emit SHA-256-hashed canonical author IDs |
-| `--author-hash-key <KEY>` | unset | Harden the emitted author digests into a keyed HMAC (see [Author-detail privacy](#author-detail-privacy)); requires `--emit-author-details` |
+| `--emit-author-details` | off | Emit [SHA-256](https://doi.org/10.6028/NIST.FIPS.180-4)-hashed canonical author IDs |
+| `--author-hash-key <KEY>` | unset | Harden the emitted author digests into a keyed [HMAC](https://www.rfc-editor.org/rfc/rfc2104) (see [Author-detail privacy](#author-detail-privacy)); requires `--emit-author-details` |
 | `--include-deleted` | off | Also rank files deleted at the target ref |
 | `--no-cache` | off | Skip the persistent history cache (always walk fresh) |
 | `--clear-cache` | off | Wipe this repo's cached history before running |
@@ -220,11 +230,10 @@ cross-project robustness.
 
 ## Caching {#caching}
 
-Ranking re-walks only the part of history inside the long window, but on a
-large, active repository that is still the dominant cost — and in CI the
-interesting deltas between runs are just the commits pushed since the last
-one. `bca vcs` therefore keeps a **persistent cache** of each walk, keyed
-by the resolved `HEAD` SHA and the repository's identity:
+On large, active repositories, walking the long-window history
+dominates runtime. Most consecutive CI runs add only a few commits.
+`bca vcs` therefore keeps a **persistent cache** of history walks,
+keyed by the resolved `HEAD` SHA and repository identity:
 
 - On an **unchanged tree** the prior result is replayed, no history walk.
 - When **`HEAD` has advanced** the walk visits only the new commits and
@@ -233,24 +242,25 @@ by the resolved `HEAD` SHA and the repository's identity:
   one) falls back to a full walk.
 
 The cache is a pure optimization: a hit is **bit-identical** to a fresh
-walk, and the time windows are recomputed against the *current* moment on
-every run rather than frozen when the entry was written. An entry is ignored — and
-the history recomputed — whenever the schema, the score-formula version,
-the *walk-affecting* options, or the repository's effective `.mailmap`
-differ; in particular **changing a window forces a fresh walk**. One walk
-input is not covered: the git diff configuration (`diff.algorithm`, diff
-drivers) decides the recorded churn, so after changing it run once with
-`--clear-cache`. (Finalization-only knobs such as `--risk-formula`,
-`--emit-author-details`, `--author-hash-key`, and `--include-deleted` are
-applied on replay, so they reuse the same cached walk — a cached walk even
-re-finalizes under a *different* author-hash key without re-walking.)
+walk, and the time windows are recomputed against the *current* moment
+on every run rather than frozen when the entry was written. An entry is
+ignored, and the history recomputed, whenever the schema, the
+score-formula version, the *walk-affecting* options, or the repository's
+effective `.mailmap` differ; in particular **changing a window forces a
+fresh walk**. One walk input is not covered: the git diff configuration
+(`diff.algorithm`, diff drivers) decides the recorded churn, so after
+changing it run once with `--clear-cache`. Finalization-only knobs such
+as `--risk-formula`, `--emit-author-details`, `--author-hash-key`, and
+`--include-deleted` are applied on replay, so they reuse the same cached
+walk; a cached walk even re-finalizes under a *different* author-hash
+key without re-walking.
 
 By default the cache lives under
-`$XDG_CACHE_HOME/big-code-analysis/vcs` (`%LOCALAPPDATA%` on Windows,
-`~/.cache` otherwise). Author identities are stored only as their
-SHA-256 digests — never plaintext — so the cache holds no raw author
-emails. Note this is pseudonymization, not anonymization: the digests
-are recoverable against a candidate email set (see
+[`$XDG_CACHE_HOME`](https://specifications.freedesktop.org/basedir-spec/latest/)`/big-code-analysis/vcs`
+(`%LOCALAPPDATA%` on Windows, `~/.cache` otherwise). Author identities are stored only as their
+SHA-256 digests, never plaintext, so the cache holds no raw author
+emails. This is pseudonymization, not anonymization: the digests are
+recoverable against a candidate email set (see
 [`--emit-author-details`](#author-detail-privacy)). The same cache
 transparently accelerates `bca metrics --vcs` and `bca report --vcs`.
 
@@ -269,9 +279,9 @@ surfaces expose the same behaviour through optional `no_cache` /
 `cache_dir` parameters.
 
 The cache is specific to the file ranking. The `trend` and `commit`
-subcommands — and the `/v1/vcs/trend` and `/v1/vcs/jit` endpoints — do not use
-it, so the cache flags do not apply there: passing `--no-cache` /
-`--cache-dir` alongside a subcommand is a usage error, and the trend
+subcommands, and the `/v1/vcs/trend` and `/v1/vcs/jit` endpoints, do
+not use it, so the cache flags do not apply there: passing `--no-cache`
+/ `--cache-dir` alongside a subcommand is a usage error, and the trend
 endpoint rejects a `no_cache` / `cache_dir` field rather than silently
 ignoring it (issue #961).
 
@@ -295,9 +305,10 @@ window / formula tuning use `bca vcs`.
 
 `bca metrics --vcs-per-function` (which implies `--vcs`) additionally
 attaches a `vcs` block to every nested function, method, and class space.
-It blames each file once with `git blame` and buckets the surviving lines
-into the AST function spans, so you can rank the risky *function* inside a
-risky file:
+It blames each file once with
+[`git blame`](https://git-scm.com/docs/git-blame) and buckets the
+surviving lines into the AST function spans, so you can rank the risky
+*function* inside a risky file:
 
 ```console
 $ bca metrics --vcs-per-function --paths src/parser.rs --format json
@@ -321,21 +332,21 @@ size but to none of the windowed counts.
 still attribute), but attributes a line *moved between functions* to its
 current position only. A function split into two has no record of its
 pre-split identity, and a deleted-then-recreated function attributes to
-the recreating commits. If a file cannot be blamed — untracked, or the
-rare `gix-blame` failure on pathologically repetitive content — its
-per-function blocks are simply omitted while the file-level block (and the
-AST metrics) still emit.
+the recreating commits. If a file cannot be blamed (untracked, or the
+rare [`gix-blame`](https://docs.rs/gix-blame/) failure on pathologically
+repetitive content), its per-function blocks are omitted while the
+file-level block and the AST metrics still emit.
 
 ## Just-in-time (commit-level) scoring {#just-in-time-commit-level-scoring}
 
 Where everything above ranks *files* at a ref, `bca vcs commit <commit>`
-scores a single *commit* for defect-induction risk — the unit a CI gate
+scores a single *commit* for defect-induction risk, the unit a CI gate
 reviews at check-in. (The subcommand was renamed from `bca vcs jit` in
 2.0; the old `jit` spelling keeps working as a hidden alias for one
 release cycle. "Just-in-time (JIT)" stays the literature term, below.)
-It is a static, rule-based scorer (no trained model,
-so nothing drifts as the project ages), with the feature groups and signs
-taken from the just-in-time defect-prediction literature: Kamei et al.,
+It is a static, rule-based scorer (no trained model, so nothing drifts
+as the project ages), with the feature groups and signs taken from the
+just-in-time defect-prediction literature: Kamei et al.,
 [*A Large-Scale Empirical Study of Just-in-Time Quality
 Assurance*](https://doi.org/10.1109/TSE.2013.2386), IEEE TSE 2013, with
 the open replications [Commit
@@ -376,7 +387,7 @@ The five feature groups, and how each moves the score:
 |---|---|---|
 | **Size** | lines added / deleted, files touched, diff hunks | larger ⇒ riskier |
 | **Diffusion** | distinct subsystems & directories, within-commit change entropy | more scattered ⇒ riskier |
-| **History** | the touched files' priors — prior changes, distinct authors, bug- and security-fix counts, and the composite [`risk_score`](#composite-risk-score) — measured from history *before* the commit | turbulent file history ⇒ riskier |
+| **History** | the touched files' priors (prior changes, distinct authors, bug- and security-fix counts, and the composite [`risk_score`](#composite-risk-score)), measured from history *before* the commit | turbulent file history ⇒ riskier |
 | **Experience** | the author's prior commit count (long & recent) | more experience ⇒ **less** risky (this group subtracts) |
 | **Purpose** | fix / security-fix / revert classification of the message | fixes add, reverts dampen |
 
@@ -390,8 +401,8 @@ do not read the magnitude as a probability. Any formula change bumps
 The commit is scored against its **first parent**. A **merge** commit is
 flagged (`is_merge`, `parent_count ≥ 2`) and scored against that first
 parent. A **root** commit and any **new files** carry zero priors by
-construction — the score then leans on size and author experience, exactly
-as the literature prescribes for changes with no file history.
+construction; the score then leans on size and author experience, as
+the literature prescribes for changes with no file history.
 
 The window / `--ref` / bot / merge / rename flags are shared with the
 parent `bca vcs` command; the commit-only flags are the positional `<commit>`
@@ -411,9 +422,9 @@ commit-score distribution rather than treating it as an absolute.
 ### Scoring an arbitrary diff (`--diff`)
 
 `bca vcs commit --diff <file>` scores a `git diff` instead of a commit
-(use `--diff -` to read the diff from stdin). This is handy in a
-pre-commit hook or a code-review bot, where the change exists only as a
-diff and has not been committed yet.
+(use `--diff -` to read the diff from stdin). This suits a pre-commit
+hook or a code-review bot, where the change exists only as a diff and
+has not been committed yet.
 
 ```bash
 git diff --cached | bca vcs commit --diff - --pretty
@@ -424,11 +435,12 @@ file headers, as produced by `git diff` or `git format-patch`. Plain
 `diff -u` / `diff -ru` output (which has `---`/`+++` header lines but no
 `diff --git` header) parses to zero files, and combined / merge diffs
 (`git diff --cc`, with `@@@` hunk headers) are rejected as a malformed
-diff — pipe a regular two-way `git diff` instead.
+diff; pipe a regular two-way `git diff` instead.
 
 A bare diff carries **no author, parent, or file history**, so only the
-**size** and **diffusion** groups are computable. The output is therefore
-a deliberately *partial* report — a distinct shape from a commit report:
+**size** and **diffusion** groups are computable. The output is
+therefore a deliberately *partial* report, a distinct shape from a
+commit report:
 
 ```console
 $ git diff | bca vcs commit --diff - --pretty
@@ -445,7 +457,7 @@ $ git diff | bca vcs commit --diff - --pretty
 ```
 
 The `source` field is a permanent `"diff"` marker, and the history /
-experience / purpose groups are **absent from the report entirely** —
+experience / purpose groups are **absent from the report entirely**,
 *not* present as zero. Zero is a real value (a commit genuinely with no
 prior history scores those groups at zero); an absent group means
 "unavailable", so a consumer can never mistake an unscored group for
@@ -453,12 +465,14 @@ prior history scores those groups at zero); an absent group means
 `partial_risk_score`, not `risk_score`.
 
 > **A diff-only score is not comparable to a commit score.** The partial
-> score sums only size + diffusion, so it is always lower than the full
-> commit score for the same change (which also folds in history,
-> experience, and purpose). Rank diffs against *other diffs*, never
-> against commit scores. `--diff` and the positional `<commit>` are
-> mutually exclusive; `--fail-above` works in both modes (calibrate the
-> diff-mode threshold against your own diff-score distribution).
+> score sums only size + diffusion; the full commit score for the same
+> change also folds in history, experience, and purpose, and because
+> experience is *negatively* signed the two are not even ordered (an
+> experienced author can push the full score below the partial one).
+> Rank diffs against *other diffs*, never against commit scores.
+> `--diff` and the positional `<commit>` are mutually exclusive;
+> `--fail-above` works in both modes (calibrate the diff-mode threshold
+> against your own diff-score distribution).
 
 The parser understands git's default C-style path quoting
 (`core.quotePath=true`), so a diff touching a file with a non-ASCII or
@@ -480,10 +494,10 @@ ML-based JIT models and server-side hook integration remain out of scope.
 
 ## Historical trend (over time) {#historical-trend-over-time}
 
-A single `bca vcs` run answers *"what is risky now."* `bca vcs trend`
-answers *"is it getting better or worse"* — the actionable question for a
-technical-debt programme — by sampling the metrics at several points in
-time and emitting a per-file time series.
+A single `bca vcs` run answers "what is risky now". `bca vcs trend`
+answers "is it getting better or worse", the question a technical-debt
+programme acts on, by sampling the metrics at several points in time
+and emitting a per-file time series.
 
 ```console
 $ bca vcs --top 20 trend --points 12 --span 24mo --pretty
@@ -517,18 +531,19 @@ yet. `deltas` ranks the files whose `risk_score` fell the most
 (`improved`) and rose the most (`regressed`) between each file's earliest
 and latest present points; `--top-deltas` trims each list.
 
-Crucially, each point **re-anchors at the mainline tip that existed at or
-before that moment** — it does not just re-window today's `HEAD` tree.
-That is what makes a file born later show as `null` at older points
-(rather than leaking its present-day metrics backwards). Files kept in the
-series are the `--top` highest-risk by their most-recent sample.
+Each point **re-anchors at the mainline tip that existed at or before
+that moment**; it does not just re-window today's `HEAD` tree. That is
+what makes a file born later show as `null` at older points rather than
+leaking its present-day metrics backwards. Files kept in the series are
+the `--top` highest-risk by their most-recent sample.
 
-Flags reused from the parent `bca vcs` command: the window (`--long-window`
-/ `--recent-window`), `--ref`, `--file-types`, bot / merge / rename
-toggles, `--as-of` (the most-recent anchor), and `--top`. `-O` accepts `json` (default),
-`yaml`, or `cbor`; TOML is excluded because an absent point serializes as
-`null`, which TOML cannot represent. The point count is bounded (2–120) to
-keep the per-point history walks tractable on deep histories.
+Flags reused from the parent `bca vcs` command: the window
+(`--long-window` / `--recent-window`), `--ref`, `--file-types`, bot /
+merge / rename toggles, `--as-of` (the most-recent anchor), and `--top`.
+`-O` accepts `json` (default), `yaml`, or `cbor`; TOML is excluded
+because an absent point serializes as `null`, which TOML cannot
+represent. The point count is bounded (2–120) to keep the per-point
+history walks tractable on deep histories.
 
 > **Rename caveat.** Renames are followed *within* each sample's walk, but
 > a file renamed *between* two samples appears as two separate path series
@@ -537,12 +552,13 @@ keep the per-point history walks tractable on deep histories.
 
 ## Bus factor (directory & repo level)
 
-Where the per-file `ownership_top_share` measures concentration *within* a
-file, the **bus factor** (a.k.a. truck factor) measures it *across a set of
-files*: the minimum number of developers whose departure would leave more
-than half of a directory's files without a knowledgeable maintainer. `bca
-vcs` emits it as a top-level `vcs_aggregate` object alongside the ranked
-`files`:
+Where the per-file `ownership_top_share` measures concentration *within*
+a file, the
+[**bus factor**](https://en.wikipedia.org/wiki/Bus_factor) (also called
+the truck factor) measures it *across a set of files*: the minimum
+number of developers whose departure would leave more than half of a
+directory's files without a knowledgeable maintainer. `bca vcs` emits
+it as a top-level `vcs_aggregate` object alongside the ranked `files`:
 
 ```jsonc
 {
@@ -562,8 +578,9 @@ vcs` emits it as a top-level `vcs_aggregate` object alongside the ranked
 ```
 
 Each developer's authorship of each file is scored with the Avelino
-*Degree-of-Authorship* heuristic (Avelino, Passos, Hora & Valente, *A Novel
-Approach for Estimating Truck Factors*, ICPC 2016):
+*Degree-of-Authorship* heuristic (Avelino, Passos, Hora & Valente, [*A
+Novel Approach for Estimating Truck
+Factors*](https://arxiv.org/abs/1604.06766), ICPC 2016):
 
 ```text
 DoA(d, f) = 3.293 + 1.098·FA + 0.164·DL − 0.321·ln(1 + AC)
@@ -582,10 +599,11 @@ it.
 
 Caveats, by construction:
 
-- A repository (or directory) of mostly single-author files reports a bus
-  factor of `1` — losing that one author orphans each file. This is the
-  heuristic working as intended, not a bug; treat the number as a planning
-  signal, not a guarantee.
+- With the default threshold, a repository whose files all share one
+  sole author has a bus factor of `1`. Single-author files owned by
+  different developers can produce a higher bus factor. This is the
+  heuristic working as intended, not a bug; treat the number as a
+  planning signal, not a guarantee.
 - Bot identities are filtered (like the per-file signals), and files with
   no in-window activity carry no authorship and are excluded from the
   denominator.
@@ -593,30 +611,31 @@ Caveats, by construction:
   window*, not necessarily a file's true creation.
 
 The aggregate reflects the **whole repository within the file-type
-scope** (one history walk covers every in-scope file — by default the
-files-with-metrics set, see [File-type scope](#file-type-scope) — so
-`--file-types all` widens the bus factor to every tracked file).
+scope**: one history walk covers every in-scope file, by default the
+files-with-metrics set (see [File-type scope](#file-type-scope)), so
+`--file-types all` widens the bus factor to every tracked file.
 `--paths` / `--include` / `--exclude` scope only the ranked per-file
 list, *not* the bus factor. To focus on a subsystem, read its entry in
 `by_directory` rather than filtering the walk.
 
-`--emit-author-details` adds a `key_author_ids` list to each group — the
-SHA-256-hashed identities of the removed key developers, in removal order
-(plaintext identities never leave the process). The aggregate is computed
-only for the dedicated `bca vcs` / `bca report --vcs` reports and the REST
-/ Python endpoints; the per-file `bca metrics --vcs` injection path does
-not pay for it.
+`--emit-author-details` adds a `key_author_ids` list to each group: the
+SHA-256-hashed identities of the removed key developers, in removal
+order (plaintext identities never leave the process). The aggregate is
+computed only for the dedicated `bca vcs` / `bca report --vcs` reports
+and the REST / Python endpoints; the per-file `bca metrics --vcs`
+injection path does not pay for it.
 
 ### Author-detail privacy {#author-detail-privacy}
 
 The `key_author_ids` digests are a **stable pseudonym, not
-anonymization**. Hashing keeps plaintext emails out of the report and the
-cache and deters casual disclosure, but the hash is *not* cryptographically
-irreversible. The pre-image is an email — low-entropy and enumerable — and
-commit histories are public, so anyone with a candidate set of emails can
-recover which digest belongs to whom by hashing each candidate or with a
-precomputed email→hash table. This is the same weakness that broke
-Gravatar's email hashing.
+anonymization**. Hashing keeps plaintext emails out of the report and
+the cache and deters casual disclosure, but the hash is *not*
+cryptographically irreversible. The pre-image is an email, which is
+low-entropy and enumerable, and commit histories are public, so anyone
+with a candidate set of emails can recover which digest belongs to whom
+by hashing each candidate or with a precomputed email→hash table. This
+is the same weakness that broke
+[Gravatar](https://en.wikipedia.org/wiki/Gravatar)'s email hashing.
 
 Treat published `key_author_ids` (and the per-file `author_ids`) as
 pseudonymization that avoids emitting plaintext emails, **not** as a
@@ -627,11 +646,13 @@ you need that guarantee, do not publish the digests.
 
 For stronger resistance, pass a secret key with `--author-hash-key <KEY>`
 (requires `--emit-author-details`). The emitted digests then become an
-`HMAC-SHA256(key, SHA-256(email))` instead of a bare hash: an attacker
-without the key can no longer hash a candidate email to recognise its
-digest, nor use a precomputed email→hash table — both attacks need the
-secret key. Pick a high-entropy key and keep it secret; anyone who learns
-it can re-run the enumeration.
+[HMAC](https://www.rfc-editor.org/rfc/rfc2104),
+`HMAC-SHA256(key, SHA-256(email))`, instead of a bare hash: an
+attacker without the key can no longer hash a candidate email to
+recognise its digest, nor use a precomputed email→hash table, because
+both attacks need the secret key.
+Pick a high-entropy key and keep it secret; anyone who learns it can
+re-run the enumeration.
 
 The key is **stable**: the same key yields the same digests across every
 report and across a persistent-cache replay, so cross-report correlation
@@ -639,10 +660,10 @@ and the cache still work. Different keys produce unrelated digests, so two
 teams sharing histories cannot cross-link authors unless they share the
 key.
 
-Prefer the `BCA_AUTHOR_HASH_KEY` environment variable over the flag — a key
-on the command line is visible to other local users via the process list
-(`ps`) and is saved in shell history. The flag takes precedence when both
-are set:
+Prefer the `BCA_AUTHOR_HASH_KEY` environment variable over the flag: a
+key on the command line is visible to other local users via the process
+list (`ps`) and is saved in shell history. The flag takes precedence
+when both are set:
 
 ```bash
 export BCA_AUTHOR_HASH_KEY="$(cat ~/.config/bca/author-key)"
@@ -661,16 +682,16 @@ Python (`vcs.Options(author_hash_key=…)`).
 ## Dogfooding in this repo
 
 This project runs `bca vcs` on its own source. `make vcs` prints the
-ranked table (path selection and the `.bcaignore` deny-set come from the
-repo-root `bca.toml` manifest, the same config `make self-scan` and
-`make report` use; `BCA_VCS_TOP` overrides the row cap). The manifest's
-`[vcs] file_types` key sets the default scope (the `--file-types` CLI
-flag replaces it when given). On every push to
-`main` the Pages CI job folds the rendered ranking into the flagship
-report — `bca report html --vcs` / `report markdown --vcs` — so the
-published [`reports/index.html`](https://dekobon.github.io/big-code-analysis/reports/index.html)
-shows the change-history risk section side-by-side with the AST hotspots,
-and additionally publishes the full top-100 ranking as
+ranked table; path selection and the `.bcaignore` deny-set come from
+the repo-root `bca.toml` manifest, the same config `make self-scan` and
+`make report` use, and `BCA_VCS_TOP` overrides the row cap. The
+manifest's `[vcs] file_types` key sets the default scope (the
+`--file-types` CLI flag replaces it when given). On every push to
+`main`, the Pages CI job includes the ranking in the published quality
+report (`bca report html --vcs` / `report markdown --vcs`), so
+[`reports/index.html`](https://dekobon.github.io/big-code-analysis/reports/index.html)
+shows the change-history risk section beside the AST hotspots. The same
+job publishes the full top-100 ranking as
 [`reports/vcs-report.json`](https://dekobon.github.io/big-code-analysis/reports/vcs-report.json)
 for tooling.
 

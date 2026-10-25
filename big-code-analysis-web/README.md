@@ -1,28 +1,38 @@
 # big-code-analysis-web
 
-`bca-web` is a web server that provides source code analysis
-capabilities via a RESTful API. It enables developers to interact
-with the code analysis functionality from the big-code-analysis suite
-through HTTP requests.
+`bca-web` is the HTTP daemon of the
+[big-code-analysis](https://github.com/dekobon/big-code-analysis)
+workspace. It exposes the library's analysis over a REST API so a
+long-running client (an editor plugin, a CI worker, a web app) can
+analyse source without spawning the `bca` CLI per file.
 
-## Features
+## Endpoints
 
-- **Comment Removal**: Removes comments from source code to provide a cleaner version of the code.
-- **Function Spans**: Retrieves the start and end lines of functions in the given source code.
-- **Metrics Calculation**: Computes static analysis metrics for the source code.
+- **Comment removal**: strips comments from submitted source.
+- **Function spans**: returns the start and end lines of each function.
+- **AST dump**: returns the [tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+  syntax tree for the submitted source.
+- **Metrics**: computes the maintainability metrics for the submitted source.
+- **Change-history (VCS) metrics**: ranks files, samples trends, and scores
+  commits or diffs over a git repository on the server's filesystem.
 
-Refer to the [REST API documentation][rest-api] for detailed
-information about the available endpoints and parameters.
+The [REST API reference][rest-api] documents every endpoint, its
+request and response shapes, and the error contract.
 
 [rest-api]: https://dekobon.github.io/big-code-analysis/commands/rest.html
 
 ## Installation
 
-Clone the repository and build the project:
+Clone the repository and build the crate from the workspace root:
 
 ```sh
-cd big-code-analysis-web/
-cargo build
+cargo build -p big-code-analysis-web
+```
+
+Or install the `bca-web` binary from crates.io:
+
+```sh
+cargo install big-code-analysis-web
 ```
 
 ## Building with a subset of languages
@@ -32,54 +42,55 @@ grammar in. The `big-code-analysis-web` crate pins the library's
 `all-languages` feature set explicitly, so passing
 `--no-default-features` or a custom `--features` list to
 `cargo build -p big-code-analysis-web` does **not** drop grammars
-from the resulting binary — feature selection on the web crate is
-not honoured (see [#252][issue-252] for the rationale: dropping a
-grammar silently from a user-facing daemon would surface as
-"language X stopped working" rather than a build error).
+from the resulting binary. Feature selection on the web crate is
+not honoured, because dropping a grammar silently from a
+user-facing daemon would surface as "language X stopped working"
+rather than as a build error ([#252][issue-252]).
 
-Consumers who need a reduced feature set should embed the
-`big-code-analysis` library in their own Rust code and control
-feature selection in their own `Cargo.toml`. See the library's
-[per-language Cargo features][cargo-features] chapter for the full
-list of features and a worked example.
+If you need a reduced feature set, embed the `big-code-analysis`
+library in your own Rust code and select features in your own
+`Cargo.toml`. The library's [per-language Cargo features][cargo-features]
+chapter lists every feature with a worked example.
 
 [cargo-features]: https://dekobon.github.io/big-code-analysis/library/cargo-features.html
 [issue-252]: https://github.com/dekobon/big-code-analysis/issues/252
 
 ## Usage
 
-Run the server by specifying the host and port:
-
 ```sh
 bca-web [OPTIONS]
 ```
 
-### Available Options
+### Options
 
-- `-j, --num-jobs <N|auto>`: Number of worker threads. Accepts a positive
+- `-j, --num-jobs <N|auto>`: number of worker threads, a positive
   integer or `auto` (the default). `auto` resolves to the OS-reported
-  effective CPU count — cgroup-quota- and cpuset-aware on Linux — matching
-  the `bca` CLI's `--jobs`.
-- `--host <HOST>`: IP address where the server should run (default is 127.0.0.1).
-- `-p, --port <PORT>`: Port to be used by the server (default is 8080).
-- `--parse-timeout-secs <SECS>`: Per-parse timeout in seconds (default
-  is 30). `0` disables the timeout. A request whose parse exceeds this
+  effective CPU count (cgroup-quota- and cpuset-aware on Linux),
+  matching the `bca` CLI's `--jobs`.
+- `--host <HOST>`: address to bind (default `127.0.0.1`).
+- `-p, --port <PORT>`: TCP port (default `8080`).
+- `--parse-timeout-secs <SECS>`: per-parse timeout in seconds (default
+  `30`). `0` disables the timeout. A request whose parse exceeds this
   deadline returns `504 Gateway Timeout`.
-- `--cors <ORIGINS>`: Enable CORS for a comma-separated origin allow-list
+- `--cors <ORIGINS>`: enable
+  [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) for a
+  comma-separated origin allow-list
   (off by default).
-- `-h, --help`: Show help information.
-- `-V, --version`: Show version information.
+- `-h, --help`: print help and exit.
+- `-V, --version`: print the version and exit.
 
-For the full operations story, including environment variables
-(`BCA_MAX_ORPHANED_TASKS`, `RUST_LOG`), the request-body and
-orphaned-task limits, and the trust boundaries to respect before
-exposing the daemon, see [Operating bca-web][operating].
+For the environment variables (`BCA_MAX_ORPHANED_TASKS`, `RUST_LOG`),
+the request-body and orphaned-task limits, and the trust boundaries
+to respect before exposing the daemon, see
+[Operating bca-web][operating]. The server has no authentication of
+its own and the VCS endpoints read server-side repositories, so keep
+the default loopback bind or put an authorizing proxy in front.
 
 [operating]: https://dekobon.github.io/big-code-analysis/commands/web-server.html
 
-## Examples
+## Example
 
-To start the server on a specific host and port:
+Start the server on a specific host and port:
 
 ```sh
 bca-web --host <HOST> --port <PORT> -j <NUM_JOBS>

@@ -1,18 +1,18 @@
 # Baselines: ratcheting thresholds on existing code
 
-When you introduce metric thresholds on an existing codebase, you
-usually hit the same wall: every reasonable threshold flags hundreds of
-existing functions, and CI goes red on every push. The realistic
-adoption path is "ratchet from current state, fail only on new
-offenders". The baseline file is how `bca check` supports
-that workflow.
+Introducing thresholds on an existing codebase can flag violations
+unrelated to the current change. A baseline records accepted
+violations so the gate fails on new offenders and regressions, and
+shrinks as the team pays the recorded debt down. This recipe walks
+through adopting one, reading the gate
+output it produces, and keeping it fresh; the flag reference is on the
+[check](../commands/check.md#baselines) page.
 
-Baselines are the complement to in-source suppression markers, not a
-substitute. Use suppression markers
-([Suppression markers](../commands/suppression.md)) when a function is
-intentionally complex forever (a parser, a state machine, generated
-code). Use a baseline when the team intends to pay the debt down. Both
-can live in the same repo; suppression is checked first.
+Baselines complement in-source suppression markers; they are not a
+substitute. Use [suppression markers](../commands/suppression.md) when
+a function is intentionally complex forever (a parser, a state machine,
+generated code). Use a baseline when the team intends to pay the debt
+down. Both can live in the same repo; suppression is checked first.
 
 ## End-to-end adoption flow
 
@@ -33,7 +33,7 @@ from a `bca check --no-fail` run over the repo to see the current
 distribution.
 
 ```toml
-# bca.toml — dropped at the repo root, auto-discovered by `bca check`.
+# bca.toml at the repo root, discovered automatically by `bca check`.
 paths = ["src"]
 
 [check]
@@ -54,7 +54,7 @@ bca check --write-baseline
 A bare `--write-baseline` (no path) writes to the `baseline` key from
 the `bca.toml` you just created, so the filename lives in exactly one
 place. Pass an explicit path (`--write-baseline <file>`) only when you
-have no manifest `baseline` to default to — without one, the bare form
+have no manifest `baseline` to default to; without one, the bare form
 errors rather than guessing a filename.
 
 Commit both files in the same change:
@@ -67,12 +67,12 @@ git commit -m "ci: introduce metric thresholds with baseline"
 Path keys in the baseline are stored relative to the baseline file's
 own directory (the *anchor*). `--paths .`, `--paths src/`, and
 `--paths "$PWD"` produce byte-identical baselines, and `--baseline`
-runs match regardless of which `--paths` form CI uses — switch
-between them freely without re-running `--write-baseline`.
+runs match whichever `--paths` form CI uses. Switch between them
+freely without re-running `--write-baseline`.
 
 ### 3. Wire the CI gate
 
-GitHub Actions:
+[GitHub Actions](https://docs.github.com/en/actions):
 
 ```yaml
 - name: Check code complexity thresholds
@@ -82,7 +82,7 @@ GitHub Actions:
   # auto-discovered `bca.toml` manifest at the repo root.
 ```
 
-GitLab CI (snippet for the relevant job):
+[GitLab CI/CD](https://docs.gitlab.com/ci/) (job excerpt):
 
 ```yaml
 threshold-check:
@@ -112,16 +112,16 @@ appear when actual offenders changed.
 
 You do not have to guess when a refresh is due. A gated run whose
 offenders have measured *better* than their recorded values says so on
-stderr — see [the stale-entry
-warning](#the-stale-entry-warning) — because the difference between
-recorded and live is suppression nobody chose.
+stderr (see [the stale-entry warning](#the-stale-entry-warning)),
+because the difference between recorded and live is suppression nobody
+chose.
 
 #### Before tightening a limit, price it at both tiers {#price-a-candidate-limit}
 
 Paying debt down invites tightening the limit that produced it, and the
-obvious measurement — `bca check --threshold <metric>=<candidate>` —
+obvious measurement, `bca check --threshold <metric>=<candidate>`,
 answers only half the question. A `--threshold` value is applied last
-and absolutely, never scaled, so it has **no soft tier**: a candidate
+and absolutely, never scaled, so it has **no soft tier**. A candidate
 that costs nothing at the hard gate can still put a whole population
 permanently inside the `--tier=soft` band, and you will not see it
 until you have edited `bca.toml` and run the other gate.
@@ -131,19 +131,18 @@ bca check --explain-threshold cognitive=15
 ```
 
 Weigh the `new` column, not the offender count: it is how many baseline
-entries the change would add, and it is what a reviewer is actually
-being asked to approve. A `cluster:` line means the candidate landed on
-top of an existing population, and those entries can never be retired —
-see
+entries the change would add, and it is what a reviewer is being asked
+to approve. A `cluster:` line means the candidate landed on top of an
+existing population, and those entries can never be retired; see
 [Tightening a limit onto a cluster](thresholds.md#converging-onto-a-cluster).
 
 ### 5. PR-review heuristics
 
 Run `bca diff-baseline <old> <new>` and read the summary instead of
 parsing a raw `git diff .bca-baseline.toml` in your head. It pairs
-entries on their `(path, qualified, metric)` identity — so a function
+entries on their `(path, qualified, metric)` identity, so a function
 that merely drifted up or down the file is *not* reported as a
-remove + add — and buckets every real change:
+remove + add, and buckets every real change:
 
 ```text
 1 added, 1 removed, 2 worsened, 0 improved
@@ -163,25 +162,25 @@ Map the buckets back to the old heuristics:
 
 - **`removed` (baseline shrank).** Debt paid down. No further action.
 - **`added` (baseline grew).** Someone added a new offender to the
-  file intentionally. Review the values — was this a deliberate
+  file intentionally. Review the values: was this a deliberate
   stopgap, or did the author bypass the gate? Either is fine if
-  conscious; the point of the file being committed is to make the
-  choice reviewable.
+  conscious; the point of committing the file is to make the choice
+  reviewable.
 - **`worsened` (an entry got a higher `value`).** The author re-ran
-  `--write-baseline` after the function got worse. Treat the same as
-  `added` — surface the change in review.
+  `--write-baseline` after the function got worse. Treat it the same
+  as `added` and surface the change in review.
 - **`improved`.** A recorded offender got better without dropping out
-  of the baseline — a good sign the refactor is working, and the
-  reason to land the refreshed file rather than leave it. Until it is
-  refreshed, the old entry keeps suppressing the offender up to a value
-  the tree no longer produces.
+  of the baseline. That is a good sign the refactor is working, and
+  the reason to land the refreshed file rather than leave it. Until it
+  is refreshed, the old entry keeps suppressing the offender up to a
+  value the tree no longer produces.
 
 For a PR bot, `bca diff-baseline <old> <new> --format markdown` emits
 a fenced block ready to drop into a sticky comment, and the
 `--worsened-only` / `--added-only` filters narrow it to just the
 regressions reviewers must look at. `--format json` feeds the same
-diff to other tooling. The command exits 0 by default — it informs
-review, it does not gate (the gate is `bca check` itself) — though
+diff to other tooling. The command exits 0 by default, because it
+informs review rather than gating (the gate is `bca check` itself);
 the opt-in `--exit-code` flag exits 2 on a non-empty filtered diff.
 
 ### Reading the gate output {#reading-the-gate-output}
@@ -202,12 +201,12 @@ src/bar.rs: 4 violations (worst: cognitive = 63 vs limit 25 at L506)
 
 Tag prefixes:
 
-- `[new]` — no baseline entry matched this violation by qualified
+- `[new]`: no baseline entry matched this violation by qualified
   symbol (within the line tolerance) or, when `--baseline-fuzzy-match`
   is set, by body hash. The violation is new since the baseline was
   written. See [Matching](#how-matching-works) for the resolution
   order.
-- `[regr …]` — the baseline contains a recorded value and the current
+- `[regr …]`: the baseline contains a recorded value and the current
   value is worse than it. "Worse" is measured in the metric's own
   direction, so for the lower-is-worse `mi.*` family a *drop* below the
   recorded value reads `+` like any other regression. The amount takes
@@ -240,8 +239,9 @@ reads the merged streams can suppress the trailing summary with
 The summary footer groups violations by file, cites the single worst
 metric per file (by severity: `value / limit` for a count, one step
 per maintainability band below the floor for `mi.*`), and sorts rows by
-violation count descending then path ascending. It is the fastest way
-to read a long offender list and spot which file to start with.
+violation count descending then path ascending. Use the footer to
+identify files with the most violations before reading individual
+offender rows.
 
 ### Merging two branches
 
@@ -255,7 +255,7 @@ to try, with one line in `.gitattributes`:
 ```
 
 Git then leaves the file conflicted as a whole instead of splicing the
-two sides together, and the resolution is always the same — regenerate:
+two sides together, and the resolution is always the same: regenerate.
 
 ```bash
 bca check --write-baseline
@@ -287,20 +287,20 @@ mi_charges_docs = false
 mi_formula = 2
 ```
 
-- `tier = "hard"` — written by the hard gate (`bca check
+- `tier = "hard"`: written by the hard gate (`bca check
   --write-baseline …`); no `headroom` key.
-- `tier = "soft"`, `headroom = <ratio>` — written by the soft gate
+- `tier = "soft"`, `headroom = <ratio>`: written by the soft gate
   scaled by the soft ratio (`bca check --tier=soft=0.95
   --write-baseline …`).
-- `tier = "soft"` with no `headroom` — written by the soft gate driven
+- `tier = "soft"` with no `headroom`: written by the soft gate driven
   by a `[thresholds.soft]` table (per-metric limits, no single ratio).
-- `mi_charges_docs` — whether the maintainability index charged
+- `mi_charges_docs`: whether the maintainability index charged
   documentation rows when the file was written (the `--mi-charges-docs`
   flag or manifest key; see
   [Charging documentation](../metrics.md#mi-charges-docs)). Absent from
   a file written before the key existed, which reads as `true`: every
   earlier `bca` charged documentation.
-- `mi_formula` — the revision of the maintainability-index formula the
+- `mi_formula`: the revision of the maintainability-index formula the
   file's `mi.*` values were computed under (2 since the size term moved
   to `PLOC` and `mi.sei` to a 0–1 comment ratio). Absent from a file
   written before the key existed, which reads as revision 1.
@@ -330,15 +330,15 @@ every offender the tighter gate produces, so the gate can suddenly fire
 on files nobody touched.
 
 The warning is **directional**. It fires only when the current run is
-stricter. It stays silent in the safe direction — a hard check
+stricter. It stays silent in the safe direction: a hard check
 (strictness `1.0`) reading a soft-`0.95` baseline sees a *superset* of
-its offenders, which is exactly the intended single-baseline setup
-where `make self-scan` (hard) and `make self-scan-headroom` (soft)
-ratchet through the same `.bca-baseline.toml`. It also stays silent for
-equal provenance, for pre-v5 baselines (provenance unknown), and when
-either side is a `[thresholds.soft]`-table baseline (no single ratio to
-compare). To clear a genuine warning, refresh the baseline at the
-current tier with the matching `--write-baseline` recipe.
+its offenders, which is the intended single-baseline setup where
+`make self-scan` (hard) and `make self-scan-headroom` (soft) ratchet
+through the same `.bca-baseline.toml`. It also stays silent for equal
+provenance, for pre-v5 baselines (provenance unknown), and when either
+side is a `[thresholds.soft]`-table baseline (no single ratio to
+compare). To clear a real warning, refresh the baseline at the current
+tier with the matching `--write-baseline` recipe.
 
 ### The MI formula-revision warning {#the-mi-formula-revision-warning}
 
@@ -368,12 +368,11 @@ since their `mi.*` deltas then reflect the formula, not the code.
 ### The MI documentation-mode warning
 
 The `mi.sei` values a baseline records depend on whether documentation
-rows were charged; `mi.original` and `mi.visual_studio` do not. Charging
-documentation can only raise `mi.sei`, so a value written charged sits
-above the live default one and can fire on untouched code, while a
-value written under the default sits below the live charged one and
-can cover a real regression. `bca check` warns whichever way the modes
-differ:
+rows were charged; `mi.original` and `mi.visual_studio` do not.
+Including documentation rows raises `mi.sei`. A baseline recorded with
+documentation included can therefore reject unchanged code when the
+current run excludes documentation. Reversing the modes can hide a
+regression. `bca check` warns in either direction:
 
 ```text
 warning: this check computes mi.* leaving documentation out
@@ -399,7 +398,7 @@ The ratchet suppresses a violation for as long as it has not *worsened*
 past its recorded value, so everything on the improving side classifies
 alike: a function measuring 5 against a recorded 7 is treated exactly
 like one still measuring 7. The two points between them are gate
-headroom nobody chose — the function can grow back to 7 and the gate
+headroom nobody chose; the function can grow back to 7 and the gate
 will not notice.
 
 A gated run reports that drift in one stderr line:
@@ -424,42 +423,46 @@ in the file, inert and invisible, until someone regenerates.
 
 This repository closes the other half with a scheduled job rather than a
 gate, and the shape is worth copying. `baseline-freshness.yml` runs
-quarterly: it regenerates the baseline with the same `--write-baseline`
-recipe that wrote the committed one — the job pins that recipe, so a
-tier change has to land in both places — diffs the two with `bca
+quarterly. It regenerates the baseline with the same `--write-baseline`
+recipe that wrote the committed one (the job pins that recipe, so a
+tier change has to land in both places), diffs the two with `bca
 diff-baseline --exit-code`, and files a labelled issue naming what
-moved. `diff-baseline` rather than `git diff`, because the latter
-reports a moved `start_line` as staleness; a lookup by label *and* title
-before filing, because a stale baseline persists until someone commits a
-refresh and an unconditional file would open one issue per quarter for
-the same entry — and the label alone is shared with other findings, so
-it is the fixed title that keeps the comment on the right issue.
-Nothing is gated on the result — the tree is fine, the file describing
+moved. Two details of the job carry its design:
+
+- It uses `diff-baseline` rather than `git diff`, because `git diff`
+  reports a moved `start_line` as staleness.
+- It looks up an existing issue by label *and* title before filing,
+  because a stale baseline persists until someone commits a refresh, so
+  an unconditional file would open one issue per quarter for the same
+  entry. The label alone is shared with other findings; the fixed title
+  is what keeps the comment on the right issue.
+
+Nothing is gated on the result: the tree is fine, the file describing
 it has aged.
 
 ## How matching works {#how-matching-works}
 
-Each entry is keyed on `(path, qualified_symbol, metric)` — the
-qualified symbol being the `::`-joined chain of enclosing named
-containers plus the function name (`MyStruct::do_thing`,
+Each entry is keyed on `(path, qualified_symbol, metric)`. The
+qualified symbol is the `::`-joined chain of enclosing named containers
+plus the function name (`MyStruct::do_thing`,
 `my_namespace::MyClass::method`). The top-level file space collapses to
 `<file>`. A violation is resolved against the baseline in this order:
 
 1. **Qualified symbol.** If exactly one entry shares the violation's
    `(path, qualified_symbol, metric)`, it matches **regardless of line
-   number** — so editing code above a function no longer re-keys it as
+   number**, so editing code above a function does not re-key it as
    `[new]`.
 2. **Start-line tolerance.** If several entries share that key (two
    methods named `is_valid` on different `impl` blocks the analyzer
    could not tell apart, overloads, …), the entry whose recorded
-   `start_line` is closest to the violation — and within
-   `--baseline-line-tolerance` lines (default 50) — wins. Beyond the
+   `start_line` is closest to the violation, and within
+   `--baseline-line-tolerance` lines (default 50), wins. Beyond the
    tolerance the violation is `[new]`.
 
    This is the only rule that reads a line number, so from schema v6 a
    `start_line` is written **only** for entries in such a group.
    Everywhere else the field is absent, and the file therefore does not
-   change when an edit above a baselined function moves it — which is
+   change when an edit above a baselined function moves it. That is
    what keeps a real baseline change (a `value` moving) visible in a
    diff instead of buried in line-number noise.
 3. **Body hash (opt-in).** With `--baseline-fuzzy-match`, a violation
@@ -476,21 +479,21 @@ containers plus the function name (`MyStruct::do_thing`,
 
 **Anonymous functions** (closures, lambdas) have no stable name, so
 their qualified symbol bakes in the line (`outer::<anon@L42>`). They
-therefore re-key as `[new]` when they move — the symbol fix only
-survives line drift for *named* top-level and method-bound functions,
+therefore re-key as `[new]` when they move. Symbol matching survives
+line drift only for *named* top-level and method-bound functions,
 which produce the bulk of baseline churn.
 
 ### Remediation footer
 
 When the gate finds violations, `bca check` emits a trailing
-`--- next steps ---` block on stderr — the offender rows themselves
-go to stdout — and inside the
-`$GITHUB_STEP_SUMMARY` digest, that names the artifact, prints a
-copy-paste-safe `--write-baseline` refresh invocation, and links
-back to this recipe. The refresh invocation mirrors the gate's
-resolved `--paths` / `--exclude` / `--exclude-from` / `--config` /
-`--baseline` arguments, so a first-time reader of a failing CI log
-can refresh the baseline without leaving the page.
+`--- next steps ---` block on stderr (the offender rows themselves go
+to stdout) and inside the `$GITHUB_STEP_SUMMARY` digest. The block
+names the artifact, prints a copy-paste-safe `--write-baseline`
+refresh invocation, and links back to this recipe. The refresh
+invocation mirrors the gate's resolved `--paths` / `--exclude` /
+`--exclude-from` / `--config` / `--baseline` arguments, so a
+first-time reader of a failing CI log can refresh the baseline without
+leaving the page.
 
 Suppress the block with `--no-remediation` if downstream tooling
 reads the merged streams and the trailing block confuses it.
@@ -499,13 +502,13 @@ reads the merged streams and the trailing block confuses it.
 
 `--write-baseline` already excludes any function silenced by a
 `bca: suppress` or `#lizard forgives` marker, so the same function
-doesn't end up in two places. If a function is intentionally exempt
-forever, prefer the in-source marker (lives next to the code, survives
-refactors, no extra file to commit). Use the baseline only for
-violations the team genuinely intends to fix.
+does not end up in two places. If a function is intentionally exempt
+forever, prefer the in-source marker: it lives next to the code,
+survives refactors, and needs no extra file to commit. Use the
+baseline only for violations the team intends to fix.
 
-To audit the un-filtered offender set — every violation regardless of
-suppression or baseline — pass `--no-suppress` and omit `--baseline`:
+To audit the un-filtered offender set (every violation regardless of
+suppression or baseline), pass `--no-suppress` and omit `--baseline`:
 
 ```bash
 bca check --paths src/ \
@@ -565,10 +568,12 @@ page for the complete flag reference.
   [How matching works](#how-matching-works)).
 - **OS portability.** Paths are normalized to forward slashes on
   write and re-normalized on read, so a baseline generated on Linux
-  matches the same tree on Windows. Non-UTF-8 paths fall back to a
-  lossy display form and may not round-trip exactly.
+  matches the same tree on Windows. On Unix and Windows the path key
+  is percent-encoded, so a non-UTF-8 path keeps its identity rather
+  than collapsing onto a lossy display form; the backslash-to-slash
+  normalization is the one deliberate exception.
 - **Tightening a threshold.** Lowering a limit may newly expose
   functions that were previously clean. They will not be in the
-  baseline → CI will fail. This is correct — tightening should expose
+  baseline, so CI will fail. This is correct: tightening should expose
   new offenders. Refresh the baseline if the team chooses to absorb
   the new entries.

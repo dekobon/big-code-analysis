@@ -4,8 +4,9 @@ The `metrics`, `ops`, and `preproc` subcommands all support structured
 output formats meant for machine consumption. This page covers writing
 those documents, diffing two runs, discovering the metric catalog at
 runtime, and stripping comments for downstream tools. Pair the output
-with a JSON processor like [`jq`](https://jqlang.github.io/jq/) for
-ad-hoc analysis, or feed it into a database or dashboard.
+with a [JSON](https://www.rfc-editor.org/rfc/rfc8259) processor like
+[`jq`](https://jqlang.github.io/jq/) for ad-hoc analysis, or feed it
+into a database or dashboard.
 
 ## Export per-file metrics as JSON
 
@@ -17,8 +18,8 @@ bca metrics \
 ```
 
 This writes one JSON file per analyzed source file under
-`/tmp/metrics/`. The output filename mirrors the input path with the
-format extension appended — `src/lib.rs` becomes `src/lib.rs.json`,
+`/tmp/metrics/`. The output filename is the input path with the
+format extension appended: `src/lib.rs` becomes `src/lib.rs.json`,
 not `src/lib.json`. Use `--pretty` if you intend to read the files by
 hand:
 
@@ -39,17 +40,18 @@ parallel workers finished in, so the document is byte-identical between
 runs over unchanged sources. `bca ops --output <file>` orders its
 aggregate the same way.
 
-CBOR (`-O cbor`) is the most compact format; it is binary and so
-requires a destination (`--output` or `--output-dir`). JSON, TOML, and
-YAML can all be streamed to stdout when no destination is given, which
-is useful for pipelines.
+[CBOR](https://cbor.io/) (`-O cbor`) is the most compact format; it is
+binary and so requires a destination (`--output` or `--output-dir`).
+JSON, [TOML](https://toml.io/en/), and
+[YAML](https://yaml.org/spec/1.2.2/) stream to stdout when no
+destination is given, which suits pipelines.
 
 ## Compare two metric runs with `bca diff`
 
 `bca diff` compares two JSON metric runs and reports, per metric, which
 files changed (old → new), plus any files added or removed between the
 two sets. Each side is either a single per-file JSON document or a whole
-directory tree of them (the form `metrics -O json --output-dir <dir>`
+directory tree of them (what `metrics -O json --output-dir <dir>`
 writes), so the common workflow is two `bca metrics` runs into separate
 directories:
 
@@ -57,15 +59,15 @@ directories:
 # Capture the "before" state.
 bca metrics -p src/ -O json --output-dir /tmp/before
 
-# ...make a change (e.g. bump a tree-sitter grammar)...
+# ...make a change (for example, bump a tree-sitter grammar)...
 
 # Capture the "after" state and diff.
 bca metrics -p src/ -O json --output-dir /tmp/after
 bca diff /tmp/before /tmp/after
 ```
 
-The output buckets every per-file delta by metric name — the same names
-`bca list-metrics` prints (`cyclomatic`, `cognitive`, `sloc`, …):
+The output buckets every per-file delta by metric name, using the same
+names `bca list-metrics` prints (`cyclomatic`, `cognitive`, `sloc`, …):
 
 ```text
 2 metric(s) changed, 1 added file(s), 0 removed file(s)
@@ -83,56 +85,57 @@ The output buckets every per-file delta by metric name — the same names
 
 Useful flags:
 
-- `--format markdown` for a sticky PR comment, `--format json` for a
-  stable machine-readable schema (CI consumers).
+- `--format markdown` produces Markdown for a sticky PR comment;
+  `--format json` produces a stable machine-readable schema for CI
+  consumers.
 - `--min-change <N>` reports only deltas whose absolute change is at
   least `N` (the default `0` reports any change).
 - `--metric <name>` (repeatable) restricts the diff to specific metrics.
 
 A saved document carries no record of the walker settings that
 produced it, so `bca diff` cannot tell two captures made under
-different ones apart from a real change: compare captures taken by the
-same version with the same `exclude_tests`, `cyclomatic_count_try` and
-`mi_charges_docs` (a different [MI documentation
-mode](../metrics.md#mi-charges-docs) moves the `mi.sei` value of every
-documented space). `--since` runs both sides itself with one set of
-flags, so it cannot mix modes.
+different settings apart from a real change. Compare captures taken
+by the same version with the same `exclude_tests`,
+`cyclomatic_count_try` and `mi_charges_docs`; a different
+[MI documentation mode](../metrics.md#mi-charges-docs) moves the
+`mi.sei` value of every documented space. `--since` runs both sides
+itself with one set of flags, so it cannot mix modes.
 
 ### Diff against a git ref with `--since`
 
-For the interactive "what did my uncommitted change do to the metrics?"
-case, `--since <ref>` skips the two-capture dance: it analyzes the tree
-**at a git ref** for the before side, and diffs it against the current
-working tree (or an explicit after-side tree):
+To answer "what did my uncommitted change do to the metrics?",
+`--since <ref>` skips the two captures: it analyzes the tree **at a
+git ref** for the before side and diffs it against the current working
+tree (or an explicit after-side tree):
 
 ```bash
 # Before = the tree at HEAD~1; after = the current working tree.
 bca diff --since HEAD~1 -p src/
 
-# After = an explicit tree (e.g. a second checkout) instead of the
+# After = an explicit tree (say, a second checkout) instead of the
 # working tree. The single positional is the after side.
 bca diff --since main /path/to/other-checkout -p src/
 ```
 
 `--since` materializes the ref's tree into a temporary directory (via
 `git ls-tree` + `git cat-file`), runs the same metric walk against it,
-then diffs — the temp tree is removed automatically, including on
+then diffs. The temp tree is removed automatically, including on
 error. The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
 selection applies to both sides so they analyze the same file set.
 Selection paths are **repo-root-relative** and must be relative: the
 working-tree side is anchored at the repository root (matching the
 whole-tree materialization of the ref), so `bca diff --since` produces
 the same result from any subdirectory. An absolute `--paths` is
-rejected (exit 1) — it cannot address the extracted ref tree.
+rejected (exit 1) because it cannot address the extracted ref tree.
 
 Unlike `bca check --since` (best-effort), `bca diff --since` is an
 explicit request: an unresolvable ref, a missing `git`, or a non-git
 working directory is a hard error (exit 1). `--since` takes at most one
 positional (the after side); passing two is an error.
 
-`bca diff` exits 0 on success — it is informational, not a gate —
-unless the opt-in `--exit-code` flag is passed, which exits 2 when
-the filtered diff is non-empty.
+`bca diff` is informational, not a gate, and exits 0 on success. The
+opt-in `--exit-code` flag changes that: it exits 2 when the filtered
+diff is non-empty.
 
 ## Pull a single metric across an entire tree
 
@@ -143,14 +146,14 @@ bca metrics -p src/ -O json \
   | jq -c '{file: .name, mi: .metrics.mi.visual_studio}'
 ```
 
-The same idea works for any metric — `cyclomatic.sum`,
+The same idea works for any metric: `cyclomatic.sum`,
 `cognitive.sum`, `loc.sloc`, and so on. Run `bca list-metrics
 descriptions` to see the catalog.
 
 ## Discover the metric catalog at runtime
 
-Tooling that drives the CLI shouldn't hard-code metric names. Ask the
-binary:
+Tooling that drives the CLI should not hard-code metric names. Ask
+the binary:
 
 ```bash
 bca list-metrics                # one name per line
@@ -184,17 +187,17 @@ bca ops \
 Each output file mirrors the input path under `/tmp/ops/`.
 
 Both lists are sorted, so re-running `ops` over unchanged sources
-produces byte-identical output — safe to diff between runs, check into
-a repository, or use as a cache key.
+produces byte-identical output. It is safe to diff between runs, check
+into a repository, or use as a cache key.
 
 ## Strip comments from a tree
 
-`strip-comments` rewrites source so that downstream tools that don't
-understand comment syntax can still consume the code. Output routing has
-three modes:
+`strip-comments` rewrites source so that downstream tools that do not
+understand comment syntax can still consume the code. Output routing
+has three modes:
 
 - **stdout (default).** With neither flag, the stripped source streams
-  to stdout — best for a single file in a pipeline.
+  to stdout, which suits a single file in a pipeline.
 - **`--output` / `-o <FILE>` (single file).** Writes the stripped source
   to `<FILE>`, leaving the input untouched. Only meaningful for one
   input file; mutually exclusive with `--in-place`.
@@ -213,6 +216,5 @@ bca strip-comments --include "*.py" --paths src/ \
     --in-place
 ```
 
-`--in-place` is destructive — make sure the tree is committed or
-backed up first. Passing both `--in-place` and `--output` is a usage
-error.
+`--in-place` is destructive: commit or back up the tree first. Passing
+both `--in-place` and `--output` is a usage error.

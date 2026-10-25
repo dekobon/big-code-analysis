@@ -1,18 +1,20 @@
 # Migration: Flag CLI to Subcommand CLI
 
-The CLI was restructured from a flat flag-style interface (one process,
-many mutually-exclusive `--action` flags) into a subcommand-style
-interface (`bca <verb>`). This page maps every old invocation to its
-replacement.
+This page is for users of the old flag-style CLI (one process, many
+mutually exclusive `--action` flags) who are moving to the subcommand
+CLI (`bca <verb>`). It maps every old invocation to its replacement.
+The [mapping table](#migration-mapping) is the quick reference; the
+[side-by-side examples](#side-by-side-examples) show each in context.
 
 ## Why the change
 
 The flag CLI overloaded `--output-format` with two unrelated meanings:
 per-file serialization (`-O json/yaml/toml/cbor`) and a post-walk
-aggregated report (`-O markdown`). It needed two clap `ArgGroup`s plus
-runtime checks to police invalid combinations, and `--top` /
-`--strip-prefix` lived as global flags that only applied to one format.
-Future aggregated formats (e.g. HTML) would compound the fragility.
+aggregated report (`-O markdown`). It needed two
+[clap](https://docs.rs/clap/) `ArgGroup`s plus runtime checks to police
+invalid combinations, and `--top` / `--strip-prefix` lived as global
+flags that only applied to one format. Each further aggregated format
+(HTML, for example) would have compounded the fragility.
 
 The subcommand CLI fixes the structure: `bca metrics` and `bca ops` emit
 per-file output; `bca report <FORMAT>` emits an aggregated report; each
@@ -95,8 +97,9 @@ bca metrics --paths ./src -O json --output-dir ./out/
 # NEW: bca count --paths ./src -t if_statement -t for_statement
 ```
 
-> Note: `count` now takes one node type per positional argument (space
-> separated) rather than one comma-separated string.
+> Note: `find` and `count` now take one node type per `-t` / `--type`
+> flag (repeat it for several) rather than a positional or a
+> comma-separated string; the positional slot holds input paths.
 
 ### Function spans
 
@@ -112,7 +115,7 @@ bca metrics --paths ./src -O json --output-dir ./out/
 # NEW: bca strip-comments --paths ./src --in-place
 ```
 
-### Preproc data — producer
+### Preproc data: producer {#preproc-data--producer}
 
 ```bash
 # OLD
@@ -123,7 +126,7 @@ big-code-analysis-cli --metrics --preproc a.h --preproc b.h \
 bca preproc --paths ./src -o /tmp/p.json
 ```
 
-### Preproc data — consumer
+### Preproc data: consumer {#preproc-data--consumer}
 
 ```bash
 # OLD
@@ -144,9 +147,8 @@ bca metrics --paths ./src --preproc-data /tmp/p.json \
 
 ## Migration hint at runtime
 
-If you run a legacy invocation, the CLI prints a hint identifying the
-recognized old flags and their new equivalents before clap's own error.
-For example:
+If you run a legacy invocation, the CLI prints a hint naming the
+recognized old flags and their new equivalents before clap's own error:
 
 ```text
 $ bca --metrics -O markdown

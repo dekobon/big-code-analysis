@@ -1,8 +1,9 @@
 # Installation
 
-The bindings are distributed as a pure-wheel Python package. The
-recommended install is via `pip` (or your preferred lockfile
-manager — `uv`, `poetry`, `pdm`).
+The bindings are distributed as a prebuilt binary wheel. Install with
+[`pip`](https://pip.pypa.io/), or with your lockfile manager of choice
+([`uv`](https://docs.astral.sh/uv/), [`poetry`](https://python-poetry.org/),
+[`pdm`](https://pdm-project.org/)):
 
 ```bash
 pip install big-code-analysis
@@ -10,7 +11,7 @@ pip install big-code-analysis
 
 Python `>=3.12` is required. The compiled extension uses CPython's
 stable [abi3](https://docs.python.org/3/c-api/stable.html) surface
-(`abi3-py312`), so one wheel covers `3.12`, `3.13`, and every
+(`abi3-py312`), so one wheel covers `3.12`, `3.13`, `3.14`, and every
 future minor release without a per-version wheel build.
 
 ## Wheel matrix
@@ -24,11 +25,11 @@ platform is not listed, [build from source](#building-from-source).
 
 The wheel matrix is defined in
 [`.github/workflows/python-wheels.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/python-wheels.yml).
-`manylinux_2_28` requires glibc `>= 2.28` (RHEL 8 / Debian 10 /
-Ubuntu 18.10 and newer); older distributions (RHEL 7 / CentOS 7,
-glibc 2.17) need to build from source. macOS and Windows wheels
-are not yet shipped — `pip install` on those platforms falls back
-to a source build today.
+[`manylinux_2_28`](https://peps.python.org/pep-0600/) requires glibc
+`>= 2.28` (RHEL 8 / Debian 10 / Ubuntu 18.10 and newer); older
+distributions (RHEL 7 / CentOS 7, glibc 2.17) need to build from
+source. macOS and Windows wheels are not yet shipped, so `pip install`
+on those platforms falls back to a source build today.
 
 ## Verifying the install
 
@@ -36,10 +37,10 @@ to a source build today.
 python -c "import big_code_analysis as bca; print(bca.__version__)"
 ```
 
-The version printed equals
+The printed version equals
 [`[workspace.package].version`](https://github.com/dekobon/big-code-analysis/blob/main/Cargo.toml)
-from the Rust workspace's `Cargo.toml` — the bindings and the Rust
-library version in lockstep.
+in the Rust workspace's `Cargo.toml`. The bindings and Rust library
+share a version.
 
 ## Building from source {#building-from-source}
 
@@ -57,21 +58,23 @@ maturin develop --release   # editable install of big_code_analysis
 python -c "import big_code_analysis as bca; print(bca.__version__)"
 ```
 
-`maturin develop` builds the Rust extension in-place and installs it
-into the active venv so `import big_code_analysis` resolves
-locally — no separate `pip install -e .` step is required. The
-`--release` flag turns on the optimiser; omit it during development
-for faster rebuilds.
+`maturin develop` builds the Rust extension in place and installs it
+into the active venv so `import big_code_analysis` resolves locally;
+no separate `pip install -e .` step is required. The `--release` flag
+turns on the optimiser; omit it during development for faster
+rebuilds.
 
-You will also need:
+You also need:
 
 * A stable Rust toolchain (MSRV: `1.94`). Install via
   [rustup](https://rustup.rs/).
-* A C compiler (used by the tree-sitter grammar crates).
+* A C compiler (used by the
+  [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammar
+  crates).
 * CPython development headers (`python3-dev` on Debian / Ubuntu).
 
 ## Next
 
 Walk through the [quick-start](quick-start.md) to compute your
 first metric, or skip ahead to [batch processing](batch.md) if
-you're wiring this into a pipeline over many files.
+you are wiring this into a pipeline over many files.

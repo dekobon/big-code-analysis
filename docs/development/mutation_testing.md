@@ -1,13 +1,17 @@
 # Mutation testing
 
-`big-code-analysis` runs [cargo-mutants][cm] on a quarterly schedule
-against the highest-leverage modules: every metric implementation
-under `src/metrics/`, plus `big-code-analysis-ast/src/checker.rs` and `big-code-analysis-ast/src/getter.rs`.
-Mutation testing complements the regular test suite by mechanically
-mutating production code (e.g. flipping `>` to `>=`, replacing a
-function body with `Default::default()`) and re-running the tests.
-Any mutant that survives is a gap in test coverage — the suite did
-not catch a deliberate bug.
+`big-code-analysis` runs [cargo-mutants][cm] quarterly against every
+metric implementation under `src/metrics/`, plus
+`big-code-analysis-ast/src/checker.rs` and
+`big-code-analysis-ast/src/getter.rs`. Mutation testing complements
+the regular test suite by mechanically mutating production code
+(flipping `>` to `>=`, replacing a function body with
+`Default::default()`) and re-running the tests. Any mutant that
+survives is a gap in test coverage: the suite did not catch a
+deliberate bug.
+
+This page covers running it locally, reading the results, and
+responding to the issue the scheduled job files.
 
 ## Why quarterly, not per-PR
 
@@ -24,16 +28,18 @@ quarterly health check without slowing day-to-day work.
 
 `.github/workflows/mutation-test.yml` runs:
 
-- On `cron: '0 7 1 1,4,7,10 *'` — 07:00 UTC on the 1st of January,
-  April, July, and October.
+- On `cron: '0 7 1 1,4,7,10 *'`, which is 07:00 UTC on the 1st of
+  January, April, July, and October.
 - On `workflow_dispatch` for ad-hoc runs from the Actions tab.
 
 The job:
 
 1. Checks out the repo with submodules.
-2. Installs `cargo-mutants` via `taiki-e/install-action@v2`.
-3. Runs `cargo mutants` against `src/metrics/`, `big-code-analysis-ast/src/checker.rs`,
-   and `big-code-analysis-ast/src/getter.rs`.
+2. Installs `cargo-mutants` via
+   [`taiki-e/install-action@v2`](https://github.com/taiki-e/install-action).
+3. Runs `cargo mutants` against `src/metrics/`,
+   `big-code-analysis-ast/src/checker.rs`, and
+   `big-code-analysis-ast/src/getter.rs`.
 4. Uploads `target/mutants/` as the `cargo-mutants-report` artifact
    (90-day retention).
 5. On non-zero exit, opens a GitHub issue labelled
@@ -51,20 +57,27 @@ Install `cargo-mutants` once:
 cargo install cargo-mutants --locked
 ```
 
-The repo ships a `cargo mutants` alias (`.cargo/config.toml`) that
-pins the package and mutation order (`--package big-code-analysis
---no-shuffle --in-place`); CI additionally passes `-j 2
---minimum-test-timeout 120 --output target/mutants`. To exercise a
-single metric file (the typical local case):
+The repo ships a `cargo mutants` alias in `.cargo/config.toml` that
+records the package and mutation order CI uses (`--package
+big-code-analysis --no-shuffle --in-place`); CI additionally passes
+`-j 2 --minimum-test-timeout 120 --output target/mutants`. Do not
+invoke it as `cargo mutants`: the alias expands to the subcommand of
+the same name, and current cargo resolves that back to the alias and
+fails with `alias mutants has unresolvable recursive definition`.
+Call the binary directly instead. To exercise a single metric file
+(the typical local case):
 
 ```bash
-cargo mutants -f src/metrics/cognitive.rs
+cargo-mutants mutants --package big-code-analysis --no-shuffle --in-place \
+  -f src/metrics/cognitive.rs
 ```
 
-To exercise the same surface as CI:
+To exercise the same surface as CI, which spans both the root crate
+and `big-code-analysis-ast`:
 
 ```bash
-cargo mutants --package big-code-analysis --package big-code-analysis-ast \
+cargo-mutants mutants --package big-code-analysis --package big-code-analysis-ast \
+  --no-shuffle --in-place \
   -f src/metrics/ -f big-code-analysis-ast/src/checker.rs \
   -f big-code-analysis-ast/src/getter.rs
 ```
@@ -76,12 +89,12 @@ parallelism if the run is starving other work; the CI workflow uses
 ## Interpreting an escaped mutant
 
 `cargo-mutants` writes its results to `target/mutants/` in CI (via
-`--output`); a local run with the alias writes to the default
+`--output`); a local run without `--output` writes to the default
 `mutants.out/` in the repo root:
 
 | File | Meaning |
 |------|---------|
-| `missed.txt` | Mutants that survived — the suite did not catch them |
+| `missed.txt` | Mutants that survived; the suite did not catch them |
 | `timeout.txt` | Tests that hit the timeout (often infinite loops, occasionally real gaps) |
 | `caught.txt` | Mutants the suite correctly killed |
 | `unviable.txt` | Mutants that did not compile (no signal either way) |
@@ -99,10 +112,10 @@ Triage:
 2. If the mutation produces observably different output (different
    metric value, different control flow), add a test that pins the
    correct behaviour. This is the common case and the whole point.
-3. If the mutation is genuinely behaviour-equivalent (e.g. a `match`
+3. If the mutation is genuinely behaviour-equivalent (a `match`
    arm that is provably unreachable, an unused branch in a helper
    that always early-returns), document why and add the location to
-   `--exclude-re` in a follow-up. Do this sparingly — most "looks
+   `--exclude-re` in a follow-up. Do this sparingly: most "looks
    equivalent" mutants are real coverage gaps.
 4. Timeouts often mean a mutation introduced an infinite loop. The
    `--minimum-test-timeout 120` in the CI workflow guards against

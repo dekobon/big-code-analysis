@@ -2,11 +2,14 @@
 
 [`Ast::parse`][ast_parse] gives you a parsed
 [`tree_sitter::Tree`][ts_tree] together with the source bytes it was
-parsed from; [`Ast::as_tree_sitter`][ast_as_ts] hands that tree out as a
-borrowed reference. This chapter shows how to use it to drive your own
-syntax-tree analysis — counting node kinds, finding constructs by name,
-detecting parse errors, or pulling out a symbol table — without paying
-for a second parse.
+parsed from; [`Ast::as_tree_sitter`][ast_as_ts] hands that tree out as
+a borrowed reference. This chapter shows how to use it to drive your
+own syntax-tree analysis (counting node kinds, finding constructs by
+name, detecting parse errors, or pulling out a symbol table) without
+paying for a second parse. It assumes you know the
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) node model:
+a tree of nodes, each with a kind name, a byte range and optional
+named fields.
 
 [ast_parse]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.parse
 [ts_tree]: https://docs.rs/tree-sitter/*/tree_sitter/struct.Tree.html
@@ -16,21 +19,22 @@ for a second parse.
 
 Reach for direct AST traversal when:
 
-- You want to **count or find syntactic constructs** in-process. The CLI
-  equivalents (`bca count -t <kind>`, `bca find -t <kind>`,
-  [recipe](../recipes/ast-queries.md)) shell out per file; the library
-  path is one parse and one Rust loop.
+- You want to **count or find syntactic constructs** in-process. The
+  CLI equivalents (`bca count -t <kind>`, `bca find -t <kind>`,
+  [recipe](../recipes/ast-queries.md)) mean launching a separate
+  process and parsing its output; the library path is one parse and
+  one Rust loop.
 - You want to **detect parse errors** programmatically. Tree-sitter
-  emits a synthetic `ERROR` node anywhere the grammar could not match;
-  [`Node::has_error`][node_has_error] is O(1) — tree-sitter caches the
-  error bit on every node — so the check is free even on a multi-MB
-  source file.
-- You want to **mix metrics with custom analysis** in one parse — e.g.
-  capture metric values *and* a list of function names for a coverage
-  mapping, an IDE outline, or a code-owner report.
+  emits a synthetic `ERROR` node anywhere the grammar could not
+  match. [`Node::has_error`][node_has_error] is O(1) because
+  tree-sitter caches the error bit on every node, so the check is
+  free even on a multi-MB source file.
+- You want to **mix metrics with custom analysis** in one parse: for
+  example, capture metric values *and* a list of function names for a
+  coverage mapping, an IDE outline, or a code-owner report.
 
 If you only need standard metrics, stay with [`analyze`][analyze] or
-[`Ast::metrics`][ast_metrics] — they walk the tree for you. The direct
+[`Ast::metrics`][ast_metrics], which walk the tree for you. The direct
 path is for things the metric walker does not already compute.
 
 [node_has_error]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html#method.has_error
@@ -85,10 +89,10 @@ fn walk_preorder<F: FnMut(tree_sitter::Node<'_>)>(
 ```
 
 The pattern is: visit, descend, climb back up while there is no next
-sibling, repeat. Every example in this chapter is a thin wrapper around
-this walker — the code fences below are marked `ignore` because they
-assume `walk_preorder` is already in scope; the matching set of tests
-in [`tests/api/book_ast_traversal_examples.rs`][tests] keeps them
+sibling, repeat. Every example in this chapter is a thin wrapper
+around this walker. The code fences below are marked `ignore` because
+they assume `walk_preorder` is already in scope; the matching tests
+in [`tests/api/book_ast_traversal_examples.rs`][tests] keep them
 honest, so a refactor that broke an example would fail `cargo test`.
 
 [tests]: https://github.com/dekobon/big-code-analysis/blob/main/tests/api/book_ast_traversal_examples.rs
@@ -121,17 +125,18 @@ assert_eq!(counts.get("for_expression").copied().unwrap_or(0), 1);
 ```
 
 The string keys (`"if_expression"`, `"for_expression"`, …) are the
-tree-sitter grammar's node-type names. The fastest way to discover them
-for a new language is `bca dump --paths sample.rs`, which prints the
+tree-sitter grammar's node-type names. To discover a language's
+node-type names, run `bca dump --paths sample.rs`, which prints the
 full AST.
 
-> **Anonymous tokens.** The walker visits every node tree-sitter emits,
-> including anonymous tokens like `"{"`, `";"`, and keyword literals.
-> The targeted `counts.get("if_expression")` lookups above are unaffected
-> — anonymous tokens have different kind names — but `counts.values().sum()`
-> would be much larger than the count of *named* grammar productions.
-> Filter with [`tree_sitter::Node::is_named()`][ts_is_named] inside the
-> visitor if you only want named nodes.
+> **Anonymous tokens.** The walker visits every node tree-sitter
+> emits, including anonymous tokens like `"{"`, `";"`, and keyword
+> literals. The targeted `counts.get("if_expression")` lookups above
+> are unaffected, since anonymous tokens have different kind names,
+> but `counts.values().sum()` would be much larger than the count of
+> *named* grammar productions. Filter with
+> [`tree_sitter::Node::is_named()`][ts_is_named] inside the visitor if
+> you only want named nodes.
 
 [ts_is_named]: https://docs.rs/tree-sitter/*/tree_sitter/struct.Node.html#method.is_named
 
@@ -149,7 +154,7 @@ let ast = Ast::parse(Source::new(
 .expect("rust feature enabled");
 
 let source = ast.source();
-// Captured slices borrow from `source` — no per-hit `String` allocation.
+// Captured slices borrow from `source`: no per-hit `String` allocation.
 let mut hits: Vec<((usize, usize), &str)> = Vec::new();
 walk_preorder(ast.as_tree_sitter(), |node| {
     if node.kind() == "unsafe_block" {
@@ -165,18 +170,18 @@ assert_eq!(hits.len(), 1);
 ```
 
 `Node::utf8_text(&source[..])` slices the source bytes by the node's
-byte range. Pair it with [`Ast::source`][ast_source] — for C++ with
-preprocessor inputs supplied to [`Ast::parse`][ast_parse], `source` is
-the *expanded* buffer the parser actually saw, not the original input
-(see [the C++ preprocessor note](parse-once.md#c-preprocessor)).
+byte range. Pair it with [`Ast::source`][ast_source]: for C++ with
+preprocessor inputs supplied to [`Ast::parse`][ast_parse], `source`
+is the *expanded* buffer the parser saw, not the original input (see
+[the C++ preprocessor note](parse-once.md#c-preprocessor)).
 
 [ast_source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.source
 
 ## Detect parse errors
 
-Tree-sitter is lossless: even on malformed input it returns a tree, but
-nodes that could not be matched are tagged as errors. The cheapest
-check is on the root:
+Tree-sitter is lossless: even on malformed input it returns a tree,
+with the nodes it could not match tagged as errors. Check the root
+for a cached error flag:
 
 ```rust
 use big_code_analysis::{Ast, LANG, Source};
@@ -234,7 +239,7 @@ let space = ast
 
 // …and so does the custom walk, against the very same tree. The
 // captured names borrow from `source` rather than allocating a fresh
-// `String` per function — the same pattern as `find_unsafe_blocks`
+// `String` per function, the same pattern as `find_unsafe_blocks`
 // above.
 let source = ast.source();
 let mut functions: Vec<&str> = Vec::new();
@@ -253,19 +258,20 @@ assert_eq!(space.metrics.nom.functions_sum(), 3);
 assert_eq!(functions, ["outer", "inner", "alone"]);
 ```
 
-`Node::child_by_field_name` walks the named grammar fields — the same
-fields that show up in the `field_name` key of the serialized AST
-(REST `/ast`, [`Ast::dump`]). Field-based lookup is more robust than
-positional indexing because it does not depend on which children the
-grammar emits for anonymous tokens (commas, parentheses, …).
+`Node::child_by_field_name` walks the named grammar fields, the same
+fields that appear in the `field_name` key of the serialized AST
+(REST `/ast`, [`Ast::dump`]). Field-based lookup survives grammar
+changes that positional indexing does not, because it does not
+depend on which anonymous tokens (commas, parentheses, and so on) the
+grammar emits as children.
 
 [ast]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
 [`Ast::dump`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump
 
 ## Want a serializable JSON tree?
 
-For pipelines that want a structured AST as data — diffing, queries on
-the wire, language-agnostic schema work — [`Ast::dump`] materializes
+For pipelines that want a structured AST as data (diffing, queries on
+the wire, language-agnostic schema work), [`Ast::dump`] materializes
 the tree as a `Serialize`-able [`AstResponse`][ast_response] of
 [`AstNode`][astnode]s. This is the same shape the REST `/ast`
 endpoint produces. Call it on the parse handle:
@@ -306,15 +312,14 @@ above does. Two siblings name the strategy explicitly:
 [`Ast::dump_indexed`][dump_indexed] reaches each child through
 `Node::child` and its field through `Node::field_name_for_child`
 instead. They produce the same tree; the difference is cost. Both
-index lookups scan the parent's child array to the index — `O(log n)`
-under a list the grammar stores as a balanced `repeat()`, `O(index)`
-under a node whose children sit in one raw array, which the `ERROR`
-recovery builds from a run of skipped tokens can be — so enumerating a
-wide flat node by index is quadratic in its width. Prefer the cursor
-walk for a whole-tree export, field lookup (`child_by_field_name`) for
-a grammatical role, and indexed access for picking one slot; a loop
-that needs repeated random access to a wide list should collect the
-children once and index the `Vec`.
+lookups scan toward the requested child. Lookup costs `O(log n)` for
+lists stored as balanced `repeat()` structures and `O(index)` for
+children stored in a flat array. Error recovery can create such flat
+arrays from skipped tokens. Enumerating a wide flat node by index is
+therefore quadratic in its width. Prefer the cursor walk for a whole-tree export, field lookup
+(`child_by_field_name`) for a grammatical role, and indexed access
+for picking one slot. A loop that needs repeated random access to a
+wide list should collect the children once and index the `Vec`.
 
 [dump_cursor]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_cursor
 [dump_indexed]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump_indexed
@@ -324,7 +329,7 @@ children once and index the `Vec`.
 
 ## Out of scope
 
-- **Incremental reparse** — tree-sitter supports
+- **Incremental reparse.** Tree-sitter supports
   `tree_sitter::InputEdit` for incremental updates, but `Ast` is a
   snapshot. To reflect a source edit, build a fresh `Ast::parse` or
   drive `tree_sitter::Parser::parse(&new_source, Some(&old_tree))`
@@ -334,7 +339,10 @@ children once and index the `Vec`.
 - **Everything on `big_code_analysis::Node` that is not listed in
   `STABILITY.md`.** The wrapper is re-exported, and its traversal
   methods (`kind`, `child_count`, `children`, `cursor`, `preorder`,
-  `child`, `child_by_field_name`, …) are `pub`, but only the
-  `STABILITY.md` accessor list is shape-stable. For anything else,
-  reach the tree-sitter `Node` through `as_tree_sitter().root_node()`
-  — that is the documented seam.
+  `child`, `child_by_field_name`, and so on) are `pub`, but only the
+  [`STABILITY.md` accessor list][stab-escape] is shape-stable; the
+  helpers that take a `Search` or `Ancestors` argument are not. For
+  anything else, reach the tree-sitter `Node` through
+  `as_tree_sitter().root_node()`, the documented seam.
+
+[stab-escape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches

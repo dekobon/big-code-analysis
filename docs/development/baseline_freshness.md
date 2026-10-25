@@ -1,10 +1,14 @@
 # Baseline freshness
 
+How the quarterly `baseline-freshness.yml` job detects a stale
+`.bca-baseline.toml`, and what to do when it files an issue. It is for
+contributors who maintain the self-scan baseline.
+
 `.bca-baseline.toml` records every current threshold offender so the
 gate can ratchet: a listed function fails only once it measures *worse*
 than its recorded value. That works in one direction. When a function
 improves, the recorded value keeps describing a tree that no longer
-exists, and the gap between the two is gate headroom nobody chose — a
+exists, and the gap between the two is gate headroom nobody chose; a
 later regression can grow back into it without tripping anything.
 
 Since #1465 a gated run warns about part of this on stderr. It cannot
@@ -17,8 +21,8 @@ four times a year.
 
 ## The scheduled workflow {#the-scheduled-workflow}
 
-It runs on `cron: '0 7 22 1,4,7,10 *'` — 07:00 UTC on the 22nd of
-January, April, July, and October — and on `workflow_dispatch`. The
+It runs on `cron: '0 7 22 1,4,7,10 *'` (07:00 UTC on the 22nd of
+January, April, July, and October) and on `workflow_dispatch`. The
 four out-of-band jobs take one day each so no two contend for a runner:
 [mutation testing](mutation_testing.md) on the 1st,
 [fuzzing](fuzzing.md) on the 8th, [benchmarks](benchmarking.md) on the
@@ -35,7 +39,7 @@ The job:
    --exit-code`.
 4. Uploads both baselines and the diff as the `baseline-freshness`
    artifact (90-day retention).
-5. On a non-empty diff, fails the job and opens — or comments on — a
+5. On a non-empty diff, fails the job and opens (or comments on) a
    GitHub issue labelled `self-scan` and titled
    `Baseline freshness: .bca-baseline.toml no longer describes the tree`.
 
@@ -50,29 +54,30 @@ until someone commits a refresh, so an unconditional create would open
 one issue per quarter for the same unfixed file. This job looks for an
 open issue carrying both the `self-scan` label and its own title first,
 and comments on it with the current diff when there is one. The title
-therefore carries no run id — the issue outlives the run that opened it
-— and it is part of the match, not just the label: `self-scan` is the
-label a threshold-gate finding would carry too, so matching on the label
-alone could hand a quarter's diff to an unrelated open issue.
+therefore carries no run id, because the issue outlives the run that
+opened it. The title is part of the match, not just the label:
+`self-scan` is the label a threshold-gate finding would carry too, so
+matching on the label alone could hand a quarter's diff to an unrelated
+open issue.
 
 ## Why `diff-baseline` and not `git diff` {#why-diff-baseline}
 
 `git diff --exit-code .bca-baseline.toml` would report line drift as
-staleness. A v6 baseline records a `start_line` only where it is
-consulted — an identity triple two spaces share, such as two methods
-named `is_valid` on different `impl` blocks — and for those, editing
-code above the function rewrites the entry without changing what it
-records. `bca diff-baseline` pairs entries on
+staleness. A v6 baseline records `start_line` only to distinguish
+spaces sharing the same `(path, qualified, metric)` identity, such as
+two `is_valid` methods in different `impl` blocks. Moving either method
+changes its recorded line without changing its metric.
+`bca diff-baseline` pairs entries on
 `(path, qualified, metric)` and ignores `start_line`, so it reports
-what actually changed — and it buckets the result the way
+what changed, and it buckets the result the way
 [the book's baselines recipe][recipe] already talks about it:
 
 | Bucket | What it means here |
 |--------|--------------------|
 | `improved` | The offender is still over its limit, but by less. The `--baseline` warning already covers this one. |
 | `removed` | The offender stopped breaching altogether. This is the half nothing else can see. |
-| `added` | A new offender the committed baseline does not list — the hard gate is red on `main` too. |
-| `worsened` | An offender past its recorded value — likewise already red. |
+| `added` | A new offender the committed baseline does not list; the hard gate is red on `main` too. |
+| `worsened` | An offender past its recorded value; likewise already red. |
 
 On a green `main` only the first two can appear.
 
@@ -89,7 +94,7 @@ cargo run --quiet --release -p big-code-analysis-cli -- \
   diff-baseline /tmp/old-baseline.toml .bca-baseline.toml --format markdown
 ```
 
-Drop `--exit-code` — as above it is informational; with the flag a
+Drop `--exit-code`; as above it is informational. With the flag a
 non-empty diff exits 2 and a tool error exits 1.
 
 Always the `-headroom` target, never the bare
@@ -107,7 +112,7 @@ make self-scan-write-baseline-headroom
 git add .bca-baseline.toml
 ```
 
-There is nothing to fix in the code — the tree is fine, the file
+There is nothing to fix in the code: the tree is fine, the file
 describing it has aged. Read the diff first anyway: a `removed` entry
 names a function that is no longer a threshold offender, which is worth
 knowing, and an `added` or `worsened` one means the hard gate is red
@@ -118,8 +123,8 @@ is byte-identical to the committed file and the job stays quiet.
 
 ## Related {#related}
 
-- [Choosing and refreshing a baseline][recipe] — what the ratchet does
+- [Choosing and refreshing a baseline][recipe]: what the ratchet does
   with a stale entry, and the stderr warning that covers the other
   half.
-- `AGENTS.md`, "Baseline-refresh discipline" — the in-PR duty this job
+- `AGENTS.md`, "Baseline-refresh discipline": the in-PR duty this job
   backstops.

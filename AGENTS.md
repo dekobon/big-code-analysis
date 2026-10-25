@@ -64,7 +64,9 @@ and `cargo run -p big-code-analysis-web --`.
   `cognitive.rs`, `cyclomatic.rs`, `nexits.rs`, `halstead.rs`, `loc.rs`,
   `mi.rs`, `nargs.rs`, `nom.rs`, `npa.rs`, `npm.rs`, `tokens.rs`,
   `wmc.rs`.
-- `src/output/` — JSON / YAML / TOML / CBOR serializers for metric output.
+- `src/output/` — the text dump trees plus the CSV, SARIF, Checkstyle,
+  Code Climate and compiler-warning-line writers. The JSON, YAML, TOML
+  and CBOR serializers live in `big-code-analysis-cli/src/formats.rs`.
 - `src/spaces.rs` / `src/spaces/` — `Ast`, `analyze`, `FuncSpace`, and
   the metric walk; `src/metric_suite.rs` — the `MetricSuite` supertrait
   that keys the 13 per-metric impls on a parser; `src/macros/mod.rs` —
@@ -87,9 +89,12 @@ and `cargo run -p big-code-analysis-web --`.
   `check-role-bypass.py` (the three role-table gates, all reading
   declarations through `role_tables.py`), `verify-name-only-churn.py`,
   and each gate's `*-test.py` self-tests.
-  Each resolves the repository root from its own location
+  Each gate resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
+  `check-grammar-crate.py`, `check-grammars-crates.sh` and
+  `verify-name-only-churn.py` are not gates: they take their paths as
+  arguments or run against the cwd.
 - Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
   (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
@@ -100,7 +105,7 @@ and `cargo run -p big-code-analysis-web --`.
 - This is a published `2.x` library (`big-code-analysis` on crates.io)
   with a written stability contract in [`STABILITY.md`](./STABILITY.md).
   Treat `lib.rs` re-exports, public traits (`ParserTrait`,
-  `LanguageInfo`, etc.), and public types (`Metrics`, `FuncSpace`,
+  `LanguageInfo`, etc.), and public types (`CodeMetrics`, `FuncSpace`,
   language enums) as a stable API surface. Within the current major
   line, additive changes belong under a minor bump; breaking shape
   changes are reserved for the next major (`3.0`) and must be planned
@@ -275,8 +280,8 @@ and `cargo run -p big-code-analysis-web --`.
 
 In a checkout you have not run the gate in before, run
 `make worktree-setup` first. It checks out the integration corpora and
-the Python-bindings venv; without them `make pre-commit` reports 24 test
-failures and ~33 mypy errors that are bootstrap artifacts rather than
+the Python-bindings venv; without them `make pre-commit` reports dozens
+of test failures and mypy errors that are bootstrap artifacts rather than
 regressions. It is idempotent and a ~100 ms no-op afterwards, and it
 repairs an interrupted corpus checkout — a state a plain
 `git submodule update --init` cannot fix, because the recorded SHA
@@ -525,7 +530,7 @@ that is short by exactly one, so run this around any change to a walk's
 truncate/push bookkeeping — `src/spaces/compute.rs`, `src/ops.rs`,
 `src/suppression.rs`, and in `big-code-analysis-ast`, `comment_rm.rs`,
 `Search::act_on_node` (which `find` and `count` walk through) and the
-dump walk's `build` in `ast.rs`. It is
+dump walk's `Export::enter` / `Export::finish` in `ast.rs`. It is
 not part of `make pre-commit`; the `chain-audit` CI job runs it per PR.
 See [Benchmarking](docs/development/benchmarking.md#chain-audit).
 
@@ -771,9 +776,9 @@ Three things to know before quoting a number at anyone:
 - **This repository's own `bca.toml` deliberately differs from the
   shipped defaults.** It is a Rust-specific calibration with
   `exclude_tests = true` and a comment-dense house style. `cognitive`,
-  `nargs`, and `abc` are still at their pre-#1140 values here, tracked
-  in #1143. Do not "fix" one file to match the other; they answer
-  different questions.
+  `nargs`, and `abc` have since converged onto the shipped defaults
+  (#1143, #1183); `loc.ploc` and `loc.sloc` still differ. Do not "fix"
+  one file to match the other; they answer different questions.
 
 ## Responding to bca metric feedback
 
@@ -838,7 +843,7 @@ weigh them, do not drive them to zero at any cost.
 
 ## Tree-sitter grammars
 
-External grammar crates are version-pinned (`=0.23.5`, `=0.26.10`,
+External grammar crates are version-pinned (`=0.23.5`, `=0.25.1`,
 etc.) in the root `Cargo.toml` **and in each workspace-excluded crate's
 own manifest** (the five vendored grammars plus `enums`) —
 `utils/check-excluded-manifests.py` enforces both (alongside the

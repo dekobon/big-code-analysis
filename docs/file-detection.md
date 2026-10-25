@@ -19,8 +19,8 @@ happens:
 | `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes and for files with a UTF-16 BOM (#803); strips a leading UTF-8 BOM; byte-validates the first ~64 bytes with `std::str::from_utf8` and returns `None` on invalid UTF-8 (#746, #758; a lossy U+FFFD check was rejected because U+FFFD can legitimately appear in source). |
 | `read_file_with_eol_classified(path)` | The same read, with the skip *named*: `Ok(Err(SkipReason))` in place of `Ok(None)`. `read_file_with_eol` is this function's `.map(Result::ok)`. |
 
-`SkipReason` is `#[non_exhaustive]` with one variant per gate above —
-`Empty`, `TooSmall`, `Utf16Bom`, `NotUtf8` — and its `Display` renders a
+`SkipReason` is `#[non_exhaustive]` with one variant per gate above
+(`Empty`, `TooSmall`, `Utf16Bom`, `NotUtf8`), and its `Display` renders a
 noun phrase a front-end can splice into a diagnostic (`skipping {reason}:
 {path}`). Prefer it wherever the skip is reported to a user: the
 undifferentiated `None` is why `bca` announced a multi-kilobyte binary
@@ -43,12 +43,16 @@ claims that extension. This is the cheap path; no buffer required.
 
 ### `guess_language(buf, path)`: extension + mode line + shebang
 
-Combines the extension lookup with an Emacs/Vim *mode line* scan of the
-buffer and a shebang scan of the first line. Returns `(Option<LANG>,
-&str)` where the second element is the canonical lowercase language slug
-(`"cpp"`, `"csharp"`, `"rust"`, etc.), the same string `LANG::name`
-emits and a valid `FromStr` lookup token. Objective-C (`.m`) parses with
-the dedicated `tree-sitter-objc` grammar and reports `"objc"`;
+Combines the extension lookup with a scan of the buffer for an
+[Emacs](https://www.gnu.org/software/emacs/manual/html_node/emacs/Specifying-File-Variables.html)
+or [Vim](https://vimhelp.org/options.txt.html#modeline) *mode line* and
+a shebang scan of the first line. Returns `(Option<LANG>, &str)` where
+the second element is the canonical lowercase language slug (`"cpp"`,
+`"csharp"`, `"rust"`, and so on), the same string `LANG::name` emits
+and a valid `FromStr` lookup token. Objective-C (`.m`) parses with
+the dedicated
+[`tree-sitter-objc`](https://crates.io/crates/tree-sitter-objc) grammar
+and reports `"objc"`;
 Objective-C++ (`.mm`) stays on the C++ grammar and reports `"cpp"` (see
 [Objective-C and Objective-C++](#objective-c-and-objective-c) below).
 
@@ -61,10 +65,11 @@ Mode line scanning runs three regexes (compiled once via `OnceLock`):
 | `(?i)vim\s*:.*[^\w]ft\s*=\s*([^:\s]+)` | Vim `ft=` modeline | `// vim: set ts=4 ft=c++` |
 
 The scan checks the **first 5 lines** for any of the three patterns,
-then the **last 5 lines** for the Vim pattern only (Vim modelines are
-conventionally at the bottom of the file, Emacs ones at the top).
-"Lines" here means LF-delimited segments; `guess_language` relies on
-the CRLF/CR → LF normalisation performed by the readers above.
+then the **last 5 non-empty lines** for the Vim pattern only (Vim
+modelines are conventionally at the bottom of the file, Emacs ones at
+the top). "Lines" here means LF-delimited segments; `guess_language`
+relies on the CRLF/CR to LF normalisation performed by the readers above.
+The captured mode is lowercased before lookup.
 
 #### Resolution rules
 
@@ -83,8 +88,8 @@ as follows:
    line on a script with `#!/bin/sh` still resolves to Python.
 6. **Nothing matches**: return `(None, "")`.
 
-Each fallback is evaluated lazily: because the extension wins rules 1–3
-outright, the mode-line scan runs only when the extension resolves to
+Each fallback is evaluated lazily: because the extension wins rules 1 to
+3 outright, the mode-line scan runs only when the extension resolves to
 nothing, and the shebang scan only when the mode line does too (#1111).
 The resolution order above is the observable contract; the skipped work
 cannot change an answer.
@@ -95,10 +100,11 @@ The shebang scan handles extensionless scripts whose interpreter is
 unambiguous. It triggers only when the buffer starts with `#!` and
 recognises both the bare (`#!/bin/bash`) and `env`-wrapped
 (`#!/usr/bin/env python3`) forms. For `env`-wrapped shebangs, leading
-`-FLAG` tokens (including `-S`) and `NAME=value` assignments are
-skipped to find the actual interpreter. Trailing version digits and
-dots are stripped (`python3` → `python`, `lua5.1` → `lua`,
-`perl5.36` → `perl`) before lookup.
+`-FLAG` tokens (including `-S`; `-u` also consumes the variable name
+that follows it) and `NAME=value` assignments are skipped to find the
+actual interpreter. Trailing version digits and dots are stripped
+(`python3` to `python`, `lua5.1` to `lua`, `perl5.36` to `perl`) before
+lookup.
 
 | Interpreter basename | LANG |
 |----------------------|------|
@@ -109,6 +115,8 @@ dots are stripped (`python3` → `python`, `lua5.1` → `lua`,
 | `php`, `php-cgi` | `Php` |
 | `node`, `nodejs` | `Javascript` |
 | `tclsh`, `wish` | `Tcl` |
+| `ruby` | `Ruby` |
+| `elixir`, `iex` | `Elixir` |
 
 A non-UTF-8 shebang line yields `None` (no panic). Anything other
 than the interpreters above is unrecognised and falls through to the
@@ -118,21 +126,21 @@ final `(None, "")` result.
 
 Since #724, Objective-C has its own dedicated grammar:
 
-- **`.m` (and the `objc` / `objective-c` Emacs modes)** → `LANG::Objc`,
-  the upstream `tree-sitter-objc` grammar. Objective-C is a strict
-  superset of C, so `tree-sitter-objc` parses `.m` files fully and
-  reports the `"objc"` slug.
-- **`.mm` (and the `objc++` / `objective-c++` Emacs modes)** →
+- **`.m` (and the `objc` / `objective-c` Emacs modes)** map to
+  `LANG::Objc`, the upstream `tree-sitter-objc` grammar. Objective-C is
+  a strict superset of C, so `tree-sitter-objc` parses `.m` files fully
+  and reports the `"objc"` slug.
+- **`.mm` (and the `objc++` / `objective-c++` Emacs modes)** map to
   `LANG::Cpp`, reporting `"cpp"`. Objective-C++ mixes Objective-C and
   C++; the `tree-sitter-objc` grammar parses the Objective-C and C
   parts but not C++ constructs (templates, namespaces, classes, `::`).
-  Because a `.mm` file is `.mm` precisely because it contains C++ (the
-  larger, more pervasive surface), the C++ grammar degrades more
-  gracefully on `.mm` than the Objective-C grammar would (it only trips
-  on the Objective-C glue, not the whole C++ half). This is the same
-  asymmetric-failure trade-off #721 used to keep `.h` on `LANG::Cpp`.
-  Metrics for the Objective-C portions of a `.mm` file are therefore
-  approximate, a known limitation tracked in the original #724 decision.
+  A file is `.mm` precisely because it contains C++, the larger
+  surface, so the C++ grammar degrades more gracefully on `.mm` than
+  the Objective-C grammar would: it trips only on the Objective-C glue,
+  not the whole C++ half. This is the same asymmetric-failure trade-off
+  that #721 used to keep `.h` on `LANG::Cpp`. Metrics for the Objective-C
+  portions of a `.mm` file are therefore approximate, a known
+  limitation tracked in the original #724 decision.
 
 The earlier `fake::get_true` overlay, which folded both extensions onto
 the `"cpp"` slug while they shared one grammar (#540), was retired in
@@ -177,23 +185,30 @@ generated lookups update automatically.
   unless the user passes `--language <name>` (short form `-l`; the old
   `--language-type` spelling stays as a hidden alias for one release
   cycle). The flag value is resolved by trying `LANG`'s `FromStr`
-  (canonical name, e.g. `rust`) first, then `get_from_ext` (extension,
-  e.g. `rs`), with an `Action::PreprocProduce` short-circuit. An
+  (canonical name, such as `rust`) first, then `get_from_ext`
+  (extension, such as `rs`), with an `Action::PreprocProduce`
+  short-circuit. An
   unrecognised value is a hard error (exit 1) that lists the valid
   language names; it no longer silently disables analysis. See
-  [`big-code-analysis-cli/src/main.rs`](../big-code-analysis-cli/src/main.rs).
+  `resolve_language` in
+  [`big-code-analysis-cli/src/walk.rs`](../big-code-analysis-cli/src/walk.rs)
+  and the per-file dispatch in
+  [`big-code-analysis-cli/src/dispatch.rs`](../big-code-analysis-cli/src/dispatch.rs).
 - **REST (`bca-web`)**: every endpoint that takes a path plus
   buffer calls `guess_language` to resolve the language before
   dispatching to a parser.
 - **Tests**: `tests/common/mod.rs` falls back to `guess_language` when
-  the test harness cannot infer the language another way.
+  the corpus test's `Config` does not force a language.
 
 ## Detection failures
 
 If `guess_language` returns `(None, _)`:
 
-- The CLI logs and skips the file.
-- The REST server returns an error to the caller.
+- The CLI skips the file. A file named explicitly on the command line
+  gets an unconditional warning; one found by the directory walk is
+  skipped silently unless `-w` is set.
+- The REST server returns a `422 Unprocessable Entity` JSON error to
+  the caller.
 - The library leaves it to the caller; there is no default parser.
 
 Beyond the shebang scan described above, there is no content-based

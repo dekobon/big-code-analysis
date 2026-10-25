@@ -11,8 +11,8 @@ driver name / version, and rule descriptions match the CLI
 byte-for-byte.
 
 Findings match in order as well as in content. Both surfaces sort their
-findings by path, then start line, then metric name — the order
-`bca check` applies after its walk — and findings tying on all three
+findings by path, then start line, then metric name (the order
+`bca check` applies after its walk), and findings tying on all three
 keep the depth-first source order of the space tree. For the same files
 and thresholds the two `results` arrays therefore line up entry for
 entry against `bca check --no-suppress`. `to_sarif` compares raw metric
@@ -26,10 +26,10 @@ seeds together, so `bca check -p a.py -p a.py` analyses `a.py` once and
 emits one finding per breach. `analyze_batch` instead returns one result
 per input, and `to_sarif` renders every result it is handed, so
 `to_sarif(analyze_batch([a, a]), ...)` emits each finding twice.
-Deduplicating in the binding would be wrong — two distinct results may
-legitimately share a name, since `analyze_source` takes the caller's —
-so hand `to_sarif` a unique file set when comparing the two documents
-positionally.
+Deduplicating in the binding would be wrong, because two distinct
+results may legitimately share a name (`analyze_source` takes the
+caller's). Hand `to_sarif` a unique file set when comparing the two
+documents positionally.
 
 Examples on this page import the package as `bca`
 (`import big_code_analysis as bca`). A bare `bca` in a shell command is
@@ -44,9 +44,9 @@ the CLI binary.
 * A single `dict` returned by `bca.analyze` or
   `bca.analyze_source`.
 * Any iterable yielding such dicts, `bca.AnalysisFailure`
-  instances, and/or `None` (the natural shape of
+  instances, or `None` (the natural shape of
   `bca.analyze_batch`'s return value). `AnalysisFailure` and `None`
-  entries are skipped silently — they represent files for which no
+  entries are skipped silently; they represent files for which no
   record was emitted, not findings.
 * A scalar `None`, the documented return of `bca.analyze` for a
   skipped file; it yields an empty SARIF run.
@@ -118,15 +118,16 @@ the upload to the repository's Code Scanning alerts.
 
 ## Which spaces produce findings
 
-`to_sarif` emits a finding at every space — the file unit, each
-container, and each leaf function or closure — whose **own** value
-breaches its limit, exactly matching `bca check --report-format sarif`. For most
-metrics the JSON headline at a space already is that space's own value.
-The five subtree-aggregate metrics — `cyclomatic`,
-`cyclomatic.modified`, `cognitive`, `abc` and `nargs` — additionally
-expose a `sum` / `magnitude` / `total` rolled up across child spaces;
-the binding reads their per-space `value` field instead, so it reports
-an interior breach (for example a function whose own complexity breaches
+`to_sarif` emits a finding when a space's **own** value breaches a
+limit and the metric applies to that space, exactly matching
+`bca check --report-format sarif`. LoC limits apply to file units;
+`nom`, `wmc`, `npm`, and `npa` apply to containers; the remaining
+limits apply to functions. For most metrics the JSON headline at a
+space already is that space's own value. The five subtree-aggregate metrics (`cyclomatic`,
+`cyclomatic.modified`, `cognitive`, `abc` and `nargs`) also expose a
+`sum` / `magnitude` / `total` rolled up across child spaces; the
+binding reads their per-space `value` field instead, so it reports an
+interior breach (for example a function whose own complexity breaches
 even though a nested closure's does not) without being fooled by the
 larger aggregate. For `nargs` that means a function is gated on its own
 parameter list, exactly as `bca check` has been since
@@ -142,12 +143,12 @@ emits) and the `None`-name parse-failure case both collapse to
 
 ## See also
 
-* [Batch processing](batch.md) — the natural source of input
+* [Batch processing](batch.md): the natural source of input
   iterables for `to_sarif`; `AnalysisFailure` entries are skipped
   silently.
-* [Metric selection](metrics.md) — threshold names are a closed
-  set independent of `metrics=`; requesting a narrower metric
-  suite while gating on a dropped threshold yields an empty
-  SARIF run.
-* [Error handling](errors.md) — the typed exceptions `to_sarif`
+* [Metric selection](metrics.md): threshold names are a closed
+  set independent of `metrics=`. Metrics omitted by `metrics=`
+  produce no findings; other selected metrics can still produce
+  findings for their supplied thresholds.
+* [Error handling](errors.md): the typed exceptions `to_sarif`
   raises for bad caller input (`TypeError` / `ValueError`).

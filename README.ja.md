@@ -14,9 +14,11 @@
 
 **big-code-analysis** はコードの保守性を測定するツールです。
 コマンドラインツール `bca` は、[20 を超えるプログラミング言語](https://dekobon.github.io/big-code-analysis/ja/languages.html)を対象に、
-関数単位のメトリクスを計算します。循環的複雑度、
+関数単位のメトリクスを計算します。[循環的複雑度](https://ja.wikipedia.org/wiki/%E5%BE%AA%E7%92%B0%E7%9A%84%E8%A4%87%E9%9B%91%E5%BA%A6)、
 [認知的複雑度](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)、
-[Halstead メトリクス](https://en.wikipedia.org/wiki/Halstead_complexity_measures)、保守容易性指数、ABC、各種コード行数など、
+[Halstead メトリクス](https://en.wikipedia.org/wiki/Halstead_complexity_measures)、
+[保守容易性指数](https://learn.microsoft.com/ja-jp/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning)、
+[ABC](https://en.wikipedia.org/wiki/ABC_Software_Metric)、各種コード行数など、
 [メトリクス一式](https://dekobon.github.io/big-code-analysis/ja/metrics.html)をサポートします。
 パースには [tree-sitter](https://tree-sitter.github.io/tree-sitter/) を使うため、
 コンパイラもビルドステップも言語ランタイムも不要です。ディレクトリを指定するだけで数値が出力されます。
@@ -88,10 +90,7 @@ bca report -O html -o report.html
 `bca check` はしきい値・ベースライン・除外設定をコミット済みの `bca.toml` から読み込むため、CI、ローカル実行、
 エージェントフックのすべてが同じシグナルでゲートされます。`bca report` は同じ実行結果を、
 プルリクエスト向けの Markdown コメントや HTML のホットスポットページに変換します。
-本リポジトリはプッシュのたびに自分自身をゲートし、その結果を公開しています。
-
-- HTML ホットスポットレポート: <https://dekobon.github.io/big-code-analysis/reports/index.html>
-- Markdown PR/MR コメント: <https://dekobon.github.io/big-code-analysis/reports/report.md>
+本リポジトリはプッシュのたびに自分自身をゲートし、その結果を上記のレポート実例として公開しています。
 
 [CI 統合レシピ](https://dekobon.github.io/big-code-analysis/ja/recipes/ci.html)が導入ガイドです。
 チェックサム検証付きのリリース固定インストール、そのまま使える GitHub Actions / GitLab CI ジョブに加えて、
@@ -111,7 +110,8 @@ crates.io に公開されています。公開 API は `2.x` 系のパッチ・�
 big-code-analysis = "2"
 ```
 
-各文法は言語ごとの Cargo フィーチャーの背後に置かれています。デフォルトではすべて有効で、
+各文法は言語ごとの [Cargo フィーチャー](https://doc.rust-lang.org/cargo/reference/features.html)の背後に置かれています。
+デフォルトではすべて有効で、
 一部だけ必要な場合はデフォルトフィーチャーを無効化して個別の言語を再度有効化できます。
 ブックの[言語別 Cargo フィーチャー](https://dekobon.github.io/big-code-analysis/ja/library/cargo-features.html)と、
 タスク指向のウォークスルー（クイックスタート、インメモリ解析、`FuncSpace` 結果の走査、エラーハンドリング）をまとめた
@@ -146,7 +146,7 @@ make pre-commit   # CI と同等のローカルゲート一式
 ## ライセンス
 
 - 同梱の文法クレート（`tree-sitter-ccomment`、`tree-sitter-mozcpp`、`tree-sitter-mozjs`、
-  `tree-sitter-preproc`、`tree-sitter-tcl`）は MIT ライセンスで公開されています。
+  `tree-sitter-preproc`、`tree-sitter-tcl`）は [MIT ライセンス](https://opensource.org/license/mit)で公開されています。
 
 - **big-code-analysis**、**big-code-analysis-ast**、**big-code-analysis-cli**、
   **big-code-analysis-web**、**big-code-analysis-py** は [Mozilla Public License v2.0](https://www.mozilla.org/MPL/2.0/)

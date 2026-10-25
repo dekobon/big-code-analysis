@@ -6,42 +6,45 @@ Each recipe assumes you have built the binaries (`cargo build
 
 The recipes are grouped by goal:
 
-- [Quality reports](quality-reports.md) — generate Markdown reports
-  suitable for pull requests, dashboards, or wikis, including the
-  C/C++ preprocessor-aware workflow.
-- [CI integration](ci.md) — wire `bca check` and `bca report` into
-  GitHub Actions and GitLab CI, including the baseline / ratchet
-  pattern and the Code Quality widget path.
-- [Baselines](baselines.md) — record existing offenders in a
+- [Quality reports](quality-reports.md): generate Markdown reports
+  for pull requests, dashboards, or wikis, including the C/C++
+  preprocessor-aware workflow.
+- [CI integration](ci.md): wire `bca check` and `bca report` into
+  [GitHub Actions](https://docs.github.com/en/actions) and
+  [GitLab CI](https://docs.gitlab.com/ci/), including the baseline /
+  ratchet pattern and the Code Quality widget path.
+- [Baselines](baselines.md): record existing offenders in a
   `.bca-baseline.toml` so the gate only fires on new or worsened
   violations, and audit or diff that baseline during review.
-- [Local threshold gates](local-gates.md) — mirror the CI threshold
+- [Local threshold gates](local-gates.md): mirror the CI threshold
   gate on a developer machine with a two-tier (hard + headroom)
-  Makefile / `just` / `pre-commit` pattern, so regressions never
-  reach the pull request.
-- [Choosing thresholds](thresholds.md) — where the shipped default
-  limits come from, which ones to override for the language you are
-  gating, and how to pick a different set for CI, agent feedback,
-  legacy triage, or safety-critical work.
-- [Feeding metrics to an agent](agent-feedback.md) — wire `bca check`
-  into an agentic coding tool's after-edit feedback loop (Claude Code
-  `PostToolUse` hook, opencode plugin), with the anti-gaming guidance
-  that keeps the loop honest.
-- [AST queries](ast-queries.md) — search for syntactic constructs,
+  Makefile / [`just`](https://just.systems/) /
+  [`pre-commit`](https://pre-commit.com/) pattern, so regressions
+  never reach the pull request.
+- [Choosing thresholds](thresholds.md): learn where the shipped
+  defaults come from, choose language-specific overrides, and select
+  limits for CI, agent feedback, legacy triage, or safety-critical
+  work.
+- [Feeding metrics to an agent](agent-feedback.md): wire `bca check`
+  into an agentic coding tool's after-edit feedback loop
+  ([Claude Code](https://code.claude.com/docs/en/overview)
+  `PostToolUse` hook, [OpenCode](https://opencode.ai/) plugin), with
+  the anti-gaming guidance that keeps the loop honest.
+- [AST queries](ast-queries.md): search for syntactic constructs,
   count node types, dump trees, and detect parse errors.
-- [Exporting metric data](exporting-data.md) — emit structured output
+- [Exporting metric data](exporting-data.md): emit structured output
   (JSON / YAML / TOML / CBOR) and consume it from shell pipelines.
-- [Driving the REST API](rest-api.md) — run the HTTP server and call
-  every endpoint with `curl`.
+- [Driving the REST API](rest-api.md): run the HTTP server and call
+  every endpoint with [`curl`](https://curl.se/).
 
-If you want a deeper look at any flag the recipes use, see the
-per-command pages under [Commands](../commands/index.html). For the
-full list of metrics that show up in these recipes, see
+For a deeper look at any flag the recipes use, see the per-command
+pages under [Commands](../commands/index.html). For the full list of
+metrics that show up in these recipes, see
 [Supported Metrics](../metrics.md).
 
 > **Upstream reference.** `big-code-analysis` is a fork of Mozilla's
 > [`rust-code-analysis`](https://github.com/mozilla/rust-code-analysis).
 > Recipes that work for the upstream `rust-code-analysis-cli` binary
-> usually translate directly — replace the binary name and adjust for
+> usually translate directly: replace the binary name and adjust for
 > the subcommand restructure documented in the
 > [migration guide](../migration.md).

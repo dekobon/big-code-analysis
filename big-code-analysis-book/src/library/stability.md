@@ -2,48 +2,49 @@
 
 `big-code-analysis` is on the `2.x` line (currently `2.4.0`). The
 full stability contract lives in [`STABILITY.md`][stability] at the
-root of the repository — that file is the source of truth and is
-updated alongside the changelog at every release.
+root of the repository. That file is the source of truth and is
+updated alongside the changelog at every release; this page is the
+summary for library consumers.
 
 [stability]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md
 
-The headlines for library consumers:
+The headlines:
 
 - **Shape stability across patch and minor bumps.** Every public
   type and function signature listed in
-  [STABILITY.md § "What is stable in shape"][stability-shape]
-  is held across the `2.x` line. Additive changes (new items, new
-  `LANG` variants, new `MetricsError` variants, new language
-  features) are allowed in minor bumps. Breaking shape changes are
-  reserved for the next major bump and will appear in the
-  [changelog][changelog] under **(breaking)** in the `3.0.0`
-  section.
-- **No value stability guarantee within `2.x`.** A grammar pin
-  bump or a bug fix in a metric definition can shift any metric
-  value on any file in any direction, even across a patch bump.
-  Each such drift is flagged in the changelog. Pin to an exact
-  version (`big-code-analysis = "= 2.4.0"`) if you need bit-for-bit
+  [STABILITY.md § "What is stable in shape"][stability-shape] is held
+  across the `2.x` line. Additive changes (new items, new `LANG`
+  variants, new `MetricsError` variants, new language features) are
+  allowed in minor bumps. Breaking shape changes are reserved for the
+  next major bump and will appear in the [changelog][changelog] under
+  **(breaking)** in the `3.0.0` section.
+- **No value stability guarantee within `2.x`.** A grammar pin bump
+  or a bug fix in a metric definition can shift any metric value on
+  any file in any direction, even across a patch bump. Each such
+  drift is flagged in the changelog. Pin to an exact version
+  (`big-code-analysis = "= 2.4.0"`) if you need bit-for-bit
   reproducibility across runs.
-- **MSRV is `1.94`.** Bumping the MSRV is treated as a minor-bump
-  event and is flagged in the changelog under **(breaking)** —
-  see [STABILITY.md § MSRV policy][stability-msrv].
+- **The minimum supported Rust version (MSRV) is `1.94`.** Bumping
+  the MSRV is treated as a minor-bump
+  event and is flagged in the changelog under **(breaking)**; see
+  [STABILITY.md § MSRV policy][stability-msrv].
 - **Escape hatches.** The [`Node`][Node] wrapper exposes its
   `tree_sitter::Node` through `Node::as_tree_sitter()`, and the
   `tree_sitter` crate is re-exported as
   `big_code_analysis::tree_sitter`. `Node` also carries the accessors
   the metric walk itself uses (`kind`, `kind_id`, `child`, `children`,
   `child_by_field_name`, `utf8_text`, the position accessors). Their
-  signatures are shape-stable, but the *values* they return — node
-  kinds and `kind_id` numbers — belong to the pinned grammar and move
-  when it does, so anything reached through those seams follows the
+  signatures are shape-stable, but the *values* they return (node
+  kinds and `kind_id` numbers) belong to the pinned grammar and move
+  when it does. Anything reached through those seams follows the
   pinned `tree-sitter` version rather than our own [SemVer]. See
-  [STABILITY.md § Escape hatches][stability-escape] before depending on
-  them.
+  [STABILITY.md § Escape hatches][stability-escape] before depending
+  on them.
 - **`big-code-analysis-ast` is not a stability surface.** Since #1376
   the parse and classification layer lives in that separate published
-  crate, which this one pins exactly and releases in lockstep. It will
-  appear in your `cargo tree`. Nothing in it carries a promise of its
-  own: depend on `big-code-analysis` and use what it re-exports.
+  crate, which this one pins exactly and releases in lockstep. It
+  appears in your `cargo tree`. Nothing in it carries a promise of
+  its own: depend on `big-code-analysis` and use what it re-exports.
 
 [stability-shape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#what-is-stable-in-shape
 [stability-msrv]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#msrv-policy
@@ -54,29 +55,25 @@ The headlines for library consumers:
 
 ## On the `3.0` horizon
 
-The breaking changes once staged for `2.0` have shipped in `2.0.0`:
-the `#[non_exhaustive]` markers on the open public enums, the
-serialized-key normalization, the integer-metric `u64` shift, the
-language-dispatch and grammar defaults, the Python and REST surface
-changes, and a consolidated metric-value re-baseline folding in the
-drift accumulated since `1.0`. The path-positional callback dispatch
-(`action` / the `Callback` trait), the free `metrics` /
-`metrics_with_options` / `get_function_spaces` / `metrics_from_tree` /
-`get_ops` functions, and the generic `Parser<T>` / `ParserTrait`
-plumbing were removed at the same time — [`analyze`] and [`Ast`] are
-now the single analysis seam, with `Parser` and the per-language
-parser/tag types demoted to `pub(crate)`.
-
-One loose end is deferred to the next major: the per-metric `Stats`
-structs are not yet `#[non_exhaustive]`, so adding a field is a shape
-break in the strict SemVer sense. In practice field additions are
-treated as additive in minor bumps and flagged in the changelog;
-marking the structs `#[non_exhaustive]` is on the
-[`3.0` roadmap][stability-3x] so that carve-out can be retired.
+The breaking changes once staged for `2.0` shipped in `2.0.0`: the
+`#[non_exhaustive]` markers on the open public enums and the
+per-metric `Stats` structs, the serialized-key normalization, the
+integer-metric `u64` shift, the language-dispatch and grammar
+defaults, the Python and REST surface changes, and a consolidated
+metric-value re-baseline folding in the drift accumulated since
+`1.0`. The path-positional callback dispatch (`action` / the
+`Callback` trait), the free `metrics` / `metrics_with_options` /
+`get_function_spaces` / `metrics_from_tree` / `get_ops` functions,
+and the generic `Parser<T>` / `ParserTrait` plumbing were removed at
+the same time; [`analyze`] and [`Ast`] are now the single analysis
+seam. Since #1376 `Parser`, `ParserTrait` and the per-language
+parser and tag types live in `big-code-analysis-ast`, which this
+crate does not re-export.
 
 No `3.0` is scheduled. The `#[non_exhaustive]` markers added at `2.0`
 keep most future additions (new enum variants, new fields)
-non-breaking, so `2.x` is the surface you should depend on.
+non-breaking, so `2.x` is the surface you should depend on. See
+[STABILITY.md § On the `3.0` horizon][stability-3x].
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Ast`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html

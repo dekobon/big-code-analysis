@@ -1,10 +1,12 @@
 # AST traversal
 
 `bca.analyze(...)` gives you *metrics*. When you need the *syntax
-tree* itself — to find every function definition, pull a docstring,
-or port a [py-tree-sitter][pyts] matcher — parse once into an
+tree* itself (to find every function definition, pull a docstring,
+or port a [py-tree-sitter][pyts] matcher), parse once into an
 [`Ast`](#the-ast-handle) and walk it with lazy
-[`Node`](#the-node-handle) handles.
+[`Node`](#the-node-handle) handles. This page assumes you know what
+a [tree-sitter](https://tree-sitter.github.io/tree-sitter/) parse
+tree is; the `Node` API mirrors py-tree-sitter's.
 
 [pyts]: https://github.com/tree-sitter/py-tree-sitter
 
@@ -12,8 +14,8 @@ or port a [py-tree-sitter][pyts] matcher — parse once into an
 
 `bca.Ast.parse(code, language)` (or `bca.Ast.from_path(path)`) parses
 the source **once** and hands back a handle you can draw both metrics
-and the tree from, instead of parsing twice — once in py-tree-sitter,
-once in `analyze()`:
+and the tree from, instead of parsing twice (once in py-tree-sitter,
+once in `analyze()`):
 
 ```python
 import big_code_analysis as bca
@@ -68,8 +70,8 @@ for fn in ast.find(["function_item"]):
 idents = root.descendants_by_kind(["identifier"])
 ```
 
-These have Rust counterparts — `Node::preorder` and
-`Node::descendants_by_kind` — so library callers get the same helpers.
+These have Rust counterparts, `Node::preorder` and
+`Node::descendants_by_kind`, so library callers get the same helpers.
 
 ## Coordinates
 
@@ -81,7 +83,7 @@ to be converted by hand:
 | `start_byte` / `end_byte` | byte offsets into `ast.source` |
 | `start_point` / `end_point` | **0-based** `(row, col)` (py-tree-sitter parity) |
 | `start_line` / `end_line` | **1-based** lines |
-| `span` | the 1-based `{start_line, start_col, …, start_byte, end_byte}` dict `dump()` emits |
+| `span` | the `{start_line, start_col, …, start_byte, end_byte}` dict `dump()` emits: lines and columns are 1-based; byte offsets are 0-based and half-open |
 
 So `node.start_line == node.start_point[0] + 1`, and
 `ast.source[node.start_byte:node.end_byte] == node.text`.
@@ -96,10 +98,10 @@ unchanged; `kind` stays the canonical bca spelling.
 lazy handles. They differ in two ways that matter:
 
 1. **Memory.** `dump()` builds one dict (with `span`, `value`,
-   `children`) per node — fine for small files, costly for the large
+   `children`) per node: fine for small files, costly for large
    ones. A `Node` walk allocates only the handles you touch.
 2. **Taxonomy.** A `Node`'s `kind` is the **raw** grammar kind.
-   `dump()` kinds pass through bca's `Alterator` and are curated — for
+   `dump()` kinds pass through bca's `Alterator` and are curated; for
    example, string-literal nodes are renamed to `"string"` and
    *flattened* (their grammar children removed). So the two surfaces
    intentionally disagree on altered nodes:
@@ -122,13 +124,19 @@ every other reference to the parse, so returning a node (or a list of
 nodes) from a function that builds the `Ast` locally is safe. Nodes
 are also safe to share across threads.
 
-> **C/C++ preprocessor.** For `Cpp` parsed with preprocessor inputs,
-> `ast.source` — and therefore every node's byte offsets — indexes
-> into the *expanded* source the parser saw, not the on-disk file.
+> **C/C++ preprocessor.** The Python `Ast` takes no preprocessor
+> inputs: `Ast.parse` accepts only `code`, `language` and `name`, and
+> `Ast.from_path` does not run the C/C++ preprocessor pass. So
+> `ast.source`, and every node's byte offsets, always index into the
+> bytes the parser was given: the `code` you passed to `parse`, or the
+> file as `from_path` read it (through the same EOL-normalising reader
+> `analyze` uses). The expanded-source behaviour described in the
+> [Rust chapter](../library/parse-once.md#c-preprocessor) applies only
+> to a Rust `Source` built with preprocessor results.
 
 ## Where to go next
 
-* [Metric selection](metrics.md) — compute only the metrics you need
+* [Metric selection](metrics.md): compute only the metrics you need
   from the same parse.
-* The CLI's [`dump` and `count`](../commands/nodes.md) commands are
-  the shell-level equivalents of `dump()` and `find()`.
+* The CLI's [`dump` and `count`](../commands/nodes.md) commands: the
+  shell-level equivalents of `dump()` and `find()`.

@@ -13,60 +13,61 @@ docs, follow the [rustdoc on docs.rs][docs.rs].
 
 ## When to embed the library
 
-Reach for the library (instead of shelling out to `bca`) when you
-want one or more of the following:
+Use the library instead of shelling out to `bca` when you want any
+of the following:
 
-- **In-process analysis.** Avoid the cost of spawning a subprocess
-  per file when scoring thousands of files in a custom tool, IDE
-  plugin, or static-analysis pipeline.
-- **In-memory source.** Score generated, pre-processed, or
-  streamed source without writing it to disk first. See
+- **In-process analysis.** Avoid spawning a subprocess per file when
+  scoring thousands of files in a custom tool, IDE plugin, or
+  static-analysis pipeline.
+- **In-memory source.** Score generated, pre-processed, or streamed
+  source without writing it to disk first. See
   [Analyzing in-memory source](in-memory.md).
 - **Selective walking.** Drive a custom traversal over the
   `FuncSpace` tree to extract per-function metrics on your own
   schedule. See [Walking FuncSpace results](walking-funcspace.md).
-- **Custom output.** Skip the JSON / YAML / TOML / CBOR serializers
-  shipped under `src/output/` and emit your own report format
-  (CSV, SARIF, a database row, whatever).
+- **Custom output.** Skip the `bca` serializers (JSON / YAML / TOML /
+  CBOR in the CLI, CSV / SARIF / Checkstyle in the library's `output`
+  module) and emit your own format, such as a database row.
 
-If you just want a Markdown quality report or a CI threshold gate,
+If you only want a Markdown quality report or a CI threshold gate,
 the [`bca` CLI](../commands/index.html) is faster to wire up.
 
-## What is on offer today
+## Pages in this section {#what-is-on-offer-today}
 
-- [Quick start](quick-start.md) — parse a string, get a
-  `FuncSpace`, print the cognitive complexity.
-- [Analyzing in-memory source](in-memory.md) — feed source from a
+- [Quick start](quick-start.md): parse a string, get a `FuncSpace`,
+  print the cognitive complexity.
+- [Analyzing in-memory source](in-memory.md): feed source from a
   buffer rather than a file.
-- [Reusing an existing tree-sitter Tree](reuse-tree.md) — feed a
+- [Reusing an existing tree-sitter Tree](reuse-tree.md): feed a
   caller-built `tree_sitter::Tree` into the metric walker.
-- [Parse once, run metrics many times](parse-once.md) — hold a parsed
-  `Ast` and run multiple metric subsets / custom walks against the
+- [Parse once, run metrics many times](parse-once.md): hold a parsed
+  `Ast` and run several metric subsets or custom walks against the
   same tree.
-- [Walking the AST directly](ast-traversal.md) — count syntactic
+- [Walking the AST directly](ast-traversal.md): count syntactic
   constructs, find nodes by kind, detect parse errors, or build a
   symbol table alongside the metrics walk.
-- [Selecting metrics](selecting-metrics.md) — compute only the
-  metrics you need with `MetricsOptions::with_only`, including how
-  dependent metrics pull in their inputs.
-- [Walking `FuncSpace` results](walking-funcspace.md) — recurse
-  into nested function / class / impl spaces.
-- [Error handling](error-handling.md) — what `Result<FuncSpace, MetricsError>`
-  means today and how to turn it into a useful diagnostic.
-- [Stability and versioning](stability.md) — what you can and
-  cannot rely on across the `2.x` line.
+- [Selecting metrics](selecting-metrics.md): compute only the metrics
+  you need with `MetricsOptions::with_only`, including how dependent
+  metrics pull in their inputs.
+- [Walking `FuncSpace` results](walking-funcspace.md): recurse into
+  nested function, class and impl spaces.
+- [Error handling](error-handling.md): interpret
+  `Result<FuncSpace, MetricsError>` and turn errors into useful
+  diagnostics.
+- [Stability and versioning](stability.md): identify what stays
+  stable across the `2.x` line.
 
-## A note on API stability
+## API stability {#a-note-on-api-stability}
 
 The library is on the `2.x` line and ships under a written
-[stability contract](stability.md): the shape of the public API
-is held stable across patch and minor bumps, and breaking changes
-are reserved for the next major bump. Every example in this
-section compiles against the current published crate and is
-expected to keep compiling across `2.x` without edits.
+[stability contract](stability.md): the shape of the public API is
+held stable across patch and minor bumps, and breaking changes are
+reserved for the next major bump. Every example in this section
+compiles against the current published crate and is expected to keep
+compiling across `2.x` without edits.
 
-Metric *values* may still drift across minor bumps when a grammar
-pin moves or a metric definition is fixed — see
+Metric *values* may still drift across minor bumps when a grammar pin
+moves or a metric definition is fixed; see
 [STABILITY.md § What is stable in value][stability-value] for the
 carve-out. Each drift is called out in the changelog entry that
 introduces it.

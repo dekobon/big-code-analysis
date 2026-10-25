@@ -1,19 +1,17 @@
 # Developers Guide
 
-If you want to contribute to the development of `big-code-analysis` we have
-summarized here a series of guidelines that are supposed to help you in your
-building process.
+How to build, test, lint and run `big-code-analysis` from a checkout.
+It is for contributors; the repository-level rules (stability
+contract, validation gates, review conventions) live in `AGENTS.md`
+and `CONTRIBUTING.md` at the repository root.
 
-As prerequisite, you need to install the last available version of `Rust`.
-You can learn how to do that
-<a href="https://www.rust-lang.org/tools/install" target="_blank">here</a>.
+You need a current stable
+<a href="https://www.rust-lang.org/tools/install" target="_blank">Rust toolchain</a>;
+the minimum supported version is declared in the root `Cargo.toml`.
 
 ## Clone Repository
 
-First of all, you need to clone the repository.
-You can do that:
-
-through **HTTPS**
+Clone through **HTTPS**
 
 ```console
 git clone -j8 https://github.com/dekobon/big-code-analysis.git
@@ -29,24 +27,26 @@ git clone -j8 git@github.com:dekobon/big-code-analysis.git
 
 The repository ships a `Makefile` that wraps every common build, test,
 lint, format, and docs task. Run `make help` to see the full list of
-targets, and `make check-tools` to verify which optional tools
-(`taplo`, `rumdl`, `shellcheck`, `shfmt`, `checkmake`,
-`mdbook`, `cargo-insta`, `cargo-udeps`, `cargo-nextest`) are present on
-your machine.
+targets. Run `make check-tools` to list the optional tools and check
+which are installed.
 
 The two composite targets you will use most:
 
-- `make pre-commit` — the recommended local gate before committing.
-  Runs `cargo fmt --check`, both clippy invocations
-  (default-features and `--all-features`), the full test suite via
-  `make test` + `make test-doc` (lib + bin + integration + doc),
-  `cargo +nightly udeps`, and the markdown / TOML / shell / Makefile
-  lint families in one parallel pass.
-- `make ci` — the same checks in the order CI runs them, with no
+- `make pre-commit`: the recommended local gate before committing.
+  It runs formatting, both clippy configurations, tests,
+  documentation checks, dependency checks, and the lint families. It
+  also runs repository consistency checks, both self-scan tiers, and
+  the Python validation stages, in one parallel pass. The membership
+  comparison (`make check-test-lang-gates-compare`) requires
+  `COMPARE_REF` and runs separately in CI. See `_pc-all` in the
+  `Makefile` for the complete stage list. The gate ends with a single
+  `BCA_GATE: pass` or `BCA_GATE: fail (…)` line; read the verdict
+  from that line and nothing else.
+- `make ci`: the same checks in the order CI runs them, with no
   auto-fixing. Use this to reproduce a failing CI run locally.
 
 If GNU Make 4 or any of the optional tools are unavailable, fall back
-to the raw cargo commands shown below — they are equivalent to the
+to the raw cargo commands shown below; they are equivalent to the
 corresponding Make targets.
 
 ## Building
@@ -90,8 +90,8 @@ Without it, `make test` falls back to `cargo test --workspace
 --all-features --lib --bins --tests`, which runs the same set of tests.
 The two runners are not quite interchangeable, though: nextest runs each
 test in its own process, so anything sharing state across tests within a
-binary — a `OnceLock` cache, an environment variable, the working
-directory — is isolated under nextest and shared under `cargo test`.
+binary (a `OnceLock` cache, an environment variable, the working
+directory) is isolated under nextest and shared under `cargo test`.
 Preferring nextest locally means local runs match CI on that axis.
 
 Set `NEXTEST=` to force the fallback without uninstalling anything
@@ -126,11 +126,9 @@ verified the diff pattern is uniform.
 
 ## Code Formatting
 
-If all previous steps went well, and you want to make a pull request
-to integrate your invaluable help in the codebase, the last step left
-is code formatting. The `make fmt` target runs every formatter in the
-project (Rust, Markdown, TOML, Bash) in one shot; `make fmt-check`
-verifies formatting without modifying files.
+Format before opening a pull request. The `make fmt` target runs every
+formatter in the project (Rust, Markdown, TOML, Bash) in one shot;
+`make fmt-check` verifies formatting without modifying files.
 
 ```console
 make fmt         # cargo fmt + rumdl check --fix + shfmt -w + taplo fmt
@@ -139,7 +137,8 @@ make fmt-check   # the equivalent --check variants
 
 ### Rustfmt
 
-This tool formats your code according to Rust style guidelines.
+[rustfmt](https://github.com/rust-lang/rustfmt) formats Rust code to
+the project style.
 
 To install:
 
@@ -155,9 +154,9 @@ cargo fmt
 
 ### Clippy
 
-This tool helps developers to write better code catching automatically lots of
-common mistakes for them. It detects in your code a series of errors and
-warnings that **must** be fixed before making a pull request.
+[Clippy](https://doc.rust-lang.org/clippy/) catches common mistakes.
+The warnings it reports **must** be fixed before making a pull
+request.
 
 `make clippy` runs both clippy invocations the project enforces
 (default-features and `--all-features`); `make lint` additionally
@@ -183,7 +182,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 `make udeps` runs `cargo +nightly udeps --workspace --all-targets` to
 catch dependencies declared in `Cargo.toml` but never referenced.
 Requires the nightly toolchain (`rustup toolchain install nightly`)
-and `cargo-udeps`.
+and [`cargo-udeps`](https://crates.io/crates/cargo-udeps).
 
 ## Code Documentation
 
@@ -193,7 +192,7 @@ make doc-open   # same, then open in a browser
 make doc-check  # strict gate: appends -D warnings to RUSTDOCFLAGS, fails on any rustdoc warning
 ```
 
-`make doc` and `make doc-open` are the interactive viewers — they
+`make doc` and `make doc-open` are the interactive viewers: they
 build whatever they can so you can still inspect rendered output
 mid-refactor. `make doc-check` is the strict gate that runs as part
 of `make pre-commit` and CI (`cargo doc --no-deps --workspace
@@ -207,7 +206,8 @@ you also want to build the documentation of each dependency used by
 
 ### Building this book
 
-The book you are reading lives under `big-code-analysis-book/`:
+The book you are reading is an [mdBook](https://rust-lang.github.io/mdBook/)
+under `big-code-analysis-book/`:
 
 ```console
 make book        # mdbook build
@@ -216,25 +216,25 @@ make book-serve  # mdbook serve with live reload
 
 ## Run your code
 
-You can run **bca** using:
+Run `bca`:
 
 ```console
 cargo run -p big-code-analysis-cli -- [bca-parameters]
 ```
 
-To know the list of **bca** parameters, run:
+List its parameters:
 
 ```console
 cargo run -p big-code-analysis-cli -- --help
 ```
 
-You can run **bca-web** using:
+Run `bca-web`:
 
 ```console
 cargo run -p big-code-analysis-web -- [bca-web-parameters]
 ```
 
-To know the list of **bca-web** parameters, run:
+List its parameters:
 
 ```console
 cargo run -p big-code-analysis-web -- --help
@@ -245,10 +245,8 @@ cargo run -p big-code-analysis-web -- --help
 
 ## Practical advice
 
-- When you add a new feature, add at least one unit or integration test to
-  verify that everything works correctly
-- Document public API
-- Do not add dead code
-- Comment intricate code such that others can comprehend what you have
-  accomplished
-- Run `make pre-commit` before pushing — it is the same gate CI runs
+- Add at least one unit or integration test with every new feature.
+- Document the public API.
+- Do not add dead code.
+- Comment intricate code so others can follow it.
+- Run `make pre-commit` before pushing; it is the same gate CI runs.

@@ -1,17 +1,23 @@
 # CI integration
 
 Recipes for wiring `bca` into a build pipeline. The
-[`bca check`](../commands/check.md) command already ships every output
-shape a modern CI needs (Checkstyle, SARIF, GitLab Code Climate JSON,
+[`bca check`](../commands/check.md) command ships every output shape a
+CI system consumes
+([Checkstyle](https://checkstyle.org/),
+[SARIF](https://sarifweb.azurewebsites.net/), GitLab
+[Code Climate JSON](https://docs.gitlab.com/ci/testing/code_quality/),
 clang/GCC warning lines, MSVC warning lines), plus
-[`bca report markdown`](../commands/report.md)
-for humans. This page is a consolidated map from the user's *goal* to
-the right combination of subcommand, flags, and platform glue.
+[`bca report markdown`](../commands/report.md) for humans. This page
+maps each *goal* to the subcommand, flags, and platform glue that
+serve it. Copy-paste snippets come first; the design notes behind them
+([live worked example](#live-worked-example),
+[self-scan gate](#self-scan-threshold-gate-local-mirror-of-the-ci-gate),
+[trust boundary](#gate-trust-boundary)) come after.
 
 ## Picking outputs
 
 The matrix below maps each common goal to the `bca` invocation that
-feeds the corresponding CI surface. Linked sections below have the
+feeds the corresponding CI surface. The linked sections have the
 runnable example.
 
 | Goal                                            | Command + flags                                                                                              |
@@ -38,59 +44,22 @@ the [Quality reports recipe](quality-reports.md).
 
 ## GitHub Actions
 
-### Live worked example {#live-worked-example}
-
-`big-code-analysis` runs the recipes below against its own source on
-every push and PR. The workflow source —
-[`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml) —
-exercises the threshold gate, the baseline ratchet, both report
-formats, and a SARIF upload to GitHub Code Scanning end-to-end against
-the workspace itself. (The SARIF upload runs on same-repo pushes and
-PRs only; fork PRs skip it because the upload needs a write-scoped
-token, exactly as the clippy SARIF job does.) The output sits on
-GitHub Pages alongside this book:
-
-- HTML hotspot report:
-  <https://dekobon.github.io/big-code-analysis/reports/index.html>
-- Markdown PR/MR comment:
-  <https://dekobon.github.io/big-code-analysis/reports/report.md>
-
-Copy snippets below straight into your own workflow; the `bca` version
-quoted is the latest published release at the time of writing.
-
-> The in-tree workflow installs `bca` by building it from the current
-> checkout rather than downloading a pinned release — this avoids the
-> CLI-artifact schema-skew failure mode described under [Installing
-> `bca` from a GitHub Release](#installing-bca-from-a-github-release-recommended)
-> below for repos whose `.bca-baseline.toml` is always written by the
-> same `bca` that gates it. Downstream adopters tracking a stable
-> release line should stick with the pinned-tarball pattern; only
-> switch to "build from checkout" if you, too, are mutating CLI
-> artifact schemas in lockstep with the binary.
-
-### Threshold gate, SARIF, and clang-warning matcher
-
-The three pre-existing recipes — hard threshold gate, SARIF upload to
-Code Scanning, and `clang-warning` + GCC problem matcher for inline PR
-annotations — live in the
-[Check command page](../commands/check.md#ci-example-github-actions).
-Use the link rather than re-implementing them here.
-
 ### Installing `bca` from a GitHub Release (recommended) {#installing-bca-from-a-github-release-recommended}
 
-The fastest, most reproducible install path is the prebuilt tarball
-from this repository's [GitHub Releases](https://github.com/dekobon/big-code-analysis/releases).
-It is a single `curl | sha256sum | tar`, requires no Rust toolchain,
-and produces byte-identical binaries across runs. Pair it with
+For a reproducible install without a Rust toolchain, use the prebuilt
+tarball from this repository's
+[GitHub Releases](https://github.com/dekobon/big-code-analysis/releases).
+It is a single [`curl`](https://curl.se/) `| sha256sum | tar` and
+produces byte-identical binaries across runs. Pair it with
 [`actions/cache`](https://github.com/actions/cache) keyed by version
 so a green-path rerun skips the download entirely:
 
 > **CLI-artifact schema compatibility.** The `BCA_VERSION` you pin
 > here must support the schema version of every CLI artifact your
-> repo commits — most importantly `.bca-baseline.toml` (carries its
-> own `version` field) and the `bca.toml` manifest. A baseline file
-> written by a newer `bca` (carrying a newer schema version)
-> is **not loadable** by an older `bca` and the gate will fail with
+> repo commits, above all `.bca-baseline.toml` (which carries its own
+> `version` field) and the `bca.toml` manifest. A baseline file
+> written by a newer `bca` (carrying a newer schema version) is
+> **not loadable** by an older `bca`, and the gate fails with
 > `baseline version N is not supported by this bca`. When tracking
 > `main` or regenerating baselines locally with a newer `bca`,
 > either re-pin to a release that covers the new schema or switch
@@ -151,25 +120,28 @@ archive.
 
 ### Alternative: `cargo install` via prebuilt-aware actions {#alternative-cargo-install-via-prebuilt-aware-actions}
 
-When you cannot reach `github.com` from a runner (air-gapped, custom
-mirror) but can reach crates.io, the following two actions fall back
-transparently to `cargo install` when no prebuilt is published — at
-the cost of compile time on the cold path. Both pin to the same
-crates.io release as the GitHub Releases assets, so the
+When a runner cannot reach `github.com` (air-gapped, custom mirror)
+but can reach [crates.io](https://crates.io/), the two actions below
+fall back to `cargo install` when no prebuilt is published, at the
+cost of compile time on the cold path. Both pin to the same crates.io
+release as the GitHub Releases assets, so the
 [CLI-artifact schema compatibility](#installing-bca-from-a-github-release-recommended)
 warning applies here unchanged.
 
-If you specifically need a `bca` ahead of the latest crates.io
-release (e.g., your `.bca-baseline.toml` is committed at a newer
-schema than any published `bca` understands), swap the
+If you need a `bca` ahead of the latest crates.io release (for
+example, your `.bca-baseline.toml` is committed at a newer schema
+than any published `bca` understands), swap the
 `tool: big-code-analysis-cli@<version>` or `--version` form for
 `cargo install --git https://github.com/dekobon/big-code-analysis
 --rev <SHA> --locked big-code-analysis-cli` against the exact commit
 the baseline was generated from. This is what the in-tree
 [`pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml)
-workflow does (against the local checkout via `--path`) — it is a
-deliberate workaround for `bca`'s own repo, not a recommended
-default for downstream adopters.
+workflow does (against the local checkout via `--path`). It is a
+deliberate workaround for `bca`'s own repo, not a recommended default
+for downstream adopters.
+
+Use [taiki-e/install-action](https://github.com/taiki-e/install-action)
+or [cargo-binstall](https://github.com/cargo-bins/cargo-binstall).
 
 ```yaml
 # Option 1: taiki-e/install-action
@@ -187,8 +159,8 @@ default for downstream adopters.
   run: cargo binstall --no-confirm big-code-analysis-cli --version 2.4.0
 ```
 
-If either action falls back to compilation, cache the cargo registry +
-the installed binary so the second run is fast:
+If either action falls back to compilation, cache the cargo registry
+and the installed binary so the second run is fast:
 
 ```yaml
 - name: Cache cargo registry and bca binary
@@ -199,7 +171,7 @@ the installed binary so the second run is fast:
       ~/.cargo/git
       ~/.cargo/bin/bca
     # crates.io publishes immutable releases, so a `<version>` key is
-    # sufficient here — there is no sha256 to rotate. (The GitHub
+    # sufficient here; there is no sha256 to rotate. (The GitHub
     # Releases install path above is different: republished release
     # assets share a version, so its cache key must include the sha256.)
     key: bca-${{ runner.os }}-2.4.0
@@ -208,12 +180,22 @@ the installed binary so the second run is fast:
 Pin to a specific version (matching a published
 `big-code-analysis-cli` release on crates.io) so reports stay
 reproducible across runs. A floating install surfaces
-metric-counting changes as "mysterious CI flakes" on Mondays.
+metric-counting changes as unexplained CI flakes.
+
+### Threshold gate, SARIF, and clang-warning matcher
+
+Three recipes live on the
+[Check command page](../commands/check.md#ci-example-github-actions)
+rather than here: the hard threshold gate, the SARIF upload to
+[Code Scanning](https://docs.github.com/en/code-security/code-scanning),
+and the `clang-warning` output paired with the GCC
+[problem matcher](https://github.com/actions/toolkit/blob/main/docs/problem-matchers.md)
+for inline PR annotations.
 
 ### Posting the Markdown report as a PR comment
 
-`bca report markdown` is purpose-built for PR/MR comments: a stable
-header structure, one row per hot spot, and short paths once you pass
+`bca report markdown` is built for PR/MR comments: a stable header
+structure, one row per hot spot, and short paths once you pass
 `--strip-prefix`. Pair it with
 [`marocchino/sticky-pull-request-comment`](https://github.com/marocchino/sticky-pull-request-comment)
 so each push updates a single comment instead of stacking new ones:
@@ -250,8 +232,9 @@ jobs:
 ```
 
 The same Markdown file is suitable for upload as a build artifact
-(`actions/upload-artifact@v7`) if you want it downloadable from the
-workflow run page in addition to the PR comment.
+([`actions/upload-artifact@v7`](https://github.com/actions/upload-artifact))
+if you want it downloadable from the workflow run page in addition to
+the PR comment.
 
 ### Baseline / ratchet pattern {#baseline--ratchet-pattern}
 
@@ -267,23 +250,24 @@ bca check --paths src/ \
 git add bca.toml .bca-baseline.toml
 ```
 
-This snippet bootstraps from `src/` only — appropriate for a
-single-crate library. For a multi-crate workspace, see the
-[live worked example](#live-worked-example): its `.github/workflows/pages.yml`
-scans the entire repo with `--exclude-from .bcaignore`, a checked-in
-deny-set covering vendored grammars, generated trees, and tests.
+This snippet bootstraps from `src/` only, which suits a single-crate
+library. For a multi-crate workspace, see the
+[live worked example](#live-worked-example): its
+`.github/workflows/pages.yml` scans the entire repo with
+`--exclude-from .bcaignore`, a checked-in deny-set covering vendored
+grammars, generated trees, and tests.
 
 > **Share the exclude list across workflow, recipe, and bootstrap.**
 > Put the deny-set in a single file at the repo root (a `.bcaignore`
 > by convention, mirroring `.gitignore` / `.dockerignore`) and point
 > every `bca` invocation at it with `--exclude-from .bcaignore`.
 > Patterns from `--exclude-from` are unioned with any inline
-> `--exclude <GLOB>` flags into one deny-set — keep `--exclude` for
-> one-off ad-hoc excludes. Blank lines and `#`-prefixed comment lines
-> in the file are skipped. Patterns follow the same `./`-prefix
-> convention as `--exclude` arguments (the walker's emitted form).
-> Pair edits to `.bcaignore` with a `--write-baseline` refresh — the
-> baseline keys are sensitive to which files the walker visits.
+> `--exclude <GLOB>` flags into one deny-set; keep `--exclude` for
+> one-off excludes. Blank lines and `#`-prefixed comment lines in the
+> file are skipped. Patterns follow the same `./`-prefix convention as
+> `--exclude` arguments (the walker's emitted form). Pair edits to
+> `.bcaignore` with a `--write-baseline` refresh, because the baseline
+> keys depend on which files the walker visits.
 
 ```yaml
 - name: Threshold check with baseline
@@ -298,12 +282,11 @@ A new offender not in the baseline still fails. An improved function
 passes silently and stays in the baseline until the next
 `--write-baseline` refresh.
 
-Each surviving violation row is prefixed with a tag
-so a developer can tell at a glance whether they are looking at a
-brand-new offender or a known one that has worsened:
+Each surviving violation row starts with a tag that distinguishes a
+new offender from a known one that has worsened:
 
-- `[new]` — no baseline entry for this function / metric.
-- `[regr …]` — current value is worse than the recorded baseline,
+- `[new]`: no baseline entry for this function / metric.
+- `[regr …]`: the current value is worse than the recorded baseline,
   measured in the metric's own direction (for the lower-is-worse
   `mi.*` family that is a drop, still rendered `+`). The amount comes
   in two shapes: `[regr +N%]`, a percentage of the record, for counts,
@@ -323,26 +306,25 @@ split.
 After the per-violation rows, stderr carries a per-file rollup footer
 with the format `<path>: <count> violations (worst: <metric> =
 <value> vs limit <limit> at L<start>)`, sorted by violation count
-descending. This is intended to be the first thing a reader looks at:
+descending. It is meant to be the first thing a reader looks at:
 which file has the most problems, and which metric is the loudest in
 that file. Pass `--no-summary` to suppress the footer for tooling that
 reads the merged streams.
 
 ### Actionable failure output {#actionable-failure-output}
 
-The four sub-sections below turn `bca check`'s failure output from
-"a wall of offender lines" into a stack of CI-aware presentations:
-which files in this PR tripped a threshold (`--since` /
-`--changed-only`), inline file-diff annotations
-(`--github-annotations`), a rendered step-summary digest
-(`$GITHUB_STEP_SUMMARY`), and a copy-paste-safe remediation block.
-Each is independent; mix and match per CI surface. A combined worked
-example is at the end of this group.
+The four sub-sections below turn `bca check`'s failure output from a
+wall of offender lines into CI-aware presentations: which files in
+this PR tripped a threshold (`--since` / `--changed-only`), inline
+file-diff annotations (`--github-annotations`), a rendered
+step-summary digest (`$GITHUB_STEP_SUMMARY`), and a copy-paste-safe
+remediation block. Each is independent; mix and match per CI surface.
+A combined worked example is at the end of this group.
 
 ### Diff-aware mode (`--since` / `--changed-only`)
 
 On a PR or push, the developer's first question is usually *which of
-my files in this change* tripped a threshold — not the whole-tree
+my files in this change* tripped a threshold, not the whole-tree
 offender list. Two flags answer that:
 
 - `--since <ref>` partitions the per-file footer into a
@@ -370,20 +352,20 @@ offender list. Two flags answer that:
 When `--since` is omitted, `bca` auto-detects the diff base from the
 environment in this precedence:
 
-1. `BCA_DIFF_BASE` — the explicit-override hatch. Use this from a
-   local shell or non-GHA CI runner to mimic the auto-detection.
-2. `GITHUB_BASE_REF` — set by GitHub Actions on `pull_request`
+1. `BCA_DIFF_BASE`: the explicit override. Use this from a local
+   shell or non-GHA CI runner to mimic the auto-detection.
+2. `GITHUB_BASE_REF`: set by GitHub Actions on `pull_request`
    events. Expanded to `origin/<value>`; the runner is responsible
    for the corresponding `git fetch`.
-3. `GITHUB_EVENT_BEFORE` — set by GitHub Actions on `push` events to
+3. `GITHUB_EVENT_BEFORE`: set by GitHub Actions on `push` events to
    the SHA at HEAD before the push. The all-zeroes SHA (force push,
    brand-new branch) is treated as no signal.
 
-Auto-detection failing — `git` missing, ref unresolvable, not a git
-checkout — is non-fatal without `--changed-only`: `bca` prints a
-warning and falls back to today's whole-tree footer. With
-`--changed-only`, the same failure is fatal so a misconfigured CI
-does not silently green-light by suppressing every violation.
+A failed auto-detection (`git` missing, ref unresolvable, not a git
+checkout) is non-fatal without `--changed-only`: `bca` prints a
+warning and falls back to the whole-tree footer. With
+`--changed-only`, the same failure is fatal, so a misconfigured CI
+cannot pass by suppressing every violation.
 
 The "Files in this range:" banner names the resolved base and the
 signal that produced it, so a CI-log reader can verify the gate
@@ -404,18 +386,19 @@ added / removed / worsened / improved entries. `--since` diffs
 
 ### GitHub Actions inline annotations (`--github-annotations`)
 
-The GHA UI renders `::error file=…,line=…,title=…::msg` workflow
-commands as inline annotations on the file-diff view — much more
-discoverable than scrolling the raw job log. `bca check` emits one
-per violation per the tri-state `--github-annotations
-<auto|always|never>`: `auto` (the default) enables when
-`$GITHUB_ACTIONS == "true"` (set by every GHA workflow step),
-`always` forces them on, `never` suppresses them even inside a step
-(handy when a workflow runs `bca check` twice and wants annotations
-from only one run). A bare `--github-annotations` means `always`.
+The GHA UI renders `::error file=…,line=…,title=…::msg`
+[workflow commands](https://docs.github.com/en/actions/reference/workflow-commands-for-github-actions)
+as inline annotations on the file-diff view, which are easier to find
+than lines in the raw job log. `bca check` emits one per violation
+according to the tri-state `--github-annotations <auto|always|never>`:
+`auto` (the default) enables them when `$GITHUB_ACTIONS == "true"`
+(set by every GHA workflow step), `always` forces them on, and
+`never` suppresses them even inside a step (useful when a workflow
+runs `bca check` twice and wants annotations from only one run). A
+bare `--github-annotations` means `always`.
 
-The annotations ride on top of the existing per-violation human
-stream — both are emitted. To avoid exhausting GitHub's
+The annotations are emitted alongside the existing per-violation
+human stream, not instead of it. To avoid exhausting GitHub's
 10-error-per-step UI quota, annotations are capped at 10 per metric;
 overflow rolls up to a single `::error::N more <metric> violations
 not shown` line so the count stays visible.
@@ -425,7 +408,7 @@ not shown` line so the count stays visible.
   run: |
     bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml
-  # No `--github-annotations` flag needed — auto-enabled in GHA.
+  # No `--github-annotations` flag needed: auto-enabled in GHA.
 ```
 
 Pair this with `--since` (above) so the annotations point at the
@@ -433,27 +416,29 @@ files in the PR, not the entire offender list.
 
 ### Step-summary markdown digest (`$GITHUB_STEP_SUMMARY`)
 
-GitHub Actions exposes `$GITHUB_STEP_SUMMARY` — a path to a markdown
-file that, when populated, renders as the step's summary view in the
-job UI. `bca check` appends a digest containing the per-file rollup
-table, a per-metric count breakdown, and the top-10 offenders by
-severity (ranked the same way as the footer's worst metric) whenever
-that env var is set, or when
-`--summary-file <path>` is passed explicitly. `--summary-file never`
-suppresses the digest even when `$GITHUB_STEP_SUMMARY` is set.
+GitHub Actions exposes
+[`$GITHUB_STEP_SUMMARY`](https://docs.github.com/en/actions/reference/workflow-commands-for-github-actions#adding-a-job-summary),
+a path to a markdown file that, when populated, renders as the step's
+summary view in the job UI. Whenever that env var is set, or when
+`--summary-file <path>` is passed explicitly, `bca check` appends a
+digest containing the per-file rollup table, a per-metric count
+breakdown, and the top-10 offenders by severity (ranked the same way
+as the footer's worst metric). `--summary-file never` suppresses the
+digest even when `$GITHUB_STEP_SUMMARY` is set.
 
-The digest is bracketed by HTML-comment markers (`<!-- bca-step-summary-begin -->`
-/ `<!-- bca-step-summary-end -->`) so a retried step replaces (not
-stacks) the previous block — three retries converge to exactly one
-up-to-date digest. Content outside the markers (e.g. summaries
-written by other tools earlier in the same step) is preserved.
+The digest is bracketed by HTML-comment markers
+(`<!-- bca-step-summary-begin -->` / `<!-- bca-step-summary-end -->`)
+so a retried step replaces the previous block rather than stacking a
+new one; three retries converge to exactly one up-to-date digest.
+Content outside the markers (for example, summaries written by other
+tools earlier in the same step) is preserved.
 
 ```yaml
 - name: Threshold check with step-summary digest
   run: |
     bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml
-  # No flag needed — `$GITHUB_STEP_SUMMARY` is set automatically in GHA.
+  # No flag needed: `$GITHUB_STEP_SUMMARY` is set automatically in GHA.
 ```
 
 Local users can pipe the digest into any markdown file with
@@ -475,21 +460,20 @@ digest from above):
 ```
 
 The refresh invocation mirrors every flag the gate ran with that
-decides what a baseline records: the walk scope (`--paths`,
-`--include`, `--exclude`, `--exclude-from`, `--paths-from`), the
-walker tuning (`--language`, `--exclude-tests`,
+decides what a baseline records, so a first-time reader of a failing
+CI log can copy-paste it verbatim. That covers the walk scope
+(`--paths`, `--include`, `--exclude`, `--exclude-from`,
+`--paths-from`), the walker tuning (`--language`, `--exclude-tests`,
 `--cyclomatic-count-try`, `--no-ignore`, `--no-skip-generated`,
 `--no-config`), and the gate's own inputs (`--config`, `--threshold`,
 `--tier`, `--no-suppress`, `--check-exclude`, `--check-exclude-from`,
-`--baseline-fuzzy-match`, `--baseline`). So a first-time reader of a
-failing CI log can copy-paste it verbatim. Flags that change only
-reporting or the exit code — `--jobs`, `--report-format`,
-`--output`, `--no-fail`, `--exit-codes` — are left off, since none
-can move an entry into or out of the file.
-The artifact URL is derived from `$GITHUB_REPOSITORY` and
-`$GITHUB_RUN_ID` when both are present (always true in GHA); local
-runs — where there is no upload to point at — instead suggest
-running `bca report` to see the detailed view locally.
+`--baseline-fuzzy-match`, `--baseline`). Flags that change only
+reporting or the exit code (`--jobs`, `--report-format`, `--output`,
+`--no-fail`, `--exit-codes`) are left off, since none can move an
+entry into or out of the file. The artifact URL is derived from
+`$GITHUB_REPOSITORY` and `$GITHUB_RUN_ID` when both are present
+(always true in GHA). Local runs have no upload to point at, so they
+suggest running `bca report` for the detailed view instead.
 
 Suppress the block with `--no-remediation` for tooling that reads
 the merged streams; a plain `bca check | ...` pipeline never sees it.
@@ -503,10 +487,9 @@ git diff .bca-baseline.toml   # expect a shrinking file
 ```
 
 Two `--write-baseline` runs over an unchanged tree produce
-byte-identical output, so spurious diffs only appear when offenders
-actually changed. See the [Baselines recipe](baselines.md) for the
-full adoption flow, PR-review heuristics, and the suppression
-composition rules.
+byte-identical output, so a diff appears only when offenders changed.
+See the [Baselines recipe](baselines.md) for the full adoption flow,
+PR-review heuristics, and the suppression composition rules.
 
 ### Putting it all together
 
@@ -534,10 +517,10 @@ recommended invocation is:
 
 What this gives you on a failing PR:
 
-1. **Per-violation rows on stdout** — same shape as the legacy
+1. **Per-violation rows on stdout**, in the same shape as the legacy
    gate, so existing grep tooling keeps working.
 2. **Per-file rollup footer** with `Files in this range:`
-   (touched in the PR) listed before `Other offenders:` — the
+   (touched in the PR) listed before `Other offenders:`, so the
    developer sees their own contributions first.
 3. **Inline GHA annotations** on the file-diff view, capped at 10
    per metric with an overflow rollup.
@@ -575,9 +558,9 @@ output paths fire.
 
 #### Offender-count delta against merge base (stopgap)
 
-For teams who cannot commit a baseline file (e.g. policy reasons), a
-coarser approximation counts `<error>` elements in two Checkstyle
-documents — one on the merge base, one on the PR head — and fails
+For teams who cannot commit a baseline file (for policy reasons, say),
+a coarser approximation counts `<error>` elements in two Checkstyle
+documents, one on the merge base and one on the PR head, and fails
 when the count grows:
 
 ```yaml
@@ -611,7 +594,37 @@ not register as a regression, and improving one offender while
 regressing another nets to zero. The native baseline flow above is
 strictly more precise and is the recommended approach.
 
-#### Self-scan threshold gate (local mirror of the CI gate)
+### Live worked example {#live-worked-example}
+
+`big-code-analysis` runs the recipes above against its own source on
+every push and PR. The workflow source,
+[`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml),
+exercises the threshold gate, the baseline ratchet, both report
+formats, and a SARIF upload to GitHub Code Scanning end-to-end against
+the workspace itself. (The SARIF upload runs on same-repo pushes and
+PRs only; fork PRs skip it because the upload needs a write-scoped
+token, exactly as the clippy SARIF job does.) The output sits on
+GitHub Pages alongside this book:
+
+- HTML hotspot report:
+  <https://dekobon.github.io/big-code-analysis/reports/index.html>
+- Markdown PR/MR comment:
+  <https://dekobon.github.io/big-code-analysis/reports/report.md>
+
+The `bca` version quoted in the snippets on this page is the latest
+published release at the time of writing.
+
+> The in-tree workflow installs `bca` by building it from the current
+> checkout rather than downloading a pinned release. This avoids the
+> CLI-artifact schema-skew failure mode described under [Installing
+> `bca` from a GitHub Release](#installing-bca-from-a-github-release-recommended)
+> for repos whose `.bca-baseline.toml` is always written by the same
+> `bca` that gates it. Downstream adopters tracking a stable release
+> line should stick with the pinned-tarball pattern; only switch to
+> "build from checkout" if you, too, are mutating CLI artifact schemas
+> in lockstep with the binary.
+
+### Self-scan threshold gate (local mirror of the CI gate) {#self-scan-threshold-gate-local-mirror-of-the-ci-gate}
 
 CI's threshold gate fires only after push, which is too late if a
 refactor silently nudged a metric past its limit. The
@@ -619,7 +632,7 @@ refactor silently nudged a metric past its limit. The
 [`Makefile`](https://github.com/dekobon/big-code-analysis/blob/main/Makefile)
 exposes four targets that mirror the CI gate (the
 [`Threshold gate` step in `.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml))
-locally and add a second tier at 95% of every limit so encroachment
+locally and add a second tier at 95% of every limit, so encroachment
 is caught a commit or two before the hard gate trips:
 
 ```bash
@@ -633,40 +646,40 @@ Path selection, the `.bcaignore` deny-set, the per-function
 thresholds, the cyclomatic `?` policy, and the baseline file all
 live in the repo-root `bca.toml` manifest, which `bca` discovers
 automatically. The hard tier is exactly what CI runs; expanded, it
-is a bare check (no path / threshold / baseline flags — the manifest
-supplies them):
+is a bare check with no path, threshold, or baseline flags, because
+the manifest supplies them:
 
 ```bash
 cargo run --quiet --release -p big-code-analysis-cli -- check
 ```
 
 Both tiers consume the same `bca.toml` thresholds and the same
-`.bca-baseline.toml`; the soft tier just runs the hard recipe
-with every threshold value multiplied by `BCA_HEADROOM`. Both
-exit `0` clean, `2` on any threshold violation, `1` on tool
-error — the soft tier is a real gate, not advisory, so do not
-wrap `make self-scan-headroom` in `|| true`. The two gate targets
-(`self-scan`, `self-scan-headroom`) are wired into `make
-pre-commit`, `make ci`, and `.pre-commit-config.yaml`; those chains
-run the hard tier before the soft tier, so a true regression always
-reports before near-limit headroom. The two `write-baseline`
-targets are side-effecting and deliberately not wired in.
+`.bca-baseline.toml`; the soft tier runs the hard recipe with every
+threshold value multiplied by `BCA_HEADROOM`. Both exit `0` clean,
+`2` on any threshold violation, and `1` on tool error. The soft tier
+is a real gate, not advisory, so do not wrap `make
+self-scan-headroom` in `|| true`. The two gate targets (`self-scan`,
+`self-scan-headroom`) are wired into `make pre-commit`, `make ci`,
+and `.pre-commit-config.yaml`; those chains run the hard tier before
+the soft tier, so a true regression always reports before near-limit
+headroom. The two `write-baseline` targets are side-effecting and
+deliberately not wired in.
 
 `BCA_HEADROOM=0.90 make self-scan-headroom` widens the band;
-`BCA_HEADROOM=0.99` tightens it to the last 1%. When the soft
-tier fires, absorb the offender into the baseline with
-`make self-scan-write-baseline-headroom` (which records every
-offender at the scaled thresholds — strictly a superset of the
-hard-tier offenders).
+`BCA_HEADROOM=0.99` tightens it to the last 1%. When the soft tier
+fires, absorb the offender into the baseline with
+`make self-scan-write-baseline-headroom`, which records every
+offender at the scaled thresholds (a strict superset of the hard-tier
+offenders).
 
-The pattern (hard tier mirroring CI + soft tier as early-warning
-band, both ratcheted by the same baseline) is project-agnostic —
-the [Local threshold gates recipe](local-gates.md) documents the
+The pattern (hard tier mirroring CI, soft tier as an early-warning
+band, both ratcheted by the same baseline) is project-agnostic. The
+[Local threshold gates recipe](local-gates.md) documents the
 underlying principles, drop-in Makefile / `just` / `package.json`
-skeletons, and the helper script that scales thresholds, so you
-can adopt the same workflow in your own repo. The generic recipe
-uses the same `BCA_*` env-var names as the Makefile above, so
-overrides like `BCA_HEADROOM=0.90` work identically across both.
+skeletons, and the helper script that scales thresholds, so you can
+adopt the same workflow in your own repo. The generic recipe uses the
+same `BCA_*` env-var names as the Makefile above, so overrides like
+`BCA_HEADROOM=0.90` work identically across both.
 
 ## GitLab CI
 
@@ -678,7 +691,7 @@ and a Markdown report, then uploads them as artifacts.
 
 > The same [CLI-artifact schema-compatibility
 > note](#installing-bca-from-a-github-release-recommended) from the
-> GitHub Actions section applies here — the `BCA_VERSION` pin must
+> GitHub Actions section applies here: the `BCA_VERSION` pin must
 > cover the schema version of every CLI artifact you commit.
 
 ```yaml
@@ -696,7 +709,7 @@ bca-quality:
   stage: quality
   image: debian:stable-slim
   cache:
-    # Same key shape as the GitHub Actions snippet — bumping
+    # Same key shape as the GitHub Actions snippet: bumping
     # BCA_VERSION invalidates the cache automatically.
     key: "bca-$BCA_VERSION"
     paths:
@@ -756,21 +769,20 @@ A few notes about the example:
   offenders for the artifacts; the final `bca check` (no
   `--no-fail`) is the pass/fail gate. All three runs use the same
   threshold config so the artifacts always match the gate decision.
-- `artifacts:when: always` ensures every artifact is downloadable
-  even on a red pipeline — which is exactly when you want them
-  most.
+- `artifacts:when: always` keeps every artifact downloadable even on
+  a red pipeline, which is when you need them most.
 - `artifacts:reports:codequality` wires the Code Climate JSON
-  directly into GitLab's MR Code Quality widget — see the
+  directly into GitLab's MR Code Quality widget; see the
   [Code Quality widget section below](#gitlab-code-quality-widget)
   for the field-by-field semantics.
 
 ### GitLab Code Quality widget {#gitlab-code-quality-widget}
 
-GitLab's first-class Code Quality experience (inline complaints on
-the MR diff, summary on the MR overview page) consumes
+GitLab's Code Quality view (inline complaints on the MR diff, summary
+on the MR overview page) consumes
 [Code Climate JSON](https://docs.gitlab.com/ci/testing/code_quality/).
-`bca check` emits this natively via `--report-format code-climate`,
-so the integration is a one-liner:
+`bca check` emits this via `--report-format code-climate`, so the
+integration is a one-liner:
 
 ```yaml
 code_quality:
@@ -793,10 +805,11 @@ configured threshold: `value / limit` for a count, and for the
 maintainability-index family, where lower is worse and the index goes
 negative, one step per maintainability band below the floor. `≤ 1.5`
 → `minor`, `≤ 2` → `major`, `≤ 4` → `critical`, `> 4` → `blocker`;
-`bca check`'s summary ranks offenders by the same key. The widget deduplicates findings by `fingerprint`; `bca`
-hashes `path \0 function \0 metric` (no line, no value) so a
-violation surviving an upstream line-drift edit still collapses
-into the same widget entry across pipeline runs.
+`bca check`'s summary ranks offenders by the same key. The widget
+deduplicates findings by `fingerprint`; `bca` hashes
+`path \0 function \0 metric` (no line, no value) so a violation that
+survives an upstream line-drift edit still collapses into the same
+widget entry across pipeline runs.
 
 Sanity-check a generated report locally:
 
@@ -841,9 +854,13 @@ before it runs.
 
 ## Jenkins / SonarQube
 
-Both Jenkins (via the *Warnings Next Generation* plugin) and
-SonarQube (via its *Generic Issue* importer) consume Checkstyle 4.3
-XML directly. The same invocation feeds both:
+Both [Jenkins](https://www.jenkins.io/) (via the
+[Warnings Next Generation](https://plugins.jenkins.io/warnings-ng/)
+plugin) and [SonarQube](https://www.sonarsource.com/products/sonarqube/)
+(via its
+[Generic Issue](https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/importing-external-issues/generic-issue-import-format/)
+importer) consume Checkstyle 4.3 XML directly. The same invocation
+feeds both:
 
 ```bash
 bca check --paths src/ \
@@ -865,32 +882,32 @@ Applies regardless of provider:
 - **Pin `bca` to a specific version.** Both `cargo install
   --version` and `cargo binstall --version` accept the published
   crate version of `big-code-analysis-cli`. A floating install
-  surfaces metric-counting changes as "mysterious CI flakes" on
-  Mondays. Pin to a version whose CLI-artifact schemas
+  surfaces metric-counting changes as unexplained CI flakes. Pin to a
+  version whose CLI-artifact schemas
   ([baseline](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#cli-artifact-formats),
-  thresholds) match the files your repo commits — see the
+  thresholds) match the files your repo commits; see the
   [schema-compatibility note](#installing-bca-from-a-github-release-recommended)
   in the install section.
-- **`--jobs` defaults to the effective CPU count.** The flag
-  honors `available_parallelism()` —
-  cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
-  macOS/Windows — so CI runners no longer need to thread
-  `--jobs "$(nproc)"` through every recipe. `--jobs 1`
-  remains a debugging knob, not a default. It is *not*
-  memory-aware. Each worker holds one whole file at a time and a
-  parse-only run measures 25–70× the source size, so the
-  *in-flight* term is roughly `jobs × 70 × the largest source
-  file` in the tree — and `--jobs` bounds that term only.
-  Whether it is the whole story depends on the destination:
-  `--output-dir` writes each document as it is produced and
-  `bca check` reduces each file to its violations, so both stay
-  at the in-flight bound, while `metrics --output <FILE>`
-  collects every file's result and serializes it after the walk,
-  and structured stdout holds finished documents while an
-  earlier file is still being analyzed — which is worst when one
-  large file sorts early. A memory-limited container with many
-  vCPUs should pass an explicit `--jobs`, and prefer
-  `--output-dir` to `--output <FILE>` on a large tree.
+- **Use the default CPU-based parallelism unless memory requires
+  fewer workers.** `--jobs` defaults to the effective CPU count and
+  honors
+  [`available_parallelism()`](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html)
+  (cgroup-, cpuset- and quota-aware on Linux, OS CPU count on
+  macOS/Windows), so CI runners need not thread `--jobs "$(nproc)"`
+  through every recipe. `--jobs 1` remains a debugging knob, not a
+  default. It is *not* memory-aware. Each worker holds one whole file
+  at a time and a parse-only run measures 25–70× the source size, so
+  the *in-flight* term is roughly `jobs × 70 × the largest source
+  file` in the tree, and `--jobs` bounds that term only. The
+  destination decides the rest: `--output-dir` writes each document
+  as it is produced and `bca check` reduces each file to its
+  violations, so both stay at the in-flight bound. `metrics --output
+  <FILE>` collects every file's result and serializes it after the
+  walk, and structured stdout holds finished documents while an
+  earlier file is still being analyzed, which is worst when one large
+  file sorts early. A memory-limited container with many vCPUs should
+  pass an explicit `--jobs`, and prefer `--output-dir` to
+  `--output <FILE>` on a large tree.
 - **Always pass `--strip-prefix "$PWD/"` to `bca report markdown`**
   so the path column is identical across runners with different
   workspace paths. Without it the diff between two reports is
@@ -901,7 +918,7 @@ Applies regardless of provider:
   it automatically, so a bare `bca check` reads the committed
   thresholds, paths, and baseline. Treat it as source: review
   threshold relaxations in code review.
-- **Exit-code contract.** `bca check` exits `0` clean, `2` on any
+- **Handle the exit-code contract.** `bca check` exits `0` clean, `2` on any
   threshold violation, `1` on tool error (bad config, unknown
   metric, unreadable path). Reserving `1` for tool errors lets CI
   distinguish "a function got too complex" from "the analyzer
@@ -911,7 +928,7 @@ Applies regardless of provider:
   `5` a `--tier=soft` violation that also breaches the hard limit.
   The tiered codes are opt-in; the default stays `0`/`1`/`2`. Every
   fail-state remains non-zero, so `exit != 0 → fail` wrappers keep
-  working — only tooling that tests `$? -eq 2` explicitly needs to
+  working; only tooling that tests `$? -eq 2` explicitly needs to
   widen to `2`-`5`.
 - **Honor in-source suppression markers, audit with
   `--no-suppress`.** The default `bca check` honors
@@ -988,11 +1005,11 @@ exits `0`, it just says so.
 The ignored count covers analyzable files at the directories the walk
 entered. A whole directory dropped by an ignore rule (a build tree, or
 an attacker ignoring a source directory outright) is never entered and
-appears only under `--report-skipped`, as its own clause —
-`3 ignored directories not walked` — because ignored build trees are
-present in essentially every checkout and would otherwise make the
-default summary permanent noise. A PR gate that must see whole-directory
-drops should pass `--report-skipped` or, better, `--strict`. See
+appears only under `--report-skipped`, as its own clause
+(`3 ignored directories not walked`), because ignored build trees are
+present in nearly every checkout and would otherwise make the default
+summary permanent noise. A PR gate that must see whole-directory drops
+should pass `--report-skipped` or, better, `--strict`. See
 [the check page](../commands/check.md#strict-mode) for the exact rules.
 
 ### `--strict` turns both mechanisms off

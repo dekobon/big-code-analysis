@@ -1,8 +1,8 @@
 # Supported Change-history (VCS) Metrics
 
-This chapter is a guided tour of the **change-history metrics** —
-the signals big-code-analysis derives from version-control history
-rather than from the source AST. Where the
+This chapter describes the **change-history metrics**: the signals
+big-code-analysis derives from version-control history rather than
+from the source AST. Where the
 [Supported Code Metrics](./metrics.md) chapter measures the *shape*
 of the code as it exists today, these metrics measure how that code
 *got there*: how often it changes, how much, by how many people, and
@@ -17,16 +17,17 @@ metrics](./commands/vcs.md) page documents the flags, windows, output
 formats, and caching. This chapter is the *why*; that page is the
 *how*.
 
-A few framing notes before we start:
+Four framing notes:
 
 - **These metrics predict where defects cluster, not whether code is
   correct.** The defect- and vulnerability-prediction literature
-  consistently finds that *process* signals — how a file has been
-  edited over time — out-predict *product* signals like size or
-  complexity. Graves *et al.* put it bluntly in 2000: the number of
-  times a module has been changed is a better predictor of its fault
-  count than its length. None of these numbers measures correctness;
-  they rank files by the probability that a bug is hiding in one.
+  consistently finds that *process* signals (how a file has been
+  edited over time) out-predict *product* signals like size or
+  complexity. Graves and colleagues put it bluntly in 2000: the number
+  of times a module has been changed is a better predictor of its
+  fault count than its length. None of these numbers measures
+  correctness; they rank files by the probability that a bug is hiding
+  in one.
 - **Everything is measured over two windows.** A single history walk
   per invocation produces every signal over a **long** window
   (default `12mo` ≈ 365 days) and a **recent** window (default
@@ -81,8 +82,9 @@ file nobody touches is a file nobody is breaking.
 ### Algorithm
 
 A single history walk visits each commit reachable from the analysed
-ref (first-parent only by default, the full DAG with `--full-history`)
-and attributes it to every file it modifies. Merge commits are
+ref (first-parent only by default; `--full-history` follows all parent
+links in the commit graph) and attributes it to every file it
+modifies. Merge commits are
 excluded unless `--include-merges` is passed, and renames are followed
 by default so a file's history survives a move. The walk counts
 *distinct commits* per file per window, not diffs or hunks, so a
@@ -93,10 +95,10 @@ hunks both count as one.
 
 Commit frequency is a rate, so it is only meaningful relative to a
 baseline: this file versus its siblings, or this file this quarter
-versus last. A consistently high count flags a file that is either
-under active feature development or structurally unstable; pairing it
-with [code churn](#code-churn) tells the two apart, since heavy churn
-on few commits is a different story from light churn on many.
+versus last. A consistently high count flags a file that is under
+active feature development or structurally unstable; pairing it with
+[code churn](#code-churn) tells the two apart, since heavy churn on
+few commits is a different story from light churn on many.
 
 ## Code churn {#code-churn}
 
@@ -121,7 +123,7 @@ as a verdict.
 For every in-window commit touching a file, the walk adds that diff's
 added-plus-deleted line count to the file's churn total for the
 window. Because added and deleted lines are summed, a one-line edit
-counts as two (one deletion, one addition) — churn measures *activity*,
+counts as two (one deletion, one addition): churn measures *activity*,
 not net growth.
 
 ### How to read it
@@ -130,7 +132,7 @@ Churn is the natural numerator for a density ratio. Churn per commit
 distinguishes steady editing from a few large rewrites; churn against
 file size recovers Nagappan and Ball's relative measure. A file whose
 recent churn is high relative to its long-window churn is changing
-faster now than its history would predict — exactly the
+faster now than its history would predict, which is the
 [burst](#burst) signal below.
 
 ## Burst {#burst}
@@ -141,10 +143,10 @@ window: `commits_recent / commits_long`, reported as a ratio in
 recent; a value near `0` means the file was active long ago and has
 since gone quiet.
 
-The signal follows directly from the recency principle that runs
-through the change-history literature — Graves *et al.* found that
-recent changes weigh more heavily on fault incidence than old ones,
-and the just-in-time defect-prediction line (see the
+The signal follows from the recency principle that runs through the
+change-history literature. Graves and colleagues found that recent
+changes weigh more heavily on fault incidence than old ones, and the
+just-in-time defect-prediction line (see the
 [JIT score](#just-in-time-commit-score)) is built on the same
 observation. A file whose change history is *front-loaded into the
 present* is in active flux, and active flux is when defects enter.
@@ -170,8 +172,8 @@ Both trace to empirical work on ownership and security. Christian Bird
 and colleagues' 2011 FSE paper [*Don't Touch My Code! Examining the
 Effects of Ownership on Software
 Quality*](https://www.microsoft.com/en-us/research/publication/dont-touch-my-code-examining-the-effects-of-ownership-on-software-quality/)
-found, on Windows Vista and 7, that diffuse ownership — many
-low-expertise contributors, a low top-owner share — predicts both
+found, on Windows Vista and 7, that diffuse ownership (many
+low-expertise contributors, a low top-owner share) predicts both
 pre-release faults and post-release failures. On the security side,
 Andrew Meneely and Laurie Williams' 2009 CCS paper [*Secure Open
 Source Collaboration: An Empirical Study of Linus'
@@ -181,10 +183,11 @@ were roughly sixteen times more likely to harbour a vulnerability.
 
 ### Algorithm
 
-Author identities are canonicalised through the repository `.mailmap`
-and counted by lowercased email, so a contributor who commits under
-two addresses counts once. `Co-authored-by:` trailers add
-participants. Bot identities (`dependabot[bot]`, `renovate[bot]`,
+Author identities are canonicalised through the repository
+[`.mailmap`](https://git-scm.com/docs/gitmailmap) and counted by
+lowercased email, so a contributor who commits under two addresses
+counts once. `Co-authored-by:` trailers add participants. Bot
+identities (`dependabot[bot]`, `renovate[bot]`,
 `github-actions[bot]`, and similar) are excluded by default so
 automated churn does not inflate the count. `ownership_top_share` is
 the top author's edit count over the file's total edits in the window.
@@ -193,8 +196,8 @@ the top author's edit count over the file's total edits in the window.
 
 A rising author count on a long-lived file is a knowledge-diffusion
 signal: more people are now obliged to understand it. The
-[composite risk score](#composite-risk-score) folds this in two ways —
-it scales the author factor by an ownership-*dilution* term
+[composite risk score](#composite-risk-score) folds this in two ways.
+It scales the author factor by an ownership-*dilution* term
 `(1 - ownership_top_share)`, so the same head-count counts for more
 when ownership is spread thin, and it adds categorical bumps at the
 six- and nine-developer marks that encode Meneely and Williams' RHEL4
@@ -214,28 +217,31 @@ Reading a commit's purpose from its message is the technique
 introduced by Jacek Śliwerski, Thomas Zimmermann, and Andreas Zeller's
 2005 MSR paper [*When Do Changes Induce
 Fixes?*](https://dl.acm.org/doi/10.1145/1083142.1083147), the work now
-universally abbreviated *SZZ*. The premise is that a file's history of
+abbreviated *SZZ*. The premise is that a file's history of
 *corrective* change is itself predictive: a file that has needed many
 fixes is a file likely to need more. A security fix is a sharper
 signal than an ordinary bug fix, and a revert marks a change that had
-to be undone — a localized admission that something went wrong there.
+to be undone, a localized admission that something went wrong there.
 
 ### Algorithm
 
 Classification is keyword-based on the commit subject and body (see
 `src/vcs/classify.rs`). It is deliberately simple and language- and
 tracker-agnostic: there is no issue-tracker linkage and no blame
-back-tracing to the fix-inducing commit, so this is the lightweight
+back-tracing to the fix-inducing commit, so this is the
 message-classification half of SZZ, not the full algorithm. The counts
 are kept over the long window only.
 
 ### How to read it
 
 A high `bug_fix_commits` count is a file that keeps needing repair.
-The composite score feeds all three through a single log-scaled term
-with security fixes double-weighted, so a file with a history of
-security fixes ranks above an otherwise-identical file with only
-ordinary bug fixes. Because the classifier reads messages, its
+The weighted composite score combines bug-fix and security-fix counts
+in a log-scaled term, with security fixes double-weighted, so a file
+with a history of security fixes ranks above an otherwise-identical
+file with only ordinary bug fixes. The file-level formula does not use
+`revert_commits`; only the
+[just-in-time commit score](#just-in-time-commit-score) reads the
+revert classification. Because the classifier reads messages, its
 accuracy tracks your project's commit hygiene: a repository with terse
 or templated messages will under-count.
 
@@ -248,10 +254,11 @@ recent* in-window commit.
 
 These anchor the recency reasoning the rest of the family depends on.
 A small `age_days` marks a *new* file, and newly added code carries
-elevated risk — an observation from the just-in-time line and from
-Chromium's own defect analysis, where freshly added features were
-disproportionately fault-prone. A small `last_modified_days` marks a
-file edited recently, which the windows already weight.
+elevated risk, an observation from the just-in-time line and from
+[Chromium](https://www.chromium.org/)'s own defect analysis, where
+freshly added features were disproportionately fault-prone. A small
+`last_modified_days` marks a file edited recently, which the windows
+already weight.
 
 ### How to read it
 
@@ -272,27 +279,29 @@ file are. It is reported per window as `change_entropy_long` and
 The metric is Ahmed Hassan's *History Complexity Metric* from the 2009
 ICSE paper [*Predicting Faults Using the Complexity of Code
 Changes*](https://dl.acm.org/doi/10.1109/ICSE.2009.5070510). The idea
-adapts Shannon entropy to commits: for each commit, take the
-distribution of its churn across the files it
-touched and compute that distribution's entropy in bits. A commit that
-touches one file scores `0`; a commit that spreads its churn evenly
-across *n* files approaches log₂(*n*). A scattered, cross-cutting
-commit is harder to reason about than a focused one. Hassan reported
-that this change-process complexity predicts faults better than prior
-code-based or change-count models; later work measured file-level
-change entropy at a Pearson correlation up to 0.54 with defect counts
-on eight Apache projects (see [co-change entropy](#co-change-entropy)).
+adapts [Shannon
+entropy](https://en.wikipedia.org/wiki/Entropy_(information_theory))
+to commits: for each commit, take the distribution of its churn across
+the files it touched and compute that distribution's entropy in bits.
+A commit that touches one file scores `0`; a commit that spreads its
+churn evenly across *n* files approaches log₂(*n*). A scattered,
+cross-cutting commit is harder to reason about than a focused one.
+Hassan reported that this change-process complexity predicts faults
+better than prior code-based or change-count models; later work
+measured file-level change entropy at a Pearson correlation up to 0.54
+with defect counts on eight Apache projects (see
+[co-change entropy](#co-change-entropy)).
 
 ### Algorithm
 
 For each commit, big-code-analysis computes the Shannon entropy `H` of
 its churn distribution across the touched files (see
 `src/vcs/entropy.rs`). Each participating file is then credited its
-churn share `pᵢ·H` of that commit — Hassan's History Complexity Metric
-— and these shares are summed per file per window. A file repeatedly
-caught up in diffuse, multi-file changes accumulates high change
-entropy; a file that only ever changes in tightly focused commits
-stays low.
+churn share `pᵢ·H` of that commit (Hassan's History Complexity
+Metric), and these shares are summed per file per window. A file
+repeatedly caught up in diffuse, multi-file changes accumulates high
+change entropy; a file that only ever changes in tightly focused
+commits stays low.
 
 ### How to read it
 
@@ -306,7 +315,7 @@ rather than restating the churn and commit counts.
 ## Co-change entropy {#co-change-entropy}
 
 **Co-change entropy** measures how wide a file's change *blast radius*
-is — how many different files it tends to change alongside. It is
+is: how many different files it tends to change alongside. It is
 reported per window as `cochange_entropy_long` and
 `cochange_entropy_recent`, in bits.
 
@@ -315,31 +324,32 @@ Process Metric for Defect
 Prediction*](https://arxiv.org/abs/2504.18511) (arXiv 2504.18511).
 Build a weighted graph in which two files share an edge whenever they
 change in the same commit, the weight being the number of shared
-commits. A
-file's co-change entropy is the Shannon entropy of its edge-weight
-distribution: low when it always co-changes with the same one partner,
-high when its changes ripple out across many different files. The study
-found that adding co-change entropy to change entropy improved AUROC in
-82.5% of cases over the prior signal set across eight Apache projects.
+commits. A file's co-change entropy is the Shannon entropy of its
+edge-weight distribution: low when it always co-changes with the same
+one partner, high when its changes ripple out across many different
+files. The study found that adding co-change entropy to change entropy
+improved the area under the receiver operating characteristic curve
+(AUROC, a measure of ranking discrimination) in 82.5% of cases over
+the prior signal set across eight Apache projects.
 
 ### Algorithm
 
 The walk records, per commit, which in-scope files changed together and
 accumulates the co-change graph's edge weights, then computes each
 file's edge-weight entropy per window. Bulk-import commits touching more
-than 1000 files are excluded from the co-change graph — its edge count
-grows with the square of commit width — though they still contribute
+than 1000 files are excluded from the co-change graph, whose edge count
+grows with the square of commit width, though they still contribute
 their (linear-cost) change entropy. A computed `0.0` means the file has
-no co-change neighbours in the window, which is a real measurement, not
-a missing one.
+no co-change neighbours or only one neighbour in the window. It is a
+real measurement, not a missing record.
 
 ### How to read it
 
 Where change entropy asks "how scattered are the commits that touch
 this file?", co-change entropy asks "how many *other* files does
 touching this one drag along?". A high value flags a file whose edits
-have unpredictable, far-reaching consequences — a coupling hotspot. The
-two entropy signals are designed to complement each other, and the
+have unpredictable, far-reaching consequences: a coupling hotspot. The
+two entropy signals complement each other, and the
 [risk score](#composite-risk-score) `v2` adds both recent-window terms
 together.
 
@@ -356,7 +366,7 @@ both versioned together by a single `risk_score_version` (currently
 The default formula is a log-scaled weighted sum with categorical
 multiplicative bumps. Counts are passed through `ln(1 + x)` so that
 the difference between 10 and 20 commits matters more than the
-difference between 110 and 120, matching how change activity actually
+difference between 110 and 120, matching how change activity
 saturates:
 
 ```text
@@ -384,9 +394,9 @@ double-weighted, and the two recent-window entropy terms enter
 additively (Hassan; arXiv 2504.18511). The full derivation lives in
 `src/vcs/score.rs`.
 
-The size term `ln(1 + sloc)² / 100` is a genuine contributor, not the
-tiny tie-breaker its position at the end of the sum might suggest:
-it reaches about `0.85` at 10k SLOC and exceeds `1.0` past roughly 50k
+The size term `ln(1 + sloc)² / 100` is a real contributor, not the
+tie-breaker its position at the end of the sum might suggest: it
+reaches about `0.85` at 10k SLOC and exceeds `1.0` past roughly 50k
 SLOC, comparable in magnitude to the churn terms. Large files are only
 weakly correlated with defects, but the squared-log scaling keeps size
 a first-class additive signal rather than letting it dominate.
@@ -395,11 +405,11 @@ a first-class additive signal rather than letting it dominate.
 
 `--risk-formula percentile` is the alternative: each signal is
 re-ranked to its percentile within the analysed set, and the per-file
-mean of those percentiles becomes the score. This trades the
-literature-tuned weights for cross-project robustness — the
-prediction literature generally recommends *relative* triggers over
-hard absolute thresholds — at the cost of a score that is only
-meaningful within a single run's file set.
+mean of those percentiles becomes the score. This formula replaces
+fixed weights with relative ranks within the analysed file set.
+Prediction research recommends relative triggers over fixed absolute
+thresholds, but this score is meaningful only within one run's file
+set.
 
 ### How to read it
 
@@ -409,7 +419,7 @@ Do not compare a raw `risk_score` between two repositories, and do not
 read its magnitude as a defect probability. To watch a single file
 move over time, use [`bca vcs trend`](./commands/vcs.md#historical-trend-over-time),
 which re-anchors the walk at each historical point so the series
-reflects what the file actually looked like then.
+reflects what the file looked like then.
 
 ## Hotspot score {#hotspot-score}
 
@@ -422,14 +432,14 @@ cyclomatic --vcs`), because it needs both halves.
 The metric is the central idea of Adam Tornhill's 2015 book [*Your Code
 as a Crime
 Scene*](https://pragprog.com/titles/atcrime/your-code-as-a-crime-scene/)
-and the CodeScene tooling built on it. The argument is that complexity
-*on its own* is cheap to ignore — a complex file nobody touches costs
-nothing — and churn on its own is cheap too. The danger is their
-intersection: code that is both complicated *and* changing often is
-where defects concentrate and where developer effort is repeatedly
-spent. Tornhill observes that a small fraction of a codebase typically
-accounts for a large majority of its change activity, and the hotspot
-score is built to find that fraction.
+and the [CodeScene](https://codescene.com/) tooling built on it. The
+argument is that complexity *on its own* is cheap to ignore (a complex
+file nobody touches costs nothing) and churn on its own is cheap too.
+The danger is their intersection: code that is both complicated *and*
+changing often is where defects concentrate and where developer effort
+is repeatedly spent. Tornhill observes that a small fraction of a
+codebase typically accounts for a large majority of its change
+activity, and the hotspot score is built to find that fraction.
 
 ### How to read it
 
@@ -481,22 +491,22 @@ each directory.
 
 ### How to read it
 
-A bus factor of `1` means losing one person orphans the set — common,
-and correct, for a repository of mostly single-author files. Treat the
-number as a planning signal, not a guarantee: it is a heuristic over
-*observed* authorship within the long window, so "first authorship"
-means the earliest commit seen in that window, not necessarily a file's
-true creation. Use it to find the directories where knowledge is
-dangerously concentrated and spread review accordingly.
+A bus factor of `1` means losing one person orphans the set, which is
+common, and correct, for a repository of mostly single-author files.
+Treat the number as a planning signal, not a guarantee: it is a
+heuristic over *observed* authorship within the long window, so "first
+authorship" means the earliest commit seen in that window, not
+necessarily a file's true creation. Use it to find the directories
+where knowledge is dangerously concentrated and spread review
+accordingly.
 
 ## Just-in-time commit score {#just-in-time-commit-score}
 
 Everything above ranks *files* at a point in time. The
-**just-in-time (JIT) score** instead scores a single *commit* for its
-defect-induction risk — the unit a continuous-integration gate
-actually reviews at check-in. It is produced by `bca vcs commit
-<commit>` and reported as an ordinal `risk_score` with a per-group
-`contributions` breakdown.
+**just-in-time (JIT) score** estimates the defect-induction risk of a
+single *commit*. A continuous-integration gate reviews that commit at
+check-in. `bca vcs commit <commit>` reports an ordinal `risk_score`
+and a per-group `contributions` breakdown.
 
 The feature groups and their signs are taken from the just-in-time
 defect-prediction literature, beginning with Yasutaka Kamei and
@@ -519,7 +529,7 @@ first parent (see `src/vcs/jit.rs`):
 |-------|----------|-----------|
 | **Size** | lines added / deleted, files touched, diff hunks | larger ⇒ riskier |
 | **Diffusion** | distinct subsystems and directories, within-commit change entropy | more scattered ⇒ riskier |
-| **History** | the touched files' priors — prior changes, distinct authors, fix counts, and their composite risk — measured *before* the commit | turbulent history ⇒ riskier |
+| **History** | the touched files' priors (prior changes, distinct authors, fix counts, and their composite risk), measured *before* the commit | turbulent history ⇒ riskier |
 | **Experience** | the author's prior commit count (long and recent) | more experience ⇒ **less** risky (this group subtracts) |
 | **Purpose** | fix / security-fix / revert classification of the message | fixes add, reverts dampen |
 
@@ -538,8 +548,8 @@ computable from a diff, so that path emits a deliberately partial
 Like the file-level score, the JIT score is **ordinal**: rank commits
 by it, or compare a commit against the repository's own commit-score
 distribution, but do not read the magnitude as a probability. Its
-intended use is a check-in gate — `bca vcs commit HEAD --fail-above
-<N>` exits non-zero when a commit scores at or above a threshold — with
+intended use is a check-in gate: `bca vcs commit HEAD --fail-above
+<N>` exits non-zero when a commit scores at or above a threshold, with
 the threshold calibrated against your own history rather than treated
 as an absolute. Any change to the formula bumps a `jit_score_version`
 that is independent of the file-level `risk_score_version`.
@@ -552,7 +562,7 @@ that is independent of the file-level `risk_score_version`.
   page documents how to invoke `bca vcs`, configure the windows,
   choose an output format, and use the persistent history cache.
 - The [Supported Code Metrics](./metrics.md) chapter covers the
-  AST-derived metrics these change-history signals complement — the
+  AST-derived metrics these change-history signals complement; the
   [hotspot score](#hotspot-score) in particular combines the two
   families.
 - The [Python Bindings → Change-history (VCS)

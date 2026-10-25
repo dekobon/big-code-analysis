@@ -1,16 +1,18 @@
 # Test fixtures: vendored format schemas
 
 This directory holds external schemas that the integration test suite
-validates emitted output against. Files are vendored — never fetched at
-test time — so the suite stays offline and reproducible.
+validates emitted output against. Files are vendored, never fetched at
+test time, so the suite stays offline and reproducible.
 
 ## Files
 
 ### `sarif-2.1.0.json`
 
-The SARIF 2.1.0 JSON Schema (Draft-07). Used by `tests/output_formats/sarif_test.rs`
-via `include_str!` and the `jsonschema` crate to validate that every
-emitted SARIF document conforms to the spec.
+The [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+[JSON Schema](https://json-schema.org/) (Draft-07). Used by
+`tests/output_formats/sarif_test.rs` via `include_str!` and the
+[`jsonschema`](https://crates.io/crates/jsonschema) crate to validate
+that every emitted SARIF document conforms to the spec.
 
 - **Source**: <https://json.schemastore.org/sarif-2.1.0.json>
   (which 301-redirects to the schemastore-hosted copy of the OASIS
@@ -23,16 +25,20 @@ emitted SARIF document conforms to the spec.
 
 ### `checkstyle-report-1.0.0.xsd`
 
-The Checkstyle 4.3 XML output schema. Vendored as **documentation
-only** — `tests/output_formats/checkstyle_test.rs` mirrors the constraints in a
-`quick-xml`-driven structural walker rather than running an XSD
-validator (no mature pure-Rust XSD validator exists; using `libxml`
-would impose a `libxml2-dev` system dependency on every dev/CI box).
+The [Checkstyle](https://checkstyle.org/) 4.3 XML output schema.
+Vendored as **documentation only**:
+`tests/output_formats/checkstyle_test.rs` mirrors the constraints in a
+[`quick-xml`](https://crates.io/crates/quick-xml)-driven structural
+walker. The walker checks the constraints without an
+[XSD](https://www.w3.org/XML/Schema) validator: no mature pure-Rust
+one exists, and using [libxml2](https://gitlab.gnome.org/GNOME/libxml2)
+would require the `libxml2-dev` system package on contributor machines
+and CI runners.
 
 - **Source**: <https://github.com/checkstyle/checkstyle/blob/master/config/checkstyle-report-1.0.0.xsd>
 - **Origin PR**: [checkstyle#17532](https://github.com/checkstyle/checkstyle/pull/17532), merged 2025-08-03
 - **Fetched**: 2026-05-08
-- **Size**: ~1.6 KB, 5 type definitions + severity enum
+- **Size**: ~1.6 KB, three complex types + severity enum
 
 ## Refresh procedure
 
@@ -66,6 +72,6 @@ Then:
 ## Why offline?
 
 `make pre-commit` and CI must run without network access. Vendoring
-keeps the schemas reproducible — no "tests pass on Friday, fail on
-Monday" because schemastore.org changed something. The cost is a
-manual refresh once or twice a year; the benefit is hermeticity.
+keeps the schemas reproducible: no "tests pass on Friday, fail on
+Monday" because schemastore.org changed something. The trade-off is a
+manual refresh when an upstream schema changes.

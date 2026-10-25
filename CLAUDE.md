@@ -27,18 +27,19 @@ destroys other agents' in-progress work:
 pre-commit`.** A fresh worktree inherits neither the integration
 corpora nor a Python venv, and neither absence names itself:
 
-- Without the corpora under `tests/repositories/`, 24 tests fail —
-  the 5 corpus tests, plus 19 CLI tests that analyse a real source
-  file from the `DeepSpeech` corpus. Since #1171 each names the cause
-  and the remedy; before it they read as bugs in whatever you were
-  changing.
+- Without the corpora under `tests/repositories/`, the corpus tests
+  under `tests/corpus/` fail, as do the CLI tests that analyse a real
+  source file from the `DeepSpeech` corpus. Since #1171 each names the
+  cause and the remedy; before it they read as bugs in whatever you
+  were changing.
 - Without `big-code-analysis-py/.venv`, `py-typecheck` reports ~33
   mypy errors (`pytest` untyped without its stubs) and `py-test` dies
   with "Couldn't find a virtualenv".
 
 Both are bootstrap artifacts, not regressions. The cargo stages
 themselves work in a worktree — that was #1145, fixed by the
-`[workspace]` tables on the six excluded crates.
+`[workspace]` tables on the workspace-excluded crates (`enums`, `fuzz`
+and the five vendored `tree-sitter-*` grammars).
 
 `make worktree-setup` is idempotent and a ~100 ms no-op once the tree
 is set up, so re-running it is the cheapest way to rule the

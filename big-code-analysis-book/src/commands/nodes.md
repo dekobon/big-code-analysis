@@ -1,14 +1,19 @@
 # Nodes
 
-`bca` provides commands to analyze and extract
-information about nodes in the **Abstract Syntax Tree (AST)** of a
-source file.
+The `find`, `count`, `dump`, and `functions` subcommands inspect the
+[Abstract Syntax Tree (AST)](https://en.wikipedia.org/wiki/Abstract_syntax_tree)
+that [tree-sitter](https://tree-sitter.github.io/tree-sitter/) builds
+for a source file, rather than computing metrics from it. A *node* is
+one syntactic construct in that tree, and a *node type* is the
+grammar's name for it (`function_item`, `if_statement`). Use these
+commands to locate constructs, count them, spot parse errors, or see
+how a grammar shapes a file.
 
 > **Migrating?** The verbs below replace the pre-restructure flag
 > actions (`-d`, `-f`, `--count`, ...). See the
 > [migration guide](../migration.md).
 
-## Error detection
+## Error detection {#error-detection}
 
 To detect syntactic errors in your code, run:
 
@@ -24,50 +29,51 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
   *string* value matches the node-type name exactly (for example
   `function_item`). A purely *numeric* value is instead interpreted as a
   raw tree-sitter `kind_id` and matches nodes whose internal symbol id
-  equals that number (so `-t 0` matches the end/`ERROR` sentinel). The
-  numeric form is an escape hatch for grammar inspection and is unstable:
+  equals that number; for example, `-t 65535` matches the `ERROR`
+  sentinel. Prefer `-t ERROR` for error detection. The numeric form is
+  an escape hatch for grammar inspection and is unstable:
   a `kind_id` is an index into the grammar's symbol table, so the same
   number names a different node after a grammar-version bump. Prefer the
   string form unless you specifically need a kind that has no stable name.
-- `-I, --include`: glob filter for selecting files by extension (e.g.
-  `*.js`, `*.rs`). Each `-I` takes exactly one value, so a following
-  positional path is never swallowed.
+- `-I, --include`: glob filter for selecting files by extension (`*.js`,
+  `*.rs`). Each `-I` takes exactly one value, so a following positional
+  path is never swallowed.
 
 ## Semantic filters {#semantic-filters}
 
 Six `-t/--type` values are not node-type names but *semantic* filters,
 resolved per language so that one spelling works across every grammar.
 They take precedence over an identically named node type, so a grammar
-with a literal `call` node cannot be matched by name — use its numeric
+with a literal `call` node cannot be matched by name; use its numeric
 `kind_id` for that.
 
-- `all` — every node, named and anonymous. `bca count -t all` therefore
+- `all`: every node, named and anonymous. `bca count -t all` therefore
   always reports 100%.
-- `function` — a *named* function, method or other callable
+- `function`: a *named* function, method or other callable
   declaration. Anonymous ones are excluded where the language
   distinguishes them: in the JavaScript family an arrow function or
   function expression bound to a name (`const add = (a, b) => …`) is a
   `function` match, while the same expression passed inline as a
   callback (`xs.map(x => x * 2)`) is a closure and is not.
-- `call` — a *call site*: a function, method or command invocation a
-  reader would navigate to. Object construction (`new T(…)`) and
-  constructor delegation (C#'s `: base(x)` and a C# 12 primary
-  constructor's `: Base(x)`, Java's `super(…)`, Kotlin's superclass
-  call) are deliberately **excluded**. They are counted by the
-  [ABC](../metrics.md#abc) `branches` axis, whose Fitzpatrick rule is
-  "function invocation or object creation" — a wider question than "where
-  is this called". Expect `abc.branches` to exceed a file's `call` count
-  in C#, Java, Groovy, Kotlin, C++, JavaScript, TypeScript, PHP, Ruby
-  and Rust; see
+- `call`: a *call site*, meaning a function, method or command
+  invocation a reader would navigate to. Object construction
+  (`new T(…)`) and constructor delegation (C#'s `: base(x)` and a C# 12
+  primary constructor's `: Base(x)`, Java's `super(…)`, Kotlin's
+  superclass call) are deliberately **excluded**. They are counted by
+  the [ABC](../metrics.md#abc) `branches` axis, whose Fitzpatrick rule
+  is "function invocation or object creation", a wider question than
+  "where is this called". Expect `abc.branches` to exceed a file's
+  `call` count in C#, Java, Groovy, Kotlin, C++, JavaScript, TypeScript,
+  PHP, Ruby and Rust; see
   [Where a constructor call lands](../metrics.md#abc-constructor-attribution).
   Each call matches once. In Perl, where the grammar parses a call's
   name as a call of its own, `foo(1)` matches as the whole call only,
   and an auto-quoted hash key (`(name => 1)`, `$h{-name}`), which it
   parses as a call too, does not match at all.
-- `comment` — a comment of any of the language's forms.
-- `string` — a string *literal*. Type-annotation keywords that share the
+- `comment`: a comment of any of the language's forms.
+- `string`: a string *literal*. Type-annotation keywords that share the
   literal's node name (TypeScript's and PHP's `: string`) are excluded.
-- `error` — a node that *is or contains* a parse error, so a match
+- `error`: a node that *is or contains* a parse error, so a match
   covers every ancestor of an `ERROR` node up to the root as well as the
   node itself. `-t ERROR` is the narrower spelling used above: it
   matches the error nodes alone, by name.
@@ -81,16 +87,16 @@ bca count -t <NODE_TYPE> [-t <NODE_TYPE>...] -I "*.ext" \
     /path/to/your/file/or/directory
 ```
 
-## Printing the AST
+## Printing the AST {#printing-the-ast}
 
-To visualize the AST of a source file, use the `dump` command (which
-requires an explicit path — a whole-tree AST dump is never useful):
+To visualize the AST of a source file, use the `dump` command. It
+requires an explicit path, since a whole-tree AST dump is never useful:
 
 ```bash
 bca dump /path/to/your/file/or/directory
 ```
 
-## Analyzing code portions
+## Analyzing code portions {#analyzing-code-portions}
 
 To analyze only a specific portion of the code, use the `dump`
 subcommand's `--line-start` and `--line-end` options. For example, to
@@ -104,7 +110,7 @@ These flags are specific to `dump` and `find`, so they must follow the
 subcommand. The short `--ls` / `--le` spellings still work as
 deprecated aliases but are slated for removal in the next major.
 
-## Listing functions
+## Listing functions {#listing-functions}
 
 For a list of every function or method and its line span, use:
 
