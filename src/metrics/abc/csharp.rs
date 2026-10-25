@@ -241,13 +241,15 @@ fn csharp_eq_initializes_const_binding<'a>(
         return false;
     }
     climb.next().is_some_and(|statement| {
+        // role-bypass: allow(Member, Modifier) — the binding shape a `=`
+        // initialises, a local or a field alike, and which modifier it
+        // carries; not whether it is a container's member or a modifier
         matches!(
             statement.kind_id().into(),
             LocalDeclarationStatement | FieldDeclaration
         ) && statement
             .children()
             .take_while(|child| !is_declaration(child))
-            // role-bypass: allow(Modifier) — which modifier, not whether the node is one
             .any(|child| child.kind_id() == Modifier && child.is_child(Const as u16))
     })
 }
@@ -625,6 +627,8 @@ fn csharp_walk_for_conditions<'a>(
         AssignmentExpression => {
             csharp_count_negated_slot(node.child_by_field_name("right"), code, conds);
         }
+        // role-bypass: allow(FuncOpener, Closure) — a lambda's body as a
+        // boolean slot, not whether the lambda is a closure or a space
         LambdaExpression => {
             csharp_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }

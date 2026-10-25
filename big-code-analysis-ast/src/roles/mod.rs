@@ -184,7 +184,10 @@
 //!   expected to mark any; on every other row the predicate is false.
 //!   `CALLABLE` is the declared list of those kinds, gates aside — the
 //!   kind set a consumer that asks "is any ancestor a named function"
-//!   matches ancestors against.
+//!   matches ancestors against. Gates aside is the caveat: a kind
+//!   callable only under a gate (C#'s property, callable without
+//!   accessors) is in the list for its gated-away spellings too, so a
+//!   consumer whose ancestors can carry one keeps a list of its own.
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a

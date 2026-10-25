@@ -828,6 +828,8 @@ pub fn csharp_accessor_count(node: &Node) -> usize {
 }
 
 /// The `accessor_declaration`s in a C# member's `accessor_list`.
+// role-bypass: allow(FuncOpener) — which children are a member's accessors
+// (the gate the row reads), not whether an accessor opens a space
 fn csharp_accessors<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
     node.children()
         .filter(|c| c.kind_id() == Csharp::AccessorList as u16)

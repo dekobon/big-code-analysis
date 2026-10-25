@@ -91,45 +91,21 @@ fn is_interpolation_clause_delimiter<'a>(node: &Node<'a>, ancestors: Ancestors<'
 }
 
 impl Getter for CsharpCode {
+    // The mapping is the `opens` annotations of `roles/csharp.rs`
+    // (#1696): an enum opens `Class` for cross-language parity (#429);
+    // a bodied indexer or property defers to its accessors and the
+    // accessor-less form opens `Function` (#464, #472). The rows read no
+    // bytes and no chain, so the byte-less spelling forwards with none.
     fn get_space_kind(node: &Node) -> SpaceKind {
-        use Csharp::*;
+        Self::get_space_kind_with_code(node, &[], Ancestors::unknown())
+    }
 
-        // `EnumDeclaration` maps to `SpaceKind::Class` for cross-language
-        // parity with Java/PHP/Groovy (issue #429): a C# enum opens a
-        // FuncSpace via `is_func_space`, so it must classify here too or
-        // it falls through to `_ => SpaceKind::Unknown`.
-        // A bodied indexer (#464) or property (#472) defers to its
-        // `accessor_declaration` children; only the accessor-less
-        // expression-bodied form opens a Function space directly. Keep this
-        // gate in lockstep with `CsharpCode::is_func` / `is_func_space` so the
-        // walker and the space-kind classifier agree on which nodes promote.
-        if matches!(
-            node.kind_id().into(),
-            IndexerDeclaration | PropertyDeclaration
-        ) {
-            return if crate::checker::csharp_member_has_accessors(node) {
-                SpaceKind::Unknown
-            } else {
-                SpaceKind::Function
-            };
-        }
-        match node.kind_id().into() {
-            ClassDeclaration | StructDeclaration | RecordDeclaration | EnumDeclaration => {
-                SpaceKind::Class
-            }
-            InterfaceDeclaration => SpaceKind::Interface,
-            MethodDeclaration
-            | ConstructorDeclaration
-            | DestructorDeclaration
-            | LocalFunctionStatement
-            | LambdaExpression
-            | AnonymousMethodExpression
-            | AccessorDeclaration
-            | OperatorDeclaration
-            | ConversionOperatorDeclaration => SpaceKind::Function,
-            CompilationUnit => SpaceKind::Unit,
-            _ => SpaceKind::Unknown,
-        }
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::csharp::opens_space(node, code, ancestors)
     }
 
     keyword_roles!(csharp);
@@ -216,6 +192,9 @@ impl Getter for CsharpCode {
             // of its overloadable operators with keywords instead of
             // punctuation. The fallback keeps any other unwrapped
             // position an operand, the role the keyword has as a value.
+            // role-bypass: allow(FuncOpener) — the keyword's position under
+            // an overload declaration, not whether the declaration opens
+            // a space
             True | False => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(BooleanLiteral) => TokenRole::Unknown,
                 Some(OperatorDeclaration) => TokenRole::Operator,
@@ -239,6 +218,8 @@ impl Getter for CsharpCode {
             // `java.rs` calls it an operand — a parameter *name* is an
             // operand in every language here, where a member named by a
             // keyword belongs with `operator +`.
+            // role-bypass: allow(FuncOpener) — the keyword's position under
+            // an indexer declaration, not whether it opens a space
             This => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(IndexerDeclaration) => TokenRole::Operator,
                 _ => TokenRole::Operand,

@@ -3,7 +3,7 @@
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
 //! declared; the rest are pending the package that declares each (#1692).
 
-use crate::checker::csharp_is_aliased_modifier;
+use crate::checker::{csharp_is_aliased_modifier, csharp_member_has_accessors};
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::{
     csharp_case_token_is_switch_arm, csharp_switch_expression_arm_is_bare_discard,
@@ -23,6 +23,16 @@ use crate::{Ancestors, Csharp, Node};
 /// wraps a keyword leaf the row already owns and is nothing itself. A
 /// grammar bump that aliases another spelling lands here unclaimed
 /// rather than billed as whichever word happened to be last.
+/// Whether an indexer or property is the accessor-less expression-bodied
+/// form (`this[int i] => _d[i];`, `int W => _w;`), which defines one
+/// implicit getter and so opens its own `Function` space; the bodied
+/// form defers to its `accessor_declaration` children, which open
+/// theirs (#464, #472; lesson 65: gate, never delete — the childless
+/// form relied on the kind being listed at all).
+fn has_no_accessors<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !csharp_member_has_accessors(node)
+}
+
 fn aliases_a_modifier_keyword<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -199,10 +209,45 @@ role_table! {
         owns [PredefinedType]
         excludes [Var "`var` names no type; its `implicit_type` wrapper bills nothing"]
     }
-    FuncOpener { pending R06 }
-    Closure { pending R06 }
-    Container { pending R06 }
-    Member { pending R06 }
+    // Every callable opens a `Function` space: the method-like
+    // declarations, a local function, an accessor (`get` / `set` /
+    // `init` — each is a method per C# IL semantics), the operator
+    // forms, and an indexer or property only in its accessor-less
+    // expression-bodied form (`has_no_accessors`). A lambda and an
+    // anonymous method (`delegate { }`) are closures that open a space
+    // too, as Rust's and Go's do.
+    FuncOpener {
+        owns [
+            MethodDeclaration(callable opens Function),
+            ConstructorDeclaration(callable opens Function),
+            DestructorDeclaration(callable opens Function),
+            LocalFunctionStatement(callable opens Function),
+            AccessorDeclaration(callable opens Function),
+            OperatorDeclaration(callable opens Function),
+            ConversionOperatorDeclaration(callable opens Function),
+            IndexerDeclaration(callable opens Function gated_by has_no_accessors),
+            PropertyDeclaration(callable opens Function gated_by has_no_accessors),
+            LambdaExpression(opens Function),
+            AnonymousMethodExpression(opens Function),
+        ]
+    }
+    Closure { owns [LambdaExpression, AnonymousMethodExpression] }
+    // An enum opens `Class` for parity with Java / PHP / Groovy (#429).
+    Container {
+        owns [
+            CompilationUnit(opens Unit),
+            ClassDeclaration(opens Class),
+            StructDeclaration(opens Class),
+            RecordDeclaration(opens Class),
+            EnumDeclaration(opens Class),
+            InterfaceDeclaration(opens Interface),
+        ]
+    }
+    // A field declaration (`int a, b;` — one declaration, declarators
+    // the consumer counts), in a class-like or an interface body; a
+    // positional record's parameters become properties at the IL level
+    // and have no declaration node to recognise (`npa/csharp.rs`).
+    Member { owns [FieldDeclaration] }
     Comment { pending R09 }
     DocComment { pending R09 }
     Docstring { absent "C# documents with `///` comments, not string literals" }

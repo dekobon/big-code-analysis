@@ -4855,6 +4855,59 @@ fn ie(x: bool) -> i32 {
         );
     }
 
+    /// A bodied property is not a function boundary — its accessors
+    /// are — so an `if` inside a getter takes no depth surcharge from
+    /// the property above it. Reading the `FuncOpener` row's ungated
+    /// `CALLABLE` kinds as the stop list did exactly that on
+    /// `DeepSpeech`'s `Resources.Designer.cs` (#1696); the consumer
+    /// keeps its own list. The expression-bodied twin beside it is a
+    /// callable and still scores the same body at 1.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_bodied_property_is_not_a_function_boundary_above_its_accessor() {
+        // expected: the `if` in the getter is 1 (no surcharge); the `if`
+        // in the local function inside the getter is 1 + 1 (depth: the
+        // accessor encloses it) = 2.
+        check_metrics::<CsharpParser>(
+            "class C {
+                int P {
+                    get {
+                        if (a) { }
+                        int L() { if (b) { } return 1; }
+                        return L();
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+            },
+        );
+    }
+
+    /// The lambda channel: a lambda or anonymous method — the `Closure`
+    /// row's owners — charges its own nesting level to the control flow
+    /// inside it without resetting the enclosing one. No test depended
+    /// on the arm before #1696: severing it failed nothing.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_lambda_and_anonymous_method_contribute_lambda_nesting() {
+        // expected: each `if` is 1 base + 1 for the enclosing closure's
+        // lambda level: 2 + 2 = 4.
+        check_metrics::<CsharpParser>(
+            "class C {
+                void M() {
+                    System.Action a = () => { if (x) { } };
+                    System.Action b = delegate { if (y) { } };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+            },
+        );
+    }
+
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_local_function_in_if_does_not_inherit_nesting() {

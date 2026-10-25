@@ -214,6 +214,18 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::objc::opens_space,
     },
+    // The accessor-less indexer and property open a space, the bodied
+    // ones through their accessors (#464, #472); a lambda and an
+    // anonymous method open one each.
+    #[cfg(feature = "csharp")]
+    Row {
+        lang: LANG::Csharp,
+        source: b"namespace N { interface I { int P { get; set; } } class C { public int P { get; set; } public int W => 1; public int this[int i] => i; public int this[string k] { get { return 1; } } public void M() { int L(int z) { return z; } System.Func<int, int> f = y => y + 1; System.Action a = delegate { }; L(1); } } }\n",
+        walk: |source, check| {
+            for_each_node_with_chain::<big_code_analysis_ast::CsharpCode>(source, check);
+        },
+        opens_space: big_code_analysis_ast::roles::csharp::opens_space,
+    },
 ];
 
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
@@ -231,6 +243,7 @@ const TS_SOURCE: &[u8] = b"function f(a: number): number { const g = (b: number)
     feature = "bash",
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "irules",
     feature = "java",

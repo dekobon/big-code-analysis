@@ -221,7 +221,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1236.0
+value = 1238.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -359,7 +359,7 @@ value = 645.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1340.0
+value = 1343.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"

@@ -55,6 +55,9 @@ impl Checker for CsharpCode {
     // statement and an accessor take none; checked with `dotnet build`
     // and CS1587.
     fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
+        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment,
+        // not membership: what a doc comment binds to is `DocTarget`'s own
+        // row (R09)
         matches!(
             node.kind_id().into(),
             Csharp::ClassDeclaration
@@ -88,6 +91,8 @@ impl Checker for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
+        // role-bypass: allow(FuncOpener) — where a comment sits in a member's
+        // body, not whether the member opens a space
         if matches!(
             ancestor.kind_id().into(),
             Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
@@ -104,57 +109,31 @@ impl Checker for CsharpCode {
     // accessor-less expression-bodied form (`this[int i] => _d[i];` /
     // `int W => _w;`) opens a space directly, matching the npm `.max(1)`
     // fallback and the way the implicit getter is the sole callable.
+    // The space tree is declared in `roles/csharp.rs` (#1696): the
+    // `FuncOpener` row (every callable, the closures, and an indexer or
+    // property gated to its accessor-less form — #464, #472) and the
+    // `Container` row are what the walk promotes, and `opens_space`
+    // labels them. The rows read no bytes and no chain (the accessor
+    // gate reads the node's children), so the byte-less spelling
+    // forwards with none and answers the same.
     fn is_func_space(node: &Node) -> bool {
-        if matches!(
-            node.kind_id().into(),
-            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
-        ) {
-            return !csharp_member_has_accessors(node);
-        }
-        matches!(
-            node.kind_id().into(),
-            Csharp::CompilationUnit
-                | Csharp::ClassDeclaration
-                | Csharp::StructDeclaration
-                | Csharp::RecordDeclaration
-                | Csharp::InterfaceDeclaration
-                | Csharp::EnumDeclaration
-                | Csharp::MethodDeclaration
-                | Csharp::ConstructorDeclaration
-                | Csharp::DestructorDeclaration
-                | Csharp::LocalFunctionStatement
-                | Csharp::LambdaExpression
-                | Csharp::AnonymousMethodExpression
-                | Csharp::AccessorDeclaration
-                | Csharp::OperatorDeclaration
-                | Csharp::ConversionOperatorDeclaration
-        )
+        Self::is_func_space_with_code(node, &[], Ancestors::unknown())
     }
 
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        if matches!(
-            node.kind_id().into(),
-            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
-        ) {
-            return !csharp_member_has_accessors(node);
-        }
-        matches!(
-            node.kind_id().into(),
-            Csharp::MethodDeclaration
-                | Csharp::ConstructorDeclaration
-                | Csharp::DestructorDeclaration
-                | Csharp::LocalFunctionStatement
-                | Csharp::AccessorDeclaration
-                | Csharp::OperatorDeclaration
-                | Csharp::ConversionOperatorDeclaration
-        )
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        crate::roles::csharp::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Csharp::LambdaExpression | Csharp::AnonymousMethodExpression
-        )
+    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::csharp::func_opener::is_callable(node, &[], ancestors)
+    }
+
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::csharp::closure::owns(node, &[], ancestors)
     }
 
     // Invocations only, by the contract on `Checker::is_call`: C#'s three

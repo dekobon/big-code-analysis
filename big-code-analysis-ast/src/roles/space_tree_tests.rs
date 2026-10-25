@@ -13,6 +13,7 @@ use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
     feature = "bash",
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "irules",
     feature = "lua",
@@ -42,6 +43,7 @@ type OpensSpace = fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> bool;
     feature = "bash",
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "irules",
     feature = "lua",
@@ -55,6 +57,7 @@ type OpensSpace = fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> bool;
 const F: Answers = (true, false, true, SpaceKind::Function, false);
 #[cfg(any(
     feature = "c",
+    feature = "csharp",
     feature = "go",
     feature = "lua",
     feature = "perl",
@@ -64,6 +67,7 @@ const F: Answers = (true, false, true, SpaceKind::Function, false);
 const C: Answers = (false, true, true, SpaceKind::Function, false);
 #[cfg(any(
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "mozcpp",
     feature = "objc",
@@ -75,6 +79,7 @@ const M: Answers = (false, false, false, SpaceKind::Unknown, true);
     feature = "bash",
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "irules",
     feature = "lua",
@@ -91,6 +96,7 @@ const NONE: Answers = (false, false, false, SpaceKind::Unknown, false);
     feature = "bash",
     feature = "c",
     feature = "cpp",
+    feature = "csharp",
     feature = "go",
     feature = "irules",
     feature = "lua",
@@ -526,4 +532,103 @@ fn objc_space_tree_rows() {
         // alias is defensive (#285).
         &[crate::Objc::FunctionDefinition2 as u16],
     );
+}
+
+/// C#: the accessor-less indexer and property (`this[int i] => i;`,
+/// `int W => F;`) open a `Function` space as callables, the bodied ones
+/// defer to their accessors (#464, #472 — lesson 65), checked by text
+/// since one kind spells both; every other kind by the table.
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_space_tree_rows() {
+    use crate::roles::csharp::{closure, container, func_opener, member};
+    let source = b"namespace N {\n  interface I { int P { get; set; } void M(); }\n  struct S { public int F; public S(int f) { F = f; } }\n  record Rec(int X) { public int Y { get; init; } }\n  enum E { A, B }\n  class C : I {\n    public int F1, F2 = 2;\n    public int P { get; set; }\n    public int W => F1;\n    public int this[int i] => i;\n    public int this[string k] { get { return 1; } }\n    public C() { }\n    ~C() { }\n    public void M() { int L(int z) { return z; } System.Func<int, int> f = y => y + 1; System.Action a = delegate { }; L(1); }\n    public static C operator +(C a, C b) => a;\n    public static implicit operator int(C c) => 1;\n  }\n}\n";
+    let expected: &[(&str, Answers)] = &[
+        ("compilation_unit", container(SpaceKind::Unit)),
+        ("class_declaration", container(SpaceKind::Class)),
+        ("struct_declaration", container(SpaceKind::Class)),
+        ("record_declaration", container(SpaceKind::Class)),
+        ("enum_declaration", container(SpaceKind::Class)),
+        ("interface_declaration", container(SpaceKind::Interface)),
+        ("method_declaration", F),
+        ("constructor_declaration", F),
+        ("destructor_declaration", F),
+        ("local_function_statement", F),
+        ("accessor_declaration", F),
+        ("operator_declaration", F),
+        ("conversion_operator_declaration", F),
+        ("lambda_expression", C),
+        ("anonymous_method_expression", C),
+        ("field_declaration", M),
+    ];
+    let mut gated = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<crate::CsharpCode>(source, |node, chain| {
+        use crate::{Checker, CsharpCode, Getter};
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = CsharpCode::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            CsharpCode::is_func(node, ancestors),
+            CsharpCode::is_closure(node, ancestors),
+            promoted,
+            CsharpCode::get_space_kind_with_code(node, source, ancestors),
+            member::owns(node, source, ancestors),
+        );
+        seen_kinds.insert(node.kind_id());
+        if matches!(kind, "property_declaration" | "indexer_declaration") {
+            let text = node.utf8_text(source).unwrap_or("?");
+            let head = text.split_once(['{', '=']).map_or(text, |(h, _)| h).trim();
+            gated.push((head.to_owned(), got.0, got.2, got.3));
+            return;
+        }
+        let want = expected
+            .iter()
+            .find(|(k, _)| *k == kind && node.is_named())
+            .map_or(NONE, |(_, v)| *v);
+        assert_eq!(
+            got,
+            want,
+            "{kind} `{}`",
+            node.utf8_text(source).unwrap_or("?")
+        );
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+    });
+    assert_eq!(
+        gated,
+        [
+            ("int P".to_owned(), false, false, SpaceKind::Unknown),
+            ("public int Y".to_owned(), false, false, SpaceKind::Unknown),
+            ("public int P".to_owned(), false, false, SpaceKind::Unknown),
+            ("public int W".to_owned(), true, true, SpaceKind::Function),
+            (
+                "public int this[int i]".to_owned(),
+                true,
+                true,
+                SpaceKind::Function
+            ),
+            (
+                "public int this[string k]".to_owned(),
+                false,
+                false,
+                SpaceKind::Unknown
+            ),
+        ]
+    );
+    for &k in [
+        func_opener::OWNERS,
+        closure::OWNERS,
+        container::OWNERS,
+        member::OWNERS,
+    ]
+    .iter()
+    .copied()
+    .flatten()
+    {
+        assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
+    }
 }

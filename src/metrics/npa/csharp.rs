@@ -11,10 +11,11 @@ use super::*;
 impl Npa for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::csharp::member;
         use Csharp::*;
 
         // Class / struct / record / interface bodies all share
@@ -25,6 +26,10 @@ impl Npa for CsharpCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
+        // role-bypass: allow(Container) — which container's body this is,
+        // for the class / interface bucket; not whether it opens a space.
+        // A member's chain is the body's plus the body; the row reads
+        // neither.
         match parent_kind {
             // For `RecordDeclaration`, only explicit body fields are
             // counted. The implicit `parameter_list` of a positional
@@ -33,10 +38,7 @@ impl Npa for CsharpCode {
             // properties at the IL level, but modelling them would
             // require synthesizing nodes that don't appear in the AST.
             ClassDeclaration | StructDeclaration | RecordDeclaration => {
-                for declaration in node
-                    .children()
-                    .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
-                {
+                for declaration in node.children().filter(|c| member::owns(c, code, ancestors)) {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.class_na += attributes;
                     if csharp_is_explicit_public(&declaration) {
@@ -48,10 +50,7 @@ impl Npa for CsharpCode {
             // (rare); members declared without an explicit modifier default
             // to public, mirroring Java's interface convention.
             InterfaceDeclaration => {
-                for declaration in node
-                    .children()
-                    .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
-                {
+                for declaration in node.children().filter(|c| member::owns(c, code, ancestors)) {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.interface_na += attributes;
                     // The modifier applies to every declarator of the field,

@@ -26,7 +26,7 @@ impl Cognitive for CsharpCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::csharp::{null_safe, short_circuit, ternary};
+        use crate::roles::csharp::{closure, func_opener, null_safe, short_circuit, ternary};
         use Csharp::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -85,26 +85,33 @@ impl Cognitive for CsharpCode {
                 // `??=` matters here.
                 compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
-            LambdaExpression | AnonymousMethodExpression => {
+            // A lambda or anonymous method — the `Closure` row — charges
+            // the lambda channel and does not reset nesting.
+            _ if closure::owns(node, code, ancestors) => {
                 nesting.lambda += 1;
             }
-            // At a (possibly nested) function boundary, reset structural
-            // nesting to zero and bump the function-depth surcharge when
-            // this declaration is itself nested inside another — matching
-            // Rust and the 9-of-13 sibling families. C# local
-            // functions are the acute case: a local function declared
-            // inside an `if` previously inherited `nesting = 1`, inflating
-            // every control-flow statement in its body by one. The grammar
-            // emits both `local_function_statement` and the aliased
-            // `local_function_declaration`; both are boundaries (#696).
-            MethodDeclaration
-            | ConstructorDeclaration
-            | DestructorDeclaration
-            | OperatorDeclaration
-            | ConversionOperatorDeclaration
-            | AccessorDeclaration
-            | LocalFunctionStatement
-            | LocalFunctionDeclaration => {
+            // At a (possibly nested) function boundary — the `FuncOpener`
+            // row's callables — reset structural nesting to zero and bump
+            // the function-depth surcharge when this declaration is itself
+            // nested inside another. C# local functions are the acute
+            // case: a local function declared inside an `if` previously
+            // inherited `nesting = 1`, inflating every control-flow
+            // statement in its body by one (#696). The row lists
+            // `local_function_statement` only: the
+            // `_local_function_declaration` alias the arm used to name
+            // beside it is the hidden rule the parser never emits.
+            //
+            // The stop list is this consumer's own, not the row's
+            // `CALLABLE`: that slice names kinds gates aside, and an
+            // indexer or property is a callable only in its accessor-less
+            // form — a bodied one's accessors are the callables — so a
+            // `get { if … }` under a property would otherwise read its
+            // property as an enclosing function and take a depth
+            // surcharge it never did (measured on the corpus, #1696).
+            _ if func_opener::is_callable(node, code, ancestors) => {
+                // role-bypass: allow(FuncOpener) — which enclosing kinds
+                // give a nested callable its depth surcharge: the row's
+                // ungated callables, not whether a node opens a space
                 enter_function_boundary(
                     &mut nesting,
                     node,
@@ -117,7 +124,6 @@ impl Cognitive for CsharpCode {
                         ConversionOperatorDeclaration,
                         AccessorDeclaration,
                         LocalFunctionStatement,
-                        LocalFunctionDeclaration,
                     ],
                 );
             }
