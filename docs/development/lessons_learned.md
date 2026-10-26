@@ -145,6 +145,8 @@ number and the higher number stays as a redirect.
 | [99](#99-a-probe-guards-only-the-axis-it-grows) | A probe guards only the axis it grows — a walk that descends needs a depth probe |
 | [100](#100-a-float-tolerance-is-measured-in-the-values-own-ulps-and-a-rounded-limit-is-held-on-the-hard-limits-side) | A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side |
 | [101](#101-a-cache-lent-through-a-context-value-is-dropped-by-every-derivation-of-that-value-that-does-not-forward-it) | A derived context value drops the cache it was lent |
+| [102](#102-a-recovery-sweeps-cut-set-is-shaped-by-the-drifts-it-has-already-found) | A recovery sweep's cut set is shaped by the drifts it has found |
+| [103](#103-a-chain-is-the-queried-nodes-own-or-it-is-the-wrong-chain) | A chain is the queried node's own, or it is the wrong chain |
 
 ---
 
@@ -3514,7 +3516,11 @@ named, while `src/metrics/loc/tcl.rs` measured 95% line coverage carrying
 the bug. The repair is a sweep
 (`a_comment_row_is_never_counted_as_code`) asserting *all four* LOC
 sub-metrics for every language and comment spelling; it found the Perl
-case immediately after being written for the Tcl one.
+case immediately after being written for the Tcl one. #1696's
+`python_self_attribute_under_a_non_pattern_node_is_not_bound` was the
+same shape one level down: named for the `Member` row's wrapper-kind
+check, on a fixture whose walk stops at the outer attribute and never
+reaches it; the pin moved to the row, asked with the inner node's chain.
 
 ---
 
@@ -4213,6 +4219,15 @@ same exposure and had the same gap: its cap at 200 levels was bounded
 by CPython's `MAXLEVEL`, and `halstead/python-nested-paren` was added
 only when a review noticed that no probe priced the cap.
 
+**The right axis on the wrong spelling measures the lazy path** (#1696).
+`nom/wide-arrow-array` grew width, the axis of the JS arrow gate's
+sibling scan, and read 0.99 — on `const cb = [() => 1, …]`, a *bound*
+arrow whose ancestor test answers before the scan is asked. The
+positional form `run(() => 1, …)` the scan exists for took 3.4 s at
+4,000 and was never rendered. Grow the axis on the spelling that reaches
+the code under test, and confirm by reinstating the defect that the
+probe moves.
+
 ---
 
 ## 100. A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side
@@ -4360,5 +4375,53 @@ can see what it does not cut. And a review that re-derives the
 measurement is worth more than one that re-reads the code: the two
 rows that failed were in files four reviewers had read, and only the
 one that ran its own inputs saw them.
+
+---
+
+## 103. A chain is the queried node's own, or it is the wrong chain
+
+**Lesson:** When a consumer holding a node's `Ancestors` asks a predicate
+about that node's *children* — a body's members, a call's arguments —
+hand the predicate the children's chain (`Ancestors::of_children`), not
+the one it holds. `Ancestors::known`'s contract is that `chain.last()`
+is the queried node's parent; a chain that is correct for the body is
+off by one for every member, and a predicate reading the parent answers
+for the grandparent. Build the derived chain inside the arm that has
+already decided the node is a body, never before it: the derivation is
+an `O(depth)` copy, and placed ahead of the kind test it runs for every
+node the walk visits. Do not let "the predicate reads no chain today"
+stand in for the right chain.
+
+The failure is invisible by construction. A predicate that reads no
+ancestry answers the same under any chain, so the wrong one passes every
+oracle, every perturbation and every parity test; a gate added to the
+predicate later reads the wrong parent and is wrong on exactly the
+inputs the gate was added for, with no test older than the gate able to
+see it. The one spelling that *does* read the chain is the one a
+reviewer finds, and it has been reading the wrong parent since the
+site was written. (cf. lessons 82, 101)
+
+**The member walks in twenty files handed the row the body's chain**
+(#1696). Every `npa` / `npm` walk over a class body, struct body, field
+list or `@implementation` asked `member::owns(&child, code, ancestors)`
+with the *body's* `ancestors`, several under a comment reading "the row
+reads neither". True of every `Member` row — and already false of the
+JS / TS `FuncOpener` row the same walks ask through `is_callable`, whose
+`callable_when bound_arrow` / `bound_function` gates do read the chain.
+The `review` skill named the contract violation; the performance audit
+named the two `Ancestors::unknown()` sites in `npm/ruby.rs` as the same
+shape in its climbing form. `Ancestors::of_children(body)` now builds
+each member's chain once per body, with the walk's fold cache carried
+(lesson 101), and `of_children_names_the_body_as_each_member_s_parent`
+pins `parent(member) == body`.
+
+**The fix built the chain before the body test and ran per node**
+(#1696, review of the fix). In the four macro-generated walks the
+`of_children` call sat above `match node.kind_id()`, so every node the
+metric visited paid the `O(depth)` copy and a 64,000-deep expression
+inside a class took 3–6 s in each of `npa` and `npm` — "one allocation
+per body, never per node" was the commit message's claim and the diff's
+contradiction. Moved inside the body arms, 0.04 s;
+`npa/java-deep-expression` grows that depth and would have read it.
 
 ---

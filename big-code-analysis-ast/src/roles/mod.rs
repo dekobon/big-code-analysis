@@ -1077,7 +1077,11 @@ macro_rules! role_table {
     // `TEXT_GATED` reads `text_gated_by` off the attribute list before the
     // fold below merges it with `gated_by` into one gate slot, so these
     // two come first: the word may follow `holds_payer`, or any attribute
-    // the fold has already consumed.
+    // the fold has already consumed. A terminal that reads a word the fold
+    // consumes must sit *above* the fold's rules: placed below them it
+    // still compiles and still matches some orders, and no production row
+    // need spell a losing one; `dsl_gates` declares the word in each
+    // position so the pin, not a row, finds it.
     (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt text_gated_by $f:ident $($r:tt)*) => {
         true
     };

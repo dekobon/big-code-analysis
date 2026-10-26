@@ -732,6 +732,17 @@ A behaviour-changing fix without the matching submodule bump leaves
 the next fresh clone with either an unfetchable submodule SHA or
 stranded `.snap.new` drift that blocks CI on every subsequent change.
 
+**Oracle evidence lives under a durable path, not `/tmp`.** A zero-drift
+or parity claim on an issue or PR rests on fixtures, base and head
+binaries, captured outputs and the driver that compared them. Keep
+them together somewhere a host restart does not clear (the convention
+is `~/bca-evidence/<issue>/`), and cite that path in the claim. Two
+fixture files of the #1696 oracle lived only in `/tmp/opencode/` and
+were lost to a restart mid-review; they were rebuilt from the recorded
+verbatim exports and dumps, which is possible only because the outputs
+had been kept — a claim whose inputs are gone is a number nobody can
+re-measure.
+
 ## Metric thresholds
 
 The limits `bca init` scaffolds are defined once, in
