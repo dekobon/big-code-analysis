@@ -111,12 +111,25 @@ impl Checker for GroovyCode {
         crate::roles::groovy::primitive::lists_kind(node.kind_id())
     }
 
+    // `var` is keyed by text as well (#1706): the `DeclKeyword` row owns
+    // it as the keyword leaf of a local and as the `type_identifier` of
+    // a field or a modified local, two kinds that spell one keyword, and
+    // Halstead's `u_operators` sums the kind-keyed and the text-keyed
+    // maps — so left kind-keyed the two spellings would count as two
+    // distinct operators. The byte test is what keeps the row's other
+    // keywords (`class`, `def`, …) kind-keyed as they were — a move no
+    // metric can see, since each is one spelling under one key either
+    // way; `groovy_text_keyed_operators_are_the_primitives_1599` scans
+    // the walk for the keyed set and is the pin.
     fn keys_operator_by_text<'a>(
         node: &Node<'a>,
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        crate::roles::groovy::primitive::owns(node, code, ancestors)
+        use crate::roles::groovy::{decl_keyword, primitive};
+
+        (node_bytes(node, code) == b"var" && decl_keyword::owns(node, code, ancestors))
+            || primitive::owns(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

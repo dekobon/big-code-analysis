@@ -320,8 +320,8 @@ for historical reference.
   that opens with `var` as a name (`var = 4`, `var++`) fails into an
   `ERROR` holding the same leaf and keeps billing nothing. A `var`
   used as a name elsewhere stays an operand. The `var` of a field or of
-  `final var`, which the grammar reads as a type name, still bills as a
-  type-name operand; making it the same operator is #1706. Every
+  `final var`, which the grammar reads as a type name, billed as a
+  type-name operand until #1706 below made it the same operator. Every
   Groovy file with a `var` local moves by one operator per declaration.
 
 - **A Java 21 string template's wrapper is no longer an operand**

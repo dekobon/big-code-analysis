@@ -6344,7 +6344,7 @@ end",
     }
 
     /// Asserts `[n2, N2]` for each row.
-    #[cfg(any(feature = "java", feature = "typescript"))]
+    #[cfg(any(feature = "groovy", feature = "java", feature = "typescript"))]
     fn assert_operand_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
         assert_halstead_rows::<T>(file, rows, |h| [h.unique_operands(), h.total_operands()]);
     }
@@ -6965,9 +6965,10 @@ end",
     /// used as a name is an `identifier` and stays an operand; a
     /// statement opening with that name (`var = 4`, `var++`) fails into
     /// an `ERROR` holding the keyword leaf, which the row's gate leaves
-    /// unbilled as it does `record = 3`; and the `var` of a field or of
-    /// `final var`, which the grammar reads as a `type_identifier`, is
-    /// not the keyword leaf and bills as it did.
+    /// unbilled as it does `record = 3`. The `var` of a field, which the
+    /// grammar reads as a `type_identifier`, is the other spelling of
+    /// the keyword and bills the same since #1706 (the last row; its
+    /// siblings are in `groovy_type_identifier_var_is_the_keyword_1706`).
     ///
     /// The rows prove the gate necessary (ungated, the `assigned var`
     /// row reads `[6, 8]`), not narrow: a gate admitting any parent but
@@ -7007,8 +7008,9 @@ end",
             ("assigned var", "def f() { def var = 3; var = 4 }\n", [5, 7]),
             // `def`, `()`, `{}`, `++`: the same leaf, the same `ERROR`
             ("incremented var", "def f() { var++ }\n", [4, 4]),
-            // `class`, `{}`, `=`: the field's `var` is a `type_identifier`
-            ("field", "class C { var field = 1 }\n", [3, 3]),
+            // `class`, `{}`, `var`, `=`: the field's `var` is a
+            // `type_identifier` spelling the keyword (#1706)
+            ("field", "class C { var field = 1 }\n", [4, 4]),
         ];
         assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
 
@@ -7019,6 +7021,116 @@ end",
             "foo.groovy",
         );
         assert_keyword_role(&ops, "foo.groovy", "var", Role::OperandOnly);
+    }
+
+    /// #1706: the `var` the grammar reads as a `type_identifier` — a
+    /// field's, a `static` or `private` field's, a parameter's, and the
+    /// one in the recovery of `final var q = 5`, which the grammar
+    /// cannot parse and fails into an `ERROR` holding the word — is the keyword
+    /// #1704 bills, not a type-name operand: Groovy reserves the word
+    /// in type position (`class var {}` is a compile error), so no type
+    /// is named. Before the fix every row read one fewer operator and
+    /// one more operand per `var`, and the "mixed" rows read two
+    /// distinct `var` operators, because the keyword leaf was keyed by
+    /// kind and the `type_identifier` would have been keyed by text —
+    /// `keys_operator_by_text` now keys both by the bytes, which the
+    /// `[n1, N1]` of those rows is the only thing to pin.
+    ///
+    /// The "named" rows are controls: `def var = 3` and `var var = 6`
+    /// name a variable `var`, an `identifier`, and stay operands. So
+    /// are the "qualified" and "aliased" rows: `var` is a legal segment
+    /// of a package (`a.var.B`) and a legal import alias (`import
+    /// java.lang.String as var`), and in a `qualified_type`, a cast, an
+    /// `instanceof`, a type argument or an array type it names a real
+    /// type — a `type_identifier` the gate must leave an operand,
+    /// which a bytes-only gate did not (#1706 review). A return type
+    /// (`var m() {}`) is invalid Groovy and deliberately not pinned
+    /// (grammar-dispatch section 6).
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_type_identifier_var_is_the_keyword_1706() {
+        const OPERAND_ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `C`, `field`, `1`: no `var` operand
+            ("field", "class C { var field = 1 }\n", [3, 3]),
+            // `f`, `q`, `5`
+            ("final local", "def f() { final var q = 5 }\n", [3, 3]),
+            // `m`, `x` x2
+            ("parameter", "def m(var x) { x }\n", [2, 3]),
+            // `f`, `var`, `6`: the declared name
+            ("var named var", "def f() { var var = 6 }\n", [3, 3]),
+            // `C`, `a`, `var`, `B`, `field`: a package segment
+            ("qualified", "class C { a.var.B field }\n", [5, 5]),
+            // `f`, `x` x2, `var`: an aliased type in a cast
+            ("cast", "def f(x) { (var) x }\n", [3, 4]),
+            // `f`, `x` x2, `var`: in an `instanceof`
+            ("instanceof", "def f(x) { x instanceof var }\n", [3, 4]),
+            // `C`, `Map`, `var`, `m`: twice as a type argument, one operand
+            ("type argument", "class C { Map<var, var> m }\n", [4, 5]),
+            // `C`, `var`, `arr`: an array of the aliased type
+            ("array", "class C { var[] arr }\n", [3, 3]),
+            // `C`, `variant`, `v`: a type whose name begins with the word
+            ("prefix", "class C { variant v }\n", [3, 3]),
+        ];
+        // The type-position rows again, as operator rows: no `var`
+        // operator in any of them.
+        const TYPE_POSITION_ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`, `.` x2
+            ("qualified", "class C { a.var.B field }\n", [3, 4]),
+            // `def`, `()` x2, `{}`: the cast's parentheses
+            ("cast", "def f(x) { (var) x }\n", [3, 4]),
+            // `def`, `()`, `{}`, `instanceof`
+            ("instanceof", "def f(x) { x instanceof var }\n", [4, 4]),
+            // `class`, `{}`, `<>`, `,`
+            ("type argument", "class C { Map<var, var> m }\n", [4, 4]),
+            // `class`, `{}`, `[]`
+            ("array", "class C { var[] arr }\n", [3, 3]),
+            // `class`, `{}`
+            ("prefix", "class C { variant v }\n", [2, 2]),
+        ];
+        const OPERATOR_ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`, `var`, `=`
+            ("field", "class C { var field = 1 }\n", [4, 4]),
+            // `class`, `{}`, `static`, `var`, `=`
+            ("static field", "class C { static var s = 2 }\n", [5, 5]),
+            // `class`, `{}`, `private`, `var`, `=`
+            ("private field", "class C { private var p = 3 }\n", [5, 5]),
+            // `class`, `{}`, `var` x2, `=` x2, `;`: one `var` operator,
+            // twice
+            ("two fields", "class C { var a = 1; var b = 2 }\n", [5, 7]),
+            // `def`, `()`, `{}`, `final`, `var`, `=`: the modified local
+            // the grammar recovers
+            ("final local", "def f() { final var q = 5 }\n", [6, 6]),
+            // `def`, `()`, `var`, `{}`: a parameter's placeholder type
+            ("parameter", "def m(var x) { x }\n", [4, 4]),
+            // `class`, `{}` x2, `var`, `()`: a constructor's
+            (
+                "constructor parameter",
+                "class D { D(var a) { } }\n",
+                [4, 5],
+            ),
+            // `class`, `{}` x2, `var` x2, `=` x2, `;`, `def`, `()`: a
+            // field's `type_identifier` and a local's keyword leaf, one
+            // `var` — keyed by kind and by text they would be two
+            (
+                "mixed spellings",
+                "class C { var field = 1; def f() { var x = 1 } }\n",
+                [7, 10],
+            ),
+            // `def`, `()`, `{}`, `var`, `=`: `var var = 6` declares a
+            // local named `var`, one keyword and one name
+            ("var named var", "def f() { var var = 6 }\n", [5, 5]),
+        ];
+        assert_operator_rows::<GroovyParser>("foo.groovy", OPERATOR_ROWS);
+        assert_operand_rows::<GroovyParser>("foo.groovy", OPERAND_ROWS);
+        assert_operator_rows::<GroovyParser>("foo.groovy", TYPE_POSITION_ROWS);
+
+        let ops = ops_of::<GroovyParser>(
+            "class C { var field = 1; static var s = 2; def f() { final var q = 5; var x = 1 } }\n",
+            "foo.groovy",
+        );
+        assert_keyword_role(&ops, "foo.groovy", "var", Role::OperatorOnly);
+        let ops = ops_of::<GroovyParser>("def f() { var var = 6 }\n", "foo.groovy");
+        assert_keyword_role(&ops, "foo.groovy", "var", Role::Both);
     }
 
     /// #1565: Java bills every modifier, as C# and Kotlin do, each as
@@ -8631,40 +8743,48 @@ end",
     /// there is an identifier told by its text — so it stays the kind
     /// table, and the recorded limitation is pinned below rather than
     /// claimed away.
+    ///
+    /// Since #1706 the keyed set also holds `var`, in both its
+    /// spellings — the field's `type_identifier` and the local's
+    /// keyword leaf — and nothing else: the scan runs over every node,
+    /// so a `class` or `def` leaf moved to the text-keyed map would
+    /// appear here, where no metric and no `ops` vocabulary can tell
+    /// the two maps apart.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_text_keyed_operators_are_the_primitives_1599() {
         use crate::test_support::for_each_node_with_chain;
-        const SOURCE: &str = "class C {\n  int a = 1\n  double b = 2.0\n  String s = 'x'\n  void m(List list) { int c = list.size() }\n}\n";
+        const SOURCE: &str = "class C {\n  int a = 1\n  double b = 2.0\n  String s = 'x'\n  var v = 3\n  void m(List list) { int c = list.size(); var d = c }\n}\n";
         let ops = ops_of::<GroovyParser>(SOURCE, "foo.groovy");
-        // `class`, `{}` x2, `=` x4, `()` x2, `.`, and the three primitive
-        // spellings `int`, `double`, `void` by text; `String`, `List`,
-        // `list`, `size` and the names are operands.
+        // `class`, `{}` x2, `=` x6, `()` x2, `.`, `;`, and the three
+        // primitive spellings `int`, `double`, `void` and `var` by text;
+        // `String`, `List`, `list`, `size` and the names are operands.
         assert_eq!(
             ops.operators,
-            ["()", ".", "=", "class", "double", "int", "void", "{}"]
+            [
+                "()", ".", ";", "=", "class", "double", "int", "var", "void", "{}"
+            ]
         );
         assert_eq!(
             ops.operands,
             [
-                "'x'", "1", "2.0", "C", "List", "String", "a", "b", "c", "list", "m", "s", "size"
+                "'x'", "1", "2.0", "3", "C", "List", "String", "a", "b", "c", "d", "list", "m",
+                "s", "size", "v"
             ]
         );
         let (mut keyed, mut names) = (Vec::new(), Vec::new());
         for_each_node_with_chain::<GroovyCode>(SOURCE.as_bytes(), |node, chain| {
-            let kind = node.kind();
-            if !matches!(kind, "identifier" | "type_identifier") {
-                return;
-            }
             let text = node.utf8_text(SOURCE.as_bytes()).expect("UTF-8");
             if GroovyCode::keys_operator_by_text(node, SOURCE.as_bytes(), Ancestors::known(chain)) {
                 keyed.push(text.to_owned());
             }
-            if text == "list" || text == "String" {
+            if matches!(node.kind(), "identifier" | "type_identifier")
+                && (text == "list" || text == "String")
+            {
                 names.push(GroovyCode::is_primitive(node));
             }
         });
-        assert_eq!(keyed, ["int", "double", "void", "int"]);
+        assert_eq!(keyed, ["int", "double", "var", "void", "int", "var"]);
         // A second consumer asking `is_primitive` of a plain name: the
         // byte-less answer is the kind table, every name — the recorded
         // limitation — not the row's text gate.

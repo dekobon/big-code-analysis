@@ -218,8 +218,8 @@ impl Getter for GroovyCode {
             // (grammar-dispatch section 6): `import java` still nests an
             // `identifier`, and a single-segment type is a bare
             // `type_identifier` the grammar does not wrap at all.
-            // role-bypass: allow(Primitive) — the operand classification of a name the row's
-            // text gate did not claim as a primitive
+            // role-bypass: allow(Primitive, DeclKeyword) — the operand classification of a
+            // name neither row's text gate claimed, as a primitive or as `var`
             Identifier | TypeIdentifier | NullLiteral | True | False | NumberLiteral => {
                 TokenRole::Operand
             }

@@ -4,6 +4,7 @@
 //! declared; the rest are pending the package that declares each (#1692).
 
 use crate::getter::node_text;
+use crate::lang_helpers::doc_comment::node_bytes;
 use crate::role_table;
 use crate::{Ancestors, Groovy, Node};
 
@@ -87,6 +88,44 @@ fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<
             _ => true,
         }
     })
+}
+
+/// Whether a `type_identifier` spells `var` as the declaration
+/// placeholder (#1706).
+///
+/// The pinned grammar emits `var` as its keyword leaf only under a
+/// `local_variable_declaration`. In a field (`var field = 1`, `static
+/// var s = 2`), a parameter (`def m(var x)`) and the recovery of a
+/// modified local (`final var q = 5`, which the grammar cannot parse
+/// and fails into an `ERROR` holding the word) it is a
+/// `type_identifier` directly under the declaration, the parameter or
+/// the `ERROR`: the three parents admitted. Groovy cannot declare a
+/// type named `var` (`class var {}` is a compile error), but the word
+/// is a legal *segment* of a qualified type (`a.var.B`, with `package
+/// a.var`) and a legal import alias (`import java.lang.String as var`),
+/// and both spell a `type_identifier` that names a real type wherever a
+/// type is written out — a `qualified_type`, a cast, an `instanceof`, a
+/// type argument, an array or generic type — so a `var` under any of
+/// those stays the operand it was. An aliased `var` used bare as a
+/// field's or parameter's type is the one spelling the shape cannot
+/// tell from the placeholder, and it bills as the keyword; a `var` used
+/// as a name is an `identifier` and never reaches this gate.
+///
+/// A `method_declaration` parent is not admitted. The invalid return
+/// type `var m() {}` lands there, and so does one valid shape the
+/// grammar recovers that way: a script-level `final var s = 9` followed
+/// by another statement reads as a method head, where the same source
+/// alone recovers as an `ERROR` and is claimed. Whether that `var`
+/// bills therefore depends on what follows it — a gap of the pinned
+/// grammar's recovery, recorded rather than pinned.
+fn spells_var<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    use Groovy::*;
+
+    node_bytes(node, code) == b"var"
+        && ancestors.parent(node).is_some_and(|parent| {
+            parent.is_error()
+                || matches!(parent.kind_id().into(), FieldDeclaration | FormalParameter)
+        })
 }
 
 /// Whether a `static` qualifies a declaration rather than `import
@@ -243,14 +282,17 @@ role_table! {
     // and `record` are, because a statement that opens with `var` as a
     // name (`var = 4`) fails into an `ERROR` holding the same leaf. Only
     // that leaf: a `var` used as a name elsewhere (`def var = 3`,
-    // `[var: 1]`) is an `identifier`, and a field's `var field = 1` or
-    // a `final var q = 5` parses the word as a `type_identifier`, where
-    // it still bills as a type-name *operand* — the reading Java's
-    // `get_op_type_with_code` rejects for its own `var`. FIXME(#1706):
-    // that spelling wants the same operator, keyed by its text.
+    // `[var: 1]`) is an `identifier`. A field's `var field = 1`, a
+    // parameter's `m(var x)` and a `final var q = 5` parse the word as
+    // a `type_identifier`, which the `spells_var` gate claims as the
+    // same keyword where it is the placeholder (#1706);
+    // `Checker::keys_operator_by_text` then keys both spellings by
+    // their bytes so Halstead counts one `var`, where the operand
+    // reading had been Java's before #1560 gated its own.
     DeclKeyword {
         owns [
             Class, Interface, Enum, Def, Var(gated_by contextual_keyword_owns),
+            TypeIdentifier(text_gated_by spells_var),
             Trait(gated_by contextual_keyword_owns), Record(gated_by contextual_keyword_owns),
         ]
     }

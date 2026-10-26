@@ -1894,6 +1894,11 @@ mod tests {
                 true,
             ),
             (
+                "groovy DeclKeyword `text_gated_by spells_var`",
+                groovy::decl_keyword::TEXT_GATED,
+                true,
+            ),
+            (
                 "csharp Modifier `text_gated_by aliases_a_modifier_keyword`",
                 csharp::modifier::TEXT_GATED,
                 true,
