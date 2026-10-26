@@ -1608,7 +1608,7 @@ mod keyword_role_tests {
 
     /// The `(kind, role)` pairs `classify` answers for every leaf of
     /// `source` that it does not call `Unknown`.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "java"))]
+    #[cfg(any(feature = "c", feature = "cpp", feature = "java", feature = "kotlin"))]
     fn roles_of<L: LanguageInfo + Getter>(
         source: &[u8],
         classify: impl for<'a> Fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> TokenRole,
@@ -1621,6 +1621,42 @@ mod keyword_role_tests {
             }
         });
         out
+    }
+
+    /// Kotlin's byte-less `get_op_type` string arm reads the `StringLit`
+    /// row's `wraps` list through `string_operand_type`: a plain literal
+    /// is one operand and an interpolating one (the long `${…}` form,
+    /// the only one the byte-less arm can see) is `Unknown`, as the
+    /// `_with_code` arm answers for both. The byte-less arm is reached
+    /// only when no row and no `_with_code` arm answers first, which
+    /// nothing on the walk does for a string literal, so it is asked
+    /// here directly.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_byte_less_string_arm_reads_the_rows_wraps_list() {
+        use crate::KotlinCode;
+        let source = b"val a = \"plain\"\nval b = \"x ${a} y\"\nval c = \"\"\"raw\"\"\"\n";
+        let byte_less = roles_of::<KotlinCode>(source, |n, _, a| KotlinCode::get_op_type(n, a))
+            .into_iter()
+            .filter(|(kind, _)| matches!(*kind, "string_literal" | "multiline_string_literal"))
+            .collect::<Vec<_>>();
+        let with_code = roles_of::<KotlinCode>(source, KotlinCode::get_op_type_with_code)
+            .into_iter()
+            .filter(|(kind, _)| matches!(*kind, "string_literal" | "multiline_string_literal"))
+            .collect::<Vec<_>>();
+        // `"plain"` and `\"\"\"raw\"\"\"` are operands; the interpolating
+        // `"x ${a} y"` is `Unknown` and so absent from both lists.
+        assert_eq!(
+            byte_less,
+            [
+                ("string_literal", TokenRole::Operand),
+                ("multiline_string_literal", TokenRole::Operand),
+            ]
+        );
+        assert_eq!(
+            byte_less, with_code,
+            "the two spellings agree on every literal"
+        );
     }
 
     /// A C-family modifier, declaration keyword and primitive reach

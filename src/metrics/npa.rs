@@ -3798,6 +3798,24 @@ mod tests {
         );
     }
 
+    /// An anonymous struct's `field_declaration_list` hangs off a
+    /// `struct_specifier` that is no space of its own, so its field is
+    /// counted — on the unit, where the walk's merge lands it — and the
+    /// class's field beside it on the class; both public here, one
+    /// struct-default and one explicit.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_anonymous_struct_fields_count_on_the_unit() {
+        check_metrics::<CppParser>(
+            "struct { int a; } anon;\nclass C { public: int b; };\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
     /// The `Member` row, not "every named child of the field list",
     /// decides what is a field: a comment and an attribute inside the
     /// body are named children too, and a filter that admitted them

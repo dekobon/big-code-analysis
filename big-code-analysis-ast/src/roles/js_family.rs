@@ -465,6 +465,14 @@ run(function* () {});\n";
                 got.2,
                 "{kind}: opens_space vs promotion"
             );
+            // The byte-less pair is the kind table: the binding gates
+            // sit on `callable_when`, which `opens_space` never reads, so
+            // it agrees with the `_with_code` pair on every node.
+            assert_eq!(
+                (L::is_func_space(node), L::get_space_kind(node)),
+                (got.2, got.3),
+                "{kind}: the byte-less spellings are the kind table"
+            );
             assert_eq!(
                 got.3,
                 opens_space(node, source, ancestors),

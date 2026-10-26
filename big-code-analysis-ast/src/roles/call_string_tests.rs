@@ -977,3 +977,150 @@ fn tsx_call_and_string_rows() {
         "the `string` keyword leaf is what the `predefined_type` row wraps"
     );
 }
+
+/// `is_primitive` equals `lists` on every node of `source`, and every
+/// owner but `unmet` is met.
+#[cfg(all(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "mozcpp",
+    feature = "objc",
+    feature = "rust",
+    feature = "typescript",
+))]
+fn probe<L: LanguageInfo + Checker>(
+    lang: &str,
+    source: &[u8],
+    owners: &[u16],
+    lists: fn(u16) -> bool,
+    unmet: &[u16],
+) {
+    let mut met = std::collections::BTreeSet::new();
+    let nodes = for_each_node_with_chain::<L>(source, |node, _| {
+        let kind = node.kind_id();
+        assert_eq!(
+            L::is_primitive(node),
+            lists(kind),
+            "{lang} {} `{}`: `is_primitive` is the row's kind table",
+            node.kind(),
+            node.utf8_text(source).unwrap_or("?")
+        );
+        if lists(kind) {
+            met.insert(kind);
+        }
+    });
+    assert!(nodes > 20, "{lang}: the fixture parsed to {nodes} nodes");
+    for &k in owners {
+        assert_eq!(
+            met.contains(&k),
+            !unmet.contains(&k),
+            "{lang}: owner kind {k} met"
+        );
+    }
+    for &k in unmet {
+        assert!(owners.contains(&k), "{lang}: unmet kind {k} is declared");
+    }
+}
+
+/// The byte-less `Checker::is_primitive` is the `Primitive` row's kind
+/// table, gates aside, in every language that overrides it: it answers
+/// true on exactly the nodes `lists_kind` claims and nothing else, on a
+/// fixture per language spelling every owner the pinned grammar emits.
+/// The C family's `sized_type_specifier` holds its `signed` /
+/// `unsigned` / `long` / `short` leaves beside the `primitive_type`;
+/// Objective-C adds `_Complex`; TypeScript's `predefined_type` wraps
+/// `void`, which the row's gate declines in the `_with_code` spelling
+/// and the table claims here. Every owner is met except the ones named
+/// `unmet` — C's hidden `type_specifier` supertype, ObjC's second
+/// `_Complex` alias, and the sixteen Rust `primitive_type` aliases a
+/// fixture of six spells one of (#1693) — so a row that grows a kind
+/// fails here rather than passing on the nodes the fixture has.
+#[cfg(all(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "mozcpp",
+    feature = "objc",
+    feature = "rust",
+    feature = "typescript",
+))]
+#[test]
+fn byte_less_is_primitive_is_the_rows_kind_table() {
+    let c = b"int f(unsigned long x) { short s; signed char c; double d; return 0; }\n";
+    let objc = b"@interface A @end\nint f(_Complex double z, unsigned long x, short s, signed char c) { return 0; }\n";
+    let cs = b"class C { int f(string s, bool b, object o, var v) { var q = 1; return 0; } }\n";
+    let ts = b"let a: number = 1; let b: string = \"s\"; let c: void = undefined; let d: any;\n";
+    let rs = b"fn f(a: i32, b: u8, c: f64, d: bool, e: char, f: usize) {}\n";
+    {
+        use crate::roles::c::primitive;
+        probe::<crate::CCode>(
+            "c",
+            c,
+            primitive::OWNERS,
+            primitive::lists_kind,
+            &[crate::C::TypeSpecifier as u16],
+        );
+    }
+    {
+        use crate::roles::cpp::primitive;
+        probe::<crate::CppCode>(
+            "cpp",
+            c,
+            primitive::OWNERS,
+            primitive::lists_kind,
+            &[crate::Cpp::TypeSpecifier as u16],
+        );
+    }
+    {
+        use crate::roles::mozcpp::primitive;
+        probe::<crate::MozcppCode>(
+            "mozcpp",
+            c,
+            primitive::OWNERS,
+            primitive::lists_kind,
+            &[crate::Mozcpp::TypeSpecifier as u16],
+        );
+    }
+    {
+        use crate::roles::objc::primitive;
+        probe::<crate::ObjcCode>(
+            "objc",
+            objc,
+            primitive::OWNERS,
+            primitive::lists_kind,
+            &[
+                crate::Objc::TypeSpecifier as u16,
+                crate::Objc::Complex2 as u16,
+            ],
+        );
+    }
+    {
+        use crate::roles::csharp::primitive;
+        probe::<crate::CsharpCode>("csharp", cs, primitive::OWNERS, primitive::lists_kind, &[]);
+    }
+    {
+        use crate::roles::typescript::primitive;
+        probe::<crate::TypescriptCode>(
+            "typescript",
+            ts,
+            primitive::OWNERS,
+            primitive::lists_kind,
+            &[],
+        );
+    }
+    {
+        use crate::roles::tsx::primitive;
+        probe::<crate::TsxCode>("tsx", ts, primitive::OWNERS, primitive::lists_kind, &[]);
+    }
+    {
+        use crate::roles::rust::primitive;
+        let spelled = crate::Rust::PrimitiveType as u16;
+        let unmet: Vec<u16> = primitive::OWNERS
+            .iter()
+            .copied()
+            .filter(|&k| k != spelled)
+            .collect();
+        probe::<crate::RustCode>("rust", rs, primitive::OWNERS, primitive::lists_kind, &unmet);
+    }
+}

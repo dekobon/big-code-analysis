@@ -1436,6 +1436,46 @@ macro_rules! role_table {
 mod tests {
     use crate::{Ancestors, Java, Node};
 
+    /// The two `const fn`s that build `CALLABLE` run at compile time on
+    /// every table, which executes none of their lines under
+    /// instrumentation; asked at run time over the shapes the tables
+    /// produce — no marks, all marks, marks at either end and in the
+    /// middle, an empty list — they count and compact the `Some`s in
+    /// order.
+    #[test]
+    fn count_some_and_some_kinds_compact_the_marked_owners_in_order() {
+        use super::{count_some, some_kinds};
+        const NONE: &[Option<u16>] = &[None, None, None];
+        const ALL: &[Option<u16>] = &[Some(3), Some(1), Some(2)];
+        const ENDS: &[Option<u16>] = &[Some(7), None, None, Some(9)];
+        const MIDDLE: &[Option<u16>] = &[None, Some(5), None];
+        const EMPTY: &[Option<u16>] = &[];
+        assert_eq!(count_some(NONE), 0);
+        assert_eq!(count_some(ALL), 3);
+        assert_eq!(count_some(ENDS), 2);
+        assert_eq!(count_some(MIDDLE), 1);
+        assert_eq!(count_some(EMPTY), 0);
+        assert_eq!(some_kinds::<0>(NONE), [0u16; 0]);
+        assert_eq!(some_kinds::<3>(ALL), [3, 1, 2], "list order, not sorted");
+        assert_eq!(some_kinds::<2>(ENDS), [7, 9]);
+        assert_eq!(some_kinds::<1>(MIDDLE), [5]);
+        assert_eq!(some_kinds::<0>(EMPTY), [0u16; 0]);
+    }
+
+    /// An absent row's `lists_kind` is false for every kind, as its
+    /// `OWNERS` is empty; the one a declared row emits reads the table.
+    /// The rows are declarations, built in every feature set.
+    #[test]
+    fn an_absent_rows_lists_kind_is_false_for_every_kind() {
+        use crate::roles::java::{call, null_safe};
+        assert_eq!(null_safe::OWNERS, &[] as &[u16]);
+        for kind in [0u16, 1, Java::MethodInvocation as u16, u16::MAX] {
+            assert!(!null_safe::lists_kind(kind), "absent row, kind {kind}");
+        }
+        assert!(call::lists_kind(Java::MethodInvocation as u16));
+        assert!(!call::lists_kind(Java::ClassBody as u16));
+    }
+
     // `utils/role_tables.py` reads the declaration text for the three
     // role gates, so it is a second implementation of this macro's
     // meaning. This holds it to the compiled constants: every table's

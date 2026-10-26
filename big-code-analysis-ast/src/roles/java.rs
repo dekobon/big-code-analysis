@@ -389,6 +389,17 @@ mod tests {
                 promoted,
                 "{kind}: is_func_space is what the walk promotes"
             );
+            // The byte-less pair is the kind table: the rows read no
+            // chain and no bytes, so it agrees with the `_with_code` pair
+            // on every node.
+            assert_eq!(
+                (
+                    JavaCode::is_func_space(node),
+                    JavaCode::get_space_kind(node)
+                ),
+                (promoted, got.3),
+                "{kind}: the byte-less spellings are the kind table"
+            );
             assert_eq!(
                 call::owns(node, source, ancestors),
                 kind == "method_invocation",

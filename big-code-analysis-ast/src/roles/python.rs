@@ -215,6 +215,17 @@ mod tests {
                 promoted,
                 "{kind}: is_func_space is what the walk promotes"
             );
+            // The byte-less pair is the kind table: the rows read no
+            // chain and no bytes, so it agrees with the `_with_code` pair
+            // on every node.
+            assert_eq!(
+                (
+                    PythonCode::is_func_space(node),
+                    PythonCode::get_space_kind(node)
+                ),
+                (promoted, got.3),
+                "{kind}: the byte-less spellings are the kind table"
+            );
             if kind == "attribute" {
                 attributes.push((node.utf8_text(source).expect("UTF-8").to_owned(), got.4));
                 assert_eq!(
@@ -345,6 +356,20 @@ mod tests {
                 ("self.k".to_owned(), true),
             ]
         );
+        // A `self.` attribute that is a `for` target, and one asked with
+        // no chain at all (the climb runs out before any assignment):
+        // neither is bound.
+        let source = b"class C:\n    def m(self):\n        for self.i in xs:\n            pass\n";
+        let mut answers = Vec::new();
+        for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+            if node.kind() == "attribute" {
+                answers.push((
+                    member::owns(node, source, Ancestors::known(chain)),
+                    member::owns(node, source, Ancestors::known(&[])),
+                ));
+            }
+        });
+        assert_eq!(answers, [(false, false)]);
     }
 
     // A chained comparison is one wrapper and two leaves; the compound

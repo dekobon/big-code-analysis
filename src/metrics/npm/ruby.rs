@@ -160,6 +160,9 @@ impl<'a> RubyClassBody<'a> {
         // asked under its own chain, the call's plus the call and the
         // list, so a gate the row grows later reads the right parent.
         let in_call = members.of_children(call);
+        // `ruby_visibility_effect` yields `Arguments` only for a call
+        // with a named argument, so the list is always there; the guard
+        // keeps this total rather than trusting that caller.
         let Some(list) = ruby_call_argument_list(call) else {
             return;
         };
@@ -245,6 +248,8 @@ impl Npm for RubyCode {
         if !matches!(node.kind_id().into(), BodyStatement | BodyStatement2) {
             return;
         }
+        // A `body_statement` is never the root, so the guard only keeps
+        // this total.
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };

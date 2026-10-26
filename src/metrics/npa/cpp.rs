@@ -26,6 +26,8 @@ macro_rules! cpp_family_npa {
                 if !matches!(node.kind_id().into(), FieldDeclarationList) {
                     return;
                 }
+                // A `field_declaration_list` is never the root, so the
+                // guard only keeps this total.
                 let Some(parent) = ancestors.parent(node) else {
                     return;
                 };

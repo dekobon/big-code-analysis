@@ -183,6 +183,15 @@ fn check<L: LanguageInfo + Checker + Getter>(
             promoted,
             "{kind}: is_func_space is what the walk promotes"
         );
+        // The byte-less pair is the kind table, gates aside: on a row
+        // whose owners read no chain and no bytes it answers exactly
+        // what the `_with_code` pair answers (Ruby's chain-reading gate
+        // is pinned apart, in `ruby_byte_less_spellings_stay_the_kind_table`).
+        assert_eq!(
+            (L::is_func_space(node), L::get_space_kind(node)),
+            (promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
         seen_kinds.insert(node.kind_id());
     });
     for &k in owners.iter().copied().flatten() {
@@ -449,6 +458,14 @@ fn check_cpp<L: LanguageInfo + Checker + Getter>(
             promoted,
             "{kind}: opens_space vs promotion"
         );
+        // `has_body` reads the node's own field, so the byte-less pair
+        // agrees with the `_with_code` one on every node, specifiers
+        // included.
+        assert_eq!(
+            (L::is_func_space(node), L::get_space_kind(node)),
+            (promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
     });
     assert_eq!(
         specifiers,
@@ -595,6 +612,16 @@ fn csharp_space_tree_rows() {
             member::owns(node, source, ancestors),
         );
         seen_kinds.insert(node.kind_id());
+        // `has_no_accessors` reads the node's own children, so the
+        // byte-less pair agrees with the `_with_code` one everywhere.
+        assert_eq!(
+            (
+                CsharpCode::is_func_space(node),
+                CsharpCode::get_space_kind(node)
+            ),
+            (promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
         if matches!(kind, "property_declaration" | "indexer_declaration") {
             let text = node.utf8_text(source).unwrap_or("?");
             let head = text.split_once(['{', '=']).map_or(text, |(h, _)| h).trim();
@@ -666,6 +693,16 @@ fn kotlin_space_tree_rows() {
             member::owns(node, source, ancestors),
         );
         seen_kinds.insert(node.kind_id());
+        // `class_or_interface` reads the node's own children, so the
+        // byte-less pair agrees with the `_with_code` one everywhere.
+        assert_eq!(
+            (
+                KotlinCode::is_func_space(node),
+                KotlinCode::get_space_kind(node)
+            ),
+            (promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
         // One kind, two space kinds, by the keyword token.
         if kind == "class_declaration" {
             classes.push((
