@@ -26,10 +26,12 @@ impl Npa for CsharpCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
+        // Each member is asked under its own chain, the body's plus the
+        // body.
+        let under = ancestors.of_children(node);
+        let members = under.get();
         // role-bypass: allow(Container) — which container's body this is,
-        // for the class / interface bucket; not whether it opens a space.
-        // A member's chain is the body's plus the body; the row reads
-        // neither.
+        // for the class / interface bucket; not whether it opens a space
         match parent_kind {
             // For `RecordDeclaration`, only explicit body fields are
             // counted. The implicit `parameter_list` of a positional
@@ -38,7 +40,7 @@ impl Npa for CsharpCode {
             // properties at the IL level, but modelling them would
             // require synthesizing nodes that don't appear in the AST.
             ClassDeclaration | StructDeclaration | RecordDeclaration => {
-                for declaration in node.children().filter(|c| member::owns(c, code, ancestors)) {
+                for declaration in node.children().filter(|c| member::owns(c, code, members)) {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.class_na += attributes;
                     if csharp_is_explicit_public(&declaration) {
@@ -50,7 +52,7 @@ impl Npa for CsharpCode {
             // (rare); members declared without an explicit modifier default
             // to public, mirroring Java's interface convention.
             InterfaceDeclaration => {
-                for declaration in node.children().filter(|c| member::owns(c, code, ancestors)) {
+                for declaration in node.children().filter(|c| member::owns(c, code, members)) {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.interface_na += attributes;
                     // The modifier applies to every declarator of the field,

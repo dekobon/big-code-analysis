@@ -113,7 +113,7 @@ impl Cognitive for TclCode {
             // resets structural nesting and bumps the function-depth
             // surcharge when nested in another (#696); the stop list is
             // the row's callable kinds.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

@@ -148,6 +148,7 @@ Read it as follows.
 | `nom/nested-fn-rows` | Rust | depth | metric control for the row above | linear |
 | `nom/nested-declared-function` | JavaScript | depth | shape control for the row below | linear |
 | `nom/nested-arrow` | JavaScript | depth | JS-family `is_func` / `is_closure` (#1088) | linear |
+| `nom/wide-arrow-array` | JavaScript | width | the arrow binding gate's parent sibling scan on `run(() => 1, …)`, memoised per parent under `MemoQuestion::NamesAnArrow` (#1696) | linear |
 | `halstead/nested-paren` | Rust | depth | shape control for the row below | linear |
 | `halstead/nested-not` | Rust | depth | `Getter::get_op_type`'s parent read (#1096) | linear |
 | `abc/nested-block` | C | depth | shape control for the row below | linear |
@@ -216,6 +217,7 @@ Read it as follows.
 | `halstead/elixir-repeated-guards` | Elixir | depth | `ElixirCode::get_paying_role` billing `when` without the `Guard` row's position climb, which is per token and quadratic on a nested-`when` chain (#1695) | linear |
 | `cyclomatic/elixir-repeated-guards` | Elixir | depth | the `Guard` row's position climb, memoised per `when` operator under `MemoQuestion::GuardOperator` so a nested-`when` chain is climbed once per walk rather than once per token (#1695) | linear |
 | `cognitive/nested-and` | Python | depth | `python_apply_boolean_operator` asking whether *any* enclosing `boolean_operator` already paid, stopping at the first, where counting them all was quadratic in the chain (#1695) | linear |
+| `npa/java-deep-expression` | Java | depth | the member walks' per-body chain (`Ancestors::of_children`), built inside the body arms rather than for every node the walk visits (#1696) | linear |
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
 | `abc/elixir-many-timeouts` | Elixir | width | malformed `receive` timeout clauses that must not each rescan every message clause | linear |

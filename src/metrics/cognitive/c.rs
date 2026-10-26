@@ -50,19 +50,14 @@ impl Cognitive for CCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
-            // At a (possibly nested) function-definition boundary, reset
-            // structural nesting to zero and bump the function-depth
-            // surcharge when this definition is itself nested inside
-            // another — matching Rust and the 9-of-13 sibling
-            // families. Without this, a method defined inside a control
-            // construct inherited the enclosing nesting and every nested
-            // definition missed the SonarSource B-nesting amplification
-            // (#696).
             // A named function — the `FuncOpener` row's callable owners —
             // resets structural nesting and bumps the function-depth
-            // surcharge when nested in another (#696); the stop list is
-            // the row's callable kinds.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            // surcharge when nested in another, matching Rust and the
+            // sibling families; without it a definition inside a control
+            // construct inherited the enclosing nesting and a nested one
+            // missed the SonarSource B-nesting amplification (#696). The
+            // stop list is the row's callable kinds.
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

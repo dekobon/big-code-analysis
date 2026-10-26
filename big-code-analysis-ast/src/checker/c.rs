@@ -21,16 +21,12 @@ impl Checker for CCode {
 
     // C has no classes/namespaces and no methods, so the only code
     // spaces are the translation unit and function definitions. Struct /
-    // union / enum specifiers hold no functions in C, so — unlike the
-    // C++ checker — they are deliberately NOT spaces (including them
-    // would create empty FuncSpaces for every aggregate type).
-    // `FunctionDefinition2` is the grammar's `function_definition` alias
-    // (kind_id 197); enumerate it alongside the primary so neither is
-    // silently dropped from FuncSpace creation (#285, lesson 2).
-    // The space tree is declared in `roles/c.rs` (#1696): the
-    // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The rows read no bytes and no chain, so the
-    // byte-less spelling forwards with none and answers the same.
+    // The space tree is declared in `roles/c.rs` (#1696): the file and
+    // both aliased `function_definition` ids (#285, lesson 2). Struct /
+    // union / enum specifiers hold no functions in C, so — unlike C++ —
+    // they are deliberately no spaces (each would be an empty one). The
+    // rows read no bytes and no chain, so the byte-less spelling forwards
+    // with none.
     fn is_func_space(node: &Node) -> bool {
         Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
@@ -43,7 +39,6 @@ impl Checker for CCode {
         crate::roles::c::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    // Keep in sync with `is_func_space` and the C getters (#285).
     fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         crate::roles::c::func_opener::is_callable(node, &[], ancestors)
     }
@@ -60,8 +55,8 @@ impl Checker for CCode {
 
     // `Call` and `StringLit` are the rows of `roles/c.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(c);
-    impl_string_lit_row!(c);
+    impl_row_predicates!(c, call, is_call, is_call_with_code);
+    impl_row_predicates!(c, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(node.kind_id().into(), C::LPAREN | C::COMMA | C::RPAREN)
@@ -69,8 +64,18 @@ impl Checker for CCode {
 
     impl_is_else_if_parent_clause!(C, IfStatement, ElseClause);
 
+    // A primitive is the `Primitive` row's kind table, gates aside.
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        crate::roles::c::primitive::lists_kind(node.kind_id())
+    }
+
+    #[inline]
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         // role-bypass: allow(Primitive) — key selection after the row
         // has classified the node: which of the row's kinds is one kind
         // for many spellings and so is keyed by text, not whether the

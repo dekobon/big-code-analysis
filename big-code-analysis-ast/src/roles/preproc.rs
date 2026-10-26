@@ -1,15 +1,18 @@
 //! Preproc's role rows. The C-family preprocessor helper grammar
 //! recognises comments and string literals (`checker/preproc.rs`), so
-//! those three rows are pending the packages that declare them; every
-//! other role names a construct the grammar cannot emit.
+//! `StringLit` is declared and the two comment rows are pending the
+//! packages that declare them; every other role names a construct the
+//! grammar cannot emit.
 
-use crate::role_table;
+use crate::{Preproc, role_table};
 
 role_table! {
     lang: Preproc;
     Call { absent "the preprocessor pass parses only directives, comments and the string literals \
          they carry; it emits no such construct" }
-    StringLit { pending R08 }
+    // The literals the pass must not strip or read into: `find string`
+    // and the byte-less `is_string` both read this kind table (#1698).
+    StringLit { owns [StringLiteral, RawStringLiteral] }
     Comparison { absent "the preprocessor pass parses only directives, comments and the string \
          literals they carry; it emits no such construct" }
     ShortCircuit { absent "the preprocessor pass parses only directives, comments and the string \

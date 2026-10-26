@@ -35,8 +35,8 @@ impl Checker for TclCode {
 
     // `Call` and `StringLit` are the rows of `roles/tcl.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(tcl);
-    impl_string_lit_row!(tcl);
+    impl_row_predicates!(tcl, call, is_call, is_call_with_code);
+    impl_row_predicates!(tcl, string_lit, is_string, is_string_with_code);
 
     // Tcl arguments are whitespace-separated; no punctuation to exclude.
     fn is_non_arg(_: &Node) -> bool {

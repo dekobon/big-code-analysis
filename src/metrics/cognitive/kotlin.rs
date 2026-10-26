@@ -91,21 +91,18 @@ impl Cognitive for KotlinCode {
                     short_circuit::PAYERS.contains(&id) || id == QMARKCOLON as u16
                 });
             }
-            // Property accessors and `init { … }` are function
-            // boundaries too (#1184). They open a `FuncSpace`, so without
-            // this arm an accessor written inside an `if` inherited that
-            // `if`'s nesting and scored more than the byte-identical
-            // accessor at top level — the same defect #1160 fixed for
-            // Java's compact constructor. They are `is_func_space`
-            // without being `is_func`, which does not matter here: this
-            // arm matches kinds directly.
-            // Every owner of the `FuncOpener` row — the accessors and
-            // `init` included, which are openers without being callable
-            // — so this reads `owns` and `OWNERS`, not the callables.
-            _ if func_opener::owns(node, code, ancestors) => {
+            // Every owner of the `FuncOpener` row is a function boundary,
+            // the property accessors and `init { … }` included, which open
+            // a space without being callable (#1184) — so this reads `owns`
+            // and `OWNERS`, not the callables. Without the openers an
+            // accessor written inside an `if` inherited that `if`'s
+            // nesting and scored more than the byte-identical accessor at
+            // top level, the defect #1160 fixed for Java's compact
+            // constructor.
+            _ if func_opener::owns_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

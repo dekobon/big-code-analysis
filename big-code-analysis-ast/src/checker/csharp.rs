@@ -145,8 +145,8 @@ impl Checker for CsharpCode {
 
     // `Call` and `StringLit` are the rows of `roles/csharp.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(csharp);
-    impl_string_lit_row!(csharp);
+    impl_row_predicates!(csharp, call, is_call, is_call_with_code);
+    impl_row_predicates!(csharp, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -159,11 +159,22 @@ impl Checker for CsharpCode {
     // followed by a nested `if_statement` (no wrapping `else_clause` node).
     impl_is_else_if_prev_sibling!(Csharp, IfStatement, Else);
 
+    // A primitive is the `Primitive` row's kind: `predefined_type`, one
+    // kind for `int`, `string`, `bool`, `object`, ….
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        crate::roles::csharp::primitive::lists_kind(node.kind_id())
+    }
+
+    #[inline]
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         // Without this, every `PredefinedType` keyword (`int`, `string`,
         // `bool`, `object`, …) collapses into a single Halstead operator
-        // because they share one `kind_id`. Returning `true` here routes
+        // because they share one `kind_id`. Keying them by text routes
         // them through the lexeme-keyed `primitive_operators` map so
         // distinct keywords count as distinct operators (issue #286).
         //
@@ -185,10 +196,10 @@ impl Checker for CsharpCode {
         // kind renders that text, so the vocabulary entry only changes
         // which map holds it.
         //
-        // The shared predicate also holds for the aliased `this`
-        // receiver, which `get_op_type_with_code` bills as an operand.
-        // That is no disagreement, because `compute_halstead` consults
-        // this method only under its `Operator` arm.
+        // The predicate also holds for the aliased `this` receiver,
+        // which `get_op_type_with_code` bills as an operand. That is no
+        // disagreement, because `compute_halstead` consults this method
+        // only under its `Operator` arm.
         // role-bypass: allow(Primitive, Modifier) — key selection after
         // the rows have classified the node: which of their kinds has two
         // spellings for one operator and so is keyed by text, not whether

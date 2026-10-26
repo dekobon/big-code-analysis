@@ -32,9 +32,11 @@ impl Npa for GroovyCode {
             ClassBody | EnumBody => {
                 let is_interface_like = groovy_body_is_interface_like(node, ancestors);
 
-                // A member's chain is the body's plus the body; the row
-                // reads neither.
-                for declaration in node.children().filter(|n| member::owns(n, code, ancestors)) {
+                // Each member is asked under its own chain, the body's
+                // plus the body.
+                let under = ancestors.of_children(node);
+                let members = under.get();
+                for declaration in node.children().filter(|n| member::owns(n, code, members)) {
                     let attributes = declaration
                         .children()
                         .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))

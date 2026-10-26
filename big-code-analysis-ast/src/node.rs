@@ -17,7 +17,7 @@ mod parser_cache;
 
 #[doc(hidden)]
 pub use ancestors::WIDE_PARENT;
-pub use ancestors::{AncestorIter, Ancestors, FoldCache, SiblingCache};
+pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo};
 
 use tree_sitter::Node as OtherNode;
@@ -325,9 +325,9 @@ impl<'a> Node<'a> {
     /// Returns `true` if this node's parent has any direct child with
     /// the given grammar `kind_id` (the parent's children include this
     /// node itself, so a self-match counts). Delegates to [`wraps_any`]
-    /// on the parent. This sits on the JS/TS arrow-function
-    /// closure-classification hot path (`check_if_arrow_func!`); see
-    /// #521.
+    /// on the parent. The JS/TS arrow-function closure classification
+    /// (`bound_arrow` in `roles/js_family.rs`) asked this per arrow until
+    /// the scan was memoised per parent; see #521.
     ///
     /// `ancestors` supplies the parent, for [`Node::parent`]'s
     /// `O(depth)` reason (#1088).
@@ -1114,8 +1114,8 @@ mod tests {
     #[cfg(feature = "mozjs")]
     #[test]
     fn has_sibling_matches_the_retired_sibling_chain() {
-        // Arrow functions exercise the `check_if_arrow_func!` call site
-        // that motivated #521 (PropertyIdentifier siblings on the JS/TS
+        // Arrow functions exercise the binding-gate question that
+        // motivated #521 (PropertyIdentifier siblings on the JS/TS
         // closure-classification hot path).
         let code = b"const o = { m: (a) => a + 1, n: function () {} }; foo.bar();";
         let tree = Tree::new::<MozjsCode>(code);
@@ -1922,7 +1922,7 @@ mod tests {
     /// comes off a known chain or from `Node::parent`.
     ///
     /// The parent lookup is the only thing #1088 changed here, and it is
-    /// the half a caller cannot see: `check_if_arrow_func!` folds the
+    /// the half a caller cannot see: the JS binding gate folds the
     /// answer into a disjunction, so a wrong parent would silently
     /// reclassify an arrow function rather than fail. Checked for every
     /// node against every kind the fixture contains, plus one that never

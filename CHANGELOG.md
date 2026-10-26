@@ -177,7 +177,11 @@ for historical reference.
   body, both now a `gated_by` on the row), the byte-less ones the
   row's kind table through a new `lists_kind`. `find` / `count` and
   the ABC branch count read the `Call` row (object construction stays
-  each walker's own, as before); every getter's interpolation set and
+  each walker's own, as before); the two helper grammars (`ccomment`,
+  `preproc`) declare the `StringLit` row for the literals the pass
+  must not strip, so `impl_simple_is_string!` is gone and every
+  language's `is_string` is `impl_row_predicates!`; every getter's
+  interpolation set and
   the dump's string flattening read the `StringLit` row's `wraps` and
   owners (`Alterator::flatten_verbatim` is the shared leaf; the
   non-string flattening — char and rune literals, Groovy's string
@@ -194,7 +198,7 @@ for historical reference.
   boundary and lambda arms of Java and Elixir read their rows as the
   other languages' do. Every `bca ops` vocabulary, every metric, the
   space tree, `dump`, `find` and `count` are byte-identical on the
-  integration corpora and a fixture per language (0 of 26,992
+  integration corpora and a fixture per language (0 of 27,024
   outputs) and on the recovery sweep (0 of 129,042). The bypass
   baseline falls from 40 to 10, all of which are Elixir's documented
   byte-less kind table (#275) and the `Exit` row's consumer (R07).
@@ -219,21 +223,33 @@ for historical reference.
   and is not a boundary. A `Member` row recognises the declaration — a
   field, a property, a Python `self.x` where it is bound, an Elixir
   `defstruct` — and leaves which body, what visibility and how many
-  names to the consumer; the Elixir walk reads one `elixir_declaration`
-  of a `call`'s target for both space rows, pinned by a counter.
+  names to the consumer, which asks the row under the member's own
+  chain (`Ancestors::of_children`, one allocation per body) so a gate
+  the row grows later reads the right parent; the Elixir walk reads one
+  `elixir_declaration` of a `call`'s target for both space rows,
+  pinned by a counter. Each row's `TEXT_GATED` says whether an owner
+  reads the bytes, which the byte-less `nargs` and `nom` readers pin
+  against. The arrow binding gate's `property_identifier` sibling scan
+  is memoised per parent, so a call with thousands of positional arrows
+  is linear (3.4 s → 0.01 s on 4,000), and the Python attribute walk
+  is iterative, so a target nested thousands of brackets deep no longer
+  overflows the consumer thread's stack.
   Halstead's text-key selection reads a new
   `Checker::keys_operator_by_text(node, code, ancestors)` instead of
   the byte-less `is_primitive`: the `Primitive` row's text gate for
   Groovy, that plus the text-keyed modifier kinds for Objective-C
-  (#1599). Objective-C's `is_primitive` now answers from the row's
-  kinds (an identifier is no primitive); Groovy's byte-less one is
-  still the kind table — every `identifier` / `type_identifier`, since
-  its primitives are told by text alone — and says so. Every `bca ops`
+  (#1599). Every language's `is_primitive` answers from the
+  `Primitive` row's kind table, and the languages whose text key was
+  never only the primitives — C#'s parameter and lambda modifiers,
+  Kotlin's `reified` — now say so in `keys_operator_by_text` rather
+  than in `is_primitive`; Groovy's byte-less one is the kind table —
+  every `identifier` / `type_identifier`, since its primitives are told
+  by text alone — and says so. Every `bca ops`
   vocabulary, every metric, the space tree, `dump`, `find` and `count`
   are byte-identical on the integration corpora and a fixture per
-  language (26,992 CLI and library-export outputs), and on a sweep of
+  language (27,024 CLI and library-export outputs), and on a sweep of
   every fixture truncated at each line, sixteen offsets, after every
-  operator punctuation and at every word boundary (0 of 128,062
+  operator punctuation and at every word boundary (0 of 129,042
   outputs differ across the seven slices); one drift the corpus found
   in flight — C#'s bodied property read as a function boundary — was
   fixed before landing. `src/spaces/opens_space_parity_tests.rs` holds

@@ -1,15 +1,18 @@
 //! Ccomment's role rows. The C-family comment-stripping helper grammar
 //! recognises comments and string literals (`checker/ccomment.rs`), so
-//! those three rows are pending the packages that declare them; every
-//! other role names a construct the grammar cannot emit.
+//! `StringLit` is declared and the two comment rows are pending the
+//! packages that declare them; every other role names a construct the
+//! grammar cannot emit.
 
-use crate::role_table;
+use crate::{Ccomment, role_table};
 
 role_table! {
     lang: Ccomment;
     Call { absent "the comment-stripping pass parses only comments and the string literals it must \
          not strip; it emits no such construct" }
-    StringLit { pending R08 }
+    // The literals the pass must not strip or read into: `find string`
+    // and the byte-less `is_string` both read this kind table (#1698).
+    StringLit { owns [StringLiteral, RawStringLiteral] }
     Comparison { absent "the comment-stripping pass parses only comments and the string literals \
          it must not strip; it emits no such construct" }
     ShortCircuit { absent "the comment-stripping pass parses only comments and the string literals \

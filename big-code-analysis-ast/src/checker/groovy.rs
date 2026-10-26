@@ -108,7 +108,7 @@ impl Checker for GroovyCode {
     // selection reads the row through `keys_operator_by_text`, and a
     // second consumer asking this of a plain name gets `true` only here.
     fn is_primitive(node: &Node) -> bool {
-        crate::roles::groovy::primitive::OWNERS.contains(&node.kind_id())
+        crate::roles::groovy::primitive::lists_kind(node.kind_id())
     }
 
     fn keys_operator_by_text<'a>(
@@ -125,8 +125,8 @@ impl Checker for GroovyCode {
 
     // `Call` and `StringLit` are the rows of `roles/groovy.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(groovy);
-    impl_string_lit_row!(groovy);
+    impl_row_predicates!(groovy, call, is_call, is_call_with_code);
+    impl_row_predicates!(groovy, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(

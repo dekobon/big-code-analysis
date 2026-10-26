@@ -159,13 +159,32 @@ macro_rules! js_family_binding_gates {
             bound(node, ancestors, || node.is_child($lang::Identifier as u16))
         }
 
+        // The sibling question is the *parent's*: whether it holds a
+        // `property_identifier` child at all, an `O(width)` scan. Asked
+        // through the walk's memo it runs once per parent, so a wide
+        // argument list or array literal of positional arrows is linear;
+        // `nom` and `nargs` each ask twice per arrow (`is_func` then
+        // `is_closure`), and off the walk it is computed each time.
+        //
+        // At the pinned grammars no parent reaches this clause with a
+        // `property_identifier` child: `node-types.json` places one only
+        // under `pair`, the field kind and `method_definition`, and the
+        // first two bind through the ancestor test before `extra` is
+        // asked. So the clause is a `false` the scan confirms, kept for
+        // a grammar bump that gives an arrow another named parent, and
+        // no fixture can turn it true (answering a constant `false`
+        // changes no output on the corpus or the fixtures).
         fn bound_arrow<'a>(
             node: &$crate::Node<'a>,
             _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             bound(node, ancestors, || {
-                node.has_sibling(ancestors, $lang::PropertyIdentifier as u16)
+                ancestors.parent(node).is_some_and(|parent| {
+                    ancestors.memoised($crate::node::MemoQuestion::NamesAnArrow, &parent, || {
+                        parent.is_child($lang::PropertyIdentifier as u16)
+                    })
+                })
             })
         }
 

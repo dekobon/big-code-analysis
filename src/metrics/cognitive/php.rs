@@ -100,24 +100,20 @@ impl Cognitive for PhpCode {
             }
             // A closure — the `Closure` row — charges the lambda channel
             // and does not reset nesting.
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
-            // At a (possibly nested) named-function / method boundary, reset
-            // structural nesting to zero and bump the function-depth
-            // surcharge when this definition is itself nested inside another
-            // — matching Java and the sibling families. Without this, a PHP
-            // function/method declared inside a control construct inherited
-            // the enclosing nesting and every nested definition missed the
-            // SonarSource B-nesting amplification (#775, the #696 gap).
-            // Closures (`AnonymousFunction` / `ArrowFunction`) are handled by
-            // the lambda arm above and intentionally do *not* reset nesting,
-            // mirroring how the siblings treat lambda vs named-function arms.
-            // A named function — the `FuncOpener` row's callable owners —
-            // resets structural nesting and bumps the function-depth
-            // surcharge when nested in another (#696); the stop list is
-            // the row's callable kinds.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            // A named function or method — the `FuncOpener` row's callable
+            // owners — resets structural nesting and bumps the
+            // function-depth surcharge when nested in another, matching
+            // Java and the sibling families; without it a declaration
+            // inside a control construct inherited the enclosing nesting
+            // and a nested one missed the SonarSource B-nesting
+            // amplification (#775, the #696 gap). The stop list is the
+            // row's callable kinds. Closures (`AnonymousFunction` /
+            // `ArrowFunction`) take the lambda arm above and deliberately
+            // do *not* reset nesting, as in the siblings.
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

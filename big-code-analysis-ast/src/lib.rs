@@ -139,7 +139,7 @@ pub use crate::langs::*;
 pub use crate::languages::*;
 pub use crate::macros::ParseLangError;
 pub(crate) use crate::node::FoldLane;
-pub use crate::node::{Ancestors, FoldCache, Node, SiblingCache};
+pub use crate::node::{Ancestors, ChildAncestors, FoldCache, Node, SiblingCache};
 pub use crate::parser::Parser;
 pub use crate::preproc::{
     PreprocDiagnostic, PreprocFile, PreprocResults, fix_includes, get_macros, preprocess,

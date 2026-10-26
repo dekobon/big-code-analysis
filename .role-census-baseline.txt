@@ -38,7 +38,6 @@ C Loop R07
 C Switch R07
 Ccomment Comment R09
 Ccomment DocComment R09
-Ccomment StringLit R08
 Cpp Branch R07
 Cpp Catch R07
 Cpp Comment R09
@@ -215,7 +214,6 @@ Php Loop R07
 Php Switch R07
 Preproc Comment R09
 Preproc DocComment R09
-Preproc StringLit R08
 Python Branch R07
 Python Catch R07
 Python Comment R09

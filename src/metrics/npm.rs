@@ -249,15 +249,19 @@ impl Stats {
 /// The direct children of `node` that `C` classifies as functions.
 ///
 /// The class-body arms below all ask the same question — "which of this
-/// body's children are methods?" — and share one reason for answering it
-/// with [`Ancestors::unknown`]: a chain is a borrowed slice, so it cannot
-/// be extended by `node` without allocating one per body. Nothing is lost,
-/// because every grammar that reaches this helper (Java, Groovy, Kotlin,
-/// PHP) decides `is_func` from the node's own kind and never asks for an
-/// ancestor (#1088).
-fn direct_child_funcs<'a, C: Checker>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
+/// body's children are methods?" — and each child is asked under its own
+/// chain, the body's plus the body ([`Ancestors::of_children`], one
+/// allocation per body), through the `_with_code` spelling: a gate the
+/// `FuncOpener` row grows later then reads the right parent and the
+/// bytes, rather than climbing (#1088) or answering from the body's
+/// chain without them.
+fn direct_child_funcs<'a, 'c, C: Checker>(
+    node: &Node<'a>,
+    code: &'c [u8],
+    members: Ancestors<'a, 'c>,
+) -> impl Iterator<Item = Node<'a>> + use<'a, 'c, C> {
     node.children()
-        .filter(|child| C::is_func(child, Ancestors::unknown()))
+        .filter(move |child| C::is_func_with_code(child, code, members))
 }
 
 #[doc(hidden)]
@@ -324,15 +328,19 @@ macro_rules! impl_npm_java_like {
         impl Npm for $code {
             fn compute<'a>(
                 node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
                 use $lang::*;
 
+                // The members' chain is built inside the body arms, never
+                // for the nodes that are no body.
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
-                        for method in direct_child_funcs::<Self>(node) {
+                        let under = ancestors.of_children(node);
+                        let members = under.get();
+                        for method in direct_child_funcs::<Self>(node, code, members) {
                             stats.class_nm += 1;
                             // The first child node contains the list of method modifiers.
                             // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
@@ -345,7 +353,9 @@ macro_rules! impl_npm_java_like {
                         }
                     }
                     InterfaceBody => {
-                        stats.interface_nm += direct_child_funcs::<Self>(node).count();
+                        let under = ancestors.of_children(node);
+                        stats.interface_nm +=
+                            direct_child_funcs::<Self>(node, code, under.get()).count();
                         stats.interface_npm = stats.interface_nm;
                     }
                     AnnotationTypeBody => {
@@ -407,17 +417,20 @@ macro_rules! ts_npm_compute {
             // expression forms never sit there directly), an abstract
             // signature, or a `Member` whose initialiser is a function —
             // a method written as a field. Which is which, and whether
-            // it is public, is this consumer's reading; a child's chain
-            // is the body's plus the body itself, which the callable
-            // gate does not consult for a method.
+            // it is public, is this consumer's reading. Each member is
+            // asked under its own chain — the body's plus the body —
+            // which the callable's binding gates climb; built inside the
+            // body arms, never for the nodes that are no body.
             match node.kind_id().into() {
                 ClassBody => {
+                    let under = ancestors.of_children(node);
+                    let members = under.get();
                     for member in node.children() {
                         // Field-as-arrow-function (`foo = () => …`) is a
                         // class method written as a field initializer.
-                        let method = func_opener::is_callable(&member, code, ancestors)
+                        let method = func_opener::is_callable(&member, code, members)
                             || member.kind_id() == AbstractMethodSignature as u16
-                            || (member::owns(&member, code, ancestors)
+                            || (member::owns(&member, code, members)
                                 && member
                                     .first_child(|id| {
                                         id == $lang::ArrowFunction
@@ -485,12 +498,14 @@ macro_rules! js_npm_compute {
             // A method is the `FuncOpener` row's *callable* owner met as
             // a body's child (a `method_definition`), or a `Member` whose
             // initialiser is a function — a method written as a field;
-            // which is which is this consumer's reading. A child's chain
-            // is the body's plus the body itself, which the callable gate
-            // does not consult for a method.
+            // which is which is this consumer's reading. Each member is
+            // asked under its own chain — the body's plus the body —
+            // which the callable's binding gates climb.
+            let under = ancestors.of_children(node);
+            let members = under.get();
             for member in node.children() {
-                let method = func_opener::is_callable(&member, code, ancestors)
-                    || (member::owns(&member, code, ancestors)
+                let method = func_opener::is_callable(&member, code, members)
+                    || (member::owns(&member, code, members)
                         && member
                             .first_child(|id| {
                                 id == $lang::ArrowFunction || id == $lang::FunctionExpression

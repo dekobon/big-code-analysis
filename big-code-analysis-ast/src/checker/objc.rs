@@ -19,21 +19,12 @@ impl Checker for ObjcCode {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }
 
-    // Objective-C builds on C, so the code spaces are the translation
-    // unit, free functions, and ObjC-specific containers: `@interface`
-    // / `@protocol` (declarations only → `Interface`), `@implementation`
-    // (method bodies → `Class`), and method definitions. `BlockLiteral`
-    // (`^{ … }`) is a closure counted by `nom`, not its own space —
-    // mirroring how the C++ checker treats `LambdaExpression`. Keep this
-    // list in sync with `is_func`, `get_func_space_name`, and
-    // `get_space_kind` (see `src/getter.rs`); the `FunctionDefinition2`
-    // alias must ride alongside the primary or it is silently dropped
-    // from FuncSpace creation (#285, lesson 2).
-    // The space tree is declared in `roles/objc.rs` (#1696): the
-    // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The rows read no bytes and no chain (the
-    // body gate reads the node's own fields), so the byte-less spelling
-    // forwards with none and answers the same.
+    // The space tree is declared in `roles/objc.rs` (#1696): C's
+    // translation unit and free functions plus the ObjC containers —
+    // `@interface` / `@protocol` open `Interface`, `@implementation`
+    // `Class` — and method definitions; a block literal (`^{ … }`) is a
+    // closure and no space, as the C++ lambda. The rows read no bytes
+    // and no chain, so the byte-less spelling forwards with none.
     fn is_func_space(node: &Node) -> bool {
         Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
@@ -104,8 +95,8 @@ impl Checker for ObjcCode {
 
     // `Call` and `StringLit` are the rows of `roles/objc.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(objc);
-    impl_string_lit_row!(objc);
+    impl_row_predicates!(objc, call, is_call, is_call_with_code);
+    impl_row_predicates!(objc, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -140,6 +131,10 @@ impl Checker for ObjcCode {
     ) -> bool {
         use crate::roles::objc::{modifier, primitive};
         let kind = node.kind_id();
+        // role-bypass: allow(Primitive, Modifier) — key selection after the
+        // rows have classified the node: which of their kinds is one kind
+        // for many spellings, not whether the node is one (the gate cannot
+        // see a kind held in a local, so this says so by hand)
         primitive::owns_kind(kind, node, code, ancestors)
             || kind == Objc::Nullable as u16
             || (kind == Objc::Identifier as u16 && modifier::owns_kind(kind, node, code, ancestors))

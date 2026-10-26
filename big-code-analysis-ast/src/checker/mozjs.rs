@@ -61,8 +61,8 @@ impl Checker for MozjsCode {
 
     // `Call` and `StringLit` are the rows of `roles/mozjs.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(mozjs);
-    impl_string_lit_row!(mozjs);
+    impl_row_predicates!(mozjs, call, is_call, is_call_with_code);
+    impl_row_predicates!(mozjs, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(

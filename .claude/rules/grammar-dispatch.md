@@ -264,13 +264,26 @@ byte-less call site therefore reads as correct against every language
 that has no override, and is wrong only on the one that does. You cannot
 recover this from the signatures; both look total.
 
-Elixir is that language, and currently the only one overriding either
-method. `defmodule` / `def` / `defp` are not distinct grammar
+Elixir was that language, and until #1696 the only one overriding
+either method. `defmodule` / `def` / `defp` are not distinct grammar
 productions — they parse as `Call` nodes told apart only by their target
 identifier text (#275) — so `ElixirCode::is_func_space` lists just
 `Source | AnonymousFunction` and `ElixirCode::get_space_kind` has no
 `defmodule` arm. The byte-less pair answers `(false, Unknown)` for every
 Elixir container.
+
+Since #1696 every grammar overrides both `_with_code` methods — they
+read the `FuncOpener` and `Container` rows of `roles/<lang>.rs` — and
+the byte-less pair is each row's kind table, gates aside: it forwards
+with no bytes and a *known-empty* chain (`Ancestors::known(&[])`, never
+`Ancestors::unknown()`, which would climb). So the two spellings now
+disagree wherever a row has a gate that reads the chain, not only where
+one reads the bytes. Ruby is the second case: its `block` / `do_block`
+open a space only outside a stabby lambda's own body, and
+`ruby_byte_less_spellings_stay_the_kind_table` pins that the byte-less
+spelling over-approximates there exactly as the pre-row kind list did.
+A byte-less call site is therefore wrong on Elixir *and* Ruby today, and
+on whichever language next gates an opener.
 
 This has already landed once. `ops_inner` opened spaces on the byte-less
 `is_func || is_func_space`, so `bca ops` returned a bare file-level space

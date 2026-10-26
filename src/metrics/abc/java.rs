@@ -195,8 +195,12 @@ fn java_count_token_branch<'a>(
     // The `Call` row's invocation, and the two construction shapes the
     // row deliberately leaves out and Fitzpatrick's rule counts.
     let is_branch = match kind.into() {
-        _ if call::owns_kind(kind, node, code, ancestors) => true,
-        New | ExplicitConstructorInvocation => true,
+        _ if call::owns_kind(kind, node, code, ancestors)
+            || kind == New as u16
+            || kind == ExplicitConstructorInvocation as u16 =>
+        {
+            true
+        }
         // An enum constant carrying constructor arguments — `A(1)` in
         // `enum E { A(1), B, C(2); }` — invokes the enum's constructor, so
         // it is an object construction under Fitzpatrick's "function

@@ -50,42 +50,41 @@ pub fn elixir_is_method_macro(kw: &str) -> bool {
 /// where a caller needs both ("any space-opening declaration").
 #[inline]
 #[must_use]
-pub fn elixir_is_class_macro(kw: &str) -> bool {
+pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
     kw == "defmodule"
 }
 
-/// What a `call` declares, read from its target text once: a module, a
-/// method (outside a `quote` template — #310), or nothing. The
-/// `FuncOpener` and `Container` rows and the walk's combined promotion
-/// lookup all read this one answer, so a `call` pays one keyword scan
-/// however many of them ask (#310 follow-on perf, #1696).
+/// What a `call` declares, read from its target text once: a module or
+/// a method (outside a `quote` template — #310). The `FuncOpener` and
+/// `Container` rows and the walk's combined promotion lookup all read
+/// this one answer, so a `call` pays one keyword scan however many of
+/// them ask (#310 follow-on perf, #1696).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ElixirDeclaration {
+pub(crate) enum ElixirDeclaration {
     /// `defmodule`.
     Module,
     /// `def` / `defp` / `defmacro` / `defmacrop`, outside any `quote`.
     Method,
-    /// Any other call, and a method macro inside a `quote` template.
-    None,
 }
 
 /// [`ElixirDeclaration`] of `node`; `None` for anything but a `call`
-/// whose target spells a declaring macro.
+/// whose target spells a declaring macro, a method macro inside a
+/// `quote` template included.
 #[must_use]
-pub fn elixir_declaration<'a>(
+pub(crate) fn elixir_declaration<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
-) -> ElixirDeclaration {
+) -> Option<ElixirDeclaration> {
     match elixir_call_keyword(node, code) {
-        Some(kw) if elixir_is_class_macro(kw) => ElixirDeclaration::Module,
+        Some(kw) if elixir_is_class_macro(kw) => Some(ElixirDeclaration::Module),
         Some(kw)
             if elixir_is_method_macro(kw)
                 && !elixir_is_inside_quote_block(node, code, ancestors) =>
         {
-            ElixirDeclaration::Method
+            Some(ElixirDeclaration::Method)
         }
-        _ => ElixirDeclaration::None,
+        _ => None,
     }
 }
 
@@ -111,7 +110,7 @@ pub fn elixir_declaration<'a>(
 /// `Ancestors::unknown` (#1084).
 #[inline]
 #[must_use]
-pub fn elixir_is_inside_quote_block<'a>(
+pub(crate) fn elixir_is_inside_quote_block<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,

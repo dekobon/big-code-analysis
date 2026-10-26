@@ -37,17 +37,19 @@ impl Npa for PhpCode {
         let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
-        // A member's chain is the body's plus the body; the row reads
-        // neither. A class body counts the row's properties and an
+        // Each member is asked under its own chain, the body's plus the
+        // body. A class body counts the row's properties and an
         // interface body its constants, so the body decides which of
         // the row's members this consumer reads.
+        let under = ancestors.of_children(node);
+        let members = under.get();
         // role-bypass: allow(Container, Member) — which container's body
         // the members sit in, and which of the row's kinds that body
         // counts: the bucket, not membership
         match parent_kind {
             ClassDeclaration | TraitDeclaration | AnonymousClass => {
                 for declaration in node.children().filter(|c| {
-                    c.kind_id() == PropertyDeclaration as u16 && member::owns(c, code, ancestors)
+                    c.kind_id() == PropertyDeclaration as u16 && member::owns(c, code, members)
                 }) {
                     let attributes = declaration
                         .children()
@@ -65,8 +67,7 @@ impl Npa for PhpCode {
                 let count: usize = node
                     .children()
                     .filter(|c| {
-                        c.kind_id() != PropertyDeclaration as u16
-                            && member::owns(c, code, ancestors)
+                        c.kind_id() != PropertyDeclaration as u16 && member::owns(c, code, members)
                     })
                     .map(|decl| {
                         decl.children()

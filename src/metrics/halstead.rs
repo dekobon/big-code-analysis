@@ -8709,8 +8709,9 @@ int helper(int a, char b) { return a; }
             if ObjcCode::keys_operator_by_text(node, SOURCE.as_bytes(), Ancestors::known(chain)) {
                 keyed.push(text.to_owned());
             }
-            if matches!(node.kind(), "identifier" | "type_identifier")
-                && matches!(text, "NSString" | "helper" | "x")
+            if (matches!(node.kind(), "identifier" | "type_identifier")
+                && matches!(text, "NSString" | "helper" | "x"))
+                || node.kind() == "primitive_type"
             {
                 plain.push((text.to_owned(), ObjcCode::is_primitive(node)));
             }
@@ -8732,15 +8733,21 @@ int helper(int a, char b) { return a; }
                 "char"
             ]
         );
-        // An ordinary identifier or type name is neither keyed by text
-        // nor a primitive (the walk meets the parameter before the
+        // The byte-less `is_primitive` is the row's kind table: every
+        // `primitive_type` node is one, and an ordinary identifier or
+        // type name is not (the walk meets the parameter before the
         // declarator's name).
         plain.sort();
         assert_eq!(
             plain,
             [
                 ("NSString".to_owned(), false),
+                ("char".to_owned(), true),
+                ("double".to_owned(), true),
                 ("helper".to_owned(), false),
+                ("int".to_owned(), true),
+                ("int".to_owned(), true),
+                ("int".to_owned(), true),
                 ("x".to_owned(), false),
             ]
         );
@@ -9914,8 +9921,8 @@ f() {
     #[cfg(feature = "bash")]
     #[test]
     fn bash_all_expansion_kinds_skip_wrapper() {
-        // Exercises every node kind tested by
-        // `bash_string_has_expansion`: `simple_expansion` (`$v`),
+        // Exercises every node kind in the Bash `StringLit` row's
+        // `wraps` list: `simple_expansion` (`$v`),
         // `expansion` (`${v[0]}`), `command_substitution` (`$(date)`),
         // and `arithmetic_expansion` (`$((1+2))`). A typo replacing
         // one kind with an aliased neighbour in `language_bash.rs`
@@ -10189,7 +10196,7 @@ f() {
             // this one; the `_before` columns here price the
             // `translated_string` alone.
             ("$\"ls\" arg\n", [0, 0, 2, 2], (3, 3)),
-            // Interpolating form. `bash_string_has_expansion` inspects the
+            // Interpolating form. The `wraps` check inspects the
             // node's own children, and a `translated_string` has only `$`
             // and `string`, so it never saw the `simple_expansion` one level
             // down: the wrapper reintroduced exactly the double count #180

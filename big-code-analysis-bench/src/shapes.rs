@@ -717,15 +717,29 @@ pub fn nested_arrows(depth: usize) -> String {
     )
 }
 
-/// JavaScript: `const cb = [() => 1, () => 2, …];` — `width` arrows as
-/// siblings in one array literal.
+/// JavaScript: `run(() => 1, () => 2, …);` — `width` positional arrows
+/// as one call's arguments, the shape whose binding walk reaches the
+/// parent's sibling scan (a bound `const cb = [...]` does not).
 #[must_use]
 pub fn wide_arrow_array(width: usize) -> String {
     let arrows = (0..width)
         .map(|i| format!("() => {i}"))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("const cb = [{arrows}];\n")
+    format!("run({arrows});\n")
+}
+
+/// Java: `class C { int f() { return ((…(1)…)); } }` — one field and
+/// one method in a class body, with `depth` parentheses nested inside
+/// the method, so the member walks meet one body and many nodes that
+/// are no body.
+#[must_use]
+pub fn java_deep_expression_in_class(depth: usize) -> String {
+    format!(
+        "class C {{ int x; int f() {{ return {}1{}; }} }}\n",
+        "(".repeat(depth),
+        ")".repeat(depth)
+    )
 }
 
 /// C++: `bool f(bool a){ return a && a && … && a; }`.
@@ -2043,13 +2057,36 @@ pub const PROBES: &[Probe] = &[
         render: wide_arrow_array,
         sizes: LINEAR_WIDTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1696: the arrow form of the JS binding walk asks for a \
-                    `property_identifier` sibling, an `O(width)` scan of the \
-                    parent's children, and only when the ancestor test has \
-                    not already bound the arrow. Evaluated unconditionally — \
-                    which the first row-based spelling of the walk did — the \
-                    scan ran once per arrow and an array of arrows was \
-                    quadratic (4,000 arrows: 0.02 s → 4 s).",
+        rationale: "#1696: the arrow form of the JS binding walk asks whether \
+                    the parent holds a `property_identifier` child, an \
+                    `O(width)` scan of the parent's children, for every arrow \
+                    the ancestor test leaves unbound — each of a call's \
+                    positional arguments. Asked of the parent once per arrow, \
+                    4,000 of them took 3.4 s on the base; memoised per parent \
+                    through the walk's `FoldCache` they take 0.01 s. A bound \
+                    arrow (`const cb = [...]`) never reaches the scan, so a \
+                    bound shape measures only the lazy path.",
+    },
+    Probe {
+        name: "npa/java-deep-expression",
+        lang: LANG::Java,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa, Metric::Npm],
+            reading: |m| m.npa.class_na_sum() + m.npm.class_nm_sum(),
+        },
+        render: java_deep_expression_in_class,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1696 review: the member walks ask the `Member` and \
+                    `FuncOpener` rows under each member's own chain, built \
+                    by `Ancestors::of_children` — an `O(depth)` copy per \
+                    body. Built before the body test, it ran for every \
+                    node the walk visits and a 64,000-deep expression took \
+                    3–6 s in each of `npa` and `npm`; built inside the body \
+                    arms, 0.04 s. The reading is the one field and one \
+                    method, which the expression's depth does not touch.",
     },
     Probe {
         name: "nom/nested-attributed-fn",

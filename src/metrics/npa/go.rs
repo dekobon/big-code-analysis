@@ -74,7 +74,7 @@ impl Npa for GoCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use crate::roles::go::member;
@@ -101,11 +101,14 @@ impl Npa for GoCode {
         // export rule; the total is unconditional.
         let mut total = 0usize;
         let mut public = 0usize;
-        // A declaration's chain is the list's plus the list; the row
-        // reads neither.
+        // Each declaration is asked under its own chain: the struct's
+        // plus the struct and the list.
+        let in_struct = ancestors.of_children(node);
+        let in_list = in_struct.get().of_children(&body);
+        let declarations = in_list.get();
         for declaration in body
             .children()
-            .filter(|c| member::owns(c, code, Ancestors::unknown()))
+            .filter(|c| member::owns(c, code, declarations))
         {
             let (declared, exported) = go_count_declaration_names(&declaration, code);
             total += declared;

@@ -7,6 +7,28 @@ use std::collections::HashMap;
 
 use super::Node;
 
+/// The chain of a node's children, held by a consumer that reads them
+/// without descending: what [`Ancestors::of_children`] builds.
+#[derive(Debug)]
+pub struct ChildAncestors<'tree, 'chain> {
+    chain: Option<Vec<Node<'tree>>>,
+    above: Ancestors<'tree, 'chain>,
+}
+
+impl<'tree> ChildAncestors<'tree, '_> {
+    /// The children's [`Ancestors`], with the walk's fold cache carried
+    /// and its sibling cache deliberately not — the children are nodes
+    /// the walk has not recorded.
+    #[inline]
+    #[must_use]
+    pub fn get(&self) -> Ancestors<'tree, '_> {
+        match &self.chain {
+            Some(chain) => self.above.below(chain),
+            None => Ancestors::unknown(),
+        }
+    }
+}
+
 /// The chain of a node's ancestors, root first, as recorded by a walker
 /// that descended to that node.
 ///
@@ -240,6 +262,25 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     pub(crate) fn children_chain(self, node: &Node<'tree>) -> Option<Vec<Node<'tree>>> {
         self.chain
             .map(|chain| [chain, std::slice::from_ref(node)].concat())
+    }
+
+    /// The chain of `node`'s children, held: `self` extended by `node`,
+    /// for a consumer that holds a body's chain and asks a row about the
+    /// body's *members* without descending into them — `npa` and `npm`
+    /// over a class body. A row's gate reads the chain it is handed as
+    /// the queried node's own, so handing it the body's instead answers
+    /// from the wrong parent the moment a `Member` or `FuncOpener` row
+    /// grows a gate; the comment "the row reads no chain" was the only
+    /// guard before this. The one allocation is per body, `O(depth)`,
+    /// never per node; without a known chain the result climbs, as
+    /// [`Ancestors::unknown`] does. Read it with
+    /// [`ChildAncestors::get`].
+    #[must_use]
+    pub fn of_children(self, node: &Node<'tree>) -> ChildAncestors<'tree, 'chain> {
+        ChildAncestors {
+            chain: self.children_chain(node),
+            above: self,
+        }
     }
 
     /// `self` re-rooted on `chain`, a [`children_chain`](Self::children_chain)
@@ -585,14 +626,20 @@ pub(crate) enum MemoQuestion {
     /// so each is asked once rather than climbing the chain per token
     /// (#1695).
     GuardOperator,
+    /// JS family: whether an arrow's *parent* holds a `property_identifier`
+    /// child — the name an unbound arrow is bound to. Asked of the parent
+    /// once per arrow under it, and the scan is `O(width)` over the
+    /// parent's children, so `run(() => 1, …, () => n)` asked it `n`
+    /// times of one `arguments` and was quadratic (#1696 review).
+    NamesAnArrow,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 4;
+    const COUNT: usize = 5;
 }
 
-const _: () = assert!(MemoQuestion::GuardOperator as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::NamesAnArrow as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), and the per-node memos for
@@ -1019,6 +1066,57 @@ mod tests {
                 .node_memo(MemoQuestion::ArgumentSlotsReadable)
                 .is_none(),
             "a chain rebuilt with `known` carries nothing, which is why `below` exists"
+        );
+    }
+
+    /// `of_children` hands a body's members the chain that is their own:
+    /// `parent` on a member is the body, where the body's chain would
+    /// name the body's parent instead — the shape `npa` / `npm` ask a
+    /// row about every member under. The derived chain keeps the walk's
+    /// fold cache, as `below` does, and without a known chain it climbs.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn of_children_names_the_body_as_each_member_s_parent() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"struct S { a: i32, b: i32 }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the struct item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "field_declaration_list")
+            .expect("the field list");
+        let field = body
+            .children()
+            .find(|child| child.kind() == "field_declaration")
+            .expect("a field");
+
+        let chain = [root, item];
+        let cache = FoldCache::default();
+        let walk = Ancestors::known(&chain).with_folds(&cache);
+        assert_eq!(
+            walk.parent(&body).map(|p| p.id()),
+            Some(item.id()),
+            "the body's own chain names the item"
+        );
+        let under = walk.of_children(&body);
+        let members = under.get();
+        assert_eq!(
+            members.parent(&field).map(|p| p.id()),
+            Some(body.id()),
+            "a member's chain names the body"
+        );
+        assert_eq!(members.depth(), Some(3), "root, item, body");
+        assert!(
+            members.memoises_folds(),
+            "the derived chain keeps the walk's fold cache"
+        );
+        assert_eq!(
+            Ancestors::unknown()
+                .of_children(&body)
+                .get()
+                .parent(&field)
+                .map(|p| p.id()),
+            Some(body.id()),
+            "without a chain the derived one climbs to the same parent"
         );
     }
 }

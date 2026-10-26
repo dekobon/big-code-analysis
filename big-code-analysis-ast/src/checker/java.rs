@@ -136,8 +136,8 @@ impl Checker for JavaCode {
 
     // `Call` and `StringLit` are the rows of `roles/java.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(java);
-    impl_string_lit_row!(java);
+    impl_row_predicates!(java, call, is_call, is_call_with_code);
+    impl_row_predicates!(java, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         // Java's explicit receiver parameter (`void m(S this, int a)`, JLS

@@ -23,13 +23,9 @@ impl Getter for CppCode {
         code: &'a [u8],
         _ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
-        // Issue #285 contract: every `Cpp::FunctionDefinition*` alias
-        // must be enumerated here AND in `get_space_kind` below AND
-        // in `is_func` / `is_func_space` (see `src/checker.rs`).
-        // The aliased kind_ids 489/491/494 are not emitted by the
-        // currently pinned `tree-sitter-cpp` parse tables, so a
-        // dropped variant would silently fall through to the
-        // `_ => name-field` arm and yield the wrong name (or `None`).
+        // Every `function_definition` alias the `FuncOpener` row names is
+        // listed here too (#285): a dropped one would fall through to
+        // the `_ => name-field` arm and yield the wrong name (or `None`).
         // role-bypass: allow(FuncOpener) — a naming rule, not whether the
         // definition opens a space
         match node.kind_id().into() {

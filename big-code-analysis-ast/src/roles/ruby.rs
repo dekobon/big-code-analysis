@@ -181,8 +181,8 @@ role_table! {
     Catch { pending R07 }
     ElseIf { pending R07 }
     Exit { pending R07 }
-    Modifier { absent "Ruby's `private` / `protected` are method calls, declared text-gated under \
-         `Member`, not keywords" }
+    Modifier { absent "Ruby's `private` / `protected` are method calls read by name in the \
+         method consumer, not keywords" }
     // `def`, `class` and `module` as keyword tokens: `Class2` /
     // `Module2` are the anonymous keyword kinds, `Class` / `Module` the
     // named constructs the space walk opens. `alias` and `undef` are

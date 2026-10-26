@@ -46,10 +46,9 @@ impl Getter for ObjcCode {
         code: &'a [u8],
         _ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
-        // Issue #285 contract: every `Objc::FunctionDefinition*` alias
-        // must be enumerated here AND in `get_space_kind` below AND in
-        // `is_func` / `is_func_space` (see `src/checker.rs`). Free
-        // functions reach their name through the C declarator chain; the
+        // Every `function_definition` alias the `FuncOpener` row names is
+        // listed here too (#285). Free functions reach their name through
+        // the C declarator chain; the
         // ObjC containers (`method_definition`, `class_interface` /
         // `class_implementation`, `protocol_declaration`) carry no `name`
         // field, so their name is the first `identifier` child — the

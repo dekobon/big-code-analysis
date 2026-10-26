@@ -70,9 +70,11 @@ impl Npa for KotlinCode {
                 // and `declaration` rule layers when those rules are pure
                 // forwarding choices, so property declarations appear as
                 // direct children of `class_body`.
-                // A member's chain is the body's plus the body; the row
-                // reads neither.
-                for prop in node.children().filter(|c| member::owns(c, code, ancestors)) {
+                // Each member is asked under its own chain, the body's
+                // plus the body.
+                let under = ancestors.of_children(node);
+                let members = under.get();
+                for prop in node.children().filter(|c| member::owns(c, code, members)) {
                     let attrs = kotlin_count_property_attrs(&prop);
                     if is_interface {
                         stats.interface_na += attrs;

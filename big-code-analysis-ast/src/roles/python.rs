@@ -182,10 +182,11 @@ mod tests {
     // Until #1696 the space rows restated `checker/python.rs` and
     // `getter/python.rs` and this compared the two; now the classifiers
     // read the rows, so the expected `(is_func, is_closure, promoted,
-    // SpaceKind, is_member)` per node is pinned independently. The
-    // `Call` and `StringLit` comparisons stay until R08 reads those rows.
-    // The per-shape tests below do not cover membership: emptying `Exit`
-    // or dropping `Lambda2` from `Closure` failed none of them.
+    // SpaceKind, is_member)` per node is pinned independently, as are
+    // the `Call` and `StringLit` rows by kind string since R08 (#1698)
+    // made the classifiers read those too. The per-shape tests below do
+    // not cover membership: emptying `Exit` or dropping `Lambda2` from
+    // `Closure` failed none of them.
     #[cfg(feature = "python")]
     #[test]
     fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
@@ -234,12 +235,12 @@ mod tests {
             assert_eq!(got, want, "{kind}");
             assert_eq!(
                 call::owns(node, source, ancestors),
-                PythonCode::is_call_with_code(node, source, ancestors),
+                kind == "call",
                 "{kind}: Call"
             );
             assert_eq!(
                 string_lit::owns(node, source, ancestors),
-                PythonCode::is_string_with_code(node, source, ancestors),
+                matches!(kind, "string" | "concatenated_string"),
                 "{kind}: StringLit"
             );
             // `Exit` has no classifier in this crate; its three kinds are
@@ -313,6 +314,37 @@ mod tests {
             }
         });
         seen
+    }
+
+    /// The `Member` gate climbs only unpacking wrappers to the
+    /// assignment. A `self.` attribute under any other node on the
+    /// target side — the receiver of `self.x.y = …`, the index of
+    /// `a[self.i] = …` — is declined by that wrapper-kind check, which
+    /// nothing reaches through the `npa` walk (it stops at the outer
+    /// node), so the row is asked here directly with each node's real
+    /// chain. Dropping the check admits both (perturbation-verified).
+    #[cfg(feature = "python")]
+    #[test]
+    fn member_declines_a_self_attribute_under_a_non_pattern_node() {
+        let source = b"class C:\n    def __init__(self):\n        self.x.y = 1\n        a[self.i] = 2\n        self.k = 3\n";
+        let mut answers = Vec::new();
+        for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+            if node.kind() == "attribute" {
+                answers.push((
+                    node.utf8_text(source).expect("fixture is UTF-8").to_owned(),
+                    member::owns(node, source, Ancestors::known(chain)),
+                ));
+            }
+        });
+        assert_eq!(
+            answers,
+            [
+                ("self.x.y".to_owned(), false),
+                ("self.x".to_owned(), false),
+                ("self.i".to_owned(), false),
+                ("self.k".to_owned(), true),
+            ]
+        );
     }
 
     // A chained comparison is one wrapper and two leaves; the compound

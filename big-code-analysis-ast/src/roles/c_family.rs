@@ -218,9 +218,11 @@ pub(crate) fn cpp_family_operator_is_applied<'a>(
         })
 }
 
-/// The gate the C++ `Comparison` and `ShortCircuit` payers read, per
-/// dialect because each reads the dialect's kind ids (#1694). The
-/// derivations are on the shared fragments in `roles/c_family.rs`.
+/// The gates the C++ rows read, per dialect because each table reads
+/// the dialect's kind ids: `applied` for the `Comparison` and
+/// `ShortCircuit` payers (#1694), `has_body` for the `Container`
+/// specifiers (#1555). The derivations are on the shared fragments in
+/// `roles/c_family.rs`.
 macro_rules! cpp_family_gates {
     ($lang:ident) => {
         /// Whether a token applies its operator: its parent is a
@@ -235,6 +237,17 @@ macro_rules! cpp_family_gates {
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             $crate::roles::c_family::cpp_family_operator_is_applied(node, ancestors)
+        }
+
+        /// Whether a `struct` / `class` specifier carries a `body` field
+        /// — a definition rather than a forward declaration or a
+        /// parameter type (#1555).
+        fn has_body<'a>(
+            node: &$crate::Node<'a>,
+            _code: &[u8],
+            _ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::checker::cpp_specifier_has_body(node)
         }
     };
 }
@@ -260,7 +273,7 @@ macro_rules! cpp_family_func_openers {
 /// specifier — which opens a space only with a body (#1555): `struct S;`
 /// and the parameter type in `void f(struct S *q)` carry no `body`
 /// field, so they are gated on `has_body`, emitted per dialect by
-/// `cpp_family_space_gates!`. A `union` and an `enum` open nothing.
+/// `cpp_family_gates!`. A `union` and an `enum` open nothing.
 macro_rules! cpp_family_containers {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
@@ -269,22 +282,6 @@ macro_rules! cpp_family_containers {
             StructSpecifier(opens Struct gated_by has_body),
             ClassSpecifier(opens Class gated_by has_body),
         ] $($rest)*);
-    };
-}
-
-/// The gate the C++ `Container` rows read, per dialect.
-macro_rules! cpp_family_space_gates {
-    ($lang:ident) => {
-        /// Whether a `struct` / `class` specifier carries a `body` field
-        /// — a definition rather than a forward declaration or a
-        /// parameter type (#1555).
-        fn has_body<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::checker::cpp_specifier_has_body(node)
-        }
     };
 }
 
@@ -331,5 +328,4 @@ pub(crate) use {
     c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
     cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_containers,
     cpp_family_func_openers, cpp_family_gates, cpp_family_short_circuit_payers,
-    cpp_family_space_gates,
 };

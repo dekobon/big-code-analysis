@@ -144,7 +144,7 @@ impl Cognitive for RubyCode {
             }
             // A `def` — the `FuncOpener` row's callables — is the boundary
             // and the stop.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             // Blocks, do-blocks and lambdas are the closure forms — the
@@ -153,7 +153,7 @@ impl Cognitive for RubyCode {
             // surcharge, so counting the body too made a stabby lambda's
             // contents inherit lambda-nesting 2 where the keyword form
             // (`lambda { … }`) inherits 1 (#1257).
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

@@ -63,7 +63,10 @@ fn verdicts<L: LanguageInfo + Checker>(
 }
 
 /// Every owner of both rows was met, except the never-emitted aliases,
-/// which must not have been.
+/// which must not have been — and each of those must still be declared,
+/// so dropping a defensive alias from a row fails here rather than
+/// leaving the alias to the role-coverage gate (which forgives a kind
+/// another row claims).
 #[cfg(any(
     feature = "bash",
     feature = "c",
@@ -86,13 +89,18 @@ fn verdicts<L: LanguageInfo + Checker>(
     feature = "typescript",
 ))]
 fn owners_covered(seen: &std::collections::BTreeSet<u16>, owners: &[&[u16]], defensive: &[u16]) {
+    for &k in defensive {
+        assert!(
+            owners.iter().copied().flatten().any(|&o| o == k),
+            "defensive kind {k} is no longer declared by either row"
+        );
+        assert!(
+            !seen.contains(&k),
+            "defensive kind {k} is now emitted; its row needs a look"
+        );
+    }
     for &k in owners.iter().copied().flatten() {
-        if defensive.contains(&k) {
-            assert!(
-                !seen.contains(&k),
-                "defensive kind {k} is now emitted; its row needs a look"
-            );
-        } else {
+        if !defensive.contains(&k) {
             assert!(seen.contains(&k), "fixture never emits kind {k}");
         }
     }
@@ -178,13 +186,14 @@ fn c_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::CCode>(src, |k| {
         matches!(
             k,
-            "call_expression" | "string_literal" | "concatenated_string"
+            "call_expression" | "string_literal" | "concatenated_string" | "char_literal"
         )
     });
     // The concatenation and both of its literals are strings; a char is not.
     expect(
         &got,
         &[
+            ("'c'", (false, false)),
             ("\"a\" \"b\"", S),
             ("\"a\"", S),
             ("\"b\"", S),
@@ -211,20 +220,32 @@ fn cpp_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::CppCode>(CPP_SRC, |k| {
         matches!(
             k,
-            "call_expression" | "string_literal" | "concatenated_string" | "raw_string_literal"
+            "call_expression"
+                | "string_literal"
+                | "concatenated_string"
+                | "raw_string_literal"
+                | "char_literal"
+                | "init_declarator"
         )
     });
-    // `T t(1)` is a declaration, `T(4)` an ordinary `call_expression`.
+    // `T t(1)` is a declaration, `T(4)` an ordinary `call_expression`;
+    // a char is no string. The declarators are rows so that the fixture
+    // cannot lose either negative unseen.
     expect(
         &got,
         &[
+            ("s = \"a\" \"b\"", (false, false)),
             ("\"a\" \"b\"", S),
             ("\"a\"", S),
             ("\"b\"", S),
+            ("r = R\"(raw)\"", (false, false)),
             ("R\"(raw)\"", S),
+            ("c = 'c'", (false, false)),
+            ("'c'", (false, false)),
             ("o.m()", C),
             ("p->n()", C),
             ("ns::g()", C),
+            ("t(1)", (false, false)),
             ("T(4)", C),
         ],
     );
@@ -242,19 +263,29 @@ fn mozcpp_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::MozcppCode>(CPP_SRC, |k| {
         matches!(
             k,
-            "call_expression" | "string_literal" | "concatenated_string" | "raw_string_literal"
+            "call_expression"
+                | "string_literal"
+                | "concatenated_string"
+                | "raw_string_literal"
+                | "char_literal"
+                | "init_declarator"
         )
     });
     expect(
         &got,
         &[
+            ("s = \"a\" \"b\"", (false, false)),
             ("\"a\" \"b\"", S),
             ("\"a\"", S),
             ("\"b\"", S),
+            ("r = R\"(raw)\"", (false, false)),
             ("R\"(raw)\"", S),
+            ("c = 'c'", (false, false)),
+            ("'c'", (false, false)),
             ("o.m()", C),
             ("p->n()", C),
             ("ns::g()", C),
+            ("t(1)", (false, false)),
             ("T(4)", C),
         ],
     );
@@ -309,18 +340,25 @@ fn csharp_call_and_string_rows() {
                 | "verbatim_string_literal"
                 | "raw_string_literal"
                 | "interpolated_string_expression"
+                | "constructor_initializer"
+                | "object_creation_expression"
+                | "character_literal"
         )
     });
-    // `: this(1)` and `new C()` are construction, not calls.
+    // `: this(1)` and `new C()` are construction, not calls; a char is
+    // no string.
     expect(
         &got,
         &[
+            (": this(1)", (false, false)),
             ("M()", C),
             ("this.M()", C),
+            ("new C()", (false, false)),
             ("$\"a {x}\"", S),
             ("@\"v\"", S),
             ("\"u\"", S),
             ("\"\"\"", S),
+            ("'c'", (false, false)),
         ],
     );
     // Every invocation the pinned grammar emits — a bare, a member, a
@@ -345,12 +383,24 @@ fn go_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::GoCode>(src, |k| {
         matches!(
             k,
-            "call_expression" | "interpreted_string_literal" | "raw_string_literal"
+            "call_expression"
+                | "interpreted_string_literal"
+                | "raw_string_literal"
+                | "rune_literal"
+                | "composite_literal"
         )
     });
+    // A rune is no string; a composite literal `T{…}` is no call.
     expect(
         &got,
-        &[("g(1)", C), ("o.m(2)", C), ("\"s\"", S), ("`r`", S)],
+        &[
+            ("g(1)", C),
+            ("o.m(2)", C),
+            ("\"s\"", S),
+            ("`r`", S),
+            ("'c'", (false, false)),
+            ("T{X: 1}", (false, false)),
+        ],
     );
     owners_covered(&seen, &[call::OWNERS, string_lit::OWNERS], &[]);
 }
@@ -363,13 +413,18 @@ fn groovy_call_and_string_rows() {
     // not a chain; `println "cmd"` is the `command_chain`.
     let src = b"class C { void m() { f(1); this.m(); new C(); println \"cmd\"; def s = 'x'; def g = \"a ${x} b\"; def t = \"\"\"tri\"\"\" } }\n";
     let (got, seen) = verdicts::<crate::GroovyCode>(src, |k| {
-        matches!(k, "method_invocation" | "command_chain" | "string_literal")
+        matches!(
+            k,
+            "method_invocation" | "command_chain" | "string_literal" | "object_creation_expression"
+        )
     });
+    // `new C()` is construction, not a call.
     expect(
         &got,
         &[
             ("f(1)", C),
             ("this.m()", C),
+            ("new C()", (false, false)),
             ("println \"cmd\"", C),
             ("\"cmd\"", S),
             ("'x'", S),
@@ -388,14 +443,19 @@ fn kotlin_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::KotlinCode>(src, |k| {
         matches!(
             k,
-            "call_expression" | "string_literal" | "multiline_string_literal"
+            "call_expression"
+                | "string_literal"
+                | "multiline_string_literal"
+                | "callable_reference"
         )
     });
+    // A callable reference `::g` names a function without calling it.
     expect(
         &got,
         &[
             ("g(1)", C),
             ("o.m(2)", C),
+            ("::g", (false, false)),
             ("\"t $f ${f + 1}\"", S),
             ("\"\"\"raw\"\"\"", S),
         ],
@@ -432,10 +492,15 @@ fn rust_call_and_string_rows() {
     let (got, seen) = verdicts::<crate::RustCode>(src, |k| {
         matches!(
             k,
-            "call_expression" | "string_literal" | "raw_string_literal"
+            "call_expression"
+                | "string_literal"
+                | "raw_string_literal"
+                | "macro_invocation"
+                | "char_literal"
         )
     });
-    // A `macro_invocation` is not a call; its argument string is a string.
+    // A `macro_invocation` is not a call; its argument string is a
+    // string. A char is no string.
     expect(
         &got,
         &[
@@ -443,9 +508,11 @@ fn rust_call_and_string_rows() {
             ("S::new().m()", C),
             ("S::new()", C),
             ("(|| 1)()", C),
+            ("println!(\"m\")", (false, false)),
             ("\"m\"", S),
             ("\"s\"", S),
             ("r#\"r\"#", S),
+            ("'c'", (false, false)),
             ("b\"b\"", S),
         ],
     );
@@ -587,22 +654,31 @@ fn php_call_and_string_rows() {
                 | "heredoc"
                 | "nowdoc"
                 | "shell_command_expression"
+                | "primitive_type"
+                | "object_creation_expression"
+                | "cast_expression"
         )
     });
-    // The `string` type keyword (`String2`) and the `(string)` cast are
-    // not literals; `new C()` is not a call.
+    // The `string` type keyword (the `String2` leaf under each
+    // `primitive_type`) and the `(string)` cast are not literals; `new
+    // C()` is not a call. The keyword leaf is anonymous, so the wrapper
+    // is the row that pins it.
     expect(
         &got,
         &[
+            ("string", (false, false)),
+            ("string", (false, false)),
             ("f(1)", C),
             ("$this->m()", C),
             ("self::n()", C),
             ("$o?->q()", C),
+            ("new C()", (false, false)),
             ("'x'", S),
             ("\"y $z\"", S),
             ("`ls`", S),
             ("<<<HD", S),
             ("<<<'ND'", S),
+            ("(string) $a", (false, false)),
         ],
     );
     // `String3` is the hidden `_string` supertype (lesson 34).
@@ -613,7 +689,7 @@ fn php_call_and_string_rows() {
     );
     assert!(
         seen.contains(&(crate::Php::String2 as u16)),
-        "the `string` keyword is in the fixture"
+        "the `string` keyword leaf is what the two `primitive_type` rows wrap"
     );
 }
 
@@ -815,13 +891,19 @@ fn typescript_call_and_string_rows() {
     use crate::roles::typescript::{call, string_lit};
     let src = b"import \"m\";\nlet s: string = 's', t = `t ${i}`;\nf(1); a?.c(3); new F(4); f<T>(5); f!(6); type Q = typeof g(7);\n@dec(8) class K { @m(9) x = 1; }\n";
     let (got, seen) = verdicts::<crate::TypescriptCode>(src, |k| {
-        matches!(k, "call_expression" | "string" | "template_string")
+        matches!(
+            k,
+            "call_expression" | "string" | "template_string" | "predefined_type"
+        )
     });
-    // `: string` is the `String2` keyword, not a literal (#1261).
+    // `: string` is the `String2` keyword, not a literal (#1261): an
+    // anonymous leaf, so its `predefined_type` wrapper is the row that
+    // pins it, and the keyword's presence is asserted below.
     expect(
         &got,
         &[
             ("\"m\"", S),
+            ("string", (false, false)),
             ("'s'", S),
             ("`t ${i}`", S),
             ("f(1)", C),
@@ -844,7 +926,7 @@ fn typescript_call_and_string_rows() {
     );
     assert!(
         seen.contains(&(crate::Typescript::String2 as u16)),
-        "the `string` keyword is in the fixture"
+        "the `string` keyword leaf is what the `predefined_type` row wraps"
     );
 }
 
@@ -854,13 +936,19 @@ fn tsx_call_and_string_rows() {
     use crate::roles::tsx::{call, string_lit};
     let src = b"import \"m\";\nlet s: string = 's', t = `t ${i}`;\nf(1); a?.c(3); new F(4); f!(6); type Q = typeof g(7);\n@dec(8) class K { @m(9) x = 1; }\nconst J = () => <div className=\"x\">{f(10)}</div>;\n";
     let (got, seen) = verdicts::<crate::TsxCode>(src, |k| {
-        matches!(k, "call_expression" | "string" | "template_string")
+        matches!(
+            k,
+            "call_expression" | "string" | "template_string" | "predefined_type"
+        )
     });
-    // A JSX attribute literal is the `String2` alias, a string (#283).
+    // A JSX attribute literal is the `String2` alias, a string (#283);
+    // `: string` is the `String3` keyword, an anonymous leaf pinned
+    // through its `predefined_type` wrapper as in TypeScript.
     expect(
         &got,
         &[
             ("\"m\"", S),
+            ("string", (false, false)),
             ("'s'", S),
             ("`t ${i}`", S),
             ("f(1)", C),
@@ -886,6 +974,6 @@ fn tsx_call_and_string_rows() {
     );
     assert!(
         seen.contains(&(crate::Tsx::String3 as u16)),
-        "the `string` keyword is in the fixture"
+        "the `string` keyword leaf is what the `predefined_type` row wraps"
     );
 }

@@ -105,8 +105,8 @@ impl Checker for GoCode {
 
     // `Call` and `StringLit` are the rows of `roles/go.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(go);
-    impl_string_lit_row!(go);
+    impl_row_predicates!(go, call, is_call, is_call_with_code);
+    impl_row_predicates!(go, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)

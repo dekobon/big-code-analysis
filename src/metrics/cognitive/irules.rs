@@ -85,13 +85,11 @@ impl Cognitive for IrulesCode {
                     _ => None,
                 });
             }
-            // The two function-space kinds reset nesting and bump the
-            // function depth (see the `IrulesCode` Checker impl).
-            // A named function — the `FuncOpener` row's callable owners —
-            // resets structural nesting and bumps the function-depth
-            // surcharge when nested in another (#696); the stop list is
-            // the row's callable kinds.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            // The `FuncOpener` row's callable owners — a `proc` and an
+            // event handler — reset structural nesting and bump the
+            // function-depth surcharge when nested in another (#696); the
+            // stop list is the row's callable kinds.
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

@@ -65,27 +65,12 @@ macro_rules! impl_doxygen_doc_comment {
     };
 }
 
-// Generate an `is_string` impl for a language whose string literals
-// are a flat kind list and whose role table declares no `StringLit`
-// row: the two helper grammars (`preproc`, `ccomment`), where the row
-// is `absent` because the pass parses only the literals it must skip.
-// Every language with a table reads `impl_call_and_string_rows!`.
-macro_rules! impl_simple_is_string {
-    ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
-        fn is_string(node: &Node) -> bool {
-            matches!(
-                node.kind_id().into(),
-                $lang::$first $(| $lang::$rest)*
-            )
-        }
-    };
-}
-
 // The `Call` and `StringLit` rows of a language's role table, read as
-// the four `Checker` call / string predicates (#1698) — one macro per
-// row, since the bypass gate reads a row-forwarding macro as binding
-// one kind and handing it to one row. The `_with_code` spellings read
-// the rows under their gates — Perl's bareword call, the Tcl family's
+// the four `Checker` call / string predicates (#1698): one invocation
+// per row, naming the row module and the two predicates it answers,
+// since the bypass gate reads a row-forwarding macro as binding one
+// kind and handing it to one row. The `_with_code` spellings read the
+// rows under their gates — Perl's bareword call, the Tcl family's
 // braced script body — and are what `find` / `count` and the dump ask.
 // The byte-less spellings are each row's kind table, gates aside
 // (`lists_kind`): a Tcl script body is a string to `is_string` and not
@@ -95,36 +80,15 @@ macro_rules! impl_simple_is_string {
 // Tcl gate reads "no parent" as a script body. Per-row rationale —
 // which alias is hidden, which keyword alias is excluded — sits on the
 // rows (`.claude/rules/macro-comments.md`).
-macro_rules! impl_call_row {
-    ($roles:ident) => {
-        fn is_call(node: &Node) -> bool {
+macro_rules! impl_row_predicates {
+    ($roles:ident, $row:ident, $byteless:ident, $with_code:ident) => {
+        fn $byteless(node: &Node) -> bool {
             let kind = node.kind_id();
-            $crate::roles::$roles::call::lists_kind(kind)
+            $crate::roles::$roles::$row::lists_kind(kind)
         }
 
-        fn is_call_with_code<'a>(
-            node: &Node<'a>,
-            code: &[u8],
-            ancestors: Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::$roles::call::owns(node, code, ancestors)
-        }
-    };
-}
-
-macro_rules! impl_string_lit_row {
-    ($roles:ident) => {
-        fn is_string(node: &Node) -> bool {
-            let kind = node.kind_id();
-            $crate::roles::$roles::string_lit::lists_kind(kind)
-        }
-
-        fn is_string_with_code<'a>(
-            node: &Node<'a>,
-            code: &[u8],
-            ancestors: Ancestors<'a, '_>,
-        ) -> bool {
-            $crate::roles::$roles::string_lit::owns(node, code, ancestors)
+        fn $with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+            $crate::roles::$roles::$row::owns(node, code, ancestors)
         }
     };
 }
@@ -165,8 +129,8 @@ macro_rules! impl_is_else_if_prev_sibling {
 // Generate an `is_else_if` impl for the grammars that expose a dedicated
 // elseif/elsif clause node, so the clause node itself is the else-if
 // (no `if`-nesting or sibling-token shape to inspect). Flat `matches!`
-// against one or more variant kinds, analogous to `impl_simple_is_string!`;
-// the multi-variant form covers PHP's `ElseIfClause | ElseIfClause2`.
+// against one or more variant kinds; the multi-variant form covers PHP's
+// `ElseIfClause | ElseIfClause2`.
 macro_rules! impl_is_else_if_clause {
     ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
         #[inline]
@@ -853,7 +817,7 @@ mod typescript;
 /// (#463); a lambda is a distinct `lambda_expression` node and never
 /// reaches this path.
 #[must_use]
-pub fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+pub(crate) fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     node.first_child(|id| id == Java::ClassBody as u16)
 }
 
@@ -894,7 +858,7 @@ fn csharp_accessors<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use
 /// member counts as its accessor count, falling back to 1 for the
 /// accessor-less expression-bodied form (#464 indexer, #472 property).
 #[must_use]
-pub fn csharp_member_has_accessors(node: &Node) -> bool {
+pub(crate) fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessors(node).next().is_some()
 }
 
@@ -2214,8 +2178,8 @@ mod tests {
             CsharpCode::is_call(&call),
             "an invocation_expression is a call"
         );
-        // §2 drift markers for the other two members of
-        // `csharp_invocation_expr_kinds!()`. All three render to
+        // §2 drift markers for the other two ids the `Call` row of
+        // `roles/csharp.rs` owns. All three render to
         // `"invocation_expression"`, and at the 0.23.5 pin every
         // spelling probed with `bca dump` — plain, `this.`-qualified,
         // `base.`-qualified, inside a query clause, a lambda body, an
@@ -2711,18 +2675,18 @@ mod tests {
         }
     }
 
-    // Regression for #301: every language consolidated under
-    // `impl_simple_is_string!` must still recognise its canonical
-    // string literal via the `"string"` filter (which routes through
-    // `Checker::is_string`). The positive test now drills down to
+    // Regression for #301: every language's `StringLit` row must still
+    // recognise its canonical string literal via the `"string"` filter
+    // (which routes through `Checker::is_string_with_code`, the row's
+    // `owns`). The positive test now drills down to
     // every individual variant of every multi-variant language so a
     // future macro invocation that drops a variant (e.g. forgetting
     // `Cpp::ConcatenatedString` after a grammar bump) fails loudly.
     //
-    // JS-family languages (Mozjs/Javascript/Typescript/Tsx) keep
-    // their dedicated `impl_js_family_is_string!` macro and have
-    // their own alias-aware tests above; they are intentionally
-    // not duplicated here.
+    // The JS-family languages (Mozjs/Javascript/Typescript/Tsx) read
+    // the shared `js_family_strings!` fragment and have their own
+    // alias-aware tests above; they are intentionally not duplicated
+    // here.
     #[cfg(any(
         feature = "bash",
         feature = "c-family-helpers",
@@ -2829,8 +2793,8 @@ mod tests {
 
     // Parse `$src` with `$parser_ty` and assert the generic `"string"`
     // filter yields zero matches. Used by the negative test, which
-    // walks every language consolidated under `impl_simple_is_string!`
-    // with identical per-language shape (parse → count → assert_eq! 0).
+    // walks every language's `StringLit` row with identical per-language
+    // shape (parse → count → assert_eq! 0).
     #[cfg(all(
         feature = "bash",
         feature = "c-family-helpers",
@@ -3165,9 +3129,9 @@ mod tests {
     #[test]
     fn simple_is_string_macro_rejects_non_string_nodes() {
         // Pure-identifier source must produce zero string matches.
-        // Catches a regression where a macro invocation accidentally
-        // included a too-broad variant (e.g. `Identifier`). Covers
-        // every language consolidated under `impl_simple_is_string!`.
+        // Catches a regression where a row accidentally lists a
+        // too-broad kind (e.g. `Identifier`). Covers every language's
+        // `StringLit` row.
         use crate::langs::{
             BashParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser,
             GroovyParser, IrulesParser, JavaParser, KotlinParser, LuaParser, PerlParser,
@@ -3425,11 +3389,11 @@ mod tests {
             "function i() { return function () { return 2; }; }\n",
         )
         .as_bytes();
-        // `is_js_func_and_closure_checker!` expands separately against
-        // each grammar's own `kind_id` enum, so the four impls are four
-        // distinct variant lists rather than one shared body. Checking
-        // only JavaScript would leave a drifted id in any of the other
-        // three uncovered.
+        // `js_family_binding_gates!` and the `FuncOpener` / `Closure`
+        // rows expand separately against each grammar's own `kind_id`
+        // enum, so the four impls are four distinct variant lists rather
+        // than one shared body. Checking only JavaScript would leave a
+        // drifted id in any of the other three uncovered.
         assert_func_parity::<crate::langs::JavascriptCode>("javascript", code);
         assert_func_parity::<crate::langs::MozjsCode>("mozjs", code);
         assert_func_parity::<crate::langs::TypescriptCode>("typescript", code);

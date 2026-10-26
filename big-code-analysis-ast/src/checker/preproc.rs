@@ -8,5 +8,5 @@ impl Checker for PreprocCode {
         node.kind_id() == Preproc::Comment
     }
 
-    impl_simple_is_string!(Preproc, StringLiteral, RawStringLiteral);
+    impl_row_predicates!(preproc, string_lit, is_string, is_string_with_code);
 }

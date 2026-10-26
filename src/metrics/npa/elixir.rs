@@ -29,7 +29,7 @@ impl Npa for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_do_block_call_children};
+        use crate::lang_helpers::elixir::elixir_call_keyword;
         use crate::roles::elixir::member;
 
         // The space-opening node for a `defmodule` Call is the node
@@ -49,13 +49,26 @@ impl Npa for ElixirCode {
             return;
         }
 
-        // The `Member` row's `defstruct` call, under the module's chain
-        // standing in for the child's; the row reads none.
-        for stmt in elixir_do_block_call_children(node) {
-            if member::owns(&stmt, code, ancestors) {
-                let fields = count_defstruct_fields(&stmt);
-                stats.class_na += fields;
-                stats.class_npa += fields;
+        // The `Member` row's `defstruct` call, a statement of the
+        // module's `do` block: asked under its own chain, the module's
+        // plus the module and the block.
+        let under = ancestors.of_children(node);
+        for block in node
+            .children()
+            .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
+        {
+            let in_block = under.get().of_children(&block);
+            // role-bypass: allow(Call, FuncOpener, Container, Member) — traversal:
+            // which of the block's statements to ask the row about
+            for stmt in block
+                .children()
+                .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
+            {
+                if member::owns(&stmt, code, in_block.get()) {
+                    let fields = count_defstruct_fields(&stmt);
+                    stats.class_na += fields;
+                    stats.class_npa += fields;
+                }
             }
         }
     }

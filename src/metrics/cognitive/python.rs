@@ -231,7 +231,7 @@ impl Cognitive for PythonCode {
             // A lambda — the `Closure` row, whose `Lambda` / `Lambda2`
             // alias set is what `python_is_lambda` accepts (#422; the
             // drift guard in checker.rs flags a bump that emits Lambda2).
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 // A lambda amplifies the enclosing nesting rather than
                 // replacing it, so it deliberately does NOT take the
                 // function-boundary reset below: every sibling lambda arm
@@ -257,7 +257,7 @@ impl Cognitive for PythonCode {
             // macro reset the channel — which is why the same body
             // scored 3 or 2 in Rust, Java, C++, PHP and C# depending on
             // whether something two levels up was a closure.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

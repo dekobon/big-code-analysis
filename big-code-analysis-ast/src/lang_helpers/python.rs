@@ -572,6 +572,23 @@ fn is_sphinx_doc_comment(node: &Node, code: &[u8]) -> bool {
     node.kind_id() == Python::Comment && node_bytes(node, code).starts_with(b"#:")
 }
 
+/// The destructuring wrappers an assignment target nests its elements
+/// in: `pattern_list` / `expression_list`, and `tuple_pattern` /
+/// `list_pattern`, which each carry two aliased kind ids — the hidden
+/// supertype (`TuplePattern` / `ListPattern`, never emitted) and the
+/// live node the grammar produces for `(a, b) = …` / `[a, b] = …`
+/// (`TuplePattern2` / `ListPattern2`). Matching only the supertype alias
+/// silently dropped every parenthesised / bracketed unpacking target,
+/// so both are listed per the hidden-alias discipline (#419).
+pub const PYTHON_TARGET_PATTERN_KINDS: &[u16] = &[
+    Python::PatternList as u16,
+    Python::ExpressionList as u16,
+    Python::TuplePattern as u16,
+    Python::TuplePattern2 as u16,
+    Python::ListPattern as u16,
+    Python::ListPattern2 as u16,
+];
+
 /// Conventional receiver names that denote the enclosing object inside
 /// a method body: `self` for instance methods, `cls` for classmethods.
 /// Matched against the receiver bytes rather than by resolving the
@@ -595,14 +612,7 @@ const PYTHON_SELF_RECEIVERS: [&[u8]; 2] = [b"self", b"cls"];
 /// from `code` so the slice is the canonical dedup key.
 #[must_use]
 pub fn python_self_attribute_name<'a>(attr: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
-    // Fully-qualified names: `use Python::*` would shadow `Option::None`.
-    let receiver = attr
-        .child(0)
-        .filter(|receiver| receiver.kind_id() == Python::Identifier)?;
-    let receiver_bytes = code.get(receiver.start_byte()..receiver.end_byte())?;
-    if !PYTHON_SELF_RECEIVERS.contains(&receiver_bytes) {
-        return None;
-    }
+    let receiver = python_self_receiver(attr, code)?;
     // The trailing identifier is the attribute name; the degenerate
     // single-identifier case has none distinct from the receiver.
     let id = attr
@@ -613,38 +623,47 @@ pub fn python_self_attribute_name<'a>(attr: &Node<'a>, code: &'a [u8]) -> Option
     code.get(id.start_byte()..id.end_byte())
 }
 
+/// The receiver of `attr` when it is a `self` / `cls` identifier: the
+/// first child, read by bytes. The `Member` row's gate asks only this —
+/// the attribute's name is the consumer's dedup key, read once there —
+/// so a row read costs no child scan.
+fn python_self_receiver<'a>(attr: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
+    let receiver = attr
+        .child(0)
+        .filter(|receiver| receiver.kind_id() == Python::Identifier)?;
+    let receiver_bytes = code.get(receiver.start_byte()..receiver.end_byte())?;
+    PYTHON_SELF_RECEIVERS
+        .contains(&receiver_bytes)
+        .then_some(receiver)
+}
+
 /// Whether an `attribute` node is a `self.x` / `cls.x` being *bound* —
 /// a target of the enclosing `assignment` (`self.x = …`, `self.a,
 /// self.b = …`, `self.a, (self.b, c) = …`), as opposed to a read or an
 /// operand. The target is the assignment's first child; a destructuring
-/// target wraps its elements in `pattern_list` / `expression_list` /
-/// the aliased `tuple_pattern` / `list_pattern` kinds, climbed here
-/// until the assignment is met. `ancestors` is the node's chain.
+/// target wraps its elements in [`PYTHON_TARGET_PATTERN_KINDS`], climbed
+/// here until the assignment is met. `ancestors` is the node's chain.
 #[must_use]
-pub fn python_is_bound_self_attribute<'a>(
+pub(crate) fn python_is_bound_self_attribute<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    if python_self_attribute_name(node, code).is_none() {
+    if python_self_receiver(node, code).is_none() {
         return false;
     }
     let mut below = *node;
     for (ancestor, _) in ancestors.iter(node) {
-        match ancestor.kind_id().into() {
-            Python::Assignment => {
-                return ancestor
-                    .child(0)
-                    .is_some_and(|first| first.id() == below.id());
-            }
-            Python::PatternList
-            | Python::ExpressionList
-            | Python::TuplePattern
-            | Python::TuplePattern2
-            | Python::ListPattern
-            | Python::ListPattern2 => below = ancestor,
-            _ => return false,
+        let kind = ancestor.kind_id();
+        if kind == Python::Assignment as u16 {
+            return ancestor
+                .child(0)
+                .is_some_and(|first| first.id() == below.id());
         }
+        if !PYTHON_TARGET_PATTERN_KINDS.contains(&kind) {
+            return false;
+        }
+        below = ancestor;
     }
     false
 }

@@ -52,8 +52,8 @@ impl Checker for PythonCode {
 
     // `Call` and `StringLit` are the rows of `roles/python.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(python);
-    impl_string_lit_row!(python);
+    impl_row_predicates!(python, call, is_call, is_call_with_code);
+    impl_row_predicates!(python, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         // tree-sitter-python emits the PEP 570 positional-only marker `/`

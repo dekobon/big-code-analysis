@@ -304,8 +304,12 @@ fn csharp_count_token_branch<'a>(
         // The `Call` row's three aliased `invocation_expression` ids; the
         // two construction shapes beside it are what the row deliberately
         // leaves out and Fitzpatrick's rule counts.
-        _ if call::owns_kind(kind, node, code, ancestors) => true,
-        ObjectCreationExpression | ConstructorInitializer => true,
+        _ if call::owns_kind(kind, node, code, ancestors)
+            || kind == ObjectCreationExpression as u16
+            || kind == ConstructorInitializer as u16 =>
+        {
+            true
+        }
         // The C# 12 primary-constructor superclass call — `class
         // Sub(int x) : Base(x)` — invokes the base constructor exactly as
         // `: base(x)` does, and scored zero until #1406. Kotlin's

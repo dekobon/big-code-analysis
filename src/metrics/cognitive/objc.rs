@@ -56,14 +56,14 @@ impl Cognitive for ObjcCode {
             }
             // ObjC blocks `^{ … }` are the language's closures — the
             // `Closure` row — and charge the lambda channel.
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // Functions and `@implementation` methods — the `FuncOpener`
             // row's callables — are definition boundaries: reset structural
             // nesting and bump the function-depth surcharge when nested
             // inside another (#696), the row's callable kinds the stops.
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::CALLABLE);
             }
             _ => {}

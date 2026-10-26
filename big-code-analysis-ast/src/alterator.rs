@@ -176,7 +176,7 @@ impl Alterator for CppCode {
             // `char_literal` is flattened beside them and is deliberately not a
             // string — the same split Rust and Go apply to their char / rune
             // literals.
-            _ if crate::roles::cpp::string_lit::OWNERS.contains(&kind)
+            _ if crate::roles::cpp::string_lit::lists_kind(kind)
                 || matches!(kind.into(), Cpp::CharLiteral) =>
             {
                 Self::flatten_verbatim(node, code, span, field_name)
@@ -209,7 +209,7 @@ impl Alterator for CCode {
             // a `char_literal` is flattened beside them and is deliberately
             // not a string — the same split Rust and Go apply to their char /
             // rune literals.
-            _ if crate::roles::c::string_lit::OWNERS.contains(&kind)
+            _ if crate::roles::c::string_lit::lists_kind(kind)
                 || matches!(kind.into(), C::CharLiteral) =>
             {
                 Self::flatten_verbatim(node, code, span, field_name)
@@ -248,7 +248,7 @@ impl Alterator for ObjcCode {
             // string (#1316) — the same split Rust and Go apply to their char /
             // rune literals; `@"…"` is one `string_literal` whose first child is
             // the `@` token, flattened whole, marker included.
-            _ if crate::roles::objc::string_lit::OWNERS.contains(&kind)
+            _ if crate::roles::objc::string_lit::lists_kind(kind)
                 || matches!(kind.into(), Objc::CharLiteral) =>
             {
                 Self::flatten_verbatim(node, code, span, field_name)
@@ -281,7 +281,7 @@ impl Alterator for MozcppCode {
             // (#699); a `char_literal` is flattened beside them and is
             // deliberately not a string — the same split Rust and Go apply to
             // their char / rune literals.
-            _ if crate::roles::mozcpp::string_lit::OWNERS.contains(&kind)
+            _ if crate::roles::mozcpp::string_lit::lists_kind(kind)
                 || matches!(kind.into(), Mozcpp::CharLiteral) =>
             {
                 Self::flatten_verbatim(node, code, span, field_name)
@@ -308,14 +308,13 @@ impl Alterator for PythonCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Python::from(kind) {
-            // The `StringLit` row's literals (`roles/python.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699).
-            _ if crate::roles::python::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/python.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699).
+        if crate::roles::python::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -329,13 +328,12 @@ impl Alterator for JavaCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Java::from(kind) {
-            // The `StringLit` row's literals (`roles/java.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::java::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/java.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::java::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -349,14 +347,13 @@ impl Alterator for KotlinCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Kotlin::from(kind) {
-            // The `StringLit` row's literals (`roles/kotlin.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699).
-            _ if crate::roles::kotlin::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/kotlin.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699).
+        if crate::roles::kotlin::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -370,17 +367,16 @@ impl Alterator for CsharpCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Csharp::from(kind) {
-            // The `StringLit` row's literals (`roles/csharp.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699); a `character_literal` is flattened beside them and is not
-            // a string.
-            _ if crate::roles::csharp::string_lit::OWNERS.contains(&kind)
-                || matches!(kind.into(), Csharp::CharacterLiteral) =>
-            {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/csharp.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699); a `character_literal` is flattened beside them and is not
+        // a string.
+        if crate::roles::csharp::string_lit::lists_kind(kind)
+            || matches!(kind.into(), Csharp::CharacterLiteral)
+        {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -394,16 +390,14 @@ impl Alterator for GoCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Go::from(kind) {
-            // The `StringLit` row's literals (`roles/go.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699); a
-            // `rune_literal` is flattened beside them and is not a string.
-            _ if crate::roles::go::string_lit::OWNERS.contains(&kind)
-                || matches!(kind.into(), Go::RuneLiteral) =>
-            {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/go.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699); a
+        // `rune_literal` is flattened beside them and is not a string.
+        if crate::roles::go::string_lit::lists_kind(kind) || matches!(kind.into(), Go::RuneLiteral)
+        {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -417,13 +411,12 @@ impl Alterator for LuaCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Lua::from(kind) {
-            // The `StringLit` row's literals (`roles/lua.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::lua::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/lua.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::lua::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -437,13 +430,12 @@ impl Alterator for MozjsCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Mozjs::from(kind) {
-            // The `StringLit` row's literals (`roles/mozjs.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::mozjs::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/mozjs.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::mozjs::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -457,14 +449,13 @@ impl Alterator for JavascriptCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Javascript::from(kind) {
-            // The `StringLit` row's literals (`roles/javascript.rs`, #1698)
-            // render as one verbatim leaf, so the dump agrees with `find string`
-            // (#699).
-            _ if crate::roles::javascript::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/javascript.rs`, #1698)
+        // render as one verbatim leaf, so the dump agrees with `find string`
+        // (#699).
+        if crate::roles::javascript::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -478,14 +469,13 @@ impl Alterator for TypescriptCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Typescript::from(kind) {
-            // The `StringLit` row's literals (`roles/typescript.rs`, #1698)
-            // render as one verbatim leaf, so the dump agrees with `find string`
-            // (#699).
-            _ if crate::roles::typescript::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/typescript.rs`, #1698)
+        // render as one verbatim leaf, so the dump agrees with `find string`
+        // (#699).
+        if crate::roles::typescript::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -499,13 +489,12 @@ impl Alterator for TsxCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Tsx::from(kind) {
-            // The `StringLit` row's literals (`roles/tsx.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::tsx::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/tsx.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::tsx::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -519,17 +508,16 @@ impl Alterator for RustCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Rust::from(kind) {
-            // The `StringLit` row's literals (`roles/rust.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699); a
-            // `char_literal` is flattened beside them and is not a string
-            // (#391).
-            _ if crate::roles::rust::string_lit::OWNERS.contains(&kind)
-                || matches!(kind.into(), Rust::CharLiteral) =>
-            {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/rust.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699); a
+        // `char_literal` is flattened beside them and is not a string
+        // (#391).
+        if crate::roles::rust::string_lit::lists_kind(kind)
+            || matches!(kind.into(), Rust::CharLiteral)
+        {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -543,13 +531,12 @@ impl Alterator for PerlCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Perl::from(kind) {
-            // The `StringLit` row's literals (`roles/perl.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::perl::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/perl.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::perl::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -563,13 +550,12 @@ impl Alterator for BashCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Bash::from(kind) {
-            // The `StringLit` row's literals (`roles/bash.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::bash::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/bash.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::bash::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -583,17 +569,16 @@ impl Alterator for TclCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Tcl::from(kind) {
-            // The `StringLit` row's literals (`roles/tcl.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699);
-            // the row gates `braced_word` on being a literal, which needs the
-            // chain `alterate` does not carry; this reads the kind table, gates
-            // aside, and `keeps_children` below vetoes the script bodies
-            // (#1381).
-            _ if crate::roles::tcl::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/tcl.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699);
+        // the row gates `braced_word` on being a literal, which needs the
+        // chain `alterate` does not carry; this reads the kind table, gates
+        // aside, and `keeps_children` below vetoes the script bodies
+        // (#1381).
+        if crate::roles::tcl::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 
@@ -611,16 +596,15 @@ impl Alterator for IrulesCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Irules::from(kind) {
-            // The `StringLit` row's literals (`roles/irules.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699); the twin of the Tcl arm, `keeps_children` veto and all — a
-            // `when` handler's body is the whole of a typical iRules file
-            // (#1381).
-            _ if crate::roles::irules::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/irules.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699); the twin of the Tcl arm, `keeps_children` veto and all — a
+        // `when` handler's body is the whole of a typical iRules file
+        // (#1381).
+        if crate::roles::irules::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 
@@ -638,22 +622,19 @@ impl Alterator for PhpCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         let kind = node.kind_id();
-        match Php::from(kind) {
-            // The `StringLit` row's literals (`roles/php.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699);
-            // `String2`, the `string` *type* keyword the row `excludes`, stays
-            // here: this is a dump-shape contract, not an `is_string` mirror
-            // (#1474, #1293), the keyword is a childless leaf so listing it is a
-            // no-op versus `get_default` (pinned by the test below), and
-            // deleting it would be grammar-dispatch §6's narrow-by-deletion — a
-            // grammar revision that gave the alias children would then silently
-            // start splitting text this arm exists to keep whole.
-            _ if crate::roles::php::string_lit::OWNERS.contains(&kind)
-                || matches!(kind.into(), Php::String2) =>
-            {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/php.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699);
+        // `String2`, the `string` *type* keyword the row `excludes`, stays
+        // here: this is a dump-shape contract, not an `is_string` mirror
+        // (#1474, #1293), the keyword is a childless leaf so listing it is a
+        // no-op versus `get_default` (pinned by the test below), and
+        // deleting it would be grammar-dispatch §6's narrow-by-deletion — a
+        // grammar revision that gave the alias children would then silently
+        // start splitting text this arm exists to keep whole.
+        if crate::roles::php::string_lit::lists_kind(kind) || matches!(kind.into(), Php::String2) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -671,13 +652,12 @@ impl Alterator for RubyCode {
         // delimited/simple symbols, character literals). Interpolation
         // children are intentionally collapsed into the flat text payload.
         let kind = node.kind_id();
-        match Ruby::from(kind) {
-            // The `StringLit` row's literals (`roles/ruby.rs`, #1698) render as
-            // one verbatim leaf, so the dump agrees with `find string` (#699).
-            _ if crate::roles::ruby::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/ruby.rs`, #1698) render as
+        // one verbatim leaf, so the dump agrees with `find string` (#699).
+        if crate::roles::ruby::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -695,14 +675,13 @@ impl Alterator for ElixirCode {
         // alongside ordinary strings so report output never trims their
         // bodies.
         let kind = node.kind_id();
-        match Elixir::from(kind) {
-            // The `StringLit` row's literals (`roles/elixir.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699).
-            _ if crate::roles::elixir::string_lit::OWNERS.contains(&kind) => {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/elixir.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699).
+        if crate::roles::elixir::string_lit::lists_kind(kind) {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
@@ -722,26 +701,25 @@ impl Alterator for GroovyCode {
         // triple-quoted, slashy, dollar-slashy); each one carries body
         // text we must not collapse.
         let kind = node.kind_id();
-        match Groovy::from(kind) {
-            // The `StringLit` row's literals (`roles/groovy.rs`, #1698) render
-            // as one verbatim leaf, so the dump agrees with `find string`
-            // (#699); the `string_fragment*` aliases — the same rule applied
-            // inside the single / double-quoted, triple-quoted, slashy and
-            // dollar-slashy contexts — carry body text the dump keeps verbatim
-            // too.
-            _ if crate::roles::groovy::string_lit::OWNERS.contains(&kind)
-                || matches!(
-                    kind.into(),
-                    Groovy::StringFragment
-                        | Groovy::StringFragment2
-                        | Groovy::StringFragment3
-                        | Groovy::StringFragment4
-                        | Groovy::StringFragment5
-                ) =>
-            {
-                Self::flatten_verbatim(node, code, span, field_name)
-            }
-            _ => Self::get_default(node, code, span, field_name, children),
+        // The `StringLit` row's literals (`roles/groovy.rs`, #1698) render
+        // as one verbatim leaf, so the dump agrees with `find string`
+        // (#699); the `string_fragment*` aliases — the same rule applied
+        // inside the single / double-quoted, triple-quoted, slashy and
+        // dollar-slashy contexts — carry body text the dump keeps verbatim
+        // too.
+        if crate::roles::groovy::string_lit::lists_kind(kind)
+            || matches!(
+                kind.into(),
+                Groovy::StringFragment
+                    | Groovy::StringFragment2
+                    | Groovy::StringFragment3
+                    | Groovy::StringFragment4
+                    | Groovy::StringFragment5
+            )
+        {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }

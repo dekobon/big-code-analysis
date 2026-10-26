@@ -3,17 +3,6 @@
 
 use super::*;
 
-/// Returns whether a Bash string node carries an expansion child the walk
-/// already counts through — `$var`, `${name[…]}`, `$(cmd)`, `$((expr))`.
-/// Only `simple_expansion` is itself an operand; for the other three it is
-/// the leaves beneath them (`ls` in `$(ls)`, `1` in `$((1))`) that carry the
-/// count, and `${#}` carries none at all. Either way the wrapping literal
-/// must not be counted on top (#180).
-#[inline]
-fn bash_string_has_expansion(node: &Node) -> bool {
-    node.wraps_any(crate::roles::bash::string_lit::WRAPS)
-}
-
 impl Getter for BashCode {
     // The mapping is the `opens` annotations of `roles/bash.rs`
     // (#1696). The rows read no bytes and no chain, so the byte-less
@@ -117,9 +106,12 @@ impl Getter for BashCode {
 
             // Quoted strings count as one operand when they are inert.
             // When they contain any `$var`/`${...}`/`$(...)`/`$((...))`
-            // expansion child, those expansions are already walked and
-            // classified as operands; counting the wrapping literal too
-            // would double-count the inner identifiers (issue #180).
+            // expansion child — the `StringLit` row's `wraps` list — those
+            // expansions are already walked through; only `simple_expansion`
+            // is itself an operand, for the other three it is the leaves
+            // beneath them (`ls` in `$(ls)`, `1` in `$((1))`) that carry
+            // the count, and `${#}` carries none at all. Either way the
+            // wrapping literal must not be counted on top (issue #180).
             // `RawString` is single-quoted and `AnsiCString` is a leaf
             // token, so neither can interpolate, but the check is uniform
             // across the three string kinds for clarity.
@@ -129,11 +121,7 @@ impl Getter for BashCode {
             // role-bypass: allow(StringLit) — the operand classification of the literals
             // under the row's `wraps` list, a projection the row does not answer
             Bash::String | Bash::RawString | Bash::AnsiCString => {
-                if bash_string_has_expansion(node) {
-                    TokenRole::Unknown
-                } else {
-                    TokenRole::Operand
-                }
+                Self::string_operand_type(node, crate::roles::bash::string_lit::WRAPS)
             }
 
             // Operands: identifiers, literals, variables. `variable_name`
@@ -162,8 +150,8 @@ impl Getter for BashCode {
             // required `string` child and no text of its own beyond the
             // `$`, so `a=$"x"` scored N2 3 for two operands. It also
             // defeated the #180 expansion guard: the wrapper's own children
-            // are `$` and `string`, so `bash_string_has_expansion` never saw
-            // the `simple_expansion` one level down and `b=$"$y"` counted
+            // are `$` and `string`, so the `wraps` check never saw the
+            // `simple_expansion` one level down and `b=$"$y"` counted
             // both `$"$y"` and `$y`.
             //
             // The `string` is the keeper because it is the node present for

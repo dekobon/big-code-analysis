@@ -18,23 +18,9 @@ impl Checker for MozcppCode {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }
 
-    // Issue #285 contract: every `Mozcpp::FunctionDefinition*` alias must
-    // be enumerated here AND in `is_func`, `get_func_space_name`, and
-    // `get_space_kind` (see `src/getter.rs`). Aliased kind_ids
-    // 489/491/494 are not emitted by the currently pinned
-    // `tree-sitter-mozcpp` parse tables on any input we can construct,
-    // so a missing variant won't fail a parse-and-assert test — it
-    // will silently drop those nodes from FuncSpace creation the next
-    // time a grammar bump starts emitting them (see lesson 2 in
-    // `docs/development/lessons_learned.md`).
-    //
-    // A struct / class specifier opens a space only when it has a body,
-    // gated by the same predicate as `get_space_kind` (#1555).
-    // The space tree is declared in `roles/mozcpp.rs` (#1696): the
-    // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The rows read no bytes and no chain (the
-    // body gate reads the node's own fields), so the byte-less spelling
-    // forwards with none and answers the same.
+    // The space tree is declared in `roles/mozcpp.rs` (#1696), the same
+    // shared fragments as `checker/cpp.rs` reads; the rows read no bytes
+    // and no chain, so the byte-less spelling forwards with none.
     fn is_func_space(node: &Node) -> bool {
         Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
@@ -47,8 +33,6 @@ impl Checker for MozcppCode {
         crate::roles::mozcpp::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    // Issue #285 contract: keep this in sync with `is_func_space` and
-    // the C++ getters — see comment above `is_func_space`.
     fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         crate::roles::mozcpp::func_opener::is_callable(node, &[], ancestors)
     }
@@ -75,8 +59,8 @@ impl Checker for MozcppCode {
 
     // `Call` and `StringLit` are the rows of `roles/mozcpp.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(mozcpp);
-    impl_string_lit_row!(mozcpp);
+    impl_row_predicates!(mozcpp, call, is_call, is_call_with_code);
+    impl_row_predicates!(mozcpp, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -87,8 +71,18 @@ impl Checker for MozcppCode {
 
     impl_is_else_if_parent_clause!(Mozcpp, IfStatement, ElseClause);
 
+    // A primitive is the `Primitive` row's kind table, gates aside.
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        crate::roles::mozcpp::primitive::lists_kind(node.kind_id())
+    }
+
+    #[inline]
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         // role-bypass: allow(Primitive) — key selection after the row
         // has classified the node: which of the row's kinds is one kind
         // for many spellings and so is keyed by text, not whether the

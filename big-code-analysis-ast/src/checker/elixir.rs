@@ -46,7 +46,7 @@ impl Checker for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        use crate::lang_helpers::elixir::{ElixirDeclaration, elixir_declaration};
+        use crate::lang_helpers::elixir::elixir_declaration;
         // The default is `is_func_with_code || is_func_space_with_code`,
         // which would scan a `call`'s target text once per row; the two
         // rows' gates read `elixir_declaration`, so the walk reads it
@@ -56,8 +56,7 @@ impl Checker for ElixirCode {
         // what let this override and `is_func_space_with_code` drift
         // apart before (#1130); `roles/elixir.rs`'s tests hold the two
         // to each other node by node.
-        Self::is_func_space(node)
-            || elixir_declaration(node, code, ancestors) != ElixirDeclaration::None
+        Self::is_func_space(node) || elixir_declaration(node, code, ancestors).is_some()
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
@@ -66,8 +65,8 @@ impl Checker for ElixirCode {
 
     // `Call` and `StringLit` are the rows of `roles/elixir.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(elixir);
-    impl_string_lit_row!(elixir);
+    impl_row_predicates!(elixir, call, is_call, is_call_with_code);
+    impl_row_predicates!(elixir, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(

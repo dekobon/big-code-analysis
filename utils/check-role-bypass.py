@@ -24,7 +24,7 @@ as many lines and ``|`` alternatives as they span, with a guard
 dropped. Macros are the part a text scan would miss, so three bounded
 shapes are resolved from their ``macro_rules!`` headers: a macro whose
 matcher takes a ``$lang`` / ``$language`` / ``$Lang:ident`` plus
-identifier arguments (``impl_simple_is_string!(Java, StringLiteral,
+identifier arguments (``impl_exit_match_kinds!(Java, ReturnStatement,
 …)``) attributes the identifier arguments to that language; a macro
 whose body opens ``use $lang::*`` or spells ``$lang::Kind`` attributes
 those kinds to every language it is invoked with, and a helper macro it
@@ -523,7 +523,8 @@ def macro_languages(macros: dict[str, Macro], invocations: dict[str, set[str]]) 
     """The languages each macro's bare kinds resolve to: its own
     invocations when it opens `use $lang::*`, else the languages of every
     macro that invokes it from inside such a body (transitively), so an
-    inner helper like `is_js_func!` is attributed to the JS family."""
+    inner helper like `js_family_binding_gates!` is attributed to the JS
+    family."""
     # A macro that spells its language parameter is *resolved* even when
     # no invoking language declares rows yet: its languages are the set
     # it is invoked with, possibly empty. `reached` records that, so the

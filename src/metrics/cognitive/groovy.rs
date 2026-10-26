@@ -88,7 +88,7 @@ impl Cognitive for GroovyCode {
             // identically across languages (lesson #11). The grammar node
             // is `Groovy::Closure` — also recognized by `is_closure` and
             // the `nargs` `closure_parameters` path.
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // At a (possibly nested) method / constructor boundary — every
@@ -100,7 +100,7 @@ impl Cognitive for GroovyCode {
             // inside inner classes; a nested method previously inherited
             // the enclosing nesting and missed the SonarSource B-nesting
             // amplification (#696).
-            _ if func_opener::owns(node, code, ancestors) => {
+            _ if func_opener::owns_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
             _ => {}

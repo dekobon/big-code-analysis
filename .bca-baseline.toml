@@ -15,12 +15,6 @@ mi_formula = 2
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 544.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/alterator.rs"
 qualified = "Alterator::alterate"
 metric = "nargs"
 value = 5.0
@@ -220,14 +214,8 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
-metric = "loc.ploc"
-value = 528.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker.rs"
-qualified = "<file>"
 metric = "loc.sloc"
-value = 1282.0
+value = 1246.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
@@ -251,7 +239,7 @@ value = 48814.4893649235
 path = "big-code-analysis-ast/src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 49990.646744445316
+value = 48396.006635040394
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/elixir.rs"
@@ -327,6 +315,12 @@ value = 44.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
+qualified = "Ancestors<'tree, 'chain>"
+metric = "nom"
+value = 29.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>::fold_down"
 metric = "nargs"
 value = 5.0
@@ -365,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 673.0
+value = 688.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1391.0
+value = 1426.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -1043,7 +1037,7 @@ value = 15.0
 path = "src/metrics/cognitive/irules.rs"
 qualified = "IrulesCode::compute"
 metric = "halstead.effort"
-value = 47587.58021104743
+value = 48335.88968323448
 
 [[entry]]
 path = "src/metrics/cognitive/irules.rs"
@@ -1073,7 +1067,7 @@ value = 15.0
 path = "src/metrics/cognitive/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "halstead.effort"
-value = 49856.11703112131
+value = 52349.266433192235
 
 [[entry]]
 path = "src/metrics/cognitive/kotlin.rs"
@@ -1122,6 +1116,12 @@ path = "src/metrics/cognitive/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
 value = 17.0
+
+[[entry]]
+path = "src/metrics/cognitive/rust.rs"
+qualified = "RustCode::compute"
+metric = "halstead.effort"
+value = 48233.50161817062
 
 [[entry]]
 path = "src/metrics/cognitive/rust.rs"
@@ -1319,7 +1319,7 @@ value = 5.0
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 metric = "halstead.effort"
-value = 64433.40972393267
+value = 67953.64906173921
 
 [[entry]]
 path = "src/metrics/npm/go.rs"

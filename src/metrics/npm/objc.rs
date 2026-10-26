@@ -23,8 +23,7 @@ use super::*;
 /// container *owns* — a `method_definition`. A free C function inside
 /// `@implementation` is a callable too, and the one the container does
 /// not own (#1356), so it is the callable `is_non_member_function`
-/// declines. `ancestors` is the container's chain standing in for the
-/// member's; the row reads none.
+/// declines. `ancestors` is the member's chain.
 fn objc_is_method<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     use crate::roles::objc::func_opener;
     member.kind_id() == Objc::MethodDeclaration as u16
@@ -50,6 +49,8 @@ impl Npm for ObjcCode {
             return;
         }
         let mut methods = 0;
+        let under = ancestors.of_children(node);
+        let members = under.get();
         for child in node.children() {
             match child.kind_id().into() {
                 // `@interface` lists `method_declaration`s as direct
@@ -66,9 +67,10 @@ impl Npm for ObjcCode {
                 // functions and `@synthesize`, also wrapped by the former,
                 // are not methods, so they are skipped).
                 ImplementationDefinition | QualifiedProtocolInterfaceDeclaration => {
+                    let in_wrapper = members.of_children(&child);
                     methods += child
                         .children()
-                        .filter(|inner| objc_is_method(inner, code, ancestors))
+                        .filter(|inner| objc_is_method(inner, code, in_wrapper.get()))
                         .count();
                 }
                 _ => {}

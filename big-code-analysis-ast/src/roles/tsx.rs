@@ -127,7 +127,13 @@ role_table! {
     Closure { owns [..js_family_closures!()] }
     // An abstract class is its own kind in the TS grammars (`Class`);
     // an interface opens `Interface`.
-    Container { owns [..js_family_containers!(), AbstractClassDeclaration(opens Class), InterfaceDeclaration(opens Interface)] }
+    Container {
+        owns [
+            ..js_family_containers!(),
+            AbstractClassDeclaration(opens Class),
+            InterfaceDeclaration(opens Interface),
+        ]
+    }
     // A class field (`x: T = v;`, any accessibility) and an interface's
     // property signature; an index or method signature is the method
     // consumer's. A field whose initialiser is a function is a method

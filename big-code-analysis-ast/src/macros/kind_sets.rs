@@ -23,16 +23,6 @@
 // of 4-5 sites.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! csharp_invocation_expr_kinds {
-    () => {
-        $crate::Csharp::InvocationExpression
-            | $crate::Csharp::InvocationExpression2
-            | $crate::Csharp::InvocationExpression3
-    };
-}
-
-#[macro_export]
-#[doc(hidden)]
 macro_rules! csharp_paren_expr_kinds {
     () => {
         $crate::Csharp::ParenthesizedExpression

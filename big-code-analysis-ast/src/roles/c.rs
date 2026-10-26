@@ -70,7 +70,12 @@ role_table! {
     Primitive { owns [..c_family_primitives!()] }
     // Both aliased `function_definition` ids (#285, lesson 2). C has no
     // container space: a `struct` is not a space.
-    FuncOpener { owns [FunctionDefinition(callable opens Function), FunctionDefinition2(callable opens Function)] }
+    FuncOpener {
+        owns [
+            FunctionDefinition(callable opens Function),
+            FunctionDefinition2(callable opens Function),
+        ]
+    }
     Container { owns [TranslationUnit(opens Unit)] }
     Member { absent "C has no container space to hold a member; a struct is not one" }
     Closure { absent "C has no anonymous function" }

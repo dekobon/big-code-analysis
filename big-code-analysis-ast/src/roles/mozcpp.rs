@@ -14,11 +14,10 @@ use crate::roles::c_family::{
     c_family_calls, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
     c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
     cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
-    cpp_family_short_circuit_payers, cpp_family_space_gates,
+    cpp_family_short_circuit_payers,
 };
 
 cpp_family_gates!(Mozcpp);
-cpp_family_space_gates!(Mozcpp);
 
 role_table! {
     lang: Mozcpp;

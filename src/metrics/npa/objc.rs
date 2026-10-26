@@ -16,29 +16,28 @@ use super::*;
 // public), or a field declaration whose `struct_declarator`s are the
 // attributes — a multi-declarator `int a, b;` contributes two.
 fn objc_count_instance_variables<'a>(
-    block: &Node,
-    code: &'a [u8],
+    block: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> (usize, usize) {
     let (mut total, mut public) = (0usize, 0usize);
     let mut is_public = false;
+    let under = ancestors.of_children(block);
+    let members = under.get();
     for ivar in block.children() {
-        if !crate::roles::objc::member::owns(&ivar, code, ancestors) {
+        if !crate::roles::objc::member::owns(&ivar, code, members) {
             continue;
         }
         if let Some(vis) = ivar.first_child(|id| id == Objc::VisibilitySpecification as u16) {
             is_public = vis.first_child(|id| id == Objc::ATpublic as u16).is_some();
             continue;
         }
-        let mut fields = 0;
-        for decl in ivar.children() {
-            if decl.kind_id() == Objc::StructDeclaration as u16 {
-                fields += decl
-                    .children()
-                    .filter(|d| d.kind_id() == Objc::StructDeclarator as u16)
-                    .count();
-            }
-        }
+        let fields = ivar
+            .children()
+            .filter(|d| d.kind_id() == Objc::StructDeclaration as u16)
+            .flat_map(|d| d.children())
+            .filter(|d| d.kind_id() == Objc::StructDeclarator as u16)
+            .count();
         total += fields;
         if is_public {
             public += fields;
@@ -56,6 +55,23 @@ fn objc_count_instance_variables<'a>(
 // post-`@required` / `@optional` members under a
 // `qualified_protocol_interface_declaration`), so we walk them when the
 // class node itself is visited, where `stats` is already the class space.
+
+// The `Member` row's properties under a `@required` / `@optional` group,
+// each asked under its own chain: the group's plus the group. Every one
+// is public.
+fn objc_count_group_properties<'a>(
+    group: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> usize {
+    let under = ancestors.of_children(group);
+    let members = under.get();
+    group
+        .children()
+        .filter(|inner| crate::roles::objc::member::owns(inner, code, members))
+        .count()
+}
+
 impl Npa for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -78,24 +94,24 @@ impl Npa for ObjcCode {
         // one level under a `@required` / `@optional` group; an instance
         // variable is the row's too, under the `{ … }` block, where the
         // consumer counts its declarators and reads its access section.
-        // The container's chain stands in for each; the row reads none.
+        // Each is asked under its own chain: the container's plus the
+        // container, and the group's or block's below that.
         let (mut attributes, mut public) = (0usize, 0usize);
+        let under = ancestors.of_children(node);
+        let members = under.get();
         for child in node.children() {
             match child.kind_id().into() {
-                _ if member::owns(&child, code, ancestors) => {
+                _ if member::owns(&child, code, members) => {
                     attributes += 1;
                     public += 1;
                 }
                 QualifiedProtocolInterfaceDeclaration => {
-                    for inner in child.children() {
-                        if member::owns(&inner, code, ancestors) {
-                            attributes += 1;
-                            public += 1;
-                        }
-                    }
+                    let properties = objc_count_group_properties(&child, code, members);
+                    attributes += properties;
+                    public += properties;
                 }
                 InstanceVariables => {
-                    let (na, npa) = objc_count_instance_variables(&child, code, ancestors);
+                    let (na, npa) = objc_count_instance_variables(&child, code, members);
                     attributes += na;
                     public += npa;
                 }

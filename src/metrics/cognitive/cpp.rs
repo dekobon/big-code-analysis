@@ -85,7 +85,7 @@ macro_rules! cpp_family_cognitive {
                     }
                     // A lambda — the `Closure` row — charges the lambda channel
                     // and does not reset nesting.
-                    _ if closure::owns(node, code, ancestors) => {
+                    _ if closure::owns_kind(kind, node, code, ancestors) => {
                         nesting.lambda += 1;
                     }
                     // At a (possibly nested) function-definition boundary — the
@@ -97,7 +97,7 @@ macro_rules! cpp_family_cognitive {
                     // method defined inside a control construct inherited the
                     // enclosing nesting and every nested definition missed the
                     // SonarSource B-nesting amplification (#696).
-                    _ if func_opener::is_callable(node, code, ancestors) => {
+                    _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                         enter_function_boundary(
                             &mut nesting,
                             node,

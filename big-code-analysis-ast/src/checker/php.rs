@@ -76,9 +76,8 @@ impl Checker for PhpCode {
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
         forward: |comment, code, ancestors| {
             let in_signature = ancestors.parent(comment).is_some_and(|parent| {
-                // Doc attachment, not membership: what a doc comment binds
-                // to is `DocTarget`'s own row (R09).
-                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment
+                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment,
+                // not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
                 matches!(
                     parent.kind_id().into(),
                     Php::ClassDeclaration
@@ -187,8 +186,8 @@ impl Checker for PhpCode {
 
     // `Call` and `StringLit` are the rows of `roles/php.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(php);
-    impl_string_lit_row!(php);
+    impl_row_predicates!(php, call, is_call, is_call_with_code);
+    impl_row_predicates!(php, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(

@@ -1,4 +1,4 @@
-//! `Npa` implementation for Mozcpp.
+//! `Npa` implementation for mozcpp.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 #![allow(
     clippy::cast_precision_loss,
@@ -6,78 +6,8 @@
     clippy::cast_sign_loss
 )]
 
+use super::cpp::cpp_family_npa;
 use super::*;
 
-impl Npa for MozcppCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use crate::roles::mozcpp::member;
-        use Mozcpp::*;
-
-        if !matches!(node.kind_id().into(), FieldDeclarationList) {
-            return;
-        }
-        let Some(parent) = ancestors.parent(node) else {
-            return;
-        };
-        // C++ `class` defaults to private; `struct` defaults to public.
-        // role-bypass: allow(Container) — which container's body this is,
-        // for the default access; not whether it opens a space
-        let mut current_is_public = match parent.kind_id().into() {
-            ClassSpecifier => false,
-            StructSpecifier => true,
-            _ => return,
-        };
-
-        for child in node.children() {
-            match child.kind_id().into() {
-                AccessSpecifier => {
-                    // Update the current visibility to the access
-                    // specifier's keyword. `protected` is bucketed with
-                    // `private` for `npa` purposes (matches Java's
-                    // "non-public" treatment), so any keyword other
-                    // than `public` flips us back to private.
-                    // role-bypass: allow(Modifier) — which access label, not
-                    // whether the token is a modifier
-                    current_is_public = child
-                        .first_child(|id| {
-                            id == Mozcpp::Public || id == Mozcpp::Protected || id == Mozcpp::Private
-                        })
-                        .is_some_and(|tok| tok.kind_id() == Mozcpp::Public);
-                }
-                // The `Member` row's declaration; a child's chain is the
-                // list's plus the list, which the row reads neither of.
-                _ if member::owns(&child, code, ancestors) => {
-                    // Member functions surface as `field_declaration`
-                    // when declared without a body. They are counted
-                    // by `Npm`, not as attributes — detect them by
-                    // their declarator subtree and skip. A
-                    // `function_declarator` alone does not settle it:
-                    // `int (*fp)(int);` is a function-pointer data
-                    // member (#1300), which is why the helper reads
-                    // the node's `declarator` field rather than its
-                    // kind alone.
-                    if cpp_declares_function(&child) {
-                        continue;
-                    }
-                    // Data field — count every `field_identifier` in
-                    // the declarator subtree. Pointer (`int* p`),
-                    // array (`int a[N]`), and plain (`int x`) forms
-                    // all reduce to one or more `field_identifier`
-                    // leaves; the comma-separated form `int b, c`
-                    // adds them as siblings.
-                    let count = cpp_count_field_identifiers(&child);
-                    stats.class_na += count;
-                    if current_is_public {
-                        stats.class_npa += count;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-}
+// The Cpp twin's walk against this dialect's rows and ids.
+cpp_family_npa!(MozcppCode, Mozcpp, crate::roles::mozcpp::member);

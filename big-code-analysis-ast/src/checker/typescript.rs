@@ -68,8 +68,8 @@ impl Checker for TypescriptCode {
 
     // `Call` and `StringLit` are the rows of `roles/typescript.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(typescript);
-    impl_string_lit_row!(typescript);
+    impl_row_predicates!(typescript, call, is_call, is_call_with_code);
+    impl_row_predicates!(typescript, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -80,8 +80,18 @@ impl Checker for TypescriptCode {
 
     impl_is_else_if_parent_clause!(Typescript, IfStatement, ElseClause);
 
+    // A primitive is the `Primitive` row's kind table, gates aside.
     #[inline]
     fn is_primitive(node: &Node) -> bool {
+        crate::roles::typescript::primitive::lists_kind(node.kind_id())
+    }
+
+    #[inline]
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         // role-bypass: allow(Primitive) — key selection after the row
         // has classified the node: the wrapper is one kind for many
         // spellings and so is keyed by text, not whether the node is a

@@ -81,30 +81,16 @@ impl Getter for ElixirCode {
         code: &'a [u8],
         ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
-        use Elixir as E;
-
-        use crate::lang_helpers::elixir::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
-            elixir_is_method_macro,
-        };
-        // The Class kind always names its head; for method macros we
-        // additionally require the Call NOT to be inside a `quote`
-        // template, matching the func-space promotion rule (#310).
-        //
-        // The quote-block lookup reads the caller's chain rather than
-        // climbing with `Node::parent` (#1088). This fires once per
-        // *promoted* space rather than per node, so the win is smaller
-        // than at the walk's per-node sites — but `bca function` and the
+        use crate::lang_helpers::elixir::elixir_declaration;
+        // A `defmodule` always names its head; a method macro only
+        // outside a `quote` template, matching the func-space promotion
+        // rule (#310) — the one `elixir_declaration` lookup both rows
+        // read. Its quote-block climb reads the caller's chain rather
+        // than `Node::parent` (#1088): this fires once per *promoted*
+        // space rather than per node, but `bca function` and the
         // suppression scan reach it through `get_func_name` on every
         // function node, where the climb was `O(depth)` apiece.
-        // role-bypass: allow(FuncOpener, Container, Call) — naming, not membership: the space name
-        // of a keyword call
-        if node.kind_id() == E::Call as u16
-            && let Some(kw) = elixir_call_keyword(node, code)
-            && (elixir_is_class_macro(kw)
-                || (elixir_is_method_macro(kw)
-                    && !elixir_is_inside_quote_block(node, code, ancestors)))
-        {
+        if elixir_declaration(node, code, ancestors).is_some() {
             let target_id = node.child_by_field_name("target").map(|t| t.id());
             if let Some(name) = node
                 .children()

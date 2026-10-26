@@ -345,13 +345,13 @@ class CensusTests(unittest.TestCase):
         table = rt.parse_table(self.t.roles / "java.rs")
         owners = table.rows["FuncOpener"].owners
         self.assertEqual(
-            [(o.kind, o.callable, o.callable_when, o.opens, o.gate) for o in owners],
+            [(o.kind, o.callable, o.callable_when, o.opens, o.opens_by, o.gate) for o in owners],
             [
-                ("MethodDeclaration", True, None, "Function", None),
-                ("StaticInitializer", False, None, "Function", None),
-                ("Lambda", True, None, "Function", "bound"),
-                ("Arrow", True, "bound", "Function", None),
-                ("ClassDeclaration", False, None, "by class_or_iface", None),
+                ("MethodDeclaration", True, None, "Function", None, None),
+                ("StaticInitializer", False, None, "Function", None, None),
+                ("Lambda", True, None, "Function", None, "bound"),
+                ("Arrow", True, "bound", "Function", None, None),
+                ("ClassDeclaration", False, None, None, "class_or_iface", None),
             ],
         )
         self.t.write(

@@ -12,5 +12,5 @@ impl Checker for CcommentCode {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }
 
-    impl_simple_is_string!(Ccomment, StringLiteral, RawStringLiteral);
+    impl_row_predicates!(ccomment, string_lit, is_string, is_string_with_code);
 }

@@ -110,12 +110,18 @@ pub(crate) fn php_is_explicit_public(declaration: &Node) -> bool {
 // an argument list (`private`, spelled as a `Call` only when it has a
 // receiver) yields nothing.
 pub(crate) fn ruby_call_named_arguments<'a>(call: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
+    ruby_call_argument_list(call)
+        .into_iter()
+        .flat_map(|args| args.children().filter(Node::is_named))
+}
+
+/// The `argument_list` of a call, for a consumer that needs the list
+/// node itself as the arguments' parent.
+pub(crate) fn ruby_call_argument_list<'a>(call: &Node<'a>) -> Option<Node<'a>> {
     use Ruby::*;
 
     call.children()
         .find(|c| matches!(c.kind_id().into(), ArgumentList | ArgumentList2))
-        .into_iter()
-        .flat_map(|args| args.children().filter(Node::is_named))
 }
 
 // How many attributes / methods one argument to an `attr_*` or

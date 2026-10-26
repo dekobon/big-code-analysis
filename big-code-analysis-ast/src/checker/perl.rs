@@ -45,8 +45,8 @@ impl Checker for PerlCode {
 
     // `Call` and `StringLit` are the rows of `roles/perl.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(perl);
-    impl_string_lit_row!(perl);
+    impl_row_predicates!(perl, call, is_call, is_call_with_code);
+    impl_row_predicates!(perl, string_lit, is_string, is_string_with_code);
 
     // `NormalComma` (369) is the separator inside a subroutine signature;
     // the bare `COMMA` (12) it wraps is that node's *child*, so listing

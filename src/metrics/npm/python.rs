@@ -18,10 +18,8 @@ use super::*;
 //
 // Python has no visibility keyword. The PEP-8 convention `_x` for
 // "internal" and `__x` for "name-mangled private" is purely advisory
-// and not represented in the AST. `Npm::compute` is also called
-// without source bytes, so reading the identifier text is not
-// possible from this trait. We therefore treat every class method as
-// public — `class_npm == class_nm`.
+// and not represented in the AST, so every class method is public —
+// `class_npm == class_nm`.
 //
 // Nested classes and async functions are handled naturally:
 // `async def m(self):` still parses as `FunctionDefinition`, so the
@@ -32,10 +30,9 @@ impl Npm for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::python::func_opener;
         use Python::*;
 
         // Only a `ClassDefinition` owns methods, so nothing else can
@@ -54,19 +51,11 @@ impl Npm for PythonCode {
         };
 
         // Count direct-child method declarations — the `FuncOpener`
-        // row's callable. Decorated methods appear under a
-        // `DecoratedDefinition` wrapper; walk into that wrapper to find
-        // the inner `def`. A child's chain is the body's plus the body,
-        // which the row reads none of.
+        // row's callable, decorated or not, read through the one
+        // unwrapping `npa` shares.
         let count = body
             .children()
-            .filter(|stmt| {
-                func_opener::is_callable(stmt, code, Ancestors::unknown())
-                    || (stmt.kind_id() == DecoratedDefinition as u16
-                        && stmt
-                            .children()
-                            .any(|c| func_opener::is_callable(&c, code, Ancestors::unknown())))
-            })
+            .filter(|stmt| super::npa::python_unwrap_function(stmt, code, ancestors).is_some())
             .count();
 
         stats.class_nm += count;

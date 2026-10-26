@@ -60,7 +60,7 @@ impl Cognitive for JavaCode {
             }
             // A lambda — the `Closure` row — charges the lambda channel
             // and does not reset nesting.
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // At a (possibly nested) method / constructor boundary — every
@@ -77,7 +77,7 @@ impl Cognitive for JavaCode {
             // missed the SonarSource B-nesting amplification (#696). A
             // record's compact constructor is its own kind (#1160) and is
             // on the row.
-            _ if func_opener::owns(node, code, ancestors) => {
+            _ if func_opener::owns_kind(kind, node, code, ancestors) => {
                 enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
             }
             _ => {}

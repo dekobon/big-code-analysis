@@ -834,6 +834,50 @@ mod tests {
     // count is only observable one space at a time.
     check_func_space_only_shim!(check_spaces, Nargs);
 
+    /// The `compute` impls above for Go, Kotlin, Lua, Tcl, iRules, Perl,
+    /// Java and Groovy read the byte-less `is_func` / `is_closure`, and
+    /// Elixir's and the shared impl read the byte-less `is_closure`:
+    /// each hands the walk's chain through and no bytes, which answers
+    /// the row's question only while no owner of that row is
+    /// `text_gated_by`. This pins that — a row that grows a text gate
+    /// fails here, naming the impl that must move to the `_with_code`
+    /// spelling rather than silently missing the gated owner (#1696
+    /// AC 3). Elixir's `FuncOpener` is text-gated and its impl already
+    /// reads `is_func_with_code`. The rows are declarations, built in
+    /// every feature set, so this needs no grammar.
+    #[test]
+    fn byte_less_spellings_read_only_rows_without_a_text_gate() {
+        use crate::roles::{elixir, go, groovy, irules, java, kotlin, lua, perl, tcl};
+        let rows: &[(&str, bool)] = &[
+            ("go FuncOpener", go::func_opener::TEXT_GATED),
+            ("go Closure", go::closure::TEXT_GATED),
+            ("kotlin FuncOpener", kotlin::func_opener::TEXT_GATED),
+            ("kotlin Closure", kotlin::closure::TEXT_GATED),
+            ("lua FuncOpener", lua::func_opener::TEXT_GATED),
+            ("lua Closure", lua::closure::TEXT_GATED),
+            ("tcl FuncOpener", tcl::func_opener::TEXT_GATED),
+            ("irules FuncOpener", irules::func_opener::TEXT_GATED),
+            ("perl FuncOpener", perl::func_opener::TEXT_GATED),
+            ("perl Closure", perl::closure::TEXT_GATED),
+            ("java FuncOpener", java::func_opener::TEXT_GATED),
+            ("groovy FuncOpener", groovy::func_opener::TEXT_GATED),
+            ("elixir Closure", elixir::closure::TEXT_GATED),
+        ];
+        for (row, text_gated) in rows {
+            assert!(
+                !text_gated,
+                "{row} grew a text gate: its `NArgs::compute` must read the `_with_code` spelling"
+            );
+        }
+        let read_with_code = [("elixir FuncOpener", elixir::func_opener::TEXT_GATED)];
+        for (row, text_gated) in read_with_code {
+            assert!(
+                text_gated,
+                "{row} is read through `is_func_with_code` above"
+            );
+        }
+    }
+
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
     /// `fn_args_min` or `closure_args_min`. Both getters collapse
@@ -4610,8 +4654,9 @@ mod lambda_parenthesisation_parity {
     /// The lambda stays in the *closure* channel, not the function one.
     ///
     /// Java and C# route it through `is_closure`; the JS family's arrow
-    /// is classified by `check_if_arrow_func!` and lands in `fn_args`
-    /// when bound to a variable, which is a separate question (#1188).
+    /// is classified by the `FuncOpener` row's `bound_arrow` gate and
+    /// lands in `fn_args` when bound to a variable, which is a separate
+    /// question (#1188).
     /// Asserting the channel per language rather than globally keeps
     /// this test from encoding that as a bug.
     #[test]

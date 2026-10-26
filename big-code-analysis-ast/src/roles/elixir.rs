@@ -33,12 +33,12 @@ fn applied<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> b
 /// combined promotion reads it once more directly rather than through
 /// both rows (`checker/elixir.rs`).
 fn method_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    elixir_declaration(node, code, ancestors) == ElixirDeclaration::Method
+    elixir_declaration(node, code, ancestors) == Some(ElixirDeclaration::Method)
 }
 
 /// A `call` whose target spells `defmodule`.
 fn class_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    elixir_declaration(node, code, ancestors) == ElixirDeclaration::Module
+    elixir_declaration(node, code, ancestors) == Some(ElixirDeclaration::Module)
 }
 
 /// A `call` whose target spells `defstruct`, directly in a module body:
@@ -241,6 +241,10 @@ mod tests {
                     .and_then(|t| t.utf8_text(source))
                     .unwrap_or("<none>")
                     .to_owned();
+                assert!(
+                    call::owns(node, source, ancestors),
+                    "{target}: a `call` is a Call"
+                );
                 calls.push((target, got));
                 return;
             }

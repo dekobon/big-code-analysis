@@ -7,7 +7,7 @@
 )]
 
 use super::npa::{
-    RubyVisibility, RubyVisibilityCall, RubyVisibilityEffect, ruby_call_named_arguments,
+    RubyVisibility, RubyVisibilityCall, RubyVisibilityEffect, ruby_call_argument_list,
     ruby_declaration_is_public, ruby_method_name, ruby_symbol_name, ruby_visibility_effect,
     ruby_visibility_marker, ruby_wrapped_is_public,
 };
@@ -146,17 +146,31 @@ impl<'a> RubyClassBody<'a> {
     // that method family: `private def self.x` demotes the *instance*
     // method `x` (a NameError in practice), never the singleton, and
     // only `private_class_method` reaches a `def self.`.
-    fn apply_visibility_call(&mut self, call: &Node<'a>, keyword: RubyVisibilityCall) {
+    fn apply_visibility_call(
+        &mut self,
+        call: &Node<'a>,
+        members: Ancestors<'a, '_>,
+        keyword: RubyVisibilityCall,
+    ) {
         use crate::roles::ruby::func_opener;
         use Ruby::*;
 
         let public = keyword.visibility == RubyVisibility::Public;
-        for arg in ruby_call_named_arguments(call) {
+        // The arguments sit under the call's `argument_list`: each is
+        // asked under its own chain, the call's plus the call and the
+        // list, so a gate the row grows later reads the right parent.
+        let in_call = members.of_children(call);
+        let Some(list) = ruby_call_argument_list(call) else {
+            return;
+        };
+        let in_list = in_call.get().of_children(&list);
+        let args = in_list.get();
+        for arg in list.children().filter(Node::is_named) {
             // A `def` passed to the macro (`private def x; end`) is the
-            // `FuncOpener` row's callable, as a bare one is; the row reads
-            // no chain. Which of its two callables decides the singleton
-            // bucket is this consumer's reading.
-            if !func_opener::is_callable(&arg, self.code, Ancestors::unknown()) {
+            // `FuncOpener` row's callable, as a bare one is. Which of its
+            // two callables decides the singleton bucket is this
+            // consumer's reading.
+            if !func_opener::is_callable(&arg, self.code, args) {
                 self.refile_argument(&arg, keyword.targets_singleton, public);
                 continue;
             }
@@ -166,8 +180,9 @@ impl<'a> RubyClassBody<'a> {
         }
     }
 
-    // Reads one direct child of the class body.
-    fn visit(&mut self, child: &Node<'a>) {
+    // Reads one direct child of the class body, under `members`, the
+    // chain of the body's children.
+    fn visit(&mut self, child: &Node<'a>, members: Ancestors<'a, '_>) {
         use crate::roles::ruby::func_opener;
         use Ruby::*;
 
@@ -178,10 +193,9 @@ impl<'a> RubyClassBody<'a> {
         let kind = child.kind_id().into();
         // A `def` — the `FuncOpener` row's callable — declares a method;
         // the row's two callables differ in the bucket (`def self.` is
-        // the singleton), which is this consumer's reading. The chain
-        // the gate would read is none: the row reads no chain.
+        // the singleton), which is this consumer's reading.
         match kind {
-            _ if func_opener::is_callable(child, self.code, Ancestors::unknown()) => {
+            _ if func_opener::is_callable(child, self.code, members) => {
                 // role-bypass: allow(FuncOpener) — the singleton bucket
                 self.declare(child, matches!(kind, SingletonMethod), None);
             }
@@ -190,7 +204,7 @@ impl<'a> RubyClassBody<'a> {
             Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(child, self.code) {
                 Some(RubyVisibilityEffect::Flag(flag)) => self.visibility = flag,
                 Some(RubyVisibilityEffect::Arguments(keyword)) => {
-                    self.apply_visibility_call(child, keyword);
+                    self.apply_visibility_call(child, members, keyword);
                 }
                 None => {}
             },
@@ -242,8 +256,10 @@ impl Npm for RubyCode {
 
         // role-bypass: allow(Container) — the singleton-class bucket
         let mut body = RubyClassBody::new(code, matches!(parent_kind, SingletonClass));
+        let under = ancestors.of_children(node);
+        let members = under.get();
         for child in node.children() {
-            body.visit(&child);
+            body.visit(&child, members);
         }
 
         stats.class_nm += body.methods.len();

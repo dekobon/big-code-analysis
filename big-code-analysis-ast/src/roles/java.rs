@@ -368,8 +368,9 @@ mod tests {
             if kind == "object_creation_expression" {
                 // Gated on the body: `new Object() { }` opens a class;
                 // `new Object()` and `new RuntimeException()` nothing
-                // (#463), told apart by the gate.
-                anonymous.push((got.2, got.3));
+                // (#463), told apart by the gate; neither spelling is a
+                // function, a closure or a member.
+                anonymous.push(got);
             } else {
                 let want = expected.iter().find(|(k, _)| *k == kind).map_or(
                     (false, false, false, SpaceKind::Unknown, false),
@@ -411,9 +412,9 @@ mod tests {
         assert_eq!(
             anonymous,
             [
-                (true, SpaceKind::Class),
-                (false, SpaceKind::Unknown),
-                (false, SpaceKind::Unknown)
+                (false, false, true, SpaceKind::Class, false),
+                (false, false, false, SpaceKind::Unknown, false),
+                (false, false, false, SpaceKind::Unknown, false),
             ]
         );
         // Fixture guard: every kind the membership rows name was walked.

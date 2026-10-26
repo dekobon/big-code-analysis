@@ -17,7 +17,7 @@ use super::*;
 impl Npm for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -45,7 +45,8 @@ impl Npm for KotlinCode {
         // `declaration` rule layers, so function declarations and
         // secondary constructors appear as direct children of
         // `class_body`. `Self::is_func` recognises both kinds.
-        for func in direct_child_funcs::<Self>(node) {
+        let under = ancestors.of_children(node);
+        for func in direct_child_funcs::<Self>(node, code, under.get()) {
             if is_interface {
                 stats.interface_nm += 1;
                 stats.interface_npm += 1;

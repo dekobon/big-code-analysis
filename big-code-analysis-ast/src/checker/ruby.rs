@@ -14,17 +14,16 @@ use crate::lang_helpers::doc_comment::{node_bytes, ruby_directive_opener, ruby_m
 /// parse as a `Call` carrying the block argument — the parent is not a
 /// `Lambda` — so they still classify exactly once.
 ///
-/// One helper shared by [`Checker::is_closure`],
-/// [`Checker::is_func_space_with_code`], and the cognitive lambda-nesting
-/// arm (`crate::metrics::cognitive`'s Ruby impl), so the closure count,
-/// the space tree, and the nesting surcharge cannot drift apart
-/// (`.claude/rules/grammar-dispatch.md` §6).
+/// One helper the `Closure` and `FuncOpener` rows of `roles/ruby.rs`
+/// both gate on, so the closure count, the space tree, and the
+/// cognitive nesting surcharge — each a reader of those rows — cannot
+/// drift apart (`.claude/rules/grammar-dispatch.md` §6).
 ///
 /// The parent comes off the caller's chain: all consumers run per node
 /// from a walk, and `Node::parent` costs `O(depth)` because
 /// `tree_sitter` resolves it by descending from the root (#1088).
 #[must_use]
-pub fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+pub(crate) fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     // role-bypass: allow(FuncOpener, Closure) — the gate the rows read:
     // whether the parent is the lambda, not whether a node opens a space
     ancestors
@@ -295,8 +294,8 @@ impl Checker for RubyCode {
 
     // `Call` and `StringLit` are the rows of `roles/ruby.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(ruby);
-    impl_string_lit_row!(ruby);
+    impl_row_predicates!(ruby, call, is_call, is_call_with_code);
+    impl_row_predicates!(ruby, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         // `PIPE` is included because block parameter lists are delimited

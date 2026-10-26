@@ -260,7 +260,10 @@ class Owner:
     gate: str | None = None
     text_gated: bool = False
     pays_itself: bool = False
+    # `opens K`: the `SpaceKind` the owner opens; `opens_by f`: the fn
+    # that says which kind, or none (#1696). At most one of the two.
     opens: str | None = None
+    opens_by: str | None = None
     # `holds_payer`: the owner's projection lands on one of the row's
     # payers (#1695); a gate may sit beside it.
     holds_payer: bool = False
@@ -377,6 +380,7 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
     text_gated = False
     pays_itself = False
     opens = None
+    opens_by = None
     holds_payer = False
     callable_ = False
     callable_when = None
@@ -406,11 +410,12 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
             pays_itself = True
             i += 2
         elif a in ("opens", "opens_by"):
-            if opens is not None or i + 1 >= len(attrs):
+            if opens is not None or opens_by is not None or i + 1 >= len(attrs):
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `{a}`")
-            # `opens_by f` is recorded as the fn's name prefixed `by `, so a
-            # reader can tell a kind from a resolver.
-            opens = attrs[i + 1] if a == "opens" else "by " + attrs[i + 1]
+            if a == "opens":
+                opens = attrs[i + 1]
+            else:
+                opens_by = attrs[i + 1]
             i += 2
         elif a == "callable":
             if callable_:
@@ -425,7 +430,9 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
             i += 2
         else:
             raise RoleTableError(f"{path}:{line}: unknown owner attribute `{a}` on `{kind}`")
-    return Owner(kind, gate, text_gated, pays_itself, opens, holds_payer, callable_, callable_when)
+    return Owner(
+        kind, gate, text_gated, pays_itself, opens, opens_by, holds_payer, callable_, callable_when
+    )
 
 
 def _split_list(text: str) -> list[str]:

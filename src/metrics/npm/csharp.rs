@@ -18,8 +18,8 @@ use super::*;
 // accessors, and the accessor-less form — the one the row marks
 // callable — one. The bodied form is not the row's callable (its
 // accessors are), so it is read by kind here: how many methods a
-// member is worth is this consumer's own. `ancestors` is the body's
-// chain standing in for the member's; the row reads none.
+// member is worth is this consumer's own. `ancestors` is the member's
+// chain.
 fn csharp_count_member<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> usize {
     use crate::roles::csharp::func_opener;
     use Csharp::*;
@@ -81,18 +81,20 @@ impl Npm for CsharpCode {
             return;
         };
 
+        let under = ancestors.of_children(node);
+        let members = under.get();
         // role-bypass: allow(Container) — which container's body this is,
         // for the class / interface bucket; not whether it opens a space
         match parent_kind {
             ClassDeclaration | StructDeclaration | RecordDeclaration => {
                 for member in node.children() {
-                    stats.class_nm += csharp_count_member(&member, code, ancestors);
+                    stats.class_nm += csharp_count_member(&member, code, members);
                     // A public member exposes all its accessors as public
                     // methods *except* those that narrow visibility with
                     // their own `private` / `protected` modifier.
                     if super::npa::csharp_is_explicit_public(&member) {
                         stats.class_npm +=
-                            csharp_member_public_method_count(&member, code, ancestors);
+                            csharp_member_public_method_count(&member, code, members);
                     }
                 }
             }
@@ -100,7 +102,7 @@ impl Npm for CsharpCode {
             // skip the visibility scan entirely.
             InterfaceDeclaration => {
                 for member in node.children() {
-                    stats.interface_nm += csharp_count_member(&member, code, ancestors);
+                    stats.interface_nm += csharp_count_member(&member, code, members);
                 }
                 stats.interface_npm = stats.interface_nm;
             }

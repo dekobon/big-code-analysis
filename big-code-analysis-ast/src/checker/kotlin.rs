@@ -143,8 +143,8 @@ impl Checker for KotlinCode {
 
     // `Call` and `StringLit` are the rows of `roles/kotlin.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(kotlin);
-    impl_string_lit_row!(kotlin);
+    impl_row_predicates!(kotlin, call, is_call, is_call_with_code);
+    impl_row_predicates!(kotlin, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(
@@ -163,9 +163,15 @@ impl Checker for KotlinCode {
     // Keying it by `kind_id` would make `bca ops` list an operator
     // named `reification_modifier`, which appears nowhere in the
     // source; keying it by text lists `reified` (#1558). It has no
-    // other kind, so nothing splits across the two `n1` maps.
+    // other kind, so nothing splits across the two `n1` maps. Kotlin
+    // has no primitive kinds (the row is `absent`), so `is_primitive`
+    // keeps the trait's `false` and this hook is the whole key selection.
     #[inline]
-    fn is_primitive(node: &Node) -> bool {
+    fn keys_operator_by_text<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         // role-bypass: allow(Modifier) — key selection after the row has
         // classified the node: the one modifier keyed by text
         node.kind_id() == Kotlin::ReificationModifier

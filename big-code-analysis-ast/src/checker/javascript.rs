@@ -62,8 +62,8 @@ impl Checker for JavascriptCode {
 
     // `Call` and `StringLit` are the rows of `roles/javascript.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(javascript);
-    impl_string_lit_row!(javascript);
+    impl_row_predicates!(javascript, call, is_call, is_call_with_code);
+    impl_row_predicates!(javascript, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         matches!(

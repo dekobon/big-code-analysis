@@ -11,7 +11,7 @@ use super::*;
 impl Npm for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -29,12 +29,13 @@ impl Npm for PhpCode {
                 let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
                     return;
                 };
+                let under = ancestors.of_children(node);
                 // role-bypass: allow(Container) — which container's body
                 // the methods sit in, for the bucket; not whether it opens
                 // a space
                 match parent_kind {
                     ClassDeclaration | TraitDeclaration | AnonymousClass => {
-                        for method in direct_child_funcs::<Self>(node) {
+                        for method in direct_child_funcs::<Self>(node, code, under.get()) {
                             stats.class_nm += 1;
                             if super::npa::php_is_explicit_public(&method) {
                                 stats.class_npm += 1;
@@ -43,7 +44,7 @@ impl Npm for PhpCode {
                     }
                     // Interface methods are implicitly public.
                     InterfaceDeclaration => {
-                        let count = direct_child_funcs::<Self>(node).count();
+                        let count = direct_child_funcs::<Self>(node, code, under.get()).count();
                         stats.interface_nm += count;
                         stats.interface_npm = stats.interface_nm;
                     }
@@ -52,7 +53,8 @@ impl Npm for PhpCode {
             }
             // PHP 8.1 enums can declare regular and static methods.
             EnumDeclarationList => {
-                for method in direct_child_funcs::<Self>(node) {
+                let under = ancestors.of_children(node);
+                for method in direct_child_funcs::<Self>(node, code, under.get()) {
                     stats.class_nm += 1;
                     if super::npa::php_is_explicit_public(&method) {
                         stats.class_npm += 1;

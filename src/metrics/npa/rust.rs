@@ -66,7 +66,7 @@ impl Npa for RustCode {
         // Impl or Trait space the walk has open; which of the two, and
         // what it is, is this consumer's reading of the row.
         if node.kind_id() == StructItem as u16 {
-            rust_count_struct_attrs(node, code, stats);
+            rust_count_struct_attrs(node, code, ancestors, stats);
         } else if member::owns(node, code, ancestors) {
             // role-bypass: allow(Member) — which associated item the
             // row's member is, for the bucket it lands in
@@ -84,7 +84,12 @@ impl Npa for RustCode {
 // that function's stats and reaches the nearest enclosing container —
 // or the file root — through the usual merge; which space *serializes*
 // the block is decided later, by its kind alone (#1203).
-fn rust_count_struct_attrs<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+fn rust_count_struct_attrs<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
     use crate::roles::rust::member;
     use Rust::*;
 
@@ -96,12 +101,12 @@ fn rust_count_struct_attrs<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stat
             // is one attribute. Visibility is the
             // `visibility_modifier` first child.
             FieldDeclarationList => {
-                // A field's chain is the list's plus the list; the row
-                // reads neither.
-                for field in body
-                    .children()
-                    .filter(|c| member::owns(c, code, Ancestors::unknown()))
-                {
+                // Each field is asked under its own chain: the struct's
+                // plus the struct and the list.
+                let in_struct = ancestors.of_children(node);
+                let in_list = in_struct.get().of_children(&body);
+                let fields = in_list.get();
+                for field in body.children().filter(|c| member::owns(c, code, fields)) {
                     attrs += 1;
                     if rust_item_is_public(&field) {
                         public_attrs += 1;

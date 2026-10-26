@@ -87,7 +87,7 @@ impl Cognitive for CsharpCode {
             }
             // A lambda or anonymous method — the `Closure` row — charges
             // the lambda channel and does not reset nesting.
-            _ if closure::owns(node, code, ancestors) => {
+            _ if closure::owns_kind(kind, node, code, ancestors) => {
                 nesting.lambda += 1;
             }
             // At a (possibly nested) function boundary — the `FuncOpener`
@@ -108,7 +108,7 @@ impl Cognitive for CsharpCode {
             // `get { if … }` under a property would otherwise read its
             // property as an enclosing function and take a depth
             // surcharge it never did (measured on the corpus, #1696).
-            _ if func_opener::is_callable(node, code, ancestors) => {
+            _ if func_opener::is_callable_kind(kind, node, code, ancestors) => {
                 // role-bypass: allow(FuncOpener) — which enclosing kinds
                 // give a nested callable its depth surcharge: the row's
                 // ungated callables, not whether a node opens a space

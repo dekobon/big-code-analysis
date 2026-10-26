@@ -247,8 +247,8 @@ impl Checker for LuaCode {
 
     // `Call` and `StringLit` are the rows of `roles/lua.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(lua);
-    impl_string_lit_row!(lua);
+    impl_row_predicates!(lua, call, is_call, is_call_with_code);
+    impl_row_predicates!(lua, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         // NOTE: `impl NArgs for LuaCode` overrides `compute` with a positive

@@ -11,6 +11,16 @@ use crate::lang_helpers::case_arms::{
 use crate::role_table;
 use crate::{Ancestors, Csharp, Node};
 
+/// Whether an indexer or property is the accessor-less expression-bodied
+/// form (`this[int i] => _d[i];`, `int W => _w;`), which defines one
+/// implicit getter and so opens its own `Function` space; the bodied
+/// form defers to its `accessor_declaration` children, which open
+/// theirs (#464, #472; lesson 65: gate, never delete — the childless
+/// form relied on the kind being listed at all).
+fn has_no_accessors<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    !csharp_member_has_accessors(node)
+}
+
 /// Whether a childless `modifier` node — the grammar's alias for a
 /// bare keyword in a parameter (`ref` / `out` / `in` / `scoped` /
 /// `readonly`, #1418) or on a lambda (`static` / `async`, #1482) —
@@ -23,16 +33,6 @@ use crate::{Ancestors, Csharp, Node};
 /// wraps a keyword leaf the row already owns and is nothing itself. A
 /// grammar bump that aliases another spelling lands here unclaimed
 /// rather than billed as whichever word happened to be last.
-/// Whether an indexer or property is the accessor-less expression-bodied
-/// form (`this[int i] => _d[i];`, `int W => _w;`), which defines one
-/// implicit getter and so opens its own `Function` space; the bodied
-/// form defers to its `accessor_declaration` children, which open
-/// theirs (#464, #472; lesson 65: gate, never delete — the childless
-/// form relied on the kind being listed at all).
-fn has_no_accessors<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    !csharp_member_has_accessors(node)
-}
-
 fn aliases_a_modifier_keyword<'a>(
     node: &Node<'a>,
     code: &[u8],

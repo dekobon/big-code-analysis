@@ -299,6 +299,51 @@ mod tests {
     // member, so they need both families computed.
     check_metrics_only_shim!(check_nom_and_npm, Nom, Npm);
 
+    /// `Nom::compute` reads the byte-less `is_closure` for every
+    /// language, which hands the walk's chain through and no bytes to
+    /// the `Closure` row — the row's answer only while no owner is
+    /// `text_gated_by`. Every row is pinned here, so one that grows a
+    /// text gate names the impl that must move to a `_with_code`
+    /// spelling (#1696 AC 3); Ruby's chain-reading gate is answered
+    /// with the chain and is not what this pins. The rows are
+    /// declarations, built in every feature set, so this needs no
+    /// grammar.
+    #[test]
+    fn byte_less_is_closure_reads_only_rows_without_a_text_gate() {
+        use crate::roles::*;
+        let rows: &[(&str, bool)] = &[
+            ("bash", bash::closure::TEXT_GATED),
+            ("c", c::closure::TEXT_GATED),
+            ("cpp", cpp::closure::TEXT_GATED),
+            ("csharp", csharp::closure::TEXT_GATED),
+            ("elixir", elixir::closure::TEXT_GATED),
+            ("go", go::closure::TEXT_GATED),
+            ("groovy", groovy::closure::TEXT_GATED),
+            ("irules", irules::closure::TEXT_GATED),
+            ("java", java::closure::TEXT_GATED),
+            ("javascript", javascript::closure::TEXT_GATED),
+            ("kotlin", kotlin::closure::TEXT_GATED),
+            ("lua", lua::closure::TEXT_GATED),
+            ("mozcpp", mozcpp::closure::TEXT_GATED),
+            ("mozjs", mozjs::closure::TEXT_GATED),
+            ("objc", objc::closure::TEXT_GATED),
+            ("perl", perl::closure::TEXT_GATED),
+            ("php", php::closure::TEXT_GATED),
+            ("python", python::closure::TEXT_GATED),
+            ("ruby", ruby::closure::TEXT_GATED),
+            ("rust", rust::closure::TEXT_GATED),
+            ("tcl", tcl::closure::TEXT_GATED),
+            ("tsx", tsx::closure::TEXT_GATED),
+            ("typescript", typescript::closure::TEXT_GATED),
+        ];
+        for (lang, text_gated) in rows {
+            assert!(
+                !text_gated,
+                "{lang}'s Closure row grew a text gate: `Nom::compute` must read a `_with_code` spelling"
+            );
+        }
+    }
+
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
     /// `functions_min` or `closures_min`. Both getters collapse the
@@ -658,11 +703,12 @@ mod tests {
     /// The two anonymous-function forms must be classified by the same
     /// rule (#1188).
     ///
-    /// `check_if_func!` and `check_if_arrow_func!` walk the ancestor
-    /// chain to decide whether an expression is *bound to a name* or used
-    /// positionally, and they used to disagree in three ways. Each case
-    /// below is one measured divergence; the function-expression and
-    /// arrow spellings must now agree.
+    /// The `FuncOpener` row's `bound_function` / `bound_arrow` gates
+    /// (`roles/js_family.rs`) walk the ancestor chain to decide whether
+    /// an expression is *bound to a name* or used positionally, and
+    /// their pre-row ancestors disagreed in three ways. Each case below
+    /// is one measured divergence; the function-expression and arrow
+    /// spellings must now agree.
     ///
     /// Uses `metrics_verbatim` rather than the `check_metrics` shim,
     /// whose bare-`fn` callback cannot capture the case's label or its

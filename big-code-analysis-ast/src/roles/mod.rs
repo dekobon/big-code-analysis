@@ -159,10 +159,11 @@
 //! - `pays_at_leaf(node, code, ancestors)`: with a `pays` list, the gated
 //!   payer test plus every `pays_itself` owner — where a token-counting
 //!   arm fires; without one, the owner test; under `pays never`, false.
-//! - `owns_kind` / `pays_at_leaf_kind`: the same two with the node's
-//!   kind id passed in, for a consumer that asks several rows about one
-//!   node — `kind_id()` is an FFI call per read, and a classifier on
-//!   the walk's hot path reading three rows paid six of them (#1693).
+//! - `owns_kind` / `pays_at_leaf_kind` / `is_callable_kind`: the same
+//!   with the node's kind id passed in, for a consumer that asks several
+//!   rows about one node — `kind_id()` is an FFI call per read, and a
+//!   classifier on the walk's hot path reading three rows paid six of
+//!   them (#1693).
 //! - `lists_kind(kind)`: whether the row names `kind` among its owners,
 //!   gates aside — the byte-less `Checker` spellings (`is_call`,
 //!   `is_string`), which read no bytes and no chain and so answer the
@@ -206,10 +207,12 @@
 //! row order; a kind two rows both `opens` must have gates that cannot
 //! both admit one node, or the earlier row decides.
 //!
-//! Every emitted predicate takes `(node, code, ancestors)`. There is no
-//! byte-less spelling: the legacy `Checker::is_*` forms are hand-written
-//! wrappers in `checker.rs`, and a text-gated row cannot be answered
-//! without the bytes (contract 4 of #1690).
+//! Every emitted predicate takes `(node, code, ancestors)`; a text-gated
+//! row cannot be answered without the bytes (contract 4 of #1690). The
+//! one byte-less spelling is `lists_kind`, the kind table gates aside,
+//! which the legacy `Checker::is_*` forms in `checker.rs` read — or
+//! forward to the `_with_code` form with a known-empty chain where no
+//! gate reads "no parent" as an answer.
 //!
 //! Everything a table emits is `pub`: the root crate's metric
 //! dispatchers are consumers too (`abc`, `cyclomatic`, `cognitive` read
@@ -289,10 +292,12 @@
 //! and `PAYERS` (#1694, #1695); the items no package reads yet are what
 //! the module-level allow below is for.
 
-// The keyword and paying-construct rows have consumers (#1693–#1695).
-// The rest of what a table emits — `opens_space`, `pays_at_wrapper`
-// (one reader), `WRAPS`, `EXCLUDED`, the `ABSENT` / `PENDING` constants
-// — waits on R06 through R09, which narrow this allow as they land.
+// The keyword, paying-construct, space-tree and call / string rows have
+// consumers (#1693–#1696, #1698). What no Rust reader reaches is what
+// `utils/role_tables.py` reads from the declarations instead — the
+// `ABSENT` / `PENDING` constants and `EXCLUDED` — plus the emissions of
+// rows every language still declares `pending` (the R07 and R09
+// packages narrow this allow as they land).
 #![allow(dead_code)]
 
 pub mod bash;
@@ -626,10 +631,13 @@ macro_rules! role_table {
             /// An absent construct has no payers, so a reader that asks
             /// several rows about one token can ask this one alike.
             pub const PAYERS: &[u16] = &[];
+            /// An absent construct reads nothing.
+            pub const TEXT_GATED: bool = false;
             $crate::role_table!(@absent_predicate owns);
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);
             $crate::role_table!(@absent_predicate is_callable);
+            $crate::role_table!(@absent_predicate_kind is_callable_kind);
             /// Nothing is an absent construct.
             #[inline]
             #[must_use]
@@ -931,25 +939,23 @@ macro_rules! role_table {
                 PAYERS.contains(&kind) && pays_at_leaf_kind(kind, node, code, ancestors)
             }
 
+            /// Whether any owner is `text_gated_by` — the row reads the
+            /// bytes it is handed. A consumer that asks the row with none,
+            /// as the byte-less `Checker` spellings do while handing the
+            /// walk's chain through, pins that this stays `false` and
+            /// fails the day it does not, instead of missing the owner.
+            pub const TEXT_GATED: bool = false $( || $crate::role_table!(
+                @scan text_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
+            ) )*;
+
             /// Every kind this row marks `callable` or `callable_when`,
             /// gates aside.
             pub const CALLABLE: &[u16] = &{
-                // Unused on a row no owner of which is marked, which is
-                // every row but `FuncOpener`.
-                #[allow(unused_mut, clippy::let_and_return)]
-                const MARKED: [Option<u16>; OWNERS.len()] = {
-                    let mut marked = [None; OWNERS.len()];
-                    let mut i = 0;
-                    $(
-                        $crate::role_table!(
-                            @scan callable_kind [] [$lang marked i] $owner [] [] [] [] $($($owner_attr)*)?
-                        );
-                        i += 1;
-                    )*
-                    let _ = i;
-                    marked
-                };
-                $crate::roles::some_kinds::<{ $crate::roles::count_some(&MARKED) }>(&MARKED)
+                // One `Option` per owner, in list order: the marked ones.
+                const MARKED: &[Option<u16>] = &[ $( $crate::role_table!(
+                    @scan callable_kind [] [$lang] $owner [] [] [] [] $($($owner_attr)*)?
+                ), )* ];
+                $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
             };
 
             /// Whether `node` is a `callable` owner of the construct — a
@@ -960,7 +966,18 @@ macro_rules! role_table {
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
-                let kind = node.kind_id();
+                is_callable_kind(node.kind_id(), node, code, ancestors)
+            }
+
+            /// [`is_callable`] with `node`'s kind id already read, as
+            /// [`owns_kind`] is to [`owns`].
+            #[inline]
+            pub fn is_callable_kind<'a>(
+                kind: u16,
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> bool {
                 $( $crate::role_table!(
                     @scan callable_done [] [$lang kind node code ancestors] $owner
                         [] [] [] [] $($($owner_attr)*)?
@@ -972,6 +989,7 @@ macro_rules! role_table {
             /// Whether `node` is the owning node, for a consumer that
             /// pays at the wrapper rather than at its token. Equal to
             /// `owns` unless the row says `pays never`.
+            #[inline]
             pub fn pays_at_wrapper<'a>(
                 node: &Node<'a>,
                 code: &[u8],
@@ -1054,45 +1072,55 @@ macro_rules! role_table {
     // rule, so it fails to expand.
 
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@$d $m $ctx $k $g $p $s $c);
+        $crate::role_table!(@$d $m $ctx $k $g $p $s $c)
+    };
+    // `TEXT_GATED` reads `text_gated_by` off the attribute list before the
+    // fold below merges it with `gated_by` into one gate slot, so these
+    // two come first: the word may follow `holds_payer`, or any attribute
+    // the fold has already consumed.
+    (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt text_gated_by $f:ident $($r:tt)*) => {
+        true
+    };
+    (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer text_gated_by $f:ident $($r:tt)*) => {
+        true
     };
     // `holds_payer` is a gate of its own, carried in the gate slot as
     // `[holds_payer]` or, with a gate beside it, `[holds_payer g]`.
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer text_gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt text_gated_by $g:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt $c:tt pays_itself $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt $c:tt pays_itself_when $w:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself $w] $s $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself $w] $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens $s:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g $p [$s] $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens_by $f:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g $p [by $f] $c $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g $p [by $f] $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt [] callable $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable] $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable] $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt [] callable_when $w:ident $($r:tt)*) => {
-        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable $w] $($r)*);
+        $crate::role_table!(@scan $d $m $ctx $k $g $p $s [callable $w] $($r)*)
     };
 
     // ---- the scan's terminals ----------------------------------------------
@@ -1104,12 +1132,19 @@ macro_rules! role_table {
     (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
     };
-    // In `CALLABLE`: the kind, or nothing. An entry per owner keeps the
-    // repetition's arity, so an unmarked owner contributes an empty
-    // element that `const` slice building drops below.
-    (@callable_kind [] [$l:ident $m:ident $i:ident] $k:ident $g:tt $p:tt $s:tt []) => {};
-    (@callable_kind [] [$l:ident $m:ident $i:ident] $k:ident $g:tt $p:tt $s:tt [callable $($w:ident)?]) => {
-        $m[$i] = Some($l::$k as u16);
+    // In `TEXT_GATED`: whether the owner's gate reads the bytes. The scan
+    // folds `text_gated_by` and `gated_by` into one gate slot, so the
+    // word is read off the attribute list before the fold.
+    (@text_gated_kind [] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        false
+    };
+    // In `CALLABLE`: `Some(kind)` for a marked owner, `None` otherwise;
+    // `some_kinds` drops the `None`s at compile time.
+    (@callable_kind [] [$l:ident] $k:ident $g:tt $p:tt $s:tt []) => {
+        None
+    };
+    (@callable_kind [] [$l:ident] $k:ident $g:tt $p:tt $s:tt [callable $($w:ident)?]) => {
+        Some($l::$k as u16)
     };
     // In `is_callable`: a `callable` owner's clause, under its gate, and
     // a `callable_when w` owner's under its gate *and* `w`; an owner
@@ -1510,7 +1545,11 @@ mod tests {
     // in the `under [..]` list, so a walk that read only the first
     // alternative would miss it; and a `pays never` row, the shape no
     // production table declares since #1695, kept here so its two
-    // projections stay pinned.
+    // projections stay pinned. The `Member`, `Call` and `StringLit`
+    // rows spell `text_gated_by` in every position an attribute list
+    // can put it — alone, after `holds_payer`, and after the fold has
+    // consumed an `opens` and a `callable` — so `TEXT_GATED` is pinned
+    // to read the word wherever it sits.
     mod dsl_gates {
         use super::{always, class_or_interface, never};
         use crate::Java;
@@ -1543,6 +1582,12 @@ mod tests {
                 ]
             }
             Container { owns [ClassDeclaration(opens_by class_or_interface)] }
+            Member { owns [FieldDeclaration(text_gated_by always)] }
+            Call {
+                owns [MethodInvocation(holds_payer text_gated_by always)]
+                pays [LPAREN]
+            }
+            StringLit { owns [StringLiteral(opens Function callable text_gated_by always)] }
         }
     }
 
@@ -1777,6 +1822,94 @@ mod tests {
         // `always`, and owns through the same gate.
         assert_eq!(owns, ["o instanceof String"]);
         assert_eq!(pays, ["o instanceof String", "?"]);
+    }
+
+    /// `TEXT_GATED` is true exactly when an owner is `text_gated_by`:
+    /// not for a chain-reading `gated_by`, a `holds_payer`, a
+    /// `callable_when` or an `opens_by`, which read no bytes, nor for a
+    /// kind-only row however marked, nor for an absent row. The
+    /// byte-less `Checker` spellings pin the rows they read against it.
+    /// The rows are declarations, built in every feature set.
+    #[test]
+    fn text_gated_is_true_exactly_for_rows_whose_owners_read_bytes() {
+        use crate::roles::{cpp, csharp, elixir, groovy, java, javascript, kotlin, ruby};
+        let rows: &[(&str, bool, bool)] = &[
+            (
+                "elixir FuncOpener `text_gated_by method_macro`",
+                elixir::func_opener::TEXT_GATED,
+                true,
+            ),
+            (
+                "elixir Member `text_gated_by struct_macro`",
+                elixir::member::TEXT_GATED,
+                true,
+            ),
+            (
+                "groovy Primitive `text_gated_by spells_primitive_type`",
+                groovy::primitive::TEXT_GATED,
+                true,
+            ),
+            (
+                "csharp Modifier `text_gated_by aliases_a_modifier_keyword`",
+                csharp::modifier::TEXT_GATED,
+                true,
+            ),
+            (
+                "java FuncOpener, kind-only owners `callable` and `opens`",
+                java::func_opener::TEXT_GATED,
+                false,
+            ),
+            ("java NullSafe, absent", java::null_safe::TEXT_GATED, false),
+            (
+                "java Container `gated_by has_class_body` reads the node",
+                java::container::TEXT_GATED,
+                false,
+            ),
+            (
+                "java Comparison `holds_payer` reads the chain",
+                java::comparison::TEXT_GATED,
+                false,
+            ),
+            (
+                "ruby FuncOpener `gated_by not_a_lambda_body` reads the chain",
+                ruby::func_opener::TEXT_GATED,
+                false,
+            ),
+            (
+                "javascript FuncOpener `callable_when` reads the chain",
+                javascript::func_opener::TEXT_GATED,
+                false,
+            ),
+            (
+                "kotlin Container `opens_by` reads the node",
+                kotlin::container::TEXT_GATED,
+                false,
+            ),
+            (
+                "cpp Container `gated_by has_body` reads the node",
+                cpp::container::TEXT_GATED,
+                false,
+            ),
+        ];
+        for (row, text_gated, want) in rows {
+            assert_eq!(text_gated, want, "{row}");
+        }
+        // The word in every position the attribute list can put it: the
+        // scan reads it before the fold merges it with `gated_by`, so an
+        // order the fold consumes first — after `holds_payer`, after an
+        // `opens` and a `callable` — must still be seen.
+        let synthetic: &[(&str, bool)] = &[
+            ("text_gated_by alone", dsl_gates::member::TEXT_GATED),
+            ("after holds_payer", dsl_gates::call::TEXT_GATED),
+            (
+                "after opens and callable",
+                dsl_gates::string_lit::TEXT_GATED,
+            ),
+            ("gated_by, not text", dsl_gates::short_circuit::TEXT_GATED),
+        ];
+        for (order, text_gated) in synthetic {
+            assert_eq!(*text_gated, *order != "gated_by, not text", "{order}");
+        }
     }
 
     // `callable` on an owner: `is_callable` answers for the marked owners

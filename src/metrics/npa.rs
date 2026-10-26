@@ -339,12 +339,16 @@ macro_rules! impl_npa_java_like {
                 // or annotation body holds constants (`node-types.json`
                 // at the pin admits no other member in either), so the
                 // body decides the bucket and the row decides membership.
-                // A child's chain is the body's plus the body itself: the
-                // row reads neither, so the body's own chain stands in.
+                // Each member is asked under its own chain — the body's
+                // plus the body — so a gate the row grows later reads the
+                // right parent; the chain is built inside the body arms,
+                // never for the nodes that are no body.
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
+                        let under = ancestors.of_children(node);
+                        let members = under.get();
                         for declaration in
-                            node.children().filter(|n| member::owns(n, code, ancestors))
+                            node.children().filter(|n| member::owns(n, code, members))
                         {
                             let attributes = declaration
                                 .children()
@@ -363,9 +367,11 @@ macro_rules! impl_npa_java_like {
                         }
                     }
                     InterfaceBody | AnnotationTypeBody => {
+                        let under = ancestors.of_children(node);
+                        let members = under.get();
                         stats.interface_na += node
                             .children()
-                            .filter(|n| member::owns(n, code, ancestors))
+                            .filter(|n| member::owns(n, code, members))
                             .flat_map(|n| n.children())
                             .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
                             .count();
@@ -379,6 +385,7 @@ macro_rules! impl_npa_java_like {
 }
 
 mod shared;
+pub(crate) use python::python_unwrap_function;
 pub(crate) use shared::*;
 
 // Reached by the per-language submodules through `use super::*`.
@@ -433,17 +440,21 @@ macro_rules! ts_npa_compute {
             // interface's property signature); which body the member
             // sits in, whether it is public, and whether a field's
             // initialiser makes it a method rather than an attribute
-            // are this consumer's reading. A child's chain is the
-            // body's plus the body itself; the row reads neither.
+            // are this consumer's reading. Each member is asked under
+            // its own chain — the body's plus the body — which the
+            // callable's binding gates climb; built inside the body arms,
+            // never for the nodes that are no body.
             match node.kind_id().into() {
                 ClassBody => {
+                    let under = ancestors.of_children(node);
+                    let members = under.get();
                     for member in node.children() {
                         // Plain field declaration (`x: T = expr;`, `private x: T;`,
                         // `static x: T = expr;`). Each is one attribute.
                         // Skip fields whose initializer is an arrow function or
                         // function expression — those are methods written as
                         // field initializers and are counted by `npm` instead.
-                        if member::owns(&member, code, ancestors) {
+                        if member::owns(&member, code, members) {
                             if member
                                 .first_child(|id| {
                                     id == $lang::ArrowFunction || id == $lang::FunctionExpression
@@ -455,42 +466,41 @@ macro_rules! ts_npa_compute {
                                     stats.class_npa += 1;
                                 }
                             }
-                            continue;
-                        }
-                        // Parameter properties on any method — a callable
-                        // opener met as a body's child, the
-                        // `method_definition`. In practice these only appear
-                        // on the constructor. Scan formal_parameters at the
-                        // class-body level so the attribute lands on the
-                        // class space, not the method's own function space.
-                        if !func_opener::is_callable(&member, code, ancestors) {
-                            continue;
-                        }
-                        let Some(params) = member.first_child(|id| id == $lang::FormalParameters)
-                        else {
-                            continue;
-                        };
-                        for param in params.children().filter(|c| {
-                            matches!(c.kind_id().into(), RequiredParameter | RequiredParameter2)
-                        }) {
-                            if param
-                                .first_child(|id| {
-                                    id == $lang::AccessibilityModifier || id == $lang::Readonly
-                                })
-                                .is_some()
-                            {
-                                stats.class_na += 1;
-                                if ts_member_is_public!($lang, param) {
-                                    stats.class_npa += 1;
+                        } else if func_opener::is_callable(&member, code, members)
+                            && let Some(params) =
+                                member.first_child(|id| id == $lang::FormalParameters)
+                        {
+                            // Parameter properties on any method — a callable
+                            // opener met as a body's child, the
+                            // `method_definition`. In practice these only
+                            // appear on the constructor. Scan formal_parameters
+                            // at the class-body level so the attribute lands on
+                            // the class space, not the method's own function
+                            // space.
+                            for param in params.children().filter(|c| {
+                                matches!(c.kind_id().into(), RequiredParameter | RequiredParameter2)
+                            }) {
+                                if param
+                                    .first_child(|id| {
+                                        id == $lang::AccessibilityModifier || id == $lang::Readonly
+                                    })
+                                    .is_some()
+                                {
+                                    stats.class_na += 1;
+                                    if ts_member_is_public!($lang, param) {
+                                        stats.class_npa += 1;
+                                    }
                                 }
                             }
                         }
                     }
                 }
                 InterfaceBody => {
+                    let under = ancestors.of_children(node);
+                    let members = under.get();
                     let count = node
                         .children()
-                        .filter(|c| member::owns(c, code, ancestors))
+                        .filter(|c| member::owns(c, code, members))
                         .count();
                     stats.interface_na += count;
                     stats.interface_npa = stats.interface_na;
@@ -534,9 +544,9 @@ pub(crate) use ts_member_is_public;
 // property-identifier text. They are not yet detected by this impl,
 // so modern ES2015+ class syntax — the dominant style — is
 // unaffected, while legacy prototype-only files under-report. The
-// `code` source bytes are already available (bound as `_code`
-// below), so implementing prototype detection requires no trait
-// signature change (see `Abc::compute` for the existing pattern).
+// `code` source bytes are already available below, so implementing
+// prototype detection requires no trait signature change (see
+// `Abc::compute` for the existing pattern).
 
 macro_rules! js_npa_compute {
     ($lang:ident, $roles:ident) => {
@@ -555,10 +565,12 @@ macro_rules! js_npa_compute {
 
             // Membership is the `Member` row's; a field whose initialiser
             // is a function is a method written as a field, this
-            // consumer's reading. A child's chain is the body's plus the
-            // body itself; the row reads neither.
+            // consumer's reading. Each member is asked under its own
+            // chain, the body's plus the body.
+            let under = ancestors.of_children(node);
+            let members = under.get();
             for member in node.children() {
-                if member::owns(&member, code, ancestors)
+                if member::owns(&member, code, members)
                     && member
                         .first_child(|id| {
                             id == $lang::ArrowFunction || id == $lang::FunctionExpression
@@ -3581,6 +3593,62 @@ mod tests {
         );
     }
 
+    /// A `self.` attribute under a non-pattern node on the target side —
+    /// the receiver of `self.x.y = …`, the index of `a[self.i] = …` —
+    /// is a read, not a binding. The walk never hands the inner node to
+    /// the `Member` row (it stops at the outer attribute / subscript,
+    /// which the row declines by receiver or kind), so this pins the
+    /// consumer's traversal; the row's own wrapper-kind check is pinned
+    /// with each node's real chain by
+    /// `member_declines_a_self_attribute_under_a_non_pattern_node` in
+    /// `roles/python.rs`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_self_attribute_under_a_non_pattern_node_is_not_bound() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.x.y = 1\n\
+             \x20       a[self.i] = 2\n\
+             \x20       self.k = 3\n",
+            "foo.py",
+            |metric| {
+                // Only `k`.
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    /// A target nested thousands of brackets deep parses, and the
+    /// element walk overflowed the consumer thread's stack at about
+    /// 8,000 levels before it was made iterative (as `binds` was in
+    /// #1597). Run on a thread with a small stack so the depth that
+    /// used to abort is reached well inside the test's budget; the two
+    /// attributes are still counted. expected: `self.a` under 4,000
+    /// parentheses and `self.b` beside it → 2, both public.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_deeply_nested_unpacking_target_does_not_overflow_the_stack() {
+        let depth = 4_000;
+        let source = format!(
+            "class C:\n    def __init__(self):\n        {}self.a{}, self.b = 1, 2\n",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        );
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                check_metrics::<PythonParser>(&source, "foo.py", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 2);
+                    assert_eq!(metric.npa.class_npa_sum(), 2);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the target walk must not overflow a 512 KiB stack");
+    }
+
     /// #412 (c): a multi-target class-level assignment binds one
     /// attribute per name. `a = b = 3` (chained) binds two; `p, q = 1,
     /// 2` (unpacking) binds two; with `x = 1` that is five names. The
@@ -3726,6 +3794,28 @@ mod tests {
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 7);
                 assert_eq!(metric.npa.class_npa_sum(), 4);
+            },
+        );
+    }
+
+    /// The `Member` row, not "every named child of the field list",
+    /// decides what is a field: a comment and an attribute inside the
+    /// body are named children too, and a filter that admitted them
+    /// scored 4 here (perturbation-verified).
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_struct_body_comment_and_attribute_are_not_fields() {
+        check_metrics::<RustParser>(
+            "struct S {\n\
+             \x20   // a comment\n\
+             \x20   #[allow(dead_code)]\n\
+             \x20   pub a: i32,\n\
+             \x20   b: i32,\n\
+             }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }
@@ -3940,6 +4030,23 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 3);
                 assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// The `Member` row, not "every named child of the field list",
+    /// decides what is a field: a comment inside the body is a named
+    /// child too, and a filter that admitted it scored 3 here
+    /// (perturbation-verified).
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_struct_body_comment_is_not_a_field() {
+        check_metrics::<GoParser>(
+            "package p\ntype S struct {\n\t// a comment\n\tA int\n\tb string\n}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }

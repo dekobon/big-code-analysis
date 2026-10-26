@@ -406,6 +406,7 @@ const CPP_EXPECTED: &[(&str, Answers)] = &[
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
 fn check_cpp<L: LanguageInfo + Checker + Getter>(
     owners: &[&[u16]],
+    member_owns: fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> bool,
     struct_kind: u16,
     class_kind: u16,
     defensive: &[u16],
@@ -422,7 +423,7 @@ fn check_cpp<L: LanguageInfo + Checker + Getter>(
             L::is_closure(node, ancestors),
             promoted,
             L::get_space_kind_with_code(node, source, ancestors),
-            false,
+            member_owns(node, source, ancestors),
         );
         seen_kinds.insert(node.kind_id());
         if node.kind_id() == struct_kind || node.kind_id() == class_kind {
@@ -437,7 +438,6 @@ fn check_cpp<L: LanguageInfo + Checker + Getter>(
             .iter()
             .find(|(k, _)| *k == kind && node.is_named())
             .map_or(NONE, |(_, v)| *v);
-        let want = (want.0, want.1, want.2, want.3, false);
         assert_eq!(
             got,
             want,
@@ -491,6 +491,7 @@ fn cpp_space_tree_rows() {
             container::OWNERS,
             member::OWNERS,
         ],
+        member::owns,
         crate::Cpp::StructSpecifier as u16,
         crate::Cpp::ClassSpecifier as u16,
         // One `function_definition` id for a free function, a method, a
@@ -516,6 +517,7 @@ fn mozcpp_space_tree_rows() {
             container::OWNERS,
             member::OWNERS,
         ],
+        member::owns,
         crate::Mozcpp::StructSpecifier as u16,
         crate::Mozcpp::ClassSpecifier as u16,
         &[
@@ -596,7 +598,7 @@ fn csharp_space_tree_rows() {
         if matches!(kind, "property_declaration" | "indexer_declaration") {
             let text = node.utf8_text(source).unwrap_or("?");
             let head = text.split_once(['{', '=']).map_or(text, |(h, _)| h).trim();
-            gated.push((head.to_owned(), got.0, got.2, got.3));
+            gated.push((head.to_owned(), got));
             return;
         }
         let want = expected
@@ -615,25 +617,17 @@ fn csharp_space_tree_rows() {
             "{kind}: opens_space vs promotion"
         );
     });
+    // A property or indexer is never a closure and never a member,
+    // whichever way its gate answers.
     assert_eq!(
         gated,
         [
-            ("int P".to_owned(), false, false, SpaceKind::Unknown),
-            ("public int Y".to_owned(), false, false, SpaceKind::Unknown),
-            ("public int P".to_owned(), false, false, SpaceKind::Unknown),
-            ("public int W".to_owned(), true, true, SpaceKind::Function),
-            (
-                "public int this[int i]".to_owned(),
-                true,
-                true,
-                SpaceKind::Function
-            ),
-            (
-                "public int this[string k]".to_owned(),
-                false,
-                false,
-                SpaceKind::Unknown
-            ),
+            ("int P".to_owned(), NONE),
+            ("public int Y".to_owned(), NONE),
+            ("public int P".to_owned(), NONE),
+            ("public int W".to_owned(), F),
+            ("public int this[int i]".to_owned(), F),
+            ("public int this[string k]".to_owned(), NONE),
         ]
     );
     for &k in [
@@ -796,7 +790,7 @@ fn ruby_space_tree_rows() {
         seen_kinds.insert(node.kind_id());
         let text = node.utf8_text(source).unwrap_or("?");
         if matches!(kind, "block" | "do_block") {
-            blocks.push((text.to_owned(), got.1, got.2, got.3));
+            blocks.push((text.to_owned(), got));
             return;
         }
         if matches!(kind, "instance_variable" | "class_variable") {
@@ -827,14 +821,15 @@ fn ruby_space_tree_rows() {
         );
     });
     // The two lambda bodies are neither closure nor space; the two
-    // iterator blocks are both.
+    // iterator blocks are both, and no block is a named function or a
+    // member.
     assert_eq!(
         blocks,
         [
-            ("{ y }".to_owned(), false, false, SpaceKind::Unknown),
-            ("do 1 end".to_owned(), false, false, SpaceKind::Unknown),
-            ("{ |i| i }".to_owned(), true, true, SpaceKind::Function),
-            ("do |i| i end".to_owned(), true, true, SpaceKind::Function),
+            ("{ y }".to_owned(), NONE),
+            ("do 1 end".to_owned(), NONE),
+            ("{ |i| i }".to_owned(), C),
+            ("do |i| i end".to_owned(), C),
         ]
     );
     // Only the two plain assignments declare; `+=` is an operator

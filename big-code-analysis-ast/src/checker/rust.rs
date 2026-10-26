@@ -157,8 +157,8 @@ impl Checker for RustCode {
 
     // `Call` and `StringLit` are the rows of `roles/rust.rs` (#1698);
     // the byte-less spellings are their kind tables, gates aside.
-    impl_call_row!(rust);
-    impl_string_lit_row!(rust);
+    impl_row_predicates!(rust, call, is_call, is_call_with_code);
+    impl_row_predicates!(rust, string_lit, is_string, is_string_with_code);
 
     fn is_non_arg(node: &Node) -> bool {
         // A *typed* receiver (`self: Box<Self>`, `self: Rc<Self>`,

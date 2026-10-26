@@ -463,6 +463,18 @@ macro_rules! js_cognitive {
                         matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
                     });
                 }
+                // The arrow owns the lambda channel, bound or not, and is a
+                // `stop` for the depth surcharge since #1187, so `(() => {
+                // function g() {…} })()` charges `g` a depth of 1 as the
+                // IIFE spelling does; it is listed before the boundary arm
+                // so a bound arrow — a callable to the row — never takes
+                // the boundary.
+                // role-bypass: allow(FuncOpener, Closure) — the lambda
+                // channel, bound or not; its space and closure readings are
+                // the rows' (below)
+                ArrowFunction => {
+                    nesting.lambda += 1;
+                }
                 // A function boundary: every *callable* opener of the
                 // `FuncOpener` row — a declaration, a method, a generator
                 // declaration, and a function or generator expression the
@@ -475,31 +487,20 @@ macro_rules! js_cognitive {
                 // inherited from the row, not endorsed here: it is also
                 // what makes `nom` call the same node a function or a
                 // closure, so cognitive disagreeing with it would be the
-                // larger bug. An arrow is never here: bound or not it
-                // owns the lambda channel in the arm below, though it is
-                // a `stop` for the depth surcharge since #1187, so `(()
-                // => { function g() {…} })()` charges `g` a depth of 1
-                // as the IIFE spelling does. Listing `FunctionDeclaration`
-                // alone left a method or a bound function expression
-                // inheriting the enclosing conditional nesting (#1159);
-                // both generator kinds are here and in `stops` since
-                // #1186, which moved them from closure to function.
+                // larger bug. Listing `FunctionDeclaration` alone left a
+                // method or a bound function expression inheriting the
+                // enclosing conditional nesting (#1159); both generator
+                // kinds are here and in `stops` since #1186, which moved
+                // them from closure to function.
                 //
                 // `stops` is every opener the row names, arrows and the
                 // static block included: an anonymous IIFE is a lexical
                 // function scope, so a `function` declared inside one
                 // really is nested in a function.
-                _ if kind != ArrowFunction as u16
-                    && (func_opener::is_callable(node, code, ancestors)
-                        || kind == ClassStaticBlock as u16) =>
+                _ if func_opener::is_callable_kind(kind, node, code, ancestors)
+                    || kind == ClassStaticBlock as u16 =>
                 {
                     enter_function_boundary(&mut nesting, node, ancestors, func_opener::OWNERS);
-                }
-                // role-bypass: allow(FuncOpener, Closure) — the lambda
-                // channel, bound or not; its space and closure readings are
-                // the rows' (above)
-                ArrowFunction => {
-                    nesting.lambda += 1;
                 }
                 _ => {}
             }
@@ -3695,11 +3696,17 @@ mod tests {
     #[cfg(feature = "python")]
     #[test]
     fn python_lambda_contributes_lambda_nesting() {
-        // expected: the conditional expression is 1 base + 1 for the
-        // enclosing lambda's level = 2.
-        check_metrics::<PythonParser>("f = lambda a: 1 if a else 0\n", "foo.py", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 2);
-        });
+        // expected: the outer `if` is 1; the conditional expression is 1
+        // base + 1 for the `if`'s nesting, kept across the lambda, + 1
+        // for the lambda's level: 1 + 3 = 4. Resetting the nesting or
+        // skipping the lambda level each give 3.
+        check_metrics::<PythonParser>(
+            "if p:\n    f = lambda a: 1 if a else 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+            },
+        );
     }
 
     #[cfg(feature = "python")]
@@ -4907,18 +4914,25 @@ fn ie(x: bool) -> i32 {
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_lambda_and_anonymous_method_contribute_lambda_nesting() {
-        // expected: each `if` is 1 base + 1 for the enclosing closure's
-        // lambda level: 2 + 2 = 4.
+        // expected: the outer `if` is 1; each inner `if` is 1 base + 1
+        // for the enclosing `if`'s nesting, kept across the closure, + 1
+        // for the closure's lambda level: 1 + 3 + 3 = 7. A closure arm
+        // that reset the conditional nesting would score 5; one that
+        // charged no lambda level, 5 as well — and 1 + 2 + 2 = 5 is also
+        // what the two together give, so both halves are checked by the
+        // same number only because neither alone reaches 7.
         check_metrics::<CsharpParser>(
             "class C {
                 void M() {
-                    System.Action a = () => { if (x) { } };
-                    System.Action b = delegate { if (y) { } };
+                    if (p) {
+                        System.Action a = () => { if (x) { } };
+                        System.Action b = delegate { if (y) { } };
+                    }
                 }
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 7);
             },
         );
     }
@@ -4929,9 +4943,10 @@ fn ie(x: bool) -> i32 {
         // Regression for #696 (the acute C# case): a `local_function_statement`
         // declared two `if`s deep must reset nesting to 0 and gain a
         // function-depth surcharge — not inherit `nesting = 2` from the
-        // enclosing `if`s. C# has dedicated `LocalFunctionStatement(342)` /
-        // `LocalFunctionDeclaration(343)` nodes that previously went
-        // unhandled by the cognitive walker.
+        // enclosing `if`s. C# has a dedicated `local_function_statement`
+        // kind (its `LocalFunctionDeclaration` alias is the hidden,
+        // never-emitted `_local_function_declaration`) that previously
+        // went unhandled by the cognitive walker.
         //
         // expected: outer `if` (+1, nesting=0) + inner `if` (+2, nesting=1)
         // + Local's `if` (+1 base + 1 depth = +2, nesting=0, depth=1) = 5.
@@ -5874,20 +5889,24 @@ fn ie(x: bool) -> i32 {
     #[cfg(feature = "go")]
     #[test]
     fn go_function_literal_contributes_lambda_nesting() {
-        // expected: the inner `if` is 1 base + 1 lambda level = 2;
-        // nothing else scores.
+        // expected: the outer `if` is 1; the inner `if` is 1 base + 1
+        // for the outer `if`'s nesting, kept across the literal, + 1
+        // lambda level: 1 + 3 = 4. Resetting the nesting or skipping the
+        // lambda level each give 3.
         check_metrics::<GoParser>(
             "package main
             func outer() {
-                f := func() {
-                    if a {
+                if p {
+                    f := func() {
+                        if a {
+                        }
                     }
+                    f()
                 }
-                f()
             }",
             "foo.go",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
             },
         );
     }
@@ -9228,16 +9247,20 @@ end",
     #[cfg(feature = "php")]
     #[test]
     fn php_closure_and_arrow_contribute_lambda_nesting() {
-        // expected: each `if` is 1 base + 1 for the enclosing closure's
-        // lambda level: 2 + 2 = 4.
+        // expected: the outer `if` is 1; the closure's `if` and the
+        // arrow's ternary are each 1 base + 1 for the outer `if`'s
+        // nesting, kept across the closure, + 1 lambda level: 1 + 3 + 3
+        // = 7. Resetting the nesting or skipping the lambda level each
+        // give 5.
         check_metrics::<PhpParser>(
             "<?php
-            $c = function ($a) { if ($a) { } };
-            $d = fn($b) => $b ? 1 : 0;
-            $e = function ($a) { if ($a) { } };",
+            if ($p) {
+                $c = function ($a) { if ($a) { } };
+                $d = fn($b) => $b ? 1 : 0;
+            }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_sum(), 7);
             },
         );
     }
@@ -9722,11 +9745,17 @@ end",
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_anonymous_function_contributes_lambda_nesting() {
-        // expected: the `if` is 1 base + 1 for the enclosing `fn`'s
-        // lambda level = 2.
-        check_metrics::<ElixirParser>("f = fn a -> if a, do: 1 end\n", "foo.ex", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 2);
-        });
+        // expected: the outer `if` is 1; the inner `if` is 1 base + 1
+        // for the outer `if`'s nesting, kept across the `fn`, + 1 lambda
+        // level: 1 + 3 = 4. Resetting the nesting or skipping the lambda
+        // level each give 3.
+        check_metrics::<ElixirParser>(
+            "if p do\n  f = fn a -> if a, do: 1 end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+            },
+        );
     }
 
     #[cfg(feature = "elixir")]
@@ -10454,12 +10483,12 @@ end",
         }
 
         // An *anonymous* `function_expression` used positionally fails
-        // `check_if_func!` and is a *closure*, so it must keep falling
+        // the row's `bound_function` gate and is a *closure*, so it must keep falling
         // through to `_` and inheriting the enclosing nesting. This is what
         // pins that the gate was re-derived rather than the kind list
         // copied flat: an ungated arm resets here and reports 2, because
         // `outer` is a `FunctionDeclaration` and so a `stops` entry.
-        // Anonymity is load-bearing — `check_if_func!`'s `$extra` disjunct
+        // Anonymity is load-bearing — the gate's own-name disjunct
         // makes `run(function named (c) {…})` a function, and `nom` agrees.
         // expected: nesting.conditional 2 from `outer`'s two `if`s, so the
         // callback's own `if` costs +3. The `nom` assertion states the
