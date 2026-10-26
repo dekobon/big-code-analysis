@@ -60,12 +60,19 @@ macro_rules! cpp_family_npa {
                                 })
                                 .is_some_and(|tok| tok.kind_id() == $lang::Public);
                         }
+                        // A static data member template
+                        // (`template_declaration > declaration`, #1299) is
+                        // one attribute. The wrapper is no row's: the
+                        // `Member` row owns `field_declaration` alone, and
+                        // the method consumer reads this same wrapper the
+                        // other way, for a templated member *function*. The
+                        // helper declines every payload that is not a data
+                        // member through the predicate `Npm` counts with.
+                        TemplateDeclaration if cpp_template_declares_data_member(&child) => {
+                            add_attributes(stats, 1, current_is_public);
+                        }
                         // The `Member` row's declaration, asked under its own
-                        // chain: the list's plus the list. A templated static
-                        // data member (`template_declaration > declaration`)
-                        // is neither the row's nor counted here, while the
-                        // method consumer reads the same wrapper for a
-                        // templated member *function*; FIXME(#1299).
+                        // chain: the list's plus the list.
                         _ if member::owns(&child, code, members) => {
                             // Member functions surface as `field_declaration`
                             // when declared without a body. They are counted
@@ -85,11 +92,11 @@ macro_rules! cpp_family_npa {
                             // all reduce to one or more `field_identifier`
                             // leaves; the comma-separated form `int b, c`
                             // adds them as siblings.
-                            let count = cpp_count_field_identifiers(&child);
-                            stats.class_na += count;
-                            if current_is_public {
-                                stats.class_npa += count;
-                            }
+                            add_attributes(
+                                stats,
+                                cpp_count_field_identifiers(&child),
+                                current_is_public,
+                            );
                         }
                         _ => {}
                     }

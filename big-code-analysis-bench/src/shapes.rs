@@ -729,6 +729,19 @@ pub fn wide_arrow_array(width: usize) -> String {
     format!("run({arrows});\n")
 }
 
+/// C++: `class C { public: int f0; template<class T> static T t0; … }` —
+/// `width` ordinary fields interleaved with `width` static data member
+/// templates in one class body, so the attribute walk meets both of
+/// its member arms as siblings of the same `field_declaration_list`.
+#[must_use]
+pub fn cpp_wide_class_members(width: usize) -> String {
+    let members = (0..width)
+        .map(|i| format!("int f{i}; template<class T> static T t{i};"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("class C {{\npublic:\n{members}\n}};\n")
+}
+
 /// Java: `class C { int f() { return ((…(1)…)); } }` — one field and
 /// one method in a class body, with `depth` parentheses nested inside
 /// the method, so the member walks meet one body and many nodes that
@@ -2089,6 +2102,26 @@ pub const PROBES: &[Probe] = &[
                     method, which the expression's depth does not touch.",
     },
     Probe {
+        name: "npa/cpp-wide-class-members",
+        lang: LANG::Cpp,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa, Metric::Npm],
+            reading: |m| m.npa.class_na_sum() + m.npm.class_nm_sum(),
+        },
+        render: cpp_wide_class_members,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1299: the one C++ shape the member walks are timed on. \
+                    Each `field_declaration` and each static data member \
+                    template is asked of `cpp_declares_function` by both \
+                    the attribute and the method consumer, a declarator \
+                    chain walk that must stay bounded by the member's own \
+                    wrappers and never read a sibling; the reading is the \
+                    `2 × width` attributes, which a dropped arm halves.",
+    },
+    Probe {
         name: "nom/nested-attributed-fn",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -3432,6 +3465,7 @@ mod tests {
             "cyclomatic/tcl-wide-switch",
             "halstead/elixir-repeated-guards",
             "cyclomatic/elixir-repeated-guards",
+            "npa/cpp-wide-class-members",
         ] {
             let probe = PROBES
                 .iter()

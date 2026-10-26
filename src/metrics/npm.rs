@@ -590,6 +590,9 @@ mod tests {
     // apart from "moved to the other counter" — #1298's conversion
     // operators read as absent from both, so both must be pinned.
     check_metrics_only_shim!(check_metrics_with_npa, Npm, Npa);
+    // All four, for the template payloads a class body partitions
+    // between the method and attribute consumers (#1258, #1299).
+    check_metrics_only_shim!(check_metrics_with_nom_wmc_npa, Npm, Nom, Wmc, Npa);
 
     #[cfg(feature = "java")]
     #[test]
@@ -4627,7 +4630,7 @@ class C {
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_non_method_template_payloads_are_not_counted() {
-        check_metrics_with_nom_wmc::<CppParser>(
+        check_metrics_with_nom_wmc_npa::<CppParser>(
             NON_METHOD_TEMPLATE_PAYLOADS,
             "foo.cpp",
             |metric| {
@@ -4635,6 +4638,12 @@ class C {
                 // (private, in its own class space).
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
+                // The one payload that *is* a member and not a method:
+                // `value` is the class's single attribute (#1299), so
+                // the two consumers partition the templates between
+                // them rather than one claiming what the other dropped.
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 // `nom` additionally counts the friend's body, which is
                 // a free function the class merely grants access to and
                 // not a member — an arm that leaked through
@@ -4670,12 +4679,14 @@ class C {
     #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_non_method_template_payloads_are_not_counted() {
-        check_metrics_with_nom_wmc::<MozcppParser>(
+        check_metrics_with_nom_wmc_npa::<MozcppParser>(
             NON_METHOD_TEMPLATE_PAYLOADS,
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 assert_eq!(metric.nom.functions_sum(), 3);
                 // See the Cpp mirror above: 3 before #1301.
                 assert_eq!(metric.wmc.class_wmc_sum(), 2);

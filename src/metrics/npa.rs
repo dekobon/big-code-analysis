@@ -652,6 +652,107 @@ mod tests {
 
     check_metrics_only_shim!(check_metrics, Npa);
     check_func_space_only_shim!(check_func_space, Npa);
+    check_metrics_only_shim!(check_metrics_with_npm, Npa, Npm);
+
+    // The static data member templates (#1299), one per declarator
+    // shape the pinned grammars give a `template_declaration >
+    // declaration` payload: a plain name, an `init_declarator`, an
+    // `array_declarator` whose bound `N` is itself an `identifier`, a
+    // `pointer_declarator`, the field-less `reference_declarator`, a
+    // `function_declarator > parenthesized_declarator > pointer_declarator`
+    // function-pointer data member whose parameter name `a` is another
+    // `identifier`, and a `requires_clause` before the payload. Every
+    // one is valid C++20 (`g++ -std=c++20 -fsyntax-only` on the fixture
+    // as written, `N` declared in `~/bca-evidence/1299/`). The templates
+    // straddle the `private:` label so the new arm is reached under
+    // both flags: with every template public, `add_attributes(stats,
+    // 1, true)` would pass.
+    //
+    // The two non-templated fields keep the `field_declaration` arm in
+    // the fixture, so the new arm cannot pass by claiming what that one
+    // already counts.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const STATIC_DATA_MEMBER_TEMPLATES: &str = "constexpr int N = 3;\n\
+         class G {\n\
+         public:\n\
+             static int plainStatic;\n\
+             template<typename T> static T tplStatic;\n\
+             template<class T> static constexpr T v = T(1);\n\
+             template<class T> static T arr[N];\n\
+             template<class T> static T* ptr;\n\
+         private:\n\
+             int normalField;\n\
+             template<class T> static T& ref;\n\
+             template<class T> static int (*fp)(int a);\n\
+             template<class T> requires true static T req;\n\
+         };";
+
+    // The templated payloads `Npa` must decline and `Npm` decides:
+    // a member function declared without a body, a conversion
+    // operator, a nested class, an alias, and a friend. `Npa` counts
+    // the one data member and nothing else; `Npm` counts the two
+    // callables. The `tfn` / `conv` pair is the one both consumers
+    // read through the same `cpp_declares_function`, so a payload
+    // claimed by both moves one per-metric total up and a payload
+    // claimed by neither moves one down; the two are asserted apart
+    // because a swap would leave their sum at 3.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TEMPLATE_PAYLOADS_SPLIT: &str = "struct S {\n\
+             template<class T> T tfn();\n\
+             template<class T> operator T();\n\
+             template<class T> struct Inner {};\n\
+             template<class T> using A = T;\n\
+             template<class T> friend void fr(T);\n\
+             template<class T> static T data;\n\
+         };";
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_static_data_member_templates_are_attributes() {
+        // expected: na = 9 (two fields, seven templates), npa = 5
+        // (`plainStatic` and the four public templates). Before #1299
+        // the templates counted under nothing and this read 2/1.
+        check_metrics::<CppParser>(STATIC_DATA_MEMBER_TEMPLATES, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 9);
+            assert_eq!(metric.npa.class_npa_sum(), 5);
+        });
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_static_data_member_templates_are_attributes() {
+        // `mozcpp` owns no file extension, so nothing routes a corpus
+        // file to it; the Cpp fixture is replayed here on its own ids.
+        check_metrics::<MozcppParser>(STATIC_DATA_MEMBER_TEMPLATES, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 9);
+            assert_eq!(metric.npa.class_npa_sum(), 5);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_template_payloads_split_between_npa_and_npm() {
+        // expected: na = 1 (`data`), nm = 2 (`tfn`, `conv`); a struct,
+        // so the public counts equal the totals. `Inner` opens its own
+        // class space with nothing in it, so it adds 0 to both sums.
+        check_metrics_with_npm::<CppParser>(TEMPLATE_PAYLOADS_SPLIT, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+            assert_eq!(metric.npm.class_npm_sum(), 2);
+        });
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_template_payloads_split_between_npa_and_npm() {
+        check_metrics_with_npm::<MozcppParser>(TEMPLATE_PAYLOADS_SPLIT, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+            assert_eq!(metric.npm.class_npm_sum(), 2);
+        });
+    }
 
     #[cfg(feature = "java")]
     #[test]

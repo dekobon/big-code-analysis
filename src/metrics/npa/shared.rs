@@ -341,9 +341,10 @@ pub(crate) fn ruby_is_attr_macro(call: &Node, source: &[u8]) -> bool {
 }
 
 // Books `count` attributes against the class tallies, all of them
-// public or none. Kept as a helper so the three declaration shapes
-// `ruby_walk_class_body` recognises cannot disagree on the rule.
-fn ruby_add_attributes(stats: &mut Stats, count: usize, public: bool) {
+// public or none. Kept as a helper so the declaration shapes one
+// walker recognises — Ruby's three, the C++ family's two — cannot
+// disagree on the rule.
+pub(crate) fn add_attributes(stats: &mut Stats, count: usize, public: bool) {
     stats.class_na += count;
     if public {
         stats.class_npa += count;
@@ -420,13 +421,13 @@ pub(crate) fn ruby_walk_class_body(body: &Node<'_>, source: &[u8], stats: &mut S
                 };
                 let under = [*body, child];
                 if member::owns(&lhs, source, Ancestors::known(&under)) {
-                    ruby_add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
+                    add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
                 }
             }
             // role-bypass: allow(NullSafe) — the `attr_*` and visibility macro calls, which the
             // row's safe-navigation owner is a kind of; each is told by its name
             Call | Call2 | Call3 | Call4 if ruby_is_attr_macro(&child, source) => {
-                ruby_add_attributes(
+                add_attributes(
                     stats,
                     ruby_attr_macro_symbol_count(&child),
                     ruby_declaration_is_public(false, visibility),
@@ -440,7 +441,7 @@ pub(crate) fn ruby_walk_class_body(body: &Node<'_>, source: &[u8], stats: &mut S
                 // never governs one: the macro it wraps still declares
                 // its attributes, at the body-wide flag.
                 Some(RubyVisibilityEffect::Arguments(keyword)) => {
-                    ruby_add_attributes(
+                    add_attributes(
                         stats,
                         ruby_wrapped_attr_count(&child, source),
                         ruby_wrapped_is_public(keyword, false, visibility),
@@ -513,13 +514,18 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // `cpp_parenthesized_declares_function` (#1300).
 //
 // Neither `function_definition` nor `operator_cast` can be reached
-// from the `Npa` call sites, which only ever pass a
-// `field_declaration`: per both grammars' `node-types.json`, neither
-// `field_declaration` nor the `pointer_declarator` /
-// `reference_declarator` wrappers this recurses through can carry a
-// `function_definition`, an `operator_cast`, or a `declaration` — so
-// there is no path to either at any depth. Both are live only for
-// `Npm`'s `declaration` / `template_declaration` children.
+// from `Npa`'s `field_declaration` call site: per both grammars'
+// `node-types.json`, neither `field_declaration` nor the
+// `pointer_declarator` / `reference_declarator` wrappers this recurses
+// through can carry a `function_definition`, an `operator_cast`, or a
+// `declaration` — so there is no path to either at any depth. `Npa`'s
+// other call site, `cpp_template_declares_data_member`, hands over the
+// `declaration` under a `template_declaration`, where `operator_cast`
+// is live (`template<class T> operator T();`) and is what declines the
+// templated conversion operator as a data member. `function_definition`
+// stays live only for `Npm`'s `template_declaration` children, because
+// that helper hands over the `declaration` payload alone and never the
+// wrapper.
 pub(crate) fn cpp_declares_function(node: &Node) -> bool {
     node.children().any(|child| match child.kind() {
         "function_declarator" => match child.child_by_field_name("declarator") {
@@ -603,6 +609,47 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
         }
     }
     count
+}
+
+// Whether a `template_declaration` child of a class body declares a
+// static data member template (`template<class T> static T x;`), the
+// one templated payload that is an attribute (#1299).
+//
+// The payload is the wrapped `declaration`; every other payload the
+// grammars reach — `function_definition`, `alias_declaration`, a nested
+// `type_specifier`, `friend_declaration`, a nested
+// `template_declaration`, and `concept_definition`, which no valid
+// class scope holds (`[temp.concept]/1`) — declares no data member of
+// this class and answers `false` on its kind. The kind test is the one
+// gate those payloads need: a `declaration`'s `declarator` field is
+// required by both grammars, so there is nothing to check for, and
+// gating on it as well was measured redundant on every payload above
+// (#1299 review). A `declaration` whose declarator spells a function
+// (`template<class T> T f();`, `template<class T> operator T();`) is
+// the method consumer's and is declined through the same predicate
+// `Npm` counts it with, so the two can never both claim one member.
+//
+// The answer is a yes/no rather than a count because `[temp.pre]/5`
+// allows a template declaration's `init-declarator-list` at most one
+// declarator: `template<class T> static T a, b;` is ill-formed, so the
+// `int b, c;` plural the `field_declaration` arm counts by walking
+// `field_identifier` leaves cannot arise here. Not walking the declarator
+// also keeps the array bound of `static T arr[N]`, the `T` of a `= T(1)`
+// initialiser and the parameter name of `static int (*fp)(int a)` — all
+// plain `identifier`s, unlike a field's `field_identifier` — from being
+// counted as members. Name-based like `cpp_declares_function`, for the
+// same Mozcpp reason.
+//
+// FIXME(#1718): a pointer-to-member-function data member,
+// `static int (S::*fp)(T);`, still reads as a method here and in the
+// non-templated `int (S::*pmf)(int);` alike — the parenthesised
+// declarator holds a `qualified_identifier` wrapping a
+// `pointer_type_declarator`, an indirection
+// `cpp_parenthesized_declares_function` does not recognise.
+pub(crate) fn cpp_template_declares_data_member(template: &Node) -> bool {
+    template
+        .children()
+        .any(|child| child.kind() == "declaration" && !cpp_declares_function(&child))
 }
 
 // A `visibility_modifier` node counts as public unless it has a direct

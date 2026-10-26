@@ -218,6 +218,7 @@ Read it as follows.
 | `cyclomatic/elixir-repeated-guards` | Elixir | depth | the `Guard` row's position climb, memoised per `when` operator under `MemoQuestion::GuardOperator` so a nested-`when` chain is climbed once per walk rather than once per token (#1695) | linear |
 | `cognitive/nested-and` | Python | depth | `python_apply_boolean_operator` asking whether *any* enclosing `boolean_operator` already paid, stopping at the first, where counting them all was quadratic in the chain (#1695) | linear |
 | `npa/java-deep-expression` | Java | depth | the member walks' per-body chain (`Ancestors::of_children`), built inside the body arms rather than for every node the walk visits (#1696) | linear |
+| `npa/cpp-wide-class-members` | C++ | width | the C++ member walks' `cpp_declares_function` declarator-chain read, asked of every field and static data member template by both consumers, bounded by the member's own wrappers (#1299) | linear |
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
 | `abc/elixir-many-timeouts` | Elixir | width | malformed `receive` timeout clauses that must not each rescan every message clause | linear |
