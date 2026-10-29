@@ -3635,16 +3635,19 @@ class C {
         // header, a `case` value, a `when` pattern, a `rescue` class
         // list, an `elsif` condition, a modifier's `condition` field
         // and an assignment's `left` are expressions: the `identifier`
-        // there spelling `private` is the variable assigned at the top,
-        // not the marker, and reading any one of them as the marker
-        // would demote what follows. Measured: Ruby defines the four
-        // methods on branches it takes (`still_public`, `after_branch`,
-        // `modified`, `after_modifier`), every one public. The marker
-        // *inside* a branch does count — Ruby runs it — so
-        // `after_branch` is public after `private` was set outside and
-        // `public` inside the `if`. Each non-statement position comes
-        // after the last real marker, so a position read as one has
-        // nothing after it to be put right.
+        // there spelling `private` is the local assigned at the top —
+        // `private = false` shadows the keyword for the rest of the
+        // body — not the marker, and reading any one of them as the
+        // marker would demote what follows. Measured: Ruby defines the
+        // four methods on branches it takes (`still_public`,
+        // `after_branch`, `modified`, `after_modifier`), every one
+        // public. The marker *inside* a branch does count — Ruby runs
+        // it — so `after_branch` is public after `private` was set
+        // outside and `public` inside the `if`. Each non-statement
+        // position comes after the last real marker, so a position
+        // read as one has nothing after it to be put right. The twin
+        // without the shadowing local is
+        // `ruby_bare_keyword_in_an_expression_is_the_marker_unless_shadowed`.
         //
         // expected: nm = 5 (guarded, still_public, after_branch,
         // modified, after_modifier), npm = 5.
@@ -3654,6 +3657,36 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 5);
                 assert_eq!(metric.npm.class_npm_sum(), 5);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_bare_keyword_in_an_expression_is_the_marker_unless_shadowed() {
+        // Ruby's `private` is a method call wherever it is evaluated:
+        // `x = private` and `y = public` set the flag as a bare statement
+        // would (measured: `U.private_instance_methods(false)` is
+        // `[after_assign]`, `after_second` public again). Only a local
+        // of the same name, assigned earlier, makes the word a variable
+        // — the shape `ruby_wrapper_conditions_are_not_statements`
+        // pins. The batch review found the first draft reading every
+        // expression-position `private` as the variable, so that
+        // `x = private` and `x = (private)` disagreed. A keyword in a
+        // position the walk does not read as a statement — an `if`'s
+        // condition, `if private … end` — is still not seen, and Ruby
+        // does run it; that gap is the inventory's, recorded at
+        // `is_statement_of`.
+        //
+        // expected: nm = 3 (before, after_assign, after_second),
+        // npm = 2.
+        check_metrics::<RubyParser>(
+            "class U\n  def before\n    1\n  end\n  x = private\n  def after_assign\n    2\n  end\n  y = public\n  def after_second\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3685,10 +3718,14 @@ class C {
     #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_nm_agrees_with_nom_on_a_flat_body() {
-        // The parity #1401 asks for, on a body with no nested space: every
-        // `def` `nom` opens a function for, however wrapped, is one of
+        // The parity #1401 asks for, on a body whose `def`s all sit in
+        // statement positions, call arguments or the wrappers the walk
+        // reads: every such `def` `nom` opens a function for is one of
         // `nm`'s. Deeply nested wrappers and a call inside a call inside
         // an `if`, so a walk that read one level only would stop short.
+        // Not a general law — a `def` as an operand (`!def m; end`,
+        // `[def m; end]`, `true and def m; end`) opens a `nom` space and
+        // is outside the inventory.
         //
         // expected: nm = nom = 5; npm = 4 — `deep` is private, declared
         // through `memoize private def`, where the inner `private`

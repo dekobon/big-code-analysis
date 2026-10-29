@@ -689,17 +689,21 @@ mod tests {
 
     // The templated payloads `Npa` must decline and `Npm` decides:
     // a member function declared without a body, a conversion
-    // operator, a nested class, an alias, and a friend. `Npa` counts
-    // the one data member and nothing else; `Npm` counts the two
-    // callables. The `tfn` / `conv` pair is the one both consumers
-    // read through the same `cpp_declares_function`, so a payload
-    // claimed by both moves one per-metric total up and a payload
-    // claimed by neither moves one down; the two are asserted apart
-    // because a swap would leave their sum at 3.
+    // operator, a deleted member function (`= delete`, which the
+    // grammar wraps in an `init_declarator` only in the templated
+    // form — the batch review found it billed as a data member), a
+    // nested class, an alias, and a friend. `Npa` counts the one data
+    // member and nothing else; `Npm` counts the three callables. The
+    // `tfn` / `conv` / `tdel` triple is the one both consumers read
+    // through the same `cpp_declares_function`, so a payload claimed
+    // by both moves one per-metric total up and a payload claimed by
+    // neither moves one down; the two are asserted apart because a
+    // swap would leave their sum at 4.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TEMPLATE_PAYLOADS_SPLIT: &str = "struct S {\n\
              template<class T> T tfn();\n\
              template<class T> operator T();\n\
+             template<class T> void tdel(T) = delete;\n\
              template<class T> struct Inner {};\n\
              template<class T> using A = T;\n\
              template<class T> friend void fr(T);\n\
@@ -732,14 +736,15 @@ mod tests {
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_payloads_split_between_npa_and_npm() {
-        // expected: na = 1 (`data`), nm = 2 (`tfn`, `conv`); a struct,
-        // so the public counts equal the totals. `Inner` opens its own
-        // class space with nothing in it, so it adds 0 to both sums.
+        // expected: na = 1 (`data`), nm = 3 (`tfn`, `conv`, `tdel`); a
+        // struct, so the public counts equal the totals. `Inner` opens
+        // its own class space with nothing in it, so it adds 0 to both
+        // sums.
         check_metrics_with_npm::<CppParser>(TEMPLATE_PAYLOADS_SPLIT, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 1);
             assert_eq!(metric.npa.class_npa_sum(), 1);
-            assert_eq!(metric.npm.class_nm_sum(), 2);
-            assert_eq!(metric.npm.class_npm_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 3);
+            assert_eq!(metric.npm.class_npm_sum(), 3);
         });
     }
 
@@ -749,8 +754,8 @@ mod tests {
         check_metrics_with_npm::<MozcppParser>(TEMPLATE_PAYLOADS_SPLIT, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 1);
             assert_eq!(metric.npa.class_npa_sum(), 1);
-            assert_eq!(metric.npm.class_nm_sum(), 2);
-            assert_eq!(metric.npm.class_npm_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 3);
+            assert_eq!(metric.npm.class_npm_sum(), 3);
         });
     }
 

@@ -314,8 +314,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
 
     /// The chain of `node`'s children, held: `self` extended by `node`,
     /// for a consumer that holds a body's chain and asks a row about the
-    /// body's *members* without descending into them — `npa` and `npm`
-    /// over a class body. A row's gate reads the chain it is handed as
+    /// body's *members* — `npa` and `npm` over a class body — and, where
+    /// it reads through a member's own children, moves the chain with
+    /// [`ChildAncestors::descend`] rather than building another. A row's gate reads the chain it is handed as
     /// the queried node's own, so handing it the body's instead answers
     /// from the wrong parent the moment a `Member` or `FuncOpener` row
     /// grows a gate; the comment "the row reads no chain" was the only

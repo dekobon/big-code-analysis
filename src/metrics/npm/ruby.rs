@@ -142,9 +142,12 @@ fn is_assignment(kind: u16) -> bool {
 // Whether `child` of a wrapper `parent` is one of its statements
 // rather than its condition, value, pattern, header or handler.
 //
-// Only statement positions are read: an `if`'s *condition* is an
-// expression, and an `identifier` there spelling `private` is a
-// variable, not the marker. The grammar exposes each consequence as
+// Only statement positions are read. Ruby does evaluate an `if`'s
+// condition, and a bare `private` there is the marker call unless a
+// local shadows it, so `if private … end` demotes what follows in Ruby
+// and not here: reading conditions would mean reading every expression
+// for a keyword, which this inventory of statement positions does not
+// attempt. The grammar exposes each consequence as
 // a dedicated node or a field, so the arms pick by role rather than
 // by index (grammar-dispatch rule 3): `then` / `else` / `elsif`
 // under a conditional, the clauses under a `case`, the `then` of a
@@ -162,13 +165,18 @@ fn is_assignment(kind: u16) -> bool {
 // that no spelling produced; listed defensively per rule 2, and
 // pinned unreachable by `ruby_rescue_modifier_aliases_are_not_emitted`.
 //
-// Two of these exclusions are defence in depth, and the sweep in
-// `~/bca-evidence/1401/perturb.txt` says so: a `when` pattern and
-// a `rescue` class list are wrapped (`pattern`, `exceptions`), so a
-// bare `private` there is not the `identifier` the marker test
-// reads, and an assignment's `left` is covered by
-// `read_statement`'s own assignment guard. Every other arm fails a
-// fixture when widened.
+// The exclusions are chosen by role, and no fixture pins them
+// (`~/bca-evidence/1401/perturb.txt`): a widened arm that read a
+// condition, a loop header, a `case` value or a `when` pattern as a
+// statement would find, in every valid fixture, either a local that
+// shadows the keyword — which the ledger already ignores — or a
+// bare keyword that Ruby evaluates as the marker call, which the
+// widened arm would then read *correctly* where this arm does not.
+// A `when` pattern and a `rescue` class list are wrapped (`pattern`,
+// `exceptions`) besides. The arms stay as the statement inventory
+// they are; the fixture that would discriminate them is the one
+// whose answer they get wrong, and `is_statement_of`'s comment
+// above records that gap rather than pinning it.
 fn is_statement_of(parent: &Node<'_>, parent_kind: u16, child: &Node<'_>) -> bool {
     use Ruby::*;
 
@@ -192,22 +200,31 @@ fn is_statement_of(parent: &Node<'_>, parent_kind: u16, child: &Node<'_>) -> boo
         }
 }
 
-// The state one pass over a Ruby class body carries: the source, the
-// running body-wide visibility flag, and the declarations seen so far.
-// Every arm of the walk needs at least two of the three, and the
-// retroactive symbol form needs to reach back into the third, so they
-// travel together rather than through a parameter list.
-struct RubyClassBody<'a, 'chain> {
+// The methods a Ruby class body has declared so far and what each is
+// worth: the running body-wide visibility flag, the keyword names a
+// local has shadowed, and the declarations with their public bit.
+// Visibility cannot be settled arm-by-arm — `private :foo` demotes a
+// method declared *earlier* in the same body — so the tally is taken
+// once the whole body has been read (#1255).
+struct RubyMethodLedger<'a> {
     code: &'a [u8],
     // `class << x` rather than `class X`. Ruby's automatic-private rule
-    // does not reach a singleton class, so the body needs to know which
-    // of the two it is walking.
+    // does not reach a singleton class, so the ledger needs to know
+    // which of the two it is keeping.
     in_singleton_class: bool,
     visibility: RubyVisibility,
+    // The visibility keywords a local of the same name has shadowed:
+    // after `private = false`, a bare `private` anywhere later in the
+    // body is that variable, and Ruby reads it as the marker call only
+    // where no such local is in scope (measured: `x = private` with no
+    // local demotes what follows; with the local assigned first it does
+    // not). A Ruby local lives to the end of the body it was assigned
+    // in, which here is the class body or a wrapper under it — the
+    // walk does not unshadow at a wrapper's end, which over-shadows
+    // only the body after an assignment made *inside* a branch.
+    shadowed: [bool; 3],
     // Whether each method declared so far is public, in declaration
-    // order. Visibility cannot be settled arm-by-arm: `private :foo`
-    // demotes a method declared *earlier* in the same body, so the
-    // tally is taken once the whole body has been read (#1255).
+    // order.
     public: Vec<bool>,
     // Every declaration of a name in a family (instance or singleton),
     // by index into `public`, so `private :foo` reaches the `foo`s and
@@ -219,24 +236,19 @@ struct RubyClassBody<'a, 'chain> {
     // as a symbol, so identity is in the bytes (grammar-dispatch rule
     // 10).
     by_name: HashMap<(&'a str, bool), Vec<usize>>,
-    // The chain of whichever node's children are being read, moved
-    // down and back up as the walk enters and leaves a frame, so a
-    // row's gate reads each node under its own parent (#1696) without
-    // a chain copy per level.
-    chain: ChildAncestors<'a, 'chain>,
 }
 
-impl<'a, 'chain> RubyClassBody<'a, 'chain> {
-    fn new(code: &'a [u8], in_singleton_class: bool, chain: ChildAncestors<'a, 'chain>) -> Self {
+impl<'a> RubyMethodLedger<'a> {
+    fn new(code: &'a [u8], in_singleton_class: bool) -> Self {
         Self {
             code,
             in_singleton_class,
             // Ruby class bodies open in default-public state, whatever
             // the previous body's trailing visibility was.
             visibility: RubyVisibility::Public,
+            shadowed: [false; 3],
             public: Vec::new(),
             by_name: HashMap::new(),
-            chain,
         }
     }
 
@@ -249,6 +261,30 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         !singleton
             && !self.in_singleton_class
             && name.is_some_and(|n| RUBY_AUTO_PRIVATE_METHODS.contains(&n))
+    }
+
+    // A bare `private` / `public` / `protected` as a statement or an
+    // expression sets the flag — Ruby evaluates it as the marker call
+    // wherever it stands — unless a local of that name shadows it.
+    // Answers whether `node` was one, shadowed or not.
+    fn apply_marker(&mut self, node: &Node<'a>) -> bool {
+        let Some(marker) = ruby_visibility_marker(node, self.code) else {
+            return false;
+        };
+        if !self.shadowed[marker as usize] {
+            self.visibility = marker;
+        }
+        true
+    }
+
+    // Records that an assignment's target is a visibility keyword's
+    // name, so the bare word is a local from here on.
+    fn shadow_if_keyword_named(&mut self, assignment: &Node<'a>) {
+        if let Some(left) = assignment.child_by_field_name("left")
+            && let Some(marker) = ruby_visibility_marker(&left, self.code)
+        {
+            self.shadowed[marker as usize] = true;
+        }
     }
 
     // Records a `method` / `singleton_method` node, taking its
@@ -290,14 +326,32 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
             self.public[index] = public;
         }
     }
+}
+
+// One pass over a Ruby class body: the ledger it fills, and the chain
+// of whichever node's children are being read, moved down and back up
+// as the walk enters and leaves a frame so a row's gate reads each node
+// under its own parent (#1696) without a chain copy per level.
+struct RubyClassBody<'a, 'chain> {
+    ledger: RubyMethodLedger<'a>,
+    chain: ChildAncestors<'a, 'chain>,
+}
+
+impl<'a, 'chain> RubyClassBody<'a, 'chain> {
+    fn new(code: &'a [u8], in_singleton_class: bool, chain: ChildAncestors<'a, 'chain>) -> Self {
+        Self {
+            ledger: RubyMethodLedger::new(code, in_singleton_class),
+            chain,
+        }
+    }
 
     // Opens a call: a bare keyword call sets the flag and is done; any
     // other call with an argument list is pushed, with the keyword it
     // spells, so its arguments are read as the walk reaches them.
     fn open_call(&mut self, call: &Node<'a>, stack: &mut Vec<RubyFrame<'a>>) {
-        let keyword = match ruby_visibility_effect(call, self.code) {
+        let keyword = match ruby_visibility_effect(call, self.ledger.code) {
             Some(RubyVisibilityEffect::Flag(flag)) => {
-                self.visibility = flag;
+                self.ledger.visibility = flag;
                 return;
             }
             Some(RubyVisibilityEffect::Arguments(keyword)) => Some(keyword),
@@ -352,7 +406,7 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         };
         let public = keyword.visibility == RubyVisibility::Public;
         for name in names {
-            self.refile(name, keyword.targets_singleton, public);
+            self.ledger.refile(name, keyword.targets_singleton, public);
         }
         if keyword.targets_singleton {
             return;
@@ -373,7 +427,7 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         use crate::roles::ruby::func_opener;
         use Ruby::*;
 
-        let code = self.code;
+        let code = self.ledger.code;
         let Some(RubyFrame {
             kind: RubyFrameKind::Arguments { keyword, names },
             ..
@@ -389,7 +443,9 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         // this consumer's reading.
         if func_opener::is_callable(arg, code, self.chain.get()) {
             // role-bypass: allow(FuncOpener) — the singleton bucket
-            let declared = self.declare(arg, kind == SingletonMethod as u16, keyword);
+            let declared = self
+                .ledger
+                .declare(arg, kind == SingletonMethod as u16, keyword);
             if let (
                 Some(name),
                 Some(RubyFrame {
@@ -432,23 +488,26 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         use crate::roles::ruby::func_opener;
         use Ruby::*;
 
-        // A bare `private` is the marker only as a statement of its
-        // own: the right side of `x = private` is the variable, read as
-        // an expression (the walk reaches it for the `def` it may hold).
-        let in_assignment = stack
-            .last()
-            .is_some_and(|frame| is_assignment(frame.node.kind_id()));
-        if !in_assignment && let Some(marker) = ruby_visibility_marker(child, self.code) {
-            self.visibility = marker;
+        // A bare `private` is the marker call wherever an expression is
+        // evaluated — `x = private` and `y = public` set the flag
+        // (measured) — unless a local of that name shadows it. The
+        // assignment that creates the local is read as a wrapper (for
+        // the `def` its right side may hold), and shadows from its
+        // `left` before that right side is read.
+        if self.ledger.apply_marker(child) {
             return;
         }
         let kind = child.kind_id();
+        if is_assignment(kind) {
+            self.ledger.shadow_if_keyword_named(child);
+        }
         // A `def` — the `FuncOpener` row's callable — declares a method;
         // the row's two callables differ in the bucket (`def self.` is
         // the singleton), which is this consumer's reading.
-        if func_opener::is_callable(child, self.code, self.chain.get()) {
+        if func_opener::is_callable(child, self.ledger.code, self.chain.get()) {
             // role-bypass: allow(FuncOpener) — the singleton bucket
-            self.declare(child, kind == SingletonMethod as u16, None);
+            self.ledger
+                .declare(child, kind == SingletonMethod as u16, None);
             return;
         }
         match kind.into() {
@@ -580,7 +639,7 @@ impl Npm for RubyCode {
         );
         body.walk(node);
 
-        stats.class_nm += body.public.len();
-        stats.class_npm += body.public.iter().filter(|&&public| public).count();
+        stats.class_nm += body.ledger.public.len();
+        stats.class_npm += body.ledger.public.iter().filter(|&&public| public).count();
     }
 }

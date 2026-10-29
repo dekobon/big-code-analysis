@@ -346,8 +346,9 @@ for historical reference.
   and stays an operand — and `Checker::keys_operator_by_text` keys both
   spellings by text, since Halstead's unique-operator count sums the
   kind-keyed and text-keyed maps and would otherwise count `var`
-  twice. Every Groovy file with a `var` field or parameter moves one
-  operator up and one operand down per declaration.
+  twice. Every Groovy file with a `var` field, parameter, `catch`
+  parameter or try-with-resources resource moves one operator up and
+  one operand down per declaration.
 
 - **A C++ static data member template counts as an attribute**
   (#1299). `template<class T> static T x;` inside a class parses as
@@ -373,16 +374,16 @@ for historical reference.
   parentheses, or on the right of an assignment was absent from
   `class_nm` while `nom` counted it. The walk is now an explicit stack
   over statement wrappers and call argument lists, reading statement
-  positions only (a condition or an assignment's left side spelling
-  `private` is a variable, not the marker), composing nested visibility
-  calls as Ruby 3.1+ does (`public` returns its argument; the
-  class-method pair returns the receiver), re-filing by a name index
-  rather than a scan, and stopping at a `def`, block or lambda, which
-  stays the space `nom` opens for it. A `def` under a visibility call
-  on another receiver (`@cfg.private def foreign`) now counts: a `def`
-  runs where it is written. `class_nm` equals `nom.functions_sum` on a
-  class body with no nested space. The attribute walk has the same gap
-  still — #1719.
+  positions only (a bare `private` in an expression is the marker
+  call, as in Ruby, unless a local of that name assigned earlier
+  shadows it), composing nested visibility calls as Ruby 3.1+ does
+  (`public` returns its argument; the class-method pair returns the
+  receiver), re-filing by a name index rather than a scan, and stopping
+  at a `def`, block or lambda, which stays the space `nom` opens for
+  it. A `def` under a visibility call on another receiver (`@cfg.private
+  def foreign`) now counts: a `def` runs where it is written. A `def`
+  used as an operand (`!def m; end`, `[def m; end]`) is still outside
+  the inventory. The attribute walk has the same gap still — #1719.
 
 - **A Java 21 string template's wrapper is no longer an operand**
   (#1703). `STR."Hi \{name}!"` billed the literal's whole text *and*

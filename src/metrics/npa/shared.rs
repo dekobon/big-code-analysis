@@ -201,7 +201,8 @@ pub(crate) fn ruby_method_name<'a>(method: &Node<'a>, source: &'a [u8]) -> Optio
 // Ruby class-body visibility state. `private` / `public` / `protected`
 // keywords flip this flag for every subsequent declaration in the same
 // body until another marker overrides them. The default at the top of
-// every class body is `Public`.
+// every class body is `Public`. The discriminants index `npm`'s
+// per-keyword shadow table.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RubyVisibility {
     Public,
@@ -538,8 +539,18 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
         // Recurse through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
-        // `declaration`s inside a class body).
-        "pointer_declarator" | "reference_declarator" | "declaration" => {
+        // `declaration`s inside a class body). `init_declarator` is the
+        // deleted templated member `template<class T> void f(T) =
+        // delete;` — the one `= …` a function declarator takes, which
+        // the grammar reads as an initialiser only in the templated
+        // form (the plain `void f(int) = delete;` is a
+        // `function_definition` with a `delete_method_clause`). The
+        // batch review found the attribute consumer counting it as a
+        // data member once #1299 taught it the `template_declaration`
+        // payload. A field's own initialiser is its `default_value`
+        // field, never an `init_declarator`, so the `field_declaration`
+        // call site is unaffected.
+        "pointer_declarator" | "reference_declarator" | "declaration" | "init_declarator" => {
             cpp_declares_function(&child)
         }
         _ => false,

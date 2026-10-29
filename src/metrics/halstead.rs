@@ -7024,7 +7024,8 @@ end",
     }
 
     /// #1706: the `var` the grammar reads as a `type_identifier` — a
-    /// field's, a `static` or `private` field's, a parameter's, and the
+    /// field's, a `static` or `private` field's, a parameter's, a
+    /// try-with-resources resource's, a `catch` parameter's, and the
     /// one in the recovery of `final var q = 5`, which the grammar
     /// cannot parse and fails into an `ERROR` holding the word — is the keyword
     /// #1704 bills, not a type-name operand: Groovy reserves the word
@@ -7102,6 +7103,16 @@ end",
             ("final local", "def f() { final var q = 5 }\n", [6, 6]),
             // `def`, `()`, `var`, `{}`: a parameter's placeholder type
             ("parameter", "def m(var x) { x }\n", [4, 4]),
+            // `def`, `()` x3, `{}` x2, `try`, `var`, `=`: a
+            // try-with-resources resource
+            ("resource", "def f() { try (var r = open()) { } }\n", [6, 9]),
+            // `def`, `()` x2, `{}` x3, `try`, `catch`, `var`: a catch
+            // parameter
+            (
+                "catch parameter",
+                "def f() { try { } catch (var e) { } }\n",
+                [6, 9],
+            ),
             // `class`, `{}` x2, `var`, `()`: a constructor's
             (
                 "constructor parameter",

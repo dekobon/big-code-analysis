@@ -2671,7 +2671,8 @@ pub const PROBES: &[Probe] = &[
                     in its arguments, and a visibility call re-files each \
                     name its arguments declare. The declarations are indexed \
                     by name, so `W` `private def`s re-file `W` names at one \
-                    lookup each — scanned, 32,000 of them took 0.69 s against \
+                    lookup each — before the index, a scan of every \
+                    declaration per name, 32,000 of them took 0.69 s against \
                     0.19 s for the same `def`s under a decorator that re-files \
                     nothing (#1401 review). The body's child list is read \
                     once through a held iterator, not re-sought per \

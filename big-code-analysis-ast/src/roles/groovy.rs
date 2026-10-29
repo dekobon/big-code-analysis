@@ -95,11 +95,13 @@ fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<
 ///
 /// The pinned grammar emits `var` as its keyword leaf only under a
 /// `local_variable_declaration`. In a field (`var field = 1`, `static
-/// var s = 2`), a parameter (`def m(var x)`) and the recovery of a
-/// modified local (`final var q = 5`, which the grammar cannot parse
-/// and fails into an `ERROR` holding the word) it is a
-/// `type_identifier` directly under the declaration, the parameter or
-/// the `ERROR`: the three parents admitted. Groovy cannot declare a
+/// var s = 2`), a parameter (`def m(var x)`), a try-with-resources
+/// `resource` (`try (var r = open())`), a `catch` parameter (`catch
+/// (var e)`) and the recovery of a modified local (`final var q = 5`,
+/// which the grammar cannot parse and fails into an `ERROR` holding the
+/// word) it is a `type_identifier` directly under the declaration, the
+/// parameter, the resource, the catch parameter or the `ERROR`: the
+/// five parents admitted. Groovy cannot declare a
 /// type named `var` (`class var {}` is a compile error), but the word
 /// is a legal *segment* of a qualified type (`a.var.B`, with `package
 /// a.var`) and a legal import alias (`import java.lang.String as var`),
@@ -107,9 +109,12 @@ fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<
 /// type is written out — a `qualified_type`, a cast, an `instanceof`, a
 /// type argument, an array or generic type — so a `var` under any of
 /// those stays the operand it was. An aliased `var` used bare as a
-/// field's or parameter's type is the one spelling the shape cannot
-/// tell from the placeholder, and it bills as the keyword; a `var` used
-/// as a name is an `identifier` and never reaches this gate.
+/// field's, parameter's or resource's type is the one spelling the
+/// shape cannot tell from the placeholder, and it bills as the keyword;
+/// a `var` used as a name is an `identifier` and never reaches this
+/// gate. The batch review found the resource and catch parents missing
+/// from the first list — both were in the evidence dump and not acted
+/// on.
 ///
 /// A `method_declaration` parent is not admitted. The invalid return
 /// type `var m() {}` lands there, and so does one valid shape the
@@ -124,7 +129,10 @@ fn spells_var<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) ->
     node_bytes(node, code) == b"var"
         && ancestors.parent(node).is_some_and(|parent| {
             parent.is_error()
-                || matches!(parent.kind_id().into(), FieldDeclaration | FormalParameter)
+                || matches!(
+                    parent.kind_id().into(),
+                    FieldDeclaration | FormalParameter | Resource | CatchFormalParameter
+                )
         })
 }
 
