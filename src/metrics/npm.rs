@@ -571,8 +571,11 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::test_support::{
-        assert_child_space_kind, check_func_space_only_shim, check_metrics_only_shim, child_space,
+        assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
+        check_metrics_only_shim, child_space,
     };
 
     use super::*;
@@ -3346,25 +3349,388 @@ class C {
         );
     }
 
+    // --- Ruby declarations the body reaches through a wrapper (#1401) -----
+    //
+    // A `def` is a declaration wherever it runs at class scope: under a
+    // conditional, a loop, a `begin`, a `case` arm, a statement
+    // modifier, or in the argument list of any call, not only a
+    // visibility keyword's. Until #1401 only the body's direct children
+    // and a visibility call's arguments were read, so every shape below
+    // left `class_nm` short of `nom.functions_sum` on the same class.
+    // Every expectation was measured against ruby 3.0.2
+    // (`~/bca-evidence/1401/oracle-ruby-3.0.2.txt`) with
+    // `public_instance_methods(false)` / `private_instance_methods(false)`,
+    // except the nested-keyword one, which 3.0 raises on and 3.1 defines.
+    //
+    // Each fixture carries a bare `def` beside the wrapped ones, so the
+    // total is never the wrapped count alone and a walk that stopped
+    // reading the body after a wrapper would show.
+
     #[cfg(feature = "ruby")]
     #[test]
-    fn ruby_visibility_call_on_another_object_is_ignored() {
-        // A receiver other than `self` puts the call on a different
-        // object, so it declares and demotes nothing here. Reading the
-        // callee as the leading `identifier` instead of the grammar's
-        // `method` field gets this right only for a local-variable
-        // receiver: a `constant` or an instance variable is not an
-        // `identifier`, so the scan would find `private` and fire —
-        // booking `foreign` into `nm` and demoting `a`.
+    fn ruby_def_in_a_decorator_call_counts() {
+        // `memoize def cached` is a `call` whose sole argument is the
+        // `method` node — the shape `private def x` takes, with a callee
+        // that is no visibility keyword. The method is declared under
+        // the body-wide flag, as a bare `def` would be, and the call's
+        // result is nobody's business: nothing is re-filed.
         //
-        // expected: nm = 2 (a, b), npm = 2 — `foreign` belongs to
-        // `Other`, not to this class.
+        // expected: nm = 3 (cached, twice, plain), npm = 2 — `cached` and
+        // `plain` public; `twice`, declared after the bare `private`,
+        // takes the flag through its two decorators. `nom` agrees on 3.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class Memo\n  memoize def cached\n    1\n  end\n  def plain\n    2\n  end\n  private\n  memoize memoize def twice\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_decorated_initialize_stays_auto_private() {
+        // The decorator path declares with no keyword, so the
+        // automatic-private rule (#1400) still applies: `memoize def
+        // initialize` is private (measured on ruby 3.0.2: `Dec`'s
+        // `private_instance_methods(false)` holds `initialize`).
+        //
+        // expected: nm = 2, npm = 1 (`value`).
         check_metrics::<RubyParser>(
-            "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\n  Other.private :a\n  @cfg.private def foreign\n    3\n  end\nend\n",
+            "class Dec\n  memoize def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_nested_visibility_calls_compose() {
+        // `private public def x` on ruby 3.1+: `public` declares `x`
+        // public and returns `:x` (`Module#public` answers its single
+        // argument), and the outer `private` demotes what it is handed.
+        // `private public :y` names an existing `y` the same way, with
+        // no declaration in between. `memoize public def z` reads the
+        // inner keyword through an ordinary call, which forwards
+        // nothing: `z` stays public.
+        //
+        // The class-method pair returns the receiver, not its
+        // arguments (`rb_mod_private_method` answers `obj`), so `public
+        // private_class_method :cm` demotes the singleton `cm` and hands
+        // the outer `public` nothing: the instance `cm`, declared under
+        // a bare `private` just above, stays private. Forwarding the
+        // name would republish it. (On every Ruby that outer `public`
+        // then raises, handed a class — the shape is pinned for what it
+        // must not do, not as idiomatic code.)
+        //
+        // expected: nm = 5 (x, y, z, cm, self.cm), npm = 1 (`z`). 3.0.2
+        // raises `TypeError` on both nested calls — `public` returned
+        // `self` before 3.1 — so it cannot be the oracle for `x` or
+        // `y`; the 3.1 source is `set_visibility` in `vm_method.c`,
+        // which returns `argv[0]` for one argument.
+        check_metrics::<RubyParser>(
+            "class N\n  private public def x\n    1\n  end\n  def y\n    2\n  end\n  private public :y\n  memoize public def z\n    3\n  end\n  private\n  def cm\n    4\n  end\n  def self.cm\n    5\n  end\n  public private_class_method :cm\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_def_under_a_conditional_counts() {
+        // The issue's third shape: both arms of an `if`, a `begin`, and
+        // a bare `def` after a `private` marker that sits between them.
+        // Measured: `Cond.public_instance_methods(false)` is `[modern]`
+        // and the private ones are `[plain, wrapped]` — `legacy` exists
+        // only on the branch not taken, which this syntactic count
+        // takes anyway (every branch, as `nom` does), so it is counted
+        // and public.
+        //
+        // expected: nm = 4, npm = 2 (modern, legacy); `nom` agrees on 4.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class Cond\n  if RUBY_VERSION > \"3.0\"\n    def modern\n      1\n    end\n  else\n    def legacy\n      2\n    end\n  end\n  private\n  begin\n    def wrapped\n      3\n    end\n  end\n  def plain\n    4\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 4);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_def_under_each_statement_wrapper_counts() {
+        // One `def` per wrapper the walk reads through, each reachable
+        // by that wrapper's arm alone: `while`, `until` and `for` (whose
+        // body is a `do` node, not the `do_block` that opens a space),
+        // `unless … end`, the four statement modifiers (the `def` is
+        // the modifier's `body` field), `rescue` and `ensure` (clauses
+        // of a `begin`), `elsif`, a `case` `when` and `else`, and a
+        // `case … in` clause. The walk counts every branch, taken or
+        // not — the syntactic convention `nom` follows — so Ruby's own
+        // answer on this source is the eight on branches it takes
+        // (`bare`, `early`, `if_mod`, `in_clause`, `in_elsif`,
+        // `in_ensure`, `in_unless`, `in_when`), every one public; the
+        // other seven sit on branches it skips.
+        //
+        // expected: nm = 15 (fourteen wrapped, one bare), npm = 15;
+        // `nom` agrees.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class W\n  while false\n    def in_while\n    end\n  end\n  until true\n    def in_until\n    end\n  end\n  for i in [] do\n    def in_for\n    end\n  end\n  unless false\n    def in_unless\n    end\n  end\n  def early\n  end unless false\n  def if_mod\n  end if true\n  def late\n  end while false\n  def until_mod\n  end until true\n  begin\n    1\n  rescue\n    def in_rescue\n    end\n  ensure\n    def in_ensure\n    end\n  end\n  if false\n    2\n  elsif true\n    def in_elsif\n    end\n  end\n  case 1\n  when 1\n    def in_when\n    end\n  else\n    def in_case_else\n    end\n  end\n  case 2\n  in Integer\n    def in_clause\n    end\n  end\n  def bare\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 15);
+                assert_eq!(metric.npm.class_npm_sum(), 15);
+                assert_eq!(metric.nom.functions_sum(), 15);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_def_in_parentheses_a_rescue_modifier_or_an_assignment_counts() {
+        // Three more wrappers the first draft missed (#1401 review): a
+        // parenthesised statement list, whose `def`s run at class
+        // scope; the `rescue` modifier, on both sides — its `body` runs
+        // and its `handler` runs when the body raises, so a `def` in
+        // either is a definition this syntactic count takes (Ruby
+        // defines `on_raise` and not `handler`, each on the branch it
+        // takes); and the right side of an assignment, plain, `||=` or
+        // through parentheses and a call — a `def` is an expression
+        // whose value is its name, and it defines the method wherever
+        // it is evaluated. Measured: every method Ruby defines here is
+        // public but `h`, which `private def h` declares private
+        // before the `@h =` takes its name.
+        //
+        // expected: nm = 12 (grouped, rescued, handler, on_raise, a, b,
+        // plain, in_parens, decorated, h, or_assigned, bare), npm = 11;
+        // `nom` agrees on 12.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class C\n  (def grouped\n  end)\n  def rescued\n  end rescue def handler\n  end\n  raise \"boom\" rescue def on_raise\n  end\n  (def a\n  end; def b\n  end)\n  x = def plain\n  end\n  y = (def in_parens\n  end)\n  z = memoize def decorated\n  end\n  @h = private def h\n  end\n  w ||= def or_assigned\n  end\n  def bare\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 12);
+                assert_eq!(metric.npm.class_npm_sum(), 11);
+                assert_eq!(metric.nom.functions_sum(), 12);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_rescue_modifier_aliases_are_not_emitted() {
+        // Pins the defensive `RescueModifier` / `RescueModifier2` arms
+        // as unreachable at the pinned grammar (grammar-dispatch rule
+        // 2): tree-sitter-ruby 0.23.1 declares them as aliases of
+        // `rescue_modifier` for the assignment-right-side and argument
+        // positions, but emits `RescueModifier3` in every spelling
+        // measured — a statement, an assignment's right side and a
+        // method's body. A grammar that started emitting either would
+        // reach the arms and change nothing, which is what the pin is
+        // for: it names the day the comment stops being true.
+        let source = "class A\n  x = def a\n  end rescue nil\n  def b\n  end rescue nil\n  def c = 1 rescue nil\nend\n";
+        let parser = RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
+        assert!(
+            ast_has_kind_id(&parser, Ruby::RescueModifier3 as u16),
+            "the fixture no longer produces a `rescue_modifier`; the claim below is then vacuous"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Ruby::RescueModifier as u16)
+                && !ast_has_kind_id(&parser, Ruby::RescueModifier2 as u16),
+            "the pinned grammar now emits a `rescue_modifier` alias; the arms in \
+             `reads_through` are live and the comment on `is_statement_of` is stale"
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_visibility_refiles_every_declaration_of_a_name_in_order() {
+        // Ruby redefinition keeps the *last* definition and the
+        // visibility it was given, but `private :x` and `private def x`
+        // re-file every earlier `x` as well — the one the walk still
+        // holds. Two orders, each with a bare `y` so the body is never
+        // empty: `def x; private def x` leaves one private `x`
+        // (measured: `C1.private_instance_methods(false)` is `[x]`),
+        // and `private; def x; public def x` leaves one public `x`
+        // (`C2.public_instance_methods(false)` is `[x]`). Before #1401
+        // the walk read the first order as two methods, one private,
+        // and the second as public `x` once and private once; the
+        // by-name index re-files every declaration of the name.
+        //
+        // expected: C1 nm = 3 (x, x, y), npm = 1 (y); C2 nm = 3, npm =
+        // 2 (x, x). The duplicate `x` is counted twice, as `nom` counts
+        // two function spaces: this metric counts declarations, not
+        // the method table.
+        check_metrics::<RubyParser>(
+            "class C1\n  def x\n    1\n  end\n  private def x\n    2\n  end\n  def y\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+        check_metrics::<RubyParser>(
+            "class C2\n  private\n  def x\n    1\n  end\n  public def x\n    2\n  end\n  def y\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_deeply_nested_calls_do_not_recurse() {
+        // The walk reads a call's arguments through the same explicit
+        // stack as the wrappers, so a `def` under 5,000 nested calls
+        // costs no Rust stack. The recursive first draft overflowed the
+        // release binary at this depth (#1401 review); the `nom` walk,
+        // which is iterative, always counted it. Run on a thread with
+        // a small stack, as the Python unpacking test does, so a
+        // reintroduced recursion fails here rather than fitting the
+        // harness's default stack (lesson 47).
+        //
+        // expected: nm = 2 (deep, bare), npm = 2; nom agrees.
+        let nested = format!(
+            "class C\n  {}def deep\n  end{}\n  def bare\n  end\nend\n",
+            "f(".repeat(5_000),
+            ")".repeat(5_000)
+        );
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                check_metrics_with_nom_wmc::<RubyParser>(&nested, "foo.rb", |metric| {
+                    assert_eq!(metric.npm.class_nm_sum(), 2);
+                    assert_eq!(metric.npm.class_npm_sum(), 2);
+                    assert_eq!(metric.nom.functions_sum(), 2);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the member walk must not overflow a 512 KiB stack");
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_wrapper_conditions_are_not_statements() {
+        // Only a wrapper's *statements* are read. A condition, a loop
+        // header, a `case` value, a `when` pattern, a `rescue` class
+        // list, an `elsif` condition, a modifier's `condition` field
+        // and an assignment's `left` are expressions: the `identifier`
+        // there spelling `private` is the variable assigned at the top,
+        // not the marker, and reading any one of them as the marker
+        // would demote what follows. Measured: Ruby defines the four
+        // methods on branches it takes (`still_public`, `after_branch`,
+        // `modified`, `after_modifier`), every one public. The marker
+        // *inside* a branch does count — Ruby runs it — so
+        // `after_branch` is public after `private` was set outside and
+        // `public` inside the `if`. Each non-statement position comes
+        // after the last real marker, so a position read as one has
+        // nothing after it to be put right.
+        //
+        // expected: nm = 5 (guarded, still_public, after_branch,
+        // modified, after_modifier), npm = 5.
+        check_metrics::<RubyParser>(
+            "class L\n  private = false\n  if private\n    def guarded\n      1\n    end\n  end\n  def still_public\n    2\n  end\n  private\n  if true\n    public\n  end\n  def after_branch\n    3\n  end\n  while private\n    break\n  end\n  until private\n    break\n  end\n  for i in [private] do\n  end\n  case private\n  when private\n    1\n  end\n  case private\n  in FalseClass\n    2\n  end\n  begin\n    3\n  rescue private\n    4\n  end\n  if false\n    5\n  elsif private\n    6\n  end\n  private = private\n  def modified\n    4\n  end unless private\n  def after_modifier\n    5\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+                assert_eq!(metric.npm.class_npm_sum(), 5);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_def_inside_another_space_is_not_the_class_s() {
+        // The boundary the walk stops at: a `def` inside a `def`, inside
+        // an `items.each do … end` block, inside a `{ }` block argument
+        // and inside a lambda each belong to the space `nom` opens for
+        // them, not to the class. `nom.functions_sum` counts them all
+        // (6), which is why the parity the issue proposes holds only on
+        // a body with no nested space.
+        //
+        // expected: nm = 2 (inner, with_block), npm = 2; nom = 6.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class S\n  def inner\n    def nested\n    end\n  end\n  items.each do |i|\n    def in_block\n    end\n  end\n  define_method(:dm) { def in_brace\n  end }\n  def with_block\n    1\n  end\n  l = -> { def in_lambda\n  end }\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 6);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_class_nm_agrees_with_nom_on_a_flat_body() {
+        // The parity #1401 asks for, on a body with no nested space: every
+        // `def` `nom` opens a function for, however wrapped, is one of
+        // `nm`'s. Deeply nested wrappers and a call inside a call inside
+        // an `if`, so a walk that read one level only would stop short.
+        //
+        // expected: nm = nom = 5; npm = 4 — `deep` is private, declared
+        // through `memoize private def`, where the inner `private`
+        // governs the `def` and the outer `memoize` forwards nothing
+        // (measured: `private_instance_methods(false)` is `[deep]`).
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class P\n  if a\n    if b\n      begin\n        memoize private def deep\n          1\n        end\n      end\n    end\n  end\n  while x\n    case y\n    when 1\n      def in_when\n      end\n    end\n  end\n  public def pub\n  end\n  def bare\n  end\n  wrap(def arg\n  end)\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+                assert_eq!(metric.nom.functions_sum(), 5);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_visibility_call_on_another_object_declares_but_does_not_refile() {
+        // A receiver other than `self` puts the call on a different
+        // object, so it demotes nothing here: `Other.private :a` leaves
+        // `a` public. Reading the callee as the leading `identifier`
+        // instead of the grammar's `method` field gets this right only
+        // for a local-variable receiver: a `constant` or an instance
+        // variable is not an `identifier`, so the scan would find
+        // `private` and fire.
+        //
+        // The `def` under `@cfg.private` is another matter: a `def`
+        // runs where it is written, so `foreign` is a method of *this*
+        // class whatever object the call lands on (measured:
+        // `A.instance_methods(false)` is `[a, b, foreign]`, all public).
+        // Until #1401 the walk read a `def` only under a visibility call
+        // on `self`, so `foreign` counted under nothing.
+        //
+        // expected: nm = 3 (a, b, foreign), npm = 3.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\n  Other.private :a\n  @cfg.private def foreign\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

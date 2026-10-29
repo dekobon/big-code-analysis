@@ -582,6 +582,33 @@ pub fn ruby_nested_doc_constants(depth: usize) -> String {
     )
 }
 
+/// Ruby: a class body holding `depth` nested `if`s, a `def` at every
+/// level beside the next `if`, so the member walk reads one wrapper
+/// per level and declares one method under each.
+#[must_use]
+pub fn ruby_nested_if_defs(depth: usize) -> String {
+    let mut source = String::from("class C\n");
+    for i in 0..depth {
+        // `fmt::Write for String` never fails; see `wide_distinct_fns`.
+        let _ = writeln!(source, "if c{i}\ndef m{i}; end");
+    }
+    source.push_str(&"end\n".repeat(depth + 1));
+    source
+}
+
+/// Ruby: a class body of `width` `def`s, each wrapped in a `private`
+/// call, so the member walk reads one call's argument list per member
+/// and re-files each declared name against the declarations so far.
+#[must_use]
+pub fn ruby_wide_private_defs(width: usize) -> String {
+    let mut source = String::from("class C\n");
+    for i in 0..width {
+        let _ = writeln!(source, "private def m{i}; end");
+    }
+    source.push_str("end\n");
+    source
+}
+
 /// Lua: a module block, then `width` units of a tagless `---` block
 /// directly under a call — no item follows it, so the first-block test
 /// scans back — and a documented function, whose block is the reading.
@@ -2609,6 +2636,48 @@ pub const PROBES: &[Probe] = &[
                     one candidate at every level; the fold prices it.",
     },
     Probe {
+        name: "npm/ruby-nested-if-defs",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npm],
+            reading: |m| m.npm.class_nm_sum(),
+        },
+        render: ruby_nested_if_defs,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1401: the Ruby member walk reads a `def` through every \
+                    conditional, loop and `begin` at class scope, moving one \
+                    ancestor chain down and back up as it enters and leaves \
+                    each wrapper. Built afresh per level with \
+                    `Ancestors::of_children`, the chain copy is `O(depth)` \
+                    per wrapper and the walk quadratic; moved, it is one \
+                    push and pop. The reading is one method per level.",
+    },
+    Probe {
+        name: "npm/ruby-wide-private-defs",
+        lang: LANG::Ruby,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npm],
+            reading: |m| m.npm.class_nm_sum(),
+        },
+        render: ruby_wide_private_defs,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1401: every call in a Ruby class body is read for a `def` \
+                    in its arguments, and a visibility call re-files each \
+                    name its arguments declare. The declarations are indexed \
+                    by name, so `W` `private def`s re-file `W` names at one \
+                    lookup each — scanned, 32,000 of them took 0.69 s against \
+                    0.19 s for the same `def`s under a decorator that re-files \
+                    nothing (#1401 review). The body's child list is read \
+                    once through a held iterator, not re-sought per \
+                    statement. The reading is one method per call.",
+    },
+    Probe {
         name: "loc/lua-tagless-blocks",
         lang: LANG::Lua,
         axis: Axis::Width,
@@ -3466,6 +3535,8 @@ mod tests {
             "halstead/elixir-repeated-guards",
             "cyclomatic/elixir-repeated-guards",
             "npa/cpp-wide-class-members",
+            "npm/ruby-nested-if-defs",
+            "npm/ruby-wide-private-defs",
         ] {
             let probe = PROBES
                 .iter()

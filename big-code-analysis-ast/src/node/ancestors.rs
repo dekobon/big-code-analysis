@@ -8,10 +8,16 @@ use std::collections::HashMap;
 use super::Node;
 
 /// The chain of a node's children, held by a consumer that reads them
-/// without descending: what [`Ancestors::of_children`] builds.
+/// without descending: what [`Ancestors::of_children`] builds. A
+/// consumer that does descend, into wrappers whose statements it reads
+/// as the body's own, moves it with [`descend`](Self::descend) and
+/// [`ascend`](Self::ascend) rather than building one per level.
 #[derive(Debug)]
 pub struct ChildAncestors<'tree, 'chain> {
     chain: Option<Vec<Node<'tree>>>,
+    /// The chain's length as built: the node's own ancestry plus the
+    /// node. [`ascend`](Self::ascend) never pops below it.
+    floor: usize,
     above: Ancestors<'tree, 'chain>,
 }
 
@@ -25,6 +31,48 @@ impl<'tree> ChildAncestors<'tree, '_> {
         match &self.chain {
             Some(chain) => self.above.below(chain),
             None => Ancestors::unknown(),
+        }
+    }
+
+    /// Descends into `child`, one of the nodes this chain describes, so
+    /// that [`get`](Self::get) answers for *its* children; undone by
+    /// [`ascend`](Self::ascend). A consumer that reads a body's
+    /// statements through the wrappers they sit in — Ruby's `npm` under
+    /// an `if`, a `begin`, a call's argument list — keeps one chain and
+    /// moves it, where building a fresh [`Ancestors::of_children`] at
+    /// each level copies the whole chain per level, `O(depth)` each and
+    /// all of them live at once (#1401 review). Without a known chain
+    /// there is nothing to move and the answers keep climbing.
+    #[inline]
+    pub fn descend(&mut self, child: &Node<'tree>) {
+        if let Some(chain) = &mut self.chain {
+            debug_assert!(
+                chain.last().is_none_or(|parent| {
+                    parent.id() != child.id()
+                        && parent.start_byte() <= child.start_byte()
+                        && child.end_byte() <= parent.end_byte()
+                }),
+                "descended into a {} node the chain's last entry does not contain",
+                child.kind()
+            );
+            chain.push(*child);
+        }
+    }
+
+    /// Undoes one [`descend`](Self::descend). The chain never shrinks
+    /// below the node it was built for, so a consumer that ascends once
+    /// too often reads the body's own chain rather than its parent's —
+    /// and trips the assertion in a debug build.
+    #[inline]
+    pub fn ascend(&mut self) {
+        if let Some(chain) = &mut self.chain {
+            debug_assert!(
+                chain.len() > self.floor,
+                "ascended above the node this chain was built for"
+            );
+            if chain.len() > self.floor {
+                chain.pop();
+            }
         }
     }
 }
@@ -277,8 +325,10 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// [`ChildAncestors::get`].
     #[must_use]
     pub fn of_children(self, node: &Node<'tree>) -> ChildAncestors<'tree, 'chain> {
+        let chain = self.children_chain(node);
         ChildAncestors {
-            chain: self.children_chain(node),
+            floor: chain.as_ref().map_or(0, Vec::len),
+            chain,
             above: self,
         }
     }
@@ -1118,5 +1168,83 @@ mod tests {
             Some(body.id()),
             "without a chain the derived one climbs to the same parent"
         );
+    }
+
+    /// `descend` / `ascend` move a held chain into a child and back
+    /// (#1401): under the child, the child's children name it as their
+    /// parent at one more depth; after ascending, the body's own
+    /// members do again. The floor holds: ascending past the body is a
+    /// no-op in a release build, so a consumer that over-ascends reads
+    /// the body's chain and not its parent's. Without a known chain
+    /// both moves are no-ops and the answers keep climbing.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn descend_and_ascend_move_the_held_chain_within_its_floor() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { if a { g(); } }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the fn item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the body");
+        let conditional = body
+            .children()
+            .find(|child| child.kind() == "expression_statement")
+            .and_then(|stmt| stmt.child(0))
+            .expect("the if");
+        let consequence = conditional
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the consequence");
+        let call = consequence
+            .children()
+            .find(|child| child.kind() == "expression_statement")
+            .expect("the call statement");
+
+        let chain = [root, item];
+        let mut under = Ancestors::known(&chain).of_children(&body);
+        assert_eq!(under.get().depth(), Some(3), "root, item, body");
+
+        under.descend(&conditional);
+        under.descend(&consequence);
+        assert_eq!(under.get().depth(), Some(5), "root, item, body, if, block");
+        assert_eq!(
+            under.get().parent(&call).map(|p| p.id()),
+            Some(consequence.id()),
+            "under the consequence, its statements name it as their parent"
+        );
+
+        under.ascend();
+        under.ascend();
+        assert_eq!(under.get().depth(), Some(3), "back at the body");
+        assert_eq!(
+            under.get().parent(&conditional).map(|p| p.id()),
+            Some(body.id()),
+            "the body's members name the body again"
+        );
+
+        let mut unknown = Ancestors::unknown().of_children(&body);
+        unknown.descend(&conditional);
+        unknown.ascend();
+        assert_eq!(
+            unknown.get().parent(&call).map(|p| p.id()),
+            Some(consequence.id()),
+            "without a chain the moves are no-ops and the answer climbs"
+        );
+    }
+
+    /// The floor is the chain as built: an `ascend` with nothing to undo
+    /// leaves the body's chain in place rather than popping the body —
+    /// a debug build trips the assertion, which is what this pins.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "ascended above the node this chain was built for")]
+    fn ascending_past_the_floor_is_caught() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() {}\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the fn item");
+        let chain = [root];
+        let mut under = Ancestors::known(&chain).of_children(&item);
+        under.ascend();
     }
 }
