@@ -26,6 +26,16 @@ for historical reference.
 
 ### Added
 
+- `ChildAncestors::descend` and `ChildAncestors::ascend` in
+  `big-code-analysis-ast` (#1401), for a consumer that reads a body's
+  statements through the wrappers they sit in and holds one chain
+  rather than building an `Ancestors::of_children` copy per level. The
+  AST crate is outside `STABILITY.md`'s shape contract; the addition is
+  additive there. Three bench probes join the complexity-class gate —
+  `npa/cpp-wide-class-members` (#1299), `npm/ruby-nested-if-defs` and
+  `npm/ruby-wide-private-defs` (#1401) — the first C++ class-body and
+  Ruby member-walk shapes it times.
+
 - `Ast::dump_cursor` and `Ast::dump_indexed` name the AST export's two
   strategies explicitly: one cursor walk, or enumeration through
   `Node::child` / `Node::field_name_for_child`. Both produce the same
@@ -323,6 +333,56 @@ for historical reference.
   `final var`, which the grammar reads as a type name, billed as a
   type-name operand until #1706 below made it the same operator. Every
   Groovy file with a `var` local moves by one operator per declaration.
+
+- **Groovy's type-position `var` is the same keyword** (#1706). The
+  pinned grammar spells `var` as a `type_identifier` in a field (`var
+  field = 1`, `static var s = 2`), a parameter (`def m(var x)`) and
+  the recovery of a modified local (`final var q = 5`, valid Groovy it
+  cannot parse), and there it billed as a type-name *operand* `var`.
+  The `DeclKeyword` row now owns that spelling through a text gate on
+  the bytes **and** the parent — `var` is a legal package segment
+  (`a.var.B`) and import alias, so in a `qualified_type`, a cast, an
+  `instanceof`, a type argument or an array type it names a real type
+  and stays an operand — and `Checker::keys_operator_by_text` keys both
+  spellings by text, since Halstead's unique-operator count sums the
+  kind-keyed and text-keyed maps and would otherwise count `var`
+  twice. Every Groovy file with a `var` field or parameter moves one
+  operator up and one operand down per declaration.
+
+- **A C++ static data member template counts as an attribute**
+  (#1299). `template<class T> static T x;` inside a class parses as
+  `template_declaration > declaration`, which the attribute walk never
+  read — the `Member` row owns `field_declaration` alone — so it
+  counted under neither `npa` nor `npm`. `cpp_family_npa!` now counts
+  one attribute per template declaration whose payload is a
+  `declaration` that `cpp_declares_function` (the predicate `npm`
+  counts the templated member *function* with) declines: one rather
+  than an identifier walk, because `[temp.pre]/5` allows a template
+  declaration at most one declarator and a walk would read an array
+  bound, an initialiser's callee or a function pointer's parameter
+  name. Cpp and Mozcpp alike. A pointer-to-member-function data member
+  (`static int (S::*fp)(T);`, and the plain `int (S::*pmf)(int);`)
+  still reads as a method — #1718.
+
+- **Ruby's `npm` counts a `def` wherever the class body's statements
+  reach it** (#1401). The member walk read the body's direct children
+  and a visibility call's arguments only, so a `def` under a decorator
+  (`memoize def cached`), behind a nested keyword (`private public def
+  x`), inside an `if` / `unless` / `case` arm, a loop body, a `begin`
+  with its `rescue` / `ensure`, a statement or `rescue` modifier,
+  parentheses, or on the right of an assignment was absent from
+  `class_nm` while `nom` counted it. The walk is now an explicit stack
+  over statement wrappers and call argument lists, reading statement
+  positions only (a condition or an assignment's left side spelling
+  `private` is a variable, not the marker), composing nested visibility
+  calls as Ruby 3.1+ does (`public` returns its argument; the
+  class-method pair returns the receiver), re-filing by a name index
+  rather than a scan, and stopping at a `def`, block or lambda, which
+  stays the space `nom` opens for it. A `def` under a visibility call
+  on another receiver (`@cfg.private def foreign`) now counts: a `def`
+  runs where it is written. `class_nm` equals `nom.functions_sum` on a
+  class body with no nested space. The attribute walk has the same gap
+  still — #1719.
 
 - **A Java 21 string template's wrapper is no longer an operand**
   (#1703). `STR."Hi \{name}!"` billed the literal's whole text *and*
