@@ -127,15 +127,19 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # `--locked` pins the helper's own lockfile, which resolves
-      # `onig_sys` 69.8.1 — a vendored oniguruma older than the GCC 15
+      # `onig_sys` 69.8.1 — a vendored oniguruma older than its GCC 15
       # fix (oniguruma HISTORY 2024-11-18, #312). `ubuntu-latest` is
-      # 26.04 with GCC 15, where `-Wincompatible-pointer-types` is an
-      # error, so the C build fails on `regparse.c`. The flag demotes
-      # that one diagnostic for this one install; it goes with the
-      # pins above when they move to the mdbook 0.5 line (#1724).
+      # 26.04 with GCC 15, whose default is C23, where an empty `()`
+      # prototype means `(void)`: `st.c`'s K&R-style `int (*hash)()`
+      # table then rejects every call with "too many arguments", a
+      # constraint violation no `-Wno-error=` can demote (the
+      # `-Wincompatible-pointer-types` errors it also raises are the
+      # outer layer of the same thing). `-std=gnu17` restores the
+      # pre-C23 reading for this one install; it goes with the pins
+      # above when they move to the mdbook 0.5 line (#1724).
       - name: Install mdbook-i18n-helpers
         env:
-          CFLAGS: -Wno-error=incompatible-pointer-types
+          CFLAGS: -std=gnu17
         run: cargo install mdbook-i18n-helpers --version "=${MDBOOK_I18N_HELPERS_VERSION}" --locked
 
       - name: Build book (English)
