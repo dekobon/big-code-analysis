@@ -78,6 +78,37 @@ for historical reference.
 
 ### Changed
 
+- The documentation toolchain moves from mdBook 0.4.40 +
+  mdbook-i18n-helpers 0.3.6 to mdBook 0.5.4 + helpers 0.4.0, in
+  `pages.yml`, the `Makefile` book targets, the `Dockerfile` and
+  `docs/development/translations.md` together. The 0.3.6 helper's
+  lockfile pinned `onig_sys` 69.8.1, whose vendored oniguruma predates
+  its GCC 15 / C23 fix and stopped compiling on `ubuntu-latest`
+  (26.04); the `-std=gnu17` CFLAGS override that covered it is gone.
+  Helpers 0.4.0 is installed with `--features syntect/regex-onig`,
+  which is load-bearing: its default pure-Rust regex engine drops lines
+  from consecutive `#` comments in shell / YAML / TOML fences
+  (google/mdbook-i18n-helpers#321), which would have rendered every
+  multi-line bash comment on `/ja/` in English and obsoleted those
+  translations on the next `make book-po-update`. With Oniguruma the
+  extracted pot is byte-identical to the previous toolchain's (modulo
+  `POT-Creation-Date`). The new
+  `utils/check-xgettext-backend.sh` probes the installed helper on a
+  four-line book and fails on the wrong engine — the two builds report
+  the same version — and runs in both `make book-pot` and the Pages
+  workflow, which also now asserts the Japanese tree exists and carries
+  a known translation rather than English under `lang="ja"`. Two
+  rendering changes are visible: mdBook 0.5's `smart-punctuation`
+  default (curly quotes, `…`), and an escaped `\|` inside a table's
+  code span now renders as `|` on the Japanese pages, where it
+  previously kept the backslash. Heading ids, fragment links and every
+  fenced code block are unchanged in both languages. `make book-ja` and
+  the workflow's
+  Japanese step write to the full `big-code-analysis-book/book/ja`
+  path, since 0.5 resolves `-d` against the cwd and the previous
+  `-d book/ja` would have left the artifact without a `/ja/` tree.
+  (#1724)
+
 - The `Modifier`, `DeclKeyword` and `Primitive` roles are the first
   the classifiers read from a role table rather than restate. Every
   language declares its three rows in `roles/<lang>.rs` — or marks one

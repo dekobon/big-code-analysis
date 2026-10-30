@@ -175,10 +175,13 @@ EOF
 # Every tool is version-pinned so a rebuild is reproducible. cargo-about
 # tracks CARGO_ABOUT_VERSION in release.yml / python-cli-wheels.yml and
 # the literal `cargo-about@…` in ci.yml's release-check job; mdbook
-# tracks MDBOOK_VERSION in pages.yml (0.4.x is required by the
-# mdbook-i18n-helpers pairing). No gate compares these copies, so a
-# bump is a grep for the old version. The rest have no CI pin to
-# mirror (ci.yml installs cargo-nextest / cargo-llvm-cov unpinned).
+# tracks MDBOOK_VERSION in pages.yml (the 0.5.x line pairs with the
+# mdbook-i18n-helpers 0.4.x that pages.yml installs; the image does
+# not carry the helpers, so `make book-ja` / `book-pot` need the
+# install in docs/development/translations.md). No gate compares
+# these copies, so a bump is a grep for the old version. The rest
+# have no CI pin to mirror (ci.yml installs cargo-nextest /
+# cargo-llvm-cov unpinned).
 RUN set -eux; \
     cargo binstall --no-confirm \
         cargo-udeps@0.1.61 \
@@ -187,7 +190,7 @@ RUN set -eux; \
         cargo-llvm-cov@0.9.0 \
         cargo-about@0.8.4 \
         cargo-deny@0.20.2 \
-        mdbook@0.4.40; \
+        mdbook@0.5.4; \
     cargo about --version; \
     rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" /tmp/*
 

@@ -23,30 +23,46 @@ marks every paragraph the English edit touched.
 ## Toolchain
 
 ```console
-cargo install mdbook-i18n-helpers --version '=0.3.6' --locked
-cargo install mdbook --version '=0.4.40' --locked
+cargo install mdbook --version '=0.5.4' --locked
+cargo install mdbook-i18n-helpers --version '=0.4.0' --locked --features syntect/regex-onig
 ```
 
-Both pins are load-bearing, and installing only the first is the
-common mistake. The 0.3.x helper line pairs with the mdbook 0.4.x
-pinned in `.github/workflows/pages.yml` (`MDBOOK_VERSION` /
-`MDBOOK_I18N_HELPERS_VERSION`); mdbook-i18n-helpers 0.4.0+ targets
-mdbook 0.5 and the two pins must move together.
+All three parts are load-bearing: both pins, and the `--features`
+flag on the helper. The versions mirror `MDBOOK_VERSION` /
+`MDBOOK_I18N_HELPERS_VERSION` in `.github/workflows/pages.yml`; the
+0.4.x helper line links the mdbook 0.5 preprocessor crates, so the
+two move together (0.3.x paired with mdbook 0.4.x).
 
-A mismatch fails in one of two ways, neither of which is a normal
-build error. Helpers 0.3.x under mdbook 0.5.x aborts with
-`missing field 'sections'`, which is loud, and `make book-pot` now
-refuses to run rather than reaching it. The dangerous direction is helpers 0.4.x
-under any mdbook: extraction succeeds but splits fenced code blocks
-one entry per line instead of one entry per block, so the next
-`msgmerge` marks every code-block entry fuzzy and shreds `ja.po`
-against msgids that do not exist upstream. If a routine doc edit
-suddenly reports dozens of fuzzy code-block entries, check the helper
-version before touching the translations. The preprocessor is
-registered in `book.toml` with `optional = true`, so a plain
-`mdbook build` keeps working without it (English output only).
-GNU gettext (`msgmerge`, `msgfmt`, `msgattrib`) comes from the system
-package manager.
+The feature flag selects the regex engine syntect uses to find
+comments and string literals inside fenced code blocks. Helpers 0.4.0
+defaults to the pure-Rust `fancy-regex`
+([mdbook-i18n-helpers#267](https://github.com/google/mdbook-i18n-helpers/pull/267)),
+and under that engine the shell, YAML and TOML grammars mis-walk
+consecutive `#` comment lines: a two-line run keeps only its first
+line, a three-line run its first and third
+([mdbook-i18n-helpers#321](https://github.com/google/mdbook-i18n-helpers/issues/321)).
+`syntect/regex-onig` restores Oniguruma, the engine 0.3.6 used, and
+the pot it produces is identical to the previous toolchain's. The
+two builds report the same `--version`; only behaviour tells them
+apart, which is why `make book-pot` runs
+`utils/check-xgettext-backend.sh` — a four-line probe book — before
+extracting anything.
+
+That probe exists because the failure is silent in both places it
+can show up. On the `/ja/` site a fancy-regex build renders every
+multi-line bash comment in English, with no warning. In the
+translation workflow it is worse: the pot's code-comment msgids match
+nothing in `ja.po`, so `make book-po-update` marks every one of those
+translations obsolete and adds the fragments as new untranslated
+entries. If a routine doc edit suddenly obsoletes dozens of
+code-comment entries, reinstall the helper with the flag before
+touching the translations. The loud mismatch — helpers 0.3.x under
+mdbook 0.5 — aborts with `missing field 'sections'`, and
+`make book-pot` refuses an mdbook outside the 0.5 line before
+reaching it. The preprocessor is registered in `book.toml` with
+`optional = true`, so a plain `mdbook build` keeps working without it
+(English output only). GNU gettext (`msgmerge`, `msgfmt`,
+`msgattrib`) comes from the system package manager.
 
 ## Editing English docs
 
@@ -82,8 +98,13 @@ preview:
 
 ```console
 msgfmt --check -o /dev/null big-code-analysis-book/po/ja.po
-make book-ja          # builds into big-code-analysis-book/book/ja
+make book && make book-ja   # builds into big-code-analysis-book/book/ja
 ```
+
+`book-ja` nests under `book`'s output the way CI does, and `book`
+cleans `book/` wholesale, so when building both the English build
+must finish first. `make book book-ja` in one invocation is not
+enough: under `-j` the two run concurrently.
 
 Terminology: keep the glossary already established in `ja.po`
 consistent (しきい値 for threshold, ベースライン for baseline,

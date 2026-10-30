@@ -215,7 +215,7 @@ help:
 	@echo "  book-serve                           Serve the mdBook with live reload"
 	@echo "  book-pot                             Regenerate the translation template (po/messages.pot)"
 	@echo "  book-po-update                       Merge English doc changes into po/ja.po (msgmerge)"
-	@echo "  book-ja                              Build the Japanese mdBook into book/ja"
+	@echo "  book-ja                              Build the Japanese mdBook into book/ja (after book; not in one -j run)"
 	@echo "  book-deploy                          Publish the mdBook to the gh-pages branch (manual fallback)"
 	@echo ""
 	@echo "Combined targets:"
@@ -1610,35 +1610,50 @@ book-serve:
 # fall back to English at build time, so doc PRs never block on
 # translation. See docs/development/translations.md.
 #
-# `-d` is absolute on purpose: mdbook 0.4 resolved a relative dest
-# against the book root, 0.5 resolves it against the cwd. Under 0.5 the
+# `-d` is absolute on purpose: mdbook 0.5 resolves a relative dest
+# against the cwd (0.4 resolved it against the book root), so the
 # former `-d po` silently wrote the pot to ./po/ at the repo root, and
 # book-po-update then failed on the missing file.
+#
+# The mdbook version guard pairs the 0.5.x line with helpers 0.4.x;
+# helpers 0.3.x under 0.5 aborts loudly. The backend probe catches
+# the quiet failure: helpers 0.4.0 installed without
+# `--features syntect/regex-onig` drops lines from multi-line `#`
+# comments (google/mdbook-i18n-helpers#321), produces a pot whose
+# code-comment msgids match nothing in po/ja.po, and the msgmerge
+# below then obsoletes every one of those translations (#1724).
+#
+# The install command is written once, in translations.md, so this file
+# does not carry a copy of the helper pin to go stale.
+HELPERS_HINT = see the Toolchain section of docs/development/translations.md (the --features flag is required)
 book-pot:
-	@command -v mdbook-xgettext >/dev/null 2>&1 || { echo "mdbook-xgettext not found; install with: cargo install mdbook-i18n-helpers --version '=0.3.6' --locked"; exit 1; }
-	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook not found; this workflow needs the 0.4.x line (see MDBOOK_VERSION in .github/workflows/pages.yml and docs/development/translations.md)"; exit 1; }
+	@command -v mdbook-xgettext >/dev/null 2>&1 || { echo "mdbook-xgettext not found; $(HELPERS_HINT)"; exit 1; }
+	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook not found; this workflow needs the 0.5.x line (see MDBOOK_VERSION in .github/workflows/pages.yml and docs/development/translations.md)"; exit 1; }
 	@ver="$$(mdbook --version | awk '{print $$2}' | tr -d v)"; \
 	case "$$ver" in \
-	  0.4.*) ;; \
-	  *) echo "mdbook $$ver cannot be paired with mdbook-i18n-helpers 0.3.x."; \
-	     echo "CI pins mdbook 0.4.40 + helpers 0.3.6 (MDBOOK_VERSION in"; \
-	     echo ".github/workflows/pages.yml); helpers 0.4.0+ target mdbook 0.5."; \
-	     echo "A mismatched pair still produces a pot, but one that splits"; \
-	     echo "code blocks per line instead of whole — msgmerge then marks"; \
-	     echo "every code-block entry fuzzy and silently shreds po/ja.po."; \
+	  0.5.*) ;; \
+	  *) echo "mdbook $$ver cannot be paired with mdbook-i18n-helpers 0.4.x."; \
+	     echo "CI pins mdbook 0.5.4 + helpers 0.4.0 (MDBOOK_VERSION in"; \
+	     echo ".github/workflows/pages.yml); helpers 0.4.x link the mdbook 0.5"; \
+	     echo "preprocessor crates and abort under any other line."; \
 	     exit 1 ;; \
 	esac
+	@utils/check-xgettext-backend.sh
 	MDBOOK_OUTPUT='{"xgettext": {}}' mdbook build big-code-analysis-book -d "$(CURDIR)/big-code-analysis-book/po"
 
 book-po-update: book-pot
 	msgmerge --update --backup=off big-code-analysis-book/po/ja.po big-code-analysis-book/po/messages.pot
 
+# Nests under `make book`'s output, as CI does. Order matters when
+# building both: the English build cleans book/ wholesale, so it must
+# finish first — `make book && make book-ja`, not `make book book-ja`,
+# which under -j runs them concurrently.
 book-ja:
-	@command -v mdbook-gettext >/dev/null 2>&1 || { echo "mdbook-gettext not found; install with: cargo install mdbook-i18n-helpers --version '=0.3.6' --locked"; exit 1; }
-	MDBOOK_BOOK__LANGUAGE=ja mdbook build big-code-analysis-book -d book/ja
+	@command -v mdbook-gettext >/dev/null 2>&1 || { echo "mdbook-gettext not found; $(HELPERS_HINT)"; exit 1; }
+	MDBOOK_BOOK__LANGUAGE=ja mdbook build big-code-analysis-book -d "$(CURDIR)/big-code-analysis-book/book/ja"
 
 # Manual fallback for publishing the book to GitHub Pages. The
-# canonical publish path is .github/workflows/book.yml, which fires
+# canonical publish path is .github/workflows/pages.yml, which fires
 # on every push to main; this target exists so contributors can
 # republish from a checkout when CI is unavailable.
 book-deploy:

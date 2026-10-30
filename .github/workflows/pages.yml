@@ -11,6 +11,9 @@ on:
     branches: [main]
     paths:
       - 'big-code-analysis-book/**'
+      # The build-book job runs this probe; nothing else exercises its
+      # extraction assertion.
+      - 'utils/check-xgettext-backend.sh'
       - 'src/**'
       - 'big-code-analysis-ast/**'
       - 'big-code-analysis-cli/**'
@@ -35,6 +38,7 @@ on:
   pull_request:
     paths:
       - 'big-code-analysis-book/**'
+      - 'utils/check-xgettext-backend.sh'
       - 'src/**'
       - 'big-code-analysis-ast/**'
       - 'big-code-analysis-cli/**'
@@ -77,16 +81,16 @@ permissions:
 # already trusts its own cargo build — see STABILITY.md for the
 # schema-bump operational contract this approach enforces.
 env:
-  MDBOOK_VERSION: "0.4.40"
-  MDBOOK_SHA256: "9ef07fd288ba58ff3b99d1c94e6d414d431c9a61fdb20348e5beb74b823d546b"
+  MDBOOK_VERSION: "0.5.4"
+  MDBOOK_SHA256: "3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7"
   # Provides the mdbook-gettext preprocessor for the Japanese book
-  # build (big-code-analysis-book/po/ja.po). Must stay on the 0.3.x
-  # line while MDBOOK_VERSION is 0.4.x — mdbook-i18n-helpers 0.4.0+
-  # targets the mdbook 0.5 preprocessor crates. Bump the two pins
-  # together. Installed via `cargo install --locked` (no prebuilt
-  # binaries are published upstream), matching how this workflow
-  # already trusts its own cargo builds (see the note above).
-  MDBOOK_I18N_HELPERS_VERSION: "0.3.6"
+  # build (big-code-analysis-book/po/ja.po). The 0.4.x helper line
+  # pairs with mdbook 0.5.x (it links the mdbook-preprocessor 0.5
+  # crates); 0.3.x paired with 0.4.x. Bump the two pins together.
+  # Installed via `cargo install --locked` (no prebuilt binaries are
+  # published upstream), matching how this workflow already trusts
+  # its own cargo builds (see the note above).
+  MDBOOK_I18N_HELPERS_VERSION: "0.4.0"
   # Workspace-wide Rust env, mirrored from ci.yml so the `bca` build
   # in this workflow gates on the same warnings, retries, and
   # incremental settings as the rest of CI. Without these, a warning
@@ -126,21 +130,38 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
-      # `--locked` pins the helper's own lockfile, which resolves
-      # `onig_sys` 69.8.1 — a vendored oniguruma older than its GCC 15
-      # fix (oniguruma HISTORY 2024-11-18, #312). `ubuntu-latest` is
-      # 26.04 with GCC 15, whose default is C23, where an empty `()`
-      # prototype means `(void)`: `st.c`'s K&R-style `int (*hash)()`
-      # table then rejects every call with "too many arguments", a
-      # constraint violation no `-Wno-error=` can demote (the
-      # `-Wincompatible-pointer-types` errors it also raises are the
-      # outer layer of the same thing). `-std=gnu17` restores the
-      # pre-C23 reading for this one install; it goes with the pins
-      # above when they move to the mdbook 0.5 line (#1724).
+      # `--features syntect/regex-onig` is load-bearing, not a build
+      # preference. Helpers 0.4.0 switched syntect's regex engine to
+      # the pure-Rust `fancy-regex` (google/mdbook-i18n-helpers#267),
+      # and under that engine syntect's shell / YAML / TOML grammars
+      # mis-walk consecutive `#` comment lines: of a three-line run
+      # only the first and third are extracted, and a two-line run
+      # keeps only the first (google/mdbook-i18n-helpers#321). Every
+      # multi-line comment in a bash fence then fails to match its
+      # msgid in po/ja.po and renders in English. Oniguruma — the
+      # engine 0.3.6 used — extracts the block whole, and the pot it
+      # produces is byte-identical (modulo POT-Creation-Date) to the
+      # 0.4.40 + 0.3.6 toolchain's; the fixture and both pots are
+      # under ~/bca-evidence/1724/ (#1724).
+      #
+      # `--locked` holds the helper's own lockfile, which has no
+      # `onig` entry because the feature is off upstream, so those
+      # two crates — and only those — resolve fresh at install time
+      # (69.9.3 at the time of writing, which carries oniguruma's
+      # GCC 15 / C23 fix, HISTORY 2024-11-18, #312). The 0.3.6
+      # lockfile pinned 69.8.1, which predates that fix and failed to
+      # compile on ubuntu-26.04; a `-std=gnu17` CFLAGS override
+      # covered it until this bump.
       - name: Install mdbook-i18n-helpers
-        env:
-          CFLAGS: -std=gnu17
-        run: cargo install mdbook-i18n-helpers --version "=${MDBOOK_I18N_HELPERS_VERSION}" --locked
+        run: cargo install mdbook-i18n-helpers --version "=${MDBOOK_I18N_HELPERS_VERSION}" --locked --features syntect/regex-onig
+
+      # The regex-engine defect above produces no error: a
+      # fancy-regex build installs and runs, and the only symptom is
+      # English text on /ja/. Probe the installed binary on a fixture
+      # that distinguishes the two engines before building anything
+      # with it.
+      - name: Check mdbook-xgettext extracts comment blocks whole
+        run: utils/check-xgettext-backend.sh
 
       - name: Build book (English)
         run: mdbook build big-code-analysis-book
@@ -148,16 +169,36 @@ jobs:
       # The Japanese book is served from /ja/ under the same Pages
       # site. Build order matters: the English build cleans book/,
       # so the ja build (which only cleans book/ja/) must run second.
+      # `-d` is relative to the cwd under mdbook 0.5 (0.4 resolved it
+      # against the book root), hence the full path.
       - name: Build book (Japanese)
-        run: MDBOOK_BOOK__LANGUAGE=ja mdbook build big-code-analysis-book -d book/ja
+        run: MDBOOK_BOOK__LANGUAGE=ja mdbook build big-code-analysis-book -d big-code-analysis-book/book/ja
+
+      # A gettext failure is silent: the preprocessor is `optional`,
+      # so a missing or mis-built mdbook-gettext yields a full /ja/
+      # tree of English pages with lang="ja". Pin one long-standing
+      # translation (the glossary term for "cyclomatic complexity",
+      # which po/ja.po carries in many non-fuzzy entries) so that
+      # state fails the job. Searched across every page rather than
+      # one, so restructuring a chapter cannot trip it; only losing
+      # the term from the whole translation can.
+      - name: Check the Japanese book is translated
+        run: |
+          set -euo pipefail
+          test -f big-code-analysis-book/book/index.html
+          test -f big-code-analysis-book/book/ja/index.html
+          grep -rq --include='*.html' '循環的複雑度' big-code-analysis-book/book/ja/
 
       # Belt-and-braces: `actions/deploy-pages` already bypasses
       # Jekyll, but the same artifact directory is also what the
       # manual fallback script (`utils/deploy-book-to-gh-pages.sh`)
       # consumes when publishing to a `gh-pages` branch — where
-      # Jekyll WOULD strip `_FontAwesome/`, the search index, etc.
-      # Keeping `.nojekyll` here means both publish paths produce
-      # an identical, Jekyll-safe artifact.
+      # Jekyll would strip any `_`-prefixed path (mdbook 0.4 shipped
+      # `FontAwesome/` without the underscore and 0.5 inlines the
+      # icons as SVG, so today nothing in the book output is at
+      # risk; the bca reports subtree still is). Keeping `.nojekyll`
+      # here means both publish paths produce an identical,
+      # Jekyll-safe artifact.
       - name: Disable Jekyll processing
         run: touch big-code-analysis-book/book/.nojekyll
 

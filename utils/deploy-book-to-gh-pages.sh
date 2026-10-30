@@ -8,7 +8,7 @@
 # "Deploy from a branch" -> branch=gh-pages.
 #
 # The canonical publish path for this repo is the GitHub Actions
-# workflow at `.github/workflows/book.yml`, which uses the official
+# workflow at `.github/workflows/pages.yml`, which uses the official
 # `actions/deploy-pages` flow. That flow requires Pages source to be
 # set to "GitHub Actions". The two source modes are MUTUALLY
 # EXCLUSIVE — only one can be active at a time. If the workflow is
@@ -45,7 +45,8 @@ worktree_dir="${repo_root}/target/gh-pages"
 
 if ! command -v mdbook >/dev/null 2>&1; then
 	echo "error: mdbook not found on PATH" >&2
-	echo "  install with: cargo install --locked mdbook" >&2
+	echo "  install with: cargo install mdbook --version '=0.5.4' --locked" >&2
+	echo "  (the version MDBOOK_VERSION pins in .github/workflows/pages.yml)" >&2
 	exit 1
 fi
 
@@ -104,8 +105,10 @@ echo "==> Syncing book output into worktree"
 find "$worktree_dir" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 cp -R "${book_out}/." "${worktree_dir}/"
 # GitHub Pages otherwise pipes the site through Jekyll, which drops
-# files and directories whose names start with `_` (mdBook emits
-# `FontAwesome/`, search index, etc. under that convention).
+# files and directories whose names start with `_`. mdBook 0.5 emits
+# none today (0.4's `FontAwesome/` is now inline SVG), but the marker
+# is what keeps this path and the Pages workflow producing the same
+# artifact, so it stays.
 touch "${worktree_dir}/.nojekyll"
 
 cd "$worktree_dir"
