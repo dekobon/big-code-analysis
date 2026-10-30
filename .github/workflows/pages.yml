@@ -124,7 +124,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable tip
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # `--locked` pins the helper's own lockfile, which resolves
       # `onig_sys` 69.8.1 — a vendored oniguruma older than its GCC 15
@@ -247,7 +247,7 @@ jobs:
       # workspace. The `--release` profile here is intentionally
       # distinct from ci.yml's default-profile builds — mixing them
       # in one cache would thrash both.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: pages-scan-release
       # `cargo install --path …` lands the binary in `~/.cargo/bin`
@@ -392,7 +392,7 @@ jobs:
       # distinct analysis from ci.yml's `category: clippy` upload.
       - name: Upload self-scan SARIF to code scanning
         if: always() && hashFiles('bca.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: bca.sarif
           category: bca
