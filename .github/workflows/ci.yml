@@ -257,7 +257,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable tip
         with:
           toolchain: stable
+      # `--all-features --workspace` links `big-code-analysis-py` against
+      # a libpython (pyo3 `auto-initialize`). Provision the interpreter
+      # rather than take whatever the image ships, and name it in the
+      # cache key: pyo3-build-config re-runs only when `PYO3_PYTHON` or
+      # `PATH` changes, so a `target/` restored from an older image kept
+      # asking for the libpython that image had — `ubuntu-latest` moved
+      # from 24.04 (Python 3.12) to 26.04 (3.14) and the link failed on
+      # `-lpython3.12` (#1722). The version matches the python jobs.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: python
+        with:
+          python-version: "3.12"
+      - run: echo "PYO3_PYTHON=${{ steps.python.outputs.python-path }}" >> "$GITHUB_ENV"
+        shell: bash
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: PYO3_PYTHON
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest
@@ -373,9 +389,16 @@ jobs:
       # Coverage builds carry -C instrument-coverage, so their artifacts are
       # incompatible with the regular build cache; a distinct key keeps the
       # two from thrashing each other.
+      # See the `test` job for why the interpreter is provisioned and keyed.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: python
+        with:
+          python-version: "3.12"
+      - run: echo "PYO3_PYTHON=${{ steps.python.outputs.python-path }}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: coverage-1.99.1-llvm-cov-0.9.1
+          env-vars: PYO3_PYTHON
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
@@ -461,7 +484,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # 1.94
         with:
           toolchain: "1.94"
+      # See the `test` job for why the interpreter is provisioned and keyed.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: python
+        with:
+          python-version: "3.12"
+      - run: echo "PYO3_PYTHON=${{ steps.python.outputs.python-path }}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: PYO3_PYTHON
       # Build only — MSRV is a compile-time promise; dev-deps may
       # require a newer toolchain.
       - run: cargo build --all-features --workspace --locked
