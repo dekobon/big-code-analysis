@@ -1243,6 +1243,26 @@ mod tests {
     /// The floor is the chain as built: an `ascend` with nothing to undo
     /// leaves the body's chain in place rather than popping the body —
     /// a debug build trips the assertion, which is what this pins.
+    /// `descend` takes the chain into a child of its last entry and
+    /// nothing else: a walker that descends into a sibling, or into the
+    /// node already on top, would have every later gate read a parent
+    /// the node does not have. A debug build trips the containment
+    /// assertion, which names the offending kind.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[should_panic(
+        expected = "descended into a function_item node the chain's last entry does not contain"
+    )]
+    fn descending_outside_the_last_entry_is_caught() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() {}\nfn g() {}\n");
+        let root = tree.get_root();
+        let f = root.child(0).expect("the first fn item");
+        let g = root.child(1).expect("the second fn item");
+        let chain = [root];
+        let mut under = Ancestors::known(&chain).of_children(&f);
+        under.descend(&g);
+    }
+
     #[cfg(all(feature = "rust", debug_assertions))]
     #[test]
     #[should_panic(expected = "ascended above the node this chain was built for")]

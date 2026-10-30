@@ -638,7 +638,10 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
             children: body.children(),
             kind: RubyFrameKind::Statements,
         }];
-        while let Some(frame) = stack.last_mut() {
+        // The top frame is taken off to read its next child and put
+        // back before the child is, so a reader that opens a frame of
+        // its own stacks it on top; a frame with no child left closes.
+        while let Some(mut frame) = stack.pop() {
             let parent = frame.node;
             let parent_kind = parent.kind_id();
             let arguments = matches!(frame.kind, RubyFrameKind::Arguments { .. });
@@ -649,14 +652,15 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
                     is_statement_of(&parent, parent_kind, child)
                 }
             });
-            match child {
-                Some(child) if arguments => self.read_argument(&child, &mut stack),
-                Some(child) => self.read_statement(&child, &mut stack),
-                None => {
-                    if let Some(done) = stack.pop() {
-                        self.close_frame(done, body, &mut stack);
-                    }
-                }
+            let Some(child) = child else {
+                self.close_frame(frame, body, &mut stack);
+                continue;
+            };
+            stack.push(frame);
+            if arguments {
+                self.read_argument(&child, &mut stack);
+            } else {
+                self.read_statement(&child, &mut stack);
             }
         }
         // Every frame descended is ascended on its pop: a frame kind
