@@ -83,14 +83,20 @@ struct RubyFrame<'a> {
 // `rescue` / `ensure` clauses, a statement modifier, a
 // parenthesised statement list, and the right side of an
 // assignment — `x = def b; end` and `@h = private def h; end`
-// define `b` and `h` as any bare `def` would (measured). A `def`'s
+// define `b` and `h` as any bare `def` would (measured), and so do
+// both of `a, b = def x; end, def y; end`, whose right side is a
+// `right_assignment_list` of them. A `def`'s
 // or a block's children are a space of their own and are not read:
 // a `def` inside `def inner` or an `items.each do … end` is that
 // space's method, as `nom` counts it, not the class's.
 //
 // FIXME(#1719): the attribute walk, `ruby_walk_class_body` in
-// `npa/shared.rs`, still reads the body's direct children only;
-// this inventory and `is_statement_of` are what it should share.
+// `npa/shared.rs`, still reads the body's direct children only, and
+// reads a bare keyword as the marker only there — without the
+// expression-position reading or the shadow table the ledger keeps —
+// so the two Ruby member walks can disagree on one body's visibility.
+// This inventory, `is_statement_of` and `RubyMethodLedger`'s marker
+// rules are what it should share.
 fn reads_through(kind: u16) -> bool {
     use Ruby::*;
 
@@ -127,6 +133,7 @@ fn reads_through(kind: u16) -> bool {
             | Assignment2
             | OperatorAssignment
             | OperatorAssignment2
+            | RightAssignmentList
     )
 }
 
@@ -222,20 +229,34 @@ struct RubyMethodLedger<'a> {
     // in, which here is the class body or a wrapper under it — the
     // walk does not unshadow at a wrapper's end, which over-shadows
     // only the body after an assignment made *inside* a branch.
-    shadowed: [bool; 3],
-    // Whether each method declared so far is public, in declaration
-    // order.
+    shadowed: [bool; RubyVisibility::COUNT],
+    // Every declaration so far, in order: the position of the body's
+    // visibility *epoch* when it was declared and its own public bit.
     public: Vec<bool>,
-    // Every declaration of a name in a family (instance or singleton),
-    // by index into `public`, so `private :foo` reaches the `foo`s and
-    // not the whole body — a body of `W` `private def m_i` re-files
-    // one name each, which over a scan of every declaration is `W²`
-    // (#1401 review). A name redefined `W` times in one body still
-    // walks `W` entries per re-file, a shape no real class takes. The
-    // name is borrowed from the source bytes: Ruby spells the target
-    // as a symbol, so identity is in the bytes (grammar-dispatch rule
-    // 10).
-    by_name: HashMap<(&'a str, bool), Vec<usize>>,
+    // Every named declaration, by name and family (instance or
+    // singleton): the declarations' indices into `public`, and the bit
+    // a keyword call (`private :foo`, `private def foo`) last re-filed
+    // the name to, with how many of the name's declarations it covered.
+    // `private :foo` reaches every `foo` declared so far — Ruby's method
+    // table holds one and the call re-files it — so a re-file records
+    // "the first `covered` declarations of this name read `public`" in
+    // one write, and the tally applies it; a body of `W` `private def
+    // m` re-files `W` times at one lookup each where a position scan
+    // was `W²` (0.32 s against 0.18 s on `main` at 32,000; #1401
+    // review). The name is borrowed from the source bytes: Ruby spells
+    // the target as a symbol, so identity is in the bytes
+    // (grammar-dispatch rule 10).
+    by_name: HashMap<(&'a str, bool), RubyNameEntry>,
+}
+
+// One name's declarations in a Ruby class body and the last re-file
+// that reached them.
+#[derive(Default)]
+struct RubyNameEntry {
+    indices: Vec<usize>,
+    // `Some((covered, public))`: the first `covered` entries of
+    // `indices` were re-filed to `public`, over their own bits.
+    refiled: Option<(usize, bool)>,
 }
 
 impl<'a> RubyMethodLedger<'a> {
@@ -246,7 +267,7 @@ impl<'a> RubyMethodLedger<'a> {
             // Ruby class bodies open in default-public state, whatever
             // the previous body's trailing visibility was.
             visibility: RubyVisibility::Public,
-            shadowed: [false; 3],
+            shadowed: [false; RubyVisibility::COUNT],
             public: Vec::new(),
             by_name: HashMap::new(),
         }
@@ -263,10 +284,13 @@ impl<'a> RubyMethodLedger<'a> {
             && name.is_some_and(|n| RUBY_AUTO_PRIVATE_METHODS.contains(&n))
     }
 
-    // A bare `private` / `public` / `protected` as a statement or an
-    // expression sets the flag — Ruby evaluates it as the marker call
-    // wherever it stands — unless a local of that name shadows it.
-    // Answers whether `node` was one, shadowed or not.
+    // A bare `private` / `public` / `protected` sets the flag — Ruby
+    // evaluates it as the marker call wherever it stands — unless a
+    // local of that name shadows it. The walk asks this of every node
+    // it reads as a statement or a call argument, and of nothing else:
+    // a keyword in a condition, a loop header or a `case` value is
+    // evaluated by Ruby and not seen here (`is_statement_of` records
+    // the gap). Answers whether `node` was one, shadowed or not.
     fn apply_marker(&mut self, node: &Node<'a>) -> bool {
         let Some(marker) = ruby_visibility_marker(node, self.code) else {
             return false;
@@ -277,13 +301,55 @@ impl<'a> RubyMethodLedger<'a> {
         true
     }
 
-    // Records that an assignment's target is a visibility keyword's
-    // name, so the bare word is a local from here on.
-    fn shadow_if_keyword_named(&mut self, assignment: &Node<'a>) {
-        if let Some(left) = assignment.child_by_field_name("left")
-            && let Some(marker) = ruby_visibility_marker(&left, self.code)
-        {
-            self.shadowed[marker as usize] = true;
+    // Records every visibility keyword's name a binding target binds,
+    // so the bare word is a local from here on: the `left` of an
+    // assignment or the `pattern` of a `for`, directly (`private = 1`)
+    // or inside a destructuring list (`private, other = …`, `(a,
+    // private) = …`, `*private = …`), which the grammar nests as
+    // `left_assignment_list` / `destructured_left_assignment` /
+    // `rest_assignment` holding the identifiers. An `@private = 1` or
+    // `obj.private = 2` target is not an `identifier` and binds no
+    // local, so a later bare `private` is still the call (measured).
+    fn shadow_bindings_of(&mut self, target: &Node<'a>) {
+        use Ruby::*;
+
+        let mut stack = vec![*target];
+        while let Some(node) = stack.pop() {
+            if let Some(marker) = ruby_visibility_marker(&node, self.code) {
+                self.shadowed[marker as usize] = true;
+                continue;
+            }
+            if matches!(
+                node.kind_id().into(),
+                LeftAssignmentList
+                    | DestructuredLeftAssignment
+                    | RestAssignment
+                    | ExceptionVariable
+            ) {
+                stack.extend(node.children().filter(Node::is_named));
+            }
+        }
+    }
+
+    // Records the locals a statement binds before its body is read: an
+    // assignment's `left`, a `for`'s `pattern`, a `rescue` clause's
+    // `=> e` variable (an `exception_variable` wrapping the target).
+    // All three bind at class scope; a block's parameters bind in the
+    // block, a space the walk does not enter.
+    fn shadow_statement_bindings(&mut self, statement: &Node<'a>, kind: u16) {
+        use Ruby::*;
+
+        let field = if is_assignment(kind) {
+            "left"
+        } else if kind == For as u16 {
+            "pattern"
+        } else if kind == Rescue as u16 {
+            "variable"
+        } else {
+            return;
+        };
+        if let Some(target) = statement.child_by_field_name(field) {
+            self.shadow_bindings_of(&target);
         }
     }
 
@@ -302,15 +368,15 @@ impl<'a> RubyMethodLedger<'a> {
         let public = keyword.map_or_else(
             || ruby_declaration_is_public(singleton, self.visibility),
             |kw| ruby_wrapped_is_public(kw, singleton, self.visibility),
-        );
+        ) && (named_by_keyword || !self.is_auto_private(name, singleton));
         if let Some(name) = name {
             self.by_name
                 .entry((name, singleton))
                 .or_default()
+                .indices
                 .push(self.public.len());
         }
-        self.public
-            .push(public && (named_by_keyword || !self.is_auto_private(name, singleton)));
+        self.public.push(public);
         name
     }
 
@@ -318,13 +384,24 @@ impl<'a> RubyMethodLedger<'a> {
     // keyword names. Ruby's `private :foo` reaches back over the body,
     // and only over the body: a `def foo` written *after* the call keeps
     // the visibility it was declared with.
-    fn refile(&mut self, name: &str, singleton: bool, public: bool) {
-        let Some(targets) = self.by_name.get(&(name, singleton)) else {
-            return;
-        };
-        for &index in targets {
-            self.public[index] = public;
+    fn refile(&mut self, name: &'a str, singleton: bool, public: bool) {
+        if let Some(entry) = self.by_name.get_mut(&(name, singleton)) {
+            entry.refiled = Some((entry.indices.len(), public));
         }
+    }
+
+    // The declarations so far: how many, and how many public once each
+    // name's last re-file is applied over the declarations it covered.
+    fn tally(&self) -> (usize, usize) {
+        let mut public = self.public.clone();
+        for entry in self.by_name.values() {
+            if let Some((covered, bit)) = entry.refiled {
+                for &index in &entry.indices[..covered] {
+                    public[index] = bit;
+                }
+            }
+        }
+        (public.len(), public.iter().filter(|&&p| p).count())
     }
 }
 
@@ -393,10 +470,17 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
     // handed nothing; nor is it from an ordinary call (`memoize def x`),
     // whose result is the decorator's own and not assumed to be the
     // name.
+    //
+    // Each level of a nested keyword chain re-files every name it is
+    // handed and passes them all up, so `D` nested `private(public(…))`
+    // around `W` symbols is `D × W` lookups on an input of size `D + W`
+    // (batch perf audit: 16,000 × 16,000 took 20 s). The semantics
+    // require each governing level to act, real code nests two deep,
+    // and no probe reads the shape; recorded, not restructured.
     fn close_call(
         &mut self,
         keyword: Option<RubyVisibilityCall>,
-        names: &RubyArgumentNames<'a>,
+        names: RubyArgumentNames<'a>,
         stack: &mut [RubyFrame<'a>],
     ) {
         self.chain.ascend();
@@ -405,7 +489,7 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
             return;
         };
         let public = keyword.visibility == RubyVisibility::Public;
-        for name in names {
+        for name in &names {
             self.ledger.refile(name, keyword.targets_singleton, public);
         }
         if keyword.targets_singleton {
@@ -416,7 +500,7 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
             ..
         }) = stack.last_mut()
         {
-            outer.extend_from_slice(names);
+            outer.extend(names);
         }
     }
 
@@ -429,54 +513,67 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
 
         let code = self.ledger.code;
         let Some(RubyFrame {
-            kind: RubyFrameKind::Arguments { keyword, names },
+            kind: RubyFrameKind::Arguments { keyword, .. },
             ..
-        }) = stack.last_mut()
+        }) = stack.last()
         else {
             return;
         };
         let keyword = *keyword;
+        // An argument is evaluated as any expression is: a bare keyword
+        // there is the marker call (`foo(private)` demotes what follows,
+        // measured), a binding there (`foo(private = 1)`) shadows it from
+        // then on. Read before anything else, as a statement's are.
+        if self.ledger.apply_marker(arg) {
+            return;
+        }
         let kind = arg.kind_id();
+        self.ledger.shadow_statement_bindings(arg, kind);
         // A `def` passed to a call (`private def x; end`, `memoize def
         // x; end`) is the `FuncOpener` row's callable, as a bare one is.
         // Which of its two callables decides the singleton bucket is
-        // this consumer's reading.
-        if func_opener::is_callable(arg, code, self.chain.get()) {
+        // this consumer's reading. A nested call is opened as a frame of
+        // its own; the names it returns reach this one when it closes.
+        let named: Vec<&'a str> = if func_opener::is_callable(arg, code, self.chain.get()) {
             // role-bypass: allow(FuncOpener) — the singleton bucket
-            let declared = self
-                .ledger
-                .declare(arg, kind == SingletonMethod as u16, keyword);
-            if let (
-                Some(name),
-                Some(RubyFrame {
-                    kind: RubyFrameKind::Arguments { names, .. },
-                    ..
-                }),
-            ) = (declared, stack.last_mut())
-            {
-                names.push(name);
+            self.ledger
+                .declare(arg, kind == SingletonMethod as u16, keyword)
+                .into_iter()
+                .collect()
+        } else {
+            match kind.into() {
+                // role-bypass: allow(NullSafe) — a call nested in an argument
+                // list, which the row's safe-navigation owner is a kind of;
+                // read as the body's own calls are
+                Call | Call2 | Call3 | Call4 => return self.open_call(arg, stack),
+                // role-bypass: allow(StringLit) — a `%i[]` array names several
+                // methods; the row owns it as a literal, a different question
+                SymbolArray => arg
+                    .children()
+                    .filter_map(|sym| ruby_symbol_name(&sym, code))
+                    .collect(),
+                // A wrapper passed as an argument — `private((def x; end))`,
+                // `memoize(begin … end)`, `memoize(x = def y; end)` — holds
+                // statements that run at class scope exactly as a bare one
+                // does, so the `def`s inside are declared. What the wrapper
+                // *evaluates to* — the value of its last statement, which
+                // Ruby hands to the call (`private((def a; end; def b;
+                // end))` demotes `b` alone, measured) — is not resolved: the
+                // `def`s take the body-wide flag and the enclosing keyword
+                // re-files nothing through them. Counting them at all is the
+                // correction the #1401 review asked for; their visibility
+                // under a wrapping keyword is the approximation recorded in
+                // `ruby_def_in_a_wrapper_argument_counts`.
+                _ if reads_through(kind) => return self.open_wrapper(arg, stack),
+                _ => ruby_symbol_name(arg, code).into_iter().collect(),
             }
-            return;
-        }
-        match kind.into() {
-            // role-bypass: allow(NullSafe) — a call nested in an argument
-            // list, which the row's safe-navigation owner is a kind of;
-            // read as the body's own calls are
-            Call | Call2 | Call3 | Call4 => self.open_call(arg, stack),
-            // role-bypass: allow(StringLit) — a `%i[]` array names several
-            // methods; the row owns it as a literal, a different question
-            SymbolArray => {
-                for sym in arg.children() {
-                    if let Some(name) = ruby_symbol_name(&sym, code) {
-                        names.push(name);
-                    }
-                }
-            }
-            _ => {
-                if let Some(name) = ruby_symbol_name(arg, code) {
-                    names.push(name);
-                }
-            }
+        };
+        if let Some(RubyFrame {
+            kind: RubyFrameKind::Arguments { names, .. },
+            ..
+        }) = stack.last_mut()
+        {
+            names.extend(named);
         }
     }
 
@@ -491,16 +588,14 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
         // A bare `private` is the marker call wherever an expression is
         // evaluated — `x = private` and `y = public` set the flag
         // (measured) — unless a local of that name shadows it. The
-        // assignment that creates the local is read as a wrapper (for
-        // the `def` its right side may hold), and shadows from its
-        // `left` before that right side is read.
+        // assignment or `for` that creates the local is read as a
+        // wrapper (for the `def` its right side or body may hold), and
+        // shadows from its target before that is read.
         if self.ledger.apply_marker(child) {
             return;
         }
         let kind = child.kind_id();
-        if is_assignment(kind) {
-            self.ledger.shadow_if_keyword_named(child);
-        }
+        self.ledger.shadow_statement_bindings(child, kind);
         // A `def` — the `FuncOpener` row's callable — declares a method;
         // the row's two callables differ in the bucket (`def self.` is
         // the singleton), which is this consumer's reading.
@@ -515,16 +610,20 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
             // the decorator-style ones, which the row's safe-navigation
             // owner is a kind of; each is told by its name
             Call | Call2 | Call3 | Call4 => self.open_call(child, stack),
-            _ if reads_through(kind) => {
-                self.chain.descend(child);
-                stack.push(RubyFrame {
-                    node: *child,
-                    children: child.children(),
-                    kind: RubyFrameKind::Statements,
-                });
-            }
+            _ if reads_through(kind) => self.open_wrapper(child, stack),
             _ => {}
         }
+    }
+
+    // Opens a statement wrapper: its statements are read as the walk
+    // reaches them, under its own chain.
+    fn open_wrapper(&mut self, wrapper: &Node<'a>, stack: &mut Vec<RubyFrame<'a>>) {
+        self.chain.descend(wrapper);
+        stack.push(RubyFrame {
+            node: *wrapper,
+            children: wrapper.children(),
+            kind: RubyFrameKind::Statements,
+        });
     }
 
     // Reads every statement of the body, of each wrapper under it and
@@ -577,7 +676,7 @@ impl<'a, 'chain> RubyClassBody<'a, 'chain> {
     fn close_frame(&mut self, done: RubyFrame<'a>, body: &Node<'a>, stack: &mut [RubyFrame<'a>]) {
         match done.kind {
             RubyFrameKind::Arguments { keyword, names } => {
-                self.close_call(keyword, &names, stack);
+                self.close_call(keyword, names, stack);
             }
             RubyFrameKind::Statements => {
                 if done.node.id() != body.id() {
@@ -639,7 +738,8 @@ impl Npm for RubyCode {
         );
         body.walk(node);
 
-        stats.class_nm += body.ledger.public.len();
-        stats.class_npm += body.ledger.public.iter().filter(|&&public| public).count();
+        let (count, public) = body.ledger.tally();
+        stats.class_nm += count;
+        stats.class_npm += public;
     }
 }

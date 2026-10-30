@@ -221,6 +221,30 @@ over-permissiveness the contract and inverts into a bug-lock when it
 tightens. Check the language specification, and `bash -n` or the
 compiler, rather than inferring reachability from the grammar.
 
+**Every parent in the dump gets a row or a stated exclusion.** A dump
+exists to enumerate the positions a construct takes; the failure is to
+read it for the position you came looking for and stop. In #1706
+`try { } catch (var e) { }` was in `~/bca-evidence/1706/contexts.groovy`
+from the first dump, and the `spells_var` gate shipped without the
+`catch_formal_parameter` parent it needed; the whole-branch review, not
+the per-issue ones, found it. That fixture also shows the second thing
+a dump can do to you: packed into a 22-line method with every other
+`var` spelling, the `catch` recovered as an `ERROR` holding a
+`method_invocation` named `catch`, so its `var` read as an
+`identifier` in an argument list and the real parent appeared only in
+a one-line fixture written after the review. A construct worth
+dumping is worth dumping alone. Before writing the arm, list the
+distinct `(kind, parent)` pairs the dump produced for the construct —
+`rg -n ': var$'` over the dump and the parent line above each — and
+give every one either a gate alternative or a sentence saying why not
+(invalid in the language, a space of its own). A pair with neither is
+the next review's finding. The complementary failure is a dump that is
+too small to list the parent at all: the same batch's Ruby inventory
+(#1401) missed `rescue_modifier`, `parenthesized_statements` and an
+assignment's right side because no fixture had been dumped with them,
+and C++'s `= delete` (#1299) likewise — the inventory can only be as
+complete as the fixtures it was read from.
+
 ## 7. Walk the sibling predicates for parity
 
 `Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,

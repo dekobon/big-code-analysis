@@ -599,11 +599,20 @@ pub fn ruby_nested_if_defs(depth: usize) -> String {
 /// Ruby: a class body of `width` `def`s, each wrapped in a `private`
 /// call, so the member walk reads one call's argument list per member
 /// and re-files each declared name against the declarations so far.
+/// Half the names are distinct and half redefine one method, so both
+/// shapes of the re-filing index are on the ladder: a lookup that
+/// scanned the name's declarations would be quadratic on the second
+/// half alone.
 #[must_use]
 pub fn ruby_wide_private_defs(width: usize) -> String {
     let mut source = String::from("class C\n");
     for i in 0..width {
-        let _ = writeln!(source, "private def m{i}; end");
+        // `fmt::Write for String` never fails; see `wide_distinct_fns`.
+        let _ = writeln!(
+            source,
+            "private def m{}; end",
+            if i % 2 == 0 { i } else { 0 }
+        );
     }
     source.push_str("end\n");
     source
@@ -663,10 +672,11 @@ pub fn perl_data_pod(width: usize) -> String {
 pub fn wide_distinct_fns(width: usize) -> String {
     let mut source = String::new();
     for i in 0..width {
-        // `fmt::Write for String` never returns `Err`, so this is the
-        // one shape whose generator has a `Result` to discard. The
+        // `fmt::Write for String` never returns `Err`, so a generator
+        // that writes a line per item has a `Result` to discard; the
         // alternatives clippy leaves are `format!`-into-`push_str` and
-        // `map(format!).collect()`, and it rejects both.
+        // `map(format!).collect()`, and it rejects both. The Tcl and
+        // Ruby generators below do the same and cite this.
         let _ = writeln!(source, "fn f{i:06}() {{ let v{i:06} = {i:06}; }}");
     }
     source
@@ -2669,14 +2679,19 @@ pub const PROBES: &[Probe] = &[
         max_exponent: LINEAR_BOUND,
         rationale: "#1401: every call in a Ruby class body is read for a `def` \
                     in its arguments, and a visibility call re-files each \
-                    name its arguments declare. The declarations are indexed \
-                    by name, so `W` `private def`s re-file `W` names at one \
-                    lookup each — before the index, a scan of every \
-                    declaration per name, 32,000 of them took 0.69 s against \
-                    0.19 s for the same `def`s under a decorator that re-files \
-                    nothing (#1401 review). The body's child list is read \
-                    once through a held iterator, not re-sought per \
-                    statement. The reading is one method per call.",
+                    name its arguments declare. A re-file records one \
+                    `(covered, bit)` on the name's index entry and the tally \
+                    applies it once over that prefix at the end, so `W` \
+                    `private def`s re-file `W` names at one lookup each \
+                    whether the names are distinct or one name redefined — \
+                    before the index, a scan of every declaration per name, \
+                    32,000 distinct took 0.69 s against 0.19 s undecorated; \
+                    writing each position's bit on every re-file, 32,000 of \
+                    one name took 0.32 s against 0.18 s on `main` (#1401 \
+                    reviews). The shape renders both halves. The body's \
+                    child list is read once through a held iterator, not \
+                    re-sought per statement. The reading is one method per \
+                    call.",
     },
     Probe {
         name: "loc/lua-tagless-blocks",

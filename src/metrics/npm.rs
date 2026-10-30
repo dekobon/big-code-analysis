@@ -3569,13 +3569,14 @@ class C {
         // and `private; def x; public def x` leaves one public `x`
         // (`C2.public_instance_methods(false)` is `[x]`). Before #1401
         // the walk read the first order as two methods, one private,
-        // and the second as public `x` once and private once; the
-        // by-name index re-files every declaration of the name.
+        // and the second as public `x` once and private once; a keyword
+        // re-files every declaration of the name declared so far.
         //
         // expected: C1 nm = 3 (x, x, y), npm = 1 (y); C2 nm = 3, npm =
         // 2 (x, x). The duplicate `x` is counted twice, as `nom` counts
         // two function spaces: this metric counts declarations, not
-        // the method table.
+        // the method table. The twin where no keyword call reaches the
+        // name is `ruby_redefinition_under_a_bare_marker_keeps_each_bit`.
         check_metrics::<RubyParser>(
             "class C1\n  def x\n    1\n  end\n  private def x\n    2\n  end\n  def y\n    3\n  end\nend\n",
             "foo.rb",
@@ -3630,33 +3631,87 @@ class C {
 
     #[cfg(feature = "ruby")]
     #[test]
-    fn ruby_wrapper_conditions_are_not_statements() {
-        // Only a wrapper's *statements* are read. A condition, a loop
-        // header, a `case` value, a `when` pattern, a `rescue` class
-        // list, an `elsif` condition, a modifier's `condition` field
-        // and an assignment's `left` are expressions: the `identifier`
-        // there spelling `private` is the local assigned at the top —
-        // `private = false` shadows the keyword for the rest of the
-        // body — not the marker, and reading any one of them as the
-        // marker would demote what follows. Measured: Ruby defines the
-        // four methods on branches it takes (`still_public`,
-        // `after_branch`, `modified`, `after_modifier`), every one
-        // public. The marker *inside* a branch does count — Ruby runs
-        // it — so `after_branch` is public after `private` was set
-        // outside and `public` inside the `if`. Each non-statement
-        // position comes after the last real marker, so a position
-        // read as one has nothing after it to be put right. The twin
-        // without the shadowing local is
-        // `ruby_bare_keyword_in_an_expression_is_the_marker_unless_shadowed`.
+    fn ruby_shadowed_keyword_is_a_variable_in_every_position() {
+        // A local named `private` shadows the keyword for the rest of
+        // the body: after `private = false`, the bare word in a
+        // condition, a loop header, a `case` value, a `when` pattern, a
+        // `rescue` class list, an `elsif` condition, a modifier's
+        // `condition` field or an assignment's `left` is the variable,
+        // and so is one in statement position. Measured: Ruby defines
+        // the three methods on branches it takes (`still_public`,
+        // `modified`, `after_modifier`), every one public. What this
+        // pins is the shadow table — with it gone every method here
+        // reads private — and the `unless` modifier's `body` field; the
+        // non-statement positions themselves it cannot discriminate,
+        // since a widened arm that read one finds the same shadowed
+        // local (`~/bca-evidence/1401/perturb.txt`, and the comment on
+        // `is_statement_of`). The twin without the local is
+        // `ruby_bare_keyword_in_an_expression_is_the_marker_unless_shadowed`;
+        // the marker *inside* a wrapper is
+        // `ruby_marker_inside_a_wrapper_sets_the_flag`.
         //
-        // expected: nm = 5 (guarded, still_public, after_branch,
-        // modified, after_modifier), npm = 5.
+        // expected: nm = 4 (guarded, still_public, modified,
+        // after_modifier), npm = 4.
         check_metrics::<RubyParser>(
-            "class L\n  private = false\n  if private\n    def guarded\n      1\n    end\n  end\n  def still_public\n    2\n  end\n  private\n  if true\n    public\n  end\n  def after_branch\n    3\n  end\n  while private\n    break\n  end\n  until private\n    break\n  end\n  for i in [private] do\n  end\n  case private\n  when private\n    1\n  end\n  case private\n  in FalseClass\n    2\n  end\n  begin\n    3\n  rescue private\n    4\n  end\n  if false\n    5\n  elsif private\n    6\n  end\n  private = private\n  def modified\n    4\n  end unless private\n  def after_modifier\n    5\n  end\nend\n",
+            "class L\n  private = false\n  if private\n    def guarded\n      1\n    end\n  end\n  def still_public\n    2\n  end\n  while private\n    break\n  end\n  until private\n    break\n  end\n  for i in [private] do\n  end\n  case private\n  when private\n    1\n  end\n  case private\n  in FalseClass\n    2\n  end\n  begin\n    3\n  rescue private\n    4\n  end\n  if false\n    5\n  elsif private\n    6\n  end\n  private = private\n  def modified\n    4\n  end unless private\n  def after_modifier\n    5\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 5);
-                assert_eq!(metric.npm.class_npm_sum(), 5);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_keyword_in_argument_position_is_read_as_elsewhere() {
+        // A call's arguments are evaluated as any expression is, so a
+        // bare keyword there is the marker (`foo(private)` and `memoize
+        // private` each demote what follows — measured, `d` private in
+        // `E2` and `E3`), a binding there shadows it (`foo(private = 1)`
+        // then `x = private` leaves `m` public, `E1`), and a `def` on
+        // the right of a destructuring assignment is a declaration
+        // (`a, b = def x; end, def y; end` defines both, `E4`). A first
+        // draft read an argument for a `def`, a call or a symbol only,
+        // so `foo(private)` and `foo((private))` disagreed (batch
+        // review).
+        //
+        // expected: E1 nm 1 / npm 1; E2 nm 2 / npm 1; E3 nm 2 / npm 1;
+        // E4 nm 3 / npm 3 — totals nm = 8, npm = 6.
+        check_metrics::<RubyParser>(
+            "class E1\n  foo(private = 1)\n  x = private\n  def m\n    1\n  end\nend\nclass E2\n  def a\n    1\n  end\n  foo(private)\n  def d\n    2\n  end\nend\nclass E3\n  def a\n    1\n  end\n  memoize private\n  def d\n    2\n  end\nend\nclass E4\n  a, b = def x\n  end, def y\n  end\n  def z\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 8);
+                assert_eq!(metric.npm.class_npm_sum(), 6);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_marker_inside_a_wrapper_sets_the_flag() {
+        // A bare marker inside a wrapper's statements runs when the
+        // wrapper does — Ruby's `private` is a method call — and sets
+        // the flag for the rest of the body, so a `public` inside `if
+        // true` undoes the `private` before it, a `private` inside a
+        // `begin` demotes what follows, and a `protected` inside a
+        // `while` body protects it (measured: `In` has `after_branch`
+        // public, `after_begin` private, `after_while` protected). The
+        // walk reads the marker under every wrapper it reads a `def`
+        // under; a walk that read only the `def`s would leave all three
+        // public, and one that ignored wrappers altogether would read
+        // all three private under the first marker.
+        //
+        // expected: nm = 3, npm = 1 (`after_branch`).
+        check_metrics::<RubyParser>(
+            "class In\n  private\n  if true\n    public\n  end\n  def after_branch\n    1\n  end\n  begin\n    private\n  end\n  def after_begin\n    2\n  end\n  while true\n    protected\n    break\n  end\n  def after_while\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3670,7 +3725,7 @@ class C {
         // would (measured: `U.private_instance_methods(false)` is
         // `[after_assign]`, `after_second` public again). Only a local
         // of the same name, assigned earlier, makes the word a variable
-        // — the shape `ruby_wrapper_conditions_are_not_statements`
+        // — the shape `ruby_shadowed_keyword_is_a_variable_in_every_position`
         // pins. The batch review found the first draft reading every
         // expression-position `private` as the variable, so that
         // `x = private` and `x = (private)` disagreed. A keyword in a
@@ -3687,6 +3742,96 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 3);
                 assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_redefinition_under_a_bare_marker_keeps_each_bit() {
+        // A bare marker between two `def x` re-files nothing: each
+        // declaration keeps the flag it was declared under, so
+        // `private; def x; public; def x` is one private declaration
+        // and one public (Ruby's table holds the public one); `def x;
+        // private :x; def x` re-files the first `x` and leaves the
+        // second public; and `def x; def x; private :x` re-files both
+        // (measured: `R2` and `R3` each have `[x]` public, `R5` has it
+        // private). A ledger holding one bit per name — a draft of the
+        // #1401 fix did — reads both of each pair alike, 2 or 0; one
+        // that re-filed the first declaration only would leave `R5`'s
+        // second `x` public. The per-declaration bits with a re-file
+        // covering every declaration before it are what this pins.
+        //
+        // expected: R2 nm = 2, npm = 1; R3 nm = 2, npm = 1; R5 nm = 2,
+        // npm = 0 — totals nm = 6, npm = 2.
+        check_metrics::<RubyParser>(
+            "class R2\n  private\n  def x\n    1\n  end\n  public\n  def x\n    2\n  end\nend\nclass R3\n  def x\n    1\n  end\n  private :x\n  def x\n    2\n  end\nend\nclass R5\n  def x\n    1\n  end\n  def x\n    2\n  end\n  private :x\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 6);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_def_in_a_wrapper_argument_counts() {
+        // A statement wrapper passed as a call argument runs its `def`s
+        // at class scope as a bare one does — parentheses, a `begin`,
+        // an assignment's right side — so each is a declaration. The
+        // first draft read wrappers only in statement position and an
+        // argument list only for a direct `def`, so these counted under
+        // nothing (#1401 review).
+        //
+        // Only the count is pinned. Ruby hands the wrapper's *value* to
+        // the call — its last statement's — so `private((def a; end;
+        // def b; end))` demotes `b` alone and `private(x = def c; end)`
+        // demotes `c` (measured: `H.private_instance_methods(false)` is
+        // `[b, c, d]`). The walk does not resolve a wrapper's value, so
+        // the `def`s inside take the body-wide flag and read public
+        // here — a known gap, not a contract, and so not asserted
+        // (grammar-dispatch section 6); resolving the last statement
+        // of a wrapper argument is the sharper reading if it is ever
+        // worth its complexity.
+        //
+        // expected: nm = 5 (a, b, c, d, bare); nom agrees on 5.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class H\n  private((def a\n  end; def b\n  end))\n  private(x = def c\n  end)\n  private(begin\n    def d\n    end\n  end)\n  def bare\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+                assert_eq!(metric.nom.functions_sum(), 5);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_destructured_for_and_rescue_bindings_shadow_the_keyword() {
+        // The locals that shadow a visibility keyword are not only
+        // `private = …`: a destructuring target, flat (`private, other =
+        // …`), nested (`(a, private) = …`) or splatted (`*private = …`),
+        // a `for` variable and a `rescue => private` variable bind one
+        // too, and after any of them a bare `private` in an expression
+        // is the variable (measured: `D`, `N1`, `N2`, `E` and `G` each
+        // leave their method public). An instance variable or an
+        // attribute target binds no local, so `@private = 1; z =
+        // private` still runs the marker call and `demoted` is private.
+        // The first draft recorded only the plain `identifier` target,
+        // and the other binding forms made the methods private (#1401
+        // review); each nested form is its own grammar node, so each
+        // has its own class here.
+        //
+        // expected: nm = 6, npm = 5 (visible ×4, v; `demoted` private).
+        check_metrics::<RubyParser>(
+            "class D\n  private, other = false, nil\n  x = private\n  def visible\n    1\n  end\nend\nclass N1\n  (a, private) = [1, false]\n  x = private\n  def visible\n    1\n  end\nend\nclass N2\n  *private = [false]\n  x = private\n  def visible\n    1\n  end\nend\nclass E\n  for private in [false]\n  end\n  y = private\n  def visible\n    2\n  end\nend\nclass F\n  @private = 1\n  z = private\n  def demoted\n    3\n  end\nend\nclass G\n  begin\n    raise \"x\"\n  rescue => private\n  end\n  w = private\n  def v\n    4\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 6);
+                assert_eq!(metric.npm.class_npm_sum(), 5);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

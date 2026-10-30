@@ -336,9 +336,11 @@ for historical reference.
 
 - **Groovy's type-position `var` is the same keyword** (#1706). The
   pinned grammar spells `var` as a `type_identifier` in a field (`var
-  field = 1`, `static var s = 2`), a parameter (`def m(var x)`) and
-  the recovery of a modified local (`final var q = 5`, valid Groovy it
-  cannot parse), and there it billed as a type-name *operand* `var`.
+  field = 1`, `static var s = 2`), a parameter (`def m(var x)`), a
+  try-with-resources resource (`try (var r = open())`), a `catch`
+  parameter (`catch (var e)`) and the recovery of a modified local
+  (`final var q = 5`, valid Groovy it cannot parse), and there it
+  billed as a type-name *operand* `var`.
   The `DeclKeyword` row now owns that spelling through a text gate on
   the bytes **and** the parent — `var` is a legal package segment
   (`a.var.B`) and import alias, so in a `qualified_type`, a cast, an

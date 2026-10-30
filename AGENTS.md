@@ -396,6 +396,22 @@ No `BCA_GATE:` line at all is a third state, not a pass: the run
 crashed, was killed, or was interrupted. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md), "Reading the verdict".
 
+A `fail` naming several stages with no code in common is usually the
+host, not the change. Grep the log for `gpg failed to sign` before
+reading any stage: with `commit.gpgsign = true` and no reachable
+`gpg-agent` — the state a host restart leaves — a test fixture's `git
+commit` fails unless the fixture pins `commit.gpgsign false` (the `vcs`
+CLI suites do; the `diff_since` suite, the `role-census` /
+`role-coverage` and `worktree-setup` self-tests do not). During #1401
+one run failed `_pc-test`, `_pc-role-census-test`,
+`_pc-role-coverage-test` and `_pc-worktree-setup-test` that way at once.
+A concurrent cargo build on the same host slowed another run past the
+Node harness's 15 s `execFileSync` limit in `_pc-plugin-test` and made
+twenty `diff_since` fixtures' `git commit`s time out. Every one passed
+clean on the quiet re-run; none was a finding about the tree. The
+check is the same both times: does the failing stage's output name
+something the diff touched?
+
 **`_native.pyi` is stubtest-gated (#673).** The hand-written PyO3 stub
 `big-code-analysis-py/python/big_code_analysis/_native.pyi` is no
 longer "kept in lockstep by hand" on trust alone: `make py-stubtest`

@@ -3973,6 +3973,22 @@ only whether a helper is ever compiled *without* a language it needs,
 never whether it is compiled wherever a caller is, though the derivation
 already listed `go` among the helper's needs (#1528).
 
+**A perturbation sweep whose anchor stopped matching perturbs nothing**
+(#1401). Four `CONST.replace(old, new)` anchors fell out of step with a
+rustfmt re-indent, so `replace` returned the constant unchanged and the
+sweep ran the unperturbed code four times, reporting `0 -> []` for arms
+that had each failed a test an hour earlier. The predicate the table
+answered was "does *this file* fail a test", and the file was the
+original. `.claude/rules/testing.md` now asks for `old != new` beside
+`count(old) == 1`. The same batch found the dump-reading form of the
+error: #1706's fixture held every `var` spelling, the arm was written
+for the parent the author came looking for, and the `catch (var e)`
+the whole-branch review surfaced had been in the fixture all along —
+recovered into an `ERROR` by its neighbours, so the one dump that
+would have shown its parent was the one-line fixture nobody wrote.
+`.claude/rules/grammar-dispatch.md` §6 now asks for a row or a stated
+exclusion per dumped parent, dumped alone.
+
 ---
 
 ## 95. Error recovery inserts tokens that `is_missing()` does not flag

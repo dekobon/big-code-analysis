@@ -1174,10 +1174,11 @@ mod tests {
     /// `descend` / `ascend` move a held chain into a child and back
     /// (#1401): under the child, the child's children name it as their
     /// parent at one more depth; after ascending, the body's own
-    /// members do again. The floor holds: ascending past the body is a
-    /// no-op in a release build, so a consumer that over-ascends reads
-    /// the body's chain and not its parent's. Without a known chain
-    /// both moves are no-ops and the answers keep climbing.
+    /// members do again. Without a known chain there is no chain to
+    /// move, so the depth stays unknown and the answers keep climbing.
+    /// The floor's debug assertion is `ascending_past_the_floor_is_caught`;
+    /// the release-build clamp behind it runs only where that
+    /// assertion is compiled out, so no test in the gate observes it.
     #[cfg(feature = "rust")]
     #[test]
     fn descend_and_ascend_move_the_held_chain_within_its_floor() {
@@ -1226,11 +1227,16 @@ mod tests {
 
         let mut unknown = Ancestors::unknown().of_children(&body);
         unknown.descend(&conditional);
+        assert_eq!(
+            unknown.get().depth(),
+            None,
+            "without a chain a descent records nothing"
+        );
         unknown.ascend();
         assert_eq!(
             unknown.get().parent(&call).map(|p| p.id()),
             Some(consequence.id()),
-            "without a chain the moves are no-ops and the answer climbs"
+            "and the answer still climbs"
         );
     }
 

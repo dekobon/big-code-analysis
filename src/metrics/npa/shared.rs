@@ -202,13 +202,22 @@ pub(crate) fn ruby_method_name<'a>(method: &Node<'a>, source: &'a [u8]) -> Optio
 // keywords flip this flag for every subsequent declaration in the same
 // body until another marker overrides them. The default at the top of
 // every class body is `Public`. The discriminants index `npm`'s
-// per-keyword shadow table.
+// per-keyword shadow table, which is `COUNT` long.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RubyVisibility {
     Public,
     Private,
     Protected,
 }
+
+impl RubyVisibility {
+    /// The number of keywords, for the table indexed by discriminant.
+    pub(crate) const COUNT: usize = 3;
+}
+
+// A keyword added without the bump would index past the shadow table
+// on the first body that spells it; this makes it a build error.
+const _: () = assert!(RubyVisibility::Protected as usize + 1 == RubyVisibility::COUNT);
 
 // Recognises a bare visibility-keyword `identifier` child of a Ruby
 // class body (`private` / `public` / `protected` with no arguments).

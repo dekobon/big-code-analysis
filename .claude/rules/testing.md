@@ -74,6 +74,28 @@ edits and which its mutant. During #1613 a restart left one mutant in
 `doxygen.rs` beside real edits; the resumed agent's `cmp` is what told
 them apart.
 
+**The driver can outlive the session that started it, and then the
+mutant comes back.** A harness restart kills the *agent*, not
+necessarily the background process it launched: during #1401 a sweep
+driver survived a restart and kept perturbing, so the tree `cmp`ed
+clean against the `.orig` copy, a test run two minutes later reported
+218 passed / 5 failed from a mutant with one arm removed, and a second
+`cmp` was dirty again. The order after any restart is `pgrep -af
+'<driver>[.]py'` **first**, kill what it finds, *then* `cmp` and
+restore — a clean `cmp` while the driver is alive is a snapshot of
+whichever perturbation it is between, not a verdict.
+
+**A perturbation whose replacement equals its anchor runs the
+unperturbed code and reports zero.** Drivers that build replacements by
+`CONST.replace(old, new)` go wrong the moment the anchor stops matching
+— a rustfmt re-indent moved four of #1401's arm lists by four columns,
+`replace` returned the constant unchanged, and the sweep reported
+`0 -> []` for four arms that had each failed a test an hour earlier.
+The table looked like four arms had lost their coverage; the driver had
+stopped editing. Assert `old != new` beside `count(old) == 1` before
+every write, and read a perturbation that newly passes as a harness
+question before a coverage question (lesson 94).
+
 **A broken harness reports a plausible failure count, not an error.**
 In that same sweep the restore silently reverted the gate to its `main`
 version, so every subsequent perturbation ran the *new* test suite
