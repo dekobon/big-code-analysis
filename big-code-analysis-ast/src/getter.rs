@@ -122,13 +122,14 @@ macro_rules! keyword_roles {
 /// !in b`), bills nothing; an owner-only row (Kotlin's infix `and`, whose
 /// name is an `identifier`; every statement-paying language's `Branch`)
 /// lists no payer and bills nothing. The control-flow rows' keyword
-/// payers (`if`, `for`, …) are ungated on every row but one, so a token
+/// payers (`if`, `for`, …) are ungated on every row but two, so a token
 /// stranded under `ERROR` bills here exactly as the `get_op_type` arm it
-/// left billed it. The one is Python's `If gated_by not_under_ternary`,
-/// which declines the ternary's `if` for the counting consumers;
-/// Halstead still bills that spelling, through the byte-less
-/// `get_op_type` arm Python keeps `If` in, so a change to either must
-/// keep the two in step.
+/// left billed it. The two are Python's `If gated_by not_under_ternary`,
+/// which declines the ternary's `if` for the counting consumers, and
+/// Rust's `For gated_by not_in_type_syntax`, which declines `impl T for
+/// S` and `for<'a>` (#1720); Halstead still bills those spellings,
+/// through the byte-less `get_op_type` arm each language keeps the
+/// keyword in, so a change to either side must keep the two in step.
 macro_rules! paying_roles {
     ($roles:ident) => {
         paying_roles!(@emit $roles []);
@@ -1854,13 +1855,46 @@ mod keyword_role_tests {
         b"def f(a, xs):\n    if a:\n        pass\n    elif a:\n        pass\n    else:\n        pass\n    assert a\n    for x in xs:\n        pass\n    while a:\n        break\n    try:\n        pass\n    except E:\n        pass\n",
         &["elif", "assert", "for", "while", "except"]
     );
+    // Rust's `for` is deliberately not in its list, for Python's reason:
+    // the loop's keyword bills through the row, but the type-syntax
+    // spellings — `impl T for S`, `for<'a>`, which the `Loop` row's gate
+    // declines (#1720) — still bill through the byte-less arm.
     control_keywords_test!(
         rust_control_keywords_are_billed_by_the_rows,
         "rust",
         RustCode,
         b"fn f(a: bool, xs: &[u8]) { if a { } else { } for _x in xs { } while a { break; } loop { break; } }\n",
-        &["if", "for", "while", "loop"]
+        &["if", "while", "loop"]
     );
+
+    /// Every `for` in the source bills as an *operator* through the walk
+    /// (#1720 left Halstead untouched): the loop's through the `Loop`
+    /// row, the four type-syntax spellings through the byte-less arm the
+    /// row's gate hands them to — so the walk bills all five, the rows
+    /// one, and the byte-less arm (which sees every spelling) five.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_type_syntax_for_still_bills_as_an_operator() {
+        let source = b"trait T {}\nstruct S;\nimpl T for S {}\nfn f<F: for<'a> Fn(&'a u8)>(_: F) {}\ntype P = for<'a> fn(&'a u8);\nfn a(_: impl for<'a> Fn(&'a u8)) {}\nfn r(xs: &[u8]) { for _x in xs {} }\n";
+        let for_operators = |roles: Vec<(&str, TokenRole)>| {
+            roles
+                .into_iter()
+                .filter(|&(kind, role)| kind == "for" && role == TokenRole::Operator)
+                .count()
+        };
+        let via_walk = for_operators(roles_of::<crate::RustCode>(
+            source,
+            crate::RustCode::get_op_type_with_code,
+        ));
+        let via_rows = for_operators(roles_of::<crate::RustCode>(
+            source,
+            crate::RustCode::get_paying_role,
+        ));
+        let via_byte_less = for_operators(roles_of::<crate::RustCode>(source, |n, _, a| {
+            crate::RustCode::get_op_type(n, a)
+        }));
+        assert_eq!((via_walk, via_rows, via_byte_less), (5, 1, 5));
+    }
 
     /// A C-family modifier, declaration keyword and primitive reach
     /// `Operator` through `get_op_type_with_code` and through

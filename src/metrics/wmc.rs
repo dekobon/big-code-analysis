@@ -3515,6 +3515,23 @@ mod tests {
         );
     }
 
+    // A higher-ranked bound in a method's signature is type syntax, not a
+    // decision (#1720): the method's cyclomatic stays 1 and so does the
+    // impl's WMC, where the `for` token used to add one to both. The
+    // loop in the second method is the control that still counts.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_type_syntax_for_in_a_method_signature_adds_no_wmc() {
+        check_metrics::<RustParser>(
+            "struct S;\nimpl S {\n    fn f<F: for<'a> Fn(&'a u8)>(&self, _: F) {}\n    fn g(&self, xs: &[u8]) { for _x in xs {} }\n}\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.total_wmc(), 3);
+            },
+        );
+    }
+
     #[cfg(feature = "rust")]
     #[test]
     fn rust_method_with_if_adds_to_wmc() {

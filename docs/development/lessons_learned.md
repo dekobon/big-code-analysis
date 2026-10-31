@@ -3927,7 +3927,11 @@ the whole-branch review surfaced had been in the fixture all along —
 recovered into an `ERROR` by its neighbours, so the one dump that
 would have shown its parent was the one-line fixture nobody wrote.
 `.claude/rules/grammar-dispatch.md` §6 now asks for a row or a stated
-exclusion per dumped parent, dumped alone.
+exclusion per dumped parent, dumped alone. The same week, #1720's own
+table of the Rust `for` token's type-syntax parents named three and
+the fix was written with three; the review's one-line dump of `fn f(_:
+impl for<'a> Fn(&'a u8))` showed the fourth, `abstract_type`, which no
+fixture of the issue's had been written to produce.
 
 ---
 

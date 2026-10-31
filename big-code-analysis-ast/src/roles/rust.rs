@@ -32,6 +32,26 @@ fn has_alternative<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
     node.child_by_field_name("alternative").is_some()
 }
 
+/// Whether a `for` keyword is a loop's and not type syntax (#1720): the
+/// token's parent is not an `impl_item` (`impl T for S`), a
+/// `higher_ranked_trait_bound` (`F: for<'a> Fn(&'a u8)`, in a generic
+/// list or a `where` clause), a `for_lifetimes` (`for<'a> fn(&'a u8)`)
+/// or an `abstract_type` (`impl for<'a> Fn(&'a u8)` in argument or
+/// return position, where the grammar puts the token directly under the
+/// `impl` type rather than under a bound). Read off the chain, so
+/// `O(1)`. A `for` inside a macro's `token_tree` / `token_repetition`
+/// has the tree as its parent and stays paid — a policy about opaque
+/// macro bodies that applies to `if` / `while` / `loop` there too and
+/// is pinned separately (`rust_macro_token_tree_keywords_score`).
+fn not_in_type_syntax<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    !ancestors.parent(node).is_some_and(|parent| {
+        matches!(
+            parent.kind_id().into(),
+            Rust::ImplItem | Rust::HigherRankedTraitBound | Rust::ForLifetimes | Rust::AbstractType
+        )
+    })
+}
+
 /// Whether a `match_pattern` carries a guard: its `condition` field.
 fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     node.child_by_field_name("condition").is_some()
@@ -123,12 +143,12 @@ role_table! {
     Switch { owns [MatchExpression] }
     // `for`, `while` (and `while let`, the same kind) and `loop`, each
     // paid at its keyword. The `for` keyword is also type syntax —
-    // `impl T for S`, `for<'a> Fn(…)`, `for<'a> fn(…)` — which pays here
-    // too at this pin (#1720 removes that in a separate change); a
-    // `for` inside a macro's `token_tree` pays and stays paid.
+    // `impl T for S`, `for<'a> Fn(…)`, `for<'a> fn(…)`, `impl for<'a>
+    // Fn(…)` — which decides nothing and is declined by the payer's gate
+    // (#1720); a `for` inside a macro's `token_tree` pays and stays paid.
     Loop {
         owns [ForExpression, WhileExpression, LoopExpression]
-        pays [For, While, Loop]
+        pays [For gated_by not_in_type_syntax, While, Loop]
     }
     Catch { absent "Rust has no exception handling; `?` is an exit and `match` on a `Result` a switch" }
     // `else if` is an `if_expression` directly inside an `else_clause`,

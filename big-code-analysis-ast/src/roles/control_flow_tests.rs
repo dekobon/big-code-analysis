@@ -1518,6 +1518,42 @@ mod rust {
         );
     }
 
+    // The `for` keyword in its four type-syntax positions — the
+    // `impl_item`'s, a `higher_ranked_trait_bound`'s in a generic list
+    // and in a `where` clause, a `for_lifetimes`' in a type alias and a
+    // parameter type, an `abstract_type`'s in an `impl for<'a> Fn(…)`
+    // argument and return type — pays nothing (#1720); the loop's `for`
+    // beside them does, and so does one inside a macro's `token_tree`,
+    // which is the opaque-body policy this row leaves alone.
+    #[test]
+    fn for_keyword_pays_only_as_a_loop() {
+        let source = b"trait T {}\nstruct S;\nimpl T for S {}\nfn f<F: for<'a> Fn(&'a u8)>(_: F) {}\nfn g<F>(_: F) where F: for<'a> Fn(&'a u8) {}\ntype P = for<'a> fn(&'a u8);\nfn h(_: for<'a> fn(&'a u8)) {}\nfn a(_: impl for<'a> Fn(&'a u8)) {}\nfn b() -> impl for<'a> Fn(&'a u8) { |_: &u8| () }\nfn r(xs: &[u8]) { for _x in xs {} }\nfn m() { m!(for x in xs {}); }\n";
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<RustCode>(source, |node, chain| {
+            if node.kind_id() == Rust::For as u16 {
+                let ancestors = Ancestors::known(chain);
+                seen.push((
+                    ancestors.parent(node).map(|p| p.kind()),
+                    crate::roles::rust::r#loop::pays_at_leaf(node, source, ancestors),
+                ));
+            }
+        });
+        assert_eq!(
+            seen,
+            [
+                (Some("impl_item"), false),
+                (Some("higher_ranked_trait_bound"), false),
+                (Some("higher_ranked_trait_bound"), false),
+                (Some("for_lifetimes"), false),
+                (Some("for_lifetimes"), false),
+                (Some("abstract_type"), false),
+                (Some("abstract_type"), false),
+                (Some("for_expression"), true),
+                (Some("token_tree"), true),
+            ]
+        );
+    }
+
     #[test]
     fn is_else_if_is_the_row_and_tells_a_chain_from_a_nested_if() {
         let source = b"fn f(a: i32) { if a == 1 { } else if a == 2 { } else { if a == 3 { } } }\n";

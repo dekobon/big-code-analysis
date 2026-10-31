@@ -595,11 +595,11 @@ mod tests {
     /// Fn(…)`, `for<'a> fn(…)` and a macro's `token_tree`, its match
     /// guard's `if`; Python's `if` in the ternary and a comprehension
     /// filter, its `for` in a comprehension clause. Each row here is the
-    /// value the row-reading body produces *today*, which is the value
-    /// the kind arms produced before it — the migration moves none of
-    /// them. #1720 then removes the three Rust type-syntax decisions in
-    /// its own commit, and these rows move with it; the macro row and
-    /// the guard row are pinned on purpose and stay.
+    /// value the row-reading body produces; the zero-drift migration
+    /// (#1697) pinned the values the kind arms produced before it, and
+    /// #1720 then removed the three Rust type-syntax decisions in its
+    /// own commit, moving exactly those rows from 2 to 1 — the macro row
+    /// and the guard row are pinned on purpose and stay.
     ///
     /// Values are the named space's own, never a file sum: a function
     /// holding one ternary has one decision and value 2.
@@ -614,13 +614,13 @@ mod tests {
             (c.cyclomatic(), c.cyclomatic_modified())
         }
 
-        // `impl T for S {}`: the `for` is the `impl_item`'s, and pays one
-        // decision on the impl space at this pin.
+        // `impl T for S {}`: the `for` is the `impl_item`'s, type syntax
+        // that decides nothing (#1720), so the impl space is at its base.
         #[cfg(feature = "rust")]
         #[test]
         fn rust_for_in_impl_header() {
             let source = b"trait T {}\nstruct S;\nimpl T for S {}\n";
-            assert_eq!(cyclomatic_of(LANG::Rust, source, "S"), (2, 2));
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "S"), (1, 1));
             assert_eq!(
                 cyclomatic_of(LANG::Rust, source, "T"),
                 (1, 1),
@@ -629,13 +629,14 @@ mod tests {
         }
 
         // A higher-ranked trait bound, in the generic list and in a
-        // `where` clause: the `for` is the `higher_ranked_trait_bound`'s.
+        // `where` clause: the `for` is the `higher_ranked_trait_bound`'s
+        // and decides nothing (#1720).
         #[cfg(feature = "rust")]
         #[test]
         fn rust_for_in_hrtb_bound() {
             assert_eq!(
                 cyclomatic_of(LANG::Rust, b"fn f<F: for<'a> Fn(&'a u8)>(_: F) {}\n", "f"),
-                (2, 2)
+                (1, 1)
             );
             assert_eq!(
                 cyclomatic_of(
@@ -643,27 +644,40 @@ mod tests {
                     b"fn g<F>(_: F) where F: for<'a> Fn(&'a u8) {}\n",
                     "g"
                 ),
-                (2, 2)
+                (1, 1)
             );
         }
 
         // A function-pointer type's lifetimes: the `for` is the
-        // `for_lifetimes` node's, in a type alias (the unit's own
-        // decision) and in a parameter type.
+        // `for_lifetimes` node's, in a type alias (on the unit) and in a
+        // parameter type, and decides nothing in either (#1720). The
+        // control beside them is a real `for` loop, which still pays.
         #[cfg(feature = "rust")]
         #[test]
         fn rust_for_in_function_pointer_type() {
-            let source = b"type P = for<'a> fn(&'a u8);\nfn h(_: for<'a> fn(&'a u8)) {}\n";
+            let source = b"type P = for<'a> fn(&'a u8);\nfn h(_: for<'a> fn(&'a u8)) {}\nfn r(xs: &[u8]) { for _x in xs {} }\n";
             let root = space_verbatim(LANG::Rust, source, MetricsOptions::default());
             assert_eq!(
                 (
                     root.metrics.cyclomatic.cyclomatic(),
                     root.metrics.cyclomatic.cyclomatic_modified()
                 ),
-                (2, 2),
-                "the type alias's `for` is paid on the unit"
+                (1, 1),
+                "the type alias's `for` is not paid on the unit"
             );
-            assert_eq!(cyclomatic_of(LANG::Rust, source, "h"), (2, 2));
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "h"), (1, 1));
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "r"), (2, 2));
+        }
+
+        // An `impl for<'a> Fn(…)` in argument or return position puts the
+        // `for` directly under the `abstract_type`, not under a bound —
+        // the fourth type-syntax parent, found by the #1720 review.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_for_in_impl_trait_type() {
+            let source = b"fn a(_: impl for<'a> Fn(&'a u8)) {}\nfn b() -> impl for<'a> Fn(&'a u8) { |_: &u8| () }\n";
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "a"), (1, 1));
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "b"), (1, 1));
         }
 
         // Inside a macro invocation the parser sees a `token_tree`, and

@@ -416,6 +416,23 @@ for historical reference.
 
 ### Fixed
 
+- **Rust's type-syntax `for` no longer scores a cyclomatic decision**
+  (#1720). The `for` keyword was counted wherever the grammar emitted
+  it, so `impl T for S {}` reported cyclomatic 2 on every trait impl,
+  and a higher-ranked bound (`F: for<'a> Fn(&'a u8)`, in a generic
+  list or a `where` clause), a function-pointer type's lifetimes
+  (`for<'a> fn(&'a u8)`) and an `impl for<'a> Fn(…)` argument or
+  return type each inflated the enclosing function by one, in both
+  tiers. The `Loop` row's `for` payer is now gated on its parent not
+  being one of those four type-syntax nodes; a `for` loop, and a `for`
+  inside a macro's token tree (an opaque-body policy that also covers
+  `if` / `while` / `loop` there and is pinned unchanged), pay as
+  before. Halstead is untouched: every `for` still bills as an
+  operator. MI moves with cyclomatic, and so does WMC where the
+  removed decision was a method's (a bound in a method signature
+  lowered its impl's sum by one); nothing else does. The integration
+  snapshots record the change on 387 Rust spaces.
+
 - **The quarterly mutation-testing gate can run, and finish** (#1710,
   #1726). Three defects, none of which ever produced a red job. The
   `cargo mutants`

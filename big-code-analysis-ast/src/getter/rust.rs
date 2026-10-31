@@ -85,9 +85,10 @@ impl Getter for RustCode {
             return TokenRole::Unknown;
         }
         // And the `Branch` / `Loop` rows' keyword payers (#1697): `if`,
-        // `for`, `while`, `loop`, each ungated on its row, so a `for` in
-        // type syntax or a macro's token tree bills as the operator it
-        // always did.
+        // `for`, `while`, `loop`. A `for` in type syntax is declined by
+        // its row's gate (#1720) and falls through to the byte-less arm,
+        // which keeps `For`, so every `for` — the loop's, a macro's token
+        // tree's, the `impl` header's — bills as the operator it always did.
         if comparison::pays_at_token_kind(kind, node, code, ancestors)
             || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
             || branch::pays_at_token_kind(kind, node, code, ancestors)
@@ -143,11 +144,17 @@ impl Getter for RustCode {
             // rows' payers and `get_paying_role` bills them (#1697) — the
             // `if` expression's keyword and a match guard's alike, so the
             // `Guard` row's `under MatchPattern` gate no longer leaves a
-            // spelling to this arm.
-            // role-bypass: allow(Comparison) — the operator classification of the spellings
-            // the row's `under BinaryExpression` gate leaves out
+            // spelling to this arm. `for` stays: the `Loop` row's payer
+            // gate declines the type-syntax spellings (`impl T for S`,
+            // `for<'a>`) so cyclomatic does not count them (#1720), while
+            // Halstead bills every `for` as it always has — the loop's
+            // reaches `get_paying_role` first and never gets here, as
+            // Python's ternary `if` does.
+            // role-bypass: allow(Comparison, Loop) — the operator classification of the
+            // spellings the `Comparison` row's `under BinaryExpression` gate and the `Loop`
+            // row's `not_in_type_syntax` gate leave out
             LT | LT2 | GT | LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break
-            | Continue | Else | In | Match | Return | EQ | COMMA | DASHGT | QMARK | AMP
+            | Continue | Else | For | In | Match | Return | EQ | COMMA | DASHGT | QMARK | AMP
             | DOTDOT | DOTDOTEQ | DASH | PIPE | CARET | LTLT | GTGT | PERCENT | PLUSEQ | DASHEQ
             | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | DOT
             | SEMI | COLON | COLONCOLON => TokenRole::Operator,
