@@ -42,7 +42,7 @@ pub(crate) use vcs::*;
     about = "Analyze source code.",
     subcommand_required = true,
     arg_required_else_help = true,
-    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  metric gate: `check` thresholds exceeded / `vcs commit --fail-above` breached / `diff --exit-code` non-empty (default contract)\n  3-5  `check --strict-exit-codes` only: tiered violation severity\n\nExit code 1 is always a tool error, never a metric signal — usage errors\n(unknown flag, bad subcommand, malformed `--threshold` value) exit 1, not 2.\nCodes 2-5 are gate signals emitted only by `check`, `vcs commit --fail-above`,\nand `diff` / `diff-baseline` when run with the opt-in `--exit-code` flag.\nEvery other subcommand exits 0 on success and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  https://dekobon.github.io/big-code-analysis/migration.html"
+    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  metric gate: `check` thresholds exceeded / `vcs commit --fail-above` breached / `diff --exit-code` non-empty (default contract)\n  3-5  `check --exit-codes=tiered` only: splits the violation case by severity (2 new offenders, 3 regressions, 4 both, 5 hard breach at the soft tier)\n\nExit code 1 is always a tool error, never a metric signal — usage errors\n(unknown flag, bad subcommand, malformed `--threshold` value) exit 1, not 2.\nCodes 2-5 are gate signals emitted only by `check`, `vcs commit --fail-above`,\nand `diff` / `diff-baseline` when run with the opt-in `--exit-code` flag.\nEvery other subcommand exits 0 on success and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  https://dekobon.github.io/big-code-analysis/migration.html"
 )]
 pub struct Cli {
     #[clap(flatten)]
@@ -492,8 +492,9 @@ pub(crate) enum Command {
     /// Check per-function metrics against thresholds. Exits 2 when any
     /// threshold is exceeded; reserve exit 1 for tool errors so CI can
     /// distinguish "metric regression" from "tool crashed".
-    /// `--strict-exit-codes` opts into tiered codes (2-5) that split the
-    /// violation case by severity.
+    /// `--exit-codes=tiered` opts into tiered codes (2-5) that split the
+    /// violation case by severity: 2 new offenders, 3 regressions, 4
+    /// both, 5 a hard breach at the soft tier.
     ///
     /// Streams: the offender rows go to stdout, so `bca check | wc -l`
     /// and `bca check 2>/dev/null` see them. The summary footer,

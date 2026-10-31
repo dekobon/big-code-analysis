@@ -54,6 +54,25 @@ fn help_for(args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("help is utf-8")
 }
 
+/// The body of one flag's help entry: everything after the rendered
+/// `flag_line` up to the blank line that separates it from the next
+/// flag. The flag line is matched as a whole line, so a mention of the
+/// flag in an earlier entry's prose or in the usage line cannot select
+/// the wrong block; pass it exactly as clap renders it, including the
+/// `-x, ` short alias when the flag has one. Panics when no such line
+/// is rendered, so a renamed flag fails here rather than as a vacuous
+/// match on an empty entry.
+fn help_entry<'a>(help: &'a str, flag_line: &str) -> &'a str {
+    let Some(line) = help.lines().find(|line| line.trim_start() == flag_line) else {
+        panic!("help does not render `{flag_line}` as a flag line");
+    };
+    let anchor = format!("\n{line}\n");
+    let (_, after) = help
+        .split_once(&anchor)
+        .expect("a rendered help line is findable by its own text");
+    after.split("\n\n").next().expect("non-empty help entry")
+}
+
 /// Scan `text` for a `#NNN` issue breadcrumb — a `#` immediately
 /// followed by 2-4 digits. Version-like `1.2.3` text has no `#`, so it is
 /// never matched. Returns the offending `#NNN` slice for the panic
@@ -120,6 +139,44 @@ fn format_flags_use_format_value_name() {
             args.join(" ")
         );
     }
+}
+
+/// The exit-code prose names the live `--exit-codes=tiered` spelling.
+/// `--strict-exit-codes` is the hidden deprecated alias: clap omits its
+/// own entry from the flag list, so the only way it can reach help is
+/// through hand-written prose, which is what this guards.
+#[test]
+fn exit_code_help_names_live_tiered_flag() {
+    for args in [&[][..], &["check"][..]] {
+        let help = help_for(args);
+        assert!(
+            help.contains("--exit-codes=tiered"),
+            "`bca {} --help` should name `--exit-codes=tiered`",
+            args.join(" ")
+        );
+        assert!(
+            !help.contains("--strict-exit-codes"),
+            "`bca {} --help` names the deprecated `--strict-exit-codes` alias",
+            args.join(" ")
+        );
+    }
+}
+
+/// `--report-suppressed` must send readers to the `check` flag that
+/// actually selects the SARIF dialect (`--report-format`), not to the
+/// deprecated `--format` alias.
+#[test]
+fn report_suppressed_help_names_report_format() {
+    let help = help_for(&["check"]);
+    let entry = help_entry(&help, "--report-suppressed");
+    assert!(
+        entry.contains("--report-format sarif"),
+        "`--report-suppressed` text should name `--report-format sarif`: {entry}"
+    );
+    assert!(
+        !entry.contains("`--format"),
+        "`--report-suppressed` text still names the deprecated `--format` alias: {entry}"
+    );
 }
 
 /// The `--config` example must render as a readable indented block, not

@@ -1,8 +1,10 @@
 //! Integration tests for the tiered exit codes added by issue #385.
 //!
 //! `bca check` keeps the stable 0/1/2 contract by default; passing
-//! `--strict-exit-codes` (or `[check] exit_codes = "tiered"` in
-//! `bca.toml`) splits exit 2 by severity:
+//! `--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
+//! `bca.toml`) splits exit 2 by severity. The tests below drive the
+//! deprecated `--strict-exit-codes` alias on purpose, to keep its
+//! warn-and-honour path covered:
 //!
 //! - `2` — new offenders only.
 //! - `3` — baseline regressions only.
@@ -74,7 +76,7 @@ fn default_mode_exits_two_on_violation() {
 
 #[test]
 fn default_mode_collapses_regression_to_two() {
-    // A regression exits 3 under `--strict-exit-codes`; in the default
+    // A regression exits 3 under tiered exit codes; in the default
     // contract it must collapse to 2. This is the discriminating control
     // for the default mode — it proves the tiered split does not leak
     // when the flag is absent (a plain violation test cannot, because

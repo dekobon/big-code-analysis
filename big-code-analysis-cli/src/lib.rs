@@ -991,7 +991,7 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
     }
 
     let mut hint = String::from(
-        "note: the CLI was restructured into subcommands. See migration.md for the full mapping.\n",
+        "note: the CLI was restructured into subcommands. See the migration guide for the full mapping:\n  https://dekobon.github.io/big-code-analysis/migration.html\n",
     );
     for line in &lines {
         hint.push_str(line);

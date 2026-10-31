@@ -112,7 +112,7 @@ CLI `--threshold` flags override values read from this file."
     /// dropping it. Offenders silenced by an in-source `bca: suppress`
     /// marker or covered by the baseline are still kept out of the gate
     /// (exit code and offender rows are unaffected), but are emitted into
-    /// the `--format sarif` document carrying a SARIF
+    /// the `--report-format sarif` document carrying a SARIF
     /// `suppressions` entry — GitHub Code Scanning renders them as
     /// suppressed (closed) alerts so the debt stays visible. Only the
     /// SARIF format represents suppression; other formats ignore the

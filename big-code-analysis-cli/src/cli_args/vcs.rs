@@ -40,9 +40,16 @@ impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
     }
 }
 
+// The vcs surface landed in #328.
 /// Flags for `bca vcs` — change-history (VCS) metrics over a git
-/// working tree (issue #328). Path / include / exclude / exclude-tests /
-/// no-ignore are inherited from the global options.
+/// working tree. The "Input selection" group
+/// ([`WalkSelectionArgs`]: `--paths` / `--include` / `--exclude` /
+/// `--no-ignore` / …) and the "Walker tuning" group
+/// ([`WalkTuningArgs`]: `--jobs` / `--exclude-tests` / …) are flattened
+/// in below rather than inherited from the root; only the
+/// [`UniversalArgs`] flags come from `bca` itself. The `global = true`
+/// flags below propagate into the `vcs` subcommands (`commit` /
+/// `trend`) as well.
 #[derive(Args, Debug)]
 pub(crate) struct VcsArgs {
     // Walk-selection / tuning groups (#597) are flattened non-`global`,

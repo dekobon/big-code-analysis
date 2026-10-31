@@ -152,7 +152,8 @@ recognized old flags and their new equivalents before clap's own error:
 
 ```text
 $ bca --metrics -O markdown
-note: the CLI was restructured into subcommands. See migration.md for the full mapping.
+note: the CLI was restructured into subcommands. See the migration guide for the full mapping:
+  https://dekobon.github.io/big-code-analysis/migration.html
   --metrics  ->  bca metrics
   -O markdown  ->  bca report markdown|html [--top N] [--strip-prefix P]
   Run `bca --help` for the new command list.

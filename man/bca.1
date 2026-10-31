@@ -56,7 +56,7 @@ bca\-list\-metrics(1)
 List the metrics this tool can compute and exit
 .TP
 bca\-check(1)
-Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
+Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-exit\-codes=tiered` opts into tiered codes (2\-5) that split the violation case by severity: 2 new offenders, 3 regressions, 4 both, 5 a hard breach at the soft tier
 .TP
 bca\-init(1)
 Scaffold the canonical adoption files (`bca.toml` manifest, `.bcaignore`, `.bca\-baseline.toml`) in the current directory. Replaces the six\-step copy\-paste flow from the book\*(Aqs adoption recipe. Refuses to overwrite existing files without `\-\-force`
@@ -74,7 +74,7 @@ Exit codes:
   0  success
   1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)
   2  metric gate: `check` thresholds exceeded / `vcs commit \-\-fail\-above` breached / `diff \-\-exit\-code` non\-empty (default contract)
-  3\-5  `check \-\-strict\-exit\-codes` only: tiered violation severity
+  3\-5  `check \-\-exit\-codes=tiered` only: splits the violation case by severity (2 new offenders, 3 regressions, 4 both, 5 hard breach at the soft tier)
 
 Exit code 1 is always a tool error, never a metric signal — usage errors
 (unknown flag, bad subcommand, malformed `\-\-threshold` value) exit 1, not 2.

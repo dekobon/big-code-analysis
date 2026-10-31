@@ -151,7 +151,7 @@ pub(crate) fn run_check(
     );
 
     // `--no-fail` always forces exit 0; otherwise map the outcome to the
-    // process exit code (tiered when `--strict-exit-codes` is set, the
+    // process exit code (tiered under `--exit-codes=tiered`, the
     // stable 0/1/2 contract otherwise). A clean run returns `None` and
     // the process exits 0 implicitly.
     if !args.no_fail

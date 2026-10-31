@@ -805,6 +805,19 @@ fn legacy_hint_recognizes_old_metrics() {
     assert!(hint.contains("--metrics"), "{hint}");
 }
 
+/// The hint points at the published migration guide by URL — the same
+/// one `bca --help`'s footer links — not at a bare `migration.md`
+/// filename that means nothing outside a source checkout.
+#[test]
+fn legacy_hint_links_the_published_migration_guide() {
+    let hint = legacy_hint(os_args(&["cli", "--metrics"])).expect("hint");
+    assert!(
+        hint.contains("https://dekobon.github.io/big-code-analysis/migration.html"),
+        "{hint}"
+    );
+    assert!(!hint.contains("migration.md"), "{hint}");
+}
+
 #[test]
 fn legacy_hint_recognizes_output_format_json_with_legacy_action() {
     // -O json next to --metrics is unambiguously legacy and should
