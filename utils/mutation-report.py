@@ -33,6 +33,15 @@ import pathlib
 import sys
 
 SUMMARY_PREFIX = "shard-summary-"
+# The crate a mutated path belongs to, keyed by its leading directory.
+# From the repo root cargo-mutants mutates only the root package, so a
+# repro for a file in another crate needs `--package`. The workflow
+# selects from exactly these; a path outside them gets no flag and a
+# note, rather than a guessed package name the command would reject.
+PACKAGE_BY_DIR = {
+    "src": None,
+    "big-code-analysis-ast": "big-code-analysis-ast",
+}
 EXIT_SUCCESS = 0
 EXIT_FOUND_PROBLEMS = 2
 EXIT_TIMEOUT = 3
@@ -176,14 +185,43 @@ def report(
     missed = [line for k in sorted(complete) for line in complete[k]["missed"]]
     timeout = [line for k in sorted(complete) for line in complete[k]["timeout"]]
     by_file = collections.Counter(line.split(":", 1)[0] for line in missed)
+    # Ties sort by path so two runs with the same counts list the same
+    # order; `most_common` alone would follow shard-then-line order.
+    ranked = sorted(by_file.items(), key=lambda item: (-item[1], item[0]))
+    caught = sum(s["caught"] for s in complete.values())
+    unviable = sum(s["unviable"] for s in complete.values())
 
     lines = [
-        "The scheduled `mutation-test.yml` run reported on its shards.",
+        "The scheduled `mutation-test.yml` run changed one expression at a time "
+        "in the metric and classifier code (`+=` to `-=`, a predicate's body to "
+        "`true`, a match guard dropped), re-ran the test suite against each "
+        "change, and recorded the ones the suite still passed under. Each "
+        "*missed* mutant below is a place where a bug of that shape would ship "
+        "green: no test's expected value depends on that line as written. Most "
+        "are coverage gaps; a few are changes with no observable effect.",
+        "",
+        "**To resolve this issue**, every missed mutant needs one of: a test "
+        "whose expected value differs under it, or an `exclude_re` entry in "
+        "`.cargo/mutants.toml` with the reason beside it, reserved for a "
+        "mutant shown to behave identically on every reachable input, side "
+        "effects and panics included (a `match` arm nothing can reach, a "
+        "branch a helper's earlier return makes dead). A timed-out mutant is "
+        "different: the suite did notice it, by never finishing. Read its log "
+        "under the shard artifact's `log/`; if the mutation made a loop "
+        "non-terminating, a test that bounds the loop (an iteration count, a "
+        "deadline) kills it outright, and where no such test is cheap an "
+        "`exclude_re` with the reason `non-terminating under mutation` is the "
+        "accepted treatment. If instead the test is merely slow, fix the test. "
+        "Close this once a run in which every shard completed reports zero "
+        "missed and zero timed out. A run with escapes comments here; a clean "
+        "run files nothing, so read its `mutation-report` artifact. Unviable "
+        "mutants did not compile and are not work.",
         "",
         f"- Run: {run_url}",
         f"- Shards complete: {len(complete)} of {shard_count}",
         f"- Missed mutants: {len(missed)}",
         f"- Timed-out mutants: {len(timeout)}",
+        f"- Caught: {caught}; unviable: {unviable}",
     ]
     # A shard that records an escape exits 2 or 3, so the matrix result
     # is `failure` on every ordinary run with escapes, and that failure
@@ -233,13 +271,40 @@ def report(
         )
     if by_file:
         lines += ["", f"## Files with the most missed mutants (top {TOP_FILES})", ""]
+        lines += [f"- `{path}`: {count}" for path, count in ranked[:TOP_FILES]]
+        top = ranked[0][0]
+        top_dir = top.split("/", 1)[0]
         lines += [
-            f"- `{path}`: {count}" for path, count in by_file.most_common(TOP_FILES)
+            "",
+            "Start at the top: that is where the suite is thinnest. Each file's "
+            "escapes can be reproduced alone in minutes, without the whole run:",
+            "",
+            "```",
         ]
+        if top_dir in PACKAGE_BY_DIR:
+            package = PACKAGE_BY_DIR[top_dir]
+            flag = f"--package {package} " if package else ""
+            lines += [f"cargo mutants --in-place {flag}-f {top}", "```"]
+        else:
+            lines += [
+                f"cargo mutants --in-place -f {top}",
+                "```",
+                "",
+                f"`{top}` is outside the crates this report knows; add "
+                "`--package <crate>` for the one that owns it, or the "
+                "selection is empty.",
+            ]
     if missed:
         lines += [
             "",
             f"## First {min(MISSED_SAMPLE_LINES, len(missed))} missed mutants",
+            "",
+            "Read a line as `file:line:col: what changed, in which function`. "
+            "`replace += with -= in Stats::merge` means the operator at that "
+            "position was flipped and no test noticed; the remedy is a test "
+            "whose expected value differs under the flip. For `+=` to `-=` that "
+            "is a non-zero amount being merged in: a starting total of zero "
+            "discriminates, a merged-in zero does not.",
             "",
             "```",
             *missed[:MISSED_SAMPLE_LINES],
@@ -247,9 +312,10 @@ def report(
         ]
     lines += [
         "",
-        "Download the `cargo-mutants-report-<shard>` artifacts for each shard's "
-        "full `mutants.out/`. See `docs/development/mutation_testing.md` for "
-        "triage guidance.",
+        "The full list is in each shard's `cargo-mutants-report-<shard>` "
+        "artifact (`mutants.out/missed.txt`, with a per-mutant log and diff "
+        "under `log/` and `diff/`). `docs/development/mutation_testing.md` "
+        "covers the triage steps and the `exclude_re` criteria.",
     ]
     body = "\n".join(lines) + "\n"
     failed = bool(incomplete) or bool(missed) or bool(timeout) or matrix_result != "success"

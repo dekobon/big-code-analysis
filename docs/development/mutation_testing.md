@@ -216,19 +216,28 @@ Triage:
    `exclude_re` in `.cargo/mutants.toml`, where local runs and CI
    both read it. Do this sparingly: most "looks equivalent" mutants
    are real coverage gaps.
-4. Timeouts often mean a mutation introduced an infinite loop. The
+4. A timeout is not a miss: the suite noticed the mutant, by never
+   finishing. Read the mutant's log under the shard artifact's `log/`
+   to tell the two causes apart. If the mutation made a loop
+   non-terminating, a test that bounds the loop (an iteration count,
+   a deadline) kills it outright; where no such test is cheap, an
+   `exclude_re` entry with the reason `non-terminating under
+   mutation` is the accepted treatment, since the mutant is not
+   equivalent and cannot be killed by a value assertion. If instead
+   the test is merely slow, fix the test; the
    `minimum_test_timeout = 120` in `.cargo/mutants.toml` guards
-   against spurious timeouts on slow runners; if a specific test case
-   is chronically slow, prefer fixing the test.
+   against spurious timeouts on slow runners, not against slow tests.
 
 ## When the workflow files an issue
 
 The auto-filed issue (title `Mutation testing: escaped mutants`; a
 later run comments on it while it is open) is the canonical entry
-point. Each report carries a link to the run, a per-shard table with
-each shard's attempt number and counts, the totals over the shards
-that completed, the files with the most escapes, and the first 50
-missed lines for quick scanning. A shard that did not complete is
+point. Each report opens by saying what a missed mutant is and what
+closes the issue, so it reads on its own; then a link to the run, a
+per-shard table with each shard's attempt number and counts, the
+totals over the shards that completed, the files with the most
+escapes with a one-line repro for the worst, and a sample of the
+missed lines with a note on how to read one. A shard that did not complete is
 named with the reason and its mutants are not in the totals; re-run
 the failed jobs and the next report fills it in. The same body is the
 run's `mutation-report` artifact. For a shard's full `mutants.out/`,
@@ -240,3 +249,8 @@ Close the issue once every escape has either:
 - A new test that kills the mutant, **or**
 - An explicit `exclude_re` entry in `.cargo/mutants.toml` with a
   justification commented beside it or in the relevant source file.
+
+The confirmation is a run in which every shard completed and the
+report shows zero missed and zero timed out. That run files nothing,
+since the issue step is gated on a non-zero status, so read its
+`mutation-report` artifact rather than waiting for a comment.

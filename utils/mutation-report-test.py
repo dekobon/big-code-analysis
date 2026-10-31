@@ -201,7 +201,69 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn(f"Shards complete: {N} of {N}", body)
         self.assertIn("Missed mutants: 0", body)
+        self.assertIn(f"Caught: {7 * N}; unviable: {1 * N}", body)
         self.assertNotIn("did not complete", body)
+
+    def test_body_says_what_a_missed_mutant_is_and_how_to_close(self) -> None:
+        # The report is the only thing a triager reads; a data dump with
+        # no framing is what the first real run filed (#1736).
+        s = self._all_clean()
+        s[1] = _summary(1, exit_code=2, missed=["src/abc/c.rs:1:1: x", "src/abc/c.rs:2:2: y", "src/wmc.rs:3:3: z"])
+        self._write(s)
+        body, _ = self._report()
+        self.assertIn("no test's expected value depends on that line as written", body)
+        self.assertIn("**To resolve this issue**", body)
+        self.assertIn("`exclude_re` entry in `.cargo/mutants.toml`", body)
+        # The close condition must not promise a comment a clean run never
+        # posts: the workflow's issue step is gated on a non-zero status.
+        self.assertIn("a clean run files nothing", body)
+        self.assertIn("every shard completed reports zero missed and zero timed out", body)
+        self.assertIn("Unviable mutants did not compile and are not work", body)
+        # Equivalence is behavioural on every input, not "the default
+        # matched this fixture"; that case is the one that needs a test.
+        self.assertIn("identically on every reachable input, side effects and panics included", body)
+        self.assertNotIn("happens to equal", body)
+        self.assertNotIn("compiler proves unused", body)
+        # The `+=` remedy names the operand that discriminates.
+        self.assertIn("non-zero amount being merged in", body)
+        # The repro command names the worst file, so the first step is one line.
+        self.assertIn("cargo mutants --in-place -f src/abc/c.rs", body)
+
+    def test_repro_command_names_the_package_for_a_file_outside_the_root_crate(self) -> None:
+        s = self._all_clean()
+        s[0] = _summary(0, exit_code=2, missed=["big-code-analysis-ast/src/checker.rs:1:1: x"])
+        self._write(s)
+        body, _ = self._report()
+        self.assertIn(
+            "cargo mutants --in-place --package big-code-analysis-ast -f big-code-analysis-ast/src/checker.rs",
+            body,
+        )
+        self.assertNotIn("outside the crates this report knows", body)
+
+    def test_repro_command_does_not_guess_a_package_for_an_unknown_path(self) -> None:
+        # A directory name is not a crate name; a guessed `--package` the
+        # command rejects is worse than none plus a note.
+        s = self._all_clean()
+        s[0] = _summary(0, exit_code=2, missed=["tools/gen/thing.rs:1:1: x"])
+        self._write(s)
+        body, _ = self._report()
+        self.assertIn("cargo mutants --in-place -f tools/gen/thing.rs", body)
+        self.assertNotIn("--package tools", body)
+        self.assertIn("`tools/gen/thing.rs` is outside the crates this report knows", body)
+
+    def test_top_files_break_ties_by_path_not_shard_order(self) -> None:
+        s = self._all_clean()
+        # shard 0 lists z.rs first, shard 1 lists a.rs first; counts tie.
+        s[0] = _summary(0, exit_code=2, missed=["src/z.rs:1:1: m", "src/a.rs:1:1: m"])
+        s[1] = _summary(1, exit_code=2, missed=["src/a.rs:2:2: m", "src/z.rs:2:2: m"])
+        self._write(s)
+        body, _ = self._report()
+        a = body.index("- `src/a.rs`: 2")
+        z = body.index("- `src/z.rs`: 2")
+        self.assertLess(a, z)
+        self.assertIn("cargo mutants --in-place -f src/a.rs", body)
+        self.assertIn("Read a line as `file:line:col:", body)
+        self.assertIn("mutants.out/missed.txt", body)
 
     def test_escapes_are_summed_across_shards_and_grouped_by_file(self) -> None:
         s = self._all_clean()
@@ -230,8 +292,11 @@ class ReportTests(unittest.TestCase):
         body, status = self._report()
         self.assertEqual(status, 1)
         self.assertIn(f"## First {mr.MISSED_SAMPLE_LINES} missed mutants", body)
-        fence = body.split("```")
-        self.assertEqual(len(fence), 3, "exactly one fenced sample block")
+        # Two fenced blocks now: the repro command under the top-files
+        # section, then the sample. Select the sample by its heading.
+        after_heading = body.split(f"## First {mr.MISSED_SAMPLE_LINES} missed mutants", 1)[1]
+        fence = after_heading.split("```")
+        self.assertGreaterEqual(len(fence), 3, "a fenced sample block follows the heading")
         sample = fence[1].strip().splitlines()
         self.assertEqual(len(sample), mr.MISSED_SAMPLE_LINES)
         self.assertEqual(sample[0], "src/f0.rs:1:1: m")
@@ -257,6 +322,14 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Missed mutants: 0", body)
         self.assertIn("Timed-out mutants: 1", body)
         self.assertNotIn("missed mutants\n", body)
+        # A timeout has its own route to resolution. The missed-mutant
+        # route (a discriminating assertion, or equivalence) cannot kill a
+        # mutant that never terminates, so the body must not fold the two.
+        self.assertIn("A timed-out mutant is different", body)
+        self.assertIn("a test that bounds the loop", body)
+        self.assertIn("`non-terminating under mutation`", body)
+        self.assertIn("**To resolve this issue**, every missed mutant needs", body)
+        self.assertNotIn("every missed and timed-out mutant", body)
 
     def test_absent_shard_is_named_and_fails_even_when_others_are_clean(self) -> None:
         s = self._all_clean()

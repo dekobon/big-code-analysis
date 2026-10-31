@@ -404,8 +404,11 @@ for historical reference.
   a `report` job aggregates whichever summaries arrived into one
   issue, naming any shard that did not complete rather than counting
   it, and comments on an open issue by the same title instead of
-  filing a sibling. The summarize and report halves live in
-  `utils/mutation-report.py`, self-tested by `make
+  filing a sibling. The issue body says what a missed mutant is, what
+  closes the issue, and how to reproduce the worst file's escapes
+  alone, before the numbers; the first real run (#1736) filed the
+  numbers without that and read as a data dump. The summarize and
+  report halves live in `utils/mutation-report.py`, self-tested by `make
   mutation-report-test`; the workflow's four `run:` bodies are
   executed verbatim under `bash -e` with stub `cargo` and `gh` by
   `make mutation-workflow-test`, which includes the check that
@@ -414,11 +417,12 @@ for historical reference.
   that feeds it are checked on every pull request rather than once a
   quarter; what GitHub evaluates rather than bash (`if:`, `env:`
   plumbing, the matrix, the artifact fan-in) is outside both. The two
-  scheduled runs on record (2026-07-01, red at the
+  scheduled runs on record before this (2026-07-01, red at the
   toolchain-install step; 2026-10-01, green on the alias error) both
-  did no mutation work, and no run has ever filed an issue, so the
-  first run that completes will report the full accumulated backlog
-  rather than a regression.
+  did no mutation work and filed nothing; the first run to complete,
+  dispatched on 2026-10-31, filed #1736 with the accumulated backlog
+  (139 missed, 1 timed out, of 3812), which is debt rather than a
+  regression.
 
 - **`bca --help` and `bca check --help` name the live flags** (#1709).
   The exit-code footer and the `check` description said the hidden,
