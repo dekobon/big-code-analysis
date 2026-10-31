@@ -110,18 +110,23 @@ Wiring the grammar is only the first step. The new `<Lang>Code` type
 must also implement the AST plumbing and every metric trait the
 workspace defines:
 
-- **`Checker`** in
-  [/big-code-analysis-ast/src/checker.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/checker.rs):
-  comment, function, closure, call, string-literal, and `else-if`
-  predicates over the grammar's `kind_id`s.
-- **`Getter`** in
-  [/big-code-analysis-ast/src/getter.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/getter.rs):
-  `get_space_kind` plus the Halstead operator/operand classification
-  table.
+- **`Checker`** in a new per-language file under
+  [/big-code-analysis-ast/src/checker/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/checker)
+  (`checker/<lang>.rs`, registered with a `mod <lang>;` line in
+  `checker.rs`): comment, function, closure, call, string-literal,
+  and `else-if` predicates over the grammar's `kind_id`s, most of
+  which forward to the language's role table (below).
+- **`Getter`** in a new per-language file under
+  [/big-code-analysis-ast/src/getter/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/getter)
+  (`getter/<lang>.rs`, registered in `getter.rs`): `get_space_kind`
+  plus the Halstead operator/operand classification table.
 - **`Alterator`** in
   [/big-code-analysis-ast/src/alterator.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/alterator.rs):
-  usually only string-literal preservation; the default impl works
-  for most languages.
+  an `alterate` body that flattens the kinds the language's `StringLit`
+  row lists to one verbatim leaf, so the AST dump agrees with
+  `find string`. Every grammar carries one; only the `Preproc` and
+  `Ccomment` helper variants, whose dump is not a user surface, keep
+  the bare default.
 - **A role table** in
   [/big-code-analysis-ast/src/roles/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/roles)
   (`roles/<lang>.rs`, one `role_table!` per language), declaring for
@@ -133,11 +138,15 @@ workspace defines:
   without a `// role-bypass: allow(<Role>)` exemption.
 - **All thirteen metric traits**: `Abc`, `Cognitive`, `Cyclomatic`,
   `Exit` (the `nexits` metric), `Halstead`, `Loc`, `Mi`, `NArgs`,
-  `Nom`, `Npa`, `Npm`, `Tokens`, `Wmc`. Register each via the
-  `implement_metric_trait!` macro invocation in
+  `Nom`, `Npa`, `Npm`, `Tokens`, `Wmc`. Register twelve of them via
+  the `implement_metric_trait!` macro invocation in each module under
   [/src/metrics/](https://github.com/dekobon/big-code-analysis/tree/main/src/metrics)
   to start with default (no-op) bodies, then replace with real impls
   for the metrics that have meaningful semantics for the language.
+  `Halstead` is the exception: every grammar is listed in
+  `impl_halstead_forwarding!` in `src/metrics/halstead.rs`, which
+  routes the metric through the language's `Getter`, so there is no
+  per-language Halstead body to write.
 
 ### Audit aliased grammar variants
 
@@ -169,7 +178,8 @@ Every test that names the new parser also needs
 `#[cfg(feature = "<lang>")]`, since the `*Parser` alias compiles in
 every build and panics in one without the grammar; `make
 check-test-lang-gates` (also in `make pre-commit`) derives the
-required gate and `--fix` writes it.
+required gate, and `./utils/check-test-lang-gates.py --fix` writes it
+(the Makefile target forwards no arguments).
 
 ## End-to-end workflow
 

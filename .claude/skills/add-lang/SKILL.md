@@ -1,6 +1,6 @@
 ---
 name: add-lang
-description: End-to-end workflow for adding a new tree-sitter language to big-code-analysis. Wires up the grammar crate, regenerates the language enum, implements Checker/Getter/Alterator/metrics, adds per-metric tests, updates docs, then runs simplify-rust, rust-optimize, and audit-tests. Does NOT commit — leaves the working tree dirty for final user review.
+description: End-to-end workflow for adding a new tree-sitter language to big-code-analysis. Wires up the grammar crate, regenerates the language enum, declares the role table, implements Checker/Getter/Alterator/metrics, adds per-metric tests, updates docs, then runs simplify-rust, rust-optimize, and audit-tests. Does NOT commit — leaves the working tree dirty for final user review.
 ---
 
 # Add a New Language
@@ -14,10 +14,17 @@ recent Bash (`3a2eaa3`), PHP (`ddae116`), and C# (`08c382c`)
 additions. The C# commit is the freshest single-commit
 language-addition reference and post-dates ~15 of the lessons in
 `docs/development/lessons_learned.md` — read it alongside the Go
-commits when looking for a structural template. The upstream Mozilla
-guide
+commits when looking for a structural template. All of those commits
+predate the #1376 split into `big-code-analysis-ast` with one file per
+language under `checker/`, `getter/` and `src/metrics/<metric>/`, and
+the #1691 role tables; take the *shape* of a per-language impl from a
+current sibling (`roles/lua.rs`, `checker/lua.rs`, `getter/go.rs`),
+and only the commit history for what a complete addition touched.
+The book page `big-code-analysis-book/src/developers/new-language.md`
+is the short-form version of this skill and should agree with it; the
+upstream Mozilla guide
 (<https://mozilla.github.io/rust-code-analysis/developers/new-language.html>)
-is also useful background, adapted to the current API and metric set.
+is older background, adapted to the current API and metric set.
 
 ## Arguments
 
@@ -49,11 +56,22 @@ continuing.
   (`[workspace.dependencies]`) and in `enums/Cargo.toml`; the
   `big-code-analysis-ast` manifest inherits the pin with
   `workspace = true`. Never use a range without explicit user
-  approval.
-- **Cross-language parity.** All 12 metric trait impls
+  approval. `utils/check-excluded-manifests.py` (in `make pre-commit`)
+  fails on a caret range in `enums/Cargo.toml`, and the
+  `grammar_version_matches_cargo_toml_pin` test in
+  `big-code-analysis-ast/src/langs.rs` fails when the `mk_langs!`
+  version literal (Step 2c) disagrees with the root pin.
+- **Cross-language parity.** All 13 metric trait impls
   (`Abc`, `Cognitive`, `Cyclomatic`, `Exit`, `Halstead`, `Loc`, `Mi`,
-  `NArgs`, `Nom`, `Npa`, `Npm`, `Wmc`) must list the new `<Lang>Code`
-  in either a real impl or `implement_metric_trait!`.
+  `NArgs`, `Nom`, `Npa`, `Npm`, `Tokens`, `Wmc` — the set
+  `src/metric_suite.rs` keys on a parser) must list the new
+  `<Lang>Code` in a real impl, an `implement_metric_trait!`
+  invocation, or — for Halstead — `impl_halstead_forwarding!`.
+- **A role table with zero grandfathered debt.** Every language needs
+  a `role_table!` in `big-code-analysis-ast/src/roles/<lang>.rs`
+  (Step 3a). The three role gates in `make pre-commit` keep
+  removal-only baselines, so a new language cannot add `pending`
+  cells, unclaimed kinds, or bypass sites to them.
 - **Worktree safety.** If `git rev-parse --show-toplevel` returns a
   path under `.claude/worktrees/`, do not `cd` to the main repo,
   remove worktrees, or check out a different branch. Run all work in
@@ -79,7 +97,7 @@ the user's behalf.
 ### 0b: Validate name and version pin
 
 - Confirm `<lang-name>` is not already a variant in
-  `big-code-analysis-ast/src/langs.rs` (search for `Lang::<lang-name>`).
+  `big-code-analysis-ast/src/langs.rs` (search for `LANG::<lang-name>`).
 - Confirm `<grammar-crate>=<version>` parses cleanly and that
   `crates.io/crates/<grammar-crate>` actually publishes
   `<version>` — fetch the crate page or `cargo search` to verify.
@@ -115,12 +133,26 @@ tree-sitter-<lang> = "=<version>"
 
 ### 1b: Register the language in `enums/src/languages.rs`
 
-Append a tuple to the `mk_langs!` invocation, keeping rough alphabetical
-order:
+The `enums` crate's `mk_langs!` is **not** the ten-field tuple macro of
+`big-code-analysis-ast/src/langs.rs` (Step 2c). It takes bare variant
+identifiers, one per line, and the grammar crate is bound separately
+in 1c. The matcher is `( $( $camel:ident ),* )` with no trailing-comma
+option (`enums/src/macros.rs`), so the last entry carries **no** comma
+and the list currently ends `Groovy // -> …`. Append the variant by
+adding a comma to the previous last entry and writing the new one bare,
+with a `// -> <crate>` comment only when the backing crate is not the
+obvious `tree_sitter_<lang>`:
 
 ```rust
-(<LangName>, tree_sitter_<lang>),
+    Groovy, // -> dekobon_tree_sitter_groovy
+    <LangName> // -> <crate path, if non-obvious>
+);
 ```
+
+A comma after the new last entry fails to compile the `enums` crate.
+Then bump `EXPECTED_LANG_VARIANT_COUNT` in `enums/tests/dispatch.rs`
+and add a `lang_<lang>_resolves_to_<crate>` test beside the existing
+ones — `make enums-check` runs that file and fails on the count.
 
 ### 1c: Register the language in `enums/src/macros.rs`
 
@@ -170,7 +202,7 @@ delete the dead arm. See lesson 14 in `lessons_learned.md`.
 kind names:
 
 ```rust
-let mut name = camel_case(name);
+let mut name = camel_case(&sanitize_identifier(kind));
 if name.is_empty() {
     name = format!("Anon{i}");
 }
@@ -213,10 +245,12 @@ languages. The drift is almost always rooted in
 `enums/templates/rust.rs` (e.g. attribute conventions in the template
 no longer matching what the workspace clippy gate expects); fix the
 template — not the emitted output — and re-run codegen. See lesson
-17 in `lessons_learned.md`.
+15 in `lessons_learned.md` (its `enums/templates/rust.rs`
+sub-example).
 
 Confirm the new file exists at `big-code-analysis-ast/src/languages/language_<lang>.rs` and
-that it begins with `// Code generated; DO NOT EDIT.`.
+that it carries the `// Code generated; DO NOT EDIT.` marker (after the
+file-level `#![allow(...)]` lines, around line 8).
 
 If the project also depends on C-macro tables for the new language
 (only relevant for C/C++ family preprocessor work), also run:
@@ -236,9 +270,12 @@ Most languages do not need this step.
 
 Since #1376 the grammar crates are dependencies of
 `big-code-analysis-ast`, not of the root crate, so a language needs
-three edits across two manifests. Missing any of them leaves
-`LANG::<New>` returning `LanguageDisabled` in every build, or leaves an
-unused dependency that `cargo +nightly udeps` fails on.
+three edits across two manifests (plus the `enums/Cargo.toml` pin from
+1a, which is workspace-excluded and cannot inherit — four edits, of
+which the root pin, the `enums` pin and the `mk_langs!` version field
+carry the version literal). Missing any of them leaves `LANG::<New>` returning
+`LanguageDisabled` in every build, or leaves an unused dependency that
+`cargo +nightly udeps` fails on.
 
 1. Root `Cargo.toml`, `[workspace.dependencies]` — the version pin,
    inserted alphabetically among the other `tree-sitter-*` entries
@@ -269,6 +306,12 @@ unused dependency that `cargo +nightly udeps` fails on.
    <lang> = ["big-code-analysis-ast/<lang>"]
    ```
 
+The feature name is the lowercase language name and must equal the
+first field of the Step 2c tuple: `mk_lang!` / `mk_action!` gate every
+grammar reference on `#[cfg(feature = "<that string>")]`, and
+`utils/check-test-lang-gates.py` derives per-test `cfg` markers from
+the same string (Step 5g).
+
 ### 2b: Export the generated module from `big-code-analysis-ast/src/languages/mod.rs`
 
 ```rust
@@ -280,24 +323,62 @@ Insert alphabetically.
 
 ### 2c: Add the language definition to `big-code-analysis-ast/src/langs.rs`
 
-Append a `mk_langs!` tuple alphabetically:
+Append a `mk_langs!` tuple. The live macro takes **ten** fields, in
+the order the comment block at the top of the invocation numbers them
+— re-read that block rather than trusting this copy:
 
 ```rust
 (
-    <LangName>,
-    "The `<LangName>` language",
-    "<lowercase-lang>",
-    <LangName>Code,
-    <LangName>Parser,
-    tree_sitter_<lang>,
-    [<ext1>, <ext2>, ...],
-    ["<emacs-mode>"]
+    "<lowercase-lang>",            // 1) Cargo feature (Step 2a)
+    <LangName>,                    // 2) LANG variant
+    "The `<LangName>` language",   // 3) description (rustdoc on the variant)
+    "<lowercase-lang>",            // 4) display name
+    <LangName>Code,                // 5) per-language tag struct
+    <LangName>Parser,              // 6) parser alias
+    tree_sitter_<lang>,            // 7) grammar crate (fed to `get_language!`)
+    [<ext1>, <ext2>, ...],         // 8) file extensions, no dots
+    ["<emacs-mode>"],              // 9) emacs modes
+    "<version>"                    // 10) pinned grammar version, no `=`
 ),
 ```
 
-The emacs mode is conventionally the lowercase language name (e.g.
-`"rust"`, `"go"`, `"ruby"`). Use the file extensions parsed in 0
-(without dots).
+Field 10 is the `X.Y.Z` from `<grammar-crate>=<version>`, without the
+`=`. `grammar_version_matches_cargo_toml_pin` (a test in the same
+file) reads the root `Cargo.toml` and fails on any disagreement — and
+its `dep_key` match is exhaustive over `LANG`, so add an arm mapping
+the new variant to its `[workspace.dependencies]` key, or the crate
+does not compile. The emacs mode is conventionally the lowercase
+language name (e.g. `"rust"`, `"go"`, `"ruby"`). Use the file
+extensions parsed in Step 0 (without dots).
+
+Field 7 is resolved by `get_language!` in
+`big-code-analysis-ast/src/macros/mod.rs`, whose default arm is
+`$name::LANGUAGE.into()`. A crate exposing several dialect constants
+(`tree_sitter_typescript::LANGUAGE_TSX`, `tree_sitter_php::LANGUAGE_PHP`)
+needs a dedicated arm there, mirroring the one you wrote in 1c.
+
+Three hand-maintained lists in the same crate must gain the language
+too:
+
+- `with_any_parser!` in `big-code-analysis-ast/src/macros/mod.rs` —
+  one `AnyParser::<LangName>($p) => $body,` arm; a non-exhaustive-match
+  compile error says so;
+- the `tables` list in `python_reader_agrees_with_the_compiled_tables`
+  (`big-code-analysis-ast/src/roles/mod.rs`) — its first assertion
+  holds the list to the `LANG` enum, so the test fails until Step 3a's
+  table is registered there;
+- `roundtrip_tests!` in
+  `big-code-analysis-ast/src/language_enum_roundtrip.rs` — the
+  generated-table drift guard. Nothing fails when this one is
+  forgotten; the new enum simply goes unguarded, so add it now.
+
+Outside the AST crate, `language_display_name` in
+`big-code-analysis-cli/src/markdown_report.rs` is a wildcard-free
+`match LANG` and needs a display arm, and the crate docs in `src/lib.rs`
+list every language with its feature name. The `tests/parity/*.rs`
+suites each `match lang` over the whole enum to pick a fixture; the
+ones without a wildcard arm stop compiling until the new language has
+a row (Step 5f).
 
 ### 2d: Compile-check
 
@@ -323,14 +404,27 @@ and `assert!()` in production for provably-unreachable invariants
 when the invariant is documented in the `expect` message). Lesson 5
 in `lessons_learned.md` extends the same discipline to
 `unreachable!()`: every `match node.kind_id() { ... }` in
-`checker.rs`, `getter.rs`, and the per-language metric impls must
-terminate in an `Unknown` / `_` arm — never `unreachable!()`. The
-next grammar bump WILL add an aliased kind_id (Step 3.5 / lesson 2)
-that flips an `unreachable!()` arm reachable in production.
+`checker/<lang>.rs`, `getter/<lang>.rs`, and the per-language metric
+impls must terminate in an `Unknown` / `_` arm — never
+`unreachable!()`. The next grammar bump WILL add an aliased kind_id
+(Step 3.5 / lesson 2) that flips an `unreachable!()` arm reachable in
+production.
+
+**Per-language files, not appended blocks.** Since #1376 each trait
+lives in a dispatcher module with one file per language:
+`big-code-analysis-ast/src/checker/<lang>.rs`,
+`big-code-analysis-ast/src/getter/<lang>.rs`,
+`big-code-analysis-ast/src/roles/<lang>.rs`, and under `src/metrics/`
+the `abc/`, `cognitive/`, `cyclomatic/`, `loc/`, `npa/` and `npm/`
+directories. Create the new file and register it with a `mod <lang>;`
+line in the parent (`checker.rs`, `getter.rs`, `roles/mod.rs`,
+`metrics/<metric>.rs`); the remaining traits (`Alterator`, `Exit`,
+`Halstead`, `Mi`, `NArgs`, `Nom`, `Tokens`, `Wmc`) still take an impl
+block in the single file.
 
 **Synthetic `Unit` root.** Tree-sitter can return a non-`Unit` root
 (an `ERROR` node, or an inner `struct` / `function` / `namespace`
-promoted to root) on partially-parseable input. `src/spaces.rs`
+promoted to root) on partially-parseable input. `src/spaces/compute.rs`
 pushes a synthetic `Unit` whenever the parser's root kind is not the
 language's canonical `Unit` kind, anchored to the full input range.
 Confirm this fallback covers the new language — write a regression
@@ -338,33 +432,142 @@ test that parses a deliberately malformed fixture and asserts
 `blank ≥ 0` and `kind == Unit` at the file level. See lesson 9 in
 `lessons_learned.md` (issue #80, `dc09eb3`).
 
-### 3a: `Checker` impl in `big-code-analysis-ast/src/checker.rs`
+### 3a: Role table in `big-code-analysis-ast/src/roles/<lang>.rs`
 
-Append an `impl Checker for <LangName>Code` block. Required methods:
+Since #1691 the kind lists the classifiers and metric dispatchers read
+are **declared once per language** in a `role_table!`, and the
+`Checker` / `Getter` impls of 3b–3c forward to the rows rather than
+restating them. Write the table first; the impls then have something
+to read. The module doc of `big-code-analysis-ast/src/roles/mod.rs` is
+the reference for the row grammar and the fixed role set — read it in
+full before writing a row, then read two sibling tables
+(`roles/lua.rs` is the smallest kind-only one, `roles/java.rs` a
+class-bearing one).
+
+Every role in the set gets exactly one of: declared rows
+(`owns [..]`, optionally `pays [..]` / `project` / `wraps` /
+`excludes`), `absent "why"`, or `pending Rnn`. Register the file with a
+`pub mod <lang>;` line in `roles/mod.rs` and add it to the `tables`
+list of `python_reader_agrees_with_the_compiled_tables` in the same
+file (Step 2c).
+
+**Three gates read the table, and a new language starts with zero
+grandfathered debt.** All three run in `make pre-commit`, each through
+the single reader `utils/role_tables.py`, and each keeps a baseline
+that `--update` can only shrink (`--bootstrap` refuses a file that
+exists or is tracked at `HEAD`). Read the module docstring at the top
+of each `utils/check-role-*.py` before the first run:
+
+- `make role-census` (`.role-census-baseline.txt`): every
+  (language, role) cell is rows, `absent`, or `pending`. A `pending`
+  cell not already in the baseline fails — so for a new language write
+  **no** `pending` rows. Where a sibling table says `pending R07` /
+  `pending R09` for a role (`Branch`, `Loop`, `ElseIf`, `Exit`, the
+  `Comment` / `Doc*` family), the new language must declare the real
+  rows or an honest `absent`; the census matrix (`--matrix`) shows how
+  the siblings filled the cells that are already declared.
+- `make role-coverage` (`.role-coverage-baseline.txt`): every runtime
+  kind id in `language_<lang>.rs` — named and anonymous, visible and
+  hidden, every numbered alias — is claimed by some row (`owns`,
+  `pays`, `wraps`), excluded by a row's `excludes [Kind "why"]`, or
+  baselined. A language with no baseline section fails with a message
+  telling you to add a `[<Lang> <crate> <version>]` section listing
+  every residue entry. `--report` prints only per-language *counts*
+  and the `excluded …` lines, not the entries, and the per-entry
+  errors fire only once a section exists — so get the entries from a
+  scratch bootstrap, which writes every language's residue in baseline
+  format, and copy the new language's block across:
+
+  ```bash
+  scratch_dir=$(mktemp -d -t role-coverage-scratch.XXXXXX)
+  python3 utils/check-role-coverage.py --bootstrap \
+    --baseline "$scratch_dir/baseline.txt"
+  # copy the `[<Lang> <crate> <version>]` section and its entries from
+  # the scratch file into .role-coverage-baseline.txt, then:
+  make role-coverage
+  ```
+
+  (`--bootstrap` refuses any path that already exists — the tracked
+  real file, and equally a file `mktemp` has just created — so the
+  scratch path must be a name inside a fresh directory, not a file.)
+  That copied block is the one deliberate way to record
+  residue; trim it to the kinds no role can honestly claim or exclude
+  before committing, and expect a reviewer to ask about each entry.
+- `make role-bypass` (`.role-bypass-baseline.txt`): inside the
+  consumer boundary — `checker/`, `getter/`, `macros/kind_sets.rs`,
+  `c_langs_macros/` and the `abc` / `cyclomatic` / `cognitive` /
+  `nexits` / `npm` / `npa` metric modules — a kind a row claims must
+  not be restated as classification (`matches!`, a match arm,
+  `kind_id() == Lang::Kind`, `kind() == "…"`). Read the row instead
+  (`crate::roles::<lang>::<role>::owns` / `lists_kind` /
+  `pays_at_leaf_kind`). A site that is not membership — naming,
+  traversal, a doc-attachment rule — takes
+  `// role-bypass: allow(<Role>) — <reason>` on the line above, naming
+  the role whose row claims the kind.
+
+**Corpus observation.** `make role-coverage` runs with
+`--require-observations`, so `.role-coverage-observed.txt` must be
+current, and it is stale the moment `mk_langs!` has a language the
+file has no section for. Run `make role-coverage-observe` (builds
+`bca --release` with `--locked` and walks the three corpus submodules
+under `tests/repositories/`) after Step 2 compiles; it records the new
+language as `not-sampled` when no corpus file carries one of its
+extensions — reported in every run, never a failure, and the only
+cure is a corpus with files in that language. The record also pins
+the grammar version it observed under, so re-run `--observe` after
+any version change. The observer refuses a corpus submodule with local
+changes; the Makefile target is a bare `--observe`, so to override run
+`python3 utils/check-role-coverage.py --observe --allow-dirty` directly.
+
+### 3b: `Checker` impl in `big-code-analysis-ast/src/checker/<lang>.rs`
+
+Create the file, add `mod <lang>;` to `checker.rs`, and write
+`impl Checker for <LangName>Code`. Required methods:
 
 - `is_comment` — match the grammar's comment node kind id.
 - `is_useful_comment` — usually `false`.
-- `is_func_space` — match top-level/source-file plus all
-  function/method/closure/lambda kinds.
-- `is_func` — function and method declarations.
-- `is_closure` — anonymous function / lambda / func literal.
-- `is_call` — call-expression kind.
+- `is_doc_comment` and the doc-run family (`is_doc_target`,
+  `is_doc_run_opener`, `ends_doc_run`, `is_doc_run_directive`,
+  `holds_doc_comment_in_body`) — what the language's own
+  documentation tool reads (#1597). They feed `dloc`; the defaults
+  answer `false`, which is right for a language with no doc
+  convention. Where one exists, `lang_helpers/doc_comment.rs` has the
+  shared opener tests.
+- `is_func_space` / `is_func_space_with_code`, `is_func`,
+  `is_closure` — forward to the table: `crate::roles::<lang>::opens_space`
+  (emitted once per table as the fold over every `opens K` annotation
+  on the `FuncOpener` and `Container` rows) for the space predicates,
+  `func_opener::is_callable` for `is_func`, `closure::owns` for
+  `is_closure` (#1696). Copy the Lua or Go shape, including the
+  byte-less `is_func_space` forwarding with `Ancestors::known(&[])`.
+- `is_call`, `is_call_with_code`, `is_string`,
+  `is_string_with_code` — one `impl_row_predicates!(<lang>, call, …)`
+  and one `impl_row_predicates!(<lang>, string_lit, …)` line each
+  (#1698).
 - `is_non_arg` — punctuation kinds inside argument lists
-  (`LPAREN`, `COMMA`, `RPAREN`, etc.).
-- `is_string` — string-literal kinds.
-- `is_else_if` — `#[inline(always)]`. **Do not blind-copy the Go
+  (`LPAREN`, `COMMA`, `RPAREN`, etc.). Not a role; written by kind.
+- `is_else_if` — `#[inline]`. **Do not blind-copy the Go
   form.** Before writing the predicate, parse a representative
   `if x { … } else if y { … } else { … }` snippet with the new
   grammar (the `tree-sitter` CLI, or a quick test fixture) and look
-  at the AST shape. Lesson 10 in `lessons_learned.md` catalogues
-  four distinct strategies among current languages:
+  at the AST shape. Lesson 10 in `lessons_learned.md` and
+  `.claude/rules/grammar-dispatch.md` §4 catalogue the strategies;
+  three have a macro in `checker.rs`. **Re-derive the membership
+  rather than trusting this table** — it moves with every language:
 
-  | Grammar model | Languages | Check |
+  ```bash
+  rg -o 'impl_is_else_if_(\w+)!\(\s*(\w+)' -r '$1 $2' \
+     big-code-analysis-ast/src/checker/ --no-filename | sort
+  rg -l 'fn is_else_if' big-code-analysis-ast/src/checker/
+  ```
+
+  | Grammar model | Macro | Languages (at writing) |
   | --- | --- | --- |
-  | `else_clause` wrapper | C++, Mozjs, JS, TS, TSX, Rust | `parent().kind_id() == ElseClause` |
-  | `Else` keyword sibling | Java, C#, Kotlin | `prev_sibling().kind_id() == Else` |
-  | Nested `if_statement` | Go | `parent().kind_id() == IfStatement` |
-  | Dedicated clause node | Python, Perl, Lua, Bash, Tcl, PHP | kind match on the `else_if` / `elif` / `elsif` node |
+  | `else_clause` wrapper around the nested `if` | `impl_is_else_if_parent_clause!` | C, C++, Mozcpp, Objc, Rust, JS, Mozjs, TS, TSX |
+  | bare `else` token, nested `if` as next sibling | `impl_is_else_if_prev_sibling!` | C#, Groovy, Java, Kotlin |
+  | dedicated `elseif` / `elsif` / `elif` clause node | `impl_is_else_if_clause!` | Bash, iRules, Lua, Perl, Ruby, Tcl |
+  | hand-written (nested `if` with no wrapper, or mixed) | — | Go, PHP, Python |
+  | constant `false` | — | Elixir (a stub — see lesson 10) |
 
   Pick the strategy whose model matches the grammar; an
   always-`false` stub is a bug, not a deferral. Issue #115
@@ -376,26 +579,42 @@ Append an `impl Checker for <LangName>Code` block. Required methods:
   have caught both #115 stubs the moment they were written.
 
 - `is_primitive` — usually `false` unless the grammar emits a
-  primitive-type kind (most don't).
+  primitive-type kind (most don't); where it does, the `Primitive`
+  row is the source of truth.
 
-### 3b: `Getter` impl in `big-code-analysis-ast/src/getter.rs`
+### 3c: `Getter` impl in `big-code-analysis-ast/src/getter/<lang>.rs`
 
-Append an `impl Getter for <LangName>Code` block. Required methods:
+Create the file, add `mod <lang>;` to `getter.rs`, and write
+`impl Getter for <LangName>Code`. Required methods:
 
-- `get_space_kind` — map function/method/closure kinds to
-  `SpaceKind::Function`, the source-file kind to `SpaceKind::Unit`.
-  Other kinds → `SpaceKind::Unknown`.
-- `get_op_type` — Halstead operator/operand classification. **This is
-  the largest piece of language-specific work.** Read the grammar's
+- `get_space_kind` / `get_space_kind_with_code` — forward to
+  `crate::roles::<lang>::opens_space`, the fold over every `opens K`
+  annotation on the `FuncOpener` and `Container` rows (#1696). The
+  byte-less spelling forwards with `Ancestors::known(&[])`, as the
+  Lua and Go impls do; `is_func_space` and `get_space_kind` must read
+  the same predicate or the space tree disagrees with itself
+  (`grammar-dispatch.md` §7).
+- `keyword_roles!(<lang>);` — emits `get_keyword_role`, which is
+  **required** by the trait (no default), from the `Modifier`,
+  `DeclKeyword` and `Primitive` rows. Pass `primitive: Operand` if the
+  language bills a primitive type as an operand (PHP does).
+- `paying_roles!(<lang>);` — emits `get_paying_role` from the seven
+  paying-construct rows (`Comparison`, `ShortCircuit`, `EagerLogical`,
+  `Ternary`, `CaseArm`, `Guard`, `NullSafe`).
+- `get_op_type` — Halstead operator/operand classification of
+  **everything the rows do not already bill**. This is still the
+  largest piece of language-specific work. Read the grammar's
   `node-types.json` (in the grammar crate's published source) or run
-  the CLI against a representative file to see what kinds appear.
-  Bucket every relevant kind into `HalsteadType::Operator`,
-  `HalsteadType::Operand`, or `HalsteadType::Unknown`. Cover at
-  minimum:
-  - **Operators**: control-flow keywords, declaration keywords,
-    punctuation acting structurally (`{`, `[`, `(`, `,`, `;`, `:`,
-    `.`, `...`), arithmetic/comparison/logical/bitwise/assignment
-    operators.
+  `bca dump` against a representative file to see what kinds appear.
+  Bucket every remaining kind into `TokenRole::Operator`,
+  `TokenRole::Operand`, or `TokenRole::Unknown`. Cover at minimum:
+  - **Operators**: control-flow keywords, structural punctuation —
+    only the *opening* delimiter of a pair (`{`, `[`, `(`; the
+    `get_operator!` fold spells the pair as one operator, #695),
+    `,`, `;`, `:`, `.`, `...` — and the arithmetic / logical / bitwise
+    / assignment operators the rows do not own. Do **not** list a
+    keyword a `Modifier` / `DeclKeyword` / `Primitive` row owns, or a
+    token a paying row pays: `make role-bypass` reports it.
   - **Operands**: identifiers (plain, field, package, type, label,
     etc.), literals (int, float, string, char/rune, bool, nil, etc.).
 - `get_operator!(<LangName>);` — final macro line.
@@ -414,45 +633,54 @@ metric file with `use <LangName> as <ShortAlias>;`.
 
 **No kind_id classified as both operator and operand.** Each
 `get_op_type` arm must route a given kind_id to exactly one of
-`HalsteadType::Operator`, `HalsteadType::Operand`, or
-`HalsteadType::Unknown`. A copy-paste that lands the same kind in
-two arms produces `n1` / `n2` counts that disagree with the `--ops`
+`TokenRole::Operator`, `TokenRole::Operand`, or
+`TokenRole::Unknown`. A copy-paste that lands the same kind in
+two arms produces `n1` / `n2` counts that disagree with the `bca ops`
 output (TypeScript `String2` shipped this exact bug in `2248bcc`).
 After classifying, the Halstead unit test added in Step 5 must
-assert the load-bearing invariants from lesson 4: run both
-`metrics()` and `operands_and_operators()` on the same input and
-assert that `len(dedupe(ops.operators)) == n1` and
-`len(dedupe(ops.operands)) == n2`.
+assert the load-bearing invariant from lesson 4: the metric store and
+the `bca ops` store are independent, so run both on the same input
+and check `len(dedupe(ops.operands)) == n2`. The test module in
+`src/metrics/halstead.rs` has the helpers — `ops_of::<T>(source,
+file)` returns the ops store, and `assert_ops_operands::<T>(source,
+file, n2, vec![..])` pins both the deduplicated count and the operand
+vocabulary (the Groovy and Perl rows show the call).
 
-### 3c: `Alterator` impl in `big-code-analysis-ast/src/alterator.rs`
+### 3d: `Alterator` impl in `big-code-analysis-ast/src/alterator.rs`
 
-If the language has string/raw-string/char-literal node kinds whose
-default text representation should be preserved verbatim (no whitespace
-trimming, etc.), add an `impl Alterator for <LangName>Code` block that
-matches those kinds and calls `Self::get_text_span(..., true)`. Use
-the Go impl as the template:
+String literals render in `bca dump` as one verbatim leaf, so the dump
+agrees with `find string` (#699). Add an `impl Alterator for
+<LangName>Code` block that reads the `StringLit` row from 3a and
+flattens what it lists, adding by kind only the non-string literals
+the language also wants flattened (Go's `rune_literal`). Use the Go
+impl as the template:
 
 ```rust
 impl Alterator for <LangName>Code {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
-        match <LangName>::from(node.kind_id()) {
-            <LangName>::InterpretedStringLiteral
-            | <LangName>::RawStringLiteral
-            | <LangName>::RuneLiteral => {
-                let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
-            }
-            _ => Self::get_default(node, code, span, children),
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        let kind = node.kind_id();
+        if crate::roles::<lang>::string_lit::lists_kind(kind)
+            || matches!(kind.into(), <LangName>::RuneLiteral)
+        {
+            Self::flatten_verbatim(node, code, span, field_name)
+        } else {
+            Self::get_default(node, code, span, field_name, children)
         }
     }
 }
 ```
 
-If the language has no special-case kinds, a bare `impl Alterator for
-<LangName>Code {}` (using all defaults) is acceptable — see the Java
-and Python impls.
+Only `Preproc` and `Ccomment` — whose dump is not a user surface —
+carry a bare `impl Alterator for XCode {}`; every extension-owning
+grammar flattens its `StringLit` row.
 
-### 3d: Compile-check again
+### 3e: Compile-check again
 
 ```bash
 cargo check -p big-code-analysis
@@ -497,36 +725,47 @@ names whose every numbered variant is a potential aliasing risk.
 
 For each printed base, confirm that EVERY numbered variant in its
 group holds one of the following in EVERY file that does a `match`
-on the underlying rule (`big-code-analysis-ast/src/checker.rs`, `big-code-analysis-ast/src/getter.rs`,
-`big-code-analysis-ast/src/alterator.rs`, `src/metrics/*.rs`, `src/spaces.rs`):
+on the underlying rule (`big-code-analysis-ast/src/roles/<lang>.rs`,
+`big-code-analysis-ast/src/checker/<lang>.rs`,
+`big-code-analysis-ast/src/getter/<lang>.rs`,
+`big-code-analysis-ast/src/alterator.rs`, `src/metrics/**/<lang>.rs`,
+`src/spaces/compute.rs`):
 
-1. The variant is explicitly listed in the relevant arm (typically
-   alongside its unsuffixed sibling:
-   `Identifier | Identifier2 | Identifier3 => …`).
+1. The variant is explicitly listed in the relevant arm or row
+   (typically alongside its unsuffixed sibling:
+   `Identifier | Identifier2 | Identifier3 => …`, or all three in one
+   `owns [..]` list).
 2. The variant is explicitly excluded with a one-line comment
    explaining why (e.g. "`HeredocBody` id 153 never surfaces in
-   real parse trees per upstream").
+   real parse trees per upstream") — in a role table that is
+   `excludes [Kind "why"]`, which the coverage gate reads.
 3. The match has been rewritten to compare on `node.kind()` (the
    string), which sidesteps the entire numeric-variant problem.
 
 Option 3 is the most forward-compatible choice (the *next* grammar
 bump will add a new aliased ID that option 1 misses) and is
 preferred unless the per-call hot path is provably
-allocation-sensitive — see lesson 2.
+allocation-sensitive — see lesson 2. For a kind a role owns, the
+row **is** the list: `make role-coverage` fails on any id — alias or
+not — that no row claims or excludes, which turns most of this audit
+into a gate (Step 3a), but only for kinds the roles cover.
 
 **Coverage targets for this audit:**
 
-- `checker.rs` — every `is_*` predicate that touches an aliasable
-  kind: identifiers, member/field expressions, string literals,
+- `roles/<lang>.rs` — every `owns` / `pays` / `wraps` list: a row
+  naming `Identifier` and not `Identifier2` claims half the
+  construct.
+- `checker/<lang>.rs` — every hand-written `is_*` predicate that
+  touches an aliasable kind: identifiers, member/field expressions,
   primitive types.
-- `getter.rs` — `get_op_type` (Halstead classification) and any
-  helper that branches on aliasable kinds.
-- `alterator.rs` — string / raw-string / char-literal preservation
-  arms. (Issue #119 was *only* in `alterator.rs` for JS/TS/TSX —
+- `getter/<lang>.rs` — `get_op_type` (Halstead classification) and
+  any helper that branches on aliasable kinds.
+- `alterator.rs` — any kind flattened beside the `StringLit` row.
+  (Issue #119 was *only* in `alterator.rs` for JS/TS/TSX —
   `checker.rs` and `getter.rs` were already correct.)
-- `metrics/cognitive.rs`, `metrics/cyclomatic.rs`, `metrics/abc.rs`,
-  `metrics/npa.rs`, `metrics/loc.rs` — anywhere a per-language impl
-  matches on a kind that the grammar aliases.
+- `metrics/{cognitive,cyclomatic,abc,npa,npm,loc}/<lang>.rs` —
+  anywhere a per-language impl matches on a kind that the grammar
+  aliases.
 
 Re-run this audit after every grammar version bump in the same
 crate's lifetime — lesson 2 explicitly warns the next aliased
@@ -534,32 +773,54 @@ variant appears on the next bump.
 
 ---
 
-## Step 4: Register `<LangName>Code` with all 12 metric traits
+## Step 4: Register `<LangName>Code` with all 13 metric traits
 
-The minimum-viable wiring is the no-op default for every metric, then
+`MetricSuite` (`src/metric_suite.rs`) is implemented for
+`Parser<T>` only when `T` carries all thirteen metric traits, so
+`cargo check` fails until every one lists the new tag. The
+minimum-viable wiring is the no-op default for every metric, then
 real impls for the metrics that have meaningful semantics for the
 language. This mirrors how Go was landed: the parser shipped with all
 defaults in commit `6ecc582`, and real impls followed in `e0701e1`.
 
-### 4a: Default-impl all 12 metrics first
+### 4a: Default-impl all 13 metrics first
 
 Append `<LangName>Code` to each `implement_metric_trait!(...)` macro
 invocation in:
 
-| File | Trait |
-|------|-------|
-| `src/metrics/abc.rs` | `Abc` |
-| `src/metrics/cognitive.rs` | `Cognitive` |
-| `src/metrics/cyclomatic.rs` | `Cyclomatic` |
-| `src/metrics/nexits.rs` | `Exit` |
-| `src/metrics/halstead.rs` | `Halstead` |
-| `src/metrics/loc.rs` | `Loc` |
-| `src/metrics/mi.rs` | `Mi` |
-| `src/metrics/nargs.rs` | `NArgs` |
-| `src/metrics/nom.rs` | `Nom` |
-| `src/metrics/npa.rs` | `Npa` |
-| `src/metrics/npm.rs` | `Npm` |
-| `src/metrics/wmc.rs` | `Wmc` |
+| File | Trait | Macro arm |
+|------|-------|-----------|
+| `src/metrics/abc.rs` | `Abc` | named — silent no-op |
+| `src/metrics/cognitive.rs` | `Cognitive` | named — silent no-op |
+| `src/metrics/cyclomatic.rs` | `Cyclomatic` | named — silent no-op |
+| `src/metrics/nexits.rs` | `Exit` | named — silent no-op |
+| `src/metrics/halstead.rs` | `Halstead` | see below |
+| `src/metrics/loc.rs` | `Loc` | named — silent no-op |
+| `src/metrics/mi.rs` | `[Mi]` | bracketed — trait default |
+| `src/metrics/nargs.rs` | `[NArgs]` | bracketed — trait default |
+| `src/metrics/nom.rs` | `[Nom]` | bracketed — trait default |
+| `src/metrics/npa.rs` | `Npa` | named — silent no-op |
+| `src/metrics/npm.rs` | `Npm` | named — silent no-op |
+| `src/metrics/tokens.rs` | `[Tokens]` | bracketed — trait default |
+| `src/metrics/wmc.rs` | `Wmc` | named — silent no-op |
+
+The two arm shapes differ in meaning (see the comment above
+`implement_metric_trait!` in `src/macros/mod.rs`): a *named* arm emits
+an empty `compute` body, so the metric reports 0 on every input and
+nothing says so; a *bracketed* arm emits `impl Trait for X {}` and the
+trait's own default body runs, which is correct for `Mi`, `Tokens`,
+`Nom` and `NArgs`. Most invocation sites carry a comment recording
+why every listed language is there (#188) — add the new language to
+that comment, with its follow-up issue number if the default is a
+placeholder rather than a real "this language has no such construct";
+where a site has no such comment (`Cognitive`'s today), add one.
+
+**Halstead has no default worth using.** Every language with a
+grammar is listed in `impl_halstead_forwarding!` in
+`src/metrics/halstead.rs`, which forwards to `compute_halstead::<Self>`
+through the `Getter` from 3c; only `Preproc` and `Ccomment` take the
+silent arm. Add the new tag to the forwarding list, not to
+`implement_metric_trait!`.
 
 Run `cargo check -p big-code-analysis` — it should now succeed.
 
@@ -567,19 +828,25 @@ Run `cargo check -p big-code-analysis` — it should now succeed.
 
 **Always** replace the default impl with a real one for these four:
 
-- **Cyclomatic** (`src/metrics/cyclomatic.rs`): `+1` per `if`, `for`,
-  `while`, `case` (each switch arm), `&&`, `||`,
-  catch/except/rescue, ternary. **Default/wildcard arms do NOT add a
-  branch** — this is consistent with the existing Java and Cpp impls
-  in this repo, and was reaffirmed for Go in commit `e0701e1`. Match
-  the language's actual node kinds, not generic names.
+- **Cyclomatic** (`src/metrics/cyclomatic/<lang>.rs`, registered with
+  `mod <lang>;` in `cyclomatic.rs`): `+1` per `if`, `for`, `while`,
+  `case` (each switch arm), `&&`, `||`, catch/except/rescue, ternary.
+  Read the `ShortCircuit` / `Comparison` / `CaseArm` / `Ternary` rows
+  from 3a for the tokens they pay (`short_circuit::pays_at_leaf_kind`,
+  as the Lua impl does) rather than listing the kinds again — the
+  bypass gate reports a restatement. **Default/wildcard arms do NOT
+  add a branch** — this is consistent with the existing Java and Cpp
+  impls in this repo, and was reaffirmed for Go in commit `e0701e1`.
+  Match the language's actual node kinds, not generic names.
 - **Exit** (`src/metrics/nexits.rs`): `+1` per `return`/`yield` /
   language-specific exit. A multi-value return counts once.
-- **Halstead** (`src/metrics/halstead.rs`): wire
-  `compute_halstead::<Self>` through the existing
-  `Getter::get_op_type` from step 3b — usually a one-method impl.
-- **Loc** (`src/metrics/loc.rs`): see Step 4b-loc below — this is the
-  largest and most subtle of the four primary metrics.
+- **Halstead** (`src/metrics/halstead.rs`): already wired in 4a via
+  `impl_halstead_forwarding!`; the language-specific work is entirely
+  the `Getter` from 3c, so there is nothing further to write here —
+  verify it with the Step 5 Halstead test.
+- **Loc** (`src/metrics/loc/<lang>.rs`, registered in `loc.rs`): see
+  Step 4b-loc below — this is the largest and most subtle of the four
+  primary metrics.
 
 **Branch-construct coverage audit.** A `match node.kind_id()` in a
 metric impl is *coverage*, not a *spec*: a grammar can emit a valid
@@ -628,20 +895,29 @@ the necessary nodes:
   language-specific `compute` that walks into each grouped node and
   counts identifier names. Use Go's `compute_go_args` as the
   reference.
-- **Cognitive** (`src/metrics/cognitive.rs`): substantial work; only
-  add if the language has well-defined nesting semantics. OK to leave
-  as default for now.
-- **Abc**, **Mi**, **Npa**, **Npm**, **Wmc**: usually fine as
-  defaults for procedural languages; add real impls only if the
-  language has classes/methods/attributes with clear semantics.
+- **Cognitive** (`src/metrics/cognitive/<lang>.rs`): substantial
+  work; only add if the language has well-defined nesting semantics.
+  OK to leave as default for now.
+- **Abc** (`src/metrics/abc/<lang>.rs`), **Npa** / **Npm**
+  (`src/metrics/npa/<lang>.rs`, `npm/<lang>.rs`), **Mi**, **Wmc**:
+  usually fine as defaults for procedural languages; add real impls
+  only if the language has classes/methods/attributes with clear
+  semantics. Note that `Npa` / `Npm` are only *reported* for a space
+  whose `SpaceKind` is a member scope (`MemberScopeExt`,
+  `src/metrics/mod.rs`), so a `Container` row with the wrong `opens`
+  silently drops the whole block — see `grammar-dispatch.md` §7.
 
 ### 4b-loc: Implementing the Loc metric
 
 The Loc metric is more involved than the other primary metrics because
-each of its five sub-counts has a distinct definition. Implement
-`impl Loc for <LangName>Code` with a `compute` function that mirrors a
-sibling language's structure (Java for curly-brace languages, Python
-for indent-sensitive ones).
+each of its sub-counts has a distinct definition. Implement
+`impl Loc for <LangName>Code` in `src/metrics/loc/<lang>.rs` with a
+`compute` function that mirrors a sibling language's structure (Java
+for curly-brace languages, Python for indent-sensitive ones). Since
+#1597 there is a sixth sub-count, **DLOC** (documentation lines), fed
+by `Checker::is_doc_comment` and the `add_*_doc_run` helpers in
+`loc/shared.rs`; a language with no documentation convention this crate
+recognises reports `0` and needs no arm for it.
 
 #### Sub-metric definitions
 
@@ -682,12 +958,14 @@ Expected counts on the file above:
   non-whitespace token. The standard approach is to walk the AST and
   insert `node.start_position().row` into a set for non-comment leaf
   nodes; PLOC is the set's cardinality. Look at how Java/Rust do this
-  in `src/metrics/loc.rs` and copy the pattern; do not re-invent.
+  in `src/metrics/loc/java.rs` / `loc/rust.rs` and copy the pattern;
+  do not re-invent.
 - **CLOC** — for every comment node, count `end_row - start_row + 1`.
   Block comments span multiple lines and must be counted per-line, not
   per-node.
 - **BLANK** — `SLOC - (PLOC ∪ CLOC line-set)`. The existing helpers
-  in `loc.rs` compute this from the line-set unions; do not double-count
+  in `loc/shared.rs` and `loc/line_set.rs` compute this from the
+  line-set unions; do not double-count
   lines that are both code and comment (a `// foo` after a `}` on the
   same line is one PLOC line and one CLOC line, but it is *not* a
   blank).
@@ -712,9 +990,11 @@ Expected counts on the file above:
   is gated, and add a regression test in Step 5 for each gating
   decision.
 
-If `compute` ends up >150 lines, that is normal — Java's impl is
-~200 lines. Do not extract speculative helpers to make it look
-shorter; flow follows the AST.
+Since the shared helpers landed, a per-language `loc/<lang>.rs` is
+small: Java's is ~65 lines, Rust's ~100, and the largest (Perl, with
+its POD and statement-modifier rules) ~225. A `compute` that runs
+long is a sign something belongs in `loc/shared.rs`, not a reason to
+extract speculative helpers; flow follows the AST.
 
 ### 4c: Compile and run the existing test suite
 
@@ -731,9 +1011,13 @@ before continuing.
 
 ## Step 5: Add per-language tests
 
-For every metric with a real impl in 4b, add tests in the same file
-under `mod tests`. Use the existing per-language test conventions
-(see `cyclomatic.rs::tests` for examples — Go has 10 tests there).
+For every metric with a real impl in 4b, add tests under the metric
+module's `mod tests` (in `src/metrics/<metric>.rs`; the per-language
+`<metric>/<lang>.rs` files hold impls, and the tests stay in the
+parent's module). Use the existing per-language test conventions —
+`check_metrics::<<LangName>Parser>` with the module's
+`check_metrics_only_shim!`, and `#[cfg(feature = "<lang>")]` on every
+test (5g).
 
 ### 5a: Coverage target — match Rust
 
@@ -742,33 +1026,40 @@ as the existing Rust coverage**. Rust is the reference because it
 exercises every metric the project supports and its tests are the
 gold standard for what "thoroughly tested" looks like.
 
-Run this before starting to anchor the targets to current state (the
-file paths match `src/metrics/*.rs`):
+Count tests from the harness, not from the source: `fn rust_*`
+helpers (`rust_wrapper_operand`, `rust_condition_scores_itself`) share
+the prefix with the tests and inflate an `rg` count. Run this before
+starting to anchor the targets to current state:
 
 ```bash
-for f in src/metrics/*.rs; do
-  printf "%-12s rust=%d\n" "$(basename "$f" .rs)" \
-    "$(rg -c '^\s*fn rust_' "$f" 2>/dev/null || echo 0)"
+tests=$(mktemp -t bca-tests.XXXXXX.txt)
+cargo test -p big-code-analysis --lib --all-features -- --list \
+  > "$tests" 2>/dev/null
+for m in abc cognitive cyclomatic halstead loc mi nargs nexits nom npa npm tokens wmc; do
+  printf "%-12s rust=%d\n" "$m" \
+    "$(rg -c "^metrics::$m::[a-z_:]*rust_" "$tests" || echo 0)"
 done
 ```
 
-At the time this skill was written, Rust's per-metric test counts
+At the time this skill was last revised, Rust's per-metric test counts
 were:
 
 | Metric | Rust tests | Notes / scope a `<lang>_*` test should cover |
 |--------|-----------:|--------------------------------------------|
-| `cognitive` | 9 | no-op file, simple function, sequence of same/different booleans, negated booleans, 1-level nesting, 2-level nesting, `break`/`continue`, complex `if let / else if / else`. |
-| `cyclomatic` | 1 | nested-control-flow representative test. (Go currently overshoots Rust here at 10 — match Rust's 1, optionally add a couple more if the language has unusual constructs.) |
-| `nexits` | 2 | function with no exit, function with `?` / language equivalent of early-exit. |
-| `halstead` | 1 | one comprehensive `<lang>_operators_and_operands` test pinning every Halstead field via `insta`. |
-| `loc` | 15 | blank, no-zero-blank, cloc, lloc, then **at least one `<lang>_no_*_lloc` test for each gating decision** (Rust has: `field_expression`, `parenthesized_expression`, `array_expression`, `tuple_expression`, `unit_expression`, `call_function`, `macro_invocation`, `function_in_loop`, `function_in_if`, `function_in_return`, `closure_expression`). Mirror this — every node kind your `compute` excludes from LLOC needs a dedicated test that would fail if the gating is removed. |
-| `nargs` | 5 | no functions/closures, single function, single closure, multiple functions, nested functions. |
+| `cognitive` | 17 | no-op file, simple function, sequence of same/different booleans, negated booleans, 1-level nesting, 2-level nesting, `break`/`continue`, complex `if let / else if / else`, plus the `else_if_chain` test from 5b. |
+| `cyclomatic` | 13 | nested-control-flow representative test, then one per construct the language handles unusually (`match` arms, `?`, closures). |
+| `nexits` | 7 | function with no exit, function with `?` / language equivalent of early-exit, explicit vs implicit (tail-expression) return, mixed forms. |
+| `halstead` | 10 | one comprehensive `<lang>_operators_and_operands` test pinning every Halstead field via `insta`, then one per classification decision worth isolating (string kinds, primitive types, bracket pairs). |
+| `loc` | 24 | blank, no-zero-blank, cloc, lloc, dloc, then **at least one `<lang>_no_*_lloc` test for each gating decision** (Rust's `rust_no_*_lloc` set: `field_expression`, `parenthesized_expression`, `array_expression`, `tuple_expression`, `unit_expression`) and one positive-count `<lang>_<construct>_lloc` per construct that *does* count (Rust: `call_function`, `macro_invocation`, `function_in_loop`, `function_in_if`, `function_in_return`, `closure_expression`). Mirror this — every node kind your `compute` excludes from LLOC needs a dedicated test that would fail if the gating is removed. |
+| `nargs` | 6 | no functions/closures, single function, single closure, multiple functions, nested functions. |
 | `nom` | 1 | one comprehensive `<lang>_nom` test exercising functions, methods, and closures together. |
-| `abc`, `mi`, `npa`, `npm`, `wmc` | 0 | Rust has no per-language tests for these in `src/metrics/`. Skip per-language tests for these unless the new language has a real impl that diverges from defaults. |
+| `abc` | 29 | one per ABC slot the language fills (assignments, branches, conditions) and one per excluded construct. Skip if `Abc` is left as default. |
+| `npa`, `npm`, `wmc` | 13 / 7 / 7 | member-scope tests. Skip unless the language has containers (classes, modules) and a real `Npa` / `Npm` / `Wmc` impl. |
+| `mi`, `tokens` | 1 / 2 | one smoke test each; the trait default is shared across languages. |
 
-**Floor:** total per-language tests across `src/metrics/` should be
-**≥ 34** (Rust's current sum). Re-count Rust's tests at run-time
-(the command above) — these numbers may have grown since.
+**Floor:** for every metric the new language implements for real,
+match Rust's count for that metric as the command above reports it
+today — these numbers are a snapshot and have grown with every sweep.
 
 **Ceiling:** do not pad with redundant tests. Each test must exercise
 a distinct construct or gating decision; copy-pasted near-duplicates
@@ -777,35 +1068,37 @@ fail `audit-tests` in Step 8c.
 ### 5b: Suggested per-metric test list
 
 The 5a table is the source of truth for *count*; this list is the
-shape each test should take. Where 5a says `cyclomatic = 1`, that
-means one test minimum — Rust-parity. The Go module currently has 10
-cyclomatic tests, which is *acceptable but not required*; add extras
-only when the grammar has constructs the existing repo has not seen
-(e.g. Go's `select`, Erlang's `receive`).
+shape each test should take. Add extras beyond it only when the
+grammar has constructs the existing repo has not seen (e.g. Go's
+`select`, Erlang's `receive`).
 
-- **`cyclomatic`** — Rust's single test (`rust_1_level_nesting`) is
-  the floor: a nested-control-flow test that exercises an `if` inside
-  a loop. **Stop there if the grammar's branching is conventional**
-  (`if`/`for`/`while`/`switch`/`&&`/`||`). Add at most one extra test
-  per *novel* construct the grammar exposes — e.g. Go's `select`,
-  Ruby's `rescue`, Python's exception handlers — plus, where
+- **`cyclomatic`** — `rust_1_level_nesting` is the floor: a
+  nested-control-flow test that exercises an `if` inside a loop. Then
+  one test per *novel* construct the grammar exposes — e.g. Go's
+  `select`, Ruby's `rescue`, Python's exception handlers — plus, where
   applicable, a "non-branching feature that should NOT count" test
-  (Go's `defer`/`go` test is the template). Do not pad the count by
-  adding one test per ordinary branching keyword; that is what the
-  single nested test already covers.
+  (Go's `defer`/`go` test is the template) and one per wildcard /
+  default-arm decision (the `rust_*_wildcard_*` family). Do not pad
+  the count by adding one test per ordinary branching keyword; that
+  is what the single nested test already covers.
 - **`nexits`** — `<lang>_no_exit` (function with no return), and one
   test per language-specific exit path (e.g. Rust's `?`, Go's
   multi-value return, Python's `yield`/`raise`, Ruby's `next`/`break`
   out of a block if you treat them as exits — document the choice).
 - **`halstead`** — one `<lang>_operators_and_operands` test using a
   source snippet that exercises every operator family classified in
-  Step 3b (control-flow keywords, declaration keywords, structural
+  Step 3a–3c (control-flow keywords, declaration keywords, structural
   punctuation, arithmetic, comparison, logical, bitwise, assignment).
   Pin **every** field via `insta::assert_json_snapshot!` — no loose
-  inequalities (see 5c).
+  inequalities (see 5c). Then one test per row-driven decision worth
+  isolating: that a `DeclKeyword` bills, that a `Comparison` payer
+  bills once and its owning `binary_expression` not at all, that a
+  bracket pair is one operator.
 - **`loc`** — `<lang>_blank`, `<lang>_no_zero_blank`, `<lang>_cloc`,
-  `<lang>_lloc`, plus one `<lang>_no_<kind>_lloc` per LLOC-gated node
-  kind from Step 4b-loc. Aim for the same count as Rust (15).
+  `<lang>_lloc`, `<lang>_dloc` (or a test pinning `dloc == 0` when the
+  language has no documentation convention), plus one
+  `<lang>_no_<kind>_lloc` per LLOC-gated node kind from Step 4b-loc.
+  Aim for the same count as Rust.
 - **`cognitive`** — `<lang>_no_cognitive`, `<lang>_simple_function`,
   `<lang>_sequence_same_booleans`, `<lang>_sequence_different_booleans`,
   `<lang>_not_booleans`, `<lang>_1_level_nesting`,
@@ -814,7 +1107,7 @@ only when the grammar has constructs the existing repo has not seen
   chain produces a *lower* score than the same number of `if` blocks
   nested inside one another — this is the test that would have
   caught the #115 `is_else_if` stubs in Java and C# the moment they
-  were written; see Step 3a and lesson 10), and one
+  were written; see Step 3b and lesson 10), and one
   language-specific complex-nesting test. Skip if you left Cognitive
   as a default impl in 4b — but flag this loudly in the summary.
 - **`nargs`** — `<lang>_no_functions_and_closures`,
@@ -846,10 +1139,12 @@ CI's `lint` job) verifies this against
 New language tests start at zero — do not introduce unanchored
 snapshots; existing bare snapshots are grandfathered under
 issue #95 and are not a precedent. The Halstead test must also
-assert the lesson-4 invariants
-(`len(dedupe(ops.operators)) == n1`, `len(dedupe(ops.operands)) == n2`)
-on the same input; existing Go and Bash Halstead tests show the
-accessor pattern.
+assert the lesson-4 invariant (`len(dedupe(ops.operands)) == n2`) on
+the same input through `assert_ops_operands` (Step 3c); the Go and
+Bash `*_operators_and_operands` tests read the metric store only (Go
+through an inline snapshot, Bash through the accessors plus a
+snapshot), so they are the snapshot template, not the cross-store
+template.
 
 Pin every Halstead and Loc field with `insta::assert_json_snapshot!`:
 
@@ -875,31 +1170,41 @@ counts. Do not blindly accept.
 The standard test scaffold is:
 
 ```rust
-check_metrics::<<LangName>Parser>(
-    "<source code>",
-    "foo.<ext>",
-    |metric| { /* assertions */ },
-);
+#[cfg(feature = "<lang>")]
+#[test]
+fn <lang>_single_function() {
+    check_metrics::<<LangName>Parser>(
+        "<source code>",
+        "foo.<ext>",
+        |metric| { /* assertions */ },
+    );
+}
 ```
 
-The source must be syntactically valid for the grammar, or
-tree-sitter will produce an error tree and the metric counts will be
-undefined.
+`check_metrics` here is the module-local shim each `mod tests` defines
+once with `check_metrics_only_shim!(check_metrics, <Metric>)` (see
+`src/test_support.rs`), bound to that module's metric family; the
+`#[cfg]` is the per-language gate 5g enforces. The source must be
+syntactically valid for the grammar, or tree-sitter will produce an
+error tree and the metric counts will be undefined.
 
 ### 5e: Coverage gate
 
-Before moving to Step 6, run this comparison and verify the new
-language's per-metric counts are at or above Rust's:
+Before moving to Step 6, run this comparison against the compiled
+test list and verify the new language's per-metric counts are at or
+above Rust's:
 
 ```bash
-LANG="<lowercase-lang>"
-for f in src/metrics/*.rs; do
-  rust_n=$(rg -c '^\s*fn rust_' "$f" 2>/dev/null || echo 0)
-  lang_n=$(rg -c "^\s*fn ${LANG}_" "$f" 2>/dev/null || echo 0)
+NEW_LANG="<lowercase-lang>"
+tests=$(mktemp -t bca-tests.XXXXXX.txt)
+cargo test -p big-code-analysis --lib --all-features -- --list \
+  > "$tests" 2>/dev/null
+for m in abc cognitive cyclomatic halstead loc mi nargs nexits nom npa npm tokens wmc; do
+  rust_n=$(rg -c "^metrics::$m::[a-z_:]*rust_" "$tests" || echo 0)
+  lang_n=$(rg -c "^metrics::$m::[a-z_:]*${NEW_LANG}_" "$tests" || echo 0)
   status="OK"
   [ "$lang_n" -lt "$rust_n" ] && status="UNDER (need $((rust_n - lang_n)) more)"
-  printf "%-12s rust=%2d  %s=%2d  %s\n" \
-    "$(basename "$f" .rs)" "$rust_n" "$LANG" "$lang_n" "$status"
+  printf "%-12s rust=%2d  %s=%2d  %s\n" "$m" "$rust_n" "$NEW_LANG" "$lang_n" "$status"
 done
 ```
 
@@ -908,8 +1213,9 @@ acceptable shortfalls are:
 
 1. metrics where the language has no real impl (left as default in
    Step 4b) — but flag this in the summary;
-2. metrics where Rust has zero tests (`abc`, `mi`, `npa`, `npm`,
-   `wmc` at the time of writing).
+2. `npa` / `npm` / `wmc` for a language with no containers, and the
+   one-test `mi` / `tokens` smoke rows, where the trait default is
+   shared and a per-language test adds nothing.
 
 ### 5f: Cross-language metric parity
 
@@ -921,27 +1227,60 @@ Bash double-counted `case…esac` container plus arms (#107,
 `e668f14`) — both bugs that survived per-language snapshot suites
 for years.
 
-Before declaring the language done, write a small fixture for each
-of the constructs below in the new language AND in two existing
-languages (Rust + Java is a good baseline), then assert the
-per-metric sums agree:
+The parity suites already exist under `tests/parity/` — one file per
+family (`cyclomatic_cross_language_parity.rs`,
+`cognitive_cross_language_parity.rs`, `exit_cross_language_parity.rs`,
+`nargs_cross_language_parity.rs`, `ops_metrics_space_parity.rs`, and
+the rest). Most pick their fixture with a `match lang` over the whole
+`LANG` enum. The cyclomatic, cognitive, exit, nargs and
+ops-metrics-space suites are exhaustive and stop compiling the moment
+Step 2c adds the variant; `abc_halstead_bracket_parity.rs` and
+`self_reference_operand_parity.rs` carry a `_ =>` arm and silently
+skip a language with no row, so check those two by hand;
+`functions_metrics_parity.rs` and `space_span_containment.rs` reuse
+the ops-metrics-space fixture and need nothing of their own, and
+`ast_export`, `cpp_mozcpp` and `halstead_set_target` test fixed
+languages. For every suite that has rows, add the new language's:
 
 - 2-arm conditional with a `default` / `else` / wildcard arm:
-  cyclomatic and cognitive must agree across all three impls
-  (modulo documented per-language quirks).
+  cyclomatic and cognitive must agree (modulo documented
+  per-language quirks).
 - An `if … else if … else` chain of length 3: cognitive must agree.
 - A loop body with one early-exit (`return` / `break`): exit must
   agree.
 - A function with three formal parameters: `nargs` must agree.
+- `bca ops` and `bca metrics` must open the same space tree
+  (`ops_metrics_space_parity.rs`, #1130).
 
-A new shared test (`cyclomatic_cross_language_parity_minimal` /
-`cognitive_cross_language_parity_minimal`) is the right home.
-Per-language snapshot tests stay in their respective `mod tests`
-blocks; the parity tests live alongside them and fail the moment a
-language drifts. Any *intentional* per-language divergence (e.g.
-Rust's standard-CCN wildcard-arm exception) is documented in the
-parity test's comment and asserted with `!=` to keep the
-divergence visible.
+Any *intentional* per-language divergence (e.g. Rust's standard-CCN
+wildcard-arm exception) is documented in the parity test's comment
+and asserted with an explicit offset to keep the divergence visible.
+
+### 5g: Per-language test gates
+
+Every test that names the new parser — `check_metrics::<<Lang>Parser>`,
+`LANG::<Lang>` handed to `analyze`, a fixture table row — must carry
+`#[cfg(feature = "<lang>")]` (or be inside an `any(..)` union that
+includes it), because `mk_langs!` generates every `*Parser` alias
+unconditionally and `Tree::new` panics in a build without the grammar
+(#1472). `make check-test-lang-gates` (in `make pre-commit`) derives
+the required marker for every test under `src/`,
+`big-code-analysis-ast/src/` and `tests/` and fails on one that is
+missing or wider than the body needs. Write the markers with the
+script directly — the Makefile target forwards no arguments:
+
+```bash
+./utils/check-test-lang-gates.py --fix
+./utils/check-test-lang-gates.py --show   # the derivation, per item
+make check-test-lang-gates                 # the gate as pre-commit runs it
+```
+
+Sweeps that filter on `LANG::is_enabled()` and assert non-vacuity
+need `any(<every language>)`; a helper that picks a language from a
+string needs a hand-written gate with a
+`// test-lang-gates: hand-written(<lang>) — <why>` marker. The rules
+are in `.claude/rules/testing.md`, "Every test that names a language
+carries that language's gate".
 
 ---
 
@@ -955,6 +1294,18 @@ language alphabetically:
 ```markdown
 - [x] <LangName>
 ```
+
+Two more lists name every language with its feature and grammar
+crate; add a row to each, alphabetically:
+
+- `big-code-analysis-book/src/library/cargo-features.md` — the
+  feature → grammar-crate table;
+- the crate-level doc comment in `src/lib.rs` — the bullet list of
+  languages and their feature names.
+
+Edits to the book are not blocked on the Japanese translation
+(`big-code-analysis-book/po/ja.po`); changed paragraphs fall back to
+English until someone runs `make book-po-update`.
 
 ### 6b: Update CHANGELOG
 
@@ -977,19 +1328,55 @@ Do not hardcode "now supports N languages" anywhere — counts rot.
 `make pre-commit` is the canonical entry point per AGENTS.md. It
 runs the cargo trio (fmt-check, clippy with `-D warnings` in both
 default-features and `--all-features` flavours, full test suite),
-`cargo +nightly udeps`, `make enums-check` (the workspace-excluded
-`enums` crate's lint gate — a new language modifies it, see
-lesson 15), `make snapshot-anchors` (enforces 5c, see lesson 6),
-and the markdown / TOML / shell / Makefile lint families in one
-parallel pass.
+`cargo +nightly udeps`, the markdown / TOML / shell / Makefile /
+GitHub Actions lint families, and every repo-specific gate, in one
+parallel pass. The ones a language addition touches directly:
+
+- `make enums-check` — clippy + `cargo test` on the workspace-excluded
+  `enums` crate (the 1b dispatch test and variant count; lesson 15),
+  and `make enums-codegen-drift`, which re-runs the generator into a
+  tempdir and diffs it against the checked-in `language_*.rs`.
+- `make check-excluded-manifests` — the `=X.Y.Z` pin in
+  `enums/Cargo.toml` and its `[lints]` table.
+- `make role-census` / `make role-coverage` / `make role-bypass` —
+  Step 3a; the first two fail outright on a language with no table or
+  no baseline section.
+- `make check-test-lang-gates` — Step 5g.
+- `make snapshot-anchors` — enforces 5c (lesson 6).
+- `make self-scan` / `make self-scan-headroom` — the repo's own
+  `bca check`; a large new `Loc::compute` or `get_op_type` can trip a
+  threshold. Refactor if it genuinely clarifies, otherwise suppress
+  in-source with a reason (AGENTS.md, "Responding to bca metric
+  feedback"); do not regenerate `.bca-baseline.toml` to hide a new
+  offender.
+
+Two gates are deliberately *not* in `make pre-commit` and a new
+language is exactly what they exist for (AGENTS.md, "Benchmarking" and
+"The ancestor-chain audit"): `make bench-scaling`, because a new
+`Checker` / `Getter` / `compute` is where a quadratic walk arrives, and
+it shows up as *slow* tests rather than red ones; and `make
+chain-audit`, because the `_with_code` row predicates read the
+ancestor chain and only the exact assertion sees a chain short by one.
+Run both before declaring the language done.
+
+Run `make worktree-setup` first in a checkout that has not run the
+gate before — it checks out the corpus submodules `role-coverage`
+reads. Then:
 
 ```bash
-make pre-commit
+log=$(mktemp /tmp/bca-pre-commit.XXXXXX.log)
+make pre-commit >"$log" 2>&1
+grep '^BCA_GATE:' "$log"
 ```
+
+Read the verdict from the `BCA_GATE:` line only; the gate is a
+parallel DAG and a stage's `Error` line is routinely followed by
+other stages' successful output. No `BCA_GATE:` line is a crash, not a
+pass.
 
 `make ci` runs the same checks without auto-fix (mirrors CI
 behaviour). If GNU Make 4 or any optional tool (`taplo`,
-`rumdl`, `shellcheck`, `shfmt`, `checkmake`) is
+`rumdl`, `shellcheck`, `shfmt`, `checkmake`, `actionlint`) is
 unavailable, fall back to the raw equivalents:
 
 ```bash
@@ -998,7 +1385,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 RUSTFLAGS="-D warnings" cargo clippy --manifest-path enums/Cargo.toml \
   --all-targets --locked -- -D warnings
+cargo test --manifest-path enums/Cargo.toml --locked
 ./utils/check-snapshot-anchors.py
+./utils/check-role-census.py
+./utils/check-role-coverage.py --require-observations
+./utils/check-role-bypass.py
+./utils/check-test-lang-gates.py
 ```
 
 If `pre-commit` is installed, also run `pre-commit run --all-files`.
@@ -1075,8 +1467,8 @@ This skill **does not commit**. The user runs a final review pass and
 makes the commits themselves, typically as a series of conventional
 commits mirroring the Go history:
 
-1. `feat(languages): add <LangName> language support` — wiring +
-   default metric impls (Steps 1–4a).
+1. `feat(languages): add <LangName> language support` — wiring,
+   role table, classifiers and default metric impls (Steps 1–4a).
 2. `feat(<lang>): implement metric traits properly for <LangName>Code`
    — real impls (Step 4b).
 3. `test(<lang>): add metric test matrix per issue #N spec` — tests
@@ -1096,14 +1488,28 @@ Files changed:
   enums/Cargo.toml
   enums/src/languages.rs
   enums/src/macros.rs
+  enums/tests/dispatch.rs
   big-code-analysis-ast/src/langs.rs
+  big-code-analysis-ast/src/macros/mod.rs                  (with_any_parser! arm)
+  big-code-analysis-ast/src/language_enum_roundtrip.rs
   big-code-analysis-ast/src/languages/mod.rs
   big-code-analysis-ast/src/languages/language_<lang>.rs   (generated)
-  big-code-analysis-ast/src/checker.rs
-  big-code-analysis-ast/src/getter.rs
-  big-code-analysis-ast/src/alterator.rs                   (if applicable)
-  src/metrics/{abc,cognitive,cyclomatic,nexits,halstead,loc,mi,nargs,nom,npa,npm,wmc}.rs
+  big-code-analysis-ast/src/roles/mod.rs
+  big-code-analysis-ast/src/roles/<lang>.rs                (new)
+  big-code-analysis-ast/src/checker.rs                     (mod line)
+  big-code-analysis-ast/src/checker/<lang>.rs              (new)
+  big-code-analysis-ast/src/getter.rs                      (mod line)
+  big-code-analysis-ast/src/getter/<lang>.rs               (new)
+  big-code-analysis-ast/src/alterator.rs
+  src/lib.rs                                               (language list in crate docs)
+  src/metrics/{abc,cognitive,cyclomatic,loc,npa,npm}/<lang>.rs   (new, where a real impl exists)
+  src/metrics/{abc,cognitive,cyclomatic,nexits,halstead,loc,mi,nargs,nom,npa,npm,tokens,wmc}.rs
+  tests/parity/*.rs                                        (fixture rows)
+  big-code-analysis-cli/src/markdown_report.rs             (display-name arm)
   big-code-analysis-book/src/languages.md
+  big-code-analysis-book/src/library/cargo-features.md
+  .role-coverage-baseline.txt                              (new section, only if residue was recorded)
+  .role-coverage-observed.txt                              (refreshed by make role-coverage-observe)
   *.snap                             (new insta snapshots)
 
 Validation: cargo fmt / clippy / test / insta — all passing.
@@ -1116,7 +1522,8 @@ manually.
 **Heads up: mutation testing.** Quarterly mutation testing
 (`.github/workflows/mutation-test.yml`, see
 `docs/development/mutation_testing.md`) runs against
-`src/metrics/`, `big-code-analysis-ast/src/checker.rs`, and `big-code-analysis-ast/src/getter.rs`. Within one
+`src/metrics/`, `big-code-analysis-ast/src/checker.rs`, and
+`big-code-analysis-ast/src/getter.rs`. Within one
 cycle, expect auto-filed issues labelled `mutation-testing` against
 the new language's impls; treat them as standard fix-issue work.
 Escapes mean the per-language test set under-specified the new
