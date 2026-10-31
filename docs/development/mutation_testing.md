@@ -90,8 +90,17 @@ Size the shard count from the previous complete run's slowest shard.
 The step timeout is 270 minutes; if any shard's `Run cargo-mutants`
 step exceeds about 200, raise the count in `prepare` before the next
 cron. Both halves of `utils/mutation-report.py` are covered by `make
-mutation-report-test`, which runs in `make pre-commit`, so the result
-handling is checked on every pull request rather than once a quarter.
+mutation-report-test`, and the workflow's four `run:` bodies by `make
+mutation-workflow-test`, which executes them verbatim under `bash -e`
+with stub `cargo` and `gh` and includes the check that weakening
+`pipefail` makes the summarizer refuse a masked status. Both run in
+`make pre-commit`, so the result handling and the shell that feeds it
+are checked on every pull request rather than once a quarter. What
+GitHub evaluates rather than bash is outside both: the `if:`
+expressions between steps, the `env:` plumbing into each step, the
+matrix's `fromJSON`, and the artifact upload and download that fan the
+summaries in. actionlint checks the expressions' syntax; the rest is
+exercised only by a real run.
 
 The jobs have `issues: write` permission and use `GITHUB_TOKEN`; no
 extra secrets are required.

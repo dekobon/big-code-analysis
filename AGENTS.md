@@ -88,7 +88,10 @@ and `cargo run -p big-code-analysis-web --`.
   `check-role-census.py`, `check-role-coverage.py`,
   `check-role-bypass.py` (the three role-table gates, all reading
   declarations through `role_tables.py`), `verify-name-only-churn.py`,
-  and each gate's `*-test.py` self-tests.
+  `mutation-report.py` (the summarize and report halves of the sharded
+  mutation-testing workflow, with `mutation-workflow-test.py`
+  executing that workflow's shell steps), and each gate's `*-test.py`
+  self-tests.
   Each gate resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
@@ -558,7 +561,9 @@ the per-PR gate (a full run is hours, sharded across a matrix). Escapes
 auto-file a GitHub issue labelled `mutation-testing`; the script that
 summarises each shard and aggregates the report,
 `utils/mutation-report.py`, is self-tested per PR by `make
-mutation-report-test`. See
+mutation-report-test`, and the workflow's own `run:` bodies by `make
+mutation-workflow-test`, which executes them under `bash -e` with
+stubs. See
 [`docs/development/mutation_testing.md`](docs/development/mutation_testing.md)
 for local invocation and triage guidance.
 
@@ -751,16 +756,34 @@ A behaviour-changing fix without the matching submodule bump leaves
 the next fresh clone with either an unfetchable submodule SHA or
 stranded `.snap.new` drift that blocks CI on every subsequent change.
 
-**Oracle evidence lives under a durable path, not `/tmp`.** A zero-drift
-or parity claim on an issue or PR rests on fixtures, base and head
-binaries, captured outputs and the driver that compared them. Keep
-them together somewhere a host restart does not clear (the convention
-is `~/bca-evidence/<issue>/`), and cite that path in the claim. Two
-fixture files of the #1696 oracle lived only in `/tmp/opencode/` and
-were lost to a restart mid-review; they were rebuilt from the recorded
-verbatim exports and dumps, which is possible only because the outputs
-had been kept — a claim whose inputs are gone is a number nobody can
-re-measure.
+**Support for a claim goes where the claim is.** A zero-drift or parity
+claim on an issue or PR rests on fixtures, base and head revisions,
+tool versions, the command that produced the number, and the driver
+that compared the two sides. Whoever re-checks it is on another
+machine, so a path into anyone's home directory is a citation to
+nothing. Put the numbers, the revisions, the versions and the exact
+command in the comment that makes the claim; put a fixture worth
+keeping in the tree as a test fixture; put a driver worth re-running in
+`utils/` as a `*-test.py` wired into `make pre-commit`, which is what
+lesson 80 asks of any check that otherwise runs on a rare trigger.
+Link to those from the comment rather than pasting them into it. What
+is left — the regenerable captures — needs no home at all once the
+command that regenerates them is recorded. The `~/bca-evidence/`
+convention this paragraph used to prescribe produced ten megabytes of
+`--list` captures for one issue (#1726) and comments that cited them
+by local path; it is retired. The source comments that cited such
+paths (#1299, #1401, #1706, #1724) now point at the issue, where the
+content they stood for is recorded.
+
+**Scratch is scratch, wherever it is.** The #1696 oracle lost two
+fixture files to a host restart because they lived only in
+`/tmp/opencode/`, and they could be rebuilt only because the outputs
+had been recorded. The lesson is the rule above, not a better scratch
+directory: no temporary location guarantees retention, and the
+clean-up policy of `/var/tmp` varies by host. Work in a private
+scratch directory — `/tmp/opencode` is this environment's convention
+for throwaway work; `mktemp -d` under whatever survives a reboot on
+your platform when a run must — and delete it when the work lands.
 
 ## Metric thresholds
 

@@ -141,8 +141,8 @@ jobs:
       # msgid in po/ja.po and renders in English. Oniguruma — the
       # engine 0.3.6 used — extracts the block whole, and the pot it
       # produces is byte-identical (modulo POT-Creation-Date) to the
-      # 0.4.40 + 0.3.6 toolchain's; the fixture and both pots are
-      # under ~/bca-evidence/1724/ (#1724).
+      # 0.4.40 + 0.3.6 toolchain's; the fixture and the comparison are
+      # recorded on #1724.
       #
       # `--locked` holds the helper's own lockfile, which has no
       # `onig` entry because the feature is off upstream, so those

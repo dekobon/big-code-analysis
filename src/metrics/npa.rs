@@ -662,8 +662,9 @@ mod tests {
     // `function_declarator > parenthesized_declarator > pointer_declarator`
     // function-pointer data member whose parameter name `a` is another
     // `identifier`, and a `requires_clause` before the payload. Every
-    // one is valid C++20 (`g++ -std=c++20 -fsyntax-only` on the fixture
-    // as written, `N` declared in `~/bca-evidence/1299/`). The templates
+    // one is valid C++20: `g++ -std=c++20 -fsyntax-only` accepts the
+    // fixture below exactly as written, and rejects it with the leading
+    // `constexpr int N = 3;` removed. The templates
     // straddle the `private:` label so the new arm is reached under
     // both flags: with every template public, `add_attributes(stats,
     // 1, true)` would pass.

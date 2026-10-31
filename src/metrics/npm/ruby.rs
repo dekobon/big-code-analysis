@@ -172,8 +172,8 @@ fn is_assignment(kind: u16) -> bool {
 // that no spelling produced; listed defensively per rule 2, and
 // pinned unreachable by `ruby_rescue_modifier_aliases_are_not_emitted`.
 //
-// The exclusions are chosen by role, and no fixture pins them
-// (`~/bca-evidence/1401/perturb.txt`): a widened arm that read a
+// The exclusions are chosen by role, and no fixture pins them (the
+// perturbation sweep recorded on #1401): a widened arm that read a
 // condition, a loop header, a `case` value or a `when` pattern as a
 // statement would find, in every valid fixture, either a local that
 // shadows the keyword — which the ledger already ignores — or a

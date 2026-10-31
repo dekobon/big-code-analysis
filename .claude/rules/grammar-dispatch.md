@@ -224,8 +224,9 @@ compiler, rather than inferring reachability from the grammar.
 **Every parent in the dump gets a row or a stated exclusion.** A dump
 exists to enumerate the positions a construct takes; the failure is to
 read it for the position you came looking for and stop. In #1706
-`try { } catch (var e) { }` was in `~/bca-evidence/1706/contexts.groovy`
-from the first dump, and the `spells_var` gate shipped without the
+`try { } catch (var e) { }` was in the first investigation fixture
+(recorded on #1706) from the first dump, and the `spells_var` gate
+shipped without the
 `catch_formal_parameter` parent it needed; the whole-branch review, not
 the per-issue ones, found it. That fixture also shows the second thing
 a dump can do to you: packed into a 22-line method with every other

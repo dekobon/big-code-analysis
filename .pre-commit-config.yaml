@@ -152,6 +152,12 @@ repos:
         files: '^utils/mutation-report(-test)?\.py$'
         entry: python3 -m unittest -q utils/mutation-report-test.py
         pass_filenames: false
+      - id: mutation-workflow-test
+        name: mutation-workflow-test
+        language: system
+        files: '^(\.github/workflows/mutation-test\.yml|utils/mutation-(report|workflow-test)\.py)$'
+        entry: python3 -m unittest -q utils/mutation-workflow-test.py
+        pass_filenames: false
       - id: role-coverage
         name: role-coverage
         language: system

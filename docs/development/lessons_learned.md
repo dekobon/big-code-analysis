@@ -4480,10 +4480,13 @@ first two each hid the third: a run that never started, or whose
 result nobody is told about, cannot show a selection that is too
 small. `cargo mutants --list` with the workflow's exact arguments —
 which nobody had run — showed it: 196 mutants, every one in those two
-files. The repair's harness (`~/bca-evidence/1710/harness/run.sh`,
-kept with the evidence rather than in the tree) ran the two `run:`
-bodies under plain `bash -e` with a stub `cargo` and `gh`, so deleting
-the `pipefail` failed three of its cases; the layout question was
+files. The repair's harness ran the two `run:` bodies under plain
+`bash -e` with a stub `cargo` and `gh`, so deleting the `pipefail`
+failed three of its cases. It was first kept outside the tree, beside
+the captures, which is lesson 80's failure in miniature: a check that
+never runs again. It is `utils/mutation-workflow-test.py` now, under
+`make mutation-workflow-test`, with the pipefail perturbation built
+into it. The layout question was
 answered by a run with an unmatched `--examine-re`, which creates the
 output directory and exits in seconds.
 

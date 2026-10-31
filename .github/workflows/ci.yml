@@ -829,6 +829,15 @@ jobs:
       # not be able to drop out of `make lint` unnoticed.
       - name: mutation-report self-tests (explicit)
         run: python3 -m unittest -q utils/mutation-report-test.py
+      # Its sibling for the workflow's shell: the four `run:` bodies of
+      # mutation-test.yml executed under `bash -e` with stubs. Four
+      # cases need jq; locally they skip without it, here they must run,
+      # so a runner image that dropped jq fails rather than thins the
+      # suite.
+      - name: mutation-workflow self-tests (explicit)
+        env:
+          MUTATION_WORKFLOW_REQUIRE_JQ: "1"
+        run: python3 -m unittest -q utils/mutation-workflow-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future

@@ -3357,10 +3357,12 @@ class C {
     // visibility keyword's. Until #1401 only the body's direct children
     // and a visibility call's arguments were read, so every shape below
     // left `class_nm` short of `nom.functions_sum` on the same class.
-    // Every expectation was measured against ruby 3.0.2
-    // (`~/bca-evidence/1401/oracle-ruby-3.0.2.txt`) with
-    // `public_instance_methods(false)` / `private_instance_methods(false)`,
-    // except the nested-keyword one, which 3.0 raises on and 3.1 defines.
+    // Every visibility expectation was measured against ruby 3.0.2 with
+    // `public_instance_methods(false)` / `private_instance_methods(false)`;
+    // `docs/development/ruby_visibility_oracle.md` keeps the script and
+    // output for six of the shapes, the rest came from one-off probes by
+    // the same method. The nested-keyword row is the exception: 3.0
+    // raises on it and 3.1 defines it.
     //
     // Each fixture carries a bare `def` beside the wrapped ones, so the
     // total is never the wrapped count alone and a walk that stopped
@@ -3644,8 +3646,8 @@ class C {
         // reads private — and the `unless` modifier's `body` field; the
         // non-statement positions themselves it cannot discriminate,
         // since a widened arm that read one finds the same shadowed
-        // local (`~/bca-evidence/1401/perturb.txt`, and the comment on
-        // `is_statement_of`). The twin without the local is
+        // local (the perturbation sweep recorded on #1401, and the
+        // comment on `is_statement_of`). The twin without the local is
         // `ruby_bare_keyword_in_an_expression_is_the_marker_unless_shadowed`;
         // the marker *inside* a wrapper is
         // `ruby_marker_inside_a_wrapper_sets_the_flag`.

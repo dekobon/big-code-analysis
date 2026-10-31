@@ -389,9 +389,15 @@ for historical reference.
   it, and comments on an open issue by the same title instead of
   filing a sibling. The summarize and report halves live in
   `utils/mutation-report.py`, self-tested by `make
-  mutation-report-test` in `make pre-commit`, so the result handling
-  is checked on every pull request rather than once a quarter. The
-  two scheduled runs on record (2026-07-01, red at the
+  mutation-report-test`; the workflow's four `run:` bodies are
+  executed verbatim under `bash -e` with stub `cargo` and `gh` by
+  `make mutation-workflow-test`, which includes the check that
+  weakening `pipefail` makes the summarizer refuse a masked status.
+  Both run in `make pre-commit`, so the result handling and the shell
+  that feeds it are checked on every pull request rather than once a
+  quarter; what GitHub evaluates rather than bash (`if:`, `env:`
+  plumbing, the matrix, the artifact fan-in) is outside both. The two
+  scheduled runs on record (2026-07-01, red at the
   toolchain-install step; 2026-10-01, green on the alias error) both
   did no mutation work, and no run has ever filed an issue, so the
   first run that completes will report the full accumulated backlog
