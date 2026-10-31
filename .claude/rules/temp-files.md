@@ -26,9 +26,11 @@ temp directory at all.
 - **Otherwise, stop and ask the user.** That covers a file too large to
   attach, one with sensitive or third-party content, one with no issue
   to attach it to, and a per-issue driver that is not obviously
-  worth a permanent home (the #1710 workflow harness was kept out of
-  the tree deliberately). Keep the only copy where it is until you have
-  an answer — "do not park it in `/tmp`" never means delete it.
+  worth a permanent home (the #1724 toolchain probes that diffed two
+  `.pot` outputs stayed out of the tree; the check they motivated is
+  `utils/check-xgettext-backend.sh`). Keep the only copy where it is
+  until you have an answer — "do not park it in `/tmp`" never means
+  delete it.
 
 ### 2. Regenerable, but expensive or needed across sessions
 
