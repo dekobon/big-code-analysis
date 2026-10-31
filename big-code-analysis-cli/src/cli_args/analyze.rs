@@ -131,6 +131,10 @@ impl MetricsArgs {
 pub(crate) struct NodeTypesArgs {
     /// Node-type name to match. Repeat the flag to match several
     /// (`-t function_item -t struct_item`). Required: pass at least one.
+    /// Six semantic filters are also accepted and take precedence over a
+    /// node type of the same name: `all`, `function`, `call`, `comment`,
+    /// `string`, `error`. See
+    /// <https://dekobon.github.io/big-code-analysis/commands/nodes.html#semantic-filters>.
     #[clap(
         long = "type",
         short = 't',

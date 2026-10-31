@@ -10,7 +10,7 @@ Find nodes of one or more types
 .SH OPTIONS
 .TP
 \fB\-t\fR, \fB\-\-type\fR \fI<NODE_TYPE>\fR
-Node\-type name to match. Repeat the flag to match several (`\-t function_item \-t struct_item`). Required: pass at least one
+Node\-type name to match. Repeat the flag to match several (`\-t function_item \-t struct_item`). Required: pass at least one. Six semantic filters are also accepted and take precedence over a node type of the same name: `all`, `function`, `call`, `comment`, `string`, `error`. See <https://dekobon.github.io/big\-code\-analysis/commands/nodes.html#semantic\-filters>
 .TP
 \fB\-w\fR, \fB\-\-warnings\fR
 Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major

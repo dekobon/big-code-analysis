@@ -179,6 +179,35 @@ fn report_suppressed_help_names_report_format() {
     );
 }
 
+/// The `-t/--type` entry on `find` and `count` names every semantic
+/// filter the option accepts — the six `match` arms in the
+/// `ParserTrait::filters` impl that win over a same-named node type — and
+/// points at the book section defining them. The entry is selected by
+/// its rendered flag line and cut at the next blank line, and the count
+/// of filter words is pinned so a missing one cannot hide behind the
+/// others.
+#[test]
+fn node_type_help_names_the_semantic_filters() {
+    const FILTERS: [&str; 6] = ["all", "function", "call", "comment", "string", "error"];
+    for subcommand in ["find", "count"] {
+        let help = help_for(&[subcommand]);
+        let entry = help_entry(&help, "-t, --type <NODE_TYPE>");
+        let named = FILTERS
+            .iter()
+            .filter(|filter| entry.contains(&format!("`{filter}`")))
+            .count();
+        assert_eq!(
+            named,
+            FILTERS.len(),
+            "`bca {subcommand} --help` `--type` entry should name all six semantic filters: {entry}"
+        );
+        assert!(
+            entry.contains("commands/nodes.html#semantic-filters"),
+            "`bca {subcommand} --help` `--type` entry should link the book's semantic-filters section: {entry}"
+        );
+    }
+}
+
 /// The `--config` example must render as a readable indented block, not
 /// the one-line smashed Markdown fence clap produced before
 /// `verbatim_doc_comment` was applied.
