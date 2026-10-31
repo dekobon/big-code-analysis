@@ -724,11 +724,16 @@ pub(crate) enum MemoQuestion {
     /// parent's children, so `run(() => 1, …, () => n)` asked it `n`
     /// times of one `arguments` and was quadratic (#1696 review).
     NamesAnArrow,
+    /// Elixir: whether a `keywords` list holds a `do:` pair — what makes
+    /// its `else:` / `rescue:` / `catch:` siblings a block-equivalent
+    /// section. Asked of the list once per pair in it, and the scan is
+    /// `O(width)` over the list (#1602).
+    KeywordListHasDo,
     /// Elixir: whether a Call argument is followed by no operand — the
     /// position a keyword list must hold to be the Call's sections.
     /// Asked of the argument once per pair in it, and the scan is
-    /// `O(siblings)` over whatever trails it, comments included (#1697
-    /// cost audit).
+    /// `O(siblings)` over whatever trails it, comments included (#1602
+    /// review).
     ArgumentIsTrailing,
     /// Elixir: whether a bracketed argument's keyword list is the first
     /// operand in its brackets — `[do: 1, else: 2]` holds pairs alone,
@@ -740,7 +745,7 @@ pub(crate) enum MemoQuestion {
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 7;
+    const COUNT: usize = 8;
 }
 
 const _: () = assert!(MemoQuestion::KeywordsLeadTheirList as usize + 1 == MemoQuestion::COUNT);

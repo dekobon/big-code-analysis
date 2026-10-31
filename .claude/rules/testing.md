@@ -335,6 +335,32 @@ before/after result. Build the measured quantity out of something the
 fix does not touch — for a metric fix, usually retained content
 alongside the construct under test.
 
+### Validate a scaling probe by removing what it prices
+
+A probe added to pin a memo or cache linear is validated the same way
+a regression test is verified by revert: take the memo out, run the
+probe, and watch the exponent leave the bound. A probe that stays at
+~1.0 either way is timing a path its workload never reaches, and the
+timing gate cannot tell that from a working memo — both read "ok".
+The failure is placement, not arithmetic: a sibling-scan memo is priced
+only by siblings on the side the scan walks, and a workload that puts
+them one level up, or on the other side, is linear with or without it.
+
+`cognitive/elixir-rejected-keyword-list` (#1602, `shapes.rs`) was
+written with its comments *inside* the bracketed list, to price the
+scan of the siblings *after* that list; the scan never saw them, and
+the probe read 1.0 with the memo removed as well as with it. Moving the
+comments outside made it fail without the memo (1.68) — and left the
+mirror scan, of the siblings *before* the pairs, unmeasured until the
+cost audit found that one quadratic on `main` (~2), put comments there
+too and removed *that* memo (1.67). Each memo's perturbation is a
+separate check; a probe that prices two scans needs both.
+
+Record the perturbed exponent in the probe's `rationale` beside the
+memoised one, as the two `#1602` probes do (1.97 and 1.92 / 1.67
+against ~1.0), so the next reader can see the probe was shown to
+discriminate rather than assumed to.
+
 ## Coverage measures execution, not discrimination
 
 A coverage report answers "did any test run this line?" It never answers

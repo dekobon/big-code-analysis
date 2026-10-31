@@ -942,6 +942,21 @@ pub fn elixir_mixed_arguments(width: usize) -> String {
     )
 }
 
+/// Elixir: one call whose trailing keyword list holds `width` `else:`
+/// pairs with the `do:` first, one with it last, and one with none.
+///
+/// The width shape for #1602's section gate, which asks of every pair
+/// whether a `do:` sits in its list: an uncached scan per pair is
+/// quadratic in the list, and the walk memoises the answer per list
+/// (`MemoQuestion::KeywordListHasDo`). The reading is `width` per
+/// `do:`-bearing list (+1 per `else:` section) and nothing for the
+/// third.
+#[must_use]
+pub(crate) fn elixir_keyword_sections(width: usize) -> String {
+    let elses = vec!["else: 1"; width].join(", ");
+    format!("foo(do: 0, {elses})\nfoo({elses}, do: 0)\nfoo({elses})\n")
+}
+
 /// Elixir: two calls that each drive one of the section lookup's
 /// position checks past `width` comments. `foo([pairs], comments… x)`:
 /// a bracketed list that an operand follows, so the *trailing* check
@@ -953,11 +968,11 @@ pub fn elixir_mixed_arguments(width: usize) -> String {
 /// reading something the lookup does not produce.
 ///
 /// Each answer is memoised — per argument
-/// (`MemoQuestion::ArgumentIsTrailing`) and per list
-/// (`KeywordsLeadTheirList`) (#1697 cost audit); uncached, each of the
-/// `width` pairs rescanned its run. The reading is `width`: the
-/// retained `if`s. Neither list contributes — `foo`'s is rejected, and
-/// `bar`'s pairs are a plain call's options, which score nothing.
+/// (`MemoQuestion::ArgumentIsTrailing`, #1602 review) and per list
+/// (`KeywordsLeadTheirList`, #1697 cost audit); uncached, each of the
+/// `width` pairs rescanned its run. The reading is `2 × width`: `width`
+/// retained `if`s plus `bar`'s `width` `else:` sections (each with a
+/// `do:` beside it); `foo`'s rejected list contributes nothing.
 #[must_use]
 pub(crate) fn elixir_rejected_keyword_list(width: usize) -> String {
     let pairs = vec!["do: 0, else: 1"; width].join(", ");
@@ -2046,6 +2061,25 @@ pub const PROBES: &[Probe] = &[
                     ancestor (lesson 82).",
     },
     Probe {
+        name: "cognitive/elixir-keyword-sections",
+        lang: LANG::Elixir,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: elixir_keyword_sections,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1602: a keyword section scores when a `do:` sits in \
+                    its list, asked of every pair; the answer is memoised \
+                    per list, so a list of N pairs costs one scan, not N — \
+                    exponent 1.97 with the memo replaced by a per-pair \
+                    scan, ~1.0 with it. The `do:` sits first in one list, \
+                    last in another and nowhere in the third.",
+    },
+    Probe {
         name: "cognitive/elixir-rejected-keyword-list",
         lang: LANG::Elixir,
         axis: Axis::Width,
@@ -2057,16 +2091,18 @@ pub const PROBES: &[Probe] = &[
         render: elixir_rejected_keyword_list,
         sizes: LINEAR_WIDTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1697 cost audit: the section lookup's two position \
-                    checks — is the bracketed list the trailing argument; \
-                    do its pairs lead the brackets — are asked of every \
-                    pair, and each scans a sibling run the shape fills with \
-                    N comments: one call's list is rejected by the first \
-                    check, the other's accepted after the second. Uncached, \
-                    each rescanned its run per pair — exponent 1.92 on the \
-                    trailing scan alone, 1.68 with the retained `if`s beside \
-                    it, 1.67 on the leading scan (~2 on `main`) — and the \
-                    walk memoises both, per argument and per list (1.0).",
+        rationale: "#1602 review, #1697 cost audit: the section lookup's \
+                    two position checks — is the bracketed list the \
+                    trailing argument; do its pairs lead the brackets — \
+                    are asked of every pair, and each scans a sibling run \
+                    the shape fills with N comments: one call's list is \
+                    rejected by the first check, the other's accepted \
+                    after the second. Uncached, each rescanned its run per \
+                    pair — exponent 1.92 on the trailing scan alone, 1.68 \
+                    with the retained `if`s beside it, 1.67 on the leading \
+                    scan (~2 on `main`) — and the walk memoises both, per \
+                    argument and per list (1.0). The `do:` memo is on the \
+                    accepted list's path, so the probe prices all three.",
     },
     Probe {
         name: "cognitive/elixir-mixed-arguments",
@@ -3776,17 +3812,41 @@ mod tests {
         }
     }
 
+    /// `cognitive/elixir-keyword-sections`: the two `do:`-bearing lists
+    /// score one `else:` section per pair each and the third nothing, so
+    /// the reading is exactly `2 × width` over three calls. The timing
+    /// bound catches a per-pair scan; this catches the gate reading the
+    /// `do:` from the wrong list (#1602).
+    #[test]
+    fn elixir_keyword_sections_read_two_per_width() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "cognitive/elixir-keyword-sections")
+            .expect("cognitive/elixir-keyword-sections is a probe");
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "the shape parses cleanly");
+            assert_eq!(count_kind(&ast, "call"), 3);
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            assert_eq!(reading, (2 * size) as u64);
+        }
+    }
+
     /// `cognitive/elixir-rejected-keyword-list`: `width` comments sit in
     /// `foo`'s `arguments` *between* the bracketed list and the trailing
     /// operand — the siblings the trailing-argument check scans — and
     /// `width` more inside `bar`'s list *before* its pairs — the siblings
-    /// the leading check scans. The reading is the `width` retained
-    /// `if`s: `foo`'s list contributes nothing because the operand makes
-    /// it no section list, and `bar`'s nothing because a plain call's
-    /// options score nothing. The timing bound catches either per-pair
-    /// rescan; this catches the comments sitting where no scan reaches
-    /// them, or either list being read as sections (`2 × width`) (#1697
-    /// cost audit).
+    /// the leading check scans. The reading is `width` retained `if`s
+    /// plus `bar`'s `width` `else:` sections: `foo`'s list contributes
+    /// nothing because the operand makes it no section list. The timing
+    /// bound catches either per-pair rescan; this catches the comments
+    /// sitting where no scan reaches them, `foo`'s list being read as
+    /// sections (`3 × width`), or `bar`'s not (`width`) (#1602 review,
+    /// #1697 cost audit).
     #[test]
     fn elixir_rejected_keyword_list_is_scanned_past_its_comments() {
         let probe = PROBES
@@ -3832,7 +3892,7 @@ mod tests {
                 .workload
                 .walk(&ast, probe.workload.options())
                 .expect("metrics walk");
-            assert_eq!(reading, size as u64);
+            assert_eq!(reading, 2 * size as u64);
         }
     }
 

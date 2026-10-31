@@ -195,7 +195,8 @@ Read it as follows.
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
 | `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
-| `cognitive/elixir-rejected-keyword-list` | Elixir | width | the section lookup's two position memos — trailing argument and leading pairs (#1697) — each scanned past `width` comments | linear |
+| `cognitive/elixir-keyword-sections` | Elixir | width | the per-list `do:` memo behind the keyword-section gate (#1602) | linear |
+| `cognitive/elixir-rejected-keyword-list` | Elixir | width | the section lookup's two position memos — trailing argument (#1602) and leading pairs (#1697) — each scanned past `width` comments | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |

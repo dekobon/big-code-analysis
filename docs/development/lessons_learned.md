@@ -3769,6 +3769,14 @@ left cargo-deny silent. The working guard reads `Cargo.lock` directly
 from a test, and `deny.toml` carries a comment where the entry would
 have been, naming the reproduction so the next reader does not add one.
 
+**A scaling probe that never reaches the scan it prices reads linear
+with or without the memo** (#1602, #1697 cost audit). The probe's
+comments sat inside the list; the scan walked the siblings after it;
+the probe read 1.0 with the memo and 1.0 without. The proof the probe
+discriminates is the same as this lesson's: remove the memo and watch
+the exponent leave the bound (`.claude/rules/testing.md`, "Validate a
+scaling probe by removing what it prices").
+
 ---
 
 ## 92. An optimization's rationale can encode the waste it optimizes for

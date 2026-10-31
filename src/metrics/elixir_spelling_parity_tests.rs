@@ -238,10 +238,14 @@ fn elixir_list_that_is_not_a_keyword_list_has_no_sections() {
         [1, 1, 0, 0],
         &["Foo.bar(x, else: 1)", "Foo.bar(x, [else: 1])"],
     );
-    // An interpolated key has no static name. Only an ordinary call
-    // takes one validly, and no ordinary call has sections, so this row
-    // exercises the reading rather than discriminating it.
-    assert_group("f(x, y)", [1, 1, 0, 0], &["f(x, \"else#{y}\": 1)"]);
+    // An interpolated key has no static name, so it is never a section
+    // key; with a `do:` beside it the list would qualify and the pair
+    // still not, so the row discriminates the key reading.
+    assert_group(
+        "f(x, y)",
+        [1, 1, 0, 0],
+        &["f(x, \"else#{y}\": 1)", "f(x, do: y, \"else#{y}\": 1)"],
+    );
 }
 
 /// Clause constructs: the bracketed `cond` lost its free `true ->`
@@ -352,6 +356,111 @@ fn elixir_with_else_scores_like_case() {
         [3, 3, 3, 4],
         &["with {:ok, a} <- g(x) do (if a do 1 else 2 end) else _ -> 0 end"],
     );
+}
+
+/// Any Call's keyword sections score as its block sections do (#1602):
+/// the compiler reads `foo(do: …, else: …)` as `foo do … else … end` for
+/// every `foo`, user macro or remote call included, so the block arms
+/// and the keyword arm agree on the owner set — which is *every* owner
+/// whose list carries a `do:`. Before, the keyword form was gated on an
+/// owner list (`if` / `unless` / `try` / `def`) and scored 0 for the
+/// rest while the block form scored 1: the residual #1574 left.
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_any_calls_keyword_sections_score_like_its_block() {
+    assert_group(
+        "foo do g() rescue e -> e end",
+        [2, 1, 1, 1],
+        &[
+            "foo(do: g(), rescue: (e -> e))",
+            "foo([do: g(), rescue: (e -> e)])",
+        ],
+    );
+    assert_group(
+        "Foo.bar(x) do 1 else 2 end",
+        [1, 1, 0, 1],
+        &["Foo.bar(x, do: 1, else: 2)", "Foo.bar(x, [do: 1, else: 2])"],
+    );
+    assert_group(
+        "foo do g() catch :x -> 1 end",
+        [2, 1, 1, 1],
+        &["foo(do: g(), catch: (:x -> 1))"],
+    );
+    // A handler raises nesting for any owner: the `if` inside costs 2.
+    assert_group(
+        "foo do g() rescue _ -> (if a do 1 end) end",
+        [2, 2, 1, 3],
+        &["foo(do: g(), rescue: (_ -> if(a, do: 1)))"],
+    );
+    // Several sections at once, and a comment between pairs.
+    assert_group(
+        "foo do g() rescue e -> e catch :x -> 1 else y -> y end",
+        [4, 1, 3, 3],
+        &[
+            "foo(do: g(), rescue: (e -> e), catch: (:x -> 1), else: (y -> y))",
+            "foo(do: g(), # body\n  rescue: (e -> e), catch: (:x -> 1), else: (y -> y))",
+        ],
+    );
+}
+
+/// What does not qualify (#1602): an `else:` / `rescue:` with no `do:`
+/// in its list is an ordinary option; a `do:` in another argument, in a
+/// nested list or map, or in a nested call's list qualifies nothing in
+/// this one; `after:` is never a section. Twins are the Call without
+/// the option.
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_keyword_sections_need_a_do_in_the_same_list() {
+    assert_group(
+        "f(x)",
+        [1, 1, 0, 0],
+        &[
+            "f(x, else: 1)",
+            "f([do: 1], x, else: 2)",
+            "f(x, [[do: 1], else: 2])",
+            "f(x, %{do: 1}, else: 2)",
+            "f(x, g(do: 1), else: 2)",
+            "f(x, do: 1, after: (1 -> 2))",
+        ],
+    );
+    // A stray `rescue:` holds a `stab_clause`, which cyclomatic and ABC
+    // count as the arm it is wherever it sits (the `CaseArm` row); only
+    // cognitive reads the section, and reads none here.
+    for spelling in ["f(x, rescue: (e -> e))", "f(x, [rescue: (e -> e)])"] {
+        assert_eq!(
+            measure(spelling)[3],
+            0,
+            "`{spelling}` has no handler section"
+        );
+    }
+    // A `do:` early or late in the list qualifies alike.
+    assert_group(
+        "foo do g() else 2 end",
+        [1, 1, 0, 1],
+        &["foo(do: g(), else: 2)", "foo(else: 2, do: g())"],
+    );
+}
+
+/// Only a genuine local `with` has the `else` carve-out: a remote
+/// `Foo.with(…)` is an ordinary call whose `else:` is a two-way
+/// alternative like any other's (#1602).
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_only_a_local_with_declines_its_else() {
+    assert_group(
+        "Foo.with(x) do 1 else 2 end",
+        [1, 1, 0, 1],
+        &["Foo.with(x, do: 1, else: 2)"],
+    );
+    assert_eq!(
+        measure("with({:ok, a} <- g(x), do: a, else: (_ -> 0))")[3],
+        1,
+        "the local `with`'s `else:` adds nothing past the `with`"
+    );
+    // A `with … rescue` is not Elixir, so no fixture pins it
+    // (grammar-dispatch §6): the carve-out is else-only because that is
+    // the `E::Else` arm's shape, and the handler rule is pinned on the
+    // valid user-macro forms above.
 }
 
 /// A `for … reduce:`'s first accumulator clause is its head, free in

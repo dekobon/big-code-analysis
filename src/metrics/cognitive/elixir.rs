@@ -27,36 +27,31 @@ enum ElixirSection {
     Handler,
 }
 
-/// Whether a Call whose target spells `target` takes `try`'s sections —
-/// `else`, `rescue`, `catch` — in its keyword form: `try` itself, and
-/// the method-defining macros, whose body is an implicit `try`
-/// (`def f, do: g(), rescue: (e -> e)`).
-fn elixir_takes_try_sections(target: ElixirCallTarget) -> bool {
-    target == ElixirCallTarget::Try || target.is_method_macro()
-}
-
-/// The section `pair` spells, when its Call takes it (#1574). Only such
-/// a Call scores it, because `else:` is an ordinary option name to any
-/// other function; a `with`'s `else:` is that construct's clause
-/// dispatch, which its own +nesting already paid. The word is the
-/// walk's cached `ElixirCallTarget` (#1697).
+/// The section `pair` spells, when it is one (#1574, #1602): an `else:`,
+/// `rescue:` or `catch:` riding a `do:` in the same trailing keyword
+/// list, which is how the compiler reads `foo(do: …, else: …)` as
+/// `foo do … else … end` for *any* `foo` — a user macro's as much as
+/// `if`'s or `try`'s, so the block arms (`E::Else`, `E::RescueBlock`)
+/// and this one score the two spellings alike. Without the `do:`,
+/// `else:` is an ordinary option (`f(x, else: 1)`) and scores nothing.
+/// The one carve-out is a `with`'s `else`, in both spellings: that is
+/// the construct's clause dispatch, which its own +nesting already paid
+/// (the `E::Else` arm below makes the same exception); its `rescue:` /
+/// `catch:`, should a `with` ever take them, follow the block twin.
 fn elixir_section<'a>(
     pair: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<ElixirSection> {
     let section = elixir_pair_section(pair, code, ancestors)?;
-    let target = elixir_call_target(&section.call, code, ancestors);
-    match section.key {
-        "else"
-            if matches!(target, ElixirCallTarget::If | ElixirCallTarget::Unless)
-                || elixir_takes_try_sections(target) =>
-        {
-            Some(ElixirSection::Else)
+    let kind = match section.key {
+        "else" if elixir_call_target(&section.call, code, ancestors) != ElixirCallTarget::With => {
+            ElixirSection::Else
         }
-        "rescue" | "catch" if elixir_takes_try_sections(target) => Some(ElixirSection::Handler),
-        _ => None,
-    }
+        "rescue" | "catch" => ElixirSection::Handler,
+        _ => return None,
+    };
+    section.rides_do(code, ancestors).then_some(kind)
 }
 
 /// Folds an Elixir `BinaryOperator`'s short-circuit operator children
@@ -239,11 +234,11 @@ impl Cognitive for ElixirCode {
             {
                 increment_by_one(stats);
             }
-            // The keyword spellings of the sections above, for the
-            // owners `elixir_section` names: `if(c, do: 1, else: 2)`,
-            // `try(do: f(), rescue: (…))`, bare or in brackets. A user
-            // macro's `foo(do: 1, else: 2)` scores nothing here while
-            // its `foo do 1 else 2 end` scores the `Else` arm above.
+            // The keyword spellings of the sections above, for any Call
+            // whose list carries a `do:` (#1602): `if(c, do: 1, else:
+            // 2)`, `try(do: f(), rescue: (…))`, a user macro's `foo(do:
+            // 1, else: 2)`, bare or in brackets — each scoring what its
+            // block form scores through the arms above.
             E::Pair => match elixir_section(node, code, ancestors) {
                 Some(ElixirSection::Else) => increment_by_one(stats),
                 Some(ElixirSection::Handler) => increase_nesting(stats, &mut nesting),

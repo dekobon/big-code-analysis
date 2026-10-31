@@ -416,23 +416,6 @@ for historical reference.
 
 ### Fixed
 
-- **Rust's type-syntax `for` no longer scores a cyclomatic decision**
-  (#1720). The `for` keyword was counted wherever the grammar emitted
-  it, so `impl T for S {}` reported cyclomatic 2 on every trait impl,
-  and a higher-ranked bound (`F: for<'a> Fn(&'a u8)`, in a generic
-  list or a `where` clause), a function-pointer type's lifetimes
-  (`for<'a> fn(&'a u8)`) and an `impl for<'a> Fn(…)` argument or
-  return type each inflated the enclosing function by one, in both
-  tiers. The `Loop` row's `for` payer is now gated on its parent not
-  being one of those four type-syntax nodes; a `for` loop, and a `for`
-  inside a macro's token tree (an opaque-body policy that also covers
-  `if` / `while` / `loop` there and is pinned unchanged), pay as
-  before. Halstead is untouched: every `for` still bills as an
-  operator. MI moves with cyclomatic, and so does WMC where the
-  removed decision was a method's (a bound in a method signature
-  lowered its impl's sum by one); nothing else does. The integration
-  snapshots record the change on 387 Rust spaces.
-
 - **The quarterly mutation-testing gate can run, and finish** (#1710,
   #1726). Three defects, none of which ever produced a red job. The
   `cargo mutants`
@@ -511,6 +494,39 @@ for historical reference.
   dependency** (#1712). The report struct it derived was removed with
   the 2.0 `vcs.rank` rename; the only remaining uses are test-only and
   covered by the dev-dependency. Wheels and the lockfile are unchanged.
+
+- **Rust's type-syntax `for` no longer scores a cyclomatic decision**
+  (#1720). The `for` keyword was counted wherever the grammar emitted
+  it, so `impl T for S {}` reported cyclomatic 2 on every trait impl,
+  and a higher-ranked bound (`F: for<'a> Fn(&'a u8)`, in a generic
+  list or a `where` clause), a function-pointer type's lifetimes
+  (`for<'a> fn(&'a u8)`) and an `impl for<'a> Fn(…)` argument or
+  return type each inflated the enclosing function by one, in both
+  tiers. The `Loop` row's `for` payer is now gated on its parent not
+  being one of those four type-syntax nodes; a `for` loop, and a `for`
+  inside a macro's token tree (an opaque-body policy that also covers
+  `if` / `while` / `loop` there and is pinned unchanged), pay as
+  before. Halstead is untouched: every `for` still bills as an
+  operator. MI moves with cyclomatic, and so does WMC where the
+  removed decision was a method's (a bound in a method signature
+  lowered its impl's sum by one); nothing else does. The integration
+  snapshots record the change on 387 Rust spaces.
+
+- **Elixir's keyword-form sections score as their block twins for
+  every Call** (#1602). Cognitive gated a keyword `else:` / `rescue:`
+  / `catch:` on an owner list — `if`, `unless`, `try`, the `def`
+  family — while the block-form `else` / `rescue` / `catch` scored for
+  any owner, so `foo(do: g(), rescue: (e -> e))` read 0 beside
+  `foo do g() rescue e -> e end`'s 1, and a remote `Foo.bar(x, do: 1,
+  else: 2)` 0 beside its block's 1 — the residual #1574 left. A section
+  now scores when it rides a `do:` in the same trailing keyword list,
+  which is the shape the compiler reads as the block form, whatever the
+  callee; an `else:` with no `do:` beside it stays an ordinary option,
+  and a `do:` in another argument, a nested list or map, or a nested
+  call qualifies nothing. The one carve-out is a local `with`'s
+  `else`, in both spellings, as before. The `do:` presence is memoised
+  per list (`cognitive/elixir-keyword-sections` prices the shape).
+  Cyclomatic and ABC already agreed across spellings and do not move.
 
 - **Groovy's `var` bills as a declaration keyword** (#1704). The
   keyword leaf of a `local_variable_declaration` was in no operator
