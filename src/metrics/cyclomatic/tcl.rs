@@ -7,7 +7,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::tcl_switch_arm_list;
+use crate::lang_helpers::tcl::tcl_try_handler_bodies;
 
 impl Cyclomatic for TclCode {
     fn compute<'a>(
@@ -16,15 +16,47 @@ impl Cyclomatic for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::roles::tcl::{case_arm, short_circuit, ternary};
+        // bca: suppress(halstead) — one row read per construct; the effort
+        // is the rows' vocabulary, not work a reader must hold
+        use crate::roles::tcl::{
+            branch, case_arm, catch, else_if, r#loop, short_circuit, switch, ternary,
+        };
         let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers, and the
-        // `ternary_expr` the `Ternary` row owns (#1695).
+        // One decision in both tiers: `&&` / `||`, the `ShortCircuit`
+        // row's payers; the `ternary_expr` the `Ternary` row owns
+        // (#1695); the `if` the `Branch` row owns; and the `elseif`
+        // clause, which the `ElseIf` row marks as paying for itself — the
+        // grammar gives it a node, not a nested `if` (#1697).
         if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
             || ternary::owns_kind(kind, node, code, ancestors)
+            || branch::owns_kind(kind, node, code, ancestors)
+            || else_if::pays_at_leaf_kind(kind, node, code, ancestors)
         {
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
+            return;
+        }
+        // The `Catch` row: `catch` is one decision; a `try` is free itself
+        // and pays one per `on error` handler in both tiers (#1266),
+        // matching the C-family `CatchClause` and the iRules `OnHandler`
+        // — modified CCN collapses only switch-like arm lists, never
+        // catch handlers. `finally` is unconditional cleanup and stays
+        // free. The row owns a `try` only when it has a handler, so the
+        // handler count below is never zero — and at this pin never more
+        // than one either: the grammar admits a single `on error` and no
+        // `trap`, so a second handler parses to `ERROR`, and a
+        // perturbation to a flat `1.` is caught by no parseable fixture.
+        // The count is kept for the bump that adds them.
+        if catch::owns_kind(kind, node, code, ancestors) {
+            // role-bypass: allow(Catch) — which of the row's two owners
+            // pays per handler group rather than once
+            let decisions = if kind == Tcl::Try as u16 {
+                tcl_try_handler_bodies(node).count() as f64
+            } else {
+                1.
+            };
+            stats.cyclomatic += decisions;
+            stats.cyclomatic_modified += decisions;
             return;
         }
         // No `return` here, deliberately. Standard-only: each arm of a
@@ -32,53 +64,27 @@ impl Cyclomatic for TclCode {
         // told by its position and its parent's leading word, the
         // `default` arm left out (lesson 11), and the unsupported split
         // form owning nothing (#467). An arm is a command too, so the
-        // command dispatch below still reads its leading word: an arm
-        // whose pattern spells `for` or `switch` pays as that command as
-        // well, as it always has — a reading the grammar cannot tell
+        // `Loop` and `Switch` reads below still see its leading word: an
+        // arm whose pattern spells `for` or `switch` pays as that command
+        // as well, as it always has — a reading the grammar cannot tell
         // from the command, left as is.
         if case_arm::owns_kind(kind, node, code, ancestors) {
             stats.cyclomatic += 1.;
         }
-        match kind.into() {
-            Tcl::If | Tcl::Elseif | Tcl::Foreach | Tcl::While | Tcl::Catch => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            // Tcl `switch` and `for` are generic `command`s with no dedicated
-            // kind (issues #467, #1264), so the kind dispatch above never
-            // sees them. The leading word is resolved once and dispatched on.
-            // role-bypass: allow(CaseArm) — the command-name dispatch for `switch` / `for`, which
-            // the row's switch-arm owner is also a kind of; the arms are read above
-            Tcl::Command => match crate::lang_helpers::tcl::tcl_command_name(node, code) {
-                // Modified-only: the brace-list `switch` collapses to one
-                // container decision (its arms are read above, each at its
-                // own node). The unsupported split form has no arm list
-                // and stays uncounted in both tiers.
-                Some("switch") => {
-                    if tcl_switch_arm_list(node).is_some() {
-                        stats.cyclomatic_modified += 1.;
-                    }
-                }
-                // One loop decision in both tiers, matching `Foreach`/`While`
-                // above and the dedicated iRules `For`.
-                Some("for") => {
-                    stats.cyclomatic += 1.;
-                    stats.cyclomatic_modified += 1.;
-                }
-                _ => {}
-            },
-            // `try` itself is free; each `on error` handler is one decision
-            // point in both tiers (issue #1266), matching `Catch` above, the
-            // C-family `CatchClause`, and the iRules `OnHandler` — modified
-            // CCN collapses only switch-like arm lists, never catch
-            // handlers. `finally` is unconditional cleanup and stays free.
-            Tcl::Try => {
-                let handlers =
-                    crate::metrics::cognitive::tcl_try_handler_bodies(node).count() as f64;
-                stats.cyclomatic += handlers;
-                stats.cyclomatic_modified += handlers;
-            }
-            _ => {}
+        // One loop decision in both tiers: the `Loop` row's `foreach` /
+        // `while`, and the `for` the grammar spells as a generic
+        // `command` told by its leading word (#1264), matching the
+        // dedicated iRules `For`.
+        if r#loop::owns_kind(kind, node, code, ancestors) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
+        // Modified-only: the brace-list `switch` the `Switch` row owns
+        // collapses to one container decision (its arms are read above,
+        // each at its own node). The split form has no arm list, so the
+        // row declines it and it stays uncounted in both tiers (#467).
+        if switch::owns_kind(kind, node, code, ancestors) {
+            stats.cyclomatic_modified += 1.;
         }
     }
 }

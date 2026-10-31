@@ -1,7 +1,9 @@
-//! Bash's role rows. The Halstead keyword roles (#1693) and the
+//! Bash's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::lang_helpers::bash::bash_test_connective;
 use crate::lang_helpers::case_arms::bash_case_item_is_bare_wildcard;
@@ -52,6 +54,13 @@ fn short_circuit_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestor
             short_circuit::PAYERS.contains(&kind)
         }
     })
+}
+
+/// Whether a `command` is the `return` or `exit` builtin, by the text of
+/// its `name` field. Invalid UTF-8 reads as no match.
+fn return_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("name")
+        .is_some_and(|name| matches!(name.utf8_text(code), Some("return" | "exit")))
 }
 
 role_table! {
@@ -169,12 +178,21 @@ role_table! {
         owns [CaseItem(text_gated_by is_decision_item), CaseItem2(text_gated_by is_decision_item)]
     }
     Guard { absent "Bash has no guard clause; a `case` pattern is a glob, not a condition" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
+    // Bash counts statement nodes, so every row here is plain (#1697).
+    Branch { owns [IfStatement] }
+    Switch { owns [CaseStatement] }
+    // `for x in …`, the C-style `for ((…))`, `while` and `until` (one
+    // `while_statement` kind for both).
+    Loop { owns [ForStatement, CStyleForStatement, WhileStatement] }
     Catch { absent "Bash has no exception handling; `trap` is a command" }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The grammar gives `elif` a clause node of its own, a direct child of
+    // the `if_statement`, so the clause *is* the else-if and pays for
+    // itself; no nested `if` is ever an else-if here.
+    ElseIf { owns [ElifClause(pays_itself)] pays [] }
+    // Bash has no `return_statement` node: `return` and `exit` are
+    // ordinary builtins parsed as a `command` whose `name` field is a
+    // `command_name`, told by text.
+    Exit { owns [Command(text_gated_by return_or_exit)] }
     Modifier { absent "Bash declares with builtins (`local`, `readonly`), which are commands, not \
          modifier keywords" }
     // The declaration builtins the grammar gives a kind of their own:

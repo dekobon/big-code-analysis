@@ -46,6 +46,8 @@ fn ruby_documented_core<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let mut node = *node;
     loop {
         node = match node.kind_id().into() {
+            // role-bypass: allow(Branch) — the modifier's body is the
+            // documented item; doc attachment, not membership
             Ruby::IfModifier | Ruby::UnlessModifier => node.child_by_field_name("body")?,
             Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0)?,
             _ => return Some(node),
@@ -187,7 +189,8 @@ fn ruby_yard_reads<'a>(is_def: bool, scope: &Node<'a>, ancestors: Ancestors<'a, 
             // closes it only under a `case`, `begin` or loop, whose bodies
             // YARD never parses; a singleton class or conditional in a
             // method body closes as before.
-            // role-bypass: allow(Container) — the namespaces, where YARD reads
+            // role-bypass: allow(Container, Branch, ElseIf) — the namespaces and the
+            // conditionals, where YARD reads: doc attachment, not membership
             Ruby::Class
             | Ruby::Module
             | Ruby::SingletonClass
@@ -202,6 +205,8 @@ fn ruby_yard_reads<'a>(is_def: bool, scope: &Node<'a>, ancestors: Ancestors<'a, 
             }
             // role-bypass: allow(FuncOpener) — a `def` body, where YARD reads
             Ruby::Method | Ruby::SingletonMethod => above & DEF_READS,
+            // role-bypass: allow(Switch, Loop) — the bodies YARD never parses;
+            // doc attachment, not membership
             Ruby::Case | Ruby::CaseMatch | Ruby::Begin | Ruby::While | Ruby::Until | Ruby::For => 0,
             _ => above,
         },
@@ -312,7 +317,7 @@ impl Checker for RubyCode {
         )
     }
 
-    // tree-sitter-ruby exposes `elsif` as its own named clause node, so the
-    // dedicated-clause-node strategy applies here (same as Lua/Bash/PHP).
-    impl_is_else_if_clause!(Ruby, Elsif);
+    // The `ElseIf` row of `roles/ruby.rs`: the dedicated `elsif` clause
+    // itself is the else-if (#1697).
+    impl_else_if_from_row!(ruby);
 }

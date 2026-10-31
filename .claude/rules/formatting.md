@@ -43,10 +43,11 @@ after which rustfmt reformatted the whole body — the comment was the
 only thing holding it back.
 
 A macro body can also bail for a *second*, unrelated reason: a
-metavariable in a position that is not valid Rust, such as the pattern
-repetition `$ternary $(| $short_circuit)+` in
-`impl_cyclomatic_c_family!`. No comment is involved there and hoisting
-one fixes nothing. The gate cannot tell the two apart, which is why
+metavariable in a position that is not valid Rust, such as the
+`LANG::$camel => …` arms of `mk_langs!` (or the pattern repetition
+`$ternary $(| $short_circuit)+` that `impl_cyclomatic_c_family!` carried
+until #1697 replaced it). No comment is involved there and hoisting one
+fixes nothing. The gate cannot tell the two apart, which is why
 `.rustfmt-bail-baseline.txt` names the known cause-2 entries.
 
 ## Measuring it
@@ -95,9 +96,9 @@ It does not tell you why, and there is more than one why:
 1. **A comment inside a match pattern** — this rule. Hoist it above the
    arm.
 2. **A `macro_rules!` body rustfmt cannot parse** — a metavariable in a
-   position that is not valid Rust, such as the pattern repetition
-   `$ternary $(| $short_circuit)+` in `impl_cyclomatic_c_family!`. No
-   comment is involved and hoisting one fixes nothing.
+   position that is not valid Rust, such as the `LANG::$camel => …`
+   arms of `mk_langs!`. No comment is involved and hoisting one fixes
+   nothing.
 
 Metavariables alone do not cause a bail: `js_cognitive!` interpolates
 `$lang` and still formats once its in-pattern comment is hoisted. So

@@ -21,7 +21,12 @@ impl Cognitive for LuaCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::lua::{closure, func_opener, short_circuit};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::lua::{branch, closure, else_if, func_opener, r#loop, short_circuit};
         use Lua::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -29,18 +34,21 @@ impl Cognitive for LuaCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // `is_else_if` returns true for `ElseifStatement`, but Lua's
-            // grammar makes that node a child field of `IfStatement` rather
-            // than a nested `if_statement`, so the guard is defensive only.
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level. Lua's `ElseIf` row
+            // owns the dedicated `elseif_statement`, never an `if`, so the
+            // two rows are disjoint and no exclusion is needed here (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `elseif` adds +1 at the same nesting level as the parent `if`,
             // matching how Tcl/Bash handle their dedicated elseif/elif nodes.
-            ElseifStatement => {
+            // The `elseif` statement the `ElseIf` row pays at — its leaf,
+            // the clause itself — extends the branch at the same level.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
-            ForStatement | WhileStatement | RepeatStatement => {
+            // Every loop the `Loop` row owns (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // `else` increments without nesting. Lua's `break` is always

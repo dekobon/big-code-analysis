@@ -1,14 +1,22 @@
-//! Objc's role rows. The Halstead keyword roles (#1693) and the
+//! Objc's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::role_table;
 use crate::roles::c_family::{
     c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
-    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
+    c_family_loops, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
+    c_family_strings,
 };
+use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::{Ancestors, Node, Objc};
+
+// The chained `if` sits directly inside an `else_clause`; a nested one
+// under `else { … }` sits inside the compound statement (#1697).
+else_if_parent_clause_gate!(Objc, ElseClause);
 
 /// Whether `node` is the attribute word of `@property (nonatomic, copy,
 /// getter=isOn)`. The grammar has no keyword for any attribute: each is
@@ -78,12 +86,20 @@ role_table! {
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }
     Guard { absent "Objective-C has no guard clause on a case or a function head" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The C family's control flow (#1697): the one-kind rows are spelled
+    // inline and the loop list is the family's fragment
+    // (`roles/c_family.rs`); the `ElseIf` gate is emitted beside this
+    // table. ObjC's own shape:
+    // `Catch` pays at the owner — its `@catch` is the `ATcatch` keyword,
+    // so the handler node is what pays, as the cyclomatic reading always
+    // had it — and `@throw` (the `throw_statement` node) joins C's
+    // `return`, without C++'s coroutine exits.
+    Branch { owns [IfStatement] pays [If] }
+    Switch { owns [SwitchStatement] }
+    Loop { owns [..c_family_loops!()] pays [For, While] }
+    Catch { owns [CatchClause] }
+    ElseIf { owns [IfStatement(gated_by continues_else_clause)] pays [] }
+    Exit { owns [ReturnStatement, ThrowStatement] }
     // The shared C-family lists (`roles/c_family.rs`), so a `.m` scores
     // a C declaration as a `.c` does, plus `auto` (a storage class here
     // as in C) and ObjC's own (#1579): the ARC ownership qualifiers

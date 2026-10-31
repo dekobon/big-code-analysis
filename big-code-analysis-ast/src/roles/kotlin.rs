@@ -1,11 +1,14 @@
-//! Kotlin's role rows. The Halstead keyword roles (#1693) and the
+//! Kotlin's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::kotlin_when_entry_is_else;
 use crate::role_table;
+use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Kotlin, Node, Search};
 
 /// Whether `node`, a modifier keyword leaf, sits in a modifier list the
@@ -106,6 +109,11 @@ fn class_or_interface<'a>(
     }
 }
 
+// `else if` is an `if_expression` whose previous sibling is the bare `else`
+// token — no clause wrapper — so a nested `if` under `else { … }` follows
+// `{` instead (#1697).
+else_if_prev_sibling_gate!(Kotlin, Else);
+
 role_table! {
     lang: Kotlin;
     // A `callable_reference` (`::f`) names a function and calls nothing.
@@ -182,12 +190,17 @@ role_table! {
     // `in` tests are the entry's, not the `Comparison` row's.
     CaseArm { owns [WhenEntry(gated_by is_case_entry)] }
     Guard { absent "Kotlin 2.x's `when` guards are not in the pinned grammar; `if` is an expression" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // Kotlin counts expression / statement nodes, so every row here is
+    // plain (#1697).
+    Branch { owns [IfExpression] }
+    Switch { owns [WhenExpression] }
+    Loop { owns [ForStatement, WhileStatement, DoWhileStatement] }
+    Catch { owns [CatchBlock] }
+    // Kotlin spells `else if` as Java does: an `if_expression` whose
+    // previous sibling is the bare `else` token. Recognition only; the
+    // `Else` token pays cognitive's +1 and the expression `Branch`'s.
+    ElseIf { owns [IfExpression(gated_by follows_else_keyword)] pays [] }
+    Exit { owns [ReturnExpression, ThrowExpression] }
     // Every modifier keyword, billed as C# bills all of its own (#1558;
     // Java and Groovy bill only some, #1565). Each is the keyword leaf;
     // its `*_modifier` / `modifiers` wrappers stay unlisted, so one

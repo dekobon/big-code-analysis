@@ -68,7 +68,7 @@ impl Getter for JavaCode {
 
     keyword_roles!(java);
 
-    paying_roles!(java);
+    paying_roles!(java, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;
@@ -86,22 +86,24 @@ impl Getter for JavaCode {
         // `Comparison` and `ShortCircuit` rows declare them and
         // `get_paying_role` bills them (#1694).
         match node.kind_id().into() {
-            // Operator: control flow
-            // `case` is the `CaseArm` row's and `get_paying_role` bills it
-            // (#1695); `default` is the fallback label's and stays.
-            If | Else | Switch | Try | Catch | Throw | Throws | Throws2 | For
-            | While | Continue | Break | Do | Finally
+            // Operator: control flow. `case` is the `CaseArm` row's, and
+            // `if` / `switch` / `for` / `while` / `catch` the `Branch` /
+            // `Switch` / `Loop` / `Catch` rows' payers, all billed by
+            // `get_paying_role` (#1695, #1697); `default` is the fallback
+            // label's and stays, as do the keywords no row owns. `?` stays
+            // for the spelling the `Ternary` row's `under
+            // TernaryExpression` gate leaves out — a wildcard bound
+            // (`List<? extends T>`) — which billed before the row existed;
+            // the ternary's `?` is the row's.
+            // role-bypass: allow(Ternary) — the operator classification of the spelling the
+            // row's `under TernaryExpression` gate leaves out: a wildcard bound
+            Else | Try | Throw | Throws | Throws2 | Continue | Break | Do | Finally
             // Operator: keywords. `default` is one kind for a `switch`
             // label and an interface method's modifier.
             | New | Return | Default | Assert | Extends | Implements
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
-            // Operator: operators. `?` stays for the spelling the
-            // `Ternary` row's `under TernaryExpression` gate leaves out — a
-            // wildcard bound (`List<? extends T>`) — which billed before
-            // the row existed; the ternary's `?` is the row's.
-            // role-bypass: allow(Ternary) — the operator classification of the spelling the row's
-            // `under TernaryExpression` gate leaves out: a wildcard bound
+            // Operator: operators.
             | EQ | BANG | TILDE | QMARK | COLON | PLUSPLUS | DASHDASH
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ

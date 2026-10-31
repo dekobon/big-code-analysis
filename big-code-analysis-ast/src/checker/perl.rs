@@ -59,8 +59,7 @@ impl Checker for PerlCode {
         )
     }
 
-    // tree-sitter-perl emits `elsif_clause` as a direct child of the
-    // surrounding `if_statement` (not as a wrapper around a nested
-    // `if`), so the clause node itself is the else-if.
-    impl_is_else_if_clause!(Perl, ElsifClause);
+    // The `ElseIf` row of `roles/perl.rs`: the `elsif_clause` itself,
+    // a direct child of the `if_statement`, is the else-if (#1697).
+    impl_else_if_from_row!(perl);
 }

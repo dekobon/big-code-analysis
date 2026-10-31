@@ -277,50 +277,100 @@ where
     }
 }
 
-/// C-family cyclomatic: a `case` label adds standard, `SwitchStatement`
-/// adds modified, and the shared branching kinds add both. The rows are
-/// read from `roles = <the language's roles module>`: the short-circuit
-/// arm reads `ShortCircuit` at its leaf projection (#1694) — the row's
-/// payer gate is where C++'s "applies its operator" test lives (`int&&
-/// x` and `operator&&` spell the token and apply nothing), so the macro
-/// carries no gate of its own; the ternary arm reads `Ternary` at its
-/// wrapper, the `conditional_expression` node; and the case arm reads
-/// `CaseArm` at its leaf, the `case` keyword, which the row's exclusion
-/// of `default` keeps as the only paying label (#1695). The JS family,
-/// whose short-circuit set also has the nullish and compound forms, has
-/// its own macro below.
+/// The kinds a term can fire on, gates aside: a `pays_at_leaf_kind`
+/// term's leaf kinds, an `owns_kind` term's owners. Any other predicate
+/// name is not a term and does not expand.
+macro_rules! term_kinds {
+    ($m:ident::pays_at_leaf_kind) => {
+        $m::LEAF_KINDS
+    };
+    ($m:ident::owns_kind) => {
+        $m::OWNERS
+    };
+}
+
+/// The one cyclomatic body for every language whose policy is a set of
+/// row reads (#1697). The three per-family macros this replaced and the
+/// hand-written kind lists differed only in *which* rows each tier
+/// read and at which projection — so that is what this takes, as
+/// terms, and nothing else:
 ///
-/// **`If` / `For` / `While` are keyword tokens in the per-language
-/// enums (e.g. `Cpp::While == "while"`), not statement nodes.** The
-/// `while` token therefore fires once inside both `WhileStatement` AND
-/// `DoStatement` (the `while` keyword of `do { … } while (…)`), and
-/// the `for` token fires once inside `ForStatement`, C++
-/// `ForRangeLoop`, Java `EnhancedForStatement`, and any other
-/// grammar-specific loop form that spells the keyword `for`. So
-/// adding the statement nodes themselves would double-count those
-/// loops — see issue #284 for the false-positive analysis. The
-/// regression tests `cpp_do_statement_counts_in_cyclomatic`,
-/// `cpp_for_range_loop_counts_in_cyclomatic`,
-/// `java_do_statement_counts_in_cyclomatic`, and
-/// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
-/// correct keyword-driven counts.
+/// ```text
+/// impl_cyclomatic_rows!(
+///     JavaCode, Java, roles = crate::roles::java,
+///     both = [short_circuit::pays_at_leaf_kind, ternary::owns_kind, …],
+///     standard = [case_arm::pays_at_leaf_kind],
+///     modified = [switch::pays_at_leaf_kind],
+///     extra = [],
+///     constraints = [],
+/// );
+/// ```
 ///
-/// `extra = [<kinds>]` names the dialect's own both-count decision
-/// kinds beside `if` / `for` / `while`: C++'s `catch` keyword, ObjC's
-/// `catch_clause` (its `@catch` is the `ATcatch` keyword, so the handler
-/// node is what pays), and nothing for C, which has no exceptions.
+/// A term is `<row module>::<predicate>`: `pays_at_leaf_kind` reads
+/// the row's leaf projection (a keyword token, or the owner on a plain
+/// row), `owns_kind` its owner. `both` terms score standard *and*
+/// modified; `standard` and `modified` terms one tier each. `extra` is
+/// the dialect's own kind list the rows exclude as the consumers' own
+/// (`&&=`, Groovy's `assert`); `constraints` names the kinds whose
+/// whole subtree scores nothing, tracked by [`ConstraintReach`] so the
+/// test is `O(1)` per node (C++'s `requires`). All five lists are
+/// mandatory — `[]` when empty — so no invocation is the first to
+/// expand an optional branch.
 ///
-/// `constraints = [<kinds>]` names the nodes whose whole subtree scores
-/// no decision, tracked by [`ConstraintReach`] so the test is `O(1)` per
-/// node: C++'s compile-time `requires` clause and expression.
-macro_rules! impl_cyclomatic_c_family_rows {
+/// The body reads `kind_id()` once, runs the constraint check (an
+/// opener records its reach, and a node inside one scores nothing)
+/// before the increments — before the predicates too, since they have
+/// nothing to say about a suppressed node; the predicates are pure, so
+/// only the position relative to the increments is observable — then
+/// ORs each tier's terms into one boolean and increments each tier at
+/// most once. That is what the per-family bodies did with a `return`
+/// after their both-arm, and it is equivalent because a `standard`-only
+/// term and a `modified`-only term never fire on one kind — asserted at
+/// build time below, with
+/// `extra` against every tier, on each term's *selected projection* (a
+/// `pays_at_leaf_kind` term's candidate kinds are its payers plus its
+/// self-paying owners; an `owns_kind` term's its owners), not on whole
+/// rows: Perl's `ShortCircuit` and `NullSafe` rows both *own*
+/// `binary_expression` while their leaves (`||`, `//`) are disjoint.
+/// `both` is not asserted against either tier: a `both` hit already
+/// scores both, so a kind it shares with a one-tier term counts once
+/// either way, as overlap *within* `both` does.
+///
+/// Every term is `#[inline]` and takes the kind by value, so LLVM
+/// folds the rows' `if kind == K` chains into the one `switch` the
+/// per-family `match` compiled to (#1693; the IR check recorded on
+/// #1697 — one `switch i16` and a lone `kind_id` call on the miss path
+/// of every row-reading body — is how that is verified).
+macro_rules! impl_cyclomatic_rows {
     (
-        $code:ty,
-        $lang:ident,
-        roles = $roles:path
-        $(, extra = [$($extra:ident),+ $(,)?])?
-        $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
+        $code:ty, $lang:ident, roles = $roles:path,
+        both = [ $( $bm:ident :: $bf:ident ),* $(,)? ],
+        standard = [ $( $sm:ident :: $sf:ident ),* $(,)? ],
+        modified = [ $( $mm:ident :: $mf:ident ),* $(,)? ],
+        extra = [ $( $extra:ident ),* $(,)? ],
+        constraints = [ $( $constraint:ident ),* $(,)? ] $(,)?
     ) => {
+        const _: () = {
+            #[allow(unused_imports)]
+            use $roles::*;
+            // The kinds each tier's terms can fire on, gates aside.
+            const STANDARD: &[&[u16]] = &[ $( term_kinds!($sm::$sf) ),* ];
+            const MODIFIED: &[&[u16]] = &[ $( term_kinds!($mm::$mf) ),* ];
+            const EXTRA: &[u16] = &[ $( $lang::$extra as u16 ),* ];
+            const BOTH: &[&[u16]] = &[ $( term_kinds!($bm::$bf) ),* ];
+            assert!(
+                !$crate::metrics::cyclomatic::any_overlap(STANDARD, MODIFIED),
+                "a kind a `standard` term fires on is also one a `modified` term fires on; \
+                 the two tiers would each count it, where the per-family body counted once"
+            );
+            assert!(
+                !$crate::metrics::cyclomatic::any_overlap(&[EXTRA], STANDARD)
+                    && !$crate::metrics::cyclomatic::any_overlap(&[EXTRA], MODIFIED)
+                    && !$crate::metrics::cyclomatic::any_overlap(&[EXTRA], BOTH),
+                "an `extra` kind is one a row term already fires on"
+            );
+        };
+
         impl Cyclomatic for $code {
             fn compute<'a>(
                 node: &Node<'a>,
@@ -328,190 +378,53 @@ macro_rules! impl_cyclomatic_c_family_rows {
                 ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                use $lang::*;
-                use $roles::{case_arm, short_circuit, ternary};
+                #[allow(unused_imports)]
+                use $roles::*;
+                // `covers` reads the node's start byte, an FFI call; a
+                // language that declares no constraint never opens a
+                // reach, so it is not asked at all there.
+                const CONSTRAINTS: &[u16] = &[ $( $lang::$constraint as u16 ),* ];
                 let kind = node.kind_id();
-                $(
-                    let opens = matches!(kind.into(), $($constraint)|+);
+                // An invocation with no row term reads neither.
+                let _ = (code, ancestors);
+                if !CONSTRAINTS.is_empty() {
+                    let opens = CONSTRAINTS.contains(&kind);
                     if stats.constraint.covers(node, opens) {
                         return;
                     }
-                )?
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-                    || ternary::owns_kind(kind, node, code, ancestors)
-                {
+                }
+                let both_hit = false
+                    $( || $bm::$bf(kind, node, code, ancestors) )*
+                    $( || kind == $lang::$extra as u16 )*;
+                let standard_hit = both_hit $( || $sm::$sf(kind, node, code, ancestors) )*;
+                let modified_hit = both_hit $( || $mm::$mf(kind, node, code, ancestors) )*;
+                if standard_hit {
                     stats.cyclomatic += 1.;
+                }
+                if modified_hit {
                     stats.cyclomatic_modified += 1.;
-                    return;
-                }
-                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
-                    stats.cyclomatic += 1.;
-                    return;
-                }
-                match kind.into() {
-                    SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While $($(| $extra)+)? => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    _ => {}
                 }
             }
         }
     };
 }
 
-// JS-family: include nullish coalescing (`??`) and the three compound
-// short-circuit assignments `&&=`, `||=`, `??=` as short-circuit
-// decisions in addition to `&&` and `||` (issues #226, #231, #248).
-// Each `op=` is semantically `x = x op y` — one short-circuit decision
-// edge, same as the bare operator. Cognitive parity comes from #236.
-//
-// Optional chaining `?.` is also short-circuit (it skips the rest of
-// the chain when the LHS is nullish) and adds one decision point per
-// occurrence (issue #281). The token varies across grammars:
-// JS/MozJS expose only `OptionalChain` (which IS the `?.` token in
-// those grammars), while TS/TSX expose both an `optional_chain`
-// wrapper and a child `?.` token (`QMARKDOT`); counting `QMARKDOT`
-// matches every textual `?.` exactly once in TS/TSX.
-//
-// `&&` / `||` are read from the grammar's `ShortCircuit` row, the
-// ternary from its `Ternary` row, the `case` label from its `CaseArm`
-// row — whose exclusion of `default` keeps it the only paying label —
-// and `??` and the optional chain's `?.` from its `NullSafe` row, whose
-// payer is the token in every grammar (`optional_chain` itself in the
-// JavaScript ones, `?.` under the `optional_chain` wrapper in the
-// TypeScript ones, #281) (#1695). The compound forms `&&=` / `||=` /
-// `??=` stay a kind list: the rows exclude them as the consumers' own.
-macro_rules! impl_cyclomatic_js_family {
-    ($code:ty, $lang:ident, $roles:ident) => {
-        impl Cyclomatic for $code {
-            fn compute<'a>(
-                node: &Node<'a>,
-                code: &'a [u8],
-                ancestors: Ancestors<'a, '_>,
-                stats: &mut Stats,
-            ) {
-                use crate::roles::$roles::{case_arm, null_safe, short_circuit, ternary};
-                use $lang::*;
-                let kind = node.kind_id();
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-                    || ternary::owns_kind(kind, node, code, ancestors)
-                    || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
-                {
-                    stats.cyclomatic += 1.;
-                    stats.cyclomatic_modified += 1.;
-                    return;
-                }
-                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
-                    stats.cyclomatic += 1.;
-                    return;
-                }
-                match kind.into() {
-                    SwitchStatement => stats.cyclomatic_modified += 1.,
-                    // The compound forms, excluded on the `NullSafe` row as
-                    // the consumers' own: one decision edge each, as the
-                    // bare operator (#248).
-                    If | For | While | Catch | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    _ => {}
-                }
+/// Whether any kind list in `a` shares a kind with any in `b`: the
+/// cross-tier check `impl_cyclomatic_rows!` runs at build time.
+#[must_use]
+pub(crate) const fn any_overlap(a: &[&[u16]], b: &[&[u16]]) -> bool {
+    let mut i = 0;
+    while i < a.len() {
+        let mut j = 0;
+        while j < b.len() {
+            if crate::roles::kinds_overlap(a[i], b[j]) {
+                return true;
             }
+            j += 1;
         }
-    };
-}
-
-// Java and Groovy share the same decision-kind set for cyclomatic
-// complexity; Groovy adds `Assert` as an extra branch (its `assert`
-// keyword is a runtime check that branches on its condition,
-// matching Sonar's standard-CCN treatment). `impl_cyclomatic_java_like_rows!`
-// emits the same match body against each enum, with an
-// `[$($extra:ident),*]` list for any language-specific decision kinds
-// (issue #300; mirrors `impl_npm_java_like!` / `impl_npa_java_like!`).
-//
-// Why a dedicated macro instead of reusing `impl_cyclomatic_c_family_rows!`:
-// the C-family macro uses `SwitchStatement` (the wrapping node) as the
-// modified-CCN container marker, whereas Java/Groovy use the `Switch`
-// keyword token — which fires exactly once per switch (both classic
-// switch statements and Java 14+ switch expressions). Counting the
-// keyword keeps the modified-CCN tally aligned with the standard-CCN
-// `Case` arms.
-//
-// Keyword-vs-statement (issue #284): `If` / `For` / `While` here are
-// the *keyword* tokens (`Java::While == "while"`, etc.), not the
-// statement nodes. The `while` keyword therefore fires inside both
-// `WhileStatement` and `DoStatement`, and the `for` keyword fires
-// inside both `ForStatement` and `EnhancedForStatement`. The
-// grammar-specific loop forms are already counted via their inner
-// keyword tokens; listing the statement nodes here would
-// double-count. The regression tests
-// `java_do_statement_counts_in_cyclomatic`,
-// `java_enhanced_for_statement_counts_in_cyclomatic`,
-// `groovy_do_statement_counts_in_cyclomatic`, and
-// `groovy_enhanced_for_statement_counts_in_cyclomatic` pin the
-// correct keyword-driven counts.
-//
-// Groovy note: under the pinned dekobon grammar (root Cargo.toml),
-// Elvis `?:` and the safe-navigation operators `?.` / `??.` all parse
-// cleanly to dedicated nodes with real lexer tokens, so they are
-// counted as branches via the GroovyCode extra-token list below (see
-// the per-call rationale at that invocation). This differs from
-// amaanq's grammar, which emitted ERROR nodes for those constructs.
-//
-// The rows are read from `roles = <the language's roles module>`: the
-// `&&` / `||` arm reads `ShortCircuit` at its leaf projection — the
-// token — instead of naming the two kinds (#1694, #1695), the ternary
-// arm reads `Ternary` at its wrapper, the `ternary_expression` node,
-// the guard arm reads `Guard` at its wrapper (Java's `guard` node;
-// Groovy has none), the case arm reads `CaseArm` at its leaf, the
-// `case` keyword, whose row excludes `default`, and the null-safe arm
-// reads `NullSafe` at its leaf (Groovy's four tokens; Java is absent).
-macro_rules! impl_cyclomatic_java_like_rows {
-    (
-        $code:ty,
-        $lang:ident,
-        [$($extra:ident),* $(,)?],
-        roles = $roles:path $(,)?
-    ) => {
-        impl Cyclomatic for $code {
-            fn compute<'a>(
-                node: &Node<'a>,
-                code: &'a [u8],
-                ancestors: Ancestors<'a, '_>,
-                stats: &mut Stats,
-            ) {
-                use $lang::*;
-                use $roles::{case_arm, guard, null_safe, short_circuit, ternary};
-
-                let kind = node.kind_id();
-                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-                    || ternary::owns_kind(kind, node, code, ancestors)
-                    || guard::owns_kind(kind, node, code, ancestors)
-                    || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
-                {
-                    stats.cyclomatic += 1.;
-                    stats.cyclomatic_modified += 1.;
-                    return;
-                }
-                if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
-                    stats.cyclomatic += 1.;
-                    return;
-                }
-                match kind.into() {
-                    Switch => {
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    If | For | While | Catch $(| $extra)* => {
-                        stats.cyclomatic += 1.;
-                        stats.cyclomatic_modified += 1.;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    };
+        i += 1;
+    }
+    false
 }
 
 // Real defaults — no executable branches. Audited in #188.
@@ -568,6 +481,258 @@ mod tests {
     use super::*;
 
     check_metrics_only_shim!(check_metrics, Cyclomatic);
+
+    /// The two `impl_cyclomatic_rows!` shapes no pilot language spells
+    /// (#1697): a non-empty `constraints` list, and every list empty.
+    /// `Probe` carries the default `Checker` so the macro's `impl` has
+    /// a type to hang on; its body is driven on C++ nodes with the walk's
+    /// own chain. A `requires` clause opens a reach under which a later
+    /// `&&` scores nothing, and the first node past the reach scores
+    /// again — the C++ invocation (`cyclomatic/cpp.rs`) relies on exactly this, and
+    /// the constraint arm was the one perturbation the pilot sweep could
+    /// not catch without it.
+    #[cfg(feature = "cpp")]
+    mod constrained_probe {
+        use super::*;
+        struct Probe;
+        impl Checker for Probe {}
+        impl_cyclomatic_rows!(
+            Probe,
+            Cpp,
+            roles = crate::roles::cpp,
+            both = [short_circuit::pays_at_leaf_kind],
+            standard = [],
+            modified = [],
+            extra = [],
+            constraints = [RequiresClause, RequiresExpression],
+        );
+        struct Empty;
+        impl Checker for Empty {}
+        impl_cyclomatic_rows!(
+            Empty,
+            Cpp,
+            roles = crate::roles::cpp,
+            both = [],
+            standard = [],
+            modified = [],
+            extra = [],
+            constraints = [],
+        );
+
+        #[test]
+        fn a_requires_reach_suppresses_decisions_until_it_ends() {
+            use crate::test_support::for_each_node_with_chain;
+            // `&&` in the clause: suppressed. `&&` in the body: scored.
+            let source =
+                b"template <typename T> requires (A<T> && B<T>) int f(bool a, bool b) { return a && b; }\n";
+            let mut stats = Stats::default();
+            let mut empty = Stats::default();
+            let mut seen = Vec::new();
+            for_each_node_with_chain::<CppCode>(source, |node, chain| {
+                let before = stats.cyclomatic;
+                <Probe as Cyclomatic>::compute(node, source, Ancestors::known(chain), &mut stats);
+                <Empty as Cyclomatic>::compute(node, source, Ancestors::known(chain), &mut empty);
+                if stats.cyclomatic > before {
+                    seen.push(node.start_byte());
+                }
+            });
+            // One decision, from the body's `&&` (after the `return`),
+            // not the clause's.
+            assert_eq!(seen.len(), 1, "scored at bytes {seen:?}");
+            assert!(
+                seen[0]
+                    > source
+                        .iter()
+                        .position(|&b| b == b'{')
+                        .expect("fixture has a body")
+            );
+            assert_eq!(
+                (stats.cyclomatic, stats.cyclomatic_modified),
+                (2., 2.),
+                "the base 1 plus the body's `&&`, both tiers"
+            );
+            assert_eq!((empty.cyclomatic, empty.cyclomatic_modified), (1., 1.));
+        }
+    }
+
+    /// `any_overlap` is what the macro's build-time cross-tier assert
+    /// calls on each term's selected projection. The macro is crate-
+    /// private, so a `compile_fail` doctest cannot reach the assert; this
+    /// pins the function's answer on the real slices the assert compares
+    /// (#1697): Java's `Switch` leaf against `CaseArm`'s is disjoint
+    /// (`switch` vs `case`), and Perl's `ShortCircuit` and `NullSafe`
+    /// rows — which both *own* `binary_expression` — are disjoint at the
+    /// leaf (`||` / `and` vs `//`) and overlapping at the owner — the
+    /// owner-overlap case the assert had to be moved off whole rows for. A
+    /// contrived overlap (a tier reading `Switch` at both projections)
+    /// answers `true`.
+    #[test]
+    fn any_overlap_is_the_assert_the_macro_runs() {
+        use crate::roles::{java, perl};
+        assert!(!any_overlap(
+            &[java::switch::LEAF_KINDS],
+            &[java::case_arm::LEAF_KINDS]
+        ));
+        assert!(!any_overlap(
+            &[perl::short_circuit::LEAF_KINDS],
+            &[perl::null_safe::LEAF_KINDS]
+        ));
+        assert!(any_overlap(
+            &[perl::short_circuit::OWNERS],
+            &[perl::null_safe::OWNERS]
+        ));
+        assert!(any_overlap(
+            &[java::switch::LEAF_KINDS, java::case_arm::LEAF_KINDS],
+            &[java::switch::OWNERS, java::switch::LEAF_KINDS]
+        ));
+        assert!(!any_overlap(&[], &[java::switch::LEAF_KINDS]));
+    }
+
+    /// The keyword payers that fire *outside* the construct their row
+    /// owns (#1697 §6.2). Rust's and Python's rows pay at the keyword
+    /// token, and both grammars reuse a keyword's kind in positions that
+    /// are not the construct: Rust's `for` in `impl T for S`, `for<'a>
+    /// Fn(…)`, `for<'a> fn(…)` and a macro's `token_tree`, its match
+    /// guard's `if`; Python's `if` in the ternary and a comprehension
+    /// filter, its `for` in a comprehension clause. Each row here is the
+    /// value the row-reading body produces *today*, which is the value
+    /// the kind arms produced before it — the migration moves none of
+    /// them. #1720 then removes the three Rust type-syntax decisions in
+    /// its own commit, and these rows move with it; the macro row and
+    /// the guard row are pinned on purpose and stay.
+    ///
+    /// Values are the named space's own, never a file sum: a function
+    /// holding one ternary has one decision and value 2.
+    mod keyword_payers_outside_owners {
+        use super::*;
+        use crate::test_support::space_verbatim;
+
+        #[cfg(any(feature = "python", feature = "rust"))]
+        fn cyclomatic_of(lang: LANG, source: &[u8], space: &str) -> (u64, u64) {
+            let root = space_verbatim(lang, source, MetricsOptions::default());
+            let c = &child_space(&root, space).metrics.cyclomatic;
+            (c.cyclomatic(), c.cyclomatic_modified())
+        }
+
+        // `impl T for S {}`: the `for` is the `impl_item`'s, and pays one
+        // decision on the impl space at this pin.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_for_in_impl_header() {
+            let source = b"trait T {}\nstruct S;\nimpl T for S {}\n";
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "S"), (2, 2));
+            assert_eq!(
+                cyclomatic_of(LANG::Rust, source, "T"),
+                (1, 1),
+                "the trait pays nothing"
+            );
+        }
+
+        // A higher-ranked trait bound, in the generic list and in a
+        // `where` clause: the `for` is the `higher_ranked_trait_bound`'s.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_for_in_hrtb_bound() {
+            assert_eq!(
+                cyclomatic_of(LANG::Rust, b"fn f<F: for<'a> Fn(&'a u8)>(_: F) {}\n", "f"),
+                (2, 2)
+            );
+            assert_eq!(
+                cyclomatic_of(
+                    LANG::Rust,
+                    b"fn g<F>(_: F) where F: for<'a> Fn(&'a u8) {}\n",
+                    "g"
+                ),
+                (2, 2)
+            );
+        }
+
+        // A function-pointer type's lifetimes: the `for` is the
+        // `for_lifetimes` node's, in a type alias (the unit's own
+        // decision) and in a parameter type.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_for_in_function_pointer_type() {
+            let source = b"type P = for<'a> fn(&'a u8);\nfn h(_: for<'a> fn(&'a u8)) {}\n";
+            let root = space_verbatim(LANG::Rust, source, MetricsOptions::default());
+            assert_eq!(
+                (
+                    root.metrics.cyclomatic.cyclomatic(),
+                    root.metrics.cyclomatic.cyclomatic_modified()
+                ),
+                (2, 2),
+                "the type alias's `for` is paid on the unit"
+            );
+            assert_eq!(cyclomatic_of(LANG::Rust, source, "h"), (2, 2));
+        }
+
+        // Inside a macro invocation the parser sees a `token_tree`, and
+        // every keyword in it pays — `if`, `while`, `loop` as well as
+        // `for`. That is a policy about opaque macro bodies, not about
+        // type syntax, and #1720 leaves it alone: pinned so the fix there
+        // cannot widen into it.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_macro_token_tree_keywords_score() {
+            assert_eq!(
+                cyclomatic_of(
+                    LANG::Rust,
+                    b"fn m() { m!(for x in xs {} while c {} if c {} loop {}); }\n",
+                    "m"
+                ),
+                (5, 5)
+            );
+        }
+
+        // A match guard's `if` is both the `Guard` row's payer and the
+        // `Branch` row's: one keyword, one decision. With the arm's own
+        // decision (the `_` arm is free) the function is 3 — never 4.
+        #[cfg(feature = "rust")]
+        #[test]
+        fn rust_guard_if_pays_once_across_rows() {
+            assert_eq!(
+                cyclomatic_of(
+                    LANG::Rust,
+                    b"fn g(x: Option<i32>) -> i32 { match x { Some(v) if v > 1 => v, _ => 0 } }\n",
+                    "g"
+                ),
+                (3, 3)
+            );
+        }
+
+        // `a if c else b`: the `Ternary` row's node pays, and the
+        // `Branch` row's `not_under_ternary` gate declines the `if`
+        // keyword under it — one decision, not two.
+        #[cfg(feature = "python")]
+        #[test]
+        fn python_ternary_if_keyword_pays_nothing() {
+            assert_eq!(
+                cyclomatic_of(
+                    LANG::Python,
+                    b"def f(a, c, b):\n    return a if c else b\n",
+                    "f"
+                ),
+                (2, 2)
+            );
+        }
+
+        // `[x for x in xs if x]`: the `for` of the `for_in_clause` (the
+        // `Loop` row's third owner) and the `if` of the filter clause each
+        // pay — two decisions (#417, #421).
+        #[cfg(feature = "python")]
+        #[test]
+        fn python_comprehension_for_and_if_each_pay() {
+            assert_eq!(
+                cyclomatic_of(
+                    LANG::Python,
+                    b"def g(xs):\n    return [x for x in xs if x]\n",
+                    "g"
+                ),
+                (3, 3)
+            );
+        }
+    }
+
     // Two tests reconcile the cyclomatic per-function divisor against
     // `nom.total()` (#512). Cyclomatic deliberately does *not* declare
     // Nom as a dependency — `cyclomatic_average_per_function_without_nom_512`
@@ -3140,6 +3305,42 @@ mod tests {
                 );
             },
         );
+    }
+
+    /// The two Perl policies the row-reading body carries that no
+    /// valid Perl reaches, pinned on the recovery shapes that do
+    /// (grammar-dispatch §6: recovery parity, not a language contract).
+    ///
+    /// A `when` statement — `CaseArm`'s owner — pays **both** tiers:
+    /// Perl's `given` is no production of the pinned grammar, so there is
+    /// no container for the modified tier to collapse arms onto, and the
+    /// statement scores as the branch it is. `perl -c` rejects the
+    /// modifier spelling and the grammar reaches `when_simple_statement`
+    /// only by recovery, which is why a `standard`-only reading of the
+    /// row was invisible to every valid fixture (the #1697 perturbation
+    /// sweep found it uncaught).
+    ///
+    /// A `?` stranded under an `ERROR` scores nothing: the body reads
+    /// `Ternary` at its **owner**, the `ternary_expression`, not at the
+    /// row's ungated `?` payer, which a leaf read would score (#1697).
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_recovery_shapes_pin_the_when_tiers_and_the_stranded_question_mark() {
+        use crate::test_support::space_verbatim;
+        let when = space_verbatim(
+            LANG::Perl,
+            b"sub f { print 6 when $x; }\n",
+            MetricsOptions::default(),
+        );
+        let f = &when.spaces[0].metrics.cyclomatic;
+        assert_eq!((f.cyclomatic(), f.cyclomatic_modified()), (2, 2));
+        let stranded = space_verbatim(
+            LANG::Perl,
+            b"sub f { my $x = a ?; }\n",
+            MetricsOptions::default(),
+        );
+        let f = &stranded.spaces[0].metrics.cyclomatic;
+        assert_eq!((f.cyclomatic(), f.cyclomatic_modified()), (1, 1));
     }
 
     #[cfg(feature = "perl")]
@@ -6488,6 +6689,33 @@ end
         );
     }
 
+    /// Each `catch` handler is one decision in both tiers — the `Catch`
+    /// row's `catch` keyword, which `try` does not pay for. Before #1697
+    /// no C++ cyclomatic test held a handler, so the term could be
+    /// dropped from the invocation unnoticed (the #1697 perturbation sweep
+    /// found it); the `if` inside the first handler pins that a handler
+    /// body still pays its own.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_catch_handlers_each_count_in_cyclomatic() {
+        check_func_space_only::<CppParser, _>(
+            "int g(int a) {
+                 try { return a; }
+                 catch (int e) { if (e) { return 1; } }
+                 catch (...) { return 2; }
+             }",
+            "foo.cpp",
+            &[Metric::Cyclomatic],
+            |space| {
+                // expected: base 1 + catch 1 + if 1 + catch 1 = 4, both tiers;
+                // the unit adds its own base, so the sum is 5.
+                let g = &child_space(&space, "g").metrics.cyclomatic;
+                assert_eq!((g.cyclomatic(), g.cyclomatic_modified()), (4, 4));
+                assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 5);
+            },
+        );
+    }
+
     /// C++ range-based `for (auto x : xs)` contributes exactly +1 to
     /// both standard and modified CCN — the `for` keyword token
     /// (`Cpp::For`) fires inside the `ForRangeLoop` node just like
@@ -7655,13 +7883,12 @@ f() {
         );
     }
 
-    /// Parity gate for the `impl_cyclomatic_java_like_rows!` macro (#300):
-    /// every decision kind shared by Java and Groovy must produce the
-    /// same per-function cyclomatic score for a common decision-rich
-    /// method body. Dropping a kind from the macro body (e.g.,
-    /// removing `For` or `TernaryExpression`) would fail BOTH language
-    /// assertions; dropping a kind from only one invocation would fail
-    /// only that language's assertion.
+    /// Parity gate for the Java and Groovy `impl_cyclomatic_rows!`
+    /// invocations (#300): every decision the two term lists share must
+    /// produce the same per-function cyclomatic score for a common
+    /// decision-rich method body. Dropping a row from both invocations
+    /// (e.g. `r#loop` or `ternary`) would fail BOTH language assertions;
+    /// dropping it from only one would fail only that language's.
     ///
     /// The body intentionally exercises every shared kind:
     /// `If`, `For`, `While`, `Catch`, `TernaryExpression`, `AMPAMP`,
@@ -7725,8 +7952,8 @@ f() {
         });
     }
 
-    /// Groovy-only delta in `impl_cyclomatic_java_like_rows!`: the `Assert`
-    /// extra-kind invocation must keep Groovy's `assert` branching at
+    /// Groovy-only delta between the two invocations: Groovy's
+    /// `extra = [Assert]` term must keep its `assert` branching at
     /// +1 while Java does not count anything for an identical-looking
     /// construct (Java has no `assert`-as-branch token; its `assert`
     /// statement is grammar-distinct and not in this macro's arm).
@@ -7757,8 +7984,8 @@ f() {
     /// occurrence in a chain adds +1 to cyclomatic complexity. The
     /// dekobon Groovy grammar models Elvis as a distinct
     /// `elvis_expression` node with a real `QMARKCOLON` token, which the
-    /// `NullSafe` row of `roles/groovy.rs` pays and
-    /// `impl_cyclomatic_java_like_rows!` reads at its leaf.
+    /// `NullSafe` row of `roles/groovy.rs` pays and Groovy's
+    /// `impl_cyclomatic_rows!` invocation reads at its leaf.
     #[cfg(feature = "groovy")]
     #[test]
     fn cyclomatic_groovy_elvis_chain_246() {

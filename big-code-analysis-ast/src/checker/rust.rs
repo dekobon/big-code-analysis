@@ -187,9 +187,10 @@ impl Checker for RustCode {
         ) || is_typed_self_receiver
     }
 
-    // Rust models `else if` as a nested `if_expression` (not an
-    // `if_statement`) sitting directly inside the `else_clause`.
-    impl_is_else_if_parent_clause!(Rust, IfExpression, ElseClause);
+    // The `ElseIf` row of `roles/rust.rs`: an `if_expression` whose
+    // parent is the `else_clause`, read off the caller's chain. The row
+    // reads no bytes, so the empty code is exact (#1697).
+    impl_else_if_from_row!(rust);
 
     // Every kind the `Primitive` row owns is one `primitive_type` alias
     // keyed by text, so the row's own test is the key selection; the

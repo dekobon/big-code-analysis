@@ -8,55 +8,33 @@
 
 use super::*;
 
-impl Cyclomatic for BashCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use crate::roles::bash::{case_arm, short_circuit, ternary};
-        let kind = node.kind_id();
-        match kind.into() {
-            // Standard-only: each case arm the `CaseArm` row owns (matches
-            // C-family `case:` treatment — only arms contribute, not the
-            // container). The bare-wildcard arm `*)` is Bash's analogue of
-            // the C-family `default:` and the row leaves it out, matching
-            // every other switch-bearing language; a multi-value pattern
-            // (`a|b)`, `*|b)`) is not bare and still counts. Closes #211.
-            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
-                stats.cyclomatic += 1.;
-            }
-            // Modified-only: the case…esac container collapses all arms
-            // into one decision point.
-            Bash::CaseStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified.
-            Bash::IfStatement
-            | Bash::ElifClause
-            | Bash::ForStatement
-            | Bash::CStyleForStatement
-            | Bash::WhileStatement => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            // `&&` / `||`, and the `-a` / `-o` that `[ … ]` spells them
-            // as — a decision each like the `[ … ] && [ … ]` and
-            // `[[ … && … ]]` twins (#1536): the `ShortCircuit` row's
-            // payers, the test spelling read for its bytes by the row.
-            // The arithmetic ternary inside `(( … ))` / `$(( … ))` — the
-            // only ternary form Bash has, and a decision point in every
-            // sibling that has one (#1268) — is the `Ternary` row's
-            // owner; `bash_ternary_expression_alias_is_unreachable` pins
-            // the second id the row lists defensively.
-            _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-                || ternary::owns_kind(kind, node, code, ancestors) =>
-            {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/bash.rs`, read at the projection the
+// metric counts (#1695, #1697). Bash counts statement nodes, so `Branch`
+// / `Loop` are plain rows read at the owner, and the `elif` clause —
+// the `ElseIf` row's self-paying owner — pays as the branch it is.
+// `&&` / `||`, and the `-a` / `-o` that `[ … ]` spells them as — a
+// decision each like the `[ … ] && [ … ]` and `[[ … && … ]]` twins
+// (#1536) — from `ShortCircuit` at the token, the test spelling read for
+// its bytes by the row; the arithmetic ternary inside `(( … ))` /
+// `$(( … ))` — the only ternary form Bash has, a decision in every
+// sibling that has one (#1268) — from `Ternary` at its owner; each
+// `case` arm from `CaseArm` at the owner — the bare-wildcard `*)` is
+// Bash's `default:` and the row leaves it out, a multi-value pattern
+// (`a|b)`) still counts (#211); the `case … esac` container from
+// `Switch`, the modified tier's.
+impl_cyclomatic_rows!(
+    BashCode,
+    Bash,
+    roles = crate::roles::bash,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        else_if::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::owns_kind],
+    modified = [switch::owns_kind],
+    extra = [],
+    constraints = [],
+);

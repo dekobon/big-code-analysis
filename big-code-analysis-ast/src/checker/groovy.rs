@@ -148,8 +148,9 @@ impl Checker for GroovyCode {
         )
     }
 
-    // The dekobon Groovy grammar models `if_statement` with the `else`
-    // keyword token emitted inline followed by the inner `if_statement`
-    // sibling — same shape as the prior amaanq grammar and Java.
-    impl_is_else_if_prev_sibling!(Groovy, IfStatement, Else);
+    // The `ElseIf` row of `roles/groovy.rs`: an `if_statement` whose
+    // previous sibling is the bare `else` token (no clause wrapper, as in
+    // Java), read off the caller's chain. The row reads no bytes, so the
+    // empty code is exact (#1697).
+    impl_else_if_from_row!(groovy);
 }

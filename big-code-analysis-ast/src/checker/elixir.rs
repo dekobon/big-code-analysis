@@ -75,12 +75,9 @@ impl Checker for ElixirCode {
         )
     }
 
-    // Elixir lacks an `else if` chain construct. Multi-way branching uses
-    // `cond do ... end` (a `Call` whose `do_block` holds many
-    // `stab_clause`s, each `+1` nesting in cognitive) or nested
-    // `if/else`. No tail-recursive chain to collapse here.
-    #[inline]
-    fn is_else_if(_: &Node, _: Ancestors<'_, '_>) -> bool {
-        false
-    }
+    // The `ElseIf` row of `roles/elixir.rs` is absent: Elixir has no
+    // `else if` chain construct. Multi-way branching uses `cond do … end`
+    // (a `Call` whose `do_block` holds many `stab_clause`s, each `+1`
+    // nesting in cognitive) or nested `if/else`. No tail-recursive chain
+    // to collapse here, so the default `false` stands (#1697).
 }

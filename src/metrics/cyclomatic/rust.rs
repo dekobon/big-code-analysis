@@ -49,57 +49,44 @@ fn rust_cyclomatic_increment<'a>(
     stats: &mut Stats,
     count_try: bool,
 ) {
-    use crate::roles::rust::{case_arm, short_circuit};
-    use Rust::*;
-
+    use crate::roles::rust::{branch, case_arm, r#loop, short_circuit, switch};
     let kind = node.kind_id();
-    match kind.into() {
-        // Standard-only: each match arm the `CaseArm` row owns. Lizard
-        // counts `match` as a single control-flow keyword; we count each
-        // arm, so the modified metric collapses them back to the
-        // container. A bare wildcard `_ =>` arm is the C-family
-        // `default:` and the row leaves it out — `Some(_)`, `(_, x)` and
-        // `_ if guard` are not bare and still count. The guard's own `if`
-        // is the `If` arm below, as the `Guard` row says.
-        _ if case_arm::owns_kind(kind, node, code, ancestors) => {
-            stats.cyclomatic += 1.;
-        }
-        // Modified-only: the match expression container.
-        MatchExpression => {
-            stats.cyclomatic_modified += 1.;
-        }
-        // The `?` operator. Counted toward both standard and modified by
-        // default; when `count_try` is false the arm's guard fails and
-        // `?` falls through to `_ => {}`, treating it as linear error
-        // propagation (#409). Gated separately from the unconditional
-        // branching kinds below.
-        TryExpression if count_try => {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-        }
-        // `let PAT = e else { … };` either binds or diverges: one
-        // decision, as its `if let` twin pays. Keyed on the
-        // `alternative` field rather than the shared `else` token, which
-        // `if … else` also emits.
-        LetDeclaration if node.child_by_field_name("alternative").is_some() => {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-        }
-        // Both standard and modified. `&&` / `||` are the `ShortCircuit`
-        // row's payers (#1695), read on the arm's guard.
-        _ if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) => {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-        }
-        // The `if` keyword wherever it is written — an `if` expression's
-        // and a match guard's alike, the latter the `Guard` row's payer,
-        // read here as the keyword it is since the row pays nothing more.
-        // role-bypass: allow(Guard) — the keyword arm the row's gated payer is one spelling of:
-        // the `if` expression's keyword is `Branch`'s, pending R07
-        If | For | While | Loop => {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-        }
-        _ => {}
+    // Every decision is a row of `roles/rust.rs`, read at the projection
+    // the metric counts (#1695, #1697). Rust counts keyword tokens, so
+    // `Branch` and `Loop` are read at the leaf: the `if` keyword wherever
+    // it is written — an `if` expression's, an `if let`'s, and a match
+    // guard's, which is the `Guard` row's payer too; the two rows share
+    // the token and it pays once — and `for` / `while` / `loop`. A `let
+    // … else` is the `Branch` row's gated owner, paid at the node: one
+    // decision, as its `if let` twin pays, keyed on the `alternative`
+    // field rather than the `else` token the `if` expression also emits.
+    // `&&` / `||` from `ShortCircuit` at the token. `?` is one of the
+    // `Exit` row's two owners and a decision only under `count_try`
+    // (#409): `true` counts it toward both tiers, `false` treats it as
+    // linear error propagation. The other owner, `return`, is never a
+    // decision, so this names the kind rather than reading the row.
+    // role-bypass: allow(Exit) — the `count_try` policy on one `Exit`
+    // owner, not exit membership
+    if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
+        || branch::pays_at_leaf_kind(kind, node, code, ancestors)
+        || r#loop::pays_at_leaf_kind(kind, node, code, ancestors)
+        || (count_try && kind == Rust::TryExpression as u16)
+    {
+        stats.cyclomatic += 1.;
+        stats.cyclomatic_modified += 1.;
+        return;
+    }
+    // Standard-only: each match arm the `CaseArm` row owns. Lizard counts
+    // `match` as a single control-flow keyword; we count each arm, so the
+    // modified metric collapses them back to the container, the
+    // `match_expression` the `Switch` row owns. A bare wildcard `_ =>`
+    // arm is the C-family `default:` and the row leaves it out —
+    // `Some(_)`, `(_, x)` and `_ if guard` are not bare and still count.
+    // The guard's own `if` is `Branch`'s keyword above, as the `Guard`
+    // row says.
+    if case_arm::owns_kind(kind, node, code, ancestors) {
+        stats.cyclomatic += 1.;
+    } else if switch::owns_kind(kind, node, code, ancestors) {
+        stats.cyclomatic_modified += 1.;
     }
 }

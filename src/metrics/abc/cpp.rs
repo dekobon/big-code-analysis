@@ -247,7 +247,7 @@ macro_rules! cpp_family_abc {
                 // scatter one lookup across helpers with no semantic boundary
                 // to split on, and the effort is that table's vocabulary.
                 use $lang::*;
-                use $roles::{call, case_arm, comparison, short_circuit, ternary};
+                use $roles::{branch, call, case_arm, catch, comparison, short_circuit, ternary};
 
                 // A requires clause or requires-expression is compile-time and
                 // pays no condition, parenthesised or not; cyclomatic and
@@ -359,7 +359,11 @@ macro_rules! cpp_family_abc {
                     // counterpart is Rule 9). See the module-level `Stats`
                     // doc-comment for the cross-language policy (issue
                     // #395, walker tracked in #403).
-                    Else | Try | Try2 | Catch => {
+                    Else | Try | Try2 => {
+                        stats.conditions += 1.;
+                    }
+                    // And `catch`, the `Catch` row's payer (#1697).
+                    _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                         stats.conditions += 1.;
                     }
                     // Phase-2B (issue #403): condition slots, read by grammar field
@@ -367,13 +371,23 @@ macro_rules! cpp_family_abc {
                     // predicate no other arm counts (#1526), so `if (true)`,
                     // `if (-x)` and `return !x` each count one condition; bare
                     // `return x` reports zero.
-                    IfStatement | WhileStatement | DoStatement => {
+                    // Every `Branch` owner, and the `Loop` owners with a
+                    // `condition` field — the two `for` forms walk theirs
+                    // below or have none.
+                    // role-bypass: allow(Loop) — the loop owners with a `condition`
+                    // slot, a subset the row cannot express; `Branch` is read in full
+                    _ if branch::owns_kind(kind, node, code, ancestors)
+                        || matches!(kind.into(), WhileStatement | DoStatement) =>
+                    {
                         cpp_count_condition_slot(node, scores, &mut stats.conditions);
                     }
                     // `co_return` is a coroutine's `return` (#1547), so its value
                     // is read the same way: `co_return !x` counts one. `co_yield`
                     // hands back a value without returning, as the JS family's
                     // `yield` does, and like it scores no value slot.
+                    // role-bypass: allow(Exit) — a return's value as a boolean
+                    // slot, not whether the node is an exit; `throw` and
+                    // `co_yield` are `Exit` owners with no value slot here
                     ReturnStatement | CoReturnStatement => {
                         cpp_count_return(node, scores, &mut stats.conditions);
                     }
@@ -391,7 +405,9 @@ macro_rules! cpp_family_abc {
                     }
                     // `for (init; cond; update)` — the condition slot, read by
                     // grammar field (issue #1276). `for (;;)` has no condition
-                    // field and counts nothing.
+                    // field and counts nothing; a `for_range_loop` has none.
+                    // role-bypass: allow(Loop) — the one loop owner with a
+                    // three-part head, not whether the node is a loop
                     ForStatement => {
                         cpp_walk_for_statement(node, scores, &mut stats.conditions);
                     }

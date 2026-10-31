@@ -1,0 +1,1 @@
+switch -glob -- $a { "x*" { return 3 } defau

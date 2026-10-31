@@ -106,16 +106,37 @@ macro_rules! keyword_roles {
 /// Emits a [`Getter::get_paying_role`] that bills the paying token of
 /// each listed row as an operator: the `Comparison`, `ShortCircuit`,
 /// `EagerLogical`, `Ternary`, `CaseArm`, `Guard` and `NullSafe` rows
-/// of the language's module under `crate::roles` (#1694, #1695). Each
-/// row is read at its token projection (`pays_at_token_kind`) — the
-/// operator token, which is what Halstead counts — so an owning
-/// `binary_expression` bills nothing here and its `<` bills once, and a
-/// `pays_itself` owner, which pays the counting consumers at the leaf
-/// but is a node with no token to bill (Groovy's `a !in b`), bills
-/// nothing; an owner-only row (Kotlin's infix `and`, whose name is an
-/// `identifier`) lists no payer and bills nothing.
+/// of the language's module under `crate::roles` (#1694, #1695), and —
+/// in the `control_flow` form — the `Branch`, `Switch`, `Loop`, `Catch`
+/// and `ElseIf` rows too (#1697). That form is for the keyword-paying
+/// languages (the C and JS families, Java, Groovy, Python): a
+/// statement-paying language's control-flow rows list no token payer,
+/// so the form would bill nothing there and the plain form is kept.
+/// `ElseIf` pays only where the grammar gives the clause a keyword of its
+/// own, Python's `elif`; the C-family and JVM rows list no payer and bill
+/// nothing. Each row is read at its token projection
+/// (`pays_at_token_kind`) — the operator token, which is what Halstead
+/// counts — so an owning `binary_expression` bills nothing here and its
+/// `<` bills once, and a `pays_itself` owner, which pays the counting
+/// consumers at the leaf but is a node with no token to bill (Groovy's `a
+/// !in b`), bills nothing; an owner-only row (Kotlin's infix `and`, whose
+/// name is an `identifier`; every statement-paying language's `Branch`)
+/// lists no payer and bills nothing. The control-flow rows' keyword
+/// payers (`if`, `for`, …) are ungated on every row but one, so a token
+/// stranded under `ERROR` bills here exactly as the `get_op_type` arm it
+/// left billed it. The one is Python's `If gated_by not_under_ternary`,
+/// which declines the ternary's `if` for the counting consumers;
+/// Halstead still bills that spelling, through the byte-less
+/// `get_op_type` arm Python keeps `If` in, so a change to either must
+/// keep the two in step.
 macro_rules! paying_roles {
     ($roles:ident) => {
+        paying_roles!(@emit $roles []);
+    };
+    ($roles:ident, control_flow) => {
+        paying_roles!(@emit $roles [branch, switch, r#loop, catch, else_if]);
+    };
+    (@emit $roles:ident [$($more:ident),*]) => {
         #[inline]
         fn get_paying_role<'a>(
             node: &Node<'a>,
@@ -124,6 +145,7 @@ macro_rules! paying_roles {
         ) -> TokenRole {
             use $crate::roles::$roles::{
                 case_arm, comparison, eager_logical, guard, null_safe, short_circuit, ternary,
+                $($more,)*
             };
             let kind = node.kind_id();
             if comparison::pays_at_token_kind(kind, node, code, ancestors)
@@ -133,6 +155,7 @@ macro_rules! paying_roles {
                 || case_arm::pays_at_token_kind(kind, node, code, ancestors)
                 || guard::pays_at_token_kind(kind, node, code, ancestors)
                 || null_safe::pays_at_token_kind(kind, node, code, ancestors)
+                $(|| $more::pays_at_token_kind(kind, node, code, ancestors))*
             {
                 TokenRole::Operator
             } else {
@@ -1608,7 +1631,20 @@ mod keyword_role_tests {
 
     /// The `(kind, role)` pairs `classify` answers for every leaf of
     /// `source` that it does not call `Unknown`.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "java", feature = "kotlin"))]
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "java",
+        feature = "groovy",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+        feature = "python",
+        feature = "rust",
+        feature = "kotlin",
+    ))]
     fn roles_of<L: LanguageInfo + Getter>(
         source: &[u8],
         classify: impl for<'a> Fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> TokenRole,
@@ -1658,6 +1694,173 @@ mod keyword_role_tests {
             "the two spellings agree on every literal"
         );
     }
+
+    /// The control-flow keywords of a keyword-paying language — `if`,
+    /// `for`, `while`, `catch`, Java's and Groovy's `switch` — reach
+    /// `Operator` through `get_paying_role` (the `Branch` / `Loop` /
+    /// `Catch` / `Switch` rows' token projection, #1697) and through the
+    /// walk's `get_op_type_with_code`, and the byte-less `get_op_type`
+    /// no longer bills them; `else`, which no row owns, still goes
+    /// through the byte-less arm. The keyword *tokens* are the anonymous
+    /// `if` / `for` / … kinds, so a `kind()` of `"if"` here is never the
+    /// statement.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "java",
+        feature = "groovy",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+        feature = "python",
+        feature = "rust",
+    ))]
+    fn control_keywords_bill_through_the_rows<L: LanguageInfo + Getter>(
+        source: &[u8],
+        keywords: &[&'static str],
+    ) {
+        let via_walk = roles_of::<L>(source, L::get_op_type_with_code);
+        let via_rows = roles_of::<L>(source, L::get_paying_role);
+        let via_byte_less = roles_of::<L>(source, |n, _, a| L::get_op_type(n, a));
+        for &kw in keywords {
+            let billed = (kw, TokenRole::Operator);
+            assert!(via_walk.contains(&billed), "{kw}: missing from the walk");
+            assert!(via_rows.contains(&billed), "{kw}: the rows do not bill it");
+            assert!(
+                !via_byte_less.contains(&billed),
+                "{kw}: still billed byte-less"
+            );
+        }
+        let else_kw = ("else", TokenRole::Operator);
+        assert!(
+            via_byte_less.contains(&else_kw),
+            "`else` is no row's and stays"
+        );
+        assert!(!via_rows.contains(&else_kw));
+    }
+
+    /// One row per language that joined `paying_roles!(…, control_flow)`;
+    /// the C-family and JS-family sources are shared across their
+    /// dialects.
+    macro_rules! control_keywords_test {
+        ($name:ident, $feature:literal, $code:ident, $source:expr, $keywords:expr) => {
+            #[cfg(feature = $feature)]
+            #[test]
+            fn $name() {
+                control_keywords_bill_through_the_rows::<crate::$code>($source, $keywords);
+            }
+        };
+    }
+
+    #[cfg(any(feature = "c", feature = "objc"))]
+    const CONTROL_KEYWORDS_C: &[&str] = &["if", "for", "while"];
+    #[cfg(any(
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript"
+    ))]
+    const CONTROL_KEYWORDS_WITH_CATCH: &[&str] = &["if", "for", "while", "catch"];
+    #[cfg(any(feature = "java", feature = "groovy"))]
+    const CONTROL_KEYWORDS_JVM: &[&str] = &["if", "for", "while", "switch", "catch"];
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CONTROL_KEYWORDS_CPP_SOURCE: &[u8] =
+        b"int f(int a) { if (a) { } else { } for (;;) { } while (a) { } try { } catch (int e) { } return 0; }\n";
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const CONTROL_KEYWORDS_JS_SOURCE: &[u8] =
+        b"function f(a) { if (a) { } else { } for (;;) { } while (a) { } try { } catch (e) { } }\n";
+
+    control_keywords_test!(
+        c_control_keywords_are_billed_by_the_rows,
+        "c",
+        CCode,
+        b"int f(int a) { if (a) { } else { } for (;;) { } while (a) { } switch (a) { } return 0; }\n",
+        CONTROL_KEYWORDS_C
+    );
+    control_keywords_test!(
+        cpp_control_keywords_are_billed_by_the_rows,
+        "cpp",
+        CppCode,
+        CONTROL_KEYWORDS_CPP_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    control_keywords_test!(
+        mozcpp_control_keywords_are_billed_by_the_rows,
+        "mozcpp",
+        MozcppCode,
+        CONTROL_KEYWORDS_CPP_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    control_keywords_test!(
+        objc_control_keywords_are_billed_by_the_rows,
+        "objc",
+        ObjcCode,
+        b"@implementation A\n- (int)f:(int)a { if (a) { } else { } for (;;) { } while (a) { } return 0; }\n@end\n",
+        CONTROL_KEYWORDS_C
+    );
+    control_keywords_test!(
+        java_control_keywords_are_billed_by_the_rows,
+        "java",
+        JavaCode,
+        b"class A { void f(int a) { if (a > 0) { } else { } for (;;) { } while (a > 0) { } switch (a) { } try { } catch (Exception e) { } } }\n",
+        CONTROL_KEYWORDS_JVM
+    );
+    control_keywords_test!(
+        groovy_control_keywords_are_billed_by_the_rows,
+        "groovy",
+        GroovyCode,
+        b"class A { void f(int a) { if (a) { } else { } for (;;) { } while (a) { } switch (a) { } try { } catch (Exception e) { } } }\n",
+        CONTROL_KEYWORDS_JVM
+    );
+    control_keywords_test!(
+        javascript_control_keywords_are_billed_by_the_rows,
+        "javascript",
+        JavascriptCode,
+        CONTROL_KEYWORDS_JS_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    control_keywords_test!(
+        mozjs_control_keywords_are_billed_by_the_rows,
+        "mozjs",
+        MozjsCode,
+        CONTROL_KEYWORDS_JS_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    control_keywords_test!(
+        typescript_control_keywords_are_billed_by_the_rows,
+        "typescript",
+        TypescriptCode,
+        CONTROL_KEYWORDS_JS_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    control_keywords_test!(
+        tsx_control_keywords_are_billed_by_the_rows,
+        "typescript",
+        TsxCode,
+        CONTROL_KEYWORDS_JS_SOURCE,
+        CONTROL_KEYWORDS_WITH_CATCH
+    );
+    // Python's `if` is deliberately not in its list: the statement's
+    // keyword bills through the row, but the ternary's — which the
+    // `Branch` row's gate declines — still bills through the byte-less
+    // arm, so `if` is on both paths and `else` is the only pure control.
+    control_keywords_test!(
+        python_control_keywords_are_billed_by_the_rows,
+        "python",
+        PythonCode,
+        b"def f(a, xs):\n    if a:\n        pass\n    elif a:\n        pass\n    else:\n        pass\n    assert a\n    for x in xs:\n        pass\n    while a:\n        break\n    try:\n        pass\n    except E:\n        pass\n",
+        &["elif", "assert", "for", "while", "except"]
+    );
+    control_keywords_test!(
+        rust_control_keywords_are_billed_by_the_rows,
+        "rust",
+        RustCode,
+        b"fn f(a: bool, xs: &[u8]) { if a { } else { } for _x in xs { } while a { break; } loop { break; } }\n",
+        &["if", "for", "while", "loop"]
+    );
 
     /// A C-family modifier, declaration keyword and primitive reach
     /// `Operator` through `get_op_type_with_code` and through

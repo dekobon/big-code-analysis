@@ -95,7 +95,7 @@
 //!                        ObjectCreationExpression(opens Class gated_by has_class_body)] }
 //!     Guard      { owns [Guard] pays never }
 //!     NullSafe   { absent "no `?.` or `??`" }
-//!     Branch     { pending R07 }
+//!     Comment    { pending R09 }
 //! }
 //! ```
 //!
@@ -132,11 +132,15 @@
 //! kind — the one gate a token the grammar spells in several
 //! productions reads (`?` under the ternary and not a wildcard). Per
 //! row: `pays [..]` splits the paying occurrences from the owners (see
-//! the projections below); `pays never` says the construct has owners
-//! and no paying node at all — a shape the macro keeps for a construct
-//! every consumer recognises and none counts, which no row declares
-//! today (Java's `Guard` was its proof row until #1695 found cyclomatic
-//! pays the node); neither means the owners are the paying nodes.
+//! the projections below), and `pays []` — the split row with *no*
+//! payers — says the owners are recognised but pay nothing at the leaf
+//! unless marked `pays_itself`: the `ElseIf` shape, where the chained
+//! `if` is `Branch`'s to pay and a dedicated `elif_clause` pays for
+//! itself (#1697); `pays never` says the construct has owners and no
+//! paying node at all — a shape the macro keeps for a construct every
+//! consumer recognises and none counts, which no row declares today
+//! (Java's `Guard` was its proof row until #1695 found cyclomatic pays
+//! the node); neither means the owners are the paying nodes.
 //! `project "field"` names the child field holding an owner's paying
 //! token; `wraps [..]` lists the interpolation kinds a
 //! `StringLit` can hold; `excludes [K "why"]` records a kind the row's
@@ -292,18 +296,21 @@
 //! and `PAYERS` (#1694, #1695); the items no package reads yet are what
 //! the module-level allow below is for.
 
-// The keyword, paying-construct, space-tree and call / string rows have
-// consumers (#1693–#1696, #1698). What no Rust reader reaches is what
-// `utils/role_tables.py` reads from the declarations instead — the
-// `ABSENT` / `PENDING` constants and `EXCLUDED` — plus the emissions of
-// rows every language still declares `pending` (the R07 and R09
-// packages narrow this allow as they land).
+// The keyword, paying-construct, space-tree, call / string and
+// control-flow rows have consumers (#1693–#1698). What no Rust reader
+// reaches is what `utils/role_tables.py` reads from the declarations
+// instead — the `ABSENT` / `PENDING` constants and `EXCLUDED` — plus the
+// emissions of the R09 rows (`Comment`, `DocComment`, `Docstring`,
+// `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody`)
+// every language still declares `pending`; that package narrows this
+// allow as it lands.
 #![allow(dead_code)]
 
 pub mod bash;
 pub mod c;
 pub mod c_family;
 pub mod ccomment;
+pub(crate) mod control_flow;
 pub mod cpp;
 pub mod csharp;
 pub mod elixir;
@@ -338,6 +345,11 @@ mod space_tree_tests;
 // classifiers that read them (#1698).
 #[cfg(test)]
 mod call_string_tests;
+
+// The six control-flow rows, pinned independently of the metric
+// dispatchers that read them (#1697).
+#[cfg(test)]
+mod control_flow_tests;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -571,7 +583,7 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 ///     }
 ///     Guard { owns [Guard] pays never }
 ///     NullSafe { absent "no `?.`" }
-///     Branch { pending R07 }
+///     Comment { pending R09 }
 /// }
 /// # fn main() {
 /// assert_eq!(exit::OWNERS.len(), 2);
@@ -631,6 +643,8 @@ macro_rules! role_table {
             /// An absent construct has no payers, so a reader that asks
             /// several rows about one token can ask this one alike.
             pub const PAYERS: &[u16] = &[];
+            /// Nothing pays at the leaf of an absent construct.
+            pub const LEAF_KINDS: &[u16] = &[];
             /// An absent construct reads nothing.
             pub const TEXT_GATED: bool = false;
             $crate::role_table!(@absent_predicate owns);
@@ -868,11 +882,16 @@ macro_rules! role_table {
             }
 
             /// Whether the row names `kind` among its owners, gates aside:
-            /// the byte-less spelling of [`owns`].
+            /// the byte-less spelling of [`owns`]. Spelled as a chain of
+            /// compares, not `OWNERS.contains`: `<[u16]>::contains` is an
+            /// out-of-line loop over a runtime-length slice, which LLVM
+            /// cannot fold into the kind `switch` a consumer dispatches
+            /// on, while the chain becomes case labels of it (#1697).
             #[inline]
             #[must_use]
             pub fn lists_kind(kind: u16) -> bool {
-                OWNERS.contains(&kind)
+                let _ = kind;
+                false $(|| kind == $lang::$owner as u16)*
             }
 
             /// [`owns`] with `node`'s kind id already read, for a caller
@@ -936,7 +955,11 @@ macro_rules! role_table {
                 code: &[u8],
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
-                PAYERS.contains(&kind) && pays_at_leaf_kind(kind, node, code, ancestors)
+                // A compare chain, not `PAYERS.contains`, for the reason on
+                // `lists_kind`: this runs on every token of the Halstead
+                // walk, before the byte-less fallback.
+                let is_payer = false $(|| kind == $lang::$payer as u16)*;
+                is_payer && pays_at_leaf_kind(kind, node, code, ancestors)
             }
 
             /// Whether any owner is `text_gated_by` — the row reads the
@@ -947,6 +970,22 @@ macro_rules! role_table {
             pub const TEXT_GATED: bool = false $( || $crate::role_table!(
                 @scan text_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
             ) )*;
+
+            /// Every kind [`pays_at_leaf_kind`] can answer `true` for,
+            /// gates aside: the declared payers plus the `pays_itself`
+            /// owners on a split row; every owner on a plain row; none
+            /// under `pays never`. A consumer that reads several rows'
+            /// leaves asserts at build time that two tiers cannot fire on
+            /// one kind (`impl_cyclomatic_rows!`, #1697).
+            pub const LEAF_KINDS: &[u16] = &{
+                const MARKED: &[Option<u16>] = &[
+                    $( Some($lang::$payer as u16), )*
+                    $( $crate::role_table!(
+                        @scan self_payer_kind [$mode] [$lang] $owner [] [] [] [] $($($owner_attr)*)?
+                    ), )*
+                ];
+                $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
+            };
 
             /// Every kind this row marks `callable` or `callable_when`,
             /// gates aside.
@@ -1141,6 +1180,18 @@ macro_rules! role_table {
     // word is read off the attribute list before the fold.
     (@text_gated_kind [] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         false
+    };
+    // In `LEAF_KINDS`: `Some(kind)` for an owner that can pay at the
+    // leaf under the row's mode — every owner on a plain row, the
+    // `pays_itself` ones on a split row, none under `pays never`.
+    (@self_payer_kind [owners] [$l:ident] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        Some($l::$k as u16)
+    };
+    (@self_payer_kind [split] [$l:ident] $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt $c:tt) => {
+        Some($l::$k as u16)
+    };
+    (@self_payer_kind [$mode:ident] [$l:ident] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        None
     };
     // In `CALLABLE`: `Some(kind)` for a marked owner, `None` otherwise;
     // `some_kinds` drops the `None`s at compile time.
@@ -1564,6 +1615,15 @@ mod tests {
         true
     }
 
+    // An `always` that counts its calls, so a test can assert which
+    // emitted predicates reach an owner's gate and which do not.
+    crate::observation::counter!(recording_gate_calls, cfg(test));
+
+    fn recording<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+        recording_gate_calls::record();
+        true
+    }
+
     // A table no language declares, to reach the one scan terminal the
     // three proof tables do not: a *gated* `pays_itself` owner. Without
     // this, dropping the gate from `@self_payer_done` failed nothing.
@@ -1595,11 +1655,28 @@ mod tests {
     // consumed an `opens` and a `callable` — so `TEXT_GATED` is pinned
     // to read the word wherever it sits.
     mod dsl_gates {
-        use super::{always, class_or_interface, never};
+        use super::{always, class_or_interface, never, recording};
         use crate::Java;
 
         role_table! {
             lang: Java;
+            // The split-empty idiom the `ElseIf` rows spell (#1697):
+            // `pays []` makes the row `[split]`, so an owner pays at the
+            // leaf only when marked `pays_itself`. Three owners, each a
+            // distinct scan terminal: X marked and ungated (pays), Y
+            // admitted by a *recording* gate and unmarked (owns, pays
+            // at the wrapper, never at the leaf — and its gate must not
+            // even run on the leaf path), Z marked under `never`
+            // (neither). A `never` gate alone could not tell split-empty
+            // from the owner-paying mode, which is why Y's gate records.
+            ElseIf {
+                owns [
+                    WhileStatement(pays_itself),
+                    IfStatement(gated_by recording),
+                    DoStatement(pays_itself gated_by never),
+                ]
+                pays []
+            }
             Comparison {
                 owns [BinaryExpression(holds_payer)]
                 pays [EQEQ, LT under BinaryExpression, GT under [TernaryExpression, BinaryExpression]]
@@ -1713,6 +1790,48 @@ mod tests {
         assert_eq!(primitive::ABSENT, "JavaScript has no type names");
         // The constants a reader asking several rows reads alike.
         assert_eq!((primitive::OWNERS, primitive::PAYERS), (&[][..], &[][..]));
+    }
+
+    /// `LEAF_KINDS` — the kinds `pays_at_leaf_kind` can answer `true`
+    /// for, gates aside — per row mode (#1697): a plain row's owners; a
+    /// split row's payers plus its `pays_itself` owners, a gated one
+    /// included; nothing under `pays never` or on an absent row. Read by
+    /// the root crate's build-time cross-tier assert, so making every
+    /// list empty would leave every metric unchanged and disable the
+    /// assert — which is why the slices are pinned here by hand.
+    #[test]
+    fn leaf_kinds_follow_the_row_mode() {
+        // plain: owners
+        assert_eq!(dsl_gates::guard::LEAF_KINDS, &[] as &[u16], "pays never");
+        assert_eq!(
+            spliced::exit::LEAF_KINDS,
+            &[Java::ReturnStatement as u16],
+            "split, no self-payers"
+        );
+        assert_eq!(
+            spliced::func_opener::LEAF_KINDS,
+            spliced::func_opener::OWNERS,
+            "plain: every owner"
+        );
+        // split with self-payers, gated or not: payers first, then owners
+        assert_eq!(
+            dsl_gates::ternary::LEAF_KINDS,
+            &[Java::QMARK as u16, Java::InstanceofExpression as u16]
+        );
+        assert_eq!(
+            gated_self_payer::comparison::LEAF_KINDS,
+            &[Java::EQEQ as u16, Java::InstanceofExpression as u16]
+        );
+        assert_eq!(
+            dsl_gates::else_if::LEAF_KINDS,
+            &[Java::WhileStatement as u16, Java::DoStatement as u16],
+            "split-empty: the marked owners only, the unmarked one not"
+        );
+        assert_eq!(
+            crate::roles::java::null_safe::LEAF_KINDS,
+            &[] as &[u16],
+            "absent"
+        );
     }
 
     #[test]
@@ -1866,6 +1985,63 @@ mod tests {
         // `always`, and owns through the same gate.
         assert_eq!(owns, ["o instanceof String"]);
         assert_eq!(pays, ["o instanceof String", "?"]);
+    }
+
+    /// The split-empty row (`pays []`, #1697): a `pays_itself` owner
+    /// pays at the leaf; an admitted unmarked owner owns and pays at the
+    /// wrapper but not at the leaf, and its gate is never consulted on
+    /// the leaf path — `OWNERS_PAY` is `false` on a split row, so the
+    /// tail `OWNERS_PAY && owns_kind(..)` short-circuits before any
+    /// gate; a marked owner under `never` neither owns nor pays. The
+    /// row's declared lists are what the DSL reader sees: no payers,
+    /// `pays_never` false — indistinguishable in `canonical()` from an
+    /// owner-paying row, which is why this pins the predicates.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_split_row_with_no_payers_pays_only_at_its_self_paying_owners() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_gates::else_if;
+        let source =
+            b"class A { void f(boolean a) { if (a) { } while (a) { } do { } while (a); } }\n";
+        // (kind, owns, pays_at_leaf, pays_at_wrapper, gate calls during
+        // owns, gate calls during pays_at_leaf).
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let kind: Java = node.kind_id().into();
+            if !matches!(
+                kind,
+                Java::IfStatement | Java::WhileStatement | Java::DoStatement
+            ) {
+                return;
+            }
+            let ancestors = Ancestors::known(chain);
+            let before = recording_gate_calls::observed();
+            let owns = else_if::owns(node, source, ancestors);
+            let during_owns = recording_gate_calls::observed() - before;
+            let before = recording_gate_calls::observed();
+            let leaf = else_if::pays_at_leaf(node, source, ancestors);
+            let during_leaf = recording_gate_calls::observed() - before;
+            let wrapper = else_if::pays_at_wrapper(node, source, ancestors);
+            seen.push((kind, owns, leaf, wrapper, during_owns, during_leaf));
+        });
+        assert_eq!(
+            seen,
+            [
+                // Y: the recording gate admits it; consulted by `owns`
+                // (once) and never on the leaf path.
+                (Java::IfStatement, true, false, true, 1, 0),
+                // X: marked, ungated — owns and pays at both projections.
+                (Java::WhileStatement, true, true, true, 0, 0),
+                // Z: marked, gated away — nothing.
+                (Java::DoStatement, false, false, false, 0, 0),
+            ]
+        );
+        assert_eq!(
+            (else_if::PAYERS, else_if::PAYS_NEVER),
+            (&[] as &[u16], false)
+        );
+        assert!(!else_if::lists_kind(Java::ForStatement as u16));
     }
 
     /// `TEXT_GATED` is true exactly when an owner is `text_gated_by`:

@@ -11,7 +11,7 @@
 
 use super::{Abc, Stats};
 use crate::lang_helpers::bash::bash_test_eq_count;
-use crate::roles::bash::{call, case_arm, comparison, ternary};
+use crate::roles::bash::{branch, call, case_arm, comparison, else_if, ternary};
 use crate::*;
 
 impl Abc for BashCode {
@@ -21,6 +21,11 @@ impl Abc for BashCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695, #1697) are arms like the kind arms they replaced.
         let kind = node.kind_id();
         match kind.into() {
             // Each `variable_assignment` is one assignment regardless of
@@ -41,7 +46,15 @@ impl Abc for BashCode {
             // condition signal. These branch keywords mirror the matching
             // Bash cyclomatic decisions (`if`/`elif`/`while`; not `for`/
             // `&&`/`||`), lifting ABC off 0 for `if cmd; then … elif … fi`.
-            Bash::IfStatement | Bash::ElifClause | Bash::WhileStatement => {
+            // Every `Branch` owner, the `elif` clause the `ElseIf` row pays
+            // at, and the `Loop` owner whose keyword is a condition:
+            // `while` / `until` (one kind), not `for` / `select` (#1697).
+            // role-bypass: allow(Loop) — the one loop owner that is a
+            // condition, a subset the row cannot express
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || else_if::pays_at_leaf_kind(kind, node, code, ancestors)
+                || kind == Bash::WhileStatement =>
+            {
                 stats.conditions += 1.;
             }
             // The arithmetic ternary, Bash's only ternary form and the

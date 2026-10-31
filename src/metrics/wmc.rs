@@ -3729,9 +3729,8 @@ mod tests {
     fn elixir_wmc_user_macro_not_classified_as_method() {
         // A user-defined `defmacro custom_def`, then invoking
         // `custom_def foo, do: ...` must NOT be classified as a
-        // method — the literal-text comparison in
-        // `elixir_call_keyword` only matches the four built-in
-        // method-defining macros. The `def unquote(name)` inside the
+        // method — `ElixirCallTarget::is_method_macro` names only the
+        // four built-in method-defining macros. The `def unquote(name)` inside the
         // `quote do … end` block is also rejected (it is a code
         // template emitted on macro expansion, not a real definition
         // of any method of `Foo`); `elixir_is_inside_quote_block`

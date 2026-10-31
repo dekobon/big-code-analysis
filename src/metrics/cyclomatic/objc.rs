@@ -8,18 +8,29 @@
 
 use super::*;
 
-// The C-family shape with `catch_clause` as its extra: ObjC's grammar
-// has no bare `catch` token — `@catch` is the `ATcatch` keyword and the
-// handler body is a `catch_clause` node — so counting `CatchClause` adds
-// one branch per `@catch`, the same edge C++'s `catch` keyword
-// contributes. Fast enumeration (`for (id x in xs)`) folds into
-// `for_statement`, so the `For` keyword-token arm already covers it —
-// no separate node (issue #284: count keyword tokens, never the
-// statement nodes, or the `For` / `While` / `If` keyword and their
-// `*Statement` wrappers double-count).
-impl_cyclomatic_c_family_rows!(
+// Every decision is a row of `roles/objc.rs`, read at the projection
+// the metric counts (#1694, #1695, #1697): `&&` / `||` from
+// `ShortCircuit` at the token; the `conditional_expression` from
+// `Ternary` at its wrapper; the `if` / `for` / `while` *keyword tokens*
+// from `Branch` / `Loop` (#284 — fast enumeration folds into
+// `for_statement`, so its `for` pays as the classic one's does); the
+// `catch_clause` from `Catch` at the owner — ObjC's `@catch` is the
+// `ATcatch` keyword, so the handler node is what pays; the `case`
+// label from `CaseArm` at the token, its row excluding `default`; and
+// the `switch_statement` from `Switch` at the owner.
+impl_cyclomatic_rows!(
     ObjcCode,
     Objc,
     roles = crate::roles::objc,
-    extra = [CatchClause]
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        catch::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::pays_at_leaf_kind],
+    modified = [switch::owns_kind],
+    extra = [],
+    constraints = [],
 );

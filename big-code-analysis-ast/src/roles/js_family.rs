@@ -331,9 +331,32 @@ macro_rules! js_family_short_circuit_payers {
     };
 }
 
+/// The loop statements: `for (;;)`, `for … in` / `for … of` (one
+/// `for_in_statement` kind for both), `while` and `do … while`. The
+/// `for` keyword pays once in each `for` form and `while` once in a
+/// `while` and once in a `do … while` (#284).
+macro_rules! js_family_loops {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            ForStatement, ForInStatement, WhileStatement, DoStatement,
+        ] $($rest)*);
+    };
+}
+
+/// The exits: `return`, `throw`, and a generator's `yield` / `yield*`
+/// (control leaves the body, resumably — counted as Python's `yield`
+/// is).
+macro_rules! js_family_exits {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            ReturnStatement, ThrowStatement, YieldExpression,
+        ] $($rest)*);
+    };
+}
+
 pub(crate) use {
-    js_family_comparison_payers, js_family_short_circuit_payers, ts_family_decl_keywords,
-    ts_family_gates, ts_family_modifiers,
+    js_family_comparison_payers, js_family_exits, js_family_loops, js_family_short_circuit_payers,
+    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
 #[cfg(test)]

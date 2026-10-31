@@ -137,6 +137,9 @@ Read it as follows.
 | `cognitive/nested-while` | C | depth | `get_nesting_from_map` (#1062) | linear |
 | `nom/nested-while` | C | depth | metric control for the row above | linear |
 | `cognitive/nested-if` | C | depth | `Checker::is_else_if` | linear |
+| `cognitive/else-if-ladder` | C | depth | the `ElseIf` row's parent-clause gate on an `else if` chain (#1697) | linear |
+| `cognitive/wide-if-siblings` | Java | width | the `ElseIf` row's previous-sibling gate through the `SiblingCache` (#1697) | linear |
+| `cognitive/python-wide-if-siblings` | Python | width | the `ElseIf` row's sole-child gate reading its parents before scanning the block (#1697) | linear |
 | `loc/nested-while` | C | depth | shape control for the row below | linear |
 | `loc/nested-declaration` | C | depth | `Node::count_specific_ancestors` | linear |
 | `nom/nested-quote` | Elixir | depth | `elixir_is_inside_quote_block` | linear |
@@ -192,6 +195,7 @@ Read it as follows.
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
 | `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
+| `cognitive/elixir-rejected-keyword-list` | Elixir | width | the section lookup's two position memos — trailing argument and leading pairs (#1697) — each scanned past `width` comments | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |

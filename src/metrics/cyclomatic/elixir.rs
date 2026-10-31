@@ -7,7 +7,9 @@
 )]
 
 use super::*;
-use crate::lang_helpers::elixir::elixir_applying_remote_call;
+use crate::lang_helpers::elixir::{
+    ElixirCallTarget, elixir_applying_remote_call, elixir_call_target,
+};
 use crate::lang_helpers::elixir_decisions::{
     elixir_arrow_is_with_clause, elixir_receive_dispatches, elixir_receive_timeout_clause,
     elixir_with_else_dispatches,
@@ -132,7 +134,7 @@ impl Cyclomatic for ElixirCode {
             // role-bypass: allow(ShortCircuit) — the remote-call extra beside the row read: which
             // kinds can name a `Kernel` short-circuit call
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or
-                if short_circuit::pays_at_leaf_kind(node.kind_id(), node, code, ancestors)
+                if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
                     || elixir_applying_remote_call(node, code, ancestors).is_some() =>
             {
                 stats.cyclomatic += 1.;
@@ -147,54 +149,55 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
-            // role-bypass: allow(Call) — which call names a branching macro, read from
-            // the target's text; not whether the node is a call
-            E::Call => {
-                if let Some(target) = node.child_by_field_name("target")
-                    && target.kind_id() == E::Identifier
-                    && let Some(name) = target.utf8_text(code)
-                {
-                    match name {
-                        // Single-branch constructs: count for both.
-                        // There are no per-arm `stab_clause`s exposing
-                        // themselves separately, so the Call itself
-                        // must carry the decision point.
-                        "if" | "unless" | "for" | "while" => {
-                            stats.cyclomatic += 1.;
-                            stats.cyclomatic_modified += 1.;
-                        }
-                        // Multi-arm containers: count once for modified
-                        // (the container collapses to a single decision).
-                        // Per-arm `stab_clause`s already contribute to
-                        // standard above.
-                        "case" | "cond" | "try" => {
-                            stats.cyclomatic_modified += 1.;
-                        }
-                        // A `receive` is a `case` over the mailbox and
-                        // pays as one (#1581), when it has message
-                        // clauses to pick between: one holding only an
-                        // `after` timeout is a timed wait. Standard pays
-                        // the timeout clause only when a bare `_ ->`
-                        // already took the one free default arm
-                        // (`elixir_clause_is_decision`).
-                        "receive" if elixir_receive_dispatches(node, code) => {
-                            stats.cyclomatic_modified += 1.;
-                            if elixir_receive_timeout_clause(node, code).is_some() {
-                                stats.cyclomatic += 1.;
-                            }
-                        }
-                        // A `with`'s decisions are its `<-` clauses,
-                        // counted above in both tiers. What modified
-                        // collapses is its `else`, the dispatch over
-                        // the failed value — once, and only when that
-                        // dispatch picks between anything (#1535).
-                        "with" if elixir_with_else_dispatches(node, code) => {
-                            stats.cyclomatic_modified += 1.;
-                        }
-                        _ => {}
+            // The `Branch`, `Loop` and `Switch` rows all own the one
+            // `call` kind under text gates (#275, #1697); the word is read
+            // once here and the rows' gates re-read it from the walk's
+            // slot. Policy per word — which tier pays — is this body's,
+            // not the rows'.
+            // role-bypass: allow(Branch, Switch, Loop, Exit) — one dispatch
+            // on the cached word in place of five row reads of the same
+            // `call`: which word it is, not whether it is a call
+            E::Call => match elixir_call_target(node, code, ancestors) {
+                // Single-branch constructs — the `Branch` row's `if` /
+                // `unless` and the `Loop` row's `for` / `while` — count
+                // for both. There are no per-arm `stab_clause`s exposing
+                // themselves separately, so the Call itself must carry
+                // the decision point.
+                ElixirCallTarget::If
+                | ElixirCallTarget::Unless
+                | ElixirCallTarget::For
+                | ElixirCallTarget::While => {
+                    stats.cyclomatic += 1.;
+                    stats.cyclomatic_modified += 1.;
+                }
+                // Multi-arm containers of the `Switch` row: count once
+                // for modified (the container collapses to a single
+                // decision). Per-arm `stab_clause`s already contribute to
+                // standard above.
+                ElixirCallTarget::Case | ElixirCallTarget::Cond | ElixirCallTarget::Try => {
+                    stats.cyclomatic_modified += 1.;
+                }
+                // A `receive` is a `case` over the mailbox and pays as
+                // one (#1581), when it has message clauses to pick
+                // between: one holding only an `after` timeout is a timed
+                // wait. Standard pays the timeout clause only when a bare
+                // `_ ->` already took the one free default arm
+                // (`elixir_clause_is_decision`).
+                ElixirCallTarget::Receive if elixir_receive_dispatches(node, code) => {
+                    stats.cyclomatic_modified += 1.;
+                    if elixir_receive_timeout_clause(node, code).is_some() {
+                        stats.cyclomatic += 1.;
                     }
                 }
-            }
+                // A `with`'s decisions are its `<-` clauses, counted
+                // above in both tiers. What modified collapses is its
+                // `else`, the dispatch over the failed value — once, and
+                // only when that dispatch picks between anything (#1535).
+                ElixirCallTarget::With if elixir_with_else_dispatches(node, code) => {
+                    stats.cyclomatic_modified += 1.;
+                }
+                _ => {}
+            },
             _ => {}
         }
     }

@@ -8,53 +8,35 @@
 
 use super::*;
 
-impl Cyclomatic for PhpCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use Php::*;
-
-        use crate::roles::php::{case_arm, null_safe, short_circuit, ternary};
-        let kind = node.kind_id();
-        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers,
-        // the `conditional_expression` the `Ternary` row owns, and `??`
-        // and `?->`, the `NullSafe` row's payers — each once per token,
-        // the nullsafe operator across both nullsafe kinds and in a
-        // chain (#436) (#1695). `??=` is excluded there as the consumers'
-        // own and stays below.
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::owns_kind(kind, node, code, ancestors)
-            || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
-        {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        match kind.into() {
-            // Standard-only: each switch / match arm the `CaseArm` row
-            // owns; the `default` arms are excluded there (#473).
-            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
-                stats.cyclomatic += 1.;
-            }
-            // Modified-only: each switch/match container collapses to one
-            // decision point.
-            SwitchStatement | MatchExpression => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified. `xor` — the `EagerLogical`
-            // row's — is absent: it evaluates both operands, so like `^`
-            // it is a value, not a decision (#1536). `??=` is the compound
-            // form the `NullSafe` row excludes as the consumers' own: one
-            // decision edge, as the bare operator.
-            IfStatement | ElseIfClause | ElseIfClause2 | ForStatement | ForeachStatement
-            | WhileStatement | DoStatement | CatchClause | QMARKQMARKEQ => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/php.rs`, read at the projection the
+// metric counts (#1695, #1697). PHP counts statement nodes, so `Branch`
+// / `Loop` / `Catch` / `Switch` are plain rows read at the owner, and
+// the one-word `elseif` clause (both aliases) — the `ElseIf` row's
+// self-paying owners — pays as the branch it is; the two-word `else if`
+// is the row's third owner, an `if_statement` under an `else_clause`,
+// which pays nothing here because its own statement is `Branch`'s.
+// `&&` / `||` / `and` / `or` from `ShortCircuit` at the token; the
+// `conditional_expression` from `Ternary` at its wrapper; `??` and the
+// nullsafe `?->` from `NullSafe` at the token; each `case` from
+// `CaseArm` at the owner (the row leaves `default` out); `switch` and
+// the PHP 8 `match` from `Switch`, the modified tier's. The compound
+// `??=` is excluded on the row as the consumers' own and is the one
+// extra.
+impl_cyclomatic_rows!(
+    PhpCode,
+    Php,
+    roles = crate::roles::php,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        null_safe::pays_at_leaf_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        catch::pays_at_leaf_kind,
+        else_if::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::owns_kind],
+    modified = [switch::owns_kind],
+    extra = [QMARKQMARKEQ],
+    constraints = [],
+);

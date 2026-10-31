@@ -1,5 +1,9 @@
-//! iRules' role rows; declared through the Tcl template once R06 lands
-//! (contract 5 of #1690). The Halstead keyword role is declared (#1693).
+//! iRules' role rows. The Halstead keyword role (#1693), the
+//! paying-construct roles (#1694, #1695), the space tree (#1696) and the
+//! control flow — `Branch`, `Switch`, `Loop`, `Catch`, `ElseIf`, `Exit`
+//! (#1697) — are declared, the Tcl-shaped ones through the shared
+//! `tcl_family` fragments (contract 5 of #1690); the rest are pending
+//! the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::irules_switch_arm_is_decision;
 use crate::role_table;
@@ -20,6 +24,18 @@ tcl_family_string_gates!(
     IrulesCode,
     crate::lang_helpers::irules::BRACED_WORD_KINDS
 );
+
+/// Whether a `command` is `return` or `error`, by the text of its `name`
+/// field with a leading `::` stripped. Invalid UTF-8 reads as no match.
+fn return_or_error<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("name").is_some_and(|name| {
+        matches!(
+            name.utf8_text(code)
+                .map(crate::lang_helpers::strip_global_qualifier),
+            Some("return" | "error")
+        )
+    })
+}
 
 role_table! {
     lang: Irules;
@@ -71,12 +87,29 @@ role_table! {
     // `Ancestors::unknown()`.
     CaseArm { owns [SwitchArm(text_gated_by is_decision_arm)] }
     Guard { absent "Tcl has no guard clause" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // iRules counts statement nodes, so every row here is plain (#1697);
+    // unlike Tcl, the grammar gives `if` / `switch` / `for` / `foreach` /
+    // `while` / `dict for` kinds of their own.
+    Branch { owns [If] }
+    Switch { owns [Switch] }
+    // `dict for` iterates; the non-looping `dict update` / `dict with`
+    // are deliberately not here.
+    Loop { owns [For, Foreach, While, DictFor] }
+    // `catch`, and a `try`'s `on error` / `trap` handler groups, which
+    // the grammar wraps in dedicated nodes (unlike Tcl's flat tokens,
+    // #1266); `try` itself and `finally` are unconditional.
+    Catch { owns [Catch, OnHandler, TrapHandler] }
+    // The grammar gives `elseif` a node of its own, a direct child of the
+    // `if`, so the clause *is* the else-if and pays for itself.
+    ElseIf { owns [Elseif(pays_itself)] pays [] }
+    // `return` and `error` are generic `command`s told by the text of
+    // the `name` field, which can be a `simple_word` or a `concat_word`
+    // depending on context, so the kind is not checked; `::return` is
+    // `return` through the global namespace. Tcl 8.6's `throw` is not
+    // matched: TMOS iRules runs a Tcl 8.4-derived interpreter with no
+    // such builtin. iRules flow commands (`event disable`, `reject`,
+    // `drop`) stay uncounted (#1270).
+    Exit { owns [Command(text_gated_by return_or_error)] }
     Modifier { absent "Tcl has no modifier keywords" }
     // Tcl's keywords (`Proc`, `Namespace2`, `Set2`, `Global2`) plus
     // `when`, which opens an event handler — the F5 construct the

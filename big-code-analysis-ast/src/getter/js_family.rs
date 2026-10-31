@@ -127,7 +127,7 @@ macro_rules! impl_js_family_get_op_type {
     ) => {
         keyword_roles!($roles);
 
-        paying_roles!($roles);
+        paying_roles!($roles, control_flow);
 
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;
@@ -160,6 +160,9 @@ macro_rules! impl_js_family_get_op_type {
             // ones). `??=` is excluded there as the consumers' own; no
             // arm here bills it — nor `&&=` / `||=` — a pre-existing gap
             // the row neither opens nor closes.
+            // The `if` / `for` / `while` / `catch` keywords are the `Branch`
+            // / `Loop` / `Catch` rows' payers and `get_paying_role` bills
+            // them (#1697); the keywords no row owns stay here.
             // role-bypass: allow(Comparison, Ternary, StringLit) — the operator classification
             // of the spellings the rows' `under BinaryExpression` / `under TernaryExpression`
             // gates leave out, and the operand classification of the string
@@ -199,9 +202,9 @@ macro_rules! impl_js_family_get_op_type {
                 }
                 LT | GT
                 | Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
-                | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If
-                | Else | Switch | Default | Async | Do | For | In | Of | While | Try
-                | Catch | Finally | With | EQ | AT | PLUS | DASH | DASHDASH
+                | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue
+                | Else | Switch | Default | Async | Do | In | Of | Try
+                | Finally | With | EQ | AT | PLUS | DASH | DASHDASH
                 | PLUSPLUS | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE
                 | PLUSEQ | BANG | DASHEQ
                 | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ

@@ -8,66 +8,35 @@
 
 use super::*;
 
-impl Cyclomatic for CsharpCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use crate::roles::csharp::{case_arm, guard, null_safe, short_circuit, ternary};
-        use Csharp::*;
-
-        let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers, the
-        // `conditional_expression` the `Ternary` row owns, and the two
-        // guard clauses the `Guard` row owns — `when_clause` and
-        // `catch_filter_clause`, each a decision the construct it guards
-        // does not already pay for (#1422), so a guarded discard scores
-        // two: the arm and the guard that makes it conditional — and
-        // the `NullSafe` row's payers, `??` at its token and a
-        // conditional access at its node, each a short-circuit decision
-        // (#436) (#1695). `??=` is excluded on the row as the consumers'
-        // own and stays below.
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::owns_kind(kind, node, code, ancestors)
-            || guard::owns_kind(kind, node, code, ancestors)
-            || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
-        {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        // Standard-only: a switch arm, read at the `CaseArm` row's leaf —
-        // each `case` label of a statement arm (gated by the row to the
-        // arm, since `goto case 2;` spells the same token, #1450) and
-        // each expression arm but the bare discard `_ =>`, C#'s
-        // `default:` (#282, lesson 11); `default:` is excluded on the row.
-        if case_arm::pays_at_leaf_kind(kind, node, code, ancestors) {
-            stats.cyclomatic += 1.;
-            return;
-        }
-        match kind.into() {
-            // Modified-only: the switch statement and switch expression
-            // containers each collapse to one decision point.
-            SwitchStatement | SwitchExpression => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified. The guard clauses are the
-            // `Guard` row's, read above: `When` (119) is also a
-            // `_reserved_identifier` at this pin, so `int when = 1;` emits
-            // it under an `identifier` and the token would score a
-            // decision per mention of the variable (`bca dump`, not
-            // inferred) — which is why the row's owners are the clause
-            // nodes and the token is excluded. `??=` is the compound form
-            // the `NullSafe` row excludes as the consumers' own: one
-            // decision edge, as the bare operator (#236).
-            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
-            | CatchClause | QMARKQMARKEQ => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/csharp.rs`, read at the projection
+// the metric counts (#1694, #1695, #1697). C# counts statement nodes, so
+// `Branch` / `Loop` / `Catch` / `Switch` are plain rows read at the
+// owner. `&&` / `||` from `ShortCircuit` at the token; the
+// `conditional_expression` from `Ternary` at its wrapper; the two guard
+// clauses from `Guard` — `when_clause` and `catch_filter_clause`, each a
+// decision the construct it guards does not already pay for (#1422), so
+// a guarded discard scores two; the `NullSafe` row's payers, `??` at its
+// token and a conditional access at its node, each a short-circuit
+// decision (#436); the `case` label from `CaseArm` at the token (its row
+// handles the C# switch-label / pattern-arm shapes); the `switch`
+// statement and expression from `Switch`, the modified tier's container.
+// The compound `??=` is excluded on the row as the consumers' own and is
+// the one extra.
+impl_cyclomatic_rows!(
+    CsharpCode,
+    Csharp,
+    roles = crate::roles::csharp,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        guard::owns_kind,
+        null_safe::pays_at_leaf_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        catch::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::pays_at_leaf_kind],
+    modified = [switch::owns_kind],
+    extra = [QMARKQMARKEQ],
+    constraints = [],
+);

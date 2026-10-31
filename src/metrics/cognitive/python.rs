@@ -113,6 +113,9 @@ fn python_apply_boolean_operator<'a>(
                 // interpolation — see
                 // `python_boolean_in_expression_list_under_lambda`
                 // (#1090).
+                // role-bypass: allow(Branch, Loop) — traversal: the
+                // statement boundary a boolean sequence stops at, not
+                // whether the node is a branch or a loop
                 matches!(
                     node.kind_id().into(),
                     ExpressionList | IfStatement | ForStatement | WhileStatement
@@ -135,7 +138,9 @@ impl Cognitive for PythonCode {
         // the number of node kinds the grammar can hand us, not branching
         // a reader must hold, and the effort is the table's vocabulary;
         // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::python::{closure, func_opener, short_circuit, ternary};
+        use crate::roles::python::{
+            catch, closure, else_if, func_opener, short_circuit, switch, ternary,
+        };
         use Python::*;
 
         // Get nesting of the parent
@@ -144,14 +149,27 @@ impl Cognitive for PythonCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // `else: if x:` chains surface as an `if_statement` wrapped
-            // in an `else_clause`; `Self::is_else_if` flags that shape
-            // so the nesting increment lands only on the outer chain
-            // (matching the `elif_clause` accounting one arm below).
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if` statement opens a level — unless the `ElseIf` row
+            // recognises it as Python's `else if`: the sole statement of
+            // an `else:` block (#276), where the `ElseClause` arm below
+            // pays the +1 and no level opens, matching the `elif_clause`
+            // accounting. The `Branch` row also owns `assert`, which
+            // cognitive does not nest on, so the statement is named here.
+            // role-bypass: allow(Branch) — the one `Branch` owner cognitive
+            // nests on; `assert` is a branch to cyclomatic and not here
+            IfStatement if !else_if::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement | WhileStatement | MatchStatement => {
+            // The two loop statements, and the `match` the `Switch` row
+            // owns. The `Loop` row also owns the comprehension's `for …
+            // in` clause, which nests through its comprehension below,
+            // so the statements are named here.
+            // role-bypass: allow(Loop) — the loop owners that are
+            // statements; the clause owner has its own arm
+            ForStatement | WhileStatement => {
+                increase_nesting(stats, &mut nesting);
+            }
+            _ if switch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
@@ -190,8 +208,9 @@ impl Cognitive for PythonCode {
                 nesting.conditional +=
                     python_comprehension_clause_nesting(node, nesting, nesting_map);
             }
-            // role-bypass: allow(Guard) — a comprehension clause's nesting slot; the `case` guard
-            // the row owns shares the kind and reads the same slot
+            // role-bypass: allow(Guard, Loop) — a comprehension clause's nesting slot; the
+            // `case` guard the `Guard` row owns shares `if_clause`'s kind and reads the same
+            // slot, and the `Loop` row's `for_in_clause` owner is the loop half of the pair
             ForInClause | IfClause => {
                 // `nesting` already holds this clause's own value: the
                 // comprehension (visited first in pre-order) precomputed it
@@ -204,9 +223,14 @@ impl Cognitive for PythonCode {
                 increment(stats);
                 stats.boolean_seq.reset();
             }
+            // The `elif` clause, one of the `ElseIf` row's two owners —
+            // the other is the chained `if` excluded above, which must not
+            // extend the branch a second time, so the clause is named.
+            // No nesting increment: its cost has already been paid by the
+            // `if` construct.
+            // role-bypass: allow(ElseIf) — the one `ElseIf` owner that
+            // extends the branch itself; for the chained `if`, its `else` does
             ElifClause => {
-                // No nesting increment for them because their cost has already
-                // been paid by the if construct
                 increment_branch_extension(stats);
             }
             ElseClause => {
@@ -218,7 +242,8 @@ impl Cognitive for PythonCode {
                 // matching the Java sibling which has no finally arm.
                 increment_by_one(stats);
             }
-            ExceptClause => {
+            // Every handler the `Catch` row owns.
+            _ if catch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             ExpressionList | ExpressionStatement | Tuple => {

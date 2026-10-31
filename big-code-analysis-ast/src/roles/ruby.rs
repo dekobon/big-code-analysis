@@ -1,7 +1,9 @@
-//! Ruby's role rows. The Halstead keyword roles (#1693) and the
+//! Ruby's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::checker::ruby::is_stabby_lambda_body;
 use crate::lang_helpers::case_arms::ruby_in_clause_counts;
@@ -47,6 +49,19 @@ fn is_assignment_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<
             parent.kind_id().into(),
             Ruby::Assignment | Ruby::Assignment2
         ) && parent.child(0).is_some_and(|first| first.id() == node.id())
+    })
+}
+
+/// Whether a `call` is `raise` / `exit` / `exit!` with no receiver or
+/// the `Kernel` constant as receiver. The callee is read before the
+/// receiver: every call has a `method` and the text test rejects nearly
+/// all of them. Invalid UTF-8 reads as no match.
+fn kernel_raise_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("method").is_some_and(|method| {
+        method.kind_id() == Ruby::Identifier as u16
+            && matches!(method.utf8_text(code), Some("raise" | "exit" | "exit!"))
+    }) && node.child_by_field_name("receiver").is_none_or(|receiver| {
+        receiver.kind_id() == Ruby::Constant as u16 && receiver.utf8_text(code) == Some("Kernel")
     })
 }
 
@@ -175,12 +190,39 @@ role_table! {
     // it and ABC walks its condition field; the keyword bills as the
     // `if` / `unless` it is.
     Guard { owns [Guard, IfGuard, UnlessGuard] }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // Ruby counts statement nodes, so every row here is plain (#1697).
+    // The block forms and the statement-modifier forms (`return 1 if
+    // a`), each its own kind.
+    Branch { owns [If, Unless, IfModifier, UnlessModifier] }
+    // `case … when` and the Ruby 3 `case … in` pattern match.
+    Switch { owns [Case, CaseMatch] }
+    Loop { owns [While, Until, For, WhileModifier, UntilModifier] }
+    // A `rescue` clause, and the `expr rescue fallback` modifier under
+    // its three aliases.
+    Catch { owns [Rescue, RescueModifier, RescueModifier2, RescueModifier3] }
+    // The grammar gives `elsif` a clause node of its own, a direct child
+    // of the `if`, so the clause *is* the else-if and pays for itself.
+    ElseIf { owns [Elsif(pays_itself)] pays [] }
+    // `return` under its two aliased visible kinds — the pin emits only
+    // `Return2`; `Return` is the defensive alias, and `Return3` the bare
+    // keyword inside them, not counted on its own — and the Kernel
+    // builtins `raise` / `exit` / `exit!` — ordinary `call`s whose
+    // `method` field is a bare identifier spelling one of the three, with
+    // no receiver or the explicit `Kernel` constant (the spelling reached
+    // for when a DSL shadows the bare name). `obj.raise` / `self.exit`
+    // are user methods; a bare argument-less `raise` parses as an
+    // `identifier`, indistinguishable from a local, and goes uncounted;
+    // `fail` / `abort` / `throw` are common DSL names and stay out
+    // (#1270).
+    Exit {
+        owns [
+            Return, Return2,
+            Call(text_gated_by kernel_raise_or_exit),
+            Call2(text_gated_by kernel_raise_or_exit),
+            Call3(text_gated_by kernel_raise_or_exit),
+            Call4(text_gated_by kernel_raise_or_exit),
+        ]
+    }
     Modifier { absent "Ruby's `private` / `protected` are method calls read by name in the \
          method consumer, not keywords" }
     // `def`, `class` and `module` as keyword tokens: `Class2` /

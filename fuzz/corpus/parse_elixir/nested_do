@@ -1,0 +1,2 @@
+foo(a, [[do: 1], else: 2])
+bar([do: 1, else: 2], x)

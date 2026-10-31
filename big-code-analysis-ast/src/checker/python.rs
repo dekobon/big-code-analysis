@@ -71,35 +71,23 @@ impl Checker for PythonCode {
         )
     }
 
-    // Python models `elif` as a dedicated `elif_clause` node, which is
-    // handled directly by cognitive/cyclomatic dispatch as a branch
-    // extension — `is_else_if` is intentionally never invoked for
-    // `elif_clause` because it is not an `if_statement` and is not in
-    // any of the structural kind sets that `count_specific_ancestors`
-    // walks for nesting (issue #274).
-    //
-    // `else: if x: ...` chains also exist — semantically equivalent to
-    // `else if` — but the grammar wraps the inner `if_statement` in a
-    // `block` node, so the shape is `else_clause → block → if_statement`
-    // rather than the direct `else_clause → if_statement` used by
-    // C++/JS/TS/TSX/Rust. Match the chained shape by walking through
-    // the `block` and requiring the inner `if` to be the block's sole
-    // named child; sibling statements would mean a real nested-if, not
-    // a chain (issue #276).
-    //
-    // `block` has two aliased kind_ids in tree-sitter-python
-    // (`Block` = 135, `Block2` = 160 — both surface as `"block"`); we
-    // accept either via `python_is_block`, the single normalization
-    // point for the aliases (issue #419; lesson 2 in
-    // `docs/development/lessons_learned.md`).
+    // The `ElseIf` row of `roles/python.rs`, intersected with `Branch`:
+    // the row owns both the `elif_clause` and the chained `if` (the sole
+    // statement of an `else:` block, #276), and this predicate has only
+    // ever answered for the `if` — the clause is told apart by every
+    // consumer on its own kind. The row's `sole_statement_of_else_block`
+    // gate is the `else_clause → block → if_statement` walk that lived
+    // here, blocks' two aliases included (#419). The rows read no bytes,
+    // so the empty code is exact (#1697).
     fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Python::IfStatement
-            && ancestors.iter(node).next().is_some_and(|(parent, above)| {
-                crate::lang_helpers::python::python_is_block(&parent)
-                    && parent.children().filter(Node::is_named).count() == 1
-                    && above
-                        .parent(&parent)
-                        .is_some_and(|gp| gp.kind_id() == Python::ElseClause)
-            })
+        // The same pin `impl_else_if_from_row!` carries: the empty slice
+        // is exact only while neither row reads bytes.
+        const _: () = assert!(
+            !crate::roles::python::branch::TEXT_GATED && !crate::roles::python::else_if::TEXT_GATED,
+            "a Python `Branch` / `ElseIf` row reads bytes; `is_else_if` cannot forward with `&[]`"
+        );
+        let kind = node.kind_id();
+        crate::roles::python::branch::owns_kind(kind, node, &[], ancestors)
+            && crate::roles::python::else_if::owns_kind(kind, node, &[], ancestors)
     }
 }

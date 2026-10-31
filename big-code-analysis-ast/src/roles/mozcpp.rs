@@ -1,9 +1,10 @@
 //! Mozcpp's role rows. The dialect owns no file extension and shares
 //! Cpp's grammar shape with different kind ids, so its rows splice the
 //! same `cpp_family_*` fragments Cpp's do (`roles/c_family.rs`,
-//! contract 5 of #1690): the `Comparison` and `ShortCircuit` rows are
-//! declared through them (#1694), the Halstead keyword rows are
-//! declared (#1693) and the rest are pending or absent as Cpp's are.
+//! contract 5 of #1690): the paying-construct rows (#1694, #1695), the
+//! space tree (#1696) and the control flow (#1697) are declared through
+//! them, the Halstead keyword rows are declared (#1693) and the rest
+//! are pending or absent as Cpp's are.
 //! Nothing routes a file to this dialect, so no corpus snapshot reaches
 //! these rows; `tests/parity/cpp_mozcpp_parity.rs` holds the two
 //! dialects together.
@@ -13,11 +14,15 @@ use crate::role_table;
 use crate::roles::c_family::{
     c_family_calls, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
     c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
-    cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
-    cpp_family_short_circuit_payers,
+    cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_loops, cpp_family_short_circuit_payers,
 };
+use crate::roles::control_flow::else_if_parent_clause_gate;
 
 cpp_family_gates!(Mozcpp);
+// The chained `if` sits directly inside an `else_clause`; a nested one
+// under `else { … }` sits inside the compound statement (#1697).
+else_if_parent_clause_gate!(Mozcpp, ElseClause);
 
 role_table! {
     lang: Mozcpp;
@@ -70,12 +75,18 @@ role_table! {
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }
     Guard { absent "C++ has no guard clause on a case or a function head" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The C family's control flow (#1697): the one-kind rows are spelled
+    // inline, the loop and exit lists are the two C++ grammars' own
+    // fragments (`cpp_family_loops!`, `cpp_family_exits!` in
+    // `roles/c_family.rs`), so this is Cpp's table under other ids. The
+    // `ElseIf` gate is emitted beside this table. `Catch` pays at the `catch`
+    // keyword, which is where this dialect differs from ObjC.
+    Branch { owns [IfStatement] pays [If] }
+    Switch { owns [SwitchStatement] }
+    Loop { owns [..cpp_family_loops!()] pays [For, While] }
+    Catch { owns [CatchClause] pays [Catch] }
+    ElseIf { owns [IfStatement(gated_by continues_else_clause)] pays [] }
+    Exit { owns [..cpp_family_exits!()] }
     // Cpp's three keyword rows, verbatim. The dialect shares Cpp's
     // grammar shape and owns no file extension, so nothing routes to it
     // and no corpus snapshot reaches these rows;

@@ -1,7 +1,9 @@
-//! Csharp's role rows. The Halstead keyword roles (#1693) and the
+//! Csharp's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::checker::{csharp_is_aliased_modifier, csharp_member_has_accessors};
 use crate::getter::node_text;
@@ -9,6 +11,7 @@ use crate::lang_helpers::case_arms::{
     csharp_case_token_is_switch_arm, csharp_switch_expression_arm_is_bare_discard,
 };
 use crate::role_table;
+use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Csharp, Node};
 
 /// Whether an indexer or property is the accessor-less expression-bodied
@@ -58,6 +61,11 @@ fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
 fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     csharp_case_token_is_switch_arm(node, ancestors)
 }
+
+// `else if` is an `if_statement` whose previous sibling is the bare `else`
+// token — no clause wrapper — so a nested `if` under `else { … }` follows
+// `{` instead (#1697).
+else_if_prev_sibling_gate!(Csharp, Else);
 
 role_table! {
     lang: Csharp;
@@ -189,12 +197,20 @@ role_table! {
         owns [WhenClause, CatchFilterClause]
         excludes [When "also a reserved identifier at this pin: `int when = 1;` spells it"]
     }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // C# counts statement nodes, so every row here is plain: the owner is
+    // the paying node (#1697).
+    Branch { owns [IfStatement] }
+    // The statement and the C# 8 expression form.
+    Switch { owns [SwitchStatement, SwitchExpression] }
+    Loop { owns [ForStatement, ForeachStatement, WhileStatement, DoStatement] }
+    Catch { owns [CatchClause] }
+    // C# spells `else if` as Java does: an `if_statement` whose previous
+    // sibling is the bare `else` token. Recognition only; the `Else`
+    // token pays cognitive's +1 and the statement `Branch`'s.
+    ElseIf { owns [IfStatement(gated_by follows_else_keyword)] pays [] }
+    // `return`, `yield return` / `yield break`, `throw` as a statement
+    // and as an expression (`x ?? throw …`).
+    Exit { owns [ReturnStatement, YieldStatement, ThrowStatement, ThrowExpression] }
     // Every modifier keyword leaf, plus the childless `modifier` alias
     // the grammar emits for a bare keyword in a parameter or on a
     // lambda, under its text gate. `ref` / `out` / `in` / `scoped` are

@@ -37,10 +37,9 @@ three reasons, with different remedies:
    ``.claude/rules/macro-comments.md`` explains why that per-arm
    rationale is load-bearing where it sits.
 2. **A ``macro_rules!`` body rustfmt cannot parse** — a metavariable in
-   a position that is not valid Rust, such as the pattern repetition
-   ``$ternary $(| $short_circuit)+`` in
-   ``impl_cyclomatic_c_family!``. No comment is involved and hoisting
-   one fixes nothing; the count is simply a fact about that macro.
+   a position that is not valid Rust, such as the ``LANG::$camel => …``
+   arms of ``mk_langs!``. No comment is involved and hoisting one fixes
+   nothing; the count is simply a fact about that macro.
 
 3. **An arm wider than rustfmt's ``max_width``** (100 columns). A
    single over-long arm header makes rustfmt emit the *whole* match

@@ -21,7 +21,14 @@ impl Cognitive for CCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::c::{func_opener, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::c::{
+            branch, else_if, func_opener, r#loop, short_circuit, switch, ternary,
+        };
         use C::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
@@ -30,14 +37,21 @@ impl Cognitive for CCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if_statement` the `Branch` row owns opens a level —
+            // unless the `ElseIf` row recognises it as the `if` of an
+            // `else if` (its parent is the `else_clause`), where the
+            // `Else` arm below pays the +1 and no level opens (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement | WhileStatement | DoStatement | SwitchStatement => {
-                increase_nesting(stats, &mut nesting);
-            }
-            // The `conditional_expression` the `Ternary` row owns (#1695).
-            _ if ternary::owns_kind(kind, node, code, ancestors) => {
+            // Every loop and switch the rows own, and the
+            // `conditional_expression` the `Ternary` row owns (#1695).
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors)
+                || ternary::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar

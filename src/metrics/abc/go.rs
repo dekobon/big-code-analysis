@@ -66,8 +66,9 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
     let mut node = *container_node;
     // `ExpressionCase` reaches here only from a tagless switch, whose
     // case expressions are boolean exactly as an `if` predicate is.
-    // role-bypass: allow(Comparison, ShortCircuit, CaseArm) — traversal: whether the slot's parent
-    // is a boolean context, not whether it is a comparison, a chain or an arm
+    // role-bypass: allow(Comparison, ShortCircuit, CaseArm, Branch, Loop) — traversal: whether
+    // the slot's parent is a boolean context, not whether it is a comparison, a chain, an arm,
+    // a branch or a loop
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         G::BinaryExpression | G::IfStatement | G::ForStatement | G::ExpressionCase
@@ -172,6 +173,8 @@ fn go_count_expression_case<'a>(
 ) {
     // The tag is the `value` field, not a position: `switch x := f(); {`
     // carries an `initializer` and is still tagless.
+    // role-bypass: allow(Switch) — which switch-like owner is the arm's
+    // parent (only an expression switch can be tagless), not membership
     let tagless = ancestors.parent(case).is_some_and(|switch| {
         switch.kind_id() == Go::ExpressionSwitchStatement
             && switch.child_by_field_name("value").is_none()
@@ -236,7 +239,7 @@ impl Abc for GoCode {
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
         use Go as G;
 
-        use crate::roles::go::{call, case_arm, comparison, short_circuit};
+        use crate::roles::go::{branch, call, case_arm, comparison, r#loop, short_circuit};
 
         let kind = node.kind_id();
         match kind.into() {
@@ -306,7 +309,8 @@ impl Abc for GoCode {
             // `if x := f(); x { ... }` init-statement form is
             // handled correctly — its `condition` field is at
             // child(2) (not child(1), which is the init slot).
-            G::IfStatement => {
+            // Every `Branch` owner (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors) => {
                 if let Some(cond) = node.child_by_field_name("condition") {
                     go_count_condition(&cond, node, &mut stats.conditions);
                 }
@@ -317,7 +321,8 @@ impl Abc for GoCode {
             //   `for init; cond; post`  → child(1) = `for_clause`
             //   `for range items {}`    → child(1) = `range_clause`
             //
-            G::ForStatement => {
+            // Every `Loop` owner: Go's one `for_statement` kind (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors) => {
                 go_walk_for_statement(node, &mut stats.conditions);
             }
             // `return value` — Go wraps the return values in an
@@ -331,6 +336,8 @@ impl Abc for GoCode {
             // conditions. Matches Java's policy in
             // `java_return_without_conditions`. Bare `return`
             // (no values) has no operand.
+            // role-bypass: allow(Exit) — a return's values as boolean slots,
+            // not whether the node is an exit; `panic(…)` is a call
             G::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
                     for_each_named_child(&expr_list, &mut stats.conditions, go_inspect_container);

@@ -1,0 +1,5 @@
+def f(a):
+    if a == 1:
+        return 1
+    else:
+        if a ==

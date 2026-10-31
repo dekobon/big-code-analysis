@@ -1,10 +1,14 @@
 //! Python's role rows: the per-consumer projection fixture (#1691). A
 //! comparison is one `comparison_operator` wrapper holding one or more
 //! operator tokens; one row names both occurrences, and which one a
-//! consumer reads is decided where that consumer lives, not here.
+//! consumer reads is decided where that consumer lives, not here. The
+//! Halstead keyword roles (#1693), the paying-construct roles (#1694,
+//! #1695), the space tree (#1696) and the control flow — `Branch`,
+//! `Switch`, `Loop`, `Catch`, `ElseIf`, `Exit` (#1697) — are declared;
+//! the rest are pending the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::python_case_clause_counts;
-use crate::lang_helpers::python::python_is_bound_self_attribute;
+use crate::lang_helpers::python::{python_is_block, python_is_bound_self_attribute};
 use crate::role_table;
 use crate::{Ancestors, Node, Python};
 
@@ -12,6 +16,42 @@ use crate::{Ancestors, Node, Python};
 /// or it carries an `if` guard (lesson 11, #469).
 fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     python_case_clause_counts(node)
+}
+
+/// Whether an `if` keyword is the ternary's (`a if c else b`), whose
+/// `conditional_expression` the `Ternary` row owns and pays at the node:
+/// that one is declined here so the keyword is not counted twice. Read
+/// off the chain; the ternary has no field for its keyword, so the
+/// parent's kind is the whole test.
+fn not_under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    !ancestors.parent_has_kind(node, Python::ConditionalExpression as u16)
+}
+
+/// Whether an `if_statement` is Python's `else if` (#276): the sole
+/// named child of a `block` whose parent is an `else_clause` — the
+/// shape `else_clause → block → if_statement`, where C's grammar has
+/// `else_clause → if_statement`. A sibling statement in the block makes
+/// it a real nested `if`; so does a comment there, an extra named
+/// child, as it always has.
+///
+/// The two chain reads come first and the child scan last, and the
+/// scan stops at the second named child: every `if` in a function body
+/// reaches this gate, and the predicate it replaced counted the whole
+/// enclosing block's children before asking whose block it was — 20,000
+/// sibling `if`s under one `def` took 8 s, 40,000 took 34 s (#1697).
+/// Now the count runs only under an `else:` block, over
+/// at most two of its children. The block's two aliased kinds go through
+/// `python_is_block` (#419).
+fn sole_statement_of_else_block<'a>(
+    node: &Node<'a>,
+    _code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.iter(node).next().is_some_and(|(parent, above)| {
+        python_is_block(&parent)
+            && above.parent_has_kind(&parent, Python::ElseClause as u16)
+            && parent.children().filter(Node::is_named).nth(1).is_none()
+    })
 }
 
 /// Whether an `if_clause` is a `case` guard rather than a comprehension's
@@ -63,6 +103,11 @@ role_table! {
     // nested-scope boundary, a class-level `x = 1`'s plain name and the
     // dedup across both are the consumer's reading (`npa/python.rs`).
     Member { owns [Attribute(text_gated_by is_bound_self_attribute)] }
+    // `return`, `raise`, and the yield *expression* (`Yield`, kind text
+    // "yield" — Python has no yield-statement node): a generator's
+    // suspension hands control back to the caller, so the function does
+    // leave even though it may later resume, as C#'s and PHP's `yield`
+    // count.
     Exit { owns [ReturnStatement, RaiseStatement, Yield] }
     Call { owns [Call] }
     // `"a" "b"` is a `concatenated_string` holding two `string`s; the
@@ -120,11 +165,43 @@ role_table! {
         owns [CaseClause(gated_by is_decision_clause)]
         excludes [Case "the arm's keyword, billed as such; the clause pays"]
     }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
+    // Python counts keyword tokens (#284), so each row below pays at
+    // its keyword. The `if` keyword is one kind in three positions: the
+    // statement's, the ternary's (`a if c else b`, the `Ternary` row's
+    // owner, whose node pays instead) and a comprehension filter's
+    // (`[x for x in xs if x]`, a decision of its own). Only the ternary's
+    // is declined, by the payer gate; `assert` is a branch on its
+    // condition, as every cyclomatic reading of Python has had it.
+    Branch {
+        owns [IfStatement, AssertStatement]
+        pays [If gated_by not_under_ternary, Assert]
+    }
+    // The PEP 634 `match` statement, the modified tier's container; its
+    // `case` clauses are the `CaseArm` row's. The `match` keyword is a
+    // soft keyword the grammar spells as `Match`.
+    Switch { owns [MatchStatement] }
+    // `for` and `while` statements, and the comprehension `for … in`
+    // clause — a loop of its own (#417), paid at the same `for` keyword.
+    Loop {
+        owns [ForStatement, WhileStatement, ForInClause]
+        pays [For, While]
+    }
+    // An `except` clause, paid at its keyword; `except*` (PEP 654) is the
+    // same clause and keyword at this pin. `try`, `else` and `finally`
+    // are unconditional and pay nothing here — the loop / try `else`
+    // that cyclomatic does count is a consumer policy on the `Else`
+    // keyword, not a handler.
+    Catch { owns [ExceptClause] pays [Except] }
+    // `elif` is a clause of its own, a direct child of the
+    // `if_statement`, paid at its keyword. The chained spelling
+    // `else:` + a sole `if` in the block (#276) is the other owner:
+    // recognised so cognitive opens no level for it — the `else`
+    // already extended the branch — and paying nothing, since its `if`
+    // keyword is `Branch`'s.
+    ElseIf {
+        owns [ElifClause, IfStatement(gated_by sole_statement_of_else_block)]
+        pays [Elif]
+    }
     Modifier { absent "Python has no modifier keywords" }
     // `def` and `class` (#1550), the leaves of `function_definition` /
     // `class_definition`, neither listed, and `lambda`'s keyword token

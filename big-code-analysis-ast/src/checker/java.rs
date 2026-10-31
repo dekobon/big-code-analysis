@@ -152,7 +152,9 @@ impl Checker for JavaCode {
         )
     }
 
-    // tree-sitter-java models `else if` as an `Else` keyword token followed
-    // by a nested `if_statement` (no wrapping `else_clause` node).
-    impl_is_else_if_prev_sibling!(Java, IfStatement, Else);
+    // The `ElseIf` row of `roles/java.rs`: an `if_statement` whose
+    // previous sibling is the bare `else` token (no clause wrapper), read
+    // off the caller's chain. The row reads no bytes (`TEXT_GATED` is
+    // pinned false), so the empty code is exact (#1697).
+    impl_else_if_from_row!(java);
 }

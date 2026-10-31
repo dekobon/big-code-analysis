@@ -1,0 +1,6 @@
+defmodule M do
+  def f(a) do
+    ÿş(a, do: 1, else: 2)
+    dÃ(a)
+  end
+end

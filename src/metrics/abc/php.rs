@@ -13,7 +13,9 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
     rows_own, wrapped_operand,
 };
-use crate::roles::php::{call, case_arm, comparison, short_circuit, ternary};
+use crate::roles::php::{
+    branch, call, case_arm, catch, comparison, else_if, short_circuit, ternary,
+};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -189,7 +191,12 @@ impl Abc for PhpCode {
             // only). Dropping both Default kinds keeps ABC conditions equal
             // to the cyclomatic decision count (issue #473, mirroring the
             // #469 C-family fix and #456 Kotlin/C# fixes).
-            ElseClause | ElseClause2 | CatchClause => {
+            ElseClause | ElseClause2 => {
+                stats.conditions += 1.;
+            }
+            // And the `catch_clause`, the `Catch` row's owner and leaf
+            // alike (#1697).
+            _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Each switch / match arm the `CaseArm` row owns, which leaves
@@ -227,7 +234,11 @@ impl Abc for PhpCode {
             // `else if`: the `else` (+1, Rule 5) and an `if` predicate
             // slot, as Ruby's `elsif` is. It paid only the first, so
             // `elseif ($b)` scored one below `else if ($b)` (#1526).
-            ElseIfClause | ElseIfClause2 => {
+            // The one-word `elseif` clauses are the `ElseIf` row's
+            // self-paying owners; the two-word `else if`'s nested
+            // `if_statement` is the row's third owner and pays nothing at
+            // the leaf, so it reaches the `Branch` arm below instead.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 php_count_slot(
                     node.child_by_field_name("condition"),
@@ -245,13 +256,21 @@ impl Abc for PhpCode {
             // comment's cross-language empty-`for`-condition policy.
             // `return value;` names no field; its value is its only
             // operand.
-            IfStatement | WhileStatement | DoStatement | ForStatement => {
+            // Every `Branch` owner, and the `Loop` owners with a `condition`
+            // field — `foreach` has none.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), WhileStatement | DoStatement | ForStatement) =>
+            {
                 php_count_slot(
                     node.child_by_field_name("condition"),
                     code,
                     &mut stats.conditions,
                 );
             }
+            // role-bypass: allow(Exit) — a return's value as a boolean slot,
+            // not whether the node is an exit
             ReturnStatement => {
                 if let Some(value) = wrapped_operand(node) {
                     php_count_negated(&value, code, &mut stats.conditions);

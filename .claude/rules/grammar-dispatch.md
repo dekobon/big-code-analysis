@@ -93,27 +93,35 @@ The jump label is the clearest case: it surfaces as
 `LabelName` in Go, and `Label` in Perl.
 
 `is_else_if` is the largest, and the one to consult before writing a
-new one. **Re-derive it rather than trusting the list below** — it moves
-whenever a language is added:
+new one. Since #1697 every language answers it through its `ElseIf`
+row — `Checker::is_else_if` forwards to `roles::<lang>::else_if::owns`,
+or keeps the trait's `false` where the row is `absent` — and the
+strategy is the row's gate.
+**Re-derive it rather than trusting the list below** — it moves whenever
+a language is added:
 
 ```bash
-rg -o 'impl_is_else_if_(\w+)!\(\s*(\w+)' -r '$1 $2' big-code-analysis-ast/src/checker/ --no-filename | sort
-rg -l 'fn is_else_if' big-code-analysis-ast/src/checker/          # hand-written impls
+rg -n 'ElseIf \{' big-code-analysis-ast/src/roles/*.rs                # the rows
+rg -o 'else_if_(parent_clause|prev_sibling)_gate!\(\s*(\w+)' -r '$1 $2' big-code-analysis-ast/src/roles/ --no-filename | sort
+rg -n 'ElseIf \{ absent' big-code-analysis-ast/src/roles/*.rs           # the constant-false languages
 ```
 
-| Strategy | Macro | Languages |
+| Strategy | Emitter | Languages |
 | --- | --- | --- |
-| `parent()` is the else-clause | `impl_is_else_if_parent_clause!` | C, Cpp, Mozcpp, Objc, Rust, Javascript, Mozjs, Typescript, Tsx |
-| `prev_sibling()` is the `else` keyword | `impl_is_else_if_prev_sibling!` | Csharp, Groovy, Java, Kotlin |
-| the clause node *is* the else-if | `impl_is_else_if_clause!` | Bash, Irules, Lua, Perl, Ruby, Tcl |
-| hand-written | — | Go, PHP, Python |
-| constant `false` | — | Elixir |
+| the owner's parent is the else-clause | `else_if_parent_clause_gate!` (`roles/control_flow.rs`) | C, Cpp, Mozcpp, Objc, Rust, Javascript, Mozjs, Typescript, Tsx; PHP's two-word `else if` by its own gate (two clause aliases) |
+| the owner's previous sibling is the `else` keyword | `else_if_prev_sibling_gate!` (`roles/control_flow.rs`) | Csharp, Groovy, Java, Kotlin |
+| the owner's parent is the outer `if` (no clause node) | hand-written gate on the row | Go |
+| the clause node *is* the else-if — a `pays_itself` owner | none needed | Bash, Irules, Lua, Perl, Ruby, Tcl; PHP's one-word `elseif` |
+| the owner is the sole statement of the `else:` block (`else_clause → block → if_statement`, #276) | hand-written gate on the row; the Checker is `Branch ∧ ElseIf`, so the `elif_clause` the row also owns stays false | Python |
+| `absent` row — the trait default `false` | — | Elixir (`cond` and nested `if/else`, no chain to collapse) |
 
-Two things that list is worth reading for. The third macro exists
-because some grammars emit a dedicated `elif_clause` / `ElsifClause` /
-`Elseif` node with no nested `if` to inspect at all — a shape neither of
-the other two strategies can express. And Elixir returning a constant is
-a stub, not a strategy: per lesson 10, treat that as a to-do.
+Two things that list is worth reading for. The dedicated-clause row
+exists because some grammars emit an `elif_clause` / `ElsifClause` /
+`Elseif` node with no nested `if` to inspect at all — a shape neither
+parent nor sibling can express, and one the `pays []` split row spells
+as an owner that pays for itself. And Elixir's `absent` is a declared
+answer with its reason on the row, not a stub: the language has no
+`else if` chain to recognise.
 
 Dump the AST for the construct in the *target* grammar before reusing a
 sibling's predicate, and add a fixture that exercises the gated branch —

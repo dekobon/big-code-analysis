@@ -1,12 +1,15 @@
 //! Java's role rows: one row of each shape the macro accepts, so the
-//! shapes are proven against a real grammar before any consumer reads
-//! them (#1691). The Halstead keyword rows are read by `getter/java.rs`
-//! (#1693); the rest restate what `checker/java.rs`, `getter/java.rs`
-//! and the root crate's per-language Java dispatch arms currently hold,
-//! and those stay the live classifiers until their package lands.
+//! shapes were proven against a real grammar before any consumer read
+//! them (#1691). The Halstead keyword roles (#1693), the
+//! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::checker::java_anonymous_class_body;
 use crate::role_table;
+use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Java, Node};
 
 /// Whether an `object_creation_expression` carries a `class_body`, which
@@ -42,11 +45,26 @@ fn not_a_class_literal<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'
     !ancestors.parent_has_kind(node, Java::ClassLiteral as u16)
 }
 
+// `else if` is an `if_statement` whose previous sibling is the bare `else`
+// token — no clause wrapper — so a nested `if` under `else { … }` follows
+// `{` instead (#1697).
+else_if_prev_sibling_gate!(Java, Else);
+
+/// The container a `switch` nests its arms in: the `switch_block`, the
+/// `Switch` owner's child — a structural fact about the construct the
+/// row recognises, pinned by `switch_body_is_the_owners_child_and_no_rows`,
+/// not a row of its own. Which consumer opens a level here (cognitive,
+/// so a ternary or lambda in the switch's *subject* does not inherit
+/// one, #1697) is that consumer's policy; a DSL `body` attribute on the
+/// `Switch` row would be the declared form if a third grammar needs it.
+#[inline]
+#[must_use]
+pub fn is_switch_body_kind(kind: u16) -> bool {
+    kind == Java::SwitchBlock as u16
+}
+
 role_table! {
     lang: Java;
-
-    // Plain: three statement kinds, no token, no gate.
-    Exit { owns [ReturnStatement, ThrowStatement, YieldStatement] }
 
     // Projected and gated. A `binary_expression` owns a comparison only
     // when its `operator` field holds one; the equality and ordering
@@ -194,11 +212,43 @@ role_table! {
         pays [Case]
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
+    // The `if_statement` owns the branch; its `if` keyword pays. The
+    // keyword is the paying node because cyclomatic counts keyword
+    // tokens here (#284): the token fires once per `if`, inside an
+    // `else if` chain too, where the statement is the `ElseIf` row's
+    // and must not open a second nesting level in cognitive.
+    Branch { owns [IfStatement] pays [If] }
+    // The `switch_expression` is the grammar's one node for the
+    // statement and the Java 14 expression form alike; its `switch`
+    // keyword pays, once per switch, which keeps the modified count
+    // aligned with the `case` arms (#300). The `switch_block` — the
+    // arms' container, where cognitive opens its nesting level so a
+    // ternary or lambda in the *subject* does not inherit one (#1697:
+    // moving the level to this owner drifted) — is the
+    // owner's child and no row's: cognitive names it as the body of
+    // the construct this row recognises.
+    Switch { owns [SwitchExpression] pays [Switch] }
+    // Every loop statement, with its keyword paying: `for` fires once
+    // in a classic and an enhanced `for` alike, `while` once in a
+    // `while` and once in a `do … while` (#284).
+    Loop {
+        owns [ForStatement, EnhancedForStatement, WhileStatement, DoStatement]
+        pays [For, While]
+    }
+    // The `catch_clause`, paid at its `catch` keyword; `try` and
+    // `finally` are unconditional and pay nothing (#416).
+    Catch { owns [CatchClause] pays [Catch] }
+    // Java spells `else if` as an `if_statement` whose previous sibling
+    // is the bare `else` token — there is no clause wrapper — so the
+    // chained `if` is told from a nested one (`else { if … }`, whose
+    // previous sibling is `{`) by that sibling. Recognition only: the
+    // `Else` token already pays cognitive's +1 and the `if` keyword
+    // pays cyclomatic's through `Branch`, so no owner here pays at the
+    // leaf — a split row with no payers (#1697).
+    ElseIf { owns [IfStatement(gated_by follows_else_keyword)] pays [] }
+    // `return`, `throw` and a `switch` expression's `yield`, each a
+    // statement kind paid at the node.
+    Exit { owns [ReturnStatement, ThrowStatement, YieldStatement] }
     // Every modifier, billed as C# and Kotlin bill theirs (#1565). Each
     // is its keyword leaf, one kind apiece; the `modifiers` wrapper
     // stays unlisted, so a modifier bills once and an annotation inside

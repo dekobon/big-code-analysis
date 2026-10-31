@@ -24,8 +24,9 @@ as many lines and ``|`` alternatives as they span, with a guard
 dropped. Macros are the part a text scan would miss, so three bounded
 shapes are resolved from their ``macro_rules!`` headers: a macro whose
 matcher takes a ``$lang`` / ``$language`` / ``$Lang:ident`` plus
-identifier arguments (``impl_exit_match_kinds!(Java, ReturnStatement,
-…)``) attributes the identifier arguments to that language; a macro
+identifier arguments (the shape ``impl_x!(Tcl, Elseif)`` had before
+#1697 moved its last use onto a row)
+attributes the identifier arguments to that language; a macro
 whose body opens ``use $lang::*`` or spells ``$lang::Kind`` attributes
 those kinds to every language it is invoked with, and a helper macro it
 invokes inherits them; a ``kind_sets!``-style macro that expands to a
@@ -39,8 +40,12 @@ A site is exempt under ``// role-bypass: allow(<Role>) — <reason>`` on
 the line above it, where ``<Role>`` is the role whose row claims the
 kind; an exemption naming the wrong role is itself a finding. The
 exemption covers the next statement or match arm only. Use it for a
-site that is not membership — a naming rule, a traversal step — and
-leave real duplication to the baseline.
+site that is not membership — a naming rule, a traversal step — or for
+a *subset* of a row's owners that the row cannot express and the
+consumer's own policy picks (the `Loop` owners with a ``condition``
+field, the one `Branch` owner cognitive nests on), saying which subset
+and why; leave real duplication — a kind list that is the row, read
+where the row's projection would answer the same — to the baseline.
 
 ``.role-bypass-baseline.txt`` records the exact set of findings as
 ``(file, enclosing item, language, kind, shape#n)`` — ``n`` numbering
@@ -226,7 +231,11 @@ def load_source(path: pathlib.Path) -> Source:
     dead = rt.dead_spans(text)
     masked = rt.mask_dead(text, spans=dead)
     literals = rt.literal_spans(text, spans=dead)
-    rel = path.relative_to(REPO_ROOT).as_posix() if path.is_relative_to(REPO_ROOT) else path.as_posix()
+    rel = (
+        path.relative_to(REPO_ROOT).as_posix()
+        if path.is_relative_to(REPO_ROOT)
+        else path.as_posix()
+    )
     return Source(path, rel, text, masked, dead, literals)
 
 
@@ -251,7 +260,12 @@ def test_module_spans(src: Source) -> list[tuple[int, int]]:
     """``#[cfg(test)] mod … { … }`` extents, left unscanned."""
     spans = []
     # Other attributes may sit between `#[cfg(test)]` and the `mod`.
-    for m in re.finditer(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+" + IDENT + r"\s*\{", src.masked):
+    for m in re.finditer(
+        r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+"
+        + IDENT
+        + r"\s*\{",
+        src.masked,
+    ):
         spans.append((m.start(), _balanced(src.masked, m.end() - 1)))
     return spans
 
@@ -275,7 +289,9 @@ def item_spans(src: Source) -> list[tuple[int, int, str]]:
     for m in ITEM_RE.finditer(masked):
         brace = masked.find("{", m.end())
         semi = masked.find(";", m.end())
-        if brace == -1 or (semi != -1 and semi < brace and m.group(1) in ("const", "static", "mod")):
+        if brace == -1 or (
+            semi != -1 and semi < brace and m.group(1) in ("const", "static", "mod")
+        ):
             end = semi + 1 if semi != -1 else len(masked)
         else:
             end = _balanced(masked, brace)
@@ -292,12 +308,18 @@ def enclosing_item(spans: list[tuple[int, int, str]], idx: int) -> str:
     return best or "<file>"
 
 
-GLOB_USE_RE = re.compile(rf"\buse\s+(?:crate::|super::|\$crate::)?(?:{IDENT}::)*({CAMEL})::\*\s*;")
-ALIAS_USE_RE = re.compile(rf"\buse\s+(?:crate::|super::)?(?:{IDENT}::)*({CAMEL})\s+as\s+({CAMEL})\s*;")
+GLOB_USE_RE = re.compile(
+    rf"\buse\s+(?:crate::|super::|\$crate::)?(?:{IDENT}::)*({CAMEL})::\*\s*;"
+)
+ALIAS_USE_RE = re.compile(
+    rf"\buse\s+(?:crate::|super::)?(?:{IDENT}::)*({CAMEL})\s+as\s+({CAMEL})\s*;"
+)
 NAMED_USE_RE = re.compile(rf"\buse\s+(?:crate::|super::)?(?:{IDENT}::)*({CAMEL})\s*;")
 # `use crate::{Ancestors, Java, Node};` — the tree's usual spelling; each
 # CamelCase entry of the group may be a language.
-GROUP_USE_RE = re.compile(rf"\buse\s+(?:crate::|super::)?(?:{IDENT}::)*\{{([^}}]*)\}}\s*;")
+GROUP_USE_RE = re.compile(
+    rf"\buse\s+(?:crate::|super::)?(?:{IDENT}::)*\{{([^}}]*)\}}\s*;"
+)
 
 
 @dataclass
@@ -338,10 +360,16 @@ def lang_scopes(src: Source, langs: set[str]) -> list[Scope]:
             am = re.fullmatch(rf"({CAMEL})\s+as\s+({CAMEL})", entry)
             start, end = block_of(m.start())
             if am and am.group(1) in langs:
-                scopes.append(Scope(start, end, set(), {am.group(2): am.group(1)}, set()))
+                scopes.append(
+                    Scope(start, end, set(), {am.group(2): am.group(1)}, set())
+                )
             elif entry in langs:
                 scopes.append(Scope(start, end, set(), {}, {entry}))
-    for rx, kind in ((GLOB_USE_RE, "glob"), (ALIAS_USE_RE, "alias"), (NAMED_USE_RE, "named")):
+    for rx, kind in (
+        (GLOB_USE_RE, "glob"),
+        (ALIAS_USE_RE, "alias"),
+        (NAMED_USE_RE, "named"),
+    ):
         for m in rx.finditer(masked):
             lang = m.group(1)
             if lang not in langs:
@@ -358,7 +386,9 @@ def lang_scopes(src: Source, langs: set[str]) -> list[Scope]:
     return scopes
 
 
-def scope_at(scopes: list[Scope], idx: int) -> tuple[set[str], dict[str, str], set[str]]:
+def scope_at(
+    scopes: list[Scope], idx: int
+) -> tuple[set[str], dict[str, str], set[str]]:
     """The imports in force at ``idx``. Scopes are applied outermost
     first, so an alias bound in an inner block shadows the same name
     bound outside it, whatever syntax either used."""
@@ -376,11 +406,15 @@ def scope_at(scopes: list[Scope], idx: int) -> tuple[set[str], dict[str, str], s
 
 # `// role-bypass: allow(Role, Role) — reason`: the reason is required,
 # since the marker is the one escape from the gate.
-EXEMPT_RE = re.compile(r"//\s*role-bypass:\s*allow\(([A-Za-z, ]+)\)\s*(?:—|-|--)?\s*(\S.*)?$")
+EXEMPT_RE = re.compile(
+    r"//\s*role-bypass:\s*allow\(([A-Za-z, ]+)\)\s*(?:—|-|--)?\s*(\S.*)?$"
+)
 EXEMPT_HEAD_RE = re.compile(r"//\s*role-bypass:")
 
 
-def exemptions(src: Source, problems: list[str]) -> list[tuple[int, int, set[str], int]]:
+def exemptions(
+    src: Source, problems: list[str]
+) -> list[tuple[int, int, set[str], int]]:
     """``(start, end, roles, comment_line)`` per exemption: the span it
     covers is the statement, arm or expression that begins on the line
     after the comment, to its closing `;`, `,`-at-depth-0, or the end of
@@ -397,7 +431,9 @@ def exemptions(src: Source, problems: list[str]) -> list[tuple[int, int, set[str
             continue
         m = EXEMPT_RE.search(comment)
         if not m or not (m.group(2) or "").strip():
-            problems.append(f"{src.rel}:{src.line(start)}: a `role-bypass:` marker must read `allow(<Role>) — <reason>` with a non-empty reason")
+            problems.append(
+                f"{src.rel}:{src.line(start)}: a `role-bypass:` marker must read `allow(<Role>) — <reason>` with a non-empty reason"
+            )
             continue
         roles = {r.strip() for r in m.group(1).split(",") if r.strip()}
         # the exemption comment may run on over several `//` lines
@@ -465,7 +501,9 @@ def _only_forwards_its_kind(body: str) -> bool:
     if bound is None:
         return False
     rest = body[bound.end() :]
-    if re.search(r"kind_id\(\)|\.kind\(\)|matches!|\bmatch\b", body[: bound.start()] + rest):
+    if re.search(
+        r"kind_id\(\)|\.kind\(\)|matches!|\bmatch\b", body[: bound.start()] + rest
+    ):
         return False
     name = re.escape(bound.group(1))
     for m in re.finditer(r"\b" + name + r"\b", rest):
@@ -499,8 +537,12 @@ def parse_macros(src: Source) -> dict[str, Macro]:
         # kind (`$lang::Kind`) or a qualified metavariable
         # (`$lang::$first`). Any of these makes the body's kinds the
         # invoking languages'.
-        globs_lang = bool(re.search(r"use\s+\$(?:lang|language|Lang)::\*", body)) or bool(
-            re.search(r"\$(?:lang|language|Lang)::(?:" + CAMEL + r"|\$" + IDENT + ")", body)
+        globs_lang = bool(
+            re.search(r"use\s+\$(?:lang|language|Lang)::\*", body)
+        ) or bool(
+            re.search(
+                r"\$(?:lang|language|Lang)::(?:" + CAMEL + r"|\$" + IDENT + ")", body
+            )
         )
         expands = re.findall(r"\$crate::(" + CAMEL + r")::(" + CAMEL + r")", body)
         # A body that reads `kind_id()` only to hand it to a row
@@ -511,15 +553,32 @@ def parse_macros(src: Source) -> dict[str, Macro]:
         # first argument of a `<row>::…_kind(` call. Any other use — a
         # comparison, a `match`, a `matches!`, a `kind()` read — keeps
         # the body a classifier, so a half-migrated macro is reported.
+        # The row may be named through the language's module
+        # (`roles::$lang::comparison`) or handed in as a `$row:ident`
+        # (`rows_own!` in `abc.rs`); `_only_forwards_its_kind` reads the
+        # `_kind(` call shape, which both spell.
         touches = bool(re.search(r"kind_id\(\)|matches!|\.kind\(\)", body))
-        if touches and re.search(r"roles::\$" + IDENT + r"::", body):
+        if touches and re.search(
+            r"roles::\$" + IDENT + r"::|\$" + IDENT + r"::\w*_kind\s*\(", body
+        ):
             touches = not _only_forwards_its_kind(body)
-        inner = sorted({c for c in re.findall(r"\b(" + IDENT + r")!\s*[\(\[{]", body) if c != name})
-        out[name] = Macro(name, lang_arg, globs_lang, [f"{a}::{b}" for a, b in expands], touches, inner)
+        inner = sorted(
+            {c for c in re.findall(r"\b(" + IDENT + r")!\s*[\(\[{]", body) if c != name}
+        )
+        out[name] = Macro(
+            name,
+            lang_arg,
+            globs_lang,
+            [f"{a}::{b}" for a, b in expands],
+            touches,
+            inner,
+        )
     return out
 
 
-def macro_languages(macros: dict[str, Macro], invocations: dict[str, set[str]]) -> dict[str, set[str]]:
+def macro_languages(
+    macros: dict[str, Macro], invocations: dict[str, set[str]]
+) -> dict[str, set[str]]:
     """The languages each macro's bare kinds resolve to: its own
     invocations when it opens `use $lang::*`, else the languages of every
     macro that invokes it from inside such a body (transitively), so an
@@ -530,7 +589,11 @@ def macro_languages(macros: dict[str, Macro], invocations: dict[str, set[str]]) 
     # it is invoked with, possibly empty. `reached` records that, so the
     # unsupported check tells "no language reaches it" from "its
     # languages have no rows".
-    langs: dict[str, set[str]] = {n: set(invocations.get(n, set())) for n, m in macros.items() if m.body_globs_lang}
+    langs: dict[str, set[str]] = {
+        n: set(invocations.get(n, set()))
+        for n, m in macros.items()
+        if m.body_globs_lang
+    }
     changed = True
     while changed:
         changed = False
@@ -543,7 +606,9 @@ def macro_languages(macros: dict[str, Macro], invocations: dict[str, set[str]]) 
     return langs
 
 
-def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, set[str]]) -> tuple[list[Finding], list[str]]:
+def scan(
+    src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, set[str]]
+) -> tuple[list[Finding], list[str]]:
     """Findings in one file, plus problems (bad exemptions, unsupported macros)."""
     findings: list[Finding] = []
     problems: list[str] = []
@@ -552,9 +617,13 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
     scopes = lang_scopes(src, cl.langs)
     items = item_spans(src)
     exempt = exemptions(src, problems)
-    macro_spans = {m.start(): _balanced(masked, m.end() - 1) for m in MACRO_RE.finditer(masked)}
+    macro_spans = {
+        m.start(): _balanced(masked, m.end() - 1) for m in MACRO_RE.finditer(masked)
+    }
 
-    def record(idx: int, lang: str, kind: str, shape: str, item: str | None = None) -> None:
+    def record(
+        idx: int, lang: str, kind: str, shape: str, item: str | None = None
+    ) -> None:
         if _in_spans(idx, tests):
             return
         roles = cl.by_variant.get((lang, kind))
@@ -565,9 +634,15 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
             if span_start <= idx < span_end:
                 if allowed & set(roles):
                     return
-                problems.append(f"{src.rel}:{comment_line}: exemption names {sorted(allowed)} but `{lang}::{kind}` is claimed by {roles}")
+                problems.append(
+                    f"{src.rel}:{comment_line}: exemption names {sorted(allowed)} but `{lang}::{kind}` is claimed by {roles}"
+                )
                 return
-        findings.append(Finding(src.rel, item or enclosing_item(items, idx), lang, kind, shape, line))
+        findings.append(
+            Finding(
+                src.rel, item or enclosing_item(items, idx), lang, kind, shape, line
+            )
+        )
 
     def in_macro_body(idx: int) -> bool:
         return any(start <= idx < end for start, end in macro_spans.items())
@@ -585,7 +660,9 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
         globs, _, _ = scope_at(scopes, idx)
         return globs | macro_body_lang(idx)
 
-    qualified = re.compile(rf"(?:\$crate::|crate::)?((?:{IDENT}::)*)({CAMEL})::({CAMEL})\b")
+    qualified = re.compile(
+        rf"(?:\$crate::|crate::)?((?:{IDENT}::)*)({CAMEL})::({CAMEL})\b"
+    )
     macro_qualified = re.compile(rf"\$(?:lang|language|Lang)::({CAMEL})\b")
     bare = re.compile(rf"(?<![:\w$])({CAMEL})\b(?!::|\s*\(|\s*!)")
 
@@ -687,16 +764,23 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
 
     operand = rf"((?:\$crate::|crate::)?(?:{IDENT}::)*?)({CAMEL})(?:::({CAMEL}))?"
     macro_operand = rf"\$(?:lang|language|Lang)::({CAMEL})"
-    for m in re.finditer(rf"kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=\s*{macro_operand}\b", masked):
+    for m in re.finditer(
+        rf"kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=\s*{macro_operand}\b", masked
+    ):
         for lang in macro_body_lang(m.start()):
             record(m.start(), lang, m.group(1), "kind_id")
     # The receiver may be a macro metavariable (`$n.kind_id()`).
-    for m in re.finditer(rf"(?<![:\w]){macro_operand}\s*(?:as\s+u16\s*)?[!=]=\s*\$?\w+\.kind_id\(\)", masked):
+    for m in re.finditer(
+        rf"(?<![:\w]){macro_operand}\s*(?:as\s+u16\s*)?[!=]=\s*\$?\w+\.kind_id\(\)",
+        masked,
+    ):
         for lang in macro_body_lang(m.start()):
             record(m.start(), lang, m.group(1), "kind_id")
     for m in re.finditer(rf"kind_id\(\)\s*(?:as\s+u16\s*)?[!=]=\s*{operand}\b", masked):
         kind_operand(m.group(1), m.group(2), m.group(3), m.start())
-    for m in re.finditer(rf"(?<![:\w]){operand}\s*(?:as\s+u16\s*)?[!=]=\s*\$?\w+\.kind_id\(\)", masked):
+    for m in re.finditer(
+        rf"(?<![:\w]){operand}\s*(?:as\s+u16\s*)?[!=]=\s*\$?\w+\.kind_id\(\)", masked
+    ):
         kind_operand(m.group(1), m.group(2), m.group(3), m.start())
 
     # 4. kind() == "…": a string names no language, so the lexical scope
@@ -719,7 +803,9 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
             globs, aliases, named = scope_at(scopes, m.start())
             candidates = globs | named | set(aliases.values())
             if not candidates and any(s_ == lit for (_, s_) in cl.by_string):
-                problems.append(f"{src.rel}:{src.line(m.start())}: `kind() == {lit!r}` spells a role-claimed kind but no language is in scope here; import the language or exempt the site")
+                problems.append(
+                    f"{src.rel}:{src.line(m.start())}: `kind() == {lit!r}` spells a role-claimed kind but no language is in scope here; import the language or exempt the site"
+                )
                 continue
         for lang in candidates:
             variant = cl.by_string.get((lang, lit))
@@ -727,7 +813,9 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
                 record(m.start(), lang, variant, "kind_str")
 
     # 5. const / static arrays
-    for m in re.finditer(r"\b(?:const|static)\s+" + IDENT + r"\s*:[^=;]*=\s*&?\[", masked):
+    for m in re.finditer(
+        r"\b(?:const|static)\s+" + IDENT + r"\s*:[^=;]*=\s*&?\[", masked
+    ):
         end = _balanced(masked, m.end() - 1)
         scan_pattern(masked[m.end() : end - 1], m.end(), "const")
 
@@ -752,7 +840,11 @@ def scan(src: Source, cl: Claims, macros: dict[str, Macro], mlangs: dict[str, se
     return findings, problems
 
 
-TEST_MOD_FILE_RE = re.compile(r"#\[cfg\((?:test|all\(\s*test\b[^)]*\))\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(" + IDENT + r")\s*;")
+TEST_MOD_FILE_RE = re.compile(
+    r"#\[cfg\((?:test|all\(\s*test\b[^)]*\))\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+("
+    + IDENT
+    + r")\s*;"
+)
 
 
 INLINE_MOD_RE = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?\bmod\s+(" + IDENT + r")\s*\{")
@@ -772,8 +864,13 @@ def test_only_files(files: list[pathlib.Path]) -> set[pathlib.Path]:
     for f in files:
         masked = rt.mask_dead(f.read_text(encoding="utf-8"))
         # inline module extents, so a declaration's enclosing path is known
-        inline = [(m.start(), _balanced(masked, m.end() - 1), m.group(1)) for m in INLINE_MOD_RE.finditer(masked)]
-        root = f.parent if f.name in ("mod.rs", "lib.rs", "main.rs") else f.with_suffix("")
+        inline = [
+            (m.start(), _balanced(masked, m.end() - 1), m.group(1))
+            for m in INLINE_MOD_RE.finditer(masked)
+        ]
+        root = (
+            f.parent if f.name in ("mod.rs", "lib.rs", "main.rs") else f.with_suffix("")
+        )
         for m in TEST_MOD_FILE_RE.finditer(masked):
             name = m.group(1)
             enclosing = sorted((s_, e, n) for s_, e, n in inline if s_ <= m.start() < e)
@@ -823,12 +920,24 @@ def analyse(files: list[pathlib.Path], cl: Claims) -> tuple[list[Finding], list[
         for x in sorted(f, key=lambda x: x.line):
             k = (x.file, x.item, x.lang, x.kind, x.shape)
             seen[k] = seen.get(k, 0) + 1
-            findings.append(Finding(x.file, x.item, x.lang, x.kind, x.shape, x.line, seen[k]))
+            findings.append(
+                Finding(x.file, x.item, x.lang, x.kind, x.shape, x.line, seen[k])
+            )
         problems.extend(p)
         for mac in parse_macros(s).values():
-            if mac.touches_kinds and mac.name not in mlangs and not mac.expands_to_kinds:
-                how = "takes no `$lang:ident`" if mac.lang_arg is None else "takes a `$lang` it never spells in its body"
-                problems.append(f"{s.rel}: `macro_rules! {mac.name}` reads kinds but no language reaches it — it {how}, opens no `use $lang::*`, and no macro that does invokes it; unsupported, exempt it with a reason or restructure")
+            if (
+                mac.touches_kinds
+                and mac.name not in mlangs
+                and not mac.expands_to_kinds
+            ):
+                how = (
+                    "takes no `$lang:ident`"
+                    if mac.lang_arg is None
+                    else "takes a `$lang` it never spells in its body"
+                )
+                problems.append(
+                    f"{s.rel}: `macro_rules! {mac.name}` reads kinds but no language reaches it — it {how}, opens no `use $lang::*`, and no macro that does invokes it; unsupported, exempt it with a reason or restructure"
+                )
     return findings, problems
 
 
@@ -843,19 +952,32 @@ def load_baseline(path: pathlib.Path) -> set[tuple[str, str, str, str, str]]:
         if not line.strip() or line.startswith("#"):
             continue
         parts = line.split("\t")
-        if len(parts) != 5 or not re.fullmatch("(" + "|".join(SHAPES) + r")#\d+", parts[4]):
-            raise rt.RoleTableError(f"{path}:{lineno}: expected 5 tab-separated fields ending in `<shape>#<n>`, got `{line}`")
+        if len(parts) != 5 or not re.fullmatch(
+            "(" + "|".join(SHAPES) + r")#\d+", parts[4]
+        ):
+            raise rt.RoleTableError(
+                f"{path}:{lineno}: expected 5 tab-separated fields ending in `<shape>#<n>`, got `{line}`"
+            )
         out.add(tuple(parts))  # type: ignore[arg-type]
     return out
 
 
-def write_baseline(path: pathlib.Path, keys: set[tuple[str, str, str, str, str]]) -> None:
-    path.write_text(HEADER + "".join("\t".join(k) + "\n" for k in sorted(keys)), encoding="utf-8")
+def write_baseline(
+    path: pathlib.Path, keys: set[tuple[str, str, str, str, str]]
+) -> None:
+    path.write_text(
+        HEADER + "".join("\t".join(k) + "\n" for k in sorted(keys)), encoding="utf-8"
+    )
 
 
 def existed_at_head(path: pathlib.Path) -> bool:
     rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
-    run = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-tree", "--name-only", "HEAD", "--", str(rel)], capture_output=True, text=True, check=False)
+    run = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-tree", "--name-only", "HEAD", "--", str(rel)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return run.returncode == 0 and bool(run.stdout.strip())
 
 
@@ -865,10 +987,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--roles-dir", type=pathlib.Path, default=rt.ROLES_DIR)
     ap.add_argument("--langs-rs", type=pathlib.Path, default=rt.LANGS_RS)
     ap.add_argument("--languages-dir", type=pathlib.Path, default=rt.LANGUAGES_DIR)
-    ap.add_argument("--files", type=pathlib.Path, nargs="*", help="scan these files instead of the boundary (tests)")
+    ap.add_argument(
+        "--files",
+        type=pathlib.Path,
+        nargs="*",
+        help="scan these files instead of the boundary (tests)",
+    )
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--bootstrap", action="store_true")
-    ap.add_argument("--show", action="store_true", help="print every finding with its line")
+    ap.add_argument(
+        "--show", action="store_true", help="print every finding with its line"
+    )
     args = ap.parse_args(argv)
 
     print(SCOPE_NOTE)
@@ -891,7 +1020,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bootstrap:
         if args.baseline.exists() or existed_at_head(args.baseline):
-            print(f"error: {args.baseline} exists or is tracked at HEAD; use --update, never re-bootstrap")
+            print(
+                f"error: {args.baseline} exists or is tracked at HEAD; use --update, never re-bootstrap"
+            )
             return 2
         write_baseline(args.baseline, current)
         print(f"role-bypass: wrote {len(current)} finding(s) to {args.baseline}")
@@ -909,8 +1040,12 @@ def main(argv: list[str] | None = None) -> int:
         by_key = {f.key(): f for f in findings}
         for k in sorted(new):
             f = by_key[k]
-            print(f"error: {f.file}:{f.line} [{f.item}] restates `{f.lang}::{f.kind}` ({f.shape}), which a role row claims — call the row, or exempt with `// role-bypass: allow(<Role>) — <reason>`")
-        print(f"role-bypass: FAIL — {len(new)} new bypass site(s); `--update` will not accept them")
+            print(
+                f"error: {f.file}:{f.line} [{f.item}] restates `{f.lang}::{f.kind}` ({f.shape}), which a role row claims — call the row, or exempt with `// role-bypass: allow(<Role>) — <reason>`"
+            )
+        print(
+            f"role-bypass: FAIL — {len(new)} new bypass site(s); `--update` will not accept them"
+        )
         return 1
     gone = recorded - current
     if args.update:
@@ -918,13 +1053,19 @@ def main(argv: list[str] | None = None) -> int:
         # a stale header cannot outlive the next update.
         write_baseline(args.baseline, current)
         if gone:
-            print(f"role-bypass: removed {len(gone)} entr{'y' if len(gone) == 1 else 'ies'}")
+            print(
+                f"role-bypass: removed {len(gone)} entr{'y' if len(gone) == 1 else 'ies'}"
+            )
         else:
             print("role-bypass: baseline rewritten; entries already current")
         return 0
     if gone:
-        print(f"note: {len(gone)} baseline entr{'y' if len(gone) == 1 else 'ies'} no longer found; run --update")
-    print(f"role-bypass: OK — {len(current)} baselined site(s) across {len(files)} files")
+        print(
+            f"note: {len(gone)} baseline entr{'y' if len(gone) == 1 else 'ies'} no longer found; run --update"
+        )
+    print(
+        f"role-bypass: OK — {len(current)} baselined site(s) across {len(files)} files"
+    )
     return 0
 
 

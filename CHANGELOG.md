@@ -109,6 +109,52 @@ for historical reference.
   `-d book/ja` would have left the artifact without a `/ja/` tree.
   (#1724)
 
+- The control-flow roles — `Branch`, `Switch`, `Loop`, `Catch`,
+  `ElseIf` and `Exit` — are declared per language in `roles/<lang>.rs`
+  for every grammar, and the
+  metrics that classified those constructs read the rows instead of
+  restating them: cyclomatic through one `impl_cyclomatic_rows!` body
+  whose per-tier term lists replace three family macros and nine
+  hand-written kind lists, with a build-time assert that no kind is
+  counted by two tiers; cognitive, nexits (`impl_exit_from_row!`), ABC
+  and `Checker::is_else_if`; and Halstead's keyword billing, which now
+  reads the rows' token projection through `paying_roles!(…,
+  control_flow)`. The three `is_else_if` strategies are two shared gate
+  emitters (`roles/control_flow.rs`) and self-paying clause owners on a
+  `pays []` row; each row carries the text gate its exit builtin
+  needed (`panic`, `die` / `exit`, `error` / `os.exit`, `raise` /
+  `Kernel.exit`, …) with the deliberate exclusions stated beside it;
+  Python's and Rust's keyword payers that fire outside their construct
+  (the ternary's `if`, a comprehension's `for`, `impl … for`, `for<'a>`,
+  a match guard's `if`) are pinned at today's values so a later change
+  to any is attributable.
+  What a family shares is a fragment (`roles/js_family.rs`,
+  `roles/c_family.rs`), so a dialect row is fragments plus its stated
+  difference. Tcl and Elixir spell most of their control flow as a
+  generic `command` / `call` told by its leading word, so their rows
+  gate on a classification of that word (`TclCommandWord`,
+  `ElixirCallTarget` in `lang_helpers`) that the walk caches per
+  node: every metric that asks about one node reads its text once,
+  where cyclomatic, cognitive, ABC and nexits each read it before;
+  `elixir_declaration` is now a projection of the same read. The
+  migration itself changes no output: at its last commit the oracle's
+  analysis commands (`metrics`, `ops`, `dump`, `find`, `count`) and the
+  library's verbatim export are byte-identical to the branch base on
+  the integration corpora and a fixture per language (0 of 345,128
+  outputs differ), on the recovery sweep of every fixture cut at each
+  line, offset, operator and word boundary, and under a seven-variant
+  metrics option matrix; one drift the sweep found in flight — C#'s
+  `catch` token stranded under recovery when read at its clause — kept
+  the token.
+  `roles/control_flow_tests.rs` pins every row's answer per kind in
+  walk order, independent of the consumers; three scaling probes
+  (`cognitive/else-if-ladder`, `cognitive/wide-if-siblings`,
+  `cognitive/python-wide-if-siblings`) hold the `ElseIf` gates linear. `Ancestors` gains a crate-private
+  `previous_sibling_has_kind` and `classified`; the role DSL emits
+  `LEAF_KINDS` per row. The AST crate is outside `STABILITY.md`'s shape
+  contract.
+  (#1697, part of #1690)
+
 - The `Modifier`, `DeclKeyword` and `Primitive` roles are the first
   the classifiers read from a role table rather than restate. Every
   language declares its three rows in `roles/<lang>.rs` — or marks one

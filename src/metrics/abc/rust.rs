@@ -14,6 +14,8 @@ use super::{
     count_negated_operand, last_operand, rows_own, wrapped_operand,
 };
 use crate::roles::rust::{call, case_arm, comparison, guard, short_circuit};
+// `Branch` / `Loop` are not read here: every arm below walks a slot or
+// counts an assignment on a subset of an owner set, never membership.
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis holds one
@@ -210,6 +212,9 @@ impl Abc for RustCode {
             // implementation without changing the cross-language
             // story. Bare `let x;` (no initializer) leaves the
             // `value` field unset and correctly stays out.
+            // role-bypass: allow(Branch) — a `let` with a value is an
+            // assignment; whether it also has an `else` (the `Branch`
+            // row's gated owner) is not what this arm reads
             LetDeclaration if node.child_by_field_name("value").is_some() => {
                 stats.assignments += 1.;
             }
@@ -269,6 +274,9 @@ impl Abc for RustCode {
             // comment (`if /*c*/ b`) and on the label of `'a: while b`
             // (#1455). Rust has no `do_statement`, no ternary, and no
             // for-condition slot.
+            // role-bypass: allow(Branch, Loop) — the owners with a `condition`
+            // slot: `let … else` has a value not a condition, `for` iterates,
+            // `loop` has none; a subset of each row, not membership
             IfExpression | WhileExpression => {
                 rust_count_slot(
                     node.child_by_field_name("condition"),
@@ -278,6 +286,8 @@ impl Abc for RustCode {
             }
             // `return value;` — the value is the only operand, which
             // scores only behind a negation.
+            // role-bypass: allow(Exit) — a return's value as a boolean slot,
+            // not whether the node is an exit; `?` carries no slot here
             ReturnExpression => {
                 if let Some(value) = wrapped_operand(node) {
                     rust_count_negated(&value, code, &mut stats.conditions);

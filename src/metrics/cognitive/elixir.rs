@@ -13,17 +13,10 @@
 
 use super::*;
 use crate::lang_helpers::elixir::{
-    elixir_applying_remote_call, elixir_short_circuit_kind, elixir_short_circuit_name,
+    ElixirCallTarget, elixir_applying_remote_call, elixir_call_target, elixir_short_circuit_kind,
+    elixir_short_circuit_name,
 };
 use crate::lang_helpers::elixir_decisions::{elixir_pair_section, elixir_receive_dispatches};
-
-/// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
-/// `rescue`, `catch` — in its keyword form: `try` itself, and the
-/// method-defining macros, whose body is an implicit `try`
-/// (`def f, do: g(), rescue: (e -> e)`).
-fn elixir_takes_try_sections(keyword: &str) -> bool {
-    keyword == "try" || elixir_is_method_macro(keyword)
-}
 
 /// The cost a keyword-form section carries, matching its block form.
 enum ElixirSection {
@@ -34,22 +27,34 @@ enum ElixirSection {
     Handler,
 }
 
+/// Whether a Call whose target spells `target` takes `try`'s sections —
+/// `else`, `rescue`, `catch` — in its keyword form: `try` itself, and
+/// the method-defining macros, whose body is an implicit `try`
+/// (`def f, do: g(), rescue: (e -> e)`).
+fn elixir_takes_try_sections(target: ElixirCallTarget) -> bool {
+    target == ElixirCallTarget::Try || target.is_method_macro()
+}
+
 /// The section `pair` spells, when its Call takes it (#1574). Only such
 /// a Call scores it, because `else:` is an ordinary option name to any
 /// other function; a `with`'s `else:` is that construct's clause
-/// dispatch, which its own +nesting already paid.
+/// dispatch, which its own +nesting already paid. The word is the
+/// walk's cached `ElixirCallTarget` (#1697).
 fn elixir_section<'a>(
     pair: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<ElixirSection> {
-    let (key, call) = elixir_pair_section(pair, code, ancestors)?;
-    let keyword = elixir_call_keyword(&call, code)?;
-    match key {
-        "else" if matches!(keyword, "if" | "unless") || elixir_takes_try_sections(keyword) => {
+    let section = elixir_pair_section(pair, code, ancestors)?;
+    let target = elixir_call_target(&section.call, code, ancestors);
+    match section.key {
+        "else"
+            if matches!(target, ElixirCallTarget::If | ElixirCallTarget::Unless)
+                || elixir_takes_try_sections(target) =>
+        {
             Some(ElixirSection::Else)
         }
-        "rescue" | "catch" if elixir_takes_try_sections(keyword) => Some(ElixirSection::Handler),
+        "rescue" | "catch" if elixir_takes_try_sections(target) => Some(ElixirSection::Handler),
         _ => None,
     }
 }
@@ -134,7 +139,7 @@ impl Cognitive for ElixirCode {
         nesting_map: &mut NestingMap,
     ) {
         // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
-        use crate::roles::elixir::{closure, short_circuit};
+        use crate::roles::elixir::{catch, closure, short_circuit};
         use Elixir as E;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -142,10 +147,23 @@ impl Cognitive for ElixirCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // role-bypass: allow(Call) — which call names a branching or defining
-            // macro, read from the target's text; not whether the node is a call
-            E::Call => match elixir_call_keyword(node, code) {
-                Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
+            // The `Branch`, `Switch` and `Loop` rows all own the one `call`
+            // kind under text gates (#275, #1697), as does the
+            // `FuncOpener` row's `def`; the word is read once here, and
+            // the rows' gates re-read it from the walk's slot. Which
+            // construct nests, and which `receive` does, is this body's
+            // policy.
+            // role-bypass: allow(Branch, Switch, Loop, Exit) — one dispatch
+            // on the cached word in place of four row reads of the same
+            // `call`: which word it is, not whether it is a call
+            E::Call => match elixir_call_target(node, code, ancestors) {
+                ElixirCallTarget::If
+                | ElixirCallTarget::Unless
+                | ElixirCallTarget::For
+                | ElixirCallTarget::While
+                | ElixirCallTarget::Case
+                | ElixirCallTarget::Cond
+                | ElixirCallTarget::With => {
                     increase_nesting(stats, &mut nesting);
                 }
                 // A `case` over the mailbox, paying as one (#1581) when
@@ -154,7 +172,7 @@ impl Cognitive for ElixirCode {
                 // branches on nothing. The `after` adds nothing either
                 // way: like `case`, the container pays and its arms do
                 // not, a timeout beside a bare `_ ->` included.
-                Some("receive") if elixir_receive_dispatches(node, code) => {
+                ElixirCallTarget::Receive if elixir_receive_dispatches(node, code) => {
                     increase_nesting(stats, &mut nesting);
                 }
                 // `try` is intentionally absent: it is a wrapper for
@@ -167,7 +185,7 @@ impl Cognitive for ElixirCode {
                 // space, while this arm resets on the keyword wherever it
                 // sits — a template's `def` body is still a function body
                 // to read. Reading the row here would move that reset.
-                Some(kw) if elixir_is_method_macro(kw) => {
+                target if target.is_method_macro() => {
                     // Method-defining macros reset nesting at the
                     // function boundary, mirroring Bash's
                     // `FunctionDefinition` rule. We deliberately do
@@ -215,10 +233,9 @@ impl Cognitive for ElixirCode {
             // The `else` token's parents are the `else_block`, then the
             // `do_block`, then the Call.
             E::Else
-                if ancestors
-                    .iter(node)
-                    .nth(2)
-                    .is_none_or(|(call, _)| elixir_call_keyword(&call, code) != Some("with")) =>
+                if ancestors.iter(node).nth(2).is_none_or(|(call, _)| {
+                    elixir_call_target(&call, code, ancestors) != ElixirCallTarget::With
+                }) =>
             {
                 increment_by_one(stats);
             }
@@ -232,9 +249,10 @@ impl Cognitive for ElixirCode {
                 Some(ElixirSection::Handler) => increase_nesting(stats, &mut nesting),
                 None => {}
             },
-            // `rescue` / `catch` arms of a `try` Call each add +nesting,
-            // matching Java's `CatchClause` treatment.
-            E::RescueBlock | E::CatchBlock => {
+            // `rescue` / `catch` arms of a `try` Call — the `Catch` row's
+            // owners — each add +nesting, matching Java's `CatchClause`
+            // treatment.
+            _ if catch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // Anonymous functions — the `Closure` row — are Elixir's

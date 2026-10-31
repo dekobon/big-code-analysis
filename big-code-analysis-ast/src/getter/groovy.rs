@@ -72,7 +72,7 @@ impl Getter for GroovyCode {
 
     keyword_roles!(groovy);
 
-    paying_roles!(groovy);
+    paying_roles!(groovy, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;
@@ -170,9 +170,11 @@ impl Getter for GroovyCode {
             // spellings the rows' `under BinaryExpression` / `under MembershipExpression` /
             // `under InstanceofExpression` / `under TernaryExpression` gates leave out
             LT | LT2 | GT | In | Instanceof
-            // `case` is the `CaseArm` row's and `get_paying_role` bills it
-            // (#1695); `default` is the fallback label's and stays.
-            | If | Else | Switch | Try | Catch | Throw | Throws | For | While | Continue
+            // `case` is the `CaseArm` row's, and `if` / `switch` / `for` /
+            // `while` / `catch` the `Branch` / `Switch` / `Loop` / `Catch`
+            // rows' payers, all billed by `get_paying_role` (#1695,
+            // #1697); `default` is the fallback label's and stays.
+            | Else | Try | Throw | Throws | Continue
             | Break | Do | Finally | New | Return | Default | Assert
             | Extends | Implements | As
             // Separators / brackets.

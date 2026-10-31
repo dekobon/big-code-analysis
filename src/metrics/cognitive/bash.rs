@@ -102,7 +102,14 @@ impl Cognitive for BashCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::bash::{func_opener, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::bash::{
+            branch, else_if, func_opener, r#loop, short_circuit, switch, ternary,
+        };
         use Bash::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -110,11 +117,15 @@ impl Cognitive for BashCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // `WhileStatement` covers both `while` and `until`; `ForStatement`
-            // covers both `for` and `select`. `CStyleForStatement` is the
-            // `for ((…))` arithmetic form. `ElifClause` is a dedicated node,
-            // not a nested `if`, so no `is_else_if` check is needed.
-            IfStatement | WhileStatement | ForStatement | CStyleForStatement | CaseStatement => {
+            // Every branch, loop and `case` the rows own (#1697):
+            // `while_statement` covers `while` and `until`, `for_statement`
+            // `for` and `select`, `c_style_for_statement` the `for ((…))`
+            // form. `elif` is a dedicated clause, never a nested `if`, so no
+            // `ElseIf` guard is needed on the branch.
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The arithmetic ternary inside `(( … ))` / `$(( … ))`, Bash's
@@ -125,7 +136,12 @@ impl Cognitive for BashCode {
             _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ElifClause | ElseClause => {
+            // The `else` clause, which no row owns, and the `elif` clause the
+            // `ElseIf` row pays at — its self-paying owner.
+            ElseClause => {
+                increment_branch_extension(stats);
+            }
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
             // `&&` / `||` appear in two places: as direct children of

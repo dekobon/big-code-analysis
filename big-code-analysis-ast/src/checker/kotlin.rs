@@ -153,10 +153,10 @@ impl Checker for KotlinCode {
         )
     }
 
-    // tree-sitter-kotlin models `else if` as an `else` keyword sibling
-    // followed by an `if_expression` (not an `if_statement`, and no
-    // wrapping clause node).
-    impl_is_else_if_prev_sibling!(Kotlin, IfExpression, Else);
+    // The `ElseIf` row of `roles/kotlin.rs`: an `if_expression` whose
+    // previous sibling is the bare `else` token (no clause wrapper), read
+    // off the caller's chain. The row reads no bytes (#1697).
+    impl_else_if_from_row!(kotlin);
 
     // `reified` is the one modifier the grammar spells as an aliased
     // named kind, `reification_modifier`, rather than a keyword token.

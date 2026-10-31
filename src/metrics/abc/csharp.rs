@@ -14,7 +14,9 @@ use super::{
     count_negated_operand, last_operand, peel, rows_own, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
-use crate::roles::csharp::{call, case_arm, comparison, guard, null_safe, short_circuit, ternary};
+use crate::roles::csharp::{
+    branch, call, case_arm, comparison, guard, null_safe, short_circuit, ternary,
+};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -478,6 +480,11 @@ fn csharp_count_token_condition<'a>(
         // They share the arm rather than sitting beside it because the
         // arm's meaning is "this node is a condition, with nothing to
         // gate on" — which is as true of a production as of a token.
+        // `catch` stays the keyword *token* here, not the `Catch` row's
+        // `catch_clause` owner: the two agree on valid code, but error
+        // recovery strands the token without its clause (`} catch (E e)
+        // when (` cut mid-filter), and ABC has always scored it there.
+        // The token is no row's, so this is not a restatement (#1697).
         Else | Try | Catch => {
             stats.conditions += 1.;
         }
@@ -541,10 +548,10 @@ fn csharp_walk_for_conditions<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    // bca: suppress(cyclomatic) — slot dispatch table: one arm per
-    // grammar kind holding a boolean slot, each an independent routing
-    // rule; the row reads (#1695) are arms like the kind arms they
-    // replaced.
+    // bca: suppress(cyclomatic, halstead) — slot dispatch table: one arm
+    // per grammar kind holding a boolean slot, each an independent routing
+    // rule; the row reads (#1695, #1697) are arms like the kind arms they
+    // replaced, and the effort is the table's vocabulary.
     use Csharp::*;
     let conds = &mut stats.conditions;
     let kind = node.kind_id();
@@ -576,7 +583,13 @@ fn csharp_walk_for_conditions<'a>(
         // slot holds the bare condition. Read by grammar field: a fixed
         // index landed on the `(` token (#370), and after that fix on a
         // comment, since `if (/*c*/ b)` puts one at child(2) (#1455).
-        IfStatement | WhileStatement | DoStatement => {
+        // Every `Branch` owner, and the `Loop` owners with a `condition`
+        // field — `for` walks its own below, `foreach` has none.
+        // role-bypass: allow(Loop) — the loop owners with a `condition`
+        // slot, a subset the row cannot express; `Branch` is read in full
+        _ if branch::owns_kind(kind, node, code, ancestors)
+            || matches!(kind.into(), WhileStatement | DoStatement) =>
+        {
             if let Some(condition) = node.child_by_field_name("condition") {
                 csharp_count_condition(&condition, code, conds);
             }
@@ -619,6 +632,8 @@ fn csharp_walk_for_conditions<'a>(
         // `return` and a declarator name no field for the value, so the
         // first and last operand stand in: a `return` holds only its
         // value, and a declarator's initialiser follows its name.
+        // role-bypass: allow(Exit) — a return's value as a boolean slot, not
+        // whether the node is an exit; `yield` / `throw` carry no slot here
         ReturnStatement => csharp_count_negated_slot(wrapped_operand(node), code, conds),
         crate::Csharp::VariableDeclarator | crate::Csharp::VariableDeclarator2 => {
             csharp_count_negated_slot(last_operand(node), code, conds);
@@ -631,6 +646,8 @@ fn csharp_walk_for_conditions<'a>(
         LambdaExpression => {
             csharp_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }
+        // role-bypass: allow(Loop) — the one loop owner with a three-part
+        // head, not whether the node is a loop
         ForStatement => csharp_walk_for_statement(node, code, stats),
         // The `conditional_expression` the `Ternary` row owns: its `?`
         // paid above, this walks its operand slots.

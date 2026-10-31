@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, ScoresItself, Stats, rows_own};
-use crate::roles::objc::{call, case_arm, comparison, short_circuit, ternary};
+use crate::roles::objc::{branch, call, case_arm, catch, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -81,7 +81,12 @@ impl Abc for ObjcCode {
             // `@catch` exception conditions. `&&` / `||` are deliberately
             // excluded (Fitzpatrick Rule 7; the unary-conditional
             // counterpart is Rule 9, handled below).
-            Else | ATtry | CatchClause => {
+            Else | ATtry => {
+                stats.conditions += 1.;
+            }
+            // And the `@catch` clause, the `Catch` row's owner and leaf
+            // alike (#1697).
+            _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // The six comparison tokens, the `Comparison` row's payers
@@ -116,9 +121,17 @@ impl Abc for ObjcCode {
                 }
             }
             // By role, never by index — see `impl Abc for CppCode` (#1455).
-            IfStatement | WhileStatement | DoStatement => {
+            // Every `Branch` owner, and the `Loop` owners with a `condition`
+            // field — `for` walks its own below.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), WhileStatement | DoStatement) =>
+            {
                 cpp_count_condition_slot(node, scores, &mut stats.conditions);
             }
+            // role-bypass: allow(Exit) — a return's value as a boolean slot,
+            // not whether the node is an exit
             ReturnStatement => {
                 cpp_count_return(node, scores, &mut stats.conditions);
             }
@@ -134,6 +147,8 @@ impl Abc for ObjcCode {
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
+            // role-bypass: allow(Loop) — the one loop owner with a
+            // three-part head, not whether the node is a loop
             ForStatement => {
                 cpp_walk_for_statement(node, scores, &mut stats.conditions);
             }

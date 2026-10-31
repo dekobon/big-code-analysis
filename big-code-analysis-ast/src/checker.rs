@@ -93,52 +93,27 @@ macro_rules! impl_row_predicates {
     };
 }
 
-// Generate an `is_else_if` impl for the grammars that model `else if` as
-// an `$if_kind` node nested directly inside an `else_clause` wrapper
-// (`else_clause → if`). Covers C++/JS/TS/TSX (`IfStatement`) and Rust
-// (`IfExpression`). Per-call rationale (e.g. the `IfExpression` choice)
-// is hoisted above each invocation per `.claude/rules/macro-comments.md`.
-macro_rules! impl_is_else_if_parent_clause {
-    ($lang:ident, $if_kind:ident, $else_clause:ident) => {
+// Emits a `Checker::is_else_if` that forwards to the language's `ElseIf`
+// row (#1697): `roles::<lang>::else_if::owns` under a known-empty code
+// slice, which is exact because no `ElseIf` gate reads bytes — the
+// parent-clause, previous-sibling and dedicated-clause strategies all
+// read the caller's chain (`roles/control_flow.rs`). Python does not use
+// it: its row also owns the `elif_clause`, and the Checker answers
+// `Branch ∧ ElseIf` so that clause stays `false` as every caller has had
+// it. Per-language rationale — which strategy the row spells and why —
+// sits above each invocation (`.claude/rules/macro-comments.md`).
+macro_rules! impl_else_if_from_row {
+    ($roles:ident) => {
         #[inline]
         fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-            node.kind_id() == $lang::$if_kind
-                && ancestors
-                    .parent(node)
-                    .is_some_and(|parent| parent.kind_id() == $lang::$else_clause)
-        }
-    };
-}
-
-// Generate an `is_else_if` impl for the grammars that emit a bare `else`
-// keyword token followed by a nested `$if_kind` sibling, with no wrapping
-// clause node. Covers Java/C#/Groovy (`IfStatement`) and Kotlin
-// (`IfExpression`).
-macro_rules! impl_is_else_if_prev_sibling {
-    ($lang:ident, $if_kind:ident, $else_kw:ident) => {
-        #[inline]
-        fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-            node.kind_id() == $lang::$if_kind
-                && ancestors
-                    .previous_sibling(node)
-                    .is_some_and(|prev| prev.kind_id() == $lang::$else_kw)
-        }
-    };
-}
-
-// Generate an `is_else_if` impl for the grammars that expose a dedicated
-// elseif/elsif clause node, so the clause node itself is the else-if
-// (no `if`-nesting or sibling-token shape to inspect). Flat `matches!`
-// against one or more variant kinds; the multi-variant form covers PHP's
-// `ElseIfClause | ElseIfClause2`.
-macro_rules! impl_is_else_if_clause {
-    ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
-        #[inline]
-        fn is_else_if(node: &Node, _ancestors: Ancestors<'_, '_>) -> bool {
-            matches!(
-                node.kind_id().into(),
-                $lang::$first $(| $lang::$rest)*
-            )
+            // The empty slice is exact only while no gate reads bytes;
+            // a `text_gated_by` owner on this row would make the
+            // forward silently wrong, so the build says so.
+            const _: () = assert!(
+                !$crate::roles::$roles::else_if::TEXT_GATED,
+                "the `ElseIf` row reads bytes; `is_else_if` cannot forward with `&[]`"
+            );
+            $crate::roles::$roles::else_if::owns(node, &[], ancestors)
         }
     };
 }

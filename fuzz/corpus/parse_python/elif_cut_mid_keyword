@@ -1,0 +1,4 @@
+def f(a):
+    if a:
+        pass
+    eli

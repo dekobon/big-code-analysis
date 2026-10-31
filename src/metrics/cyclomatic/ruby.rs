@@ -8,68 +8,34 @@
 
 use super::*;
 
-impl Cyclomatic for RubyCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use Ruby as R;
-
-        use crate::roles::ruby::{case_arm, guard, null_safe, short_circuit, ternary};
-        let kind = node.kind_id();
-        // `&&` / `||` / `and` / `or`, the `ShortCircuit` row's payers,
-        // the `conditional` the `Ternary` row owns, and an `in` arm's
-        // `if` / `unless` guard the `Guard` row owns — a decision the
-        // arm it guards does not already pay (#1454; `Guard` the hidden
-        // `_guard` supertype, lesson 34), and the safe navigation's `&.`,
-        // the `NullSafe` row's payer, once per token (#452) (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::owns_kind(kind, node, code, ancestors)
-            || guard::owns_kind(kind, node, code, ancestors)
-            || null_safe::pays_at_leaf_kind(kind, node, code, ancestors)
-        {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        match kind.into() {
-            // Standard-only: each arm the `CaseArm` row owns — a `when`
-            // of `case … when`, and an `in` of `case … in` unless it is
-            // the bare wildcard `in _` with no guard, the default arm
-            // (#977), which the row leaves out as Rust's `_` and
-            // Python's `case _:` are.
-            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
-                stats.cyclomatic += 1.;
-            }
-            // Modified-only: each case container collapses its arms.
-            R::Case | R::CaseMatch => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified. The guards are the `Guard`
-            // row's, read above: no double count (§5), since the `if` /
-            // `unless` *keyword tokens* inside a guard are anonymous
-            // tokens distinct from `R::If` (239) / `R::Unless` (240),
-            // the statement nodes — measured, not assumed.
-            R::If
-            | R::Unless
-            | R::Elsif
-            | R::IfModifier
-            | R::UnlessModifier
-            | R::While
-            | R::Until
-            | R::For
-            | R::WhileModifier
-            | R::UntilModifier
-            | R::Rescue
-            | R::RescueModifier
-            | R::RescueModifier2
-            | R::RescueModifier3 => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/ruby.rs`, read at the projection the
+// metric counts (#1695, #1697). Ruby counts statement nodes, so `Branch`
+// / `Loop` / `Catch` / `Switch` are plain rows read at the owner — the
+// block forms and the statement-modifier forms (`x if a`, `x while a`,
+// `x rescue y`) each their own kind — and the `elsif` clause, the
+// `ElseIf` row's self-paying owner, pays as the branch it is. `&&` /
+// `||` / `and` / `or` from `ShortCircuit` at the token; the
+// `conditional` from `Ternary` at its wrapper; a `when` / `in` clause's
+// guard from `Guard` at the owner; the safe-navigation `&.` from
+// `NullSafe` at the token; each `when` and `in` clause from `CaseArm` at
+// the owner (the row leaves the `else` out); `case` and `case … in`
+// from `Switch`, the modified tier's.
+impl_cyclomatic_rows!(
+    RubyCode,
+    Ruby,
+    roles = crate::roles::ruby,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        guard::owns_kind,
+        null_safe::pays_at_leaf_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        catch::pays_at_leaf_kind,
+        else_if::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::owns_kind],
+    modified = [switch::owns_kind],
+    extra = [],
+    constraints = [],
+);

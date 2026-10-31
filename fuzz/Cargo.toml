@@ -116,6 +116,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "parse_elixir"
+path = "fuzz_targets/parse_elixir.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "preproc_macro"
 path = "fuzz_targets/preproc_macro.rs"
 test = false

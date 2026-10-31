@@ -13,7 +13,9 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, rows_own, wrapped_operand,
 };
-use crate::roles::java::{call, case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::java::{
+    branch, call, case_arm, catch, comparison, guard, short_circuit, ternary,
+};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`): a parenthesis, a cast
@@ -265,15 +267,19 @@ fn java_count_token_condition<'a>(
     // more a decision than the `<` / `>` around it (#1274).
     // And the `CaseArm` row's `case` label, one per label as cyclomatic
     // counts them; `default` is excluded on the row (lesson 11, #469).
+    // And the `Catch` row's `catch` keyword, one per handler (#1697).
     if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
         || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
         || case_arm::pays_at_leaf_kind(kind, node, code, ancestors)
+        || catch::pays_at_leaf_kind(kind, node, code, ancestors)
     {
         stats.conditions += 1.;
         return true;
     }
+    // Fitzpatrick's `else` and `try` conditions, one per keyword; no
+    // row owns either.
     match kind.into() {
-        Else | Try | Catch => {
+        Else | Try => {
             stats.conditions += 1.;
         }
         _ => return false,
@@ -287,6 +293,11 @@ fn java_walk_for_conditions<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
+    // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+    // One arm per grammar kind that carries a condition slot, like
+    // `PerlCode::compute`'s: the count is the number of slot-bearing
+    // kinds, not branching a reader must hold, and the row read (#1697)
+    // is an arm like the kind arm it replaced.
     use Java::*;
     let conds = &mut stats.conditions;
     let kind = node.kind_id();
@@ -313,10 +324,16 @@ fn java_walk_for_conditions<'a>(
             |operand, conds| java_count_negated(operand, code, conds),
             conds,
         ),
-        // `if (cond)`, `while (cond)`, `do … while (cond);`, by grammar
-        // field: a fixed index lands on a comment before the slot
-        // (`if /*c*/ (b)`) and scores the condition zero (#1455).
-        IfStatement | WhileStatement | DoStatement => {
+        // `if (cond)` — every `Branch` owner — and `while (cond)`, `do …
+        // while (cond);` — the `Loop` owners with a `condition` field
+        // (the two `for` forms have none, or walk theirs below) — by
+        // grammar field: a fixed index lands on a comment before the
+        // slot (`if /*c*/ (b)`) and scores the condition zero (#1455).
+        // role-bypass: allow(Loop) — the loop owners with a `condition`
+        // slot, a subset the row cannot express; `Branch` is read in full
+        _ if branch::owns_kind(kind, node, code, ancestors)
+            || matches!(kind.into(), WhileStatement | DoStatement) =>
+        {
             java_count_slot(node.child_by_field_name("condition"), code, conds);
         }
         // `return value;` names no field; the value is its only operand.
@@ -355,6 +372,10 @@ fn java_walk_for_conditions<'a>(
         LambdaExpression => {
             java_count_negated_slot(node.child_by_field_name("body"), code, conds);
         }
+        // The classic `for`'s `condition` slot; an enhanced `for` has
+        // none, so only this `Loop` owner is walked.
+        // role-bypass: allow(Loop) — the one loop owner with a condition
+        // slot, not whether the node is a loop
         ForStatement => java_walk_for_statement(node, code, stats),
         // The `ternary_expression` the `Ternary` row owns: its `?` paid
         // above, this walks its operand slots.

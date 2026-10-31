@@ -36,51 +36,43 @@ impl Cognitive for RubyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::ruby::{closure, func_opener, short_circuit, ternary};
+        use crate::roles::ruby::{
+            branch, catch, closure, else_if, func_opener, r#loop, short_circuit, switch, ternary,
+        };
         use Ruby as R;
 
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the count is
-        // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold, and the effort is the table's vocabulary;
-        // the row reads (#1695) are arms like the kind arms they replaced.
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read or a
+        // kind the rows do not own: the count is the construct list, not
+        // branching a reader must hold, and the effort is the table's vocabulary
+        // (#1695, #1697).
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
         let kind = node.kind_id();
 
         match kind.into() {
-            // Nesting-increasing constructs. tree-sitter-ruby models
-            // `elsif` as its own `Elsif` clause (handled in the
-            // branch-extension arm below) rather than nesting a second
-            // `If` inside the outer one, so the `is_else_if` guard is
-            // defensive only — mirrors the equivalent pattern in the
-            // Lua impl.
-            R::If if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level. Ruby's `ElseIf` row
+            // owns the dedicated `elsif` clause (the branch-extension arm
+            // below), never an `if`, so the two rows are disjoint and no
+            // exclusion is needed here (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional` the `Ternary` row owns (#1695).
             _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            R::Unless
-            | R::While
-            | R::Until
-            | R::For
-            | R::Case
-            | R::CaseMatch
-            | R::IfModifier
-            | R::UnlessModifier
-            | R::WhileModifier
-            | R::UntilModifier
-            | R::Rescue
-            | R::RescueModifier
-            | R::RescueModifier2
-            | R::RescueModifier3 => {
+            // Every loop, switch and handler the rows own (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors)
+                || catch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
-            // `elsif` and the `else` of an `if`/`elsif` chain extend the
-            // parent branch at the same nesting level (+1).
-            R::Elsif => {
+            // The `elsif` clause the `ElseIf` row pays at — its leaf, the
+            // clause itself — extends the parent branch at the same nesting
+            // level (+1), as the `else` of the chain does below.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
             // The `Else` clause node is shared across three Ruby
@@ -117,6 +109,8 @@ impl Cognitive for RubyCode {
                 // which is `O(depth)` — one climb per `else` keeps the
                 // metric quadratic on a deeply nested `if`/`else` chain,
                 // the shape #1062 exists to make linear.
+                // role-bypass: allow(Switch) — which construct the `else` belongs
+                // to, read off the parent; not whether the parent is a switch
                 let is_case_default = ancestors
                     .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), R::Case | R::CaseMatch));

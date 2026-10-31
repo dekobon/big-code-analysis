@@ -21,12 +21,15 @@ impl Cognitive for CsharpCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the count is
-        // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold, and the effort is the table's vocabulary;
-        // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::csharp::{closure, func_opener, null_safe, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read or a
+        // kind the rows do not own: the count is the construct list, not
+        // branching a reader must hold, and the effort is the table's vocabulary
+        // (#1695, #1697).
+        use crate::roles::csharp::{
+            branch, catch, closure, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
+            ternary,
+        };
         use Csharp::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -34,11 +37,19 @@ impl Cognitive for CsharpCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level — unless the
+            // `ElseIf` row recognises it as the `if` of an `else if`, where
+            // the `Else` arm below pays the +1 and no level opens (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement | ForeachStatement | WhileStatement | DoStatement | SwitchStatement
-            | SwitchExpression | CatchClause => {
+            // Every loop, switch and handler the rows own (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors)
+                || catch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).

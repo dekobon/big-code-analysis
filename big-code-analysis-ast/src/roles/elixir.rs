@@ -2,10 +2,16 @@
 //! `defmacro` / `defmacrop` / `defmodule` are not grammar productions —
 //! each is a `call` whose `target` identifier spells the keyword — so
 //! the rows that name them read source bytes, and the one nested in a
-//! `quote do … end` template reads the ancestor chain (#275, #310).
+//! `quote do … end` template reads the ancestor chain (#275, #310). The
+//! Halstead keyword roles (#1693), the paying-construct roles (#1694,
+//! #1695), the space tree (#1696) and the control flow — `Branch`,
+//! `Switch`, `Loop`, `Catch`, `Exit`, with `ElseIf` absent (#1697) — are
+//! declared; the rest are pending the package that declares each
+//! (#1692).
 
 use crate::lang_helpers::elixir::{
-    ElixirDeclaration, elixir_applying_operator, elixir_call_keyword, elixir_declaration,
+    ElixirCallTarget, ElixirDeclaration, elixir_applying_operator, elixir_call_target,
+    elixir_declaration,
 };
 use crate::lang_helpers::elixir_decisions::{
     elixir_clause_is_decision, elixir_is_when_operator, elixir_when_is_guard,
@@ -43,8 +49,55 @@ fn class_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -
 
 /// A `call` whose target spells `defstruct`, directly in a module body:
 /// the struct's fields are the module's attributes (`npa/elixir.rs`).
-fn struct_macro<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-    elixir_call_keyword(node, code) == Some("defstruct")
+/// NPA asks this of each statement while visiting the module, so each
+/// ask is about a node other than the visited one and evicts the
+/// module's word from the slot; that costs nothing, because NPA is the
+/// last metric on the node and nothing asks about the module again.
+fn struct_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_call_target(node, code, ancestors) == ElixirCallTarget::Defstruct
+}
+
+// The control-flow constructs are `call`s told apart by their target's
+// text (#275), read once per `call` per walk through
+// `elixir_call_target` (#1697): each gate below is a compare on the
+// cached word. The rows say what a construct *is*; which tier a
+// `case` or a `receive` pays, and whether a `with` with no dispatching
+// `else` pays at all, stays the cyclomatic body's policy.
+
+/// `if` / `unless`.
+fn control_branch<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    matches!(
+        elixir_call_target(node, code, ancestors),
+        ElixirCallTarget::If | ElixirCallTarget::Unless
+    )
+}
+
+/// `case` / `cond` / `with` / `try` / `receive`: the constructs whose
+/// arms are the `CaseArm` row's `stab_clause`s and that cyclomatic's
+/// modified tier counts as one container each.
+fn control_switch<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    matches!(
+        elixir_call_target(node, code, ancestors),
+        ElixirCallTarget::Case
+            | ElixirCallTarget::Cond
+            | ElixirCallTarget::With
+            | ElixirCallTarget::Try
+            | ElixirCallTarget::Receive
+    )
+}
+
+/// `for` (the comprehension) / `while`.
+fn control_loop<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    matches!(
+        elixir_call_target(node, code, ancestors),
+        ElixirCallTarget::For | ElixirCallTarget::While
+    )
+}
+
+/// `throw` / `raise` / `reraise` / `exit`: Elixir has no `return`, and
+/// these are the four abrupt exits (#1270).
+fn control_exit<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    elixir_call_target(node, code, ancestors).is_exit()
 }
 
 /// Whether a `stab_clause` is a decision arm — of a `case`, `cond`,
@@ -169,11 +222,23 @@ role_table! {
         pays [When gated_by is_guard]
         project "operator"
     }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    Exit { pending R07 }
+    // Every control construct is a `call` told by its target's text
+    // (#275, #1697), so the four rows below own the one kind under four
+    // text gates and pay at the node — a `call` has no keyword token.
+    // The `Switch` row names the five arm-bearing constructs; cyclomatic
+    // reads it at the owner and decides per word which tier pays
+    // (`case` / `cond` / `try` the modified one; `with` only when its
+    // `else` dispatches; `receive` only when it dispatches, plus a
+    // standard decision for an `after` clause) — the policy table lives
+    // beside that body, not here.
+    Branch { owns [Call(text_gated_by control_branch)] }
+    Switch { owns [Call(text_gated_by control_switch)] }
+    Loop { owns [Call(text_gated_by control_loop)] }
+    // The `rescue` / `catch` arms of a `try` are their own kinds, each
+    // nesting as a C-family `catch_clause` does; the `try` call itself
+    // is the `Switch` row's and pays nothing here (#416).
+    Catch { owns [RescueBlock, CatchBlock] }
+    Exit { owns [Call(text_gated_by control_exit)] }
     // `fn` is the one declaration keyword the grammar gives a kind of
     // its own. `def` / `defp` / `defmodule` / `defmacro` are not
     // keywords: each is the `identifier` target of a `Call`, told from

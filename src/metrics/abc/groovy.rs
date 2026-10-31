@@ -13,7 +13,9 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, rows_own, wrapped_operand,
 };
-use crate::roles::groovy::{case_arm, comparison, null_safe, short_circuit, ternary};
+use crate::roles::groovy::{
+    branch, case_arm, catch, comparison, null_safe, short_circuit, ternary,
+};
 use crate::*;
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
@@ -262,8 +264,8 @@ fn groovy_count_token_branch<'a>(
 
 // The `default` arm of a `switch` is excluded (issue #469): it is the
 // unconditional fallthrough, so cyclomatic counts only the `Case` arms
-// (Groovy shares Java's `impl_cyclomatic_java_like_rows!`, which matches
-// `Case` and never `Default`).
+// (the `CaseArm` row Groovy's cyclomatic reads owns `Case` and never
+// `Default`).
 fn groovy_count_token_condition<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -296,12 +298,15 @@ fn groovy_count_token_condition<'a>(
     if comparison::pays_at_leaf_kind(kind, node, code, ancestors)
         || ternary::pays_at_leaf_kind(kind, node, code, ancestors)
         || case_arm::pays_at_leaf_kind(kind, node, code, ancestors)
+        || catch::pays_at_leaf_kind(kind, node, code, ancestors)
     {
         stats.conditions += 1.;
         return true;
     }
     match kind.into() {
-        Else | Try | Catch => {
+        // Fitzpatrick's `else` and `try`, which no row owns; `catch` is
+        // the `Catch` row's payer, read above (#1697).
+        Else | Try => {
             stats.conditions += 1.;
         }
         // The elvis `a ?: c`, the one `NullSafe` payer that is a boolean
@@ -365,11 +370,21 @@ fn groovy_walk_for_conditions<'a>(
         // in a `parenthesized_expression`), so the slot holds the bare
         // condition. Read by grammar field: the fixed index it replaced
         // landed on a comment in `if (/*c*/ b)` (#1455).
-        IfStatement | WhileStatement | DoWhileStatement => {
+        // Every `Branch` owner, and the `Loop` owners with a `condition`
+        // field — the two `for` forms walk theirs below or have none.
+        // role-bypass: allow(Loop) — the loop owners with a `condition`
+        // slot, a subset the row cannot express; `Branch` is read in full
+        _ if branch::owns_kind(kind, node, code, ancestors)
+            || matches!(kind.into(), WhileStatement | DoWhileStatement) =>
+        {
             groovy_count_slot(node.child_by_field_name("condition"), code, conds);
         }
         // `return value` names no field; the value is its only operand.
+        // role-bypass: allow(Exit) — a return's value as a boolean slot,
+        // not whether the node is an exit
         ReturnStatement => groovy_count_negated_slot(wrapped_operand(node), code, conds),
+        // role-bypass: allow(Loop) — the one loop owner with a three-part
+        // head, not whether the node is a loop
         ForStatement => groovy_walk_for_statement(node, code, stats),
         // The `ternary_expression` the `Ternary` row owns: its `?` paid
         // above, this walks its operand slots.

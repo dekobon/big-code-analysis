@@ -29,7 +29,7 @@ impl Npa for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::lang_helpers::elixir::elixir_call_keyword;
+        use crate::lang_helpers::elixir::{ElixirCallTarget, elixir_call_target};
         use crate::roles::elixir::member;
 
         // The space-opening node for a `defmodule` Call is the node
@@ -38,14 +38,15 @@ impl Npa for ElixirCode {
         // own module and never reaches this one's stats.
         //
         // `is_func_space_with_code` is not consulted: it is implied.
-        // `elixir_is_class_macro` is exactly `kw == "defmodule"`, so it
-        // answers `true` for every node this check lets through, and for
-        // the `def`-shaped calls where it would have consulted the
+        // The `Container` row's gate is exactly the `defmodule` word, so
+        // it answers `true` for every node this check lets through, and
+        // for the `def`-shaped calls where it would have consulted the
         // ancestor chain — the `quote`-template lookup — this check
         // rejects the node anyway. Calling it cost a source-text keyword
         // scan per node plus, before #1088, an `O(depth)` climb, and its
-        // answer was discarded either way (#1088).
-        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+        // answer was discarded either way (#1088). The word is the
+        // walk's cached one (#1697).
+        if elixir_call_target(node, code, ancestors) != ElixirCallTarget::Defmodule {
             return;
         }
 

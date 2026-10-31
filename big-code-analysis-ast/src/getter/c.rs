@@ -55,7 +55,7 @@ impl Getter for CCode {
 
     keyword_roles!(c);
 
-    paying_roles!(c);
+    paying_roles!(c, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         use C::*;
@@ -78,16 +78,18 @@ impl Getter for CCode {
         // `under BinaryExpression` gate leaves out — a token error
         // recovery strands under an `ERROR` — which billed before the
         // rows existed; for those two the row is not what bills them.
+        // The `if` / `for` / `while` keywords are the `Branch` / `Loop`
+        // rows' payers and `get_paying_role` bills them (#1697).
         // role-bypass: allow(Comparison, StringLit) — the operator classification of the
         // spelling the row's `under BinaryExpression` gate leaves out (a
         // recovered token), and the operand classification of the string
         // literals — a projection the `StringLit` row does not answer
         match node.kind_id().into() {
             LT | GT | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
-            | Break | Continue | If | Else | Switch | Default | For | While | Goto | Do | EQ
-            | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP | LTLT
-            | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ
-            | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof => TokenRole::Operator,
+            | Break | Continue | Else | Switch | Default | Goto | Do | EQ | DASH | DASHDASH
+            | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP | LTLT | TILDE | PLUSEQ
+            | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof => TokenRole::Operator,
             // `CharLiteral` joins the operand list here for the whole
             // C family — `cpp.rs`, `mozcpp.rs` and `objc.rs` carry the
             // same arm and point back at this note (#1316). Before it a

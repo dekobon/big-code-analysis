@@ -1,8 +1,8 @@
 # Macro Comment Hoisting Rule
 
 When consolidating N near-identical predicates, dispatch arms, or
-trait impls behind a `macro_rules!` (`impl_js_family_get_op_type!`,
-`impl_simple_is_string!`, `impl_cyclomatic_java_like!`, the various
+trait impls behind a `macro_rules!` (`impl_cyclomatic_rows!`,
+`impl_exit_from_row!`, `impl_else_if_from_row!`, the various
 `c_macro` / `c_langs_macros` helpers), keep the macro body minimal
 and hoist *per-call* rationale comments above the macro invocation,
 not into the macro definition.

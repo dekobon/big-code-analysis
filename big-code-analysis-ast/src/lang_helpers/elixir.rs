@@ -2,7 +2,7 @@
 //! and applied versus named operators.
 
 use crate::Elixir;
-use crate::node::{Ancestors, FoldLane, Node};
+use crate::node::{Ancestors, FoldLane, Node, WordSlot};
 
 /// Reads the text of the `target` field of an Elixir `Call` node.
 ///
@@ -17,6 +17,17 @@ use crate::node::{Ancestors, FoldLane, Node};
 /// Returns `None` for Calls whose target is not a simple identifier
 /// (e.g. `Module.func(…)` parses as `RemoteCallWithParentheses` with
 /// the dotted name as target) or when the bytes are not valid UTF-8.
+///
+/// This is the uncached read. A consumer asking about the node the walk
+/// is visiting reads [`elixir_call_target`], which answers from the
+/// walk's word slot after the first metric asks. An ask about an
+/// *enclosing* call from a descendant evicts the visited node's entry,
+/// so it is a judgement per site: a scan that asks about many other
+/// nodes while the visited one has metrics still to run stays here
+/// (`npm/elixir.rs`'s statement loop); a single ask from a node no
+/// later metric reads the slot for (cognitive's `else` token and
+/// section pair) may use the cached read, and hits when the enclosing
+/// call was the last node visited (#1697).
 #[inline]
 #[must_use]
 pub fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
@@ -33,25 +44,208 @@ pub fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a
 
 // How many `call` targets were read for their keyword: the walk's
 // promotion must read one per `call`, not one per row that gates on it
-// (#310, #1696). Only the count tells a second read apart.
-crate::observation::counter!(call_keyword_reads, cfg(test));
+// (#310, #1696), and the metric walk one per `call` across every
+// consumer (#1697). Only the count tells a second read apart. Readable
+// from the root crate's tests through `test-support`, since the walk
+// that lends the word slot lives there.
+crate::observation::counter!(call_keyword_reads, cfg(any(test, feature = "test-support")));
 
-/// Method-defining macros (`def`, `defp`, `defmacro`, `defmacrop`). The set
-/// is duplicated across checker, getter, and several metric impls
-/// because each consults it from a different trait surface; centralising
-/// the literal here keeps future additions (e.g. `defguard`) consistent.
-#[inline]
-#[must_use]
-pub fn elixir_is_method_macro(kw: &str) -> bool {
-    matches!(kw, "def" | "defp" | "defmacro" | "defmacrop")
+/// What a `call`'s `target` identifier spells, for every word some
+/// consumer tells apart — the raw identity, not a policy reading (#1697).
+/// The control-flow rows (`Branch`, `Switch`, `Loop`, `Exit`) and
+/// `Member` gate on it directly, `FuncOpener` / `Container` through the
+/// crate's `elixir_declaration` projection, and cyclomatic, cognitive,
+/// ABC, NPM and NPA branch on it; one `call` is asked by all of them in sequence, and
+/// [`elixir_call_target`] answers from the walk's word slot after the
+/// first. `Other` is every other target — a user function, a remote
+/// call, a computed callee, invalid UTF-8 — cached like any answer.
+///
+/// `#[repr(u8)]` because the slot stores the discriminant; the
+/// conversion back is total, reading anything past the table as
+/// `Other`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum ElixirCallTarget {
+    /// Any target that is none of the words below.
+    Other = 0,
+    /// `if`.
+    If,
+    /// `unless`.
+    Unless,
+    /// `for`.
+    For,
+    /// `while`.
+    While,
+    /// `case`.
+    Case,
+    /// `cond`.
+    Cond,
+    /// `with`.
+    With,
+    /// `try`.
+    Try,
+    /// `receive`.
+    Receive,
+    /// `throw`.
+    Throw,
+    /// `raise`.
+    Raise,
+    /// `reraise`.
+    Reraise,
+    /// `exit`.
+    Exit,
+    /// `def`.
+    Def,
+    /// `defp`.
+    Defp,
+    /// `defmacro`.
+    Defmacro,
+    /// `defmacrop`.
+    Defmacrop,
+    /// `defmodule`.
+    Defmodule,
+    /// `defprotocol`.
+    Defprotocol,
+    /// `defimpl`.
+    Defimpl,
+    /// `defstruct`.
+    Defstruct,
+    /// `defguard`.
+    Defguard,
+    /// `defguardp`.
+    Defguardp,
+    /// `quote`.
+    Quote,
+    /// `alias`.
+    Alias,
+    /// `import`.
+    Import,
+    /// `require`.
+    Require,
+    /// `use`.
+    Use,
 }
 
-/// Class-defining macro (`defmodule`). Paired with [`elixir_is_method_macro`]
-/// where a caller needs both ("any space-opening declaration").
+impl ElixirCallTarget {
+    /// Every variant, in discriminant order; what a consumer that keys
+    /// its policy on the word iterates to prove the policy agrees with
+    /// the rows for all of them.
+    pub const ALL: [Self; 29] = [
+        Self::Other,
+        Self::If,
+        Self::Unless,
+        Self::For,
+        Self::While,
+        Self::Case,
+        Self::Cond,
+        Self::With,
+        Self::Try,
+        Self::Receive,
+        Self::Throw,
+        Self::Raise,
+        Self::Reraise,
+        Self::Exit,
+        Self::Def,
+        Self::Defp,
+        Self::Defmacro,
+        Self::Defmacrop,
+        Self::Defmodule,
+        Self::Defprotocol,
+        Self::Defimpl,
+        Self::Defstruct,
+        Self::Defguard,
+        Self::Defguardp,
+        Self::Quote,
+        Self::Alias,
+        Self::Import,
+        Self::Require,
+        Self::Use,
+    ];
+
+    /// The word `text` spells, `Other` for anything else.
+    #[must_use]
+    pub fn from_text(text: &str) -> Self {
+        // bca: suppress(cyclomatic) — one arm per word, a lookup table
+        match text {
+            "if" => Self::If,
+            "unless" => Self::Unless,
+            "for" => Self::For,
+            "while" => Self::While,
+            "case" => Self::Case,
+            "cond" => Self::Cond,
+            "with" => Self::With,
+            "try" => Self::Try,
+            "receive" => Self::Receive,
+            "throw" => Self::Throw,
+            "raise" => Self::Raise,
+            "reraise" => Self::Reraise,
+            "exit" => Self::Exit,
+            "def" => Self::Def,
+            "defp" => Self::Defp,
+            "defmacro" => Self::Defmacro,
+            "defmacrop" => Self::Defmacrop,
+            "defmodule" => Self::Defmodule,
+            "defprotocol" => Self::Defprotocol,
+            "defimpl" => Self::Defimpl,
+            "defstruct" => Self::Defstruct,
+            "defguard" => Self::Defguard,
+            "defguardp" => Self::Defguardp,
+            "quote" => Self::Quote,
+            "alias" => Self::Alias,
+            "import" => Self::Import,
+            "require" => Self::Require,
+            "use" => Self::Use,
+            _ => Self::Other,
+        }
+    }
+
+    /// The method-defining macros: `def` / `defp` / `defmacro` /
+    /// `defmacrop`.
+    #[inline]
+    #[must_use]
+    pub fn is_method_macro(self) -> bool {
+        matches!(
+            self,
+            Self::Def | Self::Defp | Self::Defmacro | Self::Defmacrop
+        )
+    }
+
+    /// The abrupt exits: `throw` / `raise` / `reraise` / `exit`.
+    #[inline]
+    #[must_use]
+    pub fn is_exit(self) -> bool {
+        matches!(self, Self::Throw | Self::Raise | Self::Reraise | Self::Exit)
+    }
+
+    fn from_slot(value: u8) -> Self {
+        Self::ALL
+            .get(usize::from(value))
+            .copied()
+            .unwrap_or(Self::Other)
+    }
+}
+
+/// [`ElixirCallTarget`] of `node`: `Other` for anything but a `call`
+/// whose `target` is an `identifier` spelling one of the words. Read
+/// once per `call` per walk when the walk lent a cache — the slot holds
+/// the last node asked (#1697); every row gate and metric consumer that
+/// wants the word goes through here, so the `call_keyword_reads`
+/// counter counts misses.
 #[inline]
 #[must_use]
-pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
-    kw == "defmodule"
+pub fn elixir_call_target<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> ElixirCallTarget {
+    if node.kind_id() != Elixir::Call as u16 {
+        return ElixirCallTarget::Other;
+    }
+    ElixirCallTarget::from_slot(ancestors.classified(WordSlot::ElixirCallTarget, node, || {
+        elixir_call_keyword(node, code).map_or(ElixirCallTarget::Other, ElixirCallTarget::from_text)
+            as u8
+    }))
 }
 
 /// What a `call` declares, read from its target text once: a module or
@@ -76,11 +270,10 @@ pub(crate) fn elixir_declaration<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<ElixirDeclaration> {
-    match elixir_call_keyword(node, code) {
-        Some(kw) if elixir_is_class_macro(kw) => Some(ElixirDeclaration::Module),
-        Some(kw)
-            if elixir_is_method_macro(kw)
-                && !elixir_is_inside_quote_block(node, code, ancestors) =>
+    match elixir_call_target(node, code, ancestors) {
+        ElixirCallTarget::Defmodule => Some(ElixirDeclaration::Module),
+        target
+            if target.is_method_macro() && !elixir_is_inside_quote_block(node, code, ancestors) =>
         {
             Some(ElixirDeclaration::Method)
         }
@@ -404,7 +597,7 @@ mod tests {
                 );
                 let climbed = elixir_is_inside_quote_block(&node, source, Ancestors::known(&chain));
                 assert_eq!(folded, climbed, "`{kw}` at depth {depth}");
-                if elixir_is_method_macro(kw) {
+                if ElixirCallTarget::from_text(kw).is_method_macro() {
                     answers.push((kw.to_owned(), folded));
                 }
             }
@@ -421,5 +614,134 @@ mod tests {
             [false, false, true, true, true, false, false],
             "{answers:?}"
         );
+    }
+
+    // The word slot's budget (#1697): asked about one `call` several
+    // times in a row — as cyclomatic, cognitive, ABC and nexits ask on
+    // one visit — a walk that lent a cache reads the target once per
+    // `call`, and one that did not reads it every time. The fixture has
+    // no ask about another node between the repeats, so misses == calls
+    // exactly; the answers agree either way, so only the counter tells
+    // the two apart.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn call_target_is_read_once_per_call_under_a_cache() {
+        use crate::node::FoldCache;
+        const ASKS: usize = 4;
+        let source = b"defmodule M do\n  def f(a) do\n    if a, do: throw(:x)\n    unless a, do: raise(\"y\")\n    case a do\n      _ -> g()\n    end\n    Kernel.exit(1)\n  end\nend\n";
+        let cache = FoldCache::default();
+        let mut calls = 0;
+        let mut cached = Vec::new();
+        let before = call_keyword_reads::observed();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() != Elixir::Call as u16 {
+                return;
+            }
+            calls += 1;
+            let chain = Ancestors::known(chain).with_folds(&cache);
+            let first = elixir_call_target(node, source, chain);
+            for _ in 1..ASKS {
+                assert_eq!(elixir_call_target(node, source, chain), first);
+            }
+            cached.push(first);
+        });
+        let cached_reads = call_keyword_reads::observed() - before;
+        let mut uncached = Vec::new();
+        let before = call_keyword_reads::observed();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() == Elixir::Call as u16 {
+                let chain = Ancestors::known(chain);
+                for _ in 0..ASKS {
+                    uncached.push(elixir_call_target(node, source, chain));
+                }
+            }
+        });
+        let uncached_reads = call_keyword_reads::observed() - before;
+        assert_eq!(
+            cached,
+            [
+                ElixirCallTarget::Defmodule,
+                ElixirCallTarget::Def,
+                ElixirCallTarget::Other, // f(a)
+                ElixirCallTarget::If,
+                ElixirCallTarget::Throw,
+                ElixirCallTarget::Unless,
+                ElixirCallTarget::Raise,
+                ElixirCallTarget::Case,
+                ElixirCallTarget::Other, // g()
+                ElixirCallTarget::Other, // Kernel.exit
+            ]
+        );
+        assert_eq!(calls, cached.len());
+        assert_eq!(
+            uncached,
+            cached
+                .iter()
+                .flat_map(|&t| std::iter::repeat_n(t, ASKS))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!((cached_reads, uncached_reads), (calls, ASKS * calls));
+    }
+
+    // A node that is not a `call` is `Other` before any read, and the
+    // counter shows no `target` field was read for it.
+    // `elixir_call_keyword`'s own kind check is what the counter
+    // observes; the outer early return in `elixir_call_target` is
+    // unobservable through it while the inner check stands (a slot
+    // write saved, not a correctness guard).
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn call_target_of_a_non_call_is_other_without_a_read() {
+        let source = b"defmodule M do\n  def f(a), do: a + 1\nend\n";
+        let before = call_keyword_reads::observed();
+        // Collected rather than asserted per node: an `assert_eq!` with a
+        // formatted message inside the closure leaves its never-taken
+        // panic arm as uncovered lines in the coverage report, which
+        // reads as a gap in production code.
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() != Elixir::Call as u16 {
+                seen.push((
+                    node.kind(),
+                    elixir_call_keyword(node, source).is_some(),
+                    call_keyword_reads::observed() - before,
+                    elixir_call_target(node, source, Ancestors::known(chain)),
+                ));
+            }
+        });
+        assert!(
+            seen.len() > 5,
+            "the fixture has non-call nodes to ask about"
+        );
+        let read = seen
+            .iter()
+            .filter(|&&(_, keyword, reads, target)| {
+                keyword || reads != 0 || target != ElixirCallTarget::Other
+            })
+            .map(|&(kind, ..)| kind)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            read,
+            Vec::<&str>::new(),
+            "a non-call was read or classified"
+        );
+        assert_eq!(call_keyword_reads::observed(), before);
+    }
+
+    // Every discriminant the slot can hold converts back to the variant
+    // it came from; a value past the table — unreachable while `ALL`
+    // and the enum agree — is `Other`, never a panic.
+    #[test]
+    fn call_target_round_trips_through_the_slot() {
+        for target in ElixirCallTarget::ALL {
+            assert_eq!(ElixirCallTarget::from_slot(target as u8), target);
+        }
+        assert_eq!(
+            ElixirCallTarget::from_slot(u8::try_from(ElixirCallTarget::ALL.len()).expect("fits")),
+            ElixirCallTarget::Other
+        );
+        for (index, target) in ElixirCallTarget::ALL.iter().enumerate() {
+            assert_eq!(*target as usize, index, "`ALL` is in discriminant order");
+        }
     }
 }

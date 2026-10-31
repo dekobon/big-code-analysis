@@ -14,7 +14,7 @@ use super::cpp::{
     cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, ScoresItself, Stats, rows_own};
-use crate::roles::c::{call, case_arm, comparison, short_circuit, ternary};
+use crate::roles::c::{branch, call, case_arm, comparison, short_circuit, ternary};
 use crate::*;
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
@@ -118,9 +118,17 @@ impl Abc for CCode {
             // predicate no other arm counts (#1526), so `if (true)`,
             // `if (-x)` and `return !x` each count one condition; bare
             // `return x` reports zero.
-            IfStatement | WhileStatement | DoStatement => {
+            // Every `Branch` owner, and the `Loop` owners with a `condition`
+            // field — `for` walks its own below.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), WhileStatement | DoStatement) =>
+            {
                 cpp_count_condition_slot(node, scores, &mut stats.conditions);
             }
+            // role-bypass: allow(Exit) — a return's value as a boolean slot,
+            // not whether the node is an exit
             ReturnStatement => {
                 cpp_count_return(node, scores, &mut stats.conditions);
             }
@@ -139,6 +147,8 @@ impl Abc for CCode {
             // `for (init; cond; update)` — the condition slot, read by
             // grammar field (issue #1276). `for (;;)` has no condition
             // field and counts nothing.
+            // role-bypass: allow(Loop) — the one loop owner with a
+            // three-part head, not whether the node is a loop
             ForStatement => {
                 cpp_walk_for_statement(node, scores, &mut stats.conditions);
             }

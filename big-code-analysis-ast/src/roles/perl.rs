@@ -1,9 +1,13 @@
-//! Perl's role rows. The Halstead keyword roles (#1693) and the
+//! Perl's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
-use crate::lang_helpers::perl::{perl_and_is_operator, perl_bareword_is_call};
+use crate::lang_helpers::perl::{
+    perl_and_is_operator, perl_bareword_is_call, perl_bareword_is_key,
+};
 use crate::role_table;
 use crate::{Ancestors, Node, Perl};
 
@@ -44,6 +48,19 @@ fn applied_and<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) 
 /// `perl_bareword_is_call` reads both off the chain.
 fn bareword_is_call<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     perl_bareword_is_call(node, ancestors)
+}
+
+/// Whether a bareword call spells `die` or `exit` — the abrupt-exit
+/// builtins — or their `CORE::` spellings (the way code that has
+/// overridden `die` reaches the real one), and is not an auto-quoted
+/// hash key (`(die => 1)`, FIXME(#1571 upstream)). The text test runs
+/// first: nearly every bareword fails it, and the key test reads a
+/// sibling off the chain. Invalid UTF-8 in the word reads as no match.
+fn die_or_exit_not_key<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    matches!(
+        node.utf8_text(code),
+        Some("die" | "exit" | "CORE::die" | "CORE::exit")
+    ) && !perl_bareword_is_key(node, ancestors)
 }
 
 role_table! {
@@ -164,13 +181,53 @@ role_table! {
         excludes [When "the arm's keyword, billed as such; the arm pays"]
     }
     Guard { absent "Perl has no guard clause" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
+    // The block forms and the statement-modifier forms (`return 1 if
+    // $c;`), each its own kind; the modifier's condition is a real
+    // branch even though its body is one expression. The owner is the
+    // paying node: Perl's cyclomatic counts statements, not keywords.
+    // The `_if_simple` rule (`IfSimple`) is hidden and never emitted.
+    Branch {
+        owns [IfStatement, UnlessStatement, IfSimpleStatement, UnlessSimpleStatement]
+    }
+    // `given` / `when` are not productions of the pinned grammar:
+    // `given ($x) { when (1) { … } }` parses as a bareword call
+    // (`call_expression_with_bareword` spelling `given`) with its block
+    // stranded under an `ERROR`, and the `when_simple_statement` the
+    // `CaseArm` row owns is reached only by recovery. There is no
+    // switch-like container to recognise.
+    Switch { absent "the pinned tree-sitter-perl grammar has no `given` production; `given ($x) \
+         { … }` parses as a bareword call with an ERROR tail" }
+    // `for` / `foreach` are `ForStatement1` (C-style) and
+    // `ForStatement2` (list iteration); the modifier forms
+    // (`$a++ while $c;`, `print for @l;`) are their own kinds.
+    Loop {
+        owns [
+            WhileStatement, UntilStatement, ForStatement1, ForStatement2,
+            WhileSimpleStatement, UntilSimpleStatement, ForSimpleStatement,
+        ]
+    }
     Catch { absent "the pinned tree-sitter-perl grammar has no try or catch production; `eval { }` \
          parses as a block and `die` as a call" }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The grammar gives `elsif` a clause node of its own, a direct
+    // child of the `if_statement`, so the clause *is* the else-if and
+    // pays for itself; no nested `if` is ever an else-if here. A split
+    // row with no payers: the clause pays at the leaf because it is
+    // marked, and nothing else does (#1697).
+    ElseIf { owns [ElsifClause(pays_itself)] pays [] }
+    // `return`, and the abrupt-exit builtins `die` / `exit` (and their
+    // `CORE::` spellings) — each a `call_expression_with_bareword`
+    // whatever wrapper carries the arguments, so one owner per
+    // occurrence (#1270), told by text, and not when the bareword is
+    // an auto-quoted hash key (`(die => 1)`, #1585). `croak` /
+    // `confess` are `Carp` library functions, not builtins, and are
+    // left out; `Carp::croak` and any other package-qualified callee
+    // keep the qualifier in the bareword text and never match; and
+    // `$obj->die` is a `method_invocation` whose callee is a plain
+    // `identifier` — no bareword call at all, so the owner kind never
+    // fires.
+    Exit {
+        owns [ReturnExpression, CallExpressionWithBareword(text_gated_by die_or_exit_not_key)]
+    }
     Modifier { absent "Perl has no modifier keywords; `my` / `our` are declarators" }
     // `sub` and `package` (the keyword kinds; `SUB` / `PACKAGE` are the
     // `__SUB__` / `__PACKAGE__` literals, operands) and the four

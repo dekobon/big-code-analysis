@@ -1,18 +1,24 @@
-//! Tsx's role rows. The Halstead keyword roles (#1693) and the
+//! Tsx's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::Tsx;
 use crate::role_table;
+use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
-    js_family_decl_keywords, js_family_func_openers, js_family_modifiers,
-    js_family_short_circuit_payers, js_family_strings, ts_family_decl_keywords, ts_family_gates,
-    ts_family_modifiers,
+    js_family_decl_keywords, js_family_exits, js_family_func_openers, js_family_loops,
+    js_family_modifiers, js_family_short_circuit_payers, js_family_strings,
+    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Tsx);
+// The chained `if` sits directly inside an `else_clause`; a nested one
+// under `else { … }` sits inside the statement block (#1697).
+else_if_parent_clause_gate!(Tsx, ElseClause);
 js_family_binding_gates!(Tsx, TsxCode, PublicFieldDefinition);
 
 role_table! {
@@ -89,12 +95,17 @@ role_table! {
         ]
     }
     Guard { absent "TSX has no guard clause" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The JS family's control flow (#1697): the one-kind rows are spelled
+    // inline, the loop and exit lists are fragments of
+    // `roles/js_family.rs`, and no dialect has an extra — the four
+    // grammars share the shape and differ only in kind ids. The `ElseIf`
+    // gate is emitted beside this table.
+    Branch { owns [IfStatement] pays [If] }
+    Switch { owns [SwitchStatement] }
+    Loop { owns [..js_family_loops!()] pays [For, While] }
+    Catch { owns [CatchClause] pays [Catch] }
+    ElseIf { owns [IfStatement(gated_by continues_else_clause)] pays [] }
+    Exit { owns [..js_family_exits!()] }
     // TypeScript's keyword rows through the shared JS-family and
     // TS-family fragments (`roles/js_family.rs`), with TSX's own
     // `String3` for the `: string` keyword below; the derivations are

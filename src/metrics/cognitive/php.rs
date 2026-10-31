@@ -21,12 +21,15 @@ impl Cognitive for PhpCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the count is
-        // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold, and the effort is the table's vocabulary;
-        // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::php::{closure, func_opener, null_safe, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read or a
+        // kind the rows do not own: the count is the construct list, not
+        // branching a reader must hold, and the effort is the table's vocabulary
+        // (#1695, #1697).
+        use crate::roles::php::{
+            branch, catch, closure, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
+            ternary,
+        };
         use Php::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -34,25 +37,39 @@ impl Cognitive for PhpCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // The two-word `else if` form parses as `else_clause →
-            // if_statement`; `Self::is_else_if` flags that nested
-            // `IfStatement` so it is not counted again against the wrapping
-            // `else_clause`'s branch extension and does not inflate nesting
-            // for later arms (#529). The one-word `elseif` keyword is a
-            // dedicated `ElseIfClause` node handled by the branch-extension
-            // arm below.
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level — unless the
+            // `ElseIf` row recognises it as the `if` of a two-word `else
+            // if` (`else_clause → if_statement`), where the `Else` arm
+            // below pays the +1 and no level opens, so the nested `if` is
+            // not counted again and does not inflate nesting for later
+            // arms (#529, #1697). The one-word `elseif` keyword is a
+            // dedicated `ElseIfClause` the row also owns, handled by the
+            // branch-extension arm below.
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement | ForeachStatement | WhileStatement | DoStatement | SwitchStatement
-            | MatchExpression | CatchClause => {
+            // Every loop, switch and handler the rows own (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors)
+                || catch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The `conditional_expression` the `Ternary` row owns (#1695).
             _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
+            // The `else` clauses, which no row owns, and the one-word
+            // `elseif` clauses the `ElseIf` row pays at (its self-paying
+            // owners); the two-word `else if`'s nested `if_statement` is
+            // the row's third owner and pays nothing — its enclosing
+            // `else_clause` is what reaches this arm.
+            ElseClause | ElseClause2 => {
+                increment_branch_extension(stats);
+            }
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
             // Per SonarSource Cognitive Complexity §B2, `goto label;` is an

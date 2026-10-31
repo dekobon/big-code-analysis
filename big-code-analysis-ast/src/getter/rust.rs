@@ -75,7 +75,7 @@ impl Getter for RustCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
-        use crate::roles::rust::{comparison, short_circuit};
+        use crate::roles::rust::{branch, comparison, r#loop, short_circuit};
         let kind = node.kind_id();
         if kind == Rust::PIPEPIPE as u16
             && !ancestors
@@ -84,8 +84,14 @@ impl Getter for RustCode {
         {
             return TokenRole::Unknown;
         }
+        // And the `Branch` / `Loop` rows' keyword payers (#1697): `if`,
+        // `for`, `while`, `loop`, each ungated on its row, so a `for` in
+        // type syntax or a macro's token tree bills as the operator it
+        // always did.
         if comparison::pays_at_token_kind(kind, node, code, ancestors)
             || short_circuit::pays_at_token_kind(kind, node, code, ancestors)
+            || branch::pays_at_token_kind(kind, node, code, ancestors)
+            || r#loop::pays_at_token_kind(kind, node, code, ancestors)
         {
             TokenRole::Operator
         } else {
@@ -133,16 +139,18 @@ impl Getter for RustCode {
             // parent gate leaves out — a generic opener (`Vec<T>`, the
             // `<>` pair) and a recovered token — which billed before the
             // row existed; `LT2` is the defensive generic-opener alias.
-            // `if` likewise stays for the `if` expression's keyword, which
-            // the `Guard` row's `under MatchPattern` gate leaves out; a
-            // match guard's is the row's.
-            // role-bypass: allow(Comparison, Guard) — the operator classification of the spellings
-            // the rows' `under BinaryExpression` / `under MatchPattern` gates leave out
+            // `if` / `for` / `while` / `loop` are the `Branch` / `Loop`
+            // rows' payers and `get_paying_role` bills them (#1697) — the
+            // `if` expression's keyword and a match guard's alike, so the
+            // `Guard` row's `under MatchPattern` gate no longer leaves a
+            // spelling to this arm.
+            // role-bypass: allow(Comparison) — the operator classification of the spellings
+            // the row's `under BinaryExpression` gate leaves out
             LT | LT2 | GT | LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Await | Break
-            | Continue | Else | For | If | In | Loop | Match | Return | While | EQ | COMMA
-            | DASHGT | QMARK | AMP | DOTDOT | DOTDOTEQ | DASH | PIPE | CARET | LTLT | GTGT
-            | PERCENT | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ
-            | CARETEQ | LTLTEQ | GTGTEQ | DOT | SEMI | COLON | COLONCOLON => TokenRole::Operator,
+            | Continue | Else | In | Match | Return | EQ | COMMA | DASHGT | QMARK | AMP
+            | DOTDOT | DOTDOTEQ | DASH | PIPE | CARET | LTLT | GTGT | PERCENT | PLUSEQ | DASHEQ
+            | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | DOT
+            | SEMI | COLON | COLONCOLON => TokenRole::Operator,
             // FieldIdentifier (e.g. `p.x`) and TypeIdentifier (e.g. `Vec`,
             // `HashMap`) are operand-class names — C++ and Go classify them
             // the same way (see arms ~588 and ~862 below). Omitting them

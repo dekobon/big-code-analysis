@@ -105,7 +105,10 @@ impl Checker for ObjcCode {
         )
     }
 
-    impl_is_else_if_parent_clause!(Objc, IfStatement, ElseClause);
+    // The `ElseIf` row of `roles/objc.rs`: an `if_statement` whose
+    // parent is the `else_clause`, read off the caller's chain. The row
+    // reads no bytes, so the empty code is exact (#1697).
+    impl_else_if_from_row!(objc);
 
     // A primitive is the `Primitive` row's kind: `primitive_type`, one
     // kind for `int`, `double`, …, and the two `_Complex` spellings.

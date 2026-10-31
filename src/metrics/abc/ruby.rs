@@ -13,7 +13,9 @@ use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
     rows_own,
 };
-use crate::roles::ruby::{case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::ruby::{
+    branch, case_arm, catch, comparison, else_if, guard, short_circuit, ternary,
+};
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -163,6 +165,8 @@ fn ruby_count_when<'a>(
     ancestors: Ancestors<'a, '_>,
     conditions: &mut f64,
 ) {
+    // role-bypass: allow(Switch) — which switch owner is the arm's parent
+    // (only `case … when` can be subject-less), not membership
     let subject_less = ancestors.parent(when).is_some_and(|case| {
         case.kind_id() == Ruby::Case && case.child_by_field_name("value").is_none()
     });
@@ -261,8 +265,13 @@ impl Abc for RubyCode {
             // *keyword tokens* a guard contains are anonymous tokens
             // distinct from the `If` / `Unless` statement kinds this arm
             // matches, so a guard reaches the slot exactly once.
-            If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
-            | UntilModifier => {
+            // Every `Branch` owner and the `Loop` owners with a `condition`
+            // field — `for` iterates and has none.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), While | Until | WhileModifier | UntilModifier) =>
+            {
                 if let Some(cond) = node.child_by_field_name("condition") {
                     ruby_count_condition(&cond, code, &mut stats.conditions);
                 }
@@ -307,7 +316,12 @@ impl Abc for RubyCode {
             // the arm's meaning is "this node is a condition, with
             // nothing to gate on" — as true of a production as of a
             // token.
-            Else | Rescue | RescueModifier | RescueModifier2 | RescueModifier3 | TestPattern => {
+            Else | TestPattern => {
+                stats.conditions += 1.;
+            }
+            // And a `rescue` clause or modifier — the `Catch` row's owners
+            // and leaves alike (#1697).
+            _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // A ternary's `?`, the `Ternary` row's payer: the grammar
@@ -319,7 +333,7 @@ impl Abc for RubyCode {
             // an `if` predicate slot. It paid only the first, so `elsif b`
             // scored one below `else if (b)` while `elsif x > 0` matched it
             // through the comparison arm.
-            Elsif => {
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 if let Some(cond) = node.child_by_field_name("condition") {
                     ruby_count_condition(&cond, code, &mut stats.conditions);

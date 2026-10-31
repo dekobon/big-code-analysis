@@ -1,7 +1,7 @@
 # Fuzzing
 
 `big-code-analysis` runs [cargo-fuzz][cf] against the parse-and-walk
-layer: the `fuzz/` crate holds eleven [libFuzzer][lf] targets that feed
+layer: the `fuzz/` crate holds twelve [libFuzzer][lf] targets that feed
 arbitrary bytes to `Ast::parse` and then run every public walk over the
 result. Coverage-guided mutation reaches malformed and adversarial input
 shapes that a fixture suite samples only where someone thought to look.
@@ -200,7 +200,7 @@ specific rationale.
 
 | Target | What it drives |
 |---|---|
-| `parse_bash`, `parse_c`, `parse_cpp`, `parse_javascript`, `parse_perl`, `parse_python`, `parse_rust`, `parse_tcl` | `Ast::parse` for one language, then the full walk fan-out |
+| `parse_bash`, `parse_c`, `parse_cpp`, `parse_elixir`, `parse_javascript`, `parse_perl`, `parse_python`, `parse_rust`, `parse_tcl` | `Ast::parse` for one language, then the full walk fan-out |
 | `preproc_macro` | `preprocess` harvest → `Source::with_preproc` → the C-family macro-masking lexer |
 | `preproc_includes` | `preprocess` over several files → `fix_includes` → include-graph resolution, SCC collapse, candidate scoring |
 | `nested_depth` | A structured generator for the deep-nesting complexity class |

@@ -12,9 +12,9 @@
 #      above the arm, outside the pattern — never by deleting it. See
 #      .claude/rules/formatting.md.
 #   2. A `macro_rules!` body rustfmt cannot parse, typically a
-#      metavariable in a non-Rust position such as the pattern
-#      repetition `$ternary $(| $short_circuit)+`. No comment is
-#      involved; hoisting fixes nothing and the entry is permanent.
+#      metavariable in a non-Rust position such as `mk_langs!`'s
+#      `LANG::$camel => …` arms. No comment is involved; hoisting
+#      fixes nothing and the entry is permanent.
 #   3. An arm wider than rustfmt's `max_width` of 100 columns. One
 #      over-long arm header makes rustfmt emit the whole match
 #      verbatim, with no comment and no macro in sight. Wrap or
@@ -33,9 +33,6 @@
 #   big-code-analysis-ast/src/macros/mod.rs
 #                              `mk_lang!` / `mk_action!` / `mk_langs!`
 #                              bodies; every arm is `LANG::$camel => …`
-#   src/metrics/cyclomatic.rs  `impl_cyclomatic_c_family!`, whose arm
-#                              `… | $ternary $(| $short_circuit)+ =>`
-#                              is a pattern repetition, not Rust
 #   tests/common/mod.rs        an `insta::with_settings!` invocation,
 #                              whose `key => value` token tree is not a
 #                              match at all
@@ -143,9 +140,5 @@ big-code-analysis-ast/src/getter/ruby.rs 4
 big-code-analysis-ast/src/getter/tcl.rs 6
 big-code-analysis-ast/src/macros/mod.rs 14
 enums/src/macros.rs 1
-src/metrics/cognitive/perl.rs 9
-src/metrics/cyclomatic.rs 6
-src/metrics/cyclomatic/irules.rs 2
-src/metrics/cyclomatic/perl.rs 2
 src/vcs/error.rs 12
 tests/common/mod.rs 2

@@ -13,25 +13,38 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
     wrapped_operand,
 };
-use crate::roles::tcl::{comparison, short_circuit, ternary};
+use crate::lang_helpers::tcl::{TclCommandWord, tcl_command_word};
+use crate::roles::tcl::{branch, comparison, else_if, short_circuit, ternary};
 use crate::*;
 
-// Names of Tcl commands that mutate a variable. Each invocation of
-// one of these commands counts as an assignment, not a branch — the
-// command is acting as an assignment operator, not as a generic
-// dispatch. The list is intentionally narrow: only commands that
-// every Tcl programmer recognises as primary mutators. Less-common
-// mutators (`dict set`, `array set`, `lset`, `regsub … name`) are
-// left as branches; treating them as assignments would require
-// inspecting the command's second word, and the additional
-// fidelity is not worth the complexity for the ABC magnitude.
-const TCL_ASSIGNMENT_COMMANDS: &[&str] = &["incr", "append", "lappend"];
+// The mutator commands ABC counts as assignments: `incr`, `append`,
+// `lappend`. Each invocation acts as an assignment operator rather than
+// a generic dispatch. The list is intentionally narrow — only the
+// commands every Tcl programmer recognises as primary mutators;
+// less-common ones (`dict set`, `array set`, `lset`, `regsub … name`)
+// stay branches, since classifying them would mean inspecting the
+// command's second word, and the fidelity is not worth it for the ABC
+// magnitude. This is ABC's reading of the word, so it lives here; the
+// word itself is `TclCommandWord`, read through the shared
+// `tcl_command_word` — field-addressed (`name`) and gated on
+// `simple_word` (grammar-dispatch §3), once per command per walk
+// (#1697) — rather than by slicing `child(0)`'s byte range, which
+// addressed the slot positionally and read the literal text of whatever
+// sat there. A command with a computed leading word (`$cmd x`, `[pick]
+// x`) therefore stays a branch: it is not statically a builtin, which is
+// what the assignment classification claims.
+fn tcl_command_is_assignment(word: TclCommandWord) -> bool {
+    matches!(
+        word,
+        TclCommandWord::Incr | TclCommandWord::Append | TclCommandWord::Lappend
+    )
+}
 
 // Fitzpatrick's ABC rules adapted for Tcl.
 //
 // - Assignments: every `set` production (`set name value`) plus
 //   every `command` whose first word is one of the recognised
-//   mutator commands in `TCL_ASSIGNMENT_COMMANDS`. Tcl has no
+//   mutator commands `tcl_command_is_assignment` names. Tcl has no
 //   assignment operators — variable mutation is always a command
 //   invocation, so we filter on the command name. The `set` form
 //   has its own grammar production (`Tcl::Set`) and counts directly
@@ -185,11 +198,12 @@ impl Abc for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold; the two row reads (#1695) are arms like
-        // the token arms they replaced.
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695, #1697) are arms like the token arms they
+        // replaced.
         let kind = node.kind_id();
         match kind.into() {
             // The `set` production wraps `set name value` as a
@@ -207,7 +221,7 @@ impl Abc for TclCode {
             // role-bypass: allow(CaseArm) — the call / assignment reading of every command, which
             // the row's switch-arm owner is also one of
             Tcl::Command => {
-                if tcl_command_is_assignment(node, code) {
+                if tcl_command_is_assignment(tcl_command_word(node, code, ancestors)) {
                     stats.assignments += 1.;
                 } else {
                     stats.branches += 1.;
@@ -225,15 +239,20 @@ impl Abc for TclCode {
             // carry their predicate in an `expr` wrapper, which is a
             // boolean slot. A comparison predicate pays through the
             // operator token arm above, not again through the slot.
-            Tcl::If | Tcl::While => {
+            // Every `Branch` owner, and the `Loop` owner with a condition
+            // expression — `while`, not `foreach` or the `for` command,
+            // whose condition is an opaque `braced_word` (#1264).
+            // role-bypass: allow(Loop) — the one loop owner with a condition
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors) || kind == Tcl::While => {
                 if let Some(expr) = tcl_condition_expr(node) {
                     tcl_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
-            // `elseif` is both a clause (one condition, as before) and a
-            // predicate owner, matching the C family, where
-            // `if (a) {} else if (b) {}` scores 3.
-            Tcl::Elseif => {
+            // The `elseif` the `ElseIf` row pays at is both a clause (one
+            // condition, as before) and a predicate owner, matching the C
+            // family, where `if (a) {} else if (b) {}` scores 3.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 if let Some(expr) = tcl_condition_expr(node) {
                     tcl_count_condition(&expr, code, &mut stats.conditions);
@@ -260,17 +279,4 @@ impl Abc for TclCode {
             _ => {}
         }
     }
-}
-
-// Returns true when the `command` node's leading word is one of the
-// recognised Tcl assignment commands. The word is read through the shared
-// `tcl_command_name` — field-addressed (`name`) and gated on `simple_word`
-// (grammar-dispatch §3) — rather than by slicing `child(0)`'s byte range,
-// which addressed the slot positionally and read the literal text of
-// whatever sat there. A command with a computed leading word (`$cmd x`,
-// `[pick] x`) therefore stays a branch: it is not statically a builtin,
-// which is what the assignment classification claims.
-fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
-    crate::lang_helpers::tcl::tcl_command_name(node, code)
-        .is_some_and(|name| TCL_ASSIGNMENT_COMMANDS.contains(&name))
 }

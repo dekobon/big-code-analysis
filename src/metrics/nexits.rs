@@ -20,7 +20,6 @@
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::lang_helpers::perl::perl_bareword_is_key;
 use crate::macros::implement_metric_trait;
 use crate::*;
 
@@ -149,19 +148,21 @@ where
     );
 }
 
-// Bumps `stats.exit` whenever the current node matches any of the
-// supplied per-language token variants. Mirrors the `js_cognitive!` /
-// `impl_cyclomatic_c_family_rows!` shape used elsewhere in `src/metrics/`.
-macro_rules! impl_exit_match_kinds {
-    ($code:ty, $lang:ident, [$($kind:ident),+ $(,)?]) => {
+/// The `Exit` row of a language's role table, read as its exit count:
+/// one owner per explicit exit (#1697). Per-language rationale — which
+/// kinds are exits and which spellings are deliberately not — sits on
+/// the row (`.claude/rules/macro-comments.md`).
+macro_rules! impl_exit_from_row {
+    ($code:ty, $roles:path) => {
         impl Exit for $code {
             fn compute<'a>(
                 node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                if matches!(node.kind_id().into(), $($lang::$kind)|+) {
+                use $roles::*;
+                if exit::owns(node, code, ancestors) {
                     stats.exit += 1;
                 }
             }
@@ -169,447 +170,96 @@ macro_rules! impl_exit_match_kinds {
     };
 }
 
-// `Python::Yield` is the yield-expression node (kind text "yield"); Python
-// has no dedicated yield-statement variant. Counting it as an exit mirrors
-// `CsharpCode` / `PhpCode`: generator suspension hands control back to the
-// caller, so the function does leave even though it may later resume.
-impl_exit_match_kinds!(PythonCode, Python, [ReturnStatement, RaiseStatement, Yield]);
-// JS-family generators: `yield` / `yield*` parse as `YieldExpression`.
-// Counted for the same reason as Python — see comment above.
-impl_exit_match_kinds!(
-    MozjsCode,
-    Mozjs,
-    [ReturnStatement, ThrowStatement, YieldExpression]
-);
-impl_exit_match_kinds!(
-    JavascriptCode,
-    Javascript,
-    [ReturnStatement, ThrowStatement, YieldExpression]
-);
-impl_exit_match_kinds!(
-    TypescriptCode,
-    Typescript,
-    [ReturnStatement, ThrowStatement, YieldExpression]
-);
-impl_exit_match_kinds!(
-    TsxCode,
-    Tsx,
-    [ReturnStatement, ThrowStatement, YieldExpression]
-);
-// A coroutine's `co_return` is its `return`, and `co_yield` suspends it
-// back to the caller as a Python or JS `yield` does, so both count
-// (#1547).
-impl_exit_match_kinds!(
-    CppCode,
-    Cpp,
-    [
-        ReturnStatement,
-        ThrowStatement,
-        CoReturnStatement,
-        CoYieldStatement
-    ]
-);
-impl_exit_match_kinds!(
-    MozcppCode,
-    Mozcpp,
-    [
-        ReturnStatement,
-        ThrowStatement,
-        CoReturnStatement,
-        CoYieldStatement
-    ]
-);
-// C has no exceptions: `return` is the only exit kind (no `throw`).
-impl_exit_match_kinds!(CCode, C, [ReturnStatement]);
-// Objective-C adds `@throw` on top of C's `return` (the `throw_statement`
-// node), mirroring the C++ exit set.
-impl_exit_match_kinds!(ObjcCode, Objc, [ReturnStatement, ThrowStatement]);
+// `return`, `raise` and the yield expression; the row says why a
+// generator's suspension is an exit.
+impl_exit_from_row!(PythonCode, crate::roles::python);
+// JS-family generators: `yield` / `yield*` parse as `YieldExpression`,
+// counted for the same reason as Python's — the shared
+// `js_family_exits!` fragment says so once for the four dialects.
+impl_exit_from_row!(JavascriptCode, crate::roles::javascript);
+impl_exit_from_row!(MozjsCode, crate::roles::mozjs);
+impl_exit_from_row!(TypescriptCode, crate::roles::typescript);
+impl_exit_from_row!(TsxCode, crate::roles::tsx);
+// The C family's exit sets are on each dialect's `Exit` row: C's
+// `return` alone (no exceptions), ObjC's `@throw` beside it, and C++'s
+// coroutine `co_return` / `co_yield` beside `throw` (#1547).
+impl_exit_from_row!(CCode, crate::roles::c);
+impl_exit_from_row!(CppCode, crate::roles::cpp);
+impl_exit_from_row!(MozcppCode, crate::roles::mozcpp);
+impl_exit_from_row!(ObjcCode, crate::roles::objc);
 // Java's `yield` is the Java-14+ switch-expression yield statement
 // (an unambiguous statement node, distinct from a labeled `break`).
 // It hands the switch-expression value back as an explicit exit, so it
 // counts identically to Groovy and C#. Implicit final-expression
 // returns are not counted — only explicit return / throw / yield.
-impl_exit_match_kinds!(
-    JavaCode,
-    Java,
-    [ReturnStatement, ThrowStatement, YieldStatement]
-);
+impl_exit_from_row!(JavaCode, crate::roles::java);
 // Groovy's `yield` is the Java-14+ switch-expression yield, identical
-// to Java's. Implicit-return-from-closure is NOT counted as an exit
-// (consistent with Java) — only explicit return / throw / yield count.
-impl_exit_match_kinds!(
-    GroovyCode,
-    Groovy,
-    [ReturnStatement, ThrowStatement, YieldStatement]
-);
+// to Java's; implicit-return-from-closure is not an exit — the row says so.
+impl_exit_from_row!(GroovyCode, crate::roles::groovy);
 
-impl Exit for RustCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // Count only explicit `return` and `?` (TryExpression). The
-        // implicit final-expression path is NOT an exit — peer-language
-        // impls have the same convention. See #243 for the prior bug
-        // that added a spurious +1 for every function with a return
-        // type.
-        if matches!(
-            node.kind_id().into(),
-            Rust::ReturnExpression | Rust::TryExpression
-        ) {
-            stats.exit += 1;
-        }
-    }
-}
+// Explicit `return` and `?`, the `Exit` row's owners; the implicit
+// final-expression path is not an exit (#243, the row says so).
+impl_exit_from_row!(RustCode, crate::roles::rust);
 
-impl Exit for CsharpCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        if matches!(
-            node.kind_id().into(),
-            Csharp::ReturnStatement
-                | Csharp::YieldStatement
-                | Csharp::ThrowStatement
-                | Csharp::ThrowExpression
-        ) {
-            stats.exit += 1;
-        }
-    }
-}
+// `return`, `yield`, and `throw` as a statement and as an expression.
+impl_exit_from_row!(CsharpCode, crate::roles::csharp);
 
-impl Exit for GoCode {
-    // Go has no dedicated `panic` node: `panic(...)` is the built-in
-    // abrupt-exit call (it unwinds the stack like `throw`/`raise` in the
-    // exception languages), parsed as a `call_expression` whose `function`
-    // field is a bare `identifier` spelling `panic`. Count it as an exit
-    // alongside `return`. Matching the bare identifier (not a
-    // `selector_expression`) means a package-qualified call like
-    // `foo.panic()` — a user function, not the built-in — is not counted,
-    // mirroring how Bash matches the bare builtin command name.
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        let panics = node.kind_id() == Go::CallExpression
-            && node.child_by_field_name("function").is_some_and(|f| {
-                f.kind_id() == Go::Identifier && f.utf8_text(code) == Some("panic")
-            });
-        if matches!(node.kind_id().into(), Go::ReturnStatement) || panics {
-            stats.exit += 1;
-        }
-    }
-}
+// `return`, and the built-in `panic(…)` by callee text — a bare
+// `identifier`, so a package-qualified `foo.panic()` is a user function
+// and is not counted; the row says why.
+impl_exit_from_row!(GoCode, crate::roles::go);
 
-impl Exit for PerlCode {
-    // Perl's abrupt-exit builtins are `die` (raises an exception that
-    // unwinds to the nearest `eval`) and `exit` (terminates the
-    // process). Neither has a dedicated grammar node: every call form
-    // (`die;`, `die "m"`, `die("m")`, `... or die "m"`) nests a
-    // `call_expression_with_bareword` holding just the callee name, so
-    // matching that one kind counts each occurrence exactly once
-    // whatever wrapper carries the arguments (#1270). Compare the
-    // bareword text for the same reason Go matches `panic` and Lua
-    // matches `error`.
-    //
-    // `CORE::die` / `CORE::exit` are the same builtins spelled through
-    // the `CORE::` namespace — the way code that has overridden `die`
-    // reaches the real one — and keep that qualifier in the bareword
-    // text, so they are matched by name too.
-    //
-    // Deliberate exclusions:
-    // - Any other package-qualified callee keeps its qualifier in the
-    //   bareword text (`Carp::croak`), so it can never equal the four
-    //   spellings matched here.
-    // - `croak` / `confess` are Carp *library* functions, not builtins;
-    //   an unqualified `croak "m"` is left uncounted rather than
-    //   guessing that the module is loaded.
-    // - `$obj->die` parses as a `method_invocation` whose callee is a
-    //   plain `identifier`, never a bareword, so a user method named
-    //   `die` is not counted.
-    //
-    // - An auto-quoted key (`(die => 1)`) is a string, though the
-    //   grammar parses it as a bareword call (#1571 upstream). ABC and
-    //   `find --type call` skip it, and so does this (#1585). The text
-    //   test runs first: the key test reads a sibling, which the walk's
-    //   `SiblingCache` keeps linear under a flat `ERROR`.
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        let is_abrupt_exit_builtin = node.kind_id() == Perl::CallExpressionWithBareword
-            && matches!(
-                node.utf8_text(code),
-                Some("die" | "exit" | "CORE::die" | "CORE::exit")
-            )
-            && !perl_bareword_is_key(node, ancestors);
-        if node.kind_id() == Perl::ReturnExpression || is_abrupt_exit_builtin {
-            stats.exit += 1;
-        }
-    }
-}
+// Perl's abrupt-exit builtins are `die` (raises an exception that
+// unwinds to the nearest `eval`) and `exit` (terminates the process),
+// plus their `CORE::` spellings; the `Exit` row of `roles/perl.rs`
+// names them by text on the bareword call every call form nests
+// (#1270), and declines an auto-quoted key (#1585). `croak` /
+// `confess`, `Carp::croak` and `$obj->die` are not matched — the row
+// says why each is left out.
+impl_exit_from_row!(PerlCode, crate::roles::perl);
 
-impl Exit for KotlinCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        if matches!(
-            node.kind_id().into(),
-            Kotlin::ReturnExpression | Kotlin::ThrowExpression
-        ) {
-            stats.exit += 1;
-        }
-    }
-}
+impl_exit_from_row!(KotlinCode, crate::roles::kotlin);
 
-impl Exit for LuaCode {
-    // Lua has no `throw`/`raise` keyword: the abrupt-exit primitives are the
-    // built-in `error(...)` (raises a Lua error that unwinds to the nearest
-    // `pcall`) and `os.exit(...)` (terminates the process). Both parse as a
-    // `function_call` whose `name` field is the callee. `error(...)` is a
-    // bare `identifier`; `os.exit(...)` is a `dot_index_expression` with text
-    // `os.exit`. Count them as exits alongside `return`. Matching the exact
-    // callee text means a user call such as `foo()` or `myError()` is not
-    // counted, mirroring how Bash/Elixir match the bare builtin name.
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        let aborts = node.kind_id() == Lua::FunctionCall
-            && node
-                .child_by_field_name("name")
-                .is_some_and(|name| matches!(name.utf8_text(code), Some("error" | "os.exit")));
-        if node.kind_id() == Lua::ReturnStatement || aborts {
-            stats.exit += 1;
-        }
-    }
-}
+// `return`, and `error(…)` / `os.exit(…)` by callee text; the row says
+// why a user `foo()` or `myError()` is not counted.
+impl_exit_from_row!(LuaCode, crate::roles::lua);
 
-impl Exit for BashCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // Bash has no `return_statement` node: `return` and `exit` are
-        // ordinary builtins parsed as `Bash::Command` whose `name` field
-        // points at a `Bash::CommandName`. Identify them by comparing the
-        // command-name text against the literal builtins.
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        if matches!(node.kind_id().into(), Bash::Command)
-            && let Some(name) = node.child_by_field_name("name")
-            && matches!(name.utf8_text(code), Some("return" | "exit"))
-        {
-            stats.exit += 1;
-        }
-    }
-}
+// `return` and `exit` are ordinary builtins told by the `name` field's
+// text — Bash has no `return_statement` node; the row says so.
+impl_exit_from_row!(BashCode, crate::roles::bash);
 
-impl Exit for TclCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // Tcl has no return keyword node; `return` is a generic Command whose
-        // name field is a simple_word with text "return" — the same
-        // leading-word resolution the Cognitive / Cyclomatic `switch` and
-        // `for` detectors use, shared rather than restated here.
-        //
-        // `error` (raises an error that unwinds to the nearest `catch`),
-        // the Tcl 8.6 `throw`, and `exit` (terminates the interpreter —
-        // counted for the same reason Perl's, Ruby's and Bash's `exit`
-        // are) are the abrupt-exit builtins and parse to the same generic
-        // Command shape — the vendored grammar has no dedicated rule for
-        // any of them, so the leading word is the only seam (#1270,
-        // lesson 19). Because `tcl_command_name` reads the `name` field,
-        // `error` in argument position (`puts error`) is a `word_list`
-        // child and is not counted.
-        if matches!(
-            crate::lang_helpers::tcl::tcl_command_name(node, code),
-            Some("return" | "error" | "throw" | "exit")
-        ) {
-            stats.exit += 1;
-        }
-    }
-}
+// Tcl has no return keyword node; `return`, `error` (raises an error
+// that unwinds to the nearest `catch`), the Tcl 8.6 `throw`, and `exit`
+// (terminates the interpreter — counted for the same reason Perl's,
+// Ruby's and Bash's `exit` are) are generic `command`s told by the
+// `name` field's text, which the row reads once per command per walk;
+// `error` in argument position (`puts error`) is a `word_list` child and
+// not a command (#1270, lesson 19).
+impl_exit_from_row!(TclCode, crate::roles::tcl);
 
-impl Exit for IrulesCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // Like Tcl, iRules has no `return` keyword node — `return` is a
-        // generic Command (it is not among the grammar's `_builtin`
-        // commands). The bare name word can surface as either `simple_word`
-        // or `concat_word` depending on context, so match on the name text
-        // rather than a fixed kind. A multi-value `return $a $b` still has a
-        // single `name` field and is counted once.
-        //
-        // `error` is the Tcl abrupt-exit builtin and reaches iRules
-        // unchanged; re-derived against the iRules grammar rather than
-        // assumed from Tcl's, it parses to the same `command` +
-        // name-word shape (#1270). Tcl 8.6's `throw` is *not* matched
-        // here: TMOS iRules runs a Tcl 8.4-derived interpreter that has
-        // no `throw` builtin, so the word could only ever name a user
-        // proc. iRules flow commands (`event disable`, `TCP::close`,
-        // `reject`, `drop`) remain deliberately uncounted as exits in
-        // v1.
-        // Normalised for the same reason `tcl_command_name` is: `::return`
-        // is `return` through the global namespace. This walker resolves
-        // the name itself rather than through that helper, so the strip
-        // has to be repeated here (#1381 review).
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        if node.kind_id() == Irules::Command
-            && let Some(name) = node.child_by_field_name("name")
-            && matches!(
-                name.utf8_text(code)
-                    .map(crate::lang_helpers::strip_global_qualifier),
-                Some("return" | "error")
-            )
-        {
-            stats.exit += 1;
-        }
-    }
-}
+// `return` and `error` as generic commands told by the `name` text
+// (`::return` normalised); `throw` is deliberately not matched — TMOS
+// iRules has no such builtin — and the flow commands stay uncounted;
+// the row says why (#1270).
+impl_exit_from_row!(IrulesCode, crate::roles::irules);
 
-impl Exit for PhpCode {
-    // tree-sitter-php 0.25.1's `exit_statement` rule covers `exit` only
-    // (with or without parentheses); `die(...)` is grammar-classified as
-    // a `function_call_expression` and therefore is NOT counted here.
-    // Detecting `die` would require inspecting call-expression callee
-    // text — brittle and likely to false-match user-defined `die`
-    // functions. Modern PHP idiom favors `throw new Exception()` over
-    // `die`, so leaving this asymmetric is acceptable.
-    fn compute<'a>(
-        node: &Node<'a>,
-        _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        if matches!(
-            node.kind_id().into(),
-            Php::ReturnStatement | Php::YieldExpression | Php::ThrowExpression | Php::ExitStatement
-        ) {
-            stats.exit += 1;
-        }
-    }
-}
+// `return`, `yield`, `throw` and `exit`; `die(…)` is a call the row
+// deliberately leaves uncounted.
+impl_exit_from_row!(PhpCode, crate::roles::php);
 
 // Real defaults — no functions to return from. Audited in #188.
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
-impl Exit for RubyCode {
-    // Ruby's `return` is the only dedicated grammar node for an
-    // intra-function exit; `yield` passes control to the block but does
-    // not exit the enclosing method. tree-sitter-ruby exposes the
-    // `return_statement` rule under two aliased visible kinds
-    // (`Return`, `Return2`); the `Return3` token is the bare `return`
-    // keyword inside those nodes and is not counted on its own.
-    //
-    // `raise` and `exit` are ordinary method calls with no grammar node
-    // of their own — which is the shape the Go / Lua / Elixir impls
-    // above already match by callee text, not a reason to leave them
-    // uncounted (#1270). Both parse as a `call` whose `method` field is
-    // a bare `identifier`; `Checker::is_call` carries the four visible
-    // `call` aliases, so the arm cannot miss one by position.
-    //
-    // `exit!` (`Kernel#exit!`, the immediate process exit) is the third
-    // spelling, and the explicit `Kernel.raise` / `Kernel.exit` receiver
-    // *is* the builtin — it is reached for precisely when a DSL shadows
-    // the bare name — so a `Kernel` constant receiver is admitted.
-    //
-    // Deliberate exclusions:
-    // - A call with any other `receiver` (`obj.raise`, `self.exit`) is a
-    //   user method, never the Kernel builtin — the same bare-callee
-    //   gate Go uses to keep `foo.panic()` out.
-    // - A *bare* `raise` / `exit` with no arguments parses as a plain
-    //   `identifier`, indistinguishable from reading a local variable
-    //   of that name, so the argument-less re-raise idiom inside
-    //   `rescue` goes uncounted rather than blanket-matching every
-    //   identifier. A bare `exit!` is different: the `!` cannot name a
-    //   local, so the grammar emits a `call` and it is counted.
-    // - `fail` (a Kernel alias of `raise`), `abort`, and `throw`
-    //   (catch/throw non-local flow) are not matched: each is a common
-    //   user or test-DSL method name, and the counted set stays the two
-    //   primitives the cross-language exit table names.
-    //
-    // The callee is inspected before the receiver: every call has a
-    // `method`, and the text test rejects nearly all of them, so the
-    // receiver lookup runs only for the handful that spell a builtin.
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        if matches!(node.kind_id().into(), Ruby::Return | Ruby::Return2) {
-            stats.exit += 1;
-        } else if Self::is_call(node)
-            && let Some(method) = node.child_by_field_name("method")
-            && method.kind_id() == Ruby::Identifier
-            && matches!(method.utf8_text(code), Some("raise" | "exit" | "exit!"))
-            && node.child_by_field_name("receiver").is_none_or(|receiver| {
-                receiver.kind_id() == Ruby::Constant && receiver.utf8_text(code) == Some("Kernel")
-            })
-        {
-            stats.exit += 1;
-        }
-    }
-}
+// `return` under its two aliases, and the Kernel builtins `raise` /
+// `exit` / `exit!` by callee text with no receiver or the explicit
+// `Kernel` constant; the exclusions are on the row (#1270).
+impl_exit_from_row!(RubyCode, crate::roles::ruby);
 
-impl Exit for ElixirCode {
-    // Elixir has no `return` statement: the last expression in a function
-    // body is the return value. Early-exit happens through `throw`,
-    // `raise`, `reraise`, or `exit`, all of which surface as `Call`
-    // nodes whose target is an `Identifier` whose text spells the
-    // keyword. Mirrors the Bash/Tcl pattern of comparing target text.
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // role-bypass: allow(Call) — which call names an abrupt exit, read from the
-        // callee's text; not whether the node is a call
-        if node.kind_id() == Elixir::Call
-            && let Some(target) = node.child_by_field_name("target")
-            && target.kind_id() == Elixir::Identifier
-            && matches!(
-                target.utf8_text(code),
-                Some("throw" | "raise" | "reraise" | "exit")
-            )
-        {
-            stats.exit += 1;
-        }
-    }
-}
+// Elixir has no `return` statement: the last expression in a function
+// body is the return value. Early exit happens through `throw`, `raise`,
+// `reraise` or `exit`, each a `Call` whose target identifier spells the
+// word; the row reads it once per call per walk.
+impl_exit_from_row!(ElixirCode, crate::roles::elixir);
 
 #[cfg(test)]
 #[allow(

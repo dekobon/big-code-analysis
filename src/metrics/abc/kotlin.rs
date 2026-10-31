@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, rows_own, wrapped_operand};
-use crate::roles::kotlin::{call, case_arm, comparison, null_safe, short_circuit};
+use crate::roles::kotlin::{branch, call, case_arm, catch, comparison, null_safe, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -155,10 +155,13 @@ fn kotlin_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     // nowhere.
     // role-bypass: allow(NullSafe) — which of the row's two owners this consumer scores, told
     // by the projected token: the elvis, not the safe navigation
-    rows_own!(expr, code; comparison, short_circuit)
+    // An `if` expression — the `Branch` row's owner — used as a value
+    // is a boolean test in its own right, as a `try` expression is (no
+    // row owns `try`; `Catch` owns its handler).
+    rows_own!(expr, code; comparison, short_circuit, branch)
         || null_safe::owns_via(QMARKCOLON as u16, expr, code, Ancestors::unknown())
         || match expr.kind_id().into() {
-            IfExpression | TryExpression => true,
+            TryExpression => true,
             AsExpression => expr.is_child(AsQMARK as u16),
             _ => false,
         }
@@ -403,7 +406,12 @@ impl Abc for KotlinCode {
             // through `kotlin_count_condition`, which declines an `is` /
             // `in` test the way it declines a comparison, leaving it to
             // the row's arm.
-            Try | CatchBlock | AsQMARK => {
+            Try | AsQMARK => {
+                stats.conditions += 1.;
+            }
+            // And the `catch_block`, the `Catch` row's owner and leaf
+            // alike (#1697).
+            _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // The elvis `?:`, the one `NullSafe` payer that is a boolean
@@ -439,7 +447,13 @@ impl Abc for KotlinCode {
             // predicate `kotlin_condition_scores_itself` does not name; a
             // comparison or `&&`/`||` chain pays through its own arms
             // instead — so no double-count (#773, #1526).
-            IfExpression | WhileStatement | DoWhileStatement => {
+            // Every `Branch` owner, and the `Loop` owners with a `condition`
+            // field — `for` iterates and has none.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), WhileStatement | DoWhileStatement) =>
+            {
                 if let Some(condition) = node.child_by_field_name("condition") {
                     kotlin_count_condition(&condition, code, &mut stats.conditions);
                 }

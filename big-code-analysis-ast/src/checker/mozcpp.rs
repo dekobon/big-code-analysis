@@ -69,7 +69,10 @@ impl Checker for MozcppCode {
         )
     }
 
-    impl_is_else_if_parent_clause!(Mozcpp, IfStatement, ElseClause);
+    // The `ElseIf` row of `roles/mozcpp.rs`: an `if_statement` whose
+    // parent is the `else_clause`, read off the caller's chain. The row
+    // reads no bytes, so the empty code is exact (#1697).
+    impl_else_if_from_row!(mozcpp);
 
     // A primitive is the `Primitive` row's kind table, gates aside.
     #[inline]

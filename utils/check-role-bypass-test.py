@@ -283,6 +283,23 @@ paying_roles!(java);
         code, out = self.t.run("--bootstrap")
         self.assertEqual(code, 0, out)
 
+    def test_macro_handed_its_rows_as_idents_is_a_forwarder_too(self) -> None:
+        # `rows_own!` in `abc.rs`: the rows arrive as `$row:ident`
+        # arguments rather than through `roles::$lang::`, and the body
+        # reads `kind_id()` once to hand it to each — the same forward.
+        self.t.src("a.rs", """
+macro_rules! rows_own {
+    ($expr:expr, $code:expr; $($row:ident),+ $(,)?) => {{
+        let unknown = Ancestors::unknown();
+        let kind = $expr.kind_id();
+        false $(|| $row::owns_kind(kind, $expr, $code, unknown))+
+    }};
+}
+fn f(node: &Node, code: &[u8]) -> bool { rows_own!(node, code; comparison, short_circuit) }
+""")
+        code, out = self.t.run("--bootstrap")
+        self.assertEqual(code, 0, out)
+
     def test_macro_that_reads_a_row_and_still_matches_kinds_is_unsupported(self) -> None:
         # A half-migrated classifier: the row read beside a `match` on
         # the kind. The row mention must not launder the match.

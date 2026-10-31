@@ -284,3 +284,95 @@ fn each_ast_dump_entry_point_enters_exactly_its_own_builder() {
         );
     }
 }
+
+/// The word slot on the walk's `FoldCache` (#1697): the real
+/// `Ast::metrics` walk reads an Elixir `call`'s target text once for the
+/// visited node, however many of promotion, cognitive, cyclomatic, ABC,
+/// nexits, NPM and NPA ask — the slot answers all but the first. The
+/// output cannot show it (every read answers alike); only the read
+/// counter does, and the AST crate's own tests drive a replica walker,
+/// not this one. What this pins is the invariant the slot rests on:
+/// `compute_per_node` runs the metrics back to back on one node, and
+/// every ask about *another* node is one the design priced — so a
+/// metric reorder that let a later metric re-ask after an eviction, or
+/// a new consumer reading an enclosing call through the cached spelling
+/// where it evicts, raises the count.
+///
+/// The budget, derived: one read per `call` at promotion (10), plus the
+/// asks about other nodes that cost a miss each — the `def`'s quote
+/// fold reading the enclosing `defmodule` once per walk (1); NPM's
+/// uncached read of the module's two `def`-family statements (2); NPA's
+/// `struct_macro` asked of the same two statements through the slot,
+/// evicting the module (2); the `else:` section's read of its `if`
+/// from the pair, after `throw` was visited in between (1);
+/// and the `CaseArm` gate's uncached read of the enclosing `case` for
+/// its one arm, by cyclomatic and ABC (2); the `defmodule` itself is
+/// never re-asked after NPA, so its eviction costs nothing. 18 reads.
+#[cfg(feature = "elixir")]
+#[test]
+fn the_metric_walk_reads_each_elixir_call_target_once() {
+    use crate::lang_helpers::elixir::call_keyword_reads;
+
+    let source = "defmodule M do\n  defstruct [:a]\n  def f(a) do\n    if a, do: throw(:x), else: raise(\"y\")\n    case a do\n      _ -> g()\n    end\n    Kernel.exit(1)\n  end\nend\n";
+    let ast = crate::test_support::parse_named(crate::LANG::Elixir, "m.ex", source);
+    let mut call_nodes = 0;
+    let mut stack = vec![ast.as_tree_sitter().root_node()];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "call" {
+            call_nodes += 1;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    assert_eq!(call_nodes, 10);
+
+    let before = call_keyword_reads::observed();
+    ast.metrics(crate::MetricsOptions::default())
+        .expect("the walk must yield a top-level space");
+    let reads = call_keyword_reads::observed() - before;
+    assert_eq!(
+        reads,
+        call_nodes + 1 + 2 + 2 + 1 + 2,
+        "one read per call, plus the priced asks about other nodes"
+    );
+}
+
+/// The Tcl twin: the real metric walk reads a `command`'s leading word
+/// once for the visited node, however many of cognitive, cyclomatic,
+/// ABC and nexits ask (#1697). The asks about other nodes are all
+/// cyclomatic's `CaseArm` gate reading a candidate arm's grandparent
+/// through the uncached helper, for every command three levels under
+/// another: the arm list's command reads `switch`, the two `return`s
+/// read their arm's pattern word `x` / `y`, and the `for` body's three
+/// commands (`$i < 3`, `incr`, `puts`) read `for` — six reads, five of
+/// them rejected candidates. ABC does not read the arm row.
+#[cfg(feature = "tcl")]
+#[test]
+fn the_metric_walk_reads_each_tcl_command_word_once() {
+    use crate::lang_helpers::tcl::command_name_reads;
+
+    let source = "proc f {a} {\n    switch -- $a { x { return 1 } y { return 2 } }\n    for {set i 0} {$i < 3} {incr i} { puts $i }\n    exit 0\n}\n";
+    let ast = crate::test_support::parse_named(crate::LANG::Tcl, "f.tcl", source);
+    let mut commands = 0;
+    let mut stack = vec![ast.as_tree_sitter().root_node()];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "command" {
+            commands += 1;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    // switch, the arm list's one command, return 1, return 2, for,
+    // `$i < 3`, incr, puts, exit.
+    assert_eq!(commands, 9);
+
+    let before = command_name_reads::observed();
+    ast.metrics(crate::MetricsOptions::default())
+        .expect("the walk must yield a top-level space");
+    let reads = command_name_reads::observed() - before;
+    assert_eq!(
+        reads,
+        commands + 6,
+        "one word read per command, plus the arm gate's six grandparent reads"
+    );
+}

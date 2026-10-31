@@ -21,9 +21,3 @@ big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	AnonymousFun
 big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	Source	matches#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	AnonymousFunction	arm#1
 big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	Source	arm#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ReturnStatement	macro_arg#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Java	ThrowStatement	macro_arg#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Java	YieldStatement	macro_arg#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Python	RaiseStatement	macro_arg#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Python	ReturnStatement	macro_arg#1
-src/metrics/nexits.rs	impl_exit_match_kinds!	Python	Yield	macro_arg#1

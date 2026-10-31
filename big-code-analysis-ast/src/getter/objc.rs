@@ -104,7 +104,7 @@ impl Getter for ObjcCode {
 
     keyword_roles!(objc);
 
-    paying_roles!(objc);
+    paying_roles!(objc, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Objc::*;
@@ -150,15 +150,18 @@ impl Getter for ObjcCode {
             // grammar's own generic-opener kind and pays nowhere. The
             // ternary `?` and the `case` label are not here: the `Ternary`
             // and `CaseArm` rows pay them ungated.
+            // The `if` / `for` / `while` keywords are the `Branch` / `Loop`
+            // rows' payers and `get_paying_role` bills them (#1697).
             // role-bypass: allow(Comparison) — the operator classification of the spellings the
             // row's `under BinaryExpression` gate leaves out
             LT | GT | LT2 | DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI
-            | Return | Break | Continue | If | Else | Switch | Default | For | While | Goto
-            | Do | EQ | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE
-            | AMP | LTLT | TILDE | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ
-            | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof
-            | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
-            | ATautoreleasepool | ATselector | ATencode => TokenRole::Operator,
+            | Return | Break | Continue | Else | Switch | Default | Goto | Do | EQ | DASH
+            | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP | LTLT | TILDE
+            | PLUSEQ | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ
+            | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE | Sizeof | In | AT | ATtry | ATcatch
+            | ATfinally | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode => {
+                TokenRole::Operator
+            }
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

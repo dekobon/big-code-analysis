@@ -49,7 +49,7 @@ impl Getter for PythonCode {
 
     keyword_roles!(python);
 
-    paying_roles!(python);
+    paying_roles!(python, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Python::*;
@@ -92,11 +92,20 @@ impl Getter for PythonCode {
                 Some(Notin | Isnot) => TokenRole::Unknown,
                 _ => TokenRole::Operator,
             },
-            // role-bypass: allow(Exit) — the operator classification of the `yield`
-            // expression the row owns as an exit, a projection the row does not answer
-            Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return
-            | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
-            | While | Try | Except | Finally | With | DASHGT | Global | Nonlocal | Exec
+            // The `assert` / `for` / `while` / `except` / `elif` keywords
+            // are the `Branch` / `Loop` / `Catch` / `ElseIf` rows' payers
+            // and `get_paying_role` bills them (#1697). `if` stays: the
+            // `Branch` row's payer gate declines the ternary's `if` so
+            // cyclomatic does not count it beside the owner, while
+            // Halstead bills that spelling as it always has (`if` and
+            // `else` are the ternary's operators); the statement's `if`
+            // reaches `get_paying_role` first and never gets here.
+            // role-bypass: allow(Exit, Branch) — the operator classification of the `yield`
+            // expression the row owns as an exit, and of the `if` spelling the `Branch`
+            // row's `not_under_ternary` gate leaves out; neither a projection the row answers
+            Import | DOT | From | COMMA | As | STAR | GTGT | COLONEQ | Return
+            | Del | Raise | Pass | Break | Continue | If | Else | Async
+            | Try | Finally | With | DASHGT | Global | Nonlocal | Exec
             | AT | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
             | AMP | CARET | LTLT | TILDE
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ

@@ -1,18 +1,24 @@
-//! Cpp's role rows. The Halstead keyword roles (#1693) and the
+//! Cpp's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::Cpp;
 use crate::role_table;
 use crate::roles::c_family::{
     c_family_calls, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
     c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
-    cpp_family_containers, cpp_family_func_openers, cpp_family_gates,
-    cpp_family_short_circuit_payers,
+    cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_loops, cpp_family_short_circuit_payers,
 };
+use crate::roles::control_flow::else_if_parent_clause_gate;
 
 cpp_family_gates!(Cpp);
+// The chained `if` sits directly inside an `else_clause`; a nested one
+// under `else { … }` sits inside the compound statement (#1697).
+else_if_parent_clause_gate!(Cpp, ElseClause);
 
 role_table! {
     lang: Cpp;
@@ -65,12 +71,18 @@ role_table! {
         excludes [Default "the fallback label, no decision (lesson 11, #469)"]
     }
     Guard { absent "C++ has no guard clause on a case or a function head" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The C family's control flow (#1697): the one-kind rows are spelled
+    // inline, the loop and exit lists are the two C++ grammars' own
+    // fragments (`cpp_family_loops!`, `cpp_family_exits!` in
+    // `roles/c_family.rs`), so Mozcpp is this table under other ids. The `ElseIf`
+    // gate is emitted beside this table. `Catch` pays at the `catch`
+    // keyword, which is where this dialect differs from ObjC.
+    Branch { owns [IfStatement] pays [If] }
+    Switch { owns [SwitchStatement] }
+    Loop { owns [..cpp_family_loops!()] pays [For, While] }
+    Catch { owns [CatchClause] pays [Catch] }
+    ElseIf { owns [IfStatement(gated_by continues_else_clause)] pays [] }
+    Exit { owns [..cpp_family_exits!()] }
     // The shared C-family lists (`roles/c_family.rs`) plus C++'s own
     // modifiers: `virtual`, `mutable`, `constinit`, `consteval`,
     // `explicit`, `friend`, the access specifiers, the `override` /

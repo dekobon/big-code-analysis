@@ -1,0 +1,3 @@
+fn f<F: for<'a> Fn(&'a u8)>(_: F) {}
+impl T for S {
+fn g(_: for<'a

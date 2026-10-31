@@ -323,9 +323,43 @@ macro_rules! c_family_strings {
     };
 }
 
+/// The loop statements every dialect has: `for (;;)`, `while` and `do
+/// … while`. C++ adds `for_range_loop` beside them. The `for` keyword
+/// pays once per `for` form and `while` once in a `while` and once in a
+/// `do … while` (#284).
+macro_rules! c_family_loops {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            ForStatement, WhileStatement, DoStatement,
+        ] $($rest)*);
+    };
+}
+
+/// The two C++ grammars' loops: the shared three plus the range-based
+/// `for`, whose `for` keyword pays as the classic one's does.
+macro_rules! cpp_family_loops {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            ForStatement, WhileStatement, DoStatement, ForRangeLoop,
+        ] $($rest)*);
+    };
+}
+
+/// The two C++ grammars' exits: `return`, `throw`, and a coroutine's
+/// `co_return` (its `return`) and `co_yield` (suspends back to the
+/// caller as a Python or JS `yield` does), so both count (#1547).
+macro_rules! cpp_family_exits {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            ReturnStatement, ThrowStatement, CoReturnStatement, CoYieldStatement,
+        ] $($rest)*);
+    };
+}
+
 pub(crate) use {
     c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
-    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
-    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_containers,
-    cpp_family_func_openers, cpp_family_gates, cpp_family_short_circuit_payers,
+    c_family_loops, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
+    c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
+    cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_loops, cpp_family_short_circuit_payers,
 };

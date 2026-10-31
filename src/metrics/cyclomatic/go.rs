@@ -8,42 +8,26 @@
 
 use super::*;
 
-impl Cyclomatic for GoCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        // Aliased because `Go::Go` (the `go` keyword variant) collides with
-        // the bare enum name in pattern position under `use Go::*;`.
-        use crate::roles::go::{case_arm, short_circuit};
-        use Go as G;
-
-        let kind = node.kind_id();
-        // `&&` / `||`, the `ShortCircuit` row's payers (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors) {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        match kind.into() {
-            // Standard-only: each switch / select arm the `CaseArm` row
-            // owns; the `default_case` is excluded there (lesson 11).
-            _ if case_arm::owns_kind(kind, node, code, ancestors) => {
-                stats.cyclomatic += 1.;
-            }
-            // Modified-only: each distinct switch/select container collapses
-            // all its arms into one decision point.
-            G::ExpressionSwitchStatement | G::TypeSwitchStatement | G::SelectStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified.
-            G::IfStatement | G::ForStatement => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/go.rs`, read at the projection the
+// metric counts (#1695, #1697). Go counts statement nodes, so `Branch`
+// and `Loop` are plain rows read at the owner — every `for` spelling is
+// one `for_statement`. `&&` / `||` from `ShortCircuit` at the token;
+// each `case` clause of a switch or type switch, and each communication
+// clause of a `select`, from `CaseArm` at the owner (the row leaves the
+// `default` clauses out, #469); the three switch-like statements from
+// `Switch`, the modified tier's container. Go has no ternary, no guard,
+// no catch and no null-safe operator.
+impl_cyclomatic_rows!(
+    GoCode,
+    Go,
+    roles = crate::roles::go,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::owns_kind],
+    modified = [switch::owns_kind],
+    extra = [],
+    constraints = [],
+);

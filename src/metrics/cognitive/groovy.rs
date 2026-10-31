@@ -21,12 +21,15 @@ impl Cognitive for GroovyCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the count is
-        // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold, and the effort is the table's vocabulary;
-        // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::groovy::{closure, func_opener, null_safe, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read or a
+        // kind the rows do not own: the count is the construct list, not
+        // branching a reader must hold, and the effort is the table's vocabulary
+        // (#1695, #1697).
+        use crate::roles::groovy::{
+            branch, catch, closure, else_if, func_opener, is_switch_body_kind, r#loop, null_safe,
+            short_circuit, ternary,
+        };
         use Groovy::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -34,15 +37,26 @@ impl Cognitive for GroovyCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level — unless the
+            // `ElseIf` row recognises it as the `if` of an `else if`, where
+            // the `Else` arm below pays the +1 and no level opens (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // `for_in_statement` is the dekobon grammar's distinct node
-            // for `for (x in xs)` / `for (Foo x : xs)` (the prior amaanq
-            // grammar called this `enhanced_for_statement`); `do_while`
+            // for `for (x in xs)` (the prior amaanq grammar called this
+            // `enhanced_for_statement`; the `for (Foo x : xs)` spelling
+            // parses to `ERROR` at this pin); `do_while`
             // and `switch_block` keep their familiar names.
-            ForStatement | ForInStatement | WhileStatement | DoWhileStatement | SwitchBlock
-            | CatchClause => {
+            // Every loop and handler the rows own, and the body of the
+            // switch the `Switch` row owns — the level opens at the body,
+            // not the owner; `is_switch_body_kind` says why (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || catch::owns_kind(kind, node, code, ancestors)
+                || is_switch_body_kind(kind) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expression` the `Ternary` row owns (#1695).

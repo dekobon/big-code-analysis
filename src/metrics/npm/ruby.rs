@@ -100,10 +100,11 @@ struct RubyFrame<'a> {
 fn reads_through(kind: u16) -> bool {
     use Ruby::*;
 
-    // role-bypass: allow(Branch, Loop, Catch, CaseArm) — the wrappers
-    // whose statements run at class scope, read for their children;
-    // not whether they branch, loop or arm a case, which is R07's and
-    // the `CaseArm` row's question
+    // role-bypass: allow(Branch, Switch, Loop, Catch, ElseIf, CaseArm) — the
+    // wrappers whose statements run at class scope, read for their
+    // children; not whether they branch, switch, loop, chain or arm a
+    // case, which is the control-flow rows' and the `CaseArm` row's
+    // question (#1697)
     matches!(
         kind.into(),
         If | Unless
@@ -187,9 +188,10 @@ fn is_assignment(kind: u16) -> bool {
 fn is_statement_of(parent: &Node<'_>, parent_kind: u16, child: &Node<'_>) -> bool {
     use Ruby::*;
 
-    // role-bypass: allow(CaseArm) — which child of a `case` is a clause
-    // and which of a clause is its body, for traversal; not whether
-    // the arm pays a decision, which is the row's question
+    // role-bypass: allow(Branch, Switch, Loop, ElseIf, Catch, CaseArm) — which
+    // child of a wrapper is its clause and which of a clause is its
+    // body, for traversal; not whether the wrapper branches or the arm
+    // pays a decision, which is the rows' question (#1697)
     child.is_named()
         && match parent_kind.into() {
             If | Unless | Elsif => matches!(child.kind_id().into(), Then | Else | Elsif),

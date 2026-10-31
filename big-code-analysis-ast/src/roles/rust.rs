@@ -1,11 +1,18 @@
-//! Rust's role rows. The Halstead keyword roles (#1693) and the
+//! Rust's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::lang_helpers::case_arms::pattern_is_bare_underscore;
 use crate::role_table;
+use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::{Ancestors, Node, Rust};
+
+// The chained `if` sits directly inside an `else_clause`; a nested one
+// under `else { … }` sits inside the block (#1697).
+else_if_parent_clause_gate!(Rust, ElseClause);
 
 /// Whether a `match_arm` is a decision: its `pattern` is not a bare `_`
 /// (lesson 11, #469). `Some(_)`, `(_, x)` and `_ if g` are not bare and
@@ -16,6 +23,13 @@ fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
     !node
         .child_by_field_name("pattern")
         .is_some_and(|pat| pattern_is_bare_underscore(&pat, Rust::UNDERSCORE as u16))
+}
+
+/// Whether a `let_declaration` is `let PAT = e else { … }`: it carries
+/// the `alternative` field. Read by field, not by the `else` token the
+/// `if` expression also emits.
+fn has_alternative<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("alternative").is_some()
 }
 
 /// Whether a `match_pattern` carries a guard: its `condition` field.
@@ -91,12 +105,42 @@ role_table! {
         owns [MatchPattern(gated_by has_guard)]
         pays [If under MatchPattern]
     }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // Rust counts keyword tokens (#284), so each row below pays at its
+    // keyword. The `if` keyword is one kind for the `if` expression,
+    // `if let`, and a match guard (the `Guard` row's payer, gated to the
+    // pattern); cyclomatic counts it once wherever it is written, so the
+    // two rows share the token and a consumer reads them as one. A
+    // `let … else` either binds or diverges: one decision, as its `if
+    // let` twin pays, told by the `alternative` field rather than the
+    // `else` token the `if` expression also emits; it has no keyword of
+    // its own to pay at, so the node pays (`pays_itself`).
+    Branch {
+        owns [IfExpression, LetDeclaration(pays_itself gated_by has_alternative)]
+        pays [If]
+    }
+    // The `match` expression, the modified tier's container; its arms
+    // are the `CaseArm` row's.
+    Switch { owns [MatchExpression] }
+    // `for`, `while` (and `while let`, the same kind) and `loop`, each
+    // paid at its keyword. The `for` keyword is also type syntax —
+    // `impl T for S`, `for<'a> Fn(…)`, `for<'a> fn(…)` — which pays here
+    // too at this pin (#1720 removes that in a separate change); a
+    // `for` inside a macro's `token_tree` pays and stays paid.
+    Loop {
+        owns [ForExpression, WhileExpression, LoopExpression]
+        pays [For, While, Loop]
+    }
+    Catch { absent "Rust has no exception handling; `?` is an exit and `match` on a `Result` a switch" }
+    // `else if` is an `if_expression` directly inside an `else_clause`,
+    // as the C family spells it; a nested `if` under `else { … }` sits
+    // inside the block. Recognition only: the chained `if`'s keyword is
+    // `Branch`'s and the `else` token pays cognitive's +1.
+    ElseIf { owns [IfExpression(gated_by continues_else_clause)] pays [] }
+    // Explicit `return`, and `?`, which returns the error early (#243:
+    // the implicit final expression is not an exit). `?` is also what
+    // cyclomatic's `count_try` toggles; the row says it is an exit,
+    // the option says whether it is a decision.
+    Exit { owns [ReturnExpression, TryExpression] }
     // `pub` is the leaf of an unlisted `visibility_modifier`, so it
     // bills once whatever the `(crate)` / `(super)` qualifier; `mut` is
     // the grammar's `mutable_specifier` node, one kind for a binding,

@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
     wrapped_operand,
 };
-use crate::roles::irules::{call, comparison, short_circuit, ternary};
+use crate::roles::irules::{branch, call, comparison, else_if, short_circuit, ternary};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -91,11 +91,12 @@ impl Abc for IrulesCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold; the two row reads (#1695) are arms like
-        // the token arms they replaced.
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695, #1697) are arms like the token arms they
+        // replaced.
         let kind = node.kind_id();
         match kind.into() {
             // The `set name value` production is a first-class node.
@@ -129,12 +130,18 @@ impl Abc for IrulesCode {
             }
             // Phase 2B slot routing (#1180) — see `tcl.rs`, which this
             // mirrors arm for arm.
-            Irules::If | Irules::While => {
+            // Every `Branch` owner, and the `Loop` owner with a condition
+            // expression — `while`, not `for` / `foreach` / `dict for`.
+            // role-bypass: allow(Loop) — the one loop owner with a condition
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors) || kind == Irules::While => {
                 if let Some(expr) = irules_condition_expr(node) {
                     irules_count_condition(&expr, code, &mut stats.conditions);
                 }
             }
-            Irules::Elseif => {
+            // The `elseif` the `ElseIf` row pays at: the `else` (+1) and a
+            // predicate slot.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 if let Some(expr) = irules_condition_expr(node) {
                     irules_count_condition(&expr, code, &mut stats.conditions);

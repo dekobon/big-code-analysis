@@ -43,6 +43,9 @@ impl Checker for TclCode {
         false
     }
 
-    // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.
-    impl_is_else_if_clause!(Tcl, Elseif);
+    // The `ElseIf` row of `roles/tcl.rs`: the dedicated `elseif` node
+    // itself is the else-if, never a nested `if`. `Elseif2` is the
+    // `elseif` keyword token, not the clause, and the row leaves it out
+    // (#1697).
+    impl_else_if_from_row!(tcl);
 }

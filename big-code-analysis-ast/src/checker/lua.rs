@@ -14,8 +14,9 @@ use crate::lang_helpers::doc_comment::{
 /// and `[`, so `local a, b = …`, `local x <const> = …` and `M[1] = …`
 /// name no item.
 fn lua_ldoc_item(node: &Node) -> bool {
-    // role-bypass: allow(FuncOpener) — doc attachment, not membership:
-    // what an LDoc block documents is `DocTarget`'s own row (R09)
+    // role-bypass: allow(FuncOpener, Exit) — doc attachment, not membership:
+    // what an LDoc block documents is `DocTarget`'s own row (R09); a
+    // `return` of a function or table is a documentable item, not an exit
     match node.kind_id().into() {
         Lua::FunctionDeclaration | Lua::FunctionDeclaration2 | Lua::FunctionDeclaration3 => true,
         Lua::AssignmentStatement | Lua::AssignmentStatement2 => lua_assigns_one_name(node),
@@ -260,7 +261,7 @@ impl Checker for LuaCode {
         )
     }
 
-    // Lua uses a dedicated elseif_statement node rather than nesting a
-    // second if_statement inside the outer one (as Go does).
-    impl_is_else_if_clause!(Lua, ElseifStatement);
+    // The `ElseIf` row of `roles/lua.rs`: the dedicated `elseif_statement`
+    // itself is the else-if, never a nested `if` (#1697).
+    impl_else_if_from_row!(lua);
 }

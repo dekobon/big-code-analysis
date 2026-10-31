@@ -1,11 +1,14 @@
-//! Groovy's role rows. The Halstead keyword roles (#1693) and the
+//! Groovy's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
 use crate::getter::node_text;
 use crate::lang_helpers::doc_comment::node_bytes;
 use crate::role_table;
+use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Groovy, Node};
 
 /// Whether a `membership_expression` or `instanceof_expression` spells
@@ -144,6 +147,19 @@ fn not_in_an_import<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, 
     !ancestors.parent_has_kind(node, Groovy::ImportDeclaration as u16)
 }
 
+// `else if` is an `if_statement` whose previous sibling is the bare `else`
+// token — no clause wrapper — so a nested `if` under `else { … }` follows
+// `{` instead (#1697).
+else_if_prev_sibling_gate!(Groovy, Else);
+
+/// The container a `switch` nests its arms in, the `Switch` owner's
+/// child: where cognitive opens its level (see Java's twin, #1697).
+#[inline]
+#[must_use]
+pub fn is_switch_body_kind(kind: u16) -> bool {
+    kind == Groovy::SwitchBlock as u16
+}
+
 role_table! {
     lang: Groovy;
     // `command_chain` is the dekobon grammar's distinct node for Groovy's
@@ -257,12 +273,31 @@ role_table! {
         ]
     }
     Guard { absent "Groovy has no guard clause on a case or a function head" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The `if_statement` owns the branch; its `if` keyword pays, once per
+    // `if` and inside an `else if` chain too (#284, #1697).
+    Branch { owns [IfStatement] pays [If] }
+    // The `switch_expression` is the grammar's one node for the statement
+    // and expression forms; its `switch` keyword pays once per switch,
+    // which keeps the modified count aligned with the `case` arms (#300).
+    // The `switch_block` — the arms' container, where cognitive opens its
+    // level so a ternary or closure in the *subject* does not inherit
+    // one — is the owner's child and no row's (`is_switch_body_kind`).
+    Switch { owns [SwitchExpression] pays [Switch] }
+    // Every loop statement, its keyword paying: `for` once in the classic
+    // and the `for (x in xs)` form, `while` once in a `while` and once in
+    // a `do … while` (#284).
+    Loop {
+        owns [ForStatement, ForInStatement, WhileStatement, DoWhileStatement]
+        pays [For, While]
+    }
+    Catch { owns [CatchClause] pays [Catch] }
+    // Groovy spells `else if` as Java does: an `if_statement` whose
+    // previous sibling is the bare `else` token. Recognition only; the
+    // `Else` token pays cognitive's +1 and the `if` keyword `Branch`'s.
+    ElseIf { owns [IfStatement(gated_by follows_else_keyword)] pays [] }
+    // `return`, `throw`, and the Java 14+ switch-expression `yield`.
+    // Implicit-return-from-closure is not an exit (consistent with Java).
+    Exit { owns [ReturnStatement, ThrowStatement, YieldStatement] }
     // Every modifier (#1565). The grammar has no `modifiers` wrapper —
     // each modifier leaf sits directly under its declaration — so each
     // bills once. `sealed` and `permits` are contextual and bill only

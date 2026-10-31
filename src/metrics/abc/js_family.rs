@@ -249,7 +249,7 @@ macro_rules! js_family_abc_compute {
             stats: &mut Stats,
         ) {
             use crate::roles::$roles::{
-                call, case_arm, comparison, null_safe, short_circuit, ternary,
+                branch, call, case_arm, catch, comparison, null_safe, short_circuit, ternary,
             };
             use $lang::*;
 
@@ -285,7 +285,11 @@ macro_rules! js_family_abc_compute {
                 // Both the statement (`default:`) and arrow
                 // (`default ->`) forms emit the same `Default` token, so
                 // omitting it here covers both.
-                Else | Try | Catch => {
+                Else | Try => {
+                    stats.conditions += 1.;
+                }
+                // And `catch`, the `Catch` row's payer (#1697).
+                _ if catch::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;
                 }
                 // `??`, the `NullSafe` row's payer that is a boolean test;
@@ -363,13 +367,22 @@ macro_rules! js_family_abc_compute {
                 // Read by grammar field, not index: a comment before
                 // the slot (`if /*c*/ (b)`) shifted every positional
                 // read onto it (#1455).
-                IfStatement | WhileStatement | DoStatement => {
+                // Every `Branch` owner, and the `Loop` owners with a
+                // `condition` field — the `for` forms walk theirs below or
+                // have none.
+                // role-bypass: allow(Loop) — the loop owners with a `condition`
+                // slot, a subset the row cannot express; `Branch` is read in full
+                _ if branch::owns_kind(kind, node, code, ancestors)
+                    || matches!(kind.into(), WhileStatement | DoStatement) =>
+                {
                     if let Some(cond) = node.child_by_field_name("condition") {
                         count_condition(&cond, scores, &mut stats.conditions);
                     }
                 }
                 // `return value;` names no field; the value is its only
                 // operand. The bare `return;` form has none.
+                // role-bypass: allow(Exit) — a return's value as a boolean slot,
+                // not whether the node is an exit
                 ReturnStatement => {
                     if let Some(value) = wrapped_operand(node) {
                         count_negated(&value, scores, &mut stats.conditions);
@@ -391,7 +404,10 @@ macro_rules! js_family_abc_compute {
                 }
                 // `for (init; cond; update)` — the condition slot, read
                 // by grammar field (issue #1276). `for (;;)` fills the
-                // slot with an `empty_statement` and counts nothing.
+                // slot with an `empty_statement` and counts nothing; a
+                // `for … in` / `for … of` has no condition.
+                // role-bypass: allow(Loop) — the one loop owner with a
+                // three-part head, not whether the node is a loop
                 ForStatement => {
                     js_family_walk_for(node, scores, &mut stats.conditions);
                 }

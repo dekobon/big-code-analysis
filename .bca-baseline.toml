@@ -213,12 +213,6 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1246.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker.rs"
 qualified = "Checker"
 metric = "nom"
 value = 29.0
@@ -308,6 +302,12 @@ metric = "nexits"
 value = 6.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/elixir_decisions.rs"
+qualified = "elixir_pair_section"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
@@ -317,7 +317,13 @@ value = 44.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "nom"
-value = 29.0
+value = 32.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/node/ancestors.rs"
+qualified = "Ancestors<'tree, 'chain>"
+metric = "wmc"
+value = 60.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
@@ -359,13 +365,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 688.0
+value = 710.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1430.0
+value = 1479.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -962,24 +968,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/metrics/abc/irules.rs"
-qualified = "IrulesCode::compute"
-metric = "halstead.effort"
-value = 49846.575878767566
-
-[[entry]]
-path = "src/metrics/abc/lua.rs"
-qualified = "LuaCode::compute"
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/abc/lua.rs"
-qualified = "LuaCode::compute"
-metric = "halstead.effort"
-value = 49338.02399862417
-
-[[entry]]
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
@@ -1030,44 +1018,14 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive/irules.rs"
 qualified = "IrulesCode::compute"
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/cognitive/irules.rs"
-qualified = "IrulesCode::compute"
-metric = "halstead.effort"
-value = 48335.88968323448
-
-[[entry]]
-path = "src/metrics/cognitive/irules.rs"
-qualified = "IrulesCode::compute"
 metric = "nargs"
 value = 5.0
 
 [[entry]]
 path = "src/metrics/cognitive/java.rs"
 qualified = "JavaCode::compute"
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/cognitive/java.rs"
-qualified = "JavaCode::compute"
 metric = "nargs"
 value = 5.0
-
-[[entry]]
-path = "src/metrics/cognitive/kotlin.rs"
-qualified = "KotlinCode::compute"
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/cognitive/kotlin.rs"
-qualified = "KotlinCode::compute"
-metric = "halstead.effort"
-value = 52349.266433192235
 
 [[entry]]
 path = "src/metrics/cognitive/kotlin.rs"
@@ -1110,18 +1068,6 @@ path = "src/metrics/cognitive/ruby.rs"
 qualified = "RubyCode::compute"
 metric = "nargs"
 value = 5.0
-
-[[entry]]
-path = "src/metrics/cognitive/rust.rs"
-qualified = "RustCode::compute"
-metric = "cyclomatic"
-value = 17.0
-
-[[entry]]
-path = "src/metrics/cognitive/rust.rs"
-qualified = "RustCode::compute"
-metric = "halstead.effort"
-value = 48233.50161817062
 
 [[entry]]
 path = "src/metrics/cognitive/rust.rs"

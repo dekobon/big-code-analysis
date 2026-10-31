@@ -1,0 +1,11 @@
+# elixir
+defmodule M do
+  def f(a) do
+    s = "x"
+    if a, do: g(s), else: raise("y")
+    case a do
+      1 -> :a
+      _ -> :b
+    end
+  end
+end

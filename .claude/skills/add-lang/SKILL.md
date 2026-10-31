@@ -550,27 +550,31 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
   form.** Before writing the predicate, parse a representative
   `if x { … } else if y { … } else { … }` snippet with the new
   grammar (the `tree-sitter` CLI, or a quick test fixture) and look
-  at the AST shape. Lesson 10 in `lessons_learned.md` and
-  `.claude/rules/grammar-dispatch.md` §4 catalogue the strategies;
-  three have a macro in `checker.rs`. **Re-derive the membership
-  rather than trusting this table** — it moves with every language:
+  at the AST shape. Since #1697 the strategy is the `ElseIf` row's
+  gate in `roles/<lang>.rs` and the Checker is `impl_else_if_from_row!
+  (<lang>)`; lesson 10 in `lessons_learned.md` and
+  `.claude/rules/grammar-dispatch.md` §4 catalogue the strategies.
+  **Re-derive the membership rather than trusting this table** — it
+  moves with every language:
 
   ```bash
-  rg -o 'impl_is_else_if_(\w+)!\(\s*(\w+)' -r '$1 $2' \
-     big-code-analysis-ast/src/checker/ --no-filename | sort
-  rg -l 'fn is_else_if' big-code-analysis-ast/src/checker/
+  rg -n 'ElseIf \{' big-code-analysis-ast/src/roles/*.rs
+  rg -o 'else_if_(parent_clause|prev_sibling)_gate!\(\s*(\w+)' -r '$1 $2' \
+     big-code-analysis-ast/src/roles/ --no-filename | sort
   ```
 
-  | Grammar model | Macro | Languages (at writing) |
+  | Grammar model | Row form | Languages (at writing) |
   | --- | --- | --- |
-  | `else_clause` wrapper around the nested `if` | `impl_is_else_if_parent_clause!` | C, C++, Mozcpp, Objc, Rust, JS, Mozjs, TS, TSX |
-  | bare `else` token, nested `if` as next sibling | `impl_is_else_if_prev_sibling!` | C#, Groovy, Java, Kotlin |
-  | dedicated `elseif` / `elsif` / `elif` clause node | `impl_is_else_if_clause!` | Bash, iRules, Lua, Perl, Ruby, Tcl |
-  | hand-written (nested `if` with no wrapper, or mixed) | — | Go, PHP, Python |
-  | constant `false` | — | Elixir (a stub — see lesson 10) |
+  | `else_clause` wrapper around the nested `if` | `ElseIf { owns [IfStatement(gated_by continues_else_clause)] pays [] }` with `else_if_parent_clause_gate!` | C, C++, Mozcpp, Objc, Rust, JS, Mozjs, TS, TSX; PHP's two-word form by its own gate |
+  | bare `else` token, nested `if` as next sibling | same owner, `else_if_prev_sibling_gate!` | C#, Groovy, Java, Kotlin |
+  | dedicated `elseif` / `elsif` / `elif` clause node | `ElseIf { owns [ElifClause(pays_itself)] pays [] }` | Bash, iRules, Lua, Perl, Ruby, Tcl; PHP's one-word form |
+  | nested `if` whose parent is the outer `if` | hand-written gate on the row | Go |
+  | sole statement of the `else:` block | hand-written gate; Checker is `Branch ∧ ElseIf` | Python |
+  | no `else if` chain in the language | `ElseIf { absent "why" }`; Checker keeps the trait default | Elixir |
 
   Pick the strategy whose model matches the grammar; an
-  always-`false` stub is a bug, not a deferral. Issue #115
+  always-`false` Checker with no `absent` row is a bug, not a
+  deferral. Issue #115
   (`013bff9`) caught exactly this in Java and C# after-the-fact —
   both languages had shipped the stub, and lesson 10 was written in
   response. Step 5 requires an `<lang>_else_if_chain` cognitive test

@@ -1,10 +1,20 @@
-//! Php's role rows. The Halstead keyword roles (#1693) and the
+//! Php's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
-use crate::Php;
 use crate::role_table;
+use crate::{Ancestors, Node, Php};
+
+/// Whether an `if_statement` continues a two-word `else if`: its parent
+/// is an `else_clause` (either alias), read off the chain (#1084).
+fn continues_else_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| matches!(parent.kind_id().into(), Php::ElseClause | Php::ElseClause2))
+}
 
 role_table! {
     lang: Php;
@@ -137,12 +147,32 @@ role_table! {
         ]
     }
     Guard { absent "PHP has no guard clause" }
-    Branch { pending R07 }
-    Switch { pending R07 }
-    Loop { pending R07 }
-    Catch { pending R07 }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // PHP counts statement nodes, so every row here is plain (#1697).
+    Branch { owns [IfStatement] }
+    // `switch`, and the PHP 8 `match` expression.
+    Switch { owns [SwitchStatement, MatchExpression] }
+    Loop { owns [ForStatement, ForeachStatement, WhileStatement, DoStatement] }
+    Catch { owns [CatchClause] }
+    // PHP has both spellings (#529): the one-word `elseif` is a dedicated
+    // clause node (two aliases, the brace and the `:` … `endif` forms),
+    // which *is* the else-if and pays for itself; the two-word `else if`
+    // is an `if_statement` directly inside an `else_clause` (either
+    // alias), recognised so cognitive opens no level for it and paying
+    // nothing — its enclosing clause pays the +1.
+    ElseIf {
+        owns [
+            ElseIfClause(pays_itself),
+            ElseIfClause2(pays_itself),
+            IfStatement(gated_by continues_else_clause),
+        ]
+        pays []
+    }
+    // `return`, a generator's `yield`, `throw` (an expression since PHP
+    // 8), and `exit` / `die` — tree-sitter-php's `exit_statement` covers
+    // `exit` with or without parentheses; `die(…)` parses as a
+    // `function_call_expression` and is deliberately not matched by
+    // callee text, which would false-match a user `die`.
+    Exit { owns [ReturnStatement, YieldExpression, ThrowExpression, ExitStatement] }
     // Each modifier is its keyword leaf, one kind apiece, under an
     // unlisted `*_modifier` wrapper or bare in its declaration. `var`
     // is the `var_modifier` node, the grammar's one spelling of the

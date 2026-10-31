@@ -412,6 +412,29 @@ class CensusTests(unittest.TestCase):
             [("MethodInvocation", True, None), ("Lambda", True, "applied"), ("Super", False, None)],
         )
 
+    def test_an_empty_pays_list_is_the_split_mode_not_the_owner_paying_one(self) -> None:
+        # `pays []` is a split row with no declared payers — the shape
+        # R07's `ElseIf` rows take, where only a `pays_itself` owner pays
+        # at the leaf (#1697). The canonical dump prints `payers=[]
+        # pays_never=false` for this and for a plain `owns [..]` row
+        # alike, so the mode is visible to the reader only.
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    ElseIf { owns [WhileStatement(pays_itself), IfStatement(gated_by g), "
+            "DoStatement(pays_itself gated_by never)] pays [] }\n"
+            "    Exit { owns [ReturnStatement] }\n    Modifier { absent \"none\" }\n",
+        )
+        self.t.write("python", PY_FULL)
+        rows = rt.parse_table(self.t.roles / "java.rs").rows
+        self.assertEqual(rows["ElseIf"].pays_mode, "split")
+        self.assertEqual(rows["ElseIf"].payers, [])
+        self.assertEqual(
+            [(o.kind, o.pays_itself, o.gate) for o in rows["ElseIf"].owners],
+            [("WhileStatement", True, None), ("IfStatement", False, "g"), ("DoStatement", True, "never")],
+        )
+        self.assertEqual(rows["Exit"].pays_mode, "owners")
+
     def test_a_fragment_is_shared_across_tables(self) -> None:
         (self.t.roles / "jvm.rs").write_text(FRAGMENT_RS)
         self.t.write("java", "    lang: Java;\n    Call { owns [..jvm_calls!()] }\n    Modifier { absent \"none\" }\n    Exit { pending R07 }\n")

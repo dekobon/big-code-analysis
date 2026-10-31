@@ -16,7 +16,9 @@ use super::{
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_dash_signs_keyword_key, perl_not_is_key,
 };
-use crate::roles::perl::{call, case_arm, comparison, null_safe, short_circuit, ternary};
+use crate::roles::perl::{
+    branch, call, case_arm, comparison, else_if, null_safe, short_circuit, ternary,
+};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -653,7 +655,9 @@ impl Abc for PerlCode {
             // an `if` predicate slot, as Ruby's `elsif` is. It paid only
             // the first, so `elsif ($b)` scored one below
             // `elsif ($x > 1)` (#1526).
-            P::ElsifClause => {
+            // The `ElseIf` row's one owner, read at its leaf (the clause
+            // pays for itself).
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 perl_count_slot(
                     node.child_by_field_name("condition"),
@@ -662,7 +666,10 @@ impl Abc for PerlCode {
                 );
             }
             // `return value` names no field; its value is its only
-            // operand.
+            // operand. Only the `return` owner of the `Exit` row: `die` /
+            // `exit` are calls, whose arguments the `Array` arm walks.
+            // role-bypass: allow(Exit) — a return's value as a boolean slot,
+            // not whether the node is an exit
             P::ReturnExpression => {
                 if let Some(value) = wrapped_operand(node) {
                     perl_count_negated(&value, code, &mut stats.conditions);
@@ -724,15 +731,22 @@ impl Abc for PerlCode {
             // and `perl -c` rejects `print 6 when $x;` (grammar-dispatch
             // §6). `_if_simple` (`Perl::IfSimple`) is a hidden rule the
             // parser inlines and gets no arm (§2).
-            P::IfStatement
-            | P::UnlessStatement
-            | P::WhileStatement
-            | P::UntilStatement
-            | P::ForStatement1
-            | P::IfSimpleStatement
-            | P::UnlessSimpleStatement
-            | P::WhileSimpleStatement
-            | P::UntilSimpleStatement => {
+            // Every `Branch` owner, and the `Loop` owners that carry a
+            // `condition` slot — `ForStatement2` and `ForSimpleStatement`
+            // iterate a list and have none, so the loop half is a subset
+            // the row cannot express.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, not membership; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(
+                    kind.into(),
+                    P::WhileStatement
+                        | P::UntilStatement
+                        | P::ForStatement1
+                        | P::WhileSimpleStatement
+                        | P::UntilSimpleStatement
+                ) =>
+            {
                 perl_count_slot(
                     node.child_by_field_name("condition"),
                     code,

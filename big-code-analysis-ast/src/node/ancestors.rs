@@ -2,7 +2,7 @@
 //! to its predicates, and the [`SiblingCache`] and [`FoldCache`] it can
 //! lend with it.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use super::Node;
@@ -226,6 +226,32 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         answer
     }
 
+    /// `classify(node)`'s discriminant under `slot`, read from the walk's
+    /// word slot when it holds this node's answer and recorded there
+    /// otherwise; computed every time on a chain with no cache. The
+    /// caller converts the `u8` back to its enum; `classify` must be a
+    /// pure function of the node and the source for one walk.
+    pub(crate) fn classified(
+        self,
+        slot: WordSlot,
+        node: &Node<'_>,
+        classify: impl FnOnce() -> u8,
+    ) -> u8 {
+        let Some(cache) = self.folds else {
+            return classify();
+        };
+        let cell = &cache.words[slot as usize];
+        let (id, answer) = cell.get();
+        // Id 0 marks an empty slot: a tree-sitter node id is its address,
+        // never 0.
+        if id == node.id() {
+            return answer;
+        }
+        let answer = classify();
+        cell.set((node.id(), answer));
+        answer
+    }
+
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
     /// one a walk lent a [`FoldCache`] with. Otherwise every fold runs
     /// from the root, so a predicate whose own climb is bounded takes that
@@ -388,9 +414,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// it out as `.parent(node).is_some_and(|p| p.kind_id() == X as
     /// u16)`, which wraps onto four rustfmt lines inside a match guard
     /// and buries the question under the plumbing; #1314 added six more
-    /// and folded all seventeen onto this. Three sites spelling their
-    /// binding `|parent|` were left alone and would each fit:
-    /// `impl_is_else_if_parent_clause!` (`src/checker.rs`),
+    /// and folded all seventeen onto this, and #1697 the `ElseIf`
+    /// gates. Two sites spelling their binding `|parent|` were left
+    /// alone and would each fit:
     /// `is_stabby_lambda_body` (`src/checker/ruby.rs`) and
     /// `is_useful_comment` (`src/checker/rust.rs`, a let-chain).
     ///
@@ -401,6 +427,21 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     #[must_use]
     pub fn parent_has_kind(self, node: &Node<'tree>, kind: u16) -> bool {
         self.parent(node).is_some_and(|p| p.kind_id() == kind)
+    }
+
+    /// Whether the sibling immediately before `node` has `kind`: the
+    /// `ElseIf` gate of the grammars that spell `else if` as a bare
+    /// `else` token followed by a nested `if` with no clause wrapper
+    /// (Java, Groovy, C#, Kotlin — #1697), through [`previous_sibling`]
+    /// and so at its cost. `false` when `node` is its parent's first
+    /// child or has no parent: a root's `if` continues nothing.
+    ///
+    /// [`previous_sibling`]: Self::previous_sibling
+    #[inline]
+    #[must_use]
+    pub(crate) fn previous_sibling_has_kind(self, node: &Node<'tree>, kind: u16) -> bool {
+        self.previous_sibling(node)
+            .is_some_and(|prev| prev.kind_id() == kind)
     }
 
     /// The sibling immediately before `node`, or `None` when `node` is
@@ -683,14 +724,26 @@ pub(crate) enum MemoQuestion {
     /// parent's children, so `run(() => 1, …, () => n)` asked it `n`
     /// times of one `arguments` and was quadratic (#1696 review).
     NamesAnArrow,
+    /// Elixir: whether a Call argument is followed by no operand — the
+    /// position a keyword list must hold to be the Call's sections.
+    /// Asked of the argument once per pair in it, and the scan is
+    /// `O(siblings)` over whatever trails it, comments included (#1697
+    /// cost audit).
+    ArgumentIsTrailing,
+    /// Elixir: whether a bracketed argument's keyword list is the first
+    /// operand in its brackets — `[do: 1, else: 2]` holds pairs alone,
+    /// `[1, do: 1]` is a plain list. Asked of the list once per pair in
+    /// it, and the scan is `O(siblings)` over what precedes the pairs,
+    /// comments included (#1697 cost audit).
+    KeywordsLeadTheirList,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 5;
+    const COUNT: usize = 7;
 }
 
-const _: () = assert!(MemoQuestion::NamesAnArrow as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::KeywordsLeadTheirList as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), and the per-node memos for
@@ -705,7 +758,39 @@ const _: () = assert!(MemoQuestion::NamesAnArrow as usize + 1 == MemoQuestion::C
 pub struct FoldCache {
     lanes: RefCell<[Vec<(usize, u8)>; FoldLane::COUNT]>,
     nodes: [NodeMemo; MemoQuestion::COUNT],
+    words: [Cell<(usize, u8)>; WordSlot::COUNT],
 }
+
+/// The text-classified constructs whose last answer a walk keeps
+/// (#1697). A grammar that spells `if`, `switch` or `return` as a
+/// generic `call` / `command` told apart only by its target text is
+/// asked the same question of the same node by every metric that runs on
+/// it — four reads of one field and one text compare where a kind-based
+/// language pays none. `compute_per_node` runs every selected metric on
+/// one node before moving to the next, so the asks arrive back to back:
+/// one slot holding the last node's id and its answer serves them all,
+/// and an ask about a *different* node in between (a consumer re-reading
+/// the enclosing call) simply evicts it at the cost of one extra read,
+/// never more than the uncached count. No map, no allocation, `O(1)`
+/// memory, dropped with the walk.
+///
+/// The slot holds the classification's `#[repr(u8)]` discriminant; the
+/// enum is the language helper's (`ElixirCallTarget`, `TclCommandWord`),
+/// which also owns the conversion back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WordSlot {
+    /// Elixir: what a `call`'s `target` identifier spells.
+    ElixirCallTarget,
+    /// Tcl: what a `command`'s leading `simple_word` spells.
+    TclCommandWord,
+}
+
+impl WordSlot {
+    /// How many slots a [`FoldCache`] holds; one per variant above.
+    const COUNT: usize = 2;
+}
+
+const _: () = assert!(WordSlot::TclCommandWord as usize + 1 == WordSlot::COUNT);
 
 /// Answers about a node's own subtree, memoised for one walk and keyed
 /// by node id, which is unique within a tree: Doxygen's "does this

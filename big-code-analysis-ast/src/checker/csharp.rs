@@ -155,9 +155,10 @@ impl Checker for CsharpCode {
         )
     }
 
-    // tree-sitter-c-sharp models `else if` as an `Else` keyword token
-    // followed by a nested `if_statement` (no wrapping `else_clause` node).
-    impl_is_else_if_prev_sibling!(Csharp, IfStatement, Else);
+    // The `ElseIf` row of `roles/csharp.rs`: an `if_statement` whose
+    // previous sibling is the bare `else` token (no clause wrapper), read
+    // off the caller's chain. The row reads no bytes (#1697).
+    impl_else_if_from_row!(csharp);
 
     // A primitive is the `Primitive` row's kind: `predefined_type`, one
     // kind for `int`, `string`, `bool`, `object`, ….

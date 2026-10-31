@@ -40,7 +40,7 @@ impl Checker for BashCode {
         )
     }
 
-    // tree-sitter-bash exposes a dedicated `elif_clause` node, so the
-    // clause node itself is the else-if (no nested `if` to inspect).
-    impl_is_else_if_clause!(Bash, ElifClause);
+    // The `ElseIf` row of `roles/bash.rs`: the dedicated `elif_clause`
+    // itself is the else-if (#1697).
+    impl_else_if_from_row!(bash);
 }

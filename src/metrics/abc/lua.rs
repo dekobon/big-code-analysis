@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, rows_own, wrapped_operand,
 };
-use crate::roles::lua::{call, comparison, short_circuit};
+use crate::roles::lua::{branch, call, comparison, else_if, short_circuit};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -103,6 +103,11 @@ impl Abc for LuaCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the grammar can hand us, not branching
+        // a reader must hold, and the effort is the table's vocabulary;
+        // the row reads (#1695, #1697) are arms like the kind arms they replaced.
         let kind = node.kind_id();
         match kind.into() {
             Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
@@ -149,7 +154,7 @@ impl Abc for LuaCode {
             // an `if` predicate slot, as Ruby's `elsif` is. It paid only
             // the first, so `elseif b` scored one below `elseif x > 0`
             // (#1526).
-            Lua::ElseifStatement => {
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
                 lua_count_slot(
                     node.child_by_field_name("condition"),
@@ -166,7 +171,13 @@ impl Abc for LuaCode {
             // by name handles the rare empty-body `repeat until cond`
             // shape where the BLANK alternative for the body would
             // shift positional child indices.
-            Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement => {
+            // Every `Branch` owner, and the `Loop` owners with a `condition`
+            // field — `for` iterates and has none.
+            // role-bypass: allow(Loop) — the loop owners with a `condition`
+            // slot, a subset the row cannot express; `Branch` is read in full
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || matches!(kind.into(), Lua::WhileStatement | Lua::RepeatStatement) =>
+            {
                 lua_count_slot(
                     node.child_by_field_name("condition"),
                     code,
@@ -179,6 +190,8 @@ impl Abc for LuaCode {
             // #1455). Each named child is a negated operand, so
             // `return not x` counts once while `return x` (bare)
             // reports zero. Bare `return` (no values) has no operand.
+            // role-bypass: allow(Exit) — a return's values as boolean slots,
+            // not whether the node is an exit; `error(…)` is a call
             Lua::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
                     count_each_operand(

@@ -26,14 +26,16 @@ macro_rules! cpp_family_cognitive {
                 stats: &mut Stats,
                 nesting_map: &mut NestingMap,
             ) {
-                // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-                // One arm per grammar kind, like `CppCode::compute`'s ABC twin:
-                // the count is the number of node kinds the grammar can hand us,
-                // not branching a reader must hold, and the effort is the
-                // table's vocabulary; the row reads (#1695) are arms like the
-                // kind arms they replaced.
+                // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+                // One arm per construct the grammar can hand us, each a row read or a
+                // kind the rows do not own: the count is the construct list, not
+                // branching a reader must hold, and the effort is the table's vocabulary
+                // (#1695, #1697).
                 use $lang::*;
-                use $roles::{closure, func_opener, short_circuit, ternary};
+                use $roles::{
+                    branch, catch, closure, else_if, func_opener, r#loop, short_circuit, switch,
+                    ternary,
+                };
 
                 // Macro expansion is not tracked; macros are treated as opaque tokens.
                 let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -47,15 +49,22 @@ macro_rules! cpp_family_cognitive {
 
                 match kind.into() {
                     _ if in_constraint => {}
-                    IfStatement if !Self::is_else_if(node, ancestors) => {
+                    // An `if_statement` the `Branch` row owns opens a level —
+                    // unless the `ElseIf` row recognises it as the `if` of an
+                    // `else if` (its parent is the `else_clause`), where the
+                    // `Else` arm below pays the +1 and no level opens (#1697).
+                    _ if branch::owns_kind(kind, node, code, ancestors)
+                        && !else_if::owns_kind(kind, node, code, ancestors) =>
+                    {
                         increase_nesting(stats, &mut nesting);
                     }
-                    ForStatement | ForRangeLoop | WhileStatement | DoStatement
-                    | SwitchStatement | CatchClause => {
-                        increase_nesting(stats, &mut nesting);
-                    }
-                    // The `conditional_expression` the `Ternary` row owns (#1695).
-                    _ if ternary::owns_kind(kind, node, code, ancestors) => {
+                    // Every loop, switch and handler the rows own, and the
+                    // `conditional_expression` the `Ternary` row owns (#1695).
+                    _ if r#loop::owns_kind(kind, node, code, ancestors)
+                        || switch::owns_kind(kind, node, code, ancestors)
+                        || catch::owns_kind(kind, node, code, ancestors)
+                        || ternary::owns_kind(kind, node, code, ancestors) =>
+                    {
                         increase_nesting(stats, &mut nesting);
                     }
                     // `Else` here is the `else` keyword token, which the grammar

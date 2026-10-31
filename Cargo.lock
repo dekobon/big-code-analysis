@@ -509,6 +509,7 @@ name = "big-code-analysis-bench"
 version = "2.4.0"
 dependencies = [
  "big-code-analysis",
+ "big-code-analysis-ast",
  "criterion",
  "tempfile",
 ]

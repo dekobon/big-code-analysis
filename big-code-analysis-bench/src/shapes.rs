@@ -145,6 +145,61 @@ pub fn nested_ifs(depth: usize) -> String {
     )
 }
 
+/// C: `int main(){ if (a) { 1; } else if (a) { 1; } … else { 1; } }`.
+///
+/// An `else if` ladder: every `if_statement` after the first sits in
+/// the previous one's `else_clause`, so the chain is `depth` levels
+/// deep in the tree while reading as flat to a human. The `ElseIf`
+/// row's gate asks each one for its parent and answers `true` for all
+/// but the first, so the reading is `depth + 2` — a gate that stopped
+/// recognising the chain would nest each `if` and read `~depth²/2`,
+/// which [`nested_ifs`], whose `if`s have no `else`, cannot show; the
+/// timing pins the gate's cost on the shape where it fires (#1697).
+#[must_use]
+pub(crate) fn else_if_ladder(depth: usize) -> String {
+    format!(
+        "int main(){{ if (a) {{ 1; }} {}else {{ 1; }} }}\n",
+        "else if (a) { 1; } ".repeat(depth)
+    )
+}
+
+/// Python: a `def` whose body is `width` sibling `if a: pass` statements.
+///
+/// Every `if_statement` reaches the `ElseIf` row's
+/// `sole_statement_of_else_block` gate. The predicate it replaced
+/// counted the whole enclosing block's named children before asking
+/// whether that block was an `else:` body, so a function of `W` sibling
+/// `if`s cost `O(W²)` — 20,000 took 8 s, 40,000 34 s. The gate now
+/// reads the two parents off the chain first and stops its scan at the
+/// second child. The reading is `width` (+1 per `if`, no nesting), so
+/// a gate that started nesting siblings would read `width²/2`-ish and
+/// fail the value check too (#1697).
+#[must_use]
+pub(crate) fn python_wide_if_siblings(width: usize) -> String {
+    format!("def f(a):\n{}", "    if a: pass\n".repeat(width))
+}
+
+/// Java: a method whose body is `width` repetitions of
+/// `if (a) { x(); } else if (b) { y(); } else { z(); }`.
+///
+/// The outer `if_statement`s are direct children of the method's
+/// `block`, which is wider than the walk's `WIDE_PARENT` at every size
+/// here, so the `ElseIf` row's previous-sibling gate answers each one
+/// through the recorded sibling cache; each inner `if_statement` is a
+/// child of its outer `if_statement` (five children) and answers
+/// through the short scan. One probe therefore runs both lookup paths
+/// (#1697). The reading is `3 × width` — outer `if` +1, `else if` +1,
+/// `else` +1 — and a gate that stopped recognising the else-if would
+/// nest the inner `if` and read `4 × width`, so the value column
+/// discriminates the gate as well as the timing.
+#[must_use]
+pub(crate) fn wide_if_siblings(width: usize) -> String {
+    format!(
+        "class A {{ void f() {{ {}}} }}\n",
+        "if (a) { x(); } else if (b) { y(); } else { z(); } ".repeat(width)
+    )
+}
+
 /// Rust: `fn f(x: bool) -> bool { !!!…x }`.
 ///
 /// One `!` per nesting level, and `Getter::get_op_type`'s `BANG` arm
@@ -885,6 +940,30 @@ pub fn elixir_mixed_arguments(width: usize) -> String {
         "x, ".repeat(width),
         vec!["k: if(a, do: 1)"; width].join(", ")
     )
+}
+
+/// Elixir: two calls that each drive one of the section lookup's
+/// position checks past `width` comments. `foo([pairs], comments… x)`:
+/// a bracketed list that an operand follows, so the *trailing* check
+/// rejects it — the comments between the list and `x` are what that
+/// scan walks, and the leading check never runs. `bar([comments…
+/// pairs])`: a trailing bracketed list with the comments *before* its
+/// pairs, so the trailing check passes and the *leading* check walks
+/// the comments and accepts. Then a plain `if` per pair, to give the
+/// reading something the lookup does not produce.
+///
+/// Each answer is memoised — per argument
+/// (`MemoQuestion::ArgumentIsTrailing`) and per list
+/// (`KeywordsLeadTheirList`) (#1697 cost audit); uncached, each of the
+/// `width` pairs rescanned its run. The reading is `width`: the
+/// retained `if`s. Neither list contributes — `foo`'s is rejected, and
+/// `bar`'s pairs are a plain call's options, which score nothing.
+#[must_use]
+pub(crate) fn elixir_rejected_keyword_list(width: usize) -> String {
+    let pairs = vec!["do: 0, else: 1"; width].join(", ");
+    let comments = "# c\n".repeat(width);
+    let ifs = "if(a, do: 1)\n".repeat(width);
+    format!("foo([{pairs}],\n{comments}x)\nbar([\n{comments}{pairs}])\n{ifs}")
 }
 
 /// Kotlin: `inline fun f(noinline p0: () -> Unit, …) {}` — one function
@@ -1689,6 +1768,64 @@ pub const PROBES: &[Probe] = &[
                     languages with an `is_else_if` impl.",
     },
     Probe {
+        name: "cognitive/else-if-ladder",
+        lang: LANG::C,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: else_if_ladder,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1697: the `ElseIf` row's parent-clause gate on the \
+                    shape `cognitive/nested-if` cannot reach — every `if` \
+                    after the first is inside an `else_clause`, so the \
+                    gate answers `true` on each and the reading is \
+                    `depth + 2`, where a gate that stopped recognising \
+                    the chain nests every `if` and reads `~depth²/2`. A \
+                    gate that climbed the chain is quadratic here too.",
+    },
+    Probe {
+        name: "cognitive/wide-if-siblings",
+        lang: LANG::Java,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: wide_if_siblings,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1697: the `ElseIf` row's previous-sibling gate (Java, \
+                    C#, Groovy, Kotlin) reads `Ancestors::previous_sibling`, \
+                    a binary search through the walk's `SiblingCache` on a \
+                    wide parent and a short scan on a narrow one. A gate \
+                    that seeks from the parent's first child is `O(index)` \
+                    per `if`, quadratic in a wide block (#1584).",
+    },
+    Probe {
+        name: "cognitive/python-wide-if-siblings",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: python_wide_if_siblings,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1697: Python's `ElseIf` gate asks every `if_statement` \
+                    whether it is the sole child of an `else:` block. The \
+                    predicate it replaced counted the enclosing block's \
+                    children before reading whose block it was, quadratic \
+                    in the block's width; the gate reads the chain first \
+                    and stops its scan at the second child.",
+    },
+    Probe {
         name: "loc/nested-while",
         lang: LANG::C,
         axis: Axis::Depth,
@@ -1907,6 +2044,29 @@ pub const PROBES: &[Probe] = &[
                     measured quadratic while that probe read linear. The \
                     answer is now folded down the walker's chain once per \
                     ancestor (lesson 82).",
+    },
+    Probe {
+        name: "cognitive/elixir-rejected-keyword-list",
+        lang: LANG::Elixir,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: elixir_rejected_keyword_list,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1697 cost audit: the section lookup's two position \
+                    checks — is the bracketed list the trailing argument; \
+                    do its pairs lead the brackets — are asked of every \
+                    pair, and each scans a sibling run the shape fills with \
+                    N comments: one call's list is rejected by the first \
+                    check, the other's accepted after the second. Uncached, \
+                    each rescanned its run per pair — exponent 1.92 on the \
+                    trailing scan alone, 1.68 with the retained `if`s beside \
+                    it, 1.67 on the leading scan (~2 on `main`) — and the \
+                    walk memoises both, per argument and per list (1.0).",
     },
     Probe {
         name: "cognitive/elixir-mixed-arguments",
@@ -3571,6 +3731,237 @@ mod tests {
                 "{name}: the reading does not grow with the shape ({small} at {}, {large} at {})",
                 probe.sizes[0],
                 probe.sizes[1]
+            );
+        }
+    }
+
+    /// `cognitive/else-if-ladder`'s premise, pinned on the shape rather
+    /// than the timing: every `if_statement` after the first is the
+    /// direct child of an `else_clause` — the one position the `ElseIf`
+    /// row's parent-clause gate fires on — and the reading is
+    /// `depth + 2` (the first `if` +1, each `else if` +1 as a branch
+    /// extension, the final `else` +1), which a gate that stopped
+    /// recognising the chain would turn into a nesting sum of order
+    /// `depth²` (#1697).
+    #[test]
+    fn else_if_ladder_chains_under_else_clauses_and_reads_depth_plus_two() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "cognitive/else-if-ladder")
+            .expect("cognitive/else-if-ladder is a probe");
+        for size in [8, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let mut stack = vec![ast.as_tree_sitter().root_node()];
+            let (mut ifs, mut chained) = (0, 0);
+            while let Some(node) = stack.pop() {
+                if node.kind() == "if_statement" {
+                    ifs += 1;
+                    if node.parent().is_some_and(|p| p.kind() == "else_clause") {
+                        chained += 1;
+                    }
+                }
+                let mut cursor = node.walk();
+                stack.extend(node.children(&mut cursor));
+            }
+            assert_eq!(
+                (ifs, chained),
+                (size + 1, size),
+                "N chained ifs under one head"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("walker must succeed");
+            assert_eq!(reading, size as u64 + 2, "if +1, N else-ifs +1, else +1");
+        }
+    }
+
+    /// `cognitive/elixir-rejected-keyword-list`: `width` comments sit in
+    /// `foo`'s `arguments` *between* the bracketed list and the trailing
+    /// operand — the siblings the trailing-argument check scans — and
+    /// `width` more inside `bar`'s list *before* its pairs — the siblings
+    /// the leading check scans. The reading is the `width` retained
+    /// `if`s: `foo`'s list contributes nothing because the operand makes
+    /// it no section list, and `bar`'s nothing because a plain call's
+    /// options score nothing. The timing bound catches either per-pair
+    /// rescan; this catches the comments sitting where no scan reaches
+    /// them, or either list being read as sections (`2 × width`) (#1697
+    /// cost audit).
+    #[test]
+    fn elixir_rejected_keyword_list_is_scanned_past_its_comments() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "cognitive/elixir-rejected-keyword-list")
+            .expect("cognitive/elixir-rejected-keyword-list is a probe");
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "the shape parses cleanly");
+            let mut stack = vec![root];
+            let (mut comments, mut between_list_and_operand, mut before_the_pairs) = (0, 0, 0);
+            while let Some(node) = stack.pop() {
+                if node.kind() == "comment" {
+                    comments += 1;
+                    let parent = node.parent().expect("a comment has a parent");
+                    if parent.kind() == "arguments"
+                        && node
+                            .prev_named_sibling()
+                            .is_some_and(|prev| matches!(prev.kind(), "list" | "comment"))
+                        && node.next_named_sibling().is_some()
+                    {
+                        between_list_and_operand += 1;
+                    }
+                    if parent.kind() == "list"
+                        && node
+                            .next_named_sibling()
+                            .is_some_and(|next| matches!(next.kind(), "keywords" | "comment"))
+                    {
+                        before_the_pairs += 1;
+                    }
+                }
+                let mut cursor = node.walk();
+                stack.extend(node.children(&mut cursor));
+            }
+            assert_eq!(
+                (comments, between_list_and_operand, before_the_pairs),
+                (2 * size, size, size)
+            );
+            // Two lists of `2 × width` pairs plus the `if`s' `do:` pairs.
+            assert_eq!(count_kind(&ast, "pair"), 5 * size);
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            assert_eq!(reading, size as u64);
+        }
+    }
+
+    fn count_kind(ast: &Ast, kind: &str) -> usize {
+        let mut stack = vec![ast.as_tree_sitter().root_node()];
+        let mut n = 0;
+        while let Some(node) = stack.pop() {
+            n += usize::from(node.kind() == kind);
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        n
+    }
+
+    /// `cognitive/python-wide-if-siblings`: every `if` is a direct child of
+    /// the function's block (one `block` wider than `WIDE_PARENT`), none
+    /// is under an `else_clause`, and the reading is exactly `width` —
+    /// one +1 per sibling `if` and no nesting. The timing bound catches
+    /// the quadratic scan; this catches the gate answering `true` for a
+    /// sibling (#1697).
+    #[test]
+    fn python_wide_if_siblings_are_flat_and_read_one_each() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "cognitive/python-wide-if-siblings")
+            .expect("cognitive/python-wide-if-siblings is a probe");
+        for size in [65, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            let mut stack = vec![root];
+            let (mut ifs, mut under_block, mut under_else) = (0, 0, 0);
+            while let Some(node) = stack.pop() {
+                if node.kind() == "if_statement" {
+                    ifs += 1;
+                    match node.parent().map(|p| p.kind()) {
+                        Some("block") => under_block += 1,
+                        Some("else_clause") => under_else += 1,
+                        _ => {}
+                    }
+                }
+                let mut cursor = node.walk();
+                stack.extend(node.children(&mut cursor));
+            }
+            assert_eq!((ifs, under_block, under_else), (size, size, 0));
+            assert!(
+                max_child_count(&ast) >= size,
+                "the def's block holds every if"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("walker must succeed");
+            assert_eq!(reading, size as u64, "+1 per sibling if, no nesting");
+        }
+    }
+
+    /// `cognitive/wide-if-siblings` makes two structural claims its
+    /// rationale rests on, pinned here on the shape rather than on the
+    /// timing: the method `block` is wider than the walk's sibling-cache
+    /// threshold at the smallest size, so the outer `if`s really do
+    /// answer through the cache; and the reading is `3 × width`, which
+    /// is `4 × width` the moment the else-if gate stops recognising the
+    /// chained `if` and the walk nests it (#1697).
+    ///
+    /// The threshold is the walk's `WIDE_PARENT`, read from the AST
+    /// crate rather than hand-copied, as its doc asks.
+    #[test]
+    fn wide_if_siblings_is_wide_and_reads_three_per_statement() {
+        use big_code_analysis_ast::node::WIDE_PARENT;
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "cognitive/wide-if-siblings")
+            .expect("cognitive/wide-if-siblings is a probe");
+        for size in [WIDE_PARENT + 1, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            // The method body is the one wide node, and the `if`s are its
+            // direct children: `{`, N `if_statement`s, `}`. Each chained
+            // `if` is a child of its outer `if_statement` with four
+            // siblings (`if`, condition, block, `else`), so the inner
+            // lookups take the narrow scan.
+            let root = ast.as_tree_sitter().root_node();
+            let mut stack = vec![root];
+            let mut blocks = Vec::new();
+            let mut inner_parent_widths = Vec::new();
+            while let Some(node) = stack.pop() {
+                if node.kind() == "block"
+                    && node
+                        .parent()
+                        .is_some_and(|p| p.kind() == "method_declaration")
+                {
+                    blocks.push(node);
+                }
+                if node.kind() == "if_statement"
+                    && let Some(parent) = node.parent()
+                    && parent.kind() == "if_statement"
+                {
+                    inner_parent_widths.push(parent.child_count());
+                }
+                let mut cursor = node.walk();
+                stack.extend(node.children(&mut cursor));
+            }
+            let [block] = blocks[..] else {
+                panic!("one method body, found {}", blocks.len());
+            };
+            assert_eq!(block.child_count(), size + 2, "`{{`, N ifs, `}}`");
+            assert!(block.child_count() > WIDE_PARENT, "the block must be wide");
+            let mut cursor = block.walk();
+            let outer = block
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "if_statement")
+                .count();
+            assert_eq!(outer, size, "every outer if is a direct child of the block");
+            assert_eq!(
+                inner_parent_widths.len(),
+                size,
+                "one chained if per statement"
+            );
+            assert!(
+                inner_parent_widths.iter().all(|&w| w == 5),
+                "a chained if's parent has five children"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("walker must succeed");
+            assert_eq!(
+                reading,
+                3 * size as u64,
+                "outer if +1, else if +1, else +1 per statement"
             );
         }
     }

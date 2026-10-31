@@ -112,8 +112,8 @@ impl Checker for GoCode {
         matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)
     }
 
-    #[inline]
-    fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Go::IfStatement && ancestors.parent_has_kind(node, Go::IfStatement as u16)
-    }
+    // The `ElseIf` row of `roles/go.rs`: an `if_statement` whose parent
+    // is the outer `if_statement` (the grammar has no else clause node),
+    // read off the caller's chain. The row reads no bytes (#1697).
+    impl_else_if_from_row!(go);
 }

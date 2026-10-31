@@ -81,7 +81,7 @@ impl Getter for MozcppCode {
 
     keyword_roles!(mozcpp);
 
-    paying_roles!(mozcpp);
+    paying_roles!(mozcpp, control_flow);
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Mozcpp::*;
@@ -112,13 +112,16 @@ impl Getter for MozcppCode {
             // applied ones — the derivation is on the Cpp twin (#1694).
             // The ternary `?` and the `case` label are not here: the
             // `Ternary` and `CaseArm` rows pay them ungated.
+            // The `if` / `for` / `while` / `catch` keywords are the `Branch` /
+            // `Loop` / `Catch` rows' payers and `get_paying_role` bills them
+            // (#1697).
             // role-bypass: allow(Comparison, ShortCircuit) — the operator classification of the
             // spellings the rows' `applied` gate leaves out
             LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | NotEq | AMPAMP | PIPEPIPE
             | And | Or
             | DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
-            | Break | Continue | If | Else | Switch | Default | For | While | Goto | Do
-            | Delete | New | Try | Try2 | Catch | Throw | EQ | DASH
+            | Break | Continue | Else | Switch | Default | Goto | Do
+            | Delete | New | Try | Try2 | Throw | EQ | DASH
             | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
             | LTLT | TILDE | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET

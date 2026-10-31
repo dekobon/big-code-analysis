@@ -21,7 +21,14 @@ impl Cognitive for RustCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::rust::{closure, func_opener, short_circuit};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::rust::{
+            branch, closure, else_if, func_opener, r#loop, short_circuit, switch,
+        };
         use Rust::*;
         // Macro expansion is not tracked; macros are treated as opaque tokens.
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -29,25 +36,32 @@ impl Cognitive for RustCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            IfExpression if !Self::is_else_if(node, ancestors) => {
+            // Every branch the `Branch` row owns opens a level — the `if`
+            // expression, and `let PAT = e else { … };`, the row's gated
+            // owner: an `if let` that diverges instead of nesting the happy
+            // path, so it pays what its twin pays, a level for everything
+            // under it, the `else` block included (#1548, #1542) — unless
+            // the `ElseIf` row recognises the `if` as the continuation of
+            // an `else if` chain (its parent is the `else_clause`), where
+            // the `Else` arm below pays the +1 and no level opens (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
-            ForExpression | WhileExpression | LoopExpression | MatchExpression => {
-                increase_nesting(stats, &mut nesting);
-            }
-            // `let PAT = e else { … };` is an `if let` that diverges
-            // instead of nesting the happy path, so it pays what its
-            // `if let` twin pays: a structural increment plus the current
-            // nesting, and a level for everything under it — the `else`
-            // block included, as the twin's body is (#1548). Keyed on the
-            // `alternative` field, as cyclomatic does (#1542).
-            LetDeclaration if node.child_by_field_name("alternative").is_some() => {
+            // Every loop the `Loop` row owns and the `match` the `Switch`
+            // row owns.
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // `Else` here is the `else` keyword token, which the grammar
             // also emits for the `else` of an `else if` — so this arm
             // covers both. A `let`-`else`'s token is a direct child of the
             // `let_declaration`, which the arm above already charged.
+            // role-bypass: allow(Branch) — which construct the `else` belongs
+            // to, read off the parent; not whether the parent is a branch
             Else if !ancestors.parent_has_kind(node, LetDeclaration as u16) => {
                 increment_by_one(stats);
             }

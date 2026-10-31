@@ -1,0 +1,1 @@
+fn f(o: Option<u8>) { let Some(x) = o else

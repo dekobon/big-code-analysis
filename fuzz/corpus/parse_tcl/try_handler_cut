@@ -1,0 +1,1 @@
+try { exit 1 } on error {m o

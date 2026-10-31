@@ -1,10 +1,19 @@
-//! Lua's role rows. The Halstead keyword roles (#1693) and the
+//! Lua's role rows. The Halstead keyword roles (#1693), the
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
-//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — are
-//! declared; the rest are pending the package that declares each (#1692).
+//! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
+//! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
+//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
+//! the package that declares each (#1692).
 
-use crate::Lua;
 use crate::role_table;
+use crate::{Ancestors, Lua, Node};
+
+/// Whether a `function_call` is `error(…)` or `os.exit(…)`, by the text
+/// of its `name` field. Invalid UTF-8 reads as no match.
+fn error_or_os_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("name")
+        .is_some_and(|name| matches!(name.utf8_text(code), Some("error" | "os.exit")))
+}
 
 role_table! {
     lang: Lua;
@@ -35,12 +44,23 @@ role_table! {
     NullSafe { absent "Lua has no optional navigation or null coalescing" }
     CaseArm { absent "Lua has no switch-like construct" }
     Guard { absent "Lua has no guard clause" }
-    Branch { pending R07 }
+    // Lua counts statement nodes, so every row here is plain (#1697).
+    Branch { owns [IfStatement] }
     Switch { absent "Lua has no switch-like construct" }
-    Loop { pending R07 }
+    // The numeric and generic `for` are one `for_statement`; `repeat …
+    // until` is a loop with its test at the end.
+    Loop { owns [ForStatement, WhileStatement, RepeatStatement] }
     Catch { absent "Lua has no exception handling; `pcall` is a call" }
-    ElseIf { pending R07 }
-    Exit { pending R07 }
+    // The grammar gives `elseif` a statement node of its own, a direct
+    // child of the `if_statement`, so the clause *is* the else-if and pays
+    // for itself; no nested `if` is ever an else-if here.
+    ElseIf { owns [ElseifStatement(pays_itself)] pays [] }
+    // `return`, and the abrupt-exit builtins `error(…)` (unwinds to the
+    // nearest `pcall`) and `os.exit(…)`, each a `function_call` whose
+    // `name` field spells the callee — `error` a bare identifier,
+    // `os.exit` a `dot_index_expression` — told by text, so a user `foo()`
+    // or `myError()` is not counted.
+    Exit { owns [ReturnStatement, FunctionCall(text_gated_by error_or_os_exit)] }
     Modifier { absent "Lua has no modifier keywords; `local` is a declaration" }
     // `local` and `function`, each a leaf under an unlisted
     // `function_declaration` / `variable_declaration` / `function_definition`.

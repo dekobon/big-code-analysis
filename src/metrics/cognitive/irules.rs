@@ -21,7 +21,14 @@ impl Cognitive for IrulesCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::irules::{func_opener, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::irules::{
+            branch, catch, else_if, func_opener, r#loop, short_circuit, switch, ternary,
+        };
         use Irules::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -29,13 +36,15 @@ impl Cognitive for IrulesCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // Defensive guard for parity with sibling impls; iRules' dedicated
-            // `Elseif` node means `is_else_if` is never true for an `If`.
-            If if !Self::is_else_if(node, ancestors) => {
+            // An `if` the `Branch` row owns opens a level. iRules' `ElseIf`
+            // row owns the dedicated `elseif` node, never an `if`, so the
+            // two rows are disjoint and no exclusion is needed here (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            // `elseif` extends the chain: +1 without increasing nesting.
-            Elseif => {
+            // The `elseif` the `ElseIf` row pays at — its leaf, the clause
+            // itself — extends the branch: +1 without increasing nesting.
+            _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
             Else => {
@@ -43,31 +52,23 @@ impl Cognitive for IrulesCode {
             }
             // Loops and ternary. `DictFor` iterates; `dict update`/`dict with`
             // do not and are excluded.
-            For | Foreach | While | DictFor => {
+            // Every loop the `Loop` row owns (#1697).
+            _ if r#loop::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expr` the `Ternary` row owns (#1695).
             _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            // `catch` is a conditional error handler; its body only runs when
-            // the guarded command errors.
-            Catch => {
-                increase_nesting(stats, &mut nesting);
-            }
-            // `try` handlers are conditional error paths too: +1 plus current
-            // nesting, and the handler body nests (issue #1266). The grammar
-            // wraps each in a dedicated node (unlike Tcl's flat tokens), and
-            // emits them only inside `try` — they are catch clauses, not the
-            // `when`-style event handlers they were once mistaken for. `Try`
-            // itself and `Finally` are unconditional and stay free.
-            OnHandler | TrapHandler => {
-                increase_nesting(stats, &mut nesting);
-            }
-            // iRules `switch` is a dedicated node (unlike Tcl): +1 plus current
-            // nesting, with the `default` arm free, matching the C-family
-            // `SwitchStatement` cognitive handling (lesson 11).
-            Switch => {
+            // `catch`, and a `try`'s `on error` / `trap` handler groups — the
+            // `Catch` row's owners — are conditional error paths: +1 plus
+            // current nesting, and the handler body nests (#1266); `Try`
+            // itself and `Finally` are unconditional and stay free. And the
+            // `switch` the `Switch` row owns, a dedicated node unlike Tcl's:
+            // +1 plus current nesting, the `default` arm free (lesson 11).
+            _ if catch::owns_kind(kind, node, code, ancestors)
+                || switch::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // Boolean sequences inside expressions: both symbolic (`&&`/`||`)

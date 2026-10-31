@@ -441,3 +441,122 @@ fn elixir_receive_scores_like_case() {
         ],
     );
 }
+
+/// The Elixir cyclomatic and cognitive bodies dispatch once on the
+/// cached word rather than reading the `Branch` / `Switch` / `Loop` rows
+/// (one text read in place of five — plan §4.2), so the rows and the
+/// policy tables are two spellings of one set, and this holds them
+/// together word by word. For every `ElixirCallTarget`, a `call` spelling
+/// it with a one-arm `do` body is measured against the same body under a
+/// plain `foo`: the *container's own* contribution — what the `call`
+/// adds beyond its arm — is non-zero in some tier, and cognitive opens a
+/// level, exactly when the `Branch`, `Switch` or `Loop` row owns the
+/// word — minus the two per-word policies the consumers carry, each
+/// named here so a third cannot slip in unlisted: `with` pays no
+/// container decision (its decisions are its `<-` clauses, its `else`
+/// pays modified only when it dispatches, #1535) but opens a level; `try`
+/// pays modified but opens no level (its `rescue` / `catch` arms do,
+/// #416). The one arm is a bare `_ ->`, which every construct's default
+/// exclusion leaves free (#1272) — so under a plain `foo` the body
+/// scores the base `(1, 1, 0)` and whatever a construct adds is the
+/// container's own. A word added to a row gate and not to a consumer's
+/// arm, or the reverse, fails here; so does a variant added to
+/// `ElixirCallTarget` without a spelling here (#1697). `receive` is owned and dispatches here; its
+/// `after`-only timed-wait exception is pinned separately (#1581).
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_consumer_word_policy_agrees_with_the_control_flow_rows() {
+    use crate::lang_helpers::elixir::ElixirCallTarget;
+    use crate::roles::elixir::{branch, r#loop, switch};
+    use crate::test_support::for_each_node_with_chain;
+
+    let word = |t: ElixirCallTarget| -> &'static str {
+        use ElixirCallTarget as T;
+        match t {
+            T::If => "if",
+            T::Unless => "unless",
+            T::For => "for",
+            T::While => "while",
+            T::Case => "case",
+            T::Cond => "cond",
+            T::With => "with",
+            T::Try => "try",
+            T::Receive => "receive",
+            T::Throw => "throw",
+            T::Raise => "raise",
+            T::Reraise => "reraise",
+            T::Exit => "exit",
+            T::Def => "def",
+            T::Defp => "defp",
+            T::Defmacro => "defmacro",
+            T::Defmacrop => "defmacrop",
+            T::Defmodule => "defmodule",
+            T::Defprotocol => "defprotocol",
+            T::Defimpl => "defimpl",
+            T::Defstruct => "defstruct",
+            T::Defguard => "defguard",
+            T::Defguardp => "defguardp",
+            T::Quote => "quote",
+            T::Alias => "alias",
+            T::Import => "import",
+            T::Require => "require",
+            T::Use => "use",
+            T::Other => "foo",
+            // `#[non_exhaustive]` across the crate boundary wants the
+            // arm; a new variant must be spelled here, not skipped.
+            other => panic!("`ElixirCallTarget::{other:?}` has no fixture spelling in this test"),
+        }
+    };
+    // The scores of the enclosing `f`'s *own* space (`value`, not the
+    // subtree `sum`): a `def`-family word opens a function space of its
+    // own, whose base cyclomatic 1 would read as a decision in a sum.
+    let score = |w: &str| {
+        let source = format!("def f(x) do\n  {w} x do\n    _ -> x\n  end\nend\n");
+        let root = crate::test_support::space_verbatim(
+            LANG::Elixir,
+            source.as_bytes(),
+            MetricsOptions::default().with_only(&[Metric::Cyclomatic, Metric::Cognitive]),
+        );
+        let f = &crate::test_support::child_space(&root, "f").metrics;
+        (
+            f.cyclomatic.cyclomatic(),
+            f.cyclomatic.cyclomatic_modified(),
+            f.cognitive.cognitive(),
+        )
+    };
+    let baseline = score("foo");
+    let mut rows_owning = 0;
+    for target in ElixirCallTarget::ALL {
+        let w = word(target);
+        let source = format!("def f(x) do\n  {w} x do\n    _ -> x\n  end\nend\n");
+        let bytes = source.as_bytes();
+        let mut owned = None;
+        for_each_node_with_chain::<ElixirCode>(bytes, |node, chain| {
+            if node.kind_id() == Elixir::Call as u16 && node.start_position().0 == 1 {
+                let a = Ancestors::known(chain);
+                let kind = node.kind_id();
+                owned = Some(
+                    branch::owns_kind(kind, node, bytes, a)
+                        || switch::owns_kind(kind, node, bytes, a)
+                        || r#loop::owns_kind(kind, node, bytes, a),
+                );
+            }
+        });
+        let row_owns = owned.expect("the fixture's control call");
+        let (std, modified, cog) = score(w);
+        let decides = std > baseline.0 || modified > baseline.1;
+        let nests = cog > baseline.2;
+        rows_owning += usize::from(row_owns);
+        let container_decides = row_owns && target != ElixirCallTarget::With;
+        let opens_level = row_owns && target != ElixirCallTarget::Try;
+        assert_eq!(
+            (decides, nests),
+            (container_decides, opens_level),
+            "`{w}`: rows own it = {row_owns}; scores {std} / {modified} / {cog} vs plain {baseline:?}",
+        );
+    }
+    assert_eq!(
+        rows_owning, 9,
+        "if unless for while case cond with try receive"
+    );
+}

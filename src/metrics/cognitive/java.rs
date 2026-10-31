@@ -21,7 +21,15 @@ impl Cognitive for JavaCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        use crate::roles::java::{closure, func_opener, short_circuit, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read
+        // or a kind the rows do not own: the count is the construct list,
+        // not branching a reader must hold, and the effort is the table's
+        // vocabulary (#1695, #1697).
+        use crate::roles::java::{
+            branch, catch, closure, else_if, func_opener, is_switch_body_kind, r#loop,
+            short_circuit, ternary,
+        };
         use Java::*;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -29,7 +37,15 @@ impl Cognitive for JavaCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            IfStatement if !Self::is_else_if(node, ancestors) => {
+            // An `if_statement` the `Branch` row owns opens a nesting
+            // level — unless the `ElseIf` row recognises it as the
+            // continuation of an `else if` chain (its previous sibling is
+            // the `else` token), where the `Else` arm below pays the +1
+            // and no level opens (#1697). The chain read is asked only of
+            // `if`s, inside this guard, so no other node pays for it.
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                && !else_if::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // A `binary_expression` the `ShortCircuit` row owns: its
@@ -38,8 +54,14 @@ impl Cognitive for JavaCode {
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
-            ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
-            | CatchClause => {
+            // Every loop the `Loop` row owns, every handler the `Catch`
+            // row owns, and the body of the switch the `Switch` row owns
+            // — the level opens at the body, not the owner;
+            // `is_switch_body_kind` says why.
+            _ if r#loop::owns_kind(kind, node, code, ancestors)
+                || catch::owns_kind(kind, node, code, ancestors)
+                || is_switch_body_kind(kind) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expression` the `Ternary` row owns (#1695).

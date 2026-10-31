@@ -20,10 +20,13 @@ impl Npm for ElixirCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_do_block_call_children};
+        use crate::lang_helpers::elixir::{
+            ElixirCallTarget, elixir_call_keyword, elixir_call_target,
+            elixir_do_block_call_children,
+        };
 
         // The space-opening node for a `defmodule` Call is the node
         // itself, and the walker pushes that space before running any
@@ -31,14 +34,15 @@ impl Npm for ElixirCode {
         // own module and never reaches this one's stats.
         //
         // `is_func_space_with_code` is not consulted: it is implied.
-        // `elixir_is_class_macro` is exactly `kw == "defmodule"`, so it
-        // answers `true` for every node this check lets through, and for
-        // the `def`-shaped calls where it would have consulted the
+        // The `Container` row's gate is exactly the `defmodule` word, so
+        // it answers `true` for every node this check lets through, and
+        // for the `def`-shaped calls where it would have consulted the
         // ancestor chain — the `quote`-template lookup — this check
         // rejects the node anyway. Calling it cost a source-text keyword
         // scan per node plus, before #1088, an `O(depth)` climb, and its
-        // answer was discarded either way (#1088).
-        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+        // answer was discarded either way (#1088). The word is the
+        // walk's cached one (#1697).
+        if elixir_call_target(node, code, ancestors) != ElixirCallTarget::Defmodule {
             return;
         }
 
@@ -52,15 +56,22 @@ impl Npm for ElixirCode {
         // descend deeper — methods nested inside another `defmodule`
         // are attributed to that inner module via its own pass. Which of
         // the four macros is public is this consumer's reading too.
+        // The uncached read, deliberately: each statement is another
+        // node than the one the walk is visiting, so the cached read
+        // would evict the module's own word from the slot before NPA
+        // asks for it, and the statements miss when they are visited in
+        // turn anyway (`elixir_call_keyword`'s doc).
         for stmt in elixir_do_block_call_children(node) {
-            match elixir_call_keyword(&stmt, code) {
-                Some("def" | "defmacro") => {
+            match elixir_call_keyword(&stmt, code)
+                .map_or(ElixirCallTarget::Other, ElixirCallTarget::from_text)
+            {
+                ElixirCallTarget::Def | ElixirCallTarget::Defmacro => {
                     stats.class_nm += 1;
                     stats.class_npm += 1;
                 }
                 // `defp` / `defmacrop` are methods but not public, so
                 // they bump `class_nm` only.
-                Some("defp" | "defmacrop") => {
+                ElixirCallTarget::Defp | ElixirCallTarget::Defmacrop => {
                     stats.class_nm += 1;
                 }
                 _ => {}

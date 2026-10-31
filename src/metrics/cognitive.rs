@@ -27,9 +27,7 @@ use crate::spaces::{Nesting, NestingMap};
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
 use crate::lang_helpers::python::python_is_lambda;
-use crate::lang_helpers::tcl::tcl_command_name;
 use crate::macros::implement_metric_trait;
 use crate::metrics::ConstraintReach;
 use crate::*;
@@ -403,22 +401,33 @@ macro_rules! js_cognitive {
             stats: &mut Stats,
             nesting_map: &mut NestingMap,
         ) {
-            use crate::roles::$roles::{func_opener, null_safe, short_circuit, ternary};
+            use crate::roles::$roles::{
+                branch, catch, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
+                ternary,
+            };
             use $lang::*;
             let mut nesting = get_nesting_from_map(node, nesting_map);
 
             let kind = node.kind_id();
 
             match kind.into() {
-                IfStatement if !Self::is_else_if(node, ancestors) => {
+                // An `if_statement` the `Branch` row owns opens a level —
+                // unless the `ElseIf` row recognises it as the `if` of an
+                // `else if` (its parent is the `else_clause`), where the
+                // `Else` arm below pays the +1 and no level opens (#1697).
+                // The parent read is asked only of `if`s, inside this guard.
+                _ if branch::owns_kind(kind, node, code, ancestors)
+                    && !else_if::owns_kind(kind, node, code, ancestors) =>
+                {
                     increase_nesting(stats, &mut nesting);
                 }
-                ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement
-                | CatchClause => {
-                    increase_nesting(stats, &mut nesting);
-                }
-                // The `ternary_expression` the `Ternary` row owns (#1695).
-                _ if ternary::owns_kind(kind, node, code, ancestors) => {
+                // Every loop, switch and handler the rows own, and the
+                // `ternary_expression` the `Ternary` row owns (#1695).
+                _ if r#loop::owns_kind(kind, node, code, ancestors)
+                    || switch::owns_kind(kind, node, code, ancestors)
+                    || catch::owns_kind(kind, node, code, ancestors)
+                    || ternary::owns_kind(kind, node, code, ancestors) =>
+                {
                     increase_nesting(stats, &mut nesting);
                 }
                 // `Else` here is the `else` keyword token, which the
@@ -548,42 +557,6 @@ mod typescript;
 ))]
 mod word_operator_tests;
 
-// Tcl's `try` has a dedicated kind (unlike `switch`/`for`), but its error
-// handler is a flat run of sibling tokens rather than a wrapper node
-// (issue #1266):
-//
-//   (try "try" <body> ["on" "error" (arguments) <body>] [(finally)])
-//
-// The vendored grammar permits at most one `on error` handler and has no
-// `trap` rule at all — Tcl 8.6's multi-handler and `trap` forms degrade to
-// an `ERROR` node, a grammar limitation like the `for` condition in #1264.
-// The scan still tolerates repetition so a grammar bump that adds those
-// forms keeps counting without an edit here.
-//
-// Each handler body is located by structural position, never fixed index
-// (grammar-dispatch §3): it is the child directly following the handler's
-// `arguments` node. That makes the scan pairwise — every child paired with
-// its predecessor, yielding the successor of each `arguments` — rather
-// than a state machine over the `on` / `error` / `arguments` run. The
-// grammar's extras are whitespace-only, so nothing can interpose between
-// the `arguments` node and the body it introduces, and `arguments` appears
-// among a `try`'s direct children only in handler position. Repetition
-// costs nothing here: a grammar bump that admits several handlers (or
-// `trap`) is counted without an edit, because each `arguments` yields its
-// own successor. The `finally` clause is a wrapper kind (`Tcl::Finally`)
-// and is never yielded — unconditional cleanup costs nothing, matching the
-// cross-language `finally` convention (#416).
-//
-// Shared by Cognitive (which also seeds each body's nesting slot) and
-// Cyclomatic (which counts the bodies); both call it from their `Tcl::Try`
-// dispatch arm.
-pub(crate) fn tcl_try_handler_bodies<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
-    node.children()
-        .zip(node.children().skip(1))
-        .filter(|(previous, _)| previous.kind_id() == Tcl::Arguments as u16)
-        .map(|(_, body)| body)
-}
-
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -660,6 +633,154 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The `ElseIf` subtraction, per language, through the metric: an
+    /// `if / else if / else if` chain scores 3 (the `if`, then +1 per
+    /// `else if` as a branch extension, no nesting), and the same three
+    /// tests written as a genuinely nested `if` inside each `else` block
+    /// score 8: each `if` pays its depth (1 + 2 + 3 = 6) and the two
+    /// `else` tokens +1 each. A consumer that drops the
+    /// `!else_if::owns_kind` term reads the chain as the nested shape.
+    /// One row per language the rows reach (#1697); the
+    /// `else_if_is_recognised_at_every_nesting_depth` test above covers
+    /// the chain's depth independence for C and Java — one language per
+    /// gate emitter — not every language's consumer.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+    ))]
+    #[test]
+    fn else_if_chain_scores_below_its_nested_twin_in_every_language() {
+        use crate::test_support::metrics_verbatim;
+        let chain = "if (a) { } else if (b) { } else if (c) { }";
+        let nested = "if (a) { } else { if (b) { } else { if (c) { } } }";
+        let wrap = |body: &str, lang: LANG| -> String {
+            match lang {
+                LANG::Java => format!("class A {{ void m() {{ {body} }} }}\n"),
+                LANG::Objc => format!("@implementation A\n- (void)m {{ {body} }}\n@end\n"),
+                LANG::Javascript | LANG::Mozjs | LANG::Typescript | LANG::Tsx => {
+                    format!("function m() {{ {body} }}\n")
+                }
+                _ => format!("void m() {{ {body} }}\n"),
+            }
+        };
+        let langs = [
+            LANG::C,
+            LANG::Cpp,
+            LANG::Mozcpp,
+            LANG::Objc,
+            LANG::Java,
+            LANG::Javascript,
+            LANG::Mozjs,
+            LANG::Typescript,
+            LANG::Tsx,
+        ];
+        let mut ran = 0;
+        for lang in langs.into_iter().filter(LANG::is_enabled) {
+            ran += 1;
+            let score = |body: &str| {
+                metrics_verbatim(lang, wrap(body, lang).as_bytes(), MetricsOptions::default())
+                    .cognitive
+                    .cognitive_sum()
+            };
+            assert_eq!(score(chain), 3, "{lang:?}: chain");
+            assert_eq!(score(nested), 8, "{lang:?}: nested twin");
+        }
+        assert!(ran > 0);
+    }
+
+    /// Every `Catch` owner opens a nesting level, per language: a branch
+    /// inside a handler pays 2, not 1. The C-family cognitive tests
+    /// held a handler but not a decision inside one, so a consumer that
+    /// stopped nesting at the handler read the same totals (#1697).
+    #[cfg(any(
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+        feature = "groovy",
+        feature = "kotlin",
+        feature = "csharp",
+        feature = "php",
+        feature = "ruby",
+    ))]
+    #[test]
+    fn a_branch_inside_a_catch_handler_pays_the_handlers_nesting() {
+        use crate::test_support::metrics_verbatim;
+        let cases: &[(LANG, &str)] = &[
+            (
+                LANG::Cpp,
+                "void m(int a) { try { } catch (int e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Mozcpp,
+                "void m(int a) { try { } catch (int e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Objc,
+                "@implementation A\n- (void)m:(int)a { @try { } @catch (NSException *e) { if (a) { } } }\n@end\n",
+            ),
+            (
+                LANG::Java,
+                "class A { void m(int a) { try { } catch (Exception e) { if (a > 0) { } } } }\n",
+            ),
+            (
+                LANG::Javascript,
+                "function m(a) { try { } catch (e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Mozjs,
+                "function m(a) { try { } catch (e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Typescript,
+                "function m(a) { try { } catch (e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Tsx,
+                "function m(a) { try { } catch (e) { if (a) { } } }\n",
+            ),
+            (
+                LANG::Groovy,
+                "class C { void m(int a) { try { } catch (Exception e) { if (a) { } } } }\n",
+            ),
+            (
+                LANG::Kotlin,
+                "fun m(a: Int) { try { } catch (e: Exception) { if (a > 0) { } } }\n",
+            ),
+            (
+                LANG::Csharp,
+                "class C { void M(int a) { try { } catch (System.Exception e) { if (a > 0) { } } } }\n",
+            ),
+            (
+                LANG::Php,
+                "<?php\nfunction m($a) { try { } catch (Exception $e) { if ($a) { } } }\n",
+            ),
+            (
+                LANG::Ruby,
+                "def m(a)\n  begin\n  rescue => e\n    if a then end\n  end\nend\n",
+            ),
+        ];
+        let mut ran = 0;
+        for (lang, source) in cases.iter().filter(|(lang, _)| lang.is_enabled()) {
+            ran += 1;
+            let sum = metrics_verbatim(*lang, source.as_bytes(), MetricsOptions::default())
+                .cognitive
+                .cognitive_sum();
+            // expected: catch +1 (nesting 0), if +1 +1 nesting = 3.
+            assert_eq!(sum, 3, "{lang:?}");
+        }
+        assert!(ran > 0);
     }
 
     /// A `Stats::default()` that never sees an
@@ -980,6 +1101,55 @@ mod tests {
                 "#
                 );
             },
+        );
+    }
+
+    /// Python's `else if` (#276) is the sole statement of an `else:`
+    /// block — the `ElseIf` row's gated `if_statement` owner (#1697).
+    /// Three shapes: the chain scores 2 (`if` +1, `else` +1, no level
+    /// for the inner `if`); a sibling statement in the block makes a
+    /// real nest, 4 (`if` +1, `else` +1, inner `if` +1 +1 nesting); and
+    /// a *comment* in the block is a named child the grammar puts
+    /// beside the `if`, so it is a nest too and scores 4 — the shape the
+    /// `block`'s child count has always produced and the row carries
+    /// unchanged. A comment before the block (`else:  # note`) sits
+    /// under the `else_clause`, not the block, and keeps the chain.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_sole_if_under_else_extends_the_branch() {
+        use crate::test_support::metrics_verbatim;
+        let score = |src: &str| {
+            metrics_verbatim(LANG::Python, src.as_bytes(), MetricsOptions::default())
+                .cognitive
+                .cognitive_sum()
+        };
+        assert_eq!(
+            score(
+                "def h(a):\n    if a:\n        pass\n    else:\n        if a:\n            pass\n"
+            ),
+            2,
+            "sole `if`: a chain"
+        );
+        assert_eq!(
+            score(
+                "def k(a):\n    if a:\n        pass\n    else:\n        x = 1\n        if a:\n            pass\n"
+            ),
+            4,
+            "a sibling statement: a nest"
+        );
+        assert_eq!(
+            score(
+                "def c(a):\n    if a:\n        pass\n    else:\n        if a:\n            pass\n        # trailing\n"
+            ),
+            4,
+            "a comment in the block is a named sibling: a nest, as before"
+        );
+        assert_eq!(
+            score(
+                "def d(a):\n    if a:\n        pass\n    else:\n        # note\n        if a:\n            pass\n"
+            ),
+            2,
+            "a comment before the block hangs off the `else_clause`"
         );
     }
 

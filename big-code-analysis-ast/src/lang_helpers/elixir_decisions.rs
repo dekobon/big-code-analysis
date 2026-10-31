@@ -9,7 +9,7 @@
 //! one module — here, beside the rows that gate on it (#1695; it was
 //! `src/metrics/elixir_decisions.rs` in the root until then).
 
-use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
+use crate::lang_helpers::elixir::{ElixirCallTarget, elixir_call_keyword};
 use crate::node::MemoQuestion;
 use crate::{Ancestors, Elixir, Node};
 
@@ -19,6 +19,12 @@ use crate::{Ancestors, Elixir, Node};
 // the answers are identical either way, and only the count tells the
 // two apart.
 crate::observation::counter!(guard_position_checks, cfg(test));
+
+// How many sibling scans the keyword-section lookup ran — the
+// trailing-argument and leading-pairs reads. A walk lending a
+// `FoldCache` runs each once per argument or list, however many pairs
+// ask; only the count tells that from once per pair (#1697).
+crate::observation::counter!(section_position_scans, cfg(test));
 
 /// Whether `child` can occupy an operand slot: named, and not an
 /// `extra`. The root's `metrics::abc::is_operand`, which the rows
@@ -238,7 +244,12 @@ fn elixir_is_guard_position<'a>(
     parent.kind() == ARGUMENTS
         && up.next().is_some_and(|call| {
             elixir_call_keyword(&call, code).is_some_and(|keyword| {
-                elixir_is_method_macro(keyword) || matches!(keyword, "defguard" | "defguardp")
+                let target = ElixirCallTarget::from_text(keyword);
+                target.is_method_macro()
+                    || matches!(
+                        target,
+                        ElixirCallTarget::Defguard | ElixirCallTarget::Defguardp
+                    )
             })
         })
 }
@@ -425,9 +436,7 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// user macro's clauses mean whatever it makes of them, so gating on the
 /// owner would change no valid program's score in a way either answer
 /// could defend. A dispatching DSL is the likelier reading, and is the
-/// one kept. Cognitive gates its keyword sections on the owner for a
-/// different reason: it scores the pair whatever its value holds, and
-/// `else:` is an ordinary option to any function (`f(x, else: 1)`).
+/// one kept.
 ///
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
 /// both score a clause construct per clause and must agree on which
@@ -661,6 +670,16 @@ fn elixir_keyword_section<'a>(arguments: &Node<'a>, code: &'a [u8], key: &str) -
         .child_by_field_name("value")
 }
 
+/// A keyword pair that is a section of a Call: its key and the Call
+/// whose trailing keyword list holds it.
+#[derive(Clone, Copy, Debug)]
+pub struct ElixirPairSection<'a> {
+    /// The pair's key, `else` for `else:`.
+    pub key: &'a str,
+    /// The Call whose trailing keyword list holds the pair.
+    pub call: Node<'a>,
+}
+
 /// The section key of `pair` and the `Call` whose trailing keyword list
 /// holds it — `("else", if …)` for the `else:` of `if(c, do: 1, else: 2)`
 /// or of `if(c, [do: 1, else: 2])` — or `None` when `pair` is not a
@@ -686,7 +705,7 @@ pub fn elixir_pair_section<'a>(
     pair: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
-) -> Option<(&'a str, Node<'a>)> {
+) -> Option<ElixirPairSection<'a>> {
     let mut up = ancestors.iter(pair);
     let (keywords, keywords_ancestors) = up.next().filter(|(node, _)| node.kind() == KEYWORDS)?;
     // The argument the keyword list is: itself, or the list bracketing it.
@@ -703,17 +722,40 @@ pub fn elixir_pair_section<'a>(
     // that holds nothing before them holds nothing else.
     let is_section = arguments.kind() == ARGUMENTS
         && call.kind_id() == Elixir::Call as u16
-        && argument_ancestors
-            .siblings_after(&argument)
+        && elixir_argument_is_trailing(&argument, argument_ancestors)
+        && (!bracketed || elixir_keywords_lead_their_list(&keywords, keywords_ancestors));
+    let key = is_section.then(|| elixir_pair_key(pair, code)).flatten()?;
+    Some(ElixirPairSection { key, call })
+}
+
+/// Whether no operand follows `argument` among its Call's arguments —
+/// the position a keyword list must hold to be the Call's sections. The
+/// scan walks whatever trails the argument, comments included (the
+/// grammar makes them extras), and every pair in the list asks it, so
+/// the answer is memoised on the argument under a walk that lent a cache
+/// (`cognitive/elixir-rejected-keyword-list` prices the shape).
+fn elixir_argument_is_trailing<'a>(argument: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.memoised(MemoQuestion::ArgumentIsTrailing, argument, || {
+        section_position_scans::record();
+        ancestors
+            .siblings_after(argument)
             .all(|sibling| !is_operand(&sibling))
-        && (!bracketed
-            || keywords_ancestors
-                .siblings_before(&keywords)
-                .all(|sibling| !is_operand(&sibling)));
-    is_section
-        .then(|| elixir_pair_key(pair, code))
-        .flatten()
-        .map(|key| (key, call))
+    })
+}
+
+/// Whether nothing but extras precedes `keywords` inside its bracketing
+/// list — the list is `[do: …, else: …]` and not `[1, do: …]`. The scan
+/// walks the siblings before the pairs, comments included, and every
+/// pair in the list asks it, so the answer is memoised on the list
+/// (`cognitive/elixir-rejected-keyword-list` prices the shape beside
+/// its trailing-argument twin).
+fn elixir_keywords_lead_their_list<'a>(keywords: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.memoised(MemoQuestion::KeywordsLeadTheirList, keywords, || {
+        section_position_scans::record();
+        ancestors
+            .siblings_before(keywords)
+            .all(|sibling| !is_operand(&sibling))
+    })
 }
 
 /// The rule name of a keyword list (two kind ids at this pin).
@@ -738,8 +780,8 @@ fn elixir_do_section_call<'a>(
     match holder.kind_id().into() {
         E::DoBlock => Some(next),
         E::Block => elixir_pair_section(&next, code, next_ancestors)
-            .filter(|(key, _)| *key == "do")
-            .map(|(_, call)| call),
+            .filter(|section| section.key == "do")
+            .map(|section| section.call),
         _ => None,
     }
 }
@@ -832,6 +874,47 @@ mod tests {
         assert_eq!(found, [None, Some("else: 1".to_owned())]);
     }
 
+    // The two position scans behind the section lookup run once per
+    // list or argument under a walk that lent a cache, however many
+    // pairs ask: a bracketed trailing list of N pairs costs one
+    // trailing scan (on the list argument) and one leading scan; a bare
+    // one costs the first alone. Uncached, every pair re-runs its scans.
+    // Only the counter tells the two apart — the answers agree — and the
+    // scaling probe prices the same shape off-PR (#1697).
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn section_position_scans_run_once_per_list_under_a_cache() {
+        use crate::node::FoldCache;
+        let source = b"foo([do: 0, else: 1, else: 2, else: 3])\nbar(do: 0, else: 1, else: 2)\n";
+        let cache = FoldCache::default();
+        let before = section_position_scans::observed();
+        let mut cached = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() == Elixir::Pair as u16 {
+                let ancestors = Ancestors::known(chain).with_folds(&cache);
+                let section = elixir_pair_section(node, source, ancestors).expect("a section pair");
+                cached.push(section.key.to_owned());
+            }
+        });
+        let cached_scans = section_position_scans::observed() - before;
+        let before = section_position_scans::observed();
+        let mut uncached = Vec::new();
+        for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
+            if node.kind_id() == Elixir::Pair as u16 {
+                let ancestors = Ancestors::known(chain);
+                let section = elixir_pair_section(node, source, ancestors).expect("a section pair");
+                uncached.push(section.key.to_owned());
+            }
+        });
+        let uncached_scans = section_position_scans::observed() - before;
+        assert_eq!(cached.len(), 7);
+        assert_eq!(cached, uncached);
+        // `foo`: 2 scans for its one list; `bar`: 1 — the bracketed list
+        // adds the leading-pairs read. Uncached: `foo`'s 4 pairs × 2 and
+        // `bar`'s 3 pairs × 1.
+        assert_eq!((cached_scans, uncached_scans), (3, 11));
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn standalone_keyword_list_has_no_owning_call() {
@@ -840,14 +923,16 @@ mod tests {
         for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
             if node.kind_id() == Elixir::Pair as u16 {
                 found.push(
-                    elixir_pair_section(node, source, Ancestors::known(chain)).map(
-                        |(key, call)| {
-                            (
-                                key.to_owned(),
-                                call.utf8_text(source).expect("call is UTF-8").to_owned(),
-                            )
-                        },
-                    ),
+                    elixir_pair_section(node, source, Ancestors::known(chain)).map(|section| {
+                        (
+                            section.key.to_owned(),
+                            section
+                                .call
+                                .utf8_text(source)
+                                .expect("call is UTF-8")
+                                .to_owned(),
+                        )
+                    }),
                 );
             }
         });

@@ -14,7 +14,8 @@ use super::{
     rows_own, wrapped_operand,
 };
 use crate::lang_helpers::elixir::{
-    elixir_applying_remote_call, elixir_call_keyword, elixir_kernel_short_circuit_name,
+    ElixirCallTarget, elixir_applying_remote_call, elixir_call_target,
+    elixir_kernel_short_circuit_name,
 };
 use crate::lang_helpers::elixir_decisions::{
     Section, elixir_arrow_is_with_clause, elixir_call_has_section, elixir_sole_unguarded_pattern,
@@ -203,33 +204,47 @@ fn elixir_count_remote_chain<'a>(
     count_each_operand(&remote.arguments, score, conditions);
 }
 
+// The Call targets ABC leaves out of its branch count: a definition or
+// a compile-time directive, not a call that branches. ABC's reading of
+// the word, not the word's identity — `quote` and `defguard` are
+// compile-time too and are *not* here, because the branch policy never
+// excluded them — so it lives beside the consumer, with the
+// classification (`ElixirCallTarget`) in the parse layer.
+fn elixir_is_definition_or_directive(target: ElixirCallTarget) -> bool {
+    use ElixirCallTarget as T;
+    matches!(
+        target,
+        T::Def
+            | T::Defp
+            | T::Defmacro
+            | T::Defmacrop
+            | T::Defmodule
+            | T::Defstruct
+            | T::Defprotocol
+            | T::Defimpl
+            | T::Alias
+            | T::Import
+            | T::Require
+            | T::Use
+    )
+}
+
 // What an Elixir `Call` contributes. The classification is by keyword
 // text rather than by kind, so it is a paragraph of policy rather than a
 // dispatch arm — the same split `java_count_token_branch` and
 // `csharp_count_token_assignment` make in the two largest sibling impls.
-fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
-    let keyword = elixir_call_keyword(node, code);
-    let is_definition_or_directive = matches!(
-        keyword,
-        Some(
-            "def"
-                | "defp"
-                | "defmacro"
-                | "defmacrop"
-                | "defmodule"
-                | "defstruct"
-                | "defprotocol"
-                | "defimpl"
-                | "alias"
-                | "import"
-                | "require"
-                | "use"
-        )
-    );
-    if !is_definition_or_directive {
+// The word is the walk's cached `ElixirCallTarget` (#1697).
+fn elixir_count_call<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    let target = elixir_call_target(node, code, ancestors);
+    if !elixir_is_definition_or_directive(target) {
         stats.branches += 1.;
     }
-    if keyword == Some("receive")
+    if target == ElixirCallTarget::Receive
         && let Some(timeout) =
             crate::lang_helpers::elixir_decisions::elixir_receive_timeout_clause(node, code)
     {
@@ -239,7 +254,7 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
     // (`if p do … end`) and keyword (`if p, do: …`) forms, and is a
     // slot (#1527). `arguments` carries five kind aliases at this
     // pin, so it is matched by rule name (grammar-dispatch §1).
-    if let Some("if" | "unless") = keyword {
+    if matches!(target, ElixirCallTarget::If | ElixirCallTarget::Unless) {
         if let Some(predicate) = node
             .children()
             .find(|c| c.kind() == "arguments")
@@ -339,7 +354,7 @@ impl Abc for ElixirCode {
             // directives (`alias`, `import`, `require`, `use`) are
             // similarly declarative and excluded.
             //
-            // Cognitive's `elixir_call_keyword` lookup is reused to
+            // Cognitive's `elixir_call_target` lookup is reused to
             // identify the target keyword. Note: Cognitive only acts
             // on a subset of these keywords (the four method-definers
             // for nesting reset, plus the 7 control-flow keywords for
@@ -350,7 +365,7 @@ impl Abc for ElixirCode {
             // helper to look up the keyword, but apply different
             // policies on top.
             _ if call::owns_kind(kind, node, code, ancestors) => {
-                elixir_count_call(node, code, stats);
+                elixir_count_call(node, code, ancestors, stats);
             }
             // Guard `when` token: introduces the guard clause of a
             // function head or `case` / `fn` / `receive` arm. The guard

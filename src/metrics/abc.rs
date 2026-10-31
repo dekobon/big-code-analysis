@@ -524,7 +524,8 @@ pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 macro_rules! rows_own {
     ($expr:expr, $code:expr; $($row:ident),+ $(,)?) => {{
         let unknown = Ancestors::unknown();
-        false $(|| $row::owns($expr, $code, unknown))+
+        let kind = $expr.kind_id();
+        false $(|| $row::owns_kind(kind, $expr, $code, unknown))+
     }};
 }
 pub(super) use rows_own;
@@ -5646,6 +5647,31 @@ mod tests {
                 ],
             );
         });
+    }
+
+    /// ABC scores C#'s `catch` at the keyword *token*, not at the `Catch`
+    /// row's `catch_clause` owner (#1697). On valid code the two agree;
+    /// under recovery they do not: a file cut inside a catch filter
+    /// (`… } catch (E e) when (e != null) {` then EOF) parses the
+    /// `catch` token, `catch_declaration` and `catch_filter_clause` as
+    /// direct children of the `ERROR` root with no `catch_clause` around
+    /// them, and the token arm still pays its condition. The #1697
+    /// recovery sweep found the owner read drifted exactly here (54 cut
+    /// points of one fixture), so the token stays.
+    ///
+    /// This pins recovery *parity* with the pre-migration arm, not a
+    /// language contract (grammar-dispatch §6): no valid C# can tell the
+    /// token from the clause. A grammar bump that changes the recovery
+    /// shape should delete this test rather than relax it.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_stranded_catch_token_under_recovery_still_scores_a_condition() {
+        use crate::test_support::metrics_verbatim;
+        let cut = b"class C {\n    void Exc() {\n        try { throw new Exception(); } catch (InvalidOperationException e) when (e != null) {";
+        let m = metrics_verbatim(LANG::Csharp, cut, MetricsOptions::default());
+        // expected: `try` 1 + `catch` 1 + the filter's `!=` 1 = 3; with
+        // the token read at the clause instead, the `catch` is lost: 2.
+        assert_eq!(m.abc.conditions_sum(), 3);
     }
 
     // A guarded discard is where the two rules meet. `_ when g =>` is
@@ -12011,6 +12037,28 @@ end
         );
     }
 
+    // Every declaration and directive `elixir_is_definition_or_directive`
+    // names is a `call` that is not a
+    // branch: the module, the struct, a protocol and its impl, the
+    // four `def`s, the four directives. The branches are `g()` and the
+    // two `q(…)` heads of the arity-bearing `def`s (a head is a `call`,
+    // as `elixir_pipeline_each_step_is_branch` notes), so dropping any
+    // word from the list reads as 4 here (the #1697 perturbation sweep
+    // found `defstruct` caught by nothing before).
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_declarations_and_directives_are_not_branches() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  alias A.B\n  import C\n  require D\n  use E\n  defstruct [:a]\n  def f, do: g()\n  defp p, do: 1\n  defmacro m, do: 1\n  defmacrop mp, do: 1\nend\ndefprotocol P do\n  def q(x)\nend\ndefimpl P, for: Foo do\n  def q(_), do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
     // `for` is a comprehension/loop, NOT in the issue's condition
     // list. It is still a Call so it contributes one branch, but no
     // condition.
@@ -16746,10 +16794,10 @@ end
     // The other half of that gate's allowlist. `elixir_when_is_guard`
     // accepts a definition `Call`'s `arguments` anchor when the call's
     // keyword is a method macro *or* one of `defguard` / `defguardp`,
-    // and the second disjunct is its own path: `elixir_is_method_macro`
-    // spells only `def` / `defp` / `defmacro` / `defmacrop`, so a
-    // `defguard` head reaches the anchor test solely through the
-    // `matches!`. Nothing in the suite spelled `defguard` before this,
+    // and the second disjunct is its own path:
+    // `ElixirCallTarget::is_method_macro` spells only `def` / `defp` /
+    // `defmacro` / `defmacrop`, so a `defguard` head reaches the anchor
+    // test solely through the `Defguard | Defguardp` arm. Nothing in the suite spelled `defguard` before this,
     // which left the disjunct scored by no fixture at all.
     //
     // `defguard` is where a guard is most obviously a decision — the

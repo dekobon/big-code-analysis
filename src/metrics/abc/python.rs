@@ -12,7 +12,7 @@
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, peel, rows_own, wrapped_operand,
 };
-use crate::roles::python::{call, case_arm, comparison, guard, short_circuit, ternary};
+use crate::roles::python::{call, case_arm, catch, comparison, guard, short_circuit, ternary};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -129,6 +129,8 @@ fn python_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
 // unparenthesised `b if a else c` correctly scores at zero.
 fn python_count_ternary_condition(node: &Node, code: &[u8], conditions: &mut f64) {
     use Python::*;
+    // role-bypass: allow(Branch) — the ternary's `if` token as a position
+    // marker for the condition that follows it, not a branch
     if let Some(condition) = node
         .children()
         .skip_while(|child| child.kind_id() != If as u16)
@@ -246,7 +248,11 @@ impl Abc for PythonCode {
             _ if call::owns_kind(kind, node, code, ancestors) => {
                 stats.branches += 1.;
             }
-            ElseClause | ExceptClause | FinallyClause => {
+            ElseClause | FinallyClause => {
+                stats.conditions += 1.;
+            }
+            // And the `except` clause the `Catch` row owns (#1697).
+            _ if catch::owns_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Python's unary `not` is the paper's "unary conditional
@@ -282,6 +288,12 @@ impl Abc for PythonCode {
             // an `if` predicate slot, as Ruby's `elsif` is. It paid only
             // the first, so `elif b` scored one below `else if (b)` while
             // `elif x > 0` matched it through the comparison arm (#1526).
+            // The clause is the `ElseIf` row's owner — read at the owner,
+            // since the slot is the clause's, not the `elif` keyword's that
+            // pays cyclomatic; the row's other owner, the chained `if`,
+            // is an `if_statement` and takes the slot arm below instead.
+            // role-bypass: allow(ElseIf) — which of the row's two owners
+            // carries the `condition` slot read here, not membership
             ElifClause => {
                 stats.conditions += 1.;
                 python_count_slot(
@@ -304,6 +316,9 @@ impl Abc for PythonCode {
             // other languages' slots (#1455) a fixed child(1) gave the
             // same answer: no valid Python puts a comment between `if`
             // and its condition, so no test can tell the two apart.
+            // role-bypass: allow(Branch, Loop) — the owners with a `condition`
+            // slot: `assert`'s condition is its only operand and `for` iterates,
+            // so this is a subset of each row, not membership
             IfStatement | WhileStatement => {
                 python_count_slot(
                     node.child_by_field_name("condition"),

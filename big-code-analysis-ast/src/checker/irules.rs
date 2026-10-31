@@ -61,9 +61,8 @@ impl Checker for IrulesCode {
         false
     }
 
-    // iRules grammar has a dedicated `elseif` named node (id 145), not a
-    // nested `if`. `Elseif2` (id 92) is the `elseif` keyword token, not
-    // the clause, so it is intentionally excluded here (lesson #34
-    // defensive-arm marker).
-    impl_is_else_if_clause!(Irules, Elseif);
+    // The `ElseIf` row of `roles/irules.rs`: the dedicated `elseif` node
+    // itself is the else-if. `Elseif2` is the `elseif` keyword token, not
+    // the clause, and the row leaves it out (#1697).
+    impl_else_if_from_row!(irules);
 }

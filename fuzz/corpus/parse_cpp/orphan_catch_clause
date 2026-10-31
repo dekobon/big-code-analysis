@@ -1,0 +1,3 @@
+int f() {
+  catch (int e) { return e; }
+}

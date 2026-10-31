@@ -62,12 +62,12 @@ impl Cognitive for PerlCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the count is
-        // the number of node kinds the grammar can hand us, not branching
-        // a reader must hold, and the effort is the table's vocabulary;
-        // the row reads (#1695) are arms like the kind arms they replaced.
-        use crate::roles::perl::{closure, func_opener, ternary};
+        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
+        // One arm per construct the grammar can hand us, each a row read or a
+        // kind the rows do not own: the count is the construct list, not
+        // branching a reader must hold, and the effort is the table's vocabulary
+        // (#1695, #1697).
+        use crate::roles::perl::{branch, closure, else_if, func_opener, r#loop, ternary};
         use Perl as P;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -75,32 +75,35 @@ impl Cognitive for PerlCode {
         let kind = node.kind_id();
 
         match kind.into() {
-            // tree-sitter-perl parses `elsif_clause` as a direct child of
-            // the surrounding `if_statement` (not as a nested `if`), so the
-            // `IfStatement` arm here always increases nesting and the
-            // `Else | ElsifClause` arm below carries the flat +1.
-            P::IfStatement
-            | P::UnlessStatement
-            | P::WhileStatement
-            | P::UntilStatement
-            | P::ForStatement1
-            | P::ForStatement2
-            // Postfix conditional / loop forms (`return 1 if $cond;`) — the
-            // condition is a real cognitive branch and contributes nesting
-            // even though the body is a single expression.
-            | P::IfSimpleStatement
-            | P::UnlessSimpleStatement
-            | P::WhileSimpleStatement
-            | P::UntilSimpleStatement
-            | P::ForSimpleStatement => {
+            // Every branch the `Branch` row owns and every loop the
+            // `Loop` row owns — the block forms and the postfix forms
+            // (`return 1 if $cond;`), whose condition is a real cognitive
+            // branch even though the body is one expression. tree-sitter-
+            // perl parses `elsif_clause` as a direct child of the
+            // `if_statement`, never as a nested `if`, so no `ElseIf` guard
+            // is needed here: an `if_statement` always opens a level and
+            // the clause carries the flat +1 below (#1697).
+            _ if branch::owns_kind(kind, node, code, ancestors)
+                || r#loop::owns_kind(kind, node, code, ancestors) =>
+            {
                 increase_nesting(stats, &mut nesting);
             }
             // The `ternary_expression` the `Ternary` row owns (#1695).
             _ if ternary::owns_kind(kind, node, code, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            // `else` and `elsif` each contribute a flat +1.
-            P::Else | P::ElsifClause => {
+            // `else` and the `elsif` clause the `ElseIf` row pays at —
+            // its leaf, the clause itself — each contribute a flat +1.
+            // `increment_by_one`, not `increment_branch_extension`: of
+            // the dedicated-clause languages — Bash, Lua, iRules, Ruby
+            // and Tcl all reset — Perl is the one that has never reset
+            // the boolean sequence at a clause, and the row migration
+            // moved the occurrence, not the action (#1697). One arm: the row read
+            // is a guard, so the `else` token joins it as a kind compare
+            // rather than a pattern.
+            _ if kind == P::Else as u16
+                || else_if::pays_at_leaf_kind(kind, node, code, ancestors) =>
+            {
                 increment_by_one(stats);
             }
             // SonarSource §B2: `goto` is a non-local jump and adds +1.
@@ -152,5 +155,48 @@ impl Cognitive for PerlCode {
             _ => {}
         }
         nesting_map.insert(node.id(), nesting);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::for_each_node_with_chain;
+
+    /// The `elsif` arm is `increment_by_one`, not
+    /// `increment_branch_extension`: this module has never reset the
+    /// boolean sequence at a clause, and #1697 moved the occurrence onto
+    /// the `ElseIf` row without moving the action (#1697). No output
+    /// can tell the two apart — a sequence opened in the `if`'s
+    /// condition ends with that condition's span before the `elsif` is
+    /// visited — so the pin is the state: seed an open sequence, run
+    /// `compute` on the clause, and the sequence is still open.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn elsif_adds_one_and_leaves_an_open_boolean_sequence_alone() {
+        let source = b"sub f { if ($a) { 1 } elsif ($b) { 2 } }\n";
+        let mut seen = 0;
+        for_each_node_with_chain::<PerlCode>(source, |node, chain| {
+            if node.kind_id() != Perl::ElsifClause as u16 {
+                return;
+            }
+            seen += 1;
+            let mut stats = Stats {
+                structural: 5,
+                boolean_seq: BoolSequence {
+                    boolean_op: Some((Perl::AMPAMP as u16, usize::MAX)),
+                },
+                ..Stats::default()
+            };
+            let mut map = NestingMap::default();
+            PerlCode::compute(node, source, Ancestors::known(chain), &mut stats, &mut map);
+            assert_eq!(stats.structural, 6, "one flat increment");
+            assert_eq!(
+                stats.boolean_seq.boolean_op,
+                Some((Perl::AMPAMP as u16, usize::MAX)),
+                "the clause does not reset the sequence"
+            );
+        });
+        assert_eq!(seen, 1);
     }
 }

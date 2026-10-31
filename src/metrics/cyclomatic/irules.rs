@@ -8,60 +8,33 @@
 
 use super::*;
 
-impl Cyclomatic for IrulesCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
-        use crate::roles::irules::{case_arm, short_circuit, ternary};
-        let kind = node.kind_id();
-        // Unlike Tcl, iRules has a dedicated `switch` / `switch_arm` node:
-        // each arm the `CaseArm` row owns — every one but `default` — is
-        // a decision point in standard CCN, read at its own node, while
-        // modified CCN collapses the whole `switch` to one container
-        // decision.
-        if case_arm::owns_kind(kind, node, code, ancestors) {
-            stats.cyclomatic += 1.;
-            return;
-        }
-        if kind == Irules::Switch as u16 {
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        // The short-circuit operators, symbolic and the iRules keyword
-        // forms (`and` / `or`) — the `ShortCircuit` row's payers — and
-        // the `ternary_expr` the `Ternary` row owns (#1695).
-        if short_circuit::pays_at_leaf_kind(kind, node, code, ancestors)
-            || ternary::owns_kind(kind, node, code, ancestors)
-        {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
-            return;
-        }
-        match kind.into() {
-            // Branches and loops. `DictFor` is an iterating construct; the
-            // non-looping `dict update` / `dict with` are intentionally
-            // excluded. `Else` carries no condition and is not a branch.
-            Irules::If
-            | Irules::Elseif
-            | Irules::For
-            | Irules::Foreach
-            | Irules::While
-            | Irules::DictFor
-            | Irules::Catch
-            // `try` handlers: the grammar wraps each `on error` / `trap`
-            // group in a dedicated node (unlike Tcl's flat tokens), so each
-            // is one decision point here (issue #1266), matching `Catch`
-            // and the C-family `CatchClause`. `Try` itself and `Finally`
-            // are unconditional and stay free.
-            | Irules::OnHandler
-            | Irules::TrapHandler => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+// Every decision is a row of `roles/irules.rs`, read at the projection
+// the metric counts (#1695, #1697). Unlike Tcl, iRules gives `if` /
+// `switch` / `for` / `foreach` / `while` / `dict for` dedicated kinds,
+// so `Branch` / `Loop` / `Catch` / `Switch` are plain rows read at the
+// owner — a `try`'s `on error` / `trap` handler groups are wrapped in
+// dedicated nodes and each is one decision (#1266), matching `catch`
+// and the C-family `CatchClause`; `try` and `finally` stay free — and
+// the `elseif` node, the `ElseIf` row's self-paying owner, pays as the
+// branch it is. The short-circuit operators, symbolic and the iRules
+// keyword forms (`and` / `or`), from `ShortCircuit` at the token; the
+// `ternary_expr` from `Ternary` at its wrapper; each `switch_arm` but
+// `default` from `CaseArm` at the owner; the `switch` from `Switch`,
+// the modified tier's.
+impl_cyclomatic_rows!(
+    IrulesCode,
+    Irules,
+    roles = crate::roles::irules,
+    both = [
+        short_circuit::pays_at_leaf_kind,
+        ternary::owns_kind,
+        branch::pays_at_leaf_kind,
+        r#loop::pays_at_leaf_kind,
+        catch::pays_at_leaf_kind,
+        else_if::pays_at_leaf_kind,
+    ],
+    standard = [case_arm::owns_kind],
+    modified = [switch::owns_kind],
+    extra = [],
+    constraints = [],
+);
