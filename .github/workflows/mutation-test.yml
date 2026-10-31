@@ -27,7 +27,12 @@ jobs:
   mutants:
     name: cargo-mutants
     runs-on: ubuntu-latest
-    timeout-minutes: 720
+    # GitHub-hosted runners cancel a job at 6 hours whatever this says;
+    # the earlier 720 was never in effect. A cancelled run step is not a
+    # `failure()`, so the issue step below does not fire on timeout —
+    # the serial in-place run over the full selection is expected to
+    # need sharding to fit (#1726).
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,21 +52,29 @@ jobs:
         with:
           tool: cargo-mutants
 
+      # The timeout floor, output directory and test-package set come
+      # from `.cargo/mutants.toml`; only the flags that have no config
+      # key are spelled here. `--in-place` conflicts with `--jobs`
+      # (parallel mutants need separate tree copies), and copying the
+      # corpus submodules per job is what in-place avoids, so there is
+      # no `-j`. `pipefail` matters: without it the step reports
+      # `tee`'s status and a cargo-mutants failure reads as success
+      # (#1710 — the 2026-10-01 run passed after 68 seconds). A `-f`
+      # glob containing `/` matches the whole path, so `src/metrics/`
+      # selected nothing; `**/*.rs` reaches the per-language
+      # subdirectories too.
       - name: Run cargo-mutants
         id: mutants
         run: |
+          set -euo pipefail
           mkdir -p target/mutants
           cargo mutants \
             --package big-code-analysis \
             --package big-code-analysis-ast \
-            --no-shuffle \
             --in-place \
-            -j 2 \
-            --minimum-test-timeout 120 \
-            -f src/metrics/ \
+            -f 'src/metrics/**/*.rs' \
             -f big-code-analysis-ast/src/checker.rs \
             -f big-code-analysis-ast/src/getter.rs \
-            --output target/mutants \
             | tee target/mutants/mutants.log
 
       - name: Upload mutation report
@@ -81,13 +94,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # cargo-mutants nests `mutants.out/` under the configured
+          # `output` directory; the result files are never written
+          # directly into `target/mutants/` (#1710).
+          out=target/mutants/mutants.out
           missed_count=0
-          if [ -f target/mutants/missed.txt ]; then
-            missed_count=$(wc -l < target/mutants/missed.txt | tr -d ' ')
+          if [ -f "$out/missed.txt" ]; then
+            missed_count=$(wc -l < "$out/missed.txt" | tr -d ' ')
           fi
           timeout_count=0
-          if [ -f target/mutants/timeout.txt ]; then
-            timeout_count=$(wc -l < target/mutants/timeout.txt | tr -d ' ')
+          if [ -f "$out/timeout.txt" ]; then
+            timeout_count=$(wc -l < "$out/timeout.txt" | tr -d ' ')
           fi
           if [ "$missed_count" = "0" ] && [ "$timeout_count" = "0" ]; then
             echo "cargo-mutants failed without producing missed/timeout output;"
@@ -102,15 +119,16 @@ jobs:
             echo "- Run: ${RUN_URL}"
             echo
             echo "Download the \`cargo-mutants-report\` artifact for the full"
-            echo "list (\`missed.txt\`, \`timeout.txt\`, \`mutants.log\`)."
+            echo "list (\`mutants.out/missed.txt\`, \`mutants.out/timeout.txt\`)"
+            echo "and the run's stdout (\`mutants.log\`)."
             echo
             echo "See \`docs/development/mutation_testing.md\` for triage guidance."
-            if [ -f target/mutants/missed.txt ] && [ "$missed_count" != "0" ]; then
+            if [ -f "$out/missed.txt" ] && [ "$missed_count" != "0" ]; then
               echo
               echo "## First 50 missed mutants"
               echo
               echo '```'
-              head -n 50 target/mutants/missed.txt
+              head -n 50 "$out/missed.txt"
               echo '```'
             fi
           } > /tmp/mutation-issue-body.md

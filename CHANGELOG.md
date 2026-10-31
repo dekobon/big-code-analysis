@@ -353,6 +353,40 @@ for historical reference.
 
 ### Fixed
 
+- **The quarterly mutation-testing gate can run** (#1710). Three
+  defects, none of which ever produced a red job. The `cargo mutants`
+  alias in `.cargo/config.toml` expanded to a command of its own name,
+  which cargo has rejected as recursive since 1.56, so the alias never
+  worked — locally or on the runner, where
+  the 2026-10-01 scheduled run died on it after 68 seconds and was
+  reported as a success, because the `| tee` capturing its output ran
+  without `pipefail` and the step took `tee`'s exit status. Had a run
+  got further, the issue-filing step read `target/mutants/missed.txt`,
+  a path cargo-mutants never writes — it nests `mutants.out/` under
+  the `--output` directory — so every outcome would have been logged
+  as an infrastructure failure and filed nothing. And the
+  `-f src/metrics/` filter matched no file at all: a glob containing
+  `/` is matched against the whole path, so a run that got as far as
+  selecting would have mutated `checker.rs` and `getter.rs` and no
+  metric module. The alias is gone; the shared settings
+  (timeout floor, output directory, and a `test_package` set so a
+  checker or getter mutant is judged by the root crate's metric tests
+  rather than only its own crate's) live in a new
+  `.cargo/mutants.toml`; the workflow sets `pipefail`, reads the nested
+  path, and selects `src/metrics/**/*.rs`. `-j 2` is dropped because
+  it conflicts with `--in-place`, and the job timeout is lowered from
+  720 to 360 minutes, the hosted-runner ceiling that was always in
+  effect. The two scheduled runs on record (2026-07-01, red at the
+  toolchain-install step; 2026-10-01, green on the alias error) both
+  did no mutation work, and no run has ever filed an issue, so the
+  first run that completes will report the full accumulated backlog
+  rather than a regression. Whether one can complete is the open
+  question: the repaired glob selects 3812 mutants where the broken
+  one selected 196, and a serial in-place run over them is not
+  expected to fit six hours. Sharding is #1726; until it lands, a red
+  run with no filed issue most likely means the timeout, not an
+  infrastructure failure.
+
 - **Groovy's `var` bills as a declaration keyword** (#1704). The
   keyword leaf of a `local_variable_declaration` was in no operator
   arm, so `def f() { var x = 1 }` billed one operator fewer than its

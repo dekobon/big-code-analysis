@@ -1,9 +1,10 @@
 [alias]
-# Canonical cargo-mutants invocation for local runs. Mirrors the flags
-# used by the scheduled `.github/workflows/mutation-test.yml` workflow
-# so local triage matches CI output. See
-# `docs/development/mutation_testing.md`.
-mutants = "mutants --package big-code-analysis --no-shuffle --in-place"
+# There is deliberately no `mutants` alias here. cargo resolves the
+# first word of an alias expansion as an alias again before falling
+# back to an external subcommand, so `mutants = "mutants …"` is
+# rejected as recursive (every cargo since 1.56; #1710). The shared
+# cargo-mutants settings live in `mutants.toml` beside this file.
+#
 # `cargo xtask` regenerates man pages under `man/` from the live clap
 # definitions of `bca` and `bca-web`. CI gates committed pages against
 # its output (see `.github/workflows/ci.yml` job `manpage`).

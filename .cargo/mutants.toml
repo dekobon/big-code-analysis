@@ -1,0 +1,27 @@
+# cargo-mutants settings shared by local runs and the scheduled
+# `.github/workflows/mutation-test.yml` job. Read automatically from the
+# workspace root. `output` is a config key from cargo-mutants 25.0, and
+# the parser rejects unknown keys, so anything older fails loudly on
+# this file; 26.0 made the deterministic, unshuffled order the default,
+# so a 25.x release reads this file and merely runs shuffled. See
+# `docs/development/mutation_testing.md`.
+#
+# `--package` and `--in-place` have no config-file key and stay on the
+# command line. `--file` has one, `examine_globs`, and it is
+# deliberately absent: since cargo-mutants 27.0 the command line's
+# `--file` is unioned with it, so listing the CI surface here would
+# silently widen a single-file local run to the whole set.
+
+# Floor on the auto-detected per-mutant test timeout, in seconds, so a
+# slow runner does not read a long-running suite as a hung mutant.
+minimum_test_timeout = 120
+
+# Results land in `target/mutants/mutants.out/` rather than an
+# untracked `mutants.out/` at the repository root.
+output = "target/mutants"
+
+# By default a mutant is judged only by its own package's tests. The
+# behaviour of `big-code-analysis-ast`'s checker and getter is pinned
+# almost entirely by the root crate's metric tests, so every mutant
+# runs both suites.
+test_package = ["big-code-analysis", "big-code-analysis-ast"]

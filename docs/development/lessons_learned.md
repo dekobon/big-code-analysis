@@ -147,6 +147,7 @@ number and the higher number stays as a redirect.
 | [101](#101-a-cache-lent-through-a-context-value-is-dropped-by-every-derivation-of-that-value-that-does-not-forward-it) | A derived context value drops the cache it was lent |
 | [102](#102-a-recovery-sweeps-cut-set-is-shaped-by-the-drifts-it-has-already-found) | A recovery sweep's cut set is shaped by the drifts it has found |
 | [103](#103-a-chain-is-the-queried-nodes-own-or-it-is-the-wrong-chain) | A chain is the queried node's own, or it is the wrong chain |
+| [104](#104-a-gate-that-cannot-go-red-is-not-a-gate-and-three-ways-to-build-one) | A gate that cannot go red is not a gate, and three ways to build one |
 
 ---
 
@@ -4439,5 +4440,52 @@ inside a class took 3–6 s in each of `npa` and `npm` — "one allocation
 per body, never per node" was the commit message's claim and the diff's
 contradiction. Moved inside the body arms, 0.04 s;
 `npa/java-deep-expression` grows that depth and would have read it.
+
+---
+
+## 104. A gate that cannot go red is not a gate, and three ways to build one
+
+**Lesson:** A scheduled job that nobody reads until it files an issue
+has exactly one channel to the maintainer, and every defect between the
+tool's exit code and that channel is a silent pass. Before trusting
+such a job, perturb each link: feed the step a failing exit and watch
+the job go red; feed the reporting step fixture results at the path the
+tool *actually* writes and watch it file; feed the file filter a
+selection and `--list` what it chose. A step whose exit status is a
+pipeline's needs `set -o pipefail` on GitHub's default `bash -e` shell,
+which does not set it; a reporting script that reads a result path
+needs that path confirmed against the tool, not against its own
+`--output` argument; and a glob that selects nothing selects nothing
+quietly.
+
+The job's conclusion is not evidence. A green quarterly run with a
+138-byte artifact and a 68-second duration is a run that did nothing,
+and both of those numbers were visible in the run list. This is lesson
+80's rare-trigger gate and lesson 91's prove-it-goes-red rule applied
+to the *reporting* path rather than the check itself. (cf. lessons 80,
+91)
+
+**The mutation-testing job reported success after doing no work**
+(#1710). `cargo mutants … | tee target/mutants/mutants.log` under the
+default `bash -e` shell took `tee`'s exit status, so the alias error
+that killed cargo-mutants in 68 seconds reported success on the
+2026-10-01 run. The step that files the issue read
+`target/mutants/missed.txt`, a path cargo-mutants never writes — it
+nests `mutants.out/` under `--output` — so no outcome of any run could
+have reached the tracker. And `-f src/metrics/` matched no file,
+because a `-f` glob containing `/` is matched against the whole path;
+a run that reached selection would have mutated only `checker.rs` and
+`getter.rs`, and none ever did. Three independent defects, and the
+first two each hid the third: a run that never started, or whose
+result nobody is told about, cannot show a selection that is too
+small. `cargo mutants --list` with the workflow's exact arguments —
+which nobody had run — showed it: 196 mutants, every one in those two
+files. The repair's harness (`~/bca-evidence/1710/harness/run.sh`,
+kept with the evidence rather than in the tree, so it does not run
+per PR) runs the two `run:` bodies under plain `bash -e` with a stub
+`cargo` and `gh`, so deleting the `pipefail` fails three of its cases;
+the layout question was answered by a run with an unmatched
+`--examine-re`, which creates the output directory and exits in
+seconds.
 
 ---

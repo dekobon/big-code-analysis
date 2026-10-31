@@ -84,9 +84,9 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 For LLVM's [`lld`](https://lld.llvm.org/) (`apt install lld`, or
 bundled with a Homebrew LLVM), substitute `-fuse-ld=lld`. On macOS the
 platform linker is already parallel and neither is needed.
-`.cargo/config.toml` *is* tracked here, carrying the `cargo mutants`
-and `cargo xtask` aliases, so add the stanza without committing it, or
-put it in your user-level `~/.cargo/config.toml` instead.
+`.cargo/config.toml` *is* tracked here, carrying the `cargo xtask`
+alias, so add the stanza without committing it, or put it in your
+user-level `~/.cargo/config.toml` instead.
 
 ## Local validation gate
 

@@ -20,6 +20,7 @@ include = [
     "mise.toml",
     ".typos.toml",
     "bca.toml",
+    ".cargo/*.toml",
 ]
 exclude = [
     "target/**",
