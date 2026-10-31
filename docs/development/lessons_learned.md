@@ -149,6 +149,7 @@ number and the higher number stays as a redirect.
 | [103](#103-a-chain-is-the-queried-nodes-own-or-it-is-the-wrong-chain) | A chain is the queried node's own, or it is the wrong chain |
 | [104](#104-a-gate-that-cannot-go-red-is-not-a-gate-and-three-ways-to-build-one) | A gate that cannot go red is not a gate, and three ways to build one |
 | [105](#105-a-dependency-declared-twice-is-used-once-and-udeps-cannot-say-which) | A dependency declared twice is used once, and `udeps` cannot say which |
+| [106](#106-an-equivalent-rewrite-is-bit-exact-only-when-it-preserves-the-originals-rounding) | An equivalent rewrite is bit-exact only when it preserves the original's rounding |
 
 ---
 
@@ -2367,84 +2368,57 @@ across every affected caller, including the integration snapshots.
 
 **Enumerate the sites by the quantity they compute, not by the shape of
 the bug.** A site that arrives at the same wrong answer by different code
-does not match the pattern you are grepping for, and consolidating the
-sites that *do* match converts one surface's bug into a divergence
-between surfaces — a worse failure, and one no existing parity test
-covers. A report's list of affected sites is a starting point, not a
-census: #1271 named five window-boundary subtractions, and a sweep for
-the quantity found a sixth in `BlameWalk::new` and a seventh in
-`days_between`, whose shape matched no search for the reported one.
+does not match the pattern you are grepping for, and consolidating only
+the sites that *do* match converts one surface's bug into a divergence
+between surfaces — a worse failure, and one no parity test covers. A
+report's list of affected sites is a starting point, not a census. And
+**delete the extra copy** rather than teaching each one the rule: a
+corrected duplicate only stages the next drift.
 
 The cost is not the duplication but *omission by default*: a newly added
 language — or a sibling cloned from a template predating the rule —
 ships without it and silently produces wrong output until its own
-bespoke fix lands. The compiler gives no signal. Distinct from lessons 48
-and 51, where a hand-rolled *list* drifts from its enum; here the
-duplication is behavioral.
+bespoke fix lands. The compiler gives no signal (cf. lessons 48, 51).
 
 **The Halstead string-interpolation operand skip was re-patched in nine
-sites across seven issues** (#420, `0b899836`). The rule — a string
-literal is one operand *unless* it wraps interpolation, in which case the
-wrapper yields `Unknown` because the inner expressions are walked
-separately — was implemented independently in the JS-family macro,
-Python, C#, Kotlin, Perl, Tcl, PHP, Elixir, and Ruby, with three
-different mechanisms. The trail
+sites across seven issues** (#420). The rule — a string literal is one
+operand *unless* it wraps interpolation — was implemented independently
+in the JS-family macro, Python, C#, Kotlin, Perl, Tcl, PHP, Elixir and
+Ruby, with three different mechanisms, and the trail
 `#180 → #183 → #184 → #191 → #192 → #199 → #277` is the same skip
-rediscovered per language, and any new
-interpolating language double-counted the wrapper into `N2` by
-omission. The fix introduces
+rediscovered per language. The fix introduces
 `Getter::string_operand_type(node, interp_kinds)` over a
-`Node::wraps_any(&[u16])` primitive; each language supplies only its own
-interpolation child-kind set, so a new language gets the skip for free.
-The bespoke Tcl/PHP multi-kind helpers were retired with their exact
-kind sets preserved, and per-language rationale comments kept at each
-call site. "For free" still means "once someone calls it": Java's
-grammar grew `string_interpolation` with Java 21 templates, its getter
-kept `StringLiteral` in the unconditional operand arm, and the wrapper
-double-billed for the next thousand-odd issues until #1703 — found only
-when #1691's `StringLit` row declared a `wraps` set and review asked
-what read it.
+`Node::wraps_any(&[u16])` primitive; each language supplies only its
+interpolation child-kind set. The shared helper helps only once a
+caller uses it: Java's grammar grew `string_interpolation` with Java 21 templates,
+its getter kept `StringLiteral` in the unconditional operand arm, and the
+wrapper double-billed until #1703, found only when #1691's `StringLit`
+row declared a `wraps` set and review asked what read it. The same
+shape across CLI surfaces
+(#825, #827, #837; formerly lesson 78): three surfaces each re-derived
+"did this get worse?", all three got the lower-is-worse `mi.*` family
+backwards, and no test ever set `lower_is_worse` — the fix routes all
+three through `thresholds::breaches_limit` and tests the minority case.
 
-**The same shape across CLI surfaces, where the minority case is where
-they first diverge** (#825, #827, #837; formerly lesson 78). Most metrics
-are higher-is-worse; the Maintainability Index family is not — a *drop*
-is the regression. Three surfaces each re-derived "did this get worse?":
-`diff-baseline`'s worsened/improved bucketing, the `baseline` `Covered`
-ratchet, and `check`'s hard-breach escalation. All three handled
-higher-is-worse correctly and all three got `mi.*` backwards, so an MI
-decrease was reported as an improvement and `--worsened-only` selected
-the wrong rows. The bugs persisted because **no test ever set
-`lower_is_worse`**, so their vacuous coverage agreed with the inverted
-code. The fix routes all three through one
-`thresholds::breaches_limit(value, limit, lower_is_worse)` keyed on the
-`metric_catalog::lower_is_worse` registry, and derives the baseline
-`Covered` arm as `!breaches_limit(…)` so the ratchet and the gate cannot
-disagree. When you add a metric or any surface that ranks or compares
-values, wire it to the shared predicate and add a test exercising a
-*lower-is-worse* metric specifically — a test covering only the majority
-case passes against inverted direction logic.
+**The third producer did not look like the bug** (#1163, #1271). The
+span end-row rule was reported in `FuncSpace::new` and `Ops::new`, both
+a `match` on `SpaceKind`; `function.rs` computed the same quantity as a
+blanket `end_row() + 1` with no kind branch, matching neither the buggy
+pattern nor a search for `SpaceKind`. Fixing the two named sites would
+have left `bca functions` disagreeing with `bca metrics` about where a
+Perl function ends — a divergence introduced *by* the fix. #1271 named
+five window-boundary subtractions; a sweep for the quantity found a
+sixth in `BlameWalk::new` and a seventh in `days_between`.
 
-**The third producer did not look like the bug** (#1163). The span
-end-row rule was reported in two places, `FuncSpace::new` and
-`Ops::new`, both spelling it as a `match` on `SpaceKind`. `function.rs`
-computed the same quantity as a blanket `end_row() + 1` with no kind
-branch at all, so it matched neither the buggy pattern nor a search for
-`SpaceKind`. Fixing only the two named sites would have left
-`bca functions` disagreeing with `bca metrics` about where a Perl
-function ends — a cross-command divergence introduced *by* the fix, in
-the release that closed the original report.
-
-**Delete the extra copy; a corrected duplicate re-arms the bug**
-(#1195, #1247). Three sites held "where does the unit's row span start"; #1195
-anchored one and #1247 was the drift between the other two. The fix
-removed both duplicates and reads the span back from the single owner —
-teaching each copy the same rule would only have staged the next drift.
-
-**A port reuses the target's own copy** (#1520, #1523; the trail runs
-on through #1526, #1527 and #1529). Ruby and Go each own a copy of the
-ABC predicate-slot rule. The #1523 fix, pointed at Ruby's rule as just
+**A corrected duplicate re-arms the bug, and a port reuses the target's
+own copy** (#1195, #1247; #1520, #1523). Three sites held "where does
+the unit's row span start"; #1195 anchored one and #1247 was the drift
+between the other two, so the fix removed both duplicates and reads the
+span from the single owner. Ruby and Go each own a copy of the ABC
+predicate-slot rule; the #1523 fix, pointed at Ruby's rule as just
 rewritten by #1520, routed Go's tagless cases through Go's older copy,
-so `case *p:` regressed in the same branch.
+and `case *p:` regressed in the same branch (the trail runs on
+through #1526, #1527 and #1529).
 
 ---
 
@@ -3371,92 +3345,63 @@ in #1051. Keying on the end column deletes the branch outright.
 as an assertion you owe evidence for, and get it the same way you would
 for a test: read the parameter type, run the measurement both ways,
 enumerate the call sites with `rg`, verify the panic actually panics.
-Each of the eight below took under five minutes to settle. Be most
+Each instance below took under five minutes to settle. Be most
 suspicious of prose in a change that is *itself* fixing a wrong claim,
-and of counts ("four call sites", "13 languages"), which are correct
-when written and rot silently. When a claim is expensive to verify or
-cannot be pinned, write what was measured and under which conditions
-rather than the generalisation it suggests. Be most suspicious of all of
-a comment saying a fix is *already in place*: it ends the search that
-would have found the gap — as does a comment that **declines** to make a
-claim ("probably X, but nothing enforces it"), which reads as candour and
-so is never measured.
+of counts ("four call sites", "13 languages"), which are correct when
+written and rot silently, and of a comment saying a fix is *already in
+place*, which ends the search that would have found the gap. A comment
+that **declines** to make a claim ("probably X, but nothing enforces
+it") is the same failure worn as honesty: it reads as a gap someone has
+already logged, so it is never measured. When a claim cannot be
+pinned, write what was measured and under which conditions rather than
+the generalisation it suggests.
 
 No gate checks any of it. `cargo test` does not read prose, clippy does
 not evaluate it, and a reviewer's eye slides over a plausible sentence —
 especially a *rationale*, where the reader checks that the guard exists
 rather than that its stated reason is possible.
 
-**Eight wrong claims in one batch** (#1059, #1066, #1067, #1084).
-`node_text`'s safety comment described a UTF-8 char-boundary panic that
-cannot occur for its `&[u8]` parameter — byte slicing has no such
-precondition — and cited hazard paths this crate does not have. The fix
-for that issue shipped two *new* false claims of the same kind: that
-`get_func_space_name` returns `None` for a nameless node (it returns
-`Some("<anonymous>")`), and that `node_text` is reached only through that
-one default (26 call sites across 10 language modules). `bca.toml`'s
-`exclude_tests` comment stated the option does not lower `loc.sloc`;
-measurement gave 779 with the manifest against 845 with `--no-config`,
-and #722 had made it do exactly that. A test's exclusion rationale
-claimed the no-op `Loc` grammars have every LOC sub-metric at 0 — `sloc`
-is span-derived, so they drift like everything else. A changelog note
-said the Python bindings were unaffected, but `PyAst::parse` passes bytes
-to `Source::from_bytes` verbatim while only `analyze_source` calls
-`normalize_eol`, and it described the per-function drift as Perl-only
-when Bash shares the shape. A benchmarking doc said four `Node::parent`
-climbs remained; the real figure was higher.
+**Eight wrong claims in one batch, and the cost is a wrong decision**
+(#1059, #1066, #1067, #1084). `node_text`'s safety comment described a
+UTF-8 char-boundary panic its `&[u8]` parameter cannot raise; the fix
+shipped two *new* false claims of the same kind (`get_func_space_name`
+returns `Some("<anonymous>")`, not `None`; `node_text` has 26 call
+sites, not one). `bca.toml`'s `exclude_tests` comment said the option
+does not lower `loc.sloc`; it measured 779 with the manifest against
+845 with `--no-config` (#722 had made it do exactly that), and the file
+carries the `loc.sloc` cap that gates the build, so anyone budgeting
+from the comment got it wrong. A test's exclusion rationale claimed the
+no-op `Loc` grammars have every LOC sub-metric at 0; `sloc` is
+span-derived, so they drift like everything else. A changelog note said the Python
+bindings were unaffected (`PyAst::parse` bypasses `normalize_eol`) and
+the drift was Perl-only (Bash shares the shape); a benchmarking doc
+undercounted the remaining `Node::parent` climbs. The same shape, later:
+a Go ABC test cited "the Rust/Java rule" for a number that was backwards
+in all three languages (#1278), and three docs-sweep issues each
+prescribed a fix that was wrong by the time it ran — a stale pin, a
+`--fix` the Makefile cannot forward, the wrong Sonar appendix
+(#1711, #1712, #1713).
 
-**The cost is a wrong decision, not a wrong sentence** (#1066). The
-`bca.toml` comment was load-bearing: the file it annotates carries the
-`loc.sloc` cap that gates the build, and anyone budgeting a file against
-that cap from the comment would get it wrong.
+**A hedge survived two reviews because it admitted uncertainty**
+(#1417). One of the three sets `Stats::settle_excluded_rows` subtracts
+was documented as "very probably a subset of `ploc.lines` … but nothing
+enforces that". Deleting that subtraction failed **0 of 3,390** lib
+tests, where dropping either sibling fails 3 and 1. The remedy was a
+`debug_assert_eq!` on the walk, not a fixture.
 
-**A claim about a sibling language held a wrong number in place**
-(#1278). A Go ABC test asserted that an initialized `var` declaration is
-not counted, "matching the Rust/Java rule for `let` / `int y = 1`".
-Measured: Rust and Java each score one assignment for exactly that form,
-so the rationale was backwards — and load-bearing, because the expected
-value it justified was wrong too and had been for as long as the comment
-stood. Prose explaining *why* a number is what it is has to be checked
-together with the number, not after it.
-
-**A comment asserting the fix existed hid a years-old gap** (#1316).
-Three alterator arms had said since #699 that `CharLiteral` is an
-operand, flattened, and deliberately absent from `Checker::is_string`,
-and Go's own rune-literal test cited that C++ behaviour as settled
-precedent. The operand half had never been implemented: a C, C++, Mozcpp
-or Objective-C character literal contributed nothing to Halstead at all.
-Anyone auditing the C-family operand set read the comment as
-confirmation and moved on. The fix pinned the half that *was* true
-(`c_family_char_literal_is_not_a_string`, two-sided per language) so it
-fails loudly if it stops being true, and made the other half true.
-
-**A hedge is the same failure worn as honesty** (#1417). One of the three
-sets `Stats::settle_excluded_rows` subtracts was documented as "very
-probably a subset of `ploc.lines` … but nothing enforces that". Deleting
-that subtraction failed **0 of 3,390** lib tests, where dropping either
-sibling fails 3 and 1. It survived two fresh-context reviews *because* it
-admitted the uncertainty: a hedge reads as a gap someone has already
-logged, not as a claim to test. The remedy was a `debug_assert_eq!` on the walk, not a fixture.
-
-**A FIXME's reason ages independently of its conclusion** (issues #1450
-and #1451). Paired FIXMEs in C#'s ABC and cyclomatic arms each justified
-leaving a `goto case` over-count by citing the parity
-`conditions == cyclomatic() - 1`. Gating either side alone breaks
-**zero** of 3,429 lib tests: that parity is opt-in fixture policy, and no
-fixture outside the cognitive tests spelled `goto case`. The conclusion
-held; the stated reason never did. `AGENTS.md`'s rule to re-verify a
-deferred issue's premises covers in-source FIXMEs, which are trusted
-*more* for sitting beside the code.
-
-**An issue's prescribed replacement is prose too** (#1711, #1712,
-and #1713). Three of the docs-sweep issues fixed in one batch quoted
-a fix that was wrong by the time it ran: a `v1.14.2` pin that had
-become `v1.14.3`, a
-`make check-test-lang-gates --fix` the Makefile cannot forward, and a
-book page citing Sonar Appendix B3 for an increment that is B1 — the
-page #1712 pointed the recursion `TODO` at. Derive the text from the
-code, and where none can pin it, write no number.
+**A stated reason ages independently of its conclusion** (#1316, #1450
+and #1451). Three alterator arms had said since #699 that `CharLiteral`
+is an operand, flattened, and deliberately absent from
+`Checker::is_string`, and Go's rune-literal test cited that as settled
+precedent; the exclusion was true and the operand half had never been
+implemented, and the comment ended every audit that reached it. The fix
+pinned the true half (`c_family_char_literal_is_not_a_string`) so it
+fails if it stops being true, and made the other half true. Paired C# FIXMEs justified leaving a `goto
+case` over-count by citing the parity `conditions == cyclomatic() - 1`;
+gating either side alone breaks **zero** tests, because that parity is
+opt-in fixture policy. `AGENTS.md`'s rule to re-verify a deferred
+issue's premises covers in-source FIXMEs, which are trusted *more* for
+sitting beside the code.
 
 ---
 
@@ -3691,15 +3636,13 @@ else, so the inputs that move are exactly the ones no one enumerated and
 no test covers. Before consolidating, enumerate the node kinds the
 container can actually hold, and decide the leftovers deliberately:
 adopting the shared answer is usually right, but it is a decision, not a
-refactor. The same choice exists when you author the filter rather than
-consolidate one: gating a token that serves several grammatical roles
-*positively* — require the one parent that means what you are counting —
-is closed and fails safe, while denying the roles you thought of is open
-and admits the ones you did not. (cf. lesson 59 for why you are
-consolidating, and lesson 65 for the structural inverse.) When a token's
-roles force opposite polarities in sibling languages, pin each direction
-with a test whose only job is to fail if a later "make these consistent"
-pass flips it.
+refactor. The same choice exists when you author the filter: gating a
+token that serves several grammatical roles *positively* — require the
+one parent that means what you are counting — is closed and fails safe,
+while denying the roles you thought of is open and admits the ones you
+did not. When a token's roles force opposite polarities in sibling
+languages, pin each direction with a test whose only job is to fail if a
+later "make these consistent" pass flips it. (cf. lessons 59, 65.)
 
 The direction of the change is what hides it. A positive filter is
 closed — a grammar that starts emitting a new kind silently scores zero,
@@ -3710,63 +3653,49 @@ forms read as "the obvious thing" at the call site.
 
 **The Objective-C block arm inherited three exclusions and two
 inclusions** (#1218, PR #1221). The `Objc::BlockLiteral` `nargs` arm
-counted `matches!(ParameterDeclaration | VariadicParameter)`, which
-bypassed the shared `count_args` and therefore
-`Checker::is_empty_param_marker`, so `^(void){ … }` reported one
-parameter where zero belongs. Routing it through `count_args` fixed
-that and put the comment and punctuation rules on the shared footing
-too — those had *happened* to be right, since a `comment` child is not
-a `ParameterDeclaration` either, but for a reason no test asserted. It
-also changed two shapes nobody had considered: on invalid source
-`^(int a,,)` went 1 → 2 as an `ERROR` child began counting, and
-`^({ int x; })` went 0 → 1 for a `compound_statement` child. Both were
-kept, because both are what the function channel already reported
-through the same helper — `int f(int a,,)` gives 2 and
-`int g({ int x; })` gives 1 — so the block arm had been the one caller
-answering differently. Recording that in the arm's comment is what
-stops the next reader from filing it as a regression.
+counted `matches!(ParameterDeclaration | VariadicParameter)`, bypassing
+the shared `count_args` and so `Checker::is_empty_param_marker`:
+`^(void){ … }` reported one parameter where zero belongs. Routing it
+through `count_args` fixed that, put the comment and punctuation rules
+on the shared footing — those had *happened* to be right, for a reason
+no test asserted — and changed two shapes nobody had considered: on
+invalid source `^(int a,,)` went 1 → 2 and `^({ int x; })` went 0 → 1.
+Both were kept, because the function channel already reported the same
+through the same helper; the block arm had been the one caller answering
+differently. Recording that in the arm's comment is what stops the next
+reader filing it as a regression.
 
 **One token, several grammatical roles — a denylist admits the role
-nobody listed** (#1274, #1280). A bare `<` is a comparison, and in Java
-and Groovy it also delimits generic type arguments and type
-*parameters*. The gate denied `type_arguments` only, so every generic
-*declaration* — `class Gen<T>`, `<T> void m()` — scored two phantom ABC
-conditions, and Groovy has a third form, `method_type_parameters`, that
-a denylist must name separately. Both were rewritten to require a
-`binary_expression` parent. Ruby then arrived with two roles nobody
-would have enumerated in advance — a superclass clause
-(`class Foo < Bar`) and an operator-method name (`def <(other)`) — and
-the positive gate covered both without being told about either. C#,
-Kotlin and TypeScript carried the denylist form until #1297, and by
-then each had admitted a role nobody listed — JSX tag delimiters, a
-`super_expression`, an `operator_declaration` — while JavaScript (and
-its Mozjs fork), Lua and Perl had no gate at all, and Perl was the row
-the issue had declared immune. The same fix is also the caveat on the
-polarity: C# at first kept a *second* allowlist entry, because
-`x is > 0` is a comparison outside `binary_expression`, and a one-entry
-allowlist would have dropped it silently — the closed form's failure,
-which lesson 19 describes and no snapshot shows. #1383 later removed the
-entry on measurement, because the arm or condition slot owning the
-pattern already scores the decision: the same zero, decided rather than
-missed. Neither
-polarity is free; the allowlist is preferred because its set is the
-smaller one to enumerate and its miss reads as a zero rather than a
-phantom.
+nobody listed** (#1274, #1280, #1297, #1383). A bare `<` is a
+comparison, and in Java and Groovy also delimits generic type arguments
+and type *parameters*. The gate denied `type_arguments` only, so every
+generic *declaration* scored two phantom ABC conditions, and Groovy's
+third form, `method_type_parameters`, would have needed naming
+separately. Both were rewritten to require a `binary_expression` parent,
+and Ruby then arrived with two roles nobody would have enumerated — a
+superclass clause and an operator-method name — that the positive gate
+covered unasked. C#, Kotlin and TypeScript carried the denylist
+until #1297, each by then admitting a role nobody listed; JavaScript, Lua and
+Perl had no gate at all. The caveat on the polarity: C# at first kept a
+*second* allowlist entry for `x is > 0`, a comparison outside
+`binary_expression` that a one-entry allowlist would have dropped
+silently — the closed form's failure, which no snapshot shows. #1383
+removed it on measurement, because the owning slot already scores the
+decision. Neither polarity is free; the allowlist's set is the smaller
+one to enumerate and its miss reads as a zero rather than a phantom.
 
-**The same token needed opposite polarities eight lines apart** (#1275,
-following #1274). A `?` is the ternary operator and, in C#, also
-nullable-type syntax (`int? x`) and a constraint (`where T : class?`);
-in TypeScript it marks optional parameters, properties, methods, tuple
-elements and conditional types. TS/TSX got the positive gate — one
+**The same token needed opposite polarities eight lines apart** (#1275).
+A `?` is the ternary operator and, in C#, also nullable-type syntax and
+a constraint; in TypeScript it marks optional parameters, properties,
+tuple elements and conditional types. TS/TSX got the positive gate — one
 `ternary_expression` parent against eleven type-syntax producers. C#
-could not: safe navigation `a?.b` / `a?[0]` emits the *same bare `?`*
-under `conditional_access_expression`, and counting it is deliberate (it
-keeps ABC in step with C# cyclomatic), so an allowlist on
-`conditional_expression` would have silently stopped counting it. C#
-denies `nullable_type` and `type_parameter_constraint` instead — the
-second found only by enumerating `grammar.json`; the issue's own list
-would have shipped it. One test exists to fail under both an allowlist
-flip and an over-suppression; nothing else in the suite noticed either.
+could not: safe navigation `a?.b` emits the *same bare `?`* under
+`conditional_access_expression`, and counting it is deliberate, so an
+allowlist on `conditional_expression` would have silently stopped
+counting it. C# denies `nullable_type` and `type_parameter_constraint`
+instead — the second found only by enumerating `grammar.json`. One test
+exists to fail under both an allowlist flip and an over-suppression;
+nothing else in the suite noticed either.
 
 ---
 
@@ -4560,5 +4489,50 @@ for #1712 swapped the function name and kept the rationale; the review
 that read the rationale against the tree is what found the dead edge.
 Removed; the crate's non-test build, the test build and `udeps` all
 still pass, and the lockfile is unchanged.
+
+---
+
+## 106. An equivalent rewrite is bit-exact only when it preserves the original's rounding
+
+**Lesson:** When a rewrite must reproduce a float computation
+bit-for-bit — the contract behind a stamped version, a cache key, a
+"no behaviour change" claim — preserve the original's *rounded
+intermediates and comparison semantics*, not just its algebra. `o < v +
+T` and `o − v < T` are the same inequality over the reals and round at
+different points as doubles; one is what the old code computed and the
+other is a different function at the boundary. Derive the new structure
+(a sort, a binary search, a cursor) from the old predicates'
+monotonicity, keep each predicate's rounding where it was unless you
+have proved an alternative equivalent, and verify against a frozen copy
+of the old code as the oracle — not against the rewrite's own tests,
+and not by inspection, which is what accepted the wrong form here. A
+differential sweep is evidence, not a proof: the argument for *every*
+input is the monotonicity, and the sweep is what checks it was applied.
+
+The rearranged form reads as *more* obviously correct because it names
+the band's edges, and ordinary fixtures can miss the disagreement: the
+two forms part where a value sits within an ulp of a rounded boundary,
+which round numbers at small magnitudes rarely reach. A review that
+reasons "same inequality" passes it. The gap shows only when a fixture
+is constructed on the boundary or a fuzz draws enough bit patterns to
+land there.
+
+**The issue's own plan was not bit-exact** (#1267). The resolution plan
+for `apply_percentile`'s O(n log n) rewrite proposed counting the tie
+band as `partition_point(o < v + T) − partition_point(o < v − T)` and
+called it "bit-exact identical for every input"; the plan and the
+author's first draft both accepted it. Against the pre-fix scan's
+`|o − v| < T`, that form rounds `v ± T` where the scan rounded `o − v`,
+and closes the band's left edge where the scan's was open. An
+independent reviewer's 200 000-vector fuzz against the frozen scan put
+it at 72 912 mismatches; the shipped kernel — the scan's `less`
+predicate verbatim and its tie predicate decomposed into `o − v <= −T`
+and `o − v < T`, each binary-searched over the same sorted copy — at
+zero, and `[0, 1e-9]` / `[0.5, 0.5 + 1e-9]` are the two-element
+fixtures that separate them. Later review passes found two smaller
+instances of the pattern: a test asserted the sign of `1.0 − NaN`,
+which Rust leaves unspecified, and a "NaN entropies" fixture never
+carried a NaN to the kernel because the extractor's `.max(0.0)` had
+scrubbed it first (cf. lesson 7).
 
 ---
