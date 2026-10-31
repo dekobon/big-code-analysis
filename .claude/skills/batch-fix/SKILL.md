@@ -794,7 +794,12 @@ Record `AGENT_BRANCH` — you will verify it again before committing.
 In worktree mode: ALL file operations must be within `PROJECT_ROOT`.
 **Worktree-safety bans apply**: never delete worktrees, never `cd` to the
 main repo, never check out a different branch, never write to files outside
-your worktree.
+your worktree. **Pass absolute paths to every file tool** (Read, Edit,
+Write): a relative path resolves against the session's cwd, which is
+the orchestrator's checkout, not the shell `workdir` you set — several
+edits of one batch landed in the integration worktree that way and had
+to be moved back by hand. An agent that owns its session can instead
+`session_move` into the worktree first.
 
 In branch mode: the orchestrator has verified a clean repo before launching you.
 

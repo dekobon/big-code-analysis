@@ -403,6 +403,28 @@ for historical reference.
   first run that completes will report the full accumulated backlog
   rather than a regression.
 
+- **`bca --help` and `bca check --help` name the live flags** (#1709).
+  The exit-code footer and the `check` description said the hidden,
+  deprecated `--strict-exit-codes` alias opted into tiered codes, and
+  disagreed with each other on the range; both now describe
+  `--exit-codes=tiered` with the 2 / 3 / 4 / 5 mapping taken from the
+  code. `--report-suppressed` names `--report-format sarif` rather than
+  the deprecated `--format`, and the hint printed for a flag-style 1.x
+  invocation links the published migration guide instead of a file
+  name. `man/bca.1` and `man/bca-check.1` move with the text.
+
+- **`bca find --help` and `bca count --help` document the semantic
+  `--type` filters** (#1485). The option accepts `all`, `function`,
+  `call`, `comment`, `string` and `error`, which win over a node type
+  of the same name; the help said only "Node-type name to match". The
+  entry now lists them and links the book section defining them.
+  `man/bca-find.1` and `man/bca-count.1` move with it.
+
+- **The Python crate no longer declares `serde` as a runtime
+  dependency** (#1712). The report struct it derived was removed with
+  the 2.0 `vcs.rank` rename; the only remaining uses are test-only and
+  covered by the dev-dependency. Wheels and the lockfile are unchanged.
+
 - **Groovy's `var` bills as a declaration keyword** (#1704). The
   keyword leaf of a `local_variable_declaration` was in no operator
   arm, so `def f() { var x = 1 }` billed one operator fewer than its

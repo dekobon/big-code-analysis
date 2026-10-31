@@ -148,6 +148,7 @@ number and the higher number stays as a redirect.
 | [102](#102-a-recovery-sweeps-cut-set-is-shaped-by-the-drifts-it-has-already-found) | A recovery sweep's cut set is shaped by the drifts it has found |
 | [103](#103-a-chain-is-the-queried-nodes-own-or-it-is-the-wrong-chain) | A chain is the queried node's own, or it is the wrong chain |
 | [104](#104-a-gate-that-cannot-go-red-is-not-a-gate-and-three-ways-to-build-one) | A gate that cannot go red is not a gate, and three ways to build one |
+| [105](#105-a-dependency-declared-twice-is-used-once-and-udeps-cannot-say-which) | A dependency declared twice is used once, and `udeps` cannot say which |
 
 ---
 
@@ -3448,6 +3449,15 @@ held; the stated reason never did. `AGENTS.md`'s rule to re-verify a
 deferred issue's premises covers in-source FIXMEs, which are trusted
 *more* for sitting beside the code.
 
+**An issue's prescribed replacement is prose too** (#1711, #1712,
+and #1713). Three of the docs-sweep issues fixed in one batch quoted
+a fix that was wrong by the time it ran: a `v1.14.2` pin that had
+become `v1.14.3`, a
+`make check-test-lang-gates --fix` the Makefile cannot forward, and a
+book page citing Sonar Appendix B3 for an increment that is B1 — the
+page #1712 pointed the recursion `TODO` at. Derive the text from the
+code, and where none can pin it, write no number.
+
 ---
 
 ## 85. Coverage measures execution, not discrimination
@@ -4506,5 +4516,49 @@ a masked exit, and anything that stops it writing reads downstream as
 "not complete" by construction rather than by enumeration. That half
 lives in `utils/mutation-report.py` under `make mutation-report-test`,
 which is lesson 80's rule applied to this very workflow.
+
+---
+
+## 105. A dependency declared twice is used once, and `udeps` cannot say which
+
+**Lesson:** When a crate names the same dependency under
+`[dependencies]` and `[dev-dependencies]`, `cargo udeps --all-targets`
+reports it used if *any* target uses it, so a production entry whose
+last non-test use was deleted stays green for as long as a test still
+derives from it. Before trusting the gate on such a crate, delete the
+`[dependencies]` line and build the non-test targets alone
+(`cargo check -p <crate>`, with no `--tests` or `--all-targets`); if
+that compiles, the entry is dead and the tests were what kept it. Two
+other manifests here declare a name in both sections today (the root's
+`big-code-analysis-ast`, the CLI's `csv`). Treat a manifest comment explaining
+*why* a dependency is needed as a claim under lesson 84 — the struct it
+names has to exist — and when a change removes the last production use
+of a type, grep the manifests for the crate that supplied it.
+
+The gate is unioning targets by design: `--all-targets` exists so a
+dependency used only by a test or a bench is not flagged, and the tool
+has no notion of which section an edge should have come from. A crate
+with a `#[cfg(test)]` derive therefore has a permanent alibi for the
+runtime entry of the same name. Nothing else looks: a package's
+lockfile entry lists its dev-dependencies without distinction, so the
+lock does not move; `check-publish-metadata` checks fields, and skips a
+`publish = false` crate entirely; and the artefact links the same
+code, because the crate is compiled for the library either way and an
+unreferenced `--extern` links nothing — only cargo's metadata hash
+moves. A dead edge of this shape has no measurable cost, which is why
+nothing measures it.
+
+**`serde` in the Python crate outlived its struct through every 2.x
+release** (#1712). `big-code-analysis-py/Cargo.toml` carried `serde` under
+`[dependencies]` with a comment saying it derived the `vcs_metrics()`
+report struct. #664 had deleted that struct when #612 renamed the entry
+point; the report became `wire::VcsReport`, derived in the library. The
+only `serde::` left in the crate were two `#[cfg(test)]` derives,
+covered by the `[dev-dependencies]` entry, so `make udeps` reported all
+dependencies used on every run in between. The first comment rewrite
+for #1712 swapped the function name and kept the rationale; the review
+that read the rationale against the tree is what found the dead edge.
+Removed; the crate's non-test build, the test build and `udeps` all
+still pass, and the lockfile is unchanged.
 
 ---
