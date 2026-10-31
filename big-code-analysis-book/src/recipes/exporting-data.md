@@ -56,14 +56,16 @@ writes), so the common workflow is two `bca metrics` runs into separate
 directories:
 
 ```bash
+snap=$(mktemp -d "${TMPDIR:-/tmp}/bca-diff.XXXXXX")
+
 # Capture the "before" state.
-bca metrics -p src/ -O json --output-dir /tmp/before
+bca metrics -p src/ -O json --output-dir "$snap/before"
 
 # ...make a change (for example, bump a tree-sitter grammar)...
 
 # Capture the "after" state and diff.
-bca metrics -p src/ -O json --output-dir /tmp/after
-bca diff /tmp/before /tmp/after
+bca metrics -p src/ -O json --output-dir "$snap/after"
+bca diff "$snap/before" "$snap/after"
 ```
 
 The output buckets every per-file delta by metric name, using the same

@@ -343,10 +343,11 @@ ensure_label naming "c2e0c6" "Naming quality finding"
 ```
 
 ```bash
-cat > /tmp/issue-body.md <<'EOF'
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+cat > "$body" <<'EOF'
 ...body here...
 EOF
-gh issue create --title "$SCOPE: <theme>" --label "naming" --body-file /tmp/issue-body.md
+gh issue create --title "$SCOPE: <theme>" --label "naming" --body-file "$body"
 ```
 
 For each issue filed, add a fix-plan comment:
@@ -368,10 +369,11 @@ For each issue filed, add a fix-plan comment:
 ```
 
 ```bash
-cat > /tmp/fix-plan.md <<'EOF'
+plan=$(mktemp "${TMPDIR:-/tmp}/bca-fix-plan.XXXXXX.md")
+cat > "$plan" <<'EOF'
 ...plan here...
 EOF
-gh issue comment <NUMBER> --body-file /tmp/fix-plan.md
+gh issue comment <NUMBER> --body-file "$plan"
 ```
 
 ---

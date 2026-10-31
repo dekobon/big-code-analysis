@@ -117,14 +117,15 @@ Aggregate reports do not diff revisions on their own. Run the report
 on each side and diff the Markdown:
 
 ```bash
-git worktree add /tmp/before main
-bca report -p /tmp/before -O markdown \
-    --strip-prefix /tmp/before/ --output /tmp/before.md
+work=$(mktemp -d "${TMPDIR:-/tmp}/bca-report-diff.XXXXXX")
+git worktree add "$work/before" main
+bca report -p "$work/before" -O markdown \
+    --strip-prefix "$work/before/" --output "$work/before.md"
 
 bca report -p "$PWD" -O markdown \
-    --strip-prefix "$PWD/" --output /tmp/after.md
+    --strip-prefix "$PWD/" --output "$work/after.md"
 
-diff -u /tmp/before.md /tmp/after.md | less
+diff -u "$work/before.md" "$work/after.md" | less
 ```
 
 Because both reports use the same `--strip-prefix` shape, the path

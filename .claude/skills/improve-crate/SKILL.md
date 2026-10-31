@@ -114,11 +114,13 @@ crate under improvement:
 
 ```bash
 cargo build -p big-code-analysis-cli >/dev/null 2>&1
-./target/debug/bca metrics -O json "$CRATE_DIR" \
-  > /tmp/improve-metrics.json || true
+metrics=$(mktemp "${TMPDIR:-/tmp}/bca-improve-metrics.XXXXXX.json") && echo "METRICS=$metrics"
+./target/debug/bca metrics -O json "$CRATE_DIR" > "$metrics" || true
 ```
 
-Parse the metrics output (see `src/output/dump_metrics.rs` and the
+Parse the file at the `METRICS=` path printed above — the variable does
+not survive into the next tool call, the printed path does (see
+`src/output/dump_metrics.rs` and the
 serializers under `src/output/` for the JSON schema). Extract
 improvement targets:
 

@@ -133,10 +133,11 @@ resolution plan with numbered steps.
 Use `--body-file` to avoid shell escaping issues:
 
 ```bash
-cat > /tmp/issue-body.md <<'ISSUE_EOF'
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+cat > "$body" <<'ISSUE_EOF'
 ... full updated body ...
 ISSUE_EOF
-gh issue edit "$ISSUE_NUMBER" --body-file /tmp/issue-body.md
+gh issue edit "$ISSUE_NUMBER" --body-file "$body"
 ```
 
 Add a comment summarizing what was done:

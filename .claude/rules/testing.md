@@ -53,11 +53,20 @@ gets reached for, and it destroyed an entire uncommitted rewrite a third
 time during #1219. Read the file once into a variable, write each
 perturbation from that string, and restore from it in a `finally` — the
 backup then lives in memory and cannot be defeated by the working tree
-changing underneath. Write that same copy to the driver's scratch
-directory before the first edit, too, for the case below. Put the
-driver in a file rather than nesting quotes through zsh into
-`python3 -c`, which is how those edits came to be applied
-inconsistently in the first place.
+changing underneath. Write that same copy to disk before the first
+edit, too, for the case below — and when the file carries uncommitted
+work, that copy is the only one of it anywhere, so it is tier 1 under
+[`temp-files.md`](temp-files.md), not scratch: a reboot while a mutant
+is installed would otherwise delete the fix along with the sweep.
+`git stash push <file>` or a WIP commit *before the first perturbation*
+is the only acceptable form; if neither suits, stop and ask rather than
+start the sweep. An `.orig` in the run directory is a convenience copy
+for the `cmp` below, never the backup. Put the driver itself in
+a file rather than nesting quotes through zsh into `python3 -c`,
+which is how those edits came to be applied inconsistently in the
+first place; the driver is tier 1 too, since it cannot be
+regenerated, so it goes under `utils/` or onto the issue rather than
+beside its own outputs.
 
 **An interrupted sweep leaves a mutant in the tree, and it looks like
 a fix in progress.** A driver killed between a perturbation and its
@@ -355,7 +364,10 @@ in the lib targets.
   comparison is the point. Two `cargo-nextest` listings of the same tree
   gave 4,741 and 4,731 purely because one counts `#[ignore]`d entries.
 - Before quoting a patch-coverage number, run `cargo llvm-cov clean
-  --workspace`, then the commands the `coverage` job in `ci.yml` runs.
+  --workspace`, then the commands the `coverage` job in `ci.yml` runs,
+  and read the figure with `utils/patch-coverage.py <report.json>
+  <base-ref>`, which applies `codecov.yml`'s `ignore:` list so the
+  number matches what Codecov's patch status will say.
   Profiles left by an earlier build keep mapping functions a refactor
   deleted onto the lines their replacements now occupy, so those lines
   read as never executed: in CI's own report format, the same library

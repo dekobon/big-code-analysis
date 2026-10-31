@@ -204,11 +204,14 @@ CRATE_DIR=$(cargo metadata --format-version 1 --no-deps \
 
 # Self-host: use this project's own CLI to measure the crate under audit.
 if cargo build -p big-code-analysis-cli >/dev/null 2>&1; then
-  ./target/debug/bca metrics -O json "$CRATE_DIR" > /tmp/audit-metrics.json || true
+  metrics=$(mktemp "${TMPDIR:-/tmp}/bca-audit-metrics.XXXXXX.json") && echo "METRICS=$metrics"
+  ./target/debug/bca metrics -O json "$CRATE_DIR" > "$metrics" || true
 fi
 ```
 
-Parse the output (when available) and extract:
+Parse the file at the `METRICS=` path printed above (when available) —
+the variable does not survive into the next tool call, the printed
+path does — and extract:
 
 - **Halstead estimated bugs > 0.5**: These functions have the highest
   probability of containing defects. Audit them at depth `full` regardless
@@ -435,10 +438,11 @@ For each surviving finding, create one issue. Template:
 Write the body to a temp file and use `gh issue create --body-file`:
 
 ```bash
-cat > /tmp/issue-body.md <<'EOF'
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+cat > "$body" <<'EOF'
 ...body here...
 EOF
-gh issue create --title "crate: short description" --label "bug" --body-file /tmp/issue-body.md
+gh issue create --title "crate: short description" --label "bug" --body-file "$body"
 ```
 
 ### Upstream-grammar findings
@@ -466,11 +470,15 @@ When a finding falls into this category:
 Example:
 
 ```bash
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+cat > "$body" <<'EOF'
+...body with an `## Upstream Grammar` section...
+EOF
 gh issue create \
   --title "python: function metrics misclassify lambda as expression" \
   --label "bug" \
   --label "upstream-grammar" \
-  --body-file /tmp/issue-body.md
+  --body-file "$body"
 ```
 
 Signals that an upstream-grammar block applies include:
@@ -510,10 +518,11 @@ For each issue filed, add a comment:
 ```
 
 ```bash
-cat > /tmp/fix-plan.md <<'EOF'
+plan=$(mktemp "${TMPDIR:-/tmp}/bca-fix-plan.XXXXXX.md")
+cat > "$plan" <<'EOF'
 ...plan here...
 EOF
-gh issue comment <NUMBER> --body-file /tmp/fix-plan.md
+gh issue comment <NUMBER> --body-file "$plan"
 ```
 
 ---

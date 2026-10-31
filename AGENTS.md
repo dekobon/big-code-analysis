@@ -95,9 +95,9 @@ and `cargo run -p big-code-analysis-web --`.
   Each gate resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
-  `check-grammar-crate.py`, `check-grammars-crates.sh` and
-  `verify-name-only-churn.py` are not gates: they take their paths as
-  arguments or run against the cwd.
+  `check-grammar-crate.py`, `check-grammars-crates.sh`,
+  `patch-coverage.py` and `verify-name-only-churn.py` are not gates:
+  they take their paths as arguments or run against the cwd.
 - Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
   (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
@@ -180,6 +180,12 @@ and `cargo run -p big-code-analysis-web --`.
   replays the old commit without an error. Compare tree hashes against a
   backup ref after any rewrite; see
   [`.claude/rules/history-rewrite.md`](.claude/rules/history-rewrite.md).
+- **Temp files and evidence**: three tiers, decided before the first
+  write. Irreplaceable → a test, `utils/`, or an issue attachment
+  (ask when none fits); regenerable but expensive or multi-session →
+  `/var/tmp/bca/<issue>/` with a `PROVENANCE.md`; scratch → `/tmp`
+  via `mktemp "${TMPDIR:-/tmp}/bca-<purpose>.XXXXXX"`, never a fixed
+  name. See [`.claude/rules/temp-files.md`](.claude/rules/temp-files.md).
 - **Code search**: `rg` (ripgrep). Never `grep` via Bash.
 - **File search**: `fd` (or `fdfind` on Debian/Ubuntu). Never `find` via
   Bash.
@@ -785,6 +791,15 @@ scratch directory — `/tmp/opencode` is this environment's convention
 for throwaway work; `mktemp -d` under whatever survives a reboot on
 your platform when a run must — and delete it when the work lands.
 
+Those two paragraphs decide where the *support for a claim* goes. The
+files on disk *while the work is in progress* are a separate question
+with its own answer: [`.claude/rules/temp-files.md`](.claude/rules/temp-files.md)
+sorts them into three tiers — irreplaceable (a test, `utils/`, the
+issue, or ask), a regenerable working cache that must outlive a reboot
+(`/var/tmp/bca/<issue>/`, with a `PROVENANCE.md` so it can be rebuilt
+and is never what a claim cites), and scratch (`mktemp`, never a fixed
+name) — and says how to allocate each.
+
 ## Metric thresholds
 
 The limits `bca init` scaffolds are defined once, in
@@ -952,14 +967,17 @@ Treat the pinned version as fixed:
 
 - Issue and commit messages follow Conventional Commits
   (`feat(scope): …`, `fix(scope): …`, `refactor(scope): …`).
-- For non-trivial `gh issue` / `gh pr` bodies, write to a temp file and
-  pass via `--body-file` to avoid quoting issues:
+- For non-trivial `gh issue` / `gh pr` bodies, write to a `mktemp`
+  file and pass it via `--body-file` to avoid quoting issues. A fixed
+  `/tmp/issue-body.md` is shared by every agent on the host (see
+  [`.claude/rules/temp-files.md`](.claude/rules/temp-files.md)):
 
   ```bash
-  cat > /tmp/issue-body.md <<'EOF'
+  body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+  cat > "$body" <<'EOF'
   Content with $variables, `backticks`, and "quotes"
   EOF
-  gh issue create --title "Title" --label "bug" --body-file /tmp/issue-body.md
+  gh issue create --title "Title" --label "bug" --body-file "$body"
   ```
 
 - **Re-verify a deferred issue's premises before building on them.**

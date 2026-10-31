@@ -174,15 +174,23 @@ highest-risk functions regardless of checklist order.
 The CLI binary is `bca` (declared as `[[bin]] name = "bca"` in
 `big-code-analysis-cli/Cargo.toml`), not `big-code-analysis-cli`.
 
+Allocate one scratch directory for the whole run and **print its
+path**: Step 8 reads these files from a different tool call, and a
+shell variable does not survive that boundary, so the summary needs
+the literal path. A fixed `/tmp/scan-metrics.json` is shared with
+every other scan on the host (see
+[`.claude/rules/temp-files.md`](../../rules/temp-files.md)).
+
 ```bash
-if cargo build -p big-code-analysis-cli 2>/tmp/scan-cli-build.log; then
+SCAN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bca-scan.XXXXXX") && echo "SCAN_DIR=$SCAN_DIR"
+if cargo build -p big-code-analysis-cli 2>"$SCAN_DIR/cli-build.log"; then
   ./target/debug/bca metrics -O json src/ \
-    > /tmp/scan-metrics.json 2>/tmp/scan-metrics.err || true
+    > "$SCAN_DIR/metrics.json" 2>"$SCAN_DIR/metrics.err" || true
 fi
 ```
 
-If `/tmp/scan-metrics.json` is missing or empty after this step, surface
-the relevant log (`/tmp/scan-cli-build.log` or `/tmp/scan-metrics.err`)
+If `$SCAN_DIR/metrics.json` is missing or empty after this step, surface
+the relevant log (`$SCAN_DIR/cli-build.log` or `$SCAN_DIR/metrics.err`)
 in the Step 8 summary as "metric hotspot input unavailable: <reason>" so
 the run is not silently degraded.
 
@@ -761,12 +769,13 @@ Template:
 Write to a temp file:
 
 ```bash
-cat > /tmp/issue-body.md <<'EOF'
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body.XXXXXX.md")
+cat > "$body" <<'EOF'
 ...body here...
 EOF
 gh issue create --title "scope: short description" \
   --label "bug" \
-  --body-file /tmp/issue-body.md
+  --body-file "$body"
 ```
 
 For upstream-grammar findings, add both the category label and the
@@ -805,10 +814,11 @@ For each issue filed, add a comment:
 ```
 
 ```bash
-cat > /tmp/fix-plan.md <<'EOF'
+plan=$(mktemp "${TMPDIR:-/tmp}/bca-fix-plan.XXXXXX.md")
+cat > "$plan" <<'EOF'
 ...plan here...
 EOF
-gh issue comment <NUMBER> --body-file /tmp/fix-plan.md
+gh issue comment <NUMBER> --body-file "$plan"
 ```
 
 ---
@@ -829,11 +839,12 @@ Also list:
   name the missing files. This catches drift between the skill's
   partition tables and `big-code-analysis-ast/src/languages/`.
 
-If `/tmp/scan-metrics.json` from Step 2b is missing or empty, prefix the
+If `$SCAN_DIR/metrics.json` from Step 2b is missing or empty, prefix the
 summary with a `DEGRADED: metric hotspots unavailable — <reason>` banner
-(quoting the relevant line from `/tmp/scan-cli-build.log` or
-`/tmp/scan-metrics.err`). A degraded run must not be confused with a
-clean one in `scan-project-state`.
+(quoting the relevant line from `$SCAN_DIR/cli-build.log` or
+`$SCAN_DIR/metrics.err`, using the `SCAN_DIR=` path Step 2b printed).
+A degraded run must not be confused with a clean one in
+`scan-project-state`.
 
 ---
 
