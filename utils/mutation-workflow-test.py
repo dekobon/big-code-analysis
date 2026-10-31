@@ -431,7 +431,7 @@ class PrepareTests(HarnessCase):
         r = self.h.run(self.bodies["prepare"])
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.h.outputs()
-        self.assertEqual(json.loads(out["shards"]), [0, 1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(json.loads(out["shards"]), list(range(10)))
         self.assertEqual(out["count"], str(len(json.loads(out["shards"]))))
 
 

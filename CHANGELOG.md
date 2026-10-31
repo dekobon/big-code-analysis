@@ -422,7 +422,10 @@ for historical reference.
   did no mutation work and filed nothing; the first run to complete,
   dispatched on 2026-10-31, filed #1736 with the accumulated backlog
   (139 missed, 1 timed out, of 3812), which is debt rather than a
-  regression.
+  regression. That run also measured the hosted cost at 18 to 29
+  seconds per mutant, about double the laptop figure the eight-shard
+  split was sized from, and ran three shards past the 200-minute
+  mark the sizing rule names; the count is ten from the next cron.
 
 - **`bca --help` and `bca check --help` name the live flags** (#1709).
   The exit-code footer and the `check` description said the hidden,

@@ -34,8 +34,9 @@ jobs:
   # from this output, so an absent shard is still expected by `report`.
   # Size it from the previous complete run's slowest shard: a hosted
   # runner is cancelled at six hours, and the step timeout below is
-  # the real budget. Eight gives ~480 mutants per shard, measured at
-  # roughly ten seconds each on a laptop (#1726).
+  # the real budget. Ten gives ~380 mutants per shard: the first
+  # complete run (41219179754, eight shards of ~475) measured 18-29 s
+  # per mutant on ubuntu-latest and ran three shards past 200 min.
   prepare:
     name: shard list
     runs-on: ubuntu-latest
@@ -47,7 +48,7 @@ jobs:
       - id: define
         run: |
           set -euo pipefail
-          shards='[0, 1, 2, 3, 4, 5, 6, 7]'
+          shards='[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]'
           echo "shards=${shards}" >> "$GITHUB_OUTPUT"
           echo "count=$(jq -n "${shards} | length")" >> "$GITHUB_OUTPUT"
 

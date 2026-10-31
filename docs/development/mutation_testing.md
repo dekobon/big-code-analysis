@@ -89,7 +89,12 @@ is what happened.
 Size the shard count from the previous complete run's slowest shard.
 The step timeout is 270 minutes; if any shard's `Run cargo-mutants`
 step exceeds about 200, raise the count in `prepare` before the next
-cron. Both halves of `utils/mutation-report.py` are covered by `make
+cron. The current ten rests on the first complete run (41219179754,
+2026-10-31): eight shards of ~475 mutants took 145 to 231 minutes,
+18 to 29 seconds per mutant on `ubuntu-latest`, with three past the
+200-minute mark. The laptop figure the count was first sized from,
+about ten seconds per mutant, is roughly half the hosted cost. Both
+halves of `utils/mutation-report.py` are covered by `make
 mutation-report-test`, and the workflow's four `run:` bodies by `make
 mutation-workflow-test`, which executes them verbatim under `bash -e`
 with stub `cargo` and `gh` and includes the check that weakening
