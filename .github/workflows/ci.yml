@@ -823,6 +823,12 @@ jobs:
         run: python3 utils/check-role-bypass.py
       - name: role-bypass self-tests (explicit)
         run: python3 -m unittest -q utils/check-role-bypass-test.py
+      # Defensive twin for the mutation-test workflow's report script
+      # (#1726). The workflow itself runs quarterly; this is the only
+      # per-PR check that its result handling still works, and it must
+      # not be able to drop out of `make lint` unnoticed.
+      - name: mutation-report self-tests (explicit)
+        run: python3 -m unittest -q utils/mutation-report-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future

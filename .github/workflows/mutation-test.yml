@@ -5,6 +5,12 @@ name: Mutation testing
 # per-PR CI, so this workflow only runs on the cron schedule and on
 # manual dispatch. See docs/development/mutation_testing.md for the
 # rationale and local-invocation notes.
+#
+# The run is sharded (#1726): `prepare` declares the shard list once,
+# `mutants` runs one shard per matrix job, and `report` aggregates the
+# per-shard summaries into one issue. A shard that is cancelled or
+# crashes writes no summary, and `report` names it rather than
+# counting it, so a timed-out shard cannot read as a clean one.
 
 on:
   schedule:
@@ -24,15 +30,42 @@ concurrency:
 # risk from action-release spoofing. Bump via Dependabot (see
 # .github/dependabot.yml), which rewrites the SHA + version comment.
 jobs:
+  # The one place the shard count is written. Both jobs below read it
+  # from this output, so an absent shard is still expected by `report`.
+  # Size it from the previous complete run's slowest shard: a hosted
+  # runner is cancelled at six hours, and the step timeout below is
+  # the real budget. Eight gives ~480 mutants per shard, measured at
+  # roughly ten seconds each on a laptop (#1726).
+  prepare:
+    name: shard list
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.define.outputs.shards }}
+      count: ${{ steps.define.outputs.count }}
+    steps:
+      - id: define
+        run: |
+          set -euo pipefail
+          shards='[0, 1, 2, 3, 4, 5, 6, 7]'
+          echo "shards=${shards}" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq -n "${shards} | length")" >> "$GITHUB_OUTPUT"
+
   mutants:
     name: cargo-mutants
+    needs: prepare
     runs-on: ubuntu-latest
-    # GitHub-hosted runners cancel a job at 6 hours whatever this says;
-    # the earlier 720 was never in effect. A cancelled run step is not a
-    # `failure()`, so the issue step below does not fire on timeout —
-    # the serial in-place run over the full selection is expected to
-    # need sharding to fit (#1726).
-    timeout-minutes: 360
+    # Hosted runners cancel a job at six hours whatever this says. The
+    # step timeout sits below the job's so a shard that runs long is
+    # stopped while there is still time to upload what it has.
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.prepare.outputs.shards) }}
+    env:
+      SHARD_K: ${{ matrix.shard }}
+      SHARD_N: ${{ needs.prepare.outputs.count }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,13 +77,21 @@ jobs:
         with:
           toolchain: stable
 
+      # Every shard exits non-zero while escapes remain, which is the
+      # steady state; without cache-on-failure no run would ever save.
+      # This warms the next run, not the sibling shards of this one.
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
 
+      # Pinned: every shard installs independently, and the partition
+      # is only disjoint if every shard generates the same mutant list.
+      # A release landing mid-matrix would change the generator.
       - name: Install cargo-mutants
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
-          tool: cargo-mutants
+          tool: cargo-mutants@27.1.0
 
       # The timeout floor, output directory and test-package set come
       # from `.cargo/mutants.toml`; only the flags that have no config
@@ -62,12 +103,29 @@ jobs:
       # (#1710 — the 2026-10-01 run passed after 68 seconds). A `-f`
       # glob containing `/` matches the whole path, so `src/metrics/`
       # selected nothing; `**/*.rs` reaches the per-language
-      # subdirectories too.
+      # subdirectories too. Round-robin sharding spreads the ast-crate
+      # mutants, which rebuild both crates, across every shard; the
+      # default slice would put all of them in the last two.
+      #
+      # The status is captured rather than propagated so the summary
+      # is written whatever cargo-mutants returned; the step then exits
+      # with that status so the matrix still shows which shards found
+      # escapes. A shard that never reaches the summarize line (cancel,
+      # crash, timeout) uploads no summary, which `report` names. The
+      # version is read first, on a bare assignment so errexit fires: a
+      # broken install fails here in seconds rather than after hours,
+      # and a `$(…)` inside an argument word would be swallowed.
       - name: Run cargo-mutants
         id: mutants
+        timeout-minutes: 270
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           mkdir -p target/mutants
+          tool_version=$(cargo mutants --version)
+          status=0
           cargo mutants \
             --package big-code-analysis \
             --package big-code-analysis-ast \
@@ -75,65 +133,121 @@ jobs:
             -f 'src/metrics/**/*.rs' \
             -f big-code-analysis-ast/src/checker.rs \
             -f big-code-analysis-ast/src/getter.rs \
-            | tee target/mutants/mutants.log
+            --shard "${SHARD_K}/${SHARD_N}" \
+            --sharding round-robin \
+            | tee target/mutants/mutants.log || status=$?
+          python3 utils/mutation-report.py summarize \
+            --mutants-out target/mutants/mutants.out \
+            --exit-code "$status" \
+            --shard "$SHARD_K" \
+            --shard-count "$SHARD_N" \
+            --run-id "$RUN_ID" \
+            --run-attempt "$RUN_ATTEMPT" \
+            --tool-version "$tool_version" \
+            --output "target/mutants/shard-summary-${SHARD_K}.json"
+          exit "$status"
+
+      # The summary is small and goes first, so a cancellation that cuts
+      # the upload window loses the per-mutant logs, not the verdict.
+      # `overwrite` lets "re-run failed jobs" replace one shard's
+      # artifacts while the others' persist from the earlier attempt.
+      - name: Upload shard summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shard-summary-${{ matrix.shard }}
+          path: target/mutants/shard-summary-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 90
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cargo-mutants-report
+          name: cargo-mutants-report-${{ matrix.shard }}
           path: target/mutants/
           if-no-files-found: warn
+          overwrite: true
           retention-days: 90
 
-      - name: File issue on escaped mutants
-        if: failure() && steps.mutants.conclusion == 'failure'
+  report:
+    name: aggregate and file
+    needs: [prepare, mutants]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SHARD_N: ${{ needs.prepare.outputs.count }}
+      MATRIX_RESULT: ${{ needs.mutants.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Fan-in is by file name, not directory: every summary is
+      # `shard-summary-<k>.json`, so merging into one directory is
+      # correct whether one artifact or eight arrived. Zero matches is
+      # not an error here; `report` says "0 of N complete" instead.
+      - name: Download shard summaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: shard-summary-*
+          path: summaries
+          merge-multiple: true
+
+      # Exits non-zero on any escape or any shard that did not
+      # complete, so the run stays red until the issue is resolved —
+      # the same policy as baseline-freshness.yml. The body is written
+      # before anything talks to GitHub.
+      - name: Aggregate shard results
+        id: aggregate
+        run: |
+          set -euo pipefail
+          mkdir -p summaries
+          status=0
+          python3 utils/mutation-report.py report \
+            --summaries summaries \
+            --shard-count "$SHARD_N" \
+            --run-url "$RUN_URL" \
+            --matrix-result "$MATRIX_RESULT" \
+            --output "${RUNNER_TEMP}/issue-body.md" || status=$?
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload aggregated report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-report
+          path: ${{ runner.temp }}/issue-body.md
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 90
+
+      # One open issue per topic, updated with each run, so a quarterly
+      # cadence plus dispatches while sizing the shards does not file a
+      # stack of near-duplicates. The title is stable; the counts live
+      # in the body. `env.ISSUE_TITLE` is read by gh's embedded jq, so
+      # the string is not spliced into the filter.
+      - name: File or update the escaped-mutants issue
+        if: always() && steps.aggregate.outputs.status != '0' && steps.aggregate.outputs.status != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ISSUE_TITLE: "Mutation testing: escaped mutants"
         run: |
           set -euo pipefail
-          # cargo-mutants nests `mutants.out/` under the configured
-          # `output` directory; the result files are never written
-          # directly into `target/mutants/` (#1710).
-          out=target/mutants/mutants.out
-          missed_count=0
-          if [ -f "$out/missed.txt" ]; then
-            missed_count=$(wc -l < "$out/missed.txt" | tr -d ' ')
+          existing=$(gh issue list --state open --label "mutation-testing" \
+            --limit 100 --json number,title \
+            --jq 'first(.[] | select(.title == env.ISSUE_TITLE) | .number) // empty')
+          if [ -n "$existing" ]; then
+            echo "Commenting on the open mutation-testing issue #${existing}."
+            gh issue comment "$existing" --body-file "${RUNNER_TEMP}/issue-body.md"
+          else
+            gh issue create \
+              --title "${ISSUE_TITLE}" \
+              --label "mutation-testing" \
+              --label "enhancement" \
+              --body-file "${RUNNER_TEMP}/issue-body.md"
           fi
-          timeout_count=0
-          if [ -f "$out/timeout.txt" ]; then
-            timeout_count=$(wc -l < "$out/timeout.txt" | tr -d ' ')
-          fi
-          if [ "$missed_count" = "0" ] && [ "$timeout_count" = "0" ]; then
-            echo "cargo-mutants failed without producing missed/timeout output;"
-            echo "treating as infrastructure failure, not opening an issue."
-            exit 0
-          fi
-          {
-            echo "The scheduled \`mutation-test.yml\` run reported escaped mutants."
-            echo
-            echo "- Missed mutants: ${missed_count}"
-            echo "- Timed-out mutants: ${timeout_count}"
-            echo "- Run: ${RUN_URL}"
-            echo
-            echo "Download the \`cargo-mutants-report\` artifact for the full"
-            echo "list (\`mutants.out/missed.txt\`, \`mutants.out/timeout.txt\`)"
-            echo "and the run's stdout (\`mutants.log\`)."
-            echo
-            echo "See \`docs/development/mutation_testing.md\` for triage guidance."
-            if [ -f "$out/missed.txt" ] && [ "$missed_count" != "0" ]; then
-              echo
-              echo "## First 50 missed mutants"
-              echo
-              echo '```'
-              head -n 50 "$out/missed.txt"
-              echo '```'
-            fi
-          } > /tmp/mutation-issue-body.md
-          gh issue create \
-            --title "Mutation testing: ${missed_count} missed, ${timeout_count} timed out (run ${{ github.run_id }})" \
-            --label "mutation-testing" \
-            --label "enhancement" \
-            --body-file /tmp/mutation-issue-body.md

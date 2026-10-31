@@ -353,8 +353,9 @@ for historical reference.
 
 ### Fixed
 
-- **The quarterly mutation-testing gate can run** (#1710). Three
-  defects, none of which ever produced a red job. The `cargo mutants`
+- **The quarterly mutation-testing gate can run, and finish** (#1710,
+  #1726). Three defects, none of which ever produced a red job. The
+  `cargo mutants`
   alias in `.cargo/config.toml` expanded to a command of its own name,
   which cargo has rejected as recursive since 1.56, so the alias never
   worked — locally or on the runner, where
@@ -374,18 +375,27 @@ for historical reference.
   rather than only its own crate's) live in a new
   `.cargo/mutants.toml`; the workflow sets `pipefail`, reads the nested
   path, and selects `src/metrics/**/*.rs`. `-j 2` is dropped because
-  it conflicts with `--in-place`, and the job timeout is lowered from
-  720 to 360 minutes, the hosted-runner ceiling that was always in
-  effect. The two scheduled runs on record (2026-07-01, red at the
+  it conflicts with `--in-place`. That repaired glob selects 3812
+  mutants where the broken one selected 196, far past what a serial
+  in-place run can finish inside the six hours at which GitHub
+  cancels a hosted-runner job — and a cancelled step is not a
+  `failure()`, so a timed-out run would have filed nothing (#1726).
+  The run is now split across an eight-shard matrix with round-robin
+  sharding and a pinned `cargo-mutants`, so every shard generates the
+  same mutant list and the partition is disjoint. Each shard writes
+  one summary joining cargo-mutants' exit status to its result files;
+  a `report` job aggregates whichever summaries arrived into one
+  issue, naming any shard that did not complete rather than counting
+  it, and comments on an open issue by the same title instead of
+  filing a sibling. The summarize and report halves live in
+  `utils/mutation-report.py`, self-tested by `make
+  mutation-report-test` in `make pre-commit`, so the result handling
+  is checked on every pull request rather than once a quarter. The
+  two scheduled runs on record (2026-07-01, red at the
   toolchain-install step; 2026-10-01, green on the alias error) both
   did no mutation work, and no run has ever filed an issue, so the
   first run that completes will report the full accumulated backlog
-  rather than a regression. Whether one can complete is the open
-  question: the repaired glob selects 3812 mutants where the broken
-  one selected 196, and a serial in-place run over them is not
-  expected to fit six hours. Sharding is #1726; until it lands, a red
-  run with no filed issue most likely means the timeout, not an
-  infrastructure failure.
+  rather than a regression.
 
 - **Groovy's `var` bills as a declaration keyword** (#1704). The
   keyword leaf of a `local_variable_declaration` was in no operator

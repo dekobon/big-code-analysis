@@ -4481,11 +4481,27 @@ result nobody is told about, cannot show a selection that is too
 small. `cargo mutants --list` with the workflow's exact arguments —
 which nobody had run — showed it: 196 mutants, every one in those two
 files. The repair's harness (`~/bca-evidence/1710/harness/run.sh`,
-kept with the evidence rather than in the tree, so it does not run
-per PR) runs the two `run:` bodies under plain `bash -e` with a stub
-`cargo` and `gh`, so deleting the `pipefail` fails three of its cases;
-the layout question was answered by a run with an unmatched
-`--examine-re`, which creates the output directory and exits in
-seconds.
+kept with the evidence rather than in the tree) ran the two `run:`
+bodies under plain `bash -e` with a stub `cargo` and `gh`, so deleting
+the `pipefail` failed three of its cases; the layout question was
+answered by a run with an unmatched `--examine-re`, which creates the
+output directory and exits in seconds.
+
+**The repaired gate then could not finish, and a timeout would have
+filed nothing either** (#1726). The fixed glob selected 3812 mutants
+for a serial run against a six-hour runner cap, and a cancelled step
+is not a `failure()`, so the issue step's condition was false on the
+one outcome that was now likely. The reviewers' first fix was a
+report job that reverse-engineered each shard's fate from an uploaded
+`target/mutants/` tree, and every review round found another state it
+mis-read: the download action flattens a single matching artifact,
+`sort | head` dies under `pipefail`, a cancelled job still uploads its
+partial results. The design that survived joins the status to the
+results *at the source*: the shard writes one summary after
+cargo-mutants returns, refusing the one contradiction that would mean
+a masked exit, and anything that stops it writing reads downstream as
+"not complete" by construction rather than by enumeration. That half
+lives in `utils/mutation-report.py` under `make mutation-report-test`,
+which is lesson 80's rule applied to this very workflow.
 
 ---

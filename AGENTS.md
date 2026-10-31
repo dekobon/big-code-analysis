@@ -554,8 +554,11 @@ See [Benchmarking](docs/development/benchmarking.md#chain-audit).
 `.github/workflows/mutation-test.yml` against `src/metrics/`,
 `big-code-analysis-ast/src/checker.rs`, and
 `big-code-analysis-ast/src/getter.rs`. It is intentionally not part of
-the per-PR gate (a full run is tens of minutes per file). Escapes
-auto-file a GitHub issue labelled `mutation-testing`. See
+the per-PR gate (a full run is hours, sharded across a matrix). Escapes
+auto-file a GitHub issue labelled `mutation-testing`; the script that
+summarises each shard and aggregates the report,
+`utils/mutation-report.py`, is self-tested per PR by `make
+mutation-report-test`. See
 [`docs/development/mutation_testing.md`](docs/development/mutation_testing.md)
 for local invocation and triage guidance.
 
