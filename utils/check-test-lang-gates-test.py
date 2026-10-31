@@ -836,17 +836,198 @@ mod tests {
             [],
         )
 
+    MACRO_GENERATED_CALLER = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn shared() {}
+
+    %s
+    macro_rules! table_for {
+        ($code:ident) => {
+            #[test]
+            fn rows() {
+                check_metrics::<crate::$code>("", "f", |m| {});
+                shared();
+            }
+        };
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    // test-lang-gates: hand-written(python) — the parser is named only
+    //     through the `table_for!` invocation
+    #[cfg(%s)]
+    mod python {
+        use super::*;
+        table_for!(PythonCode);
+    }
+}
+"""
+
+    def test_a_helper_reached_only_through_a_macro_generated_test_is_reported(
+        self,
+    ) -> None:
+        """#1697 (C2a). A `macro_rules!` body is a template, not a user.
+
+        `control_flow_tests.rs`'s shared helpers kept the pilot's
+        two-language gate while a macro-generated Go test called them;
+        `--features go` failed with twenty `E0425`s and this gate said
+        OK, because the macro — whose own needs are empty — was read as
+        an unconditional caller and zeroed the helpers' needs. A macro
+        now takes its needs from the `mod`s that invoke it, so the
+        helper's gate is checked against the union of those `mod`s.
+
+        The macro is left *ungated* here on purpose: gated on `python`,
+        the pre-existing caller-stranding check already reported the
+        narrow helper, and the test did not discriminate the fix. The
+        ungated macro is itself reported by the macro rule that
+        predates this one; the helper row is the one this pins.
+        """
+        offending = _offending(
+            self.MACRO_GENERATED_CALLER % ('feature = "rust"', "", 'feature = "python"')
+        )
+        self.assertIn(("shared", ["python"]), offending)
+        offending = _offending(
+            self.MACRO_GENERATED_CALLER
+            % ('any(feature = "python", feature = "rust")', "", 'feature = "python"')
+        )
+        self.assertNotIn("shared", [name for name, _ in offending])
+
+    UNGATED_INVOKER = """
+#[cfg(test)]
+mod tests {
+    fn shared() {}
+
+    macro_rules! table_for {
+        () => {
+            #[test]
+            fn rows() {
+                shared();
+            }
+        };
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    %s
+    mod plain {
+        use super::*;
+        table_for!();
+    }
+}
+"""
+
+    def test_a_macro_with_an_ungated_invoker_keeps_its_helpers_unconditional(
+        self,
+    ) -> None:
+        """The other half of the rule above (#1697 review). A macro
+        invoked from a `mod` with no language gate — or one gated
+        `not(feature = …)` — is compiled into the zero-language build,
+        so the ungated helper it reaches must stay ungated: demanding
+        `cfg(feature = "rust")` on it from its one gated caller would
+        drop it from under the generated test (`E0425`). The first
+        inheritance cut reported exactly that.
+        """
+        for mod_gate in ("", '#[cfg(not(feature = "python"))]'):
+            self.assertEqual(
+                _offending(self.UNGATED_INVOKER % mod_gate),
+                [],
+                f"mod gate {mod_gate!r}: the helper must stay unconditional",
+            )
+
+    HAND_WRITTEN_FN_INVOKER = """
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "rust")]
+    fn shared() {}
+
+    macro_rules! table_for {
+        () => {
+            shared();
+        };
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    // test-lang-gates: hand-written(typescript) — the parser is named only
+    //     through the `table_for!` invocation
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn ts_case() {
+        table_for!();
+    }
+}
+"""
+
+    def test_an_ungated_fn_invoker_keeps_the_macros_helpers_unconditional(self) -> None:
+        """The `fn` half of the `mod` rule above (#1697 review): a plain
+        `#[test] fn` with no gate and no marker that invokes the macro
+        is compiled into every build, so the helper its expansion reaches
+        must stay ungated — gating it on its one `rust` caller would drop
+        it from under the generated call (`E0425`) on every other leg.
+        The ungated `fn` is itself an unconditional seed, which reaches
+        the macro and then the helper, so this holds with or without the
+        macro-invoker rule's `macro_unconditional` entry; the pin is on
+        the outcome, which the two paths must keep agreeing on.
+        """
+        source = self.HAND_WRITTEN_FN_INVOKER.replace(
+            '    // test-lang-gates: hand-written(typescript) — the parser is named only\n'
+            '    //     through the `table_for!` invocation\n'
+            '    #[cfg(feature = "typescript")]\n',
+            "",
+        )
+        self.assertNotIn(
+            'cfg(feature = "typescript")', source, "the invoker must be ungated"
+        )
+        items = _scan(source)
+        needs = gate.resolve_needs(items)
+        shared = _named(items, "shared")
+        # The pin is on the helper's derived needs, not on `offenders`
+        # alone: a derivation that handed `shared` its one gated caller's
+        # `rust` would still report no offender here (the fixture gates
+        # `shared` on `rust`), so the needs set is what must be empty.
+        self.assertEqual(set(needs[shared.index]), set())
+        self.assertEqual(_offending(source), [])
+
+    def test_a_hand_written_fn_invoker_hands_the_macro_its_feature(self) -> None:
+        """#1697 (Phase 3 review). A `fn` whose only language is the one
+        its `hand-written(…)` marker names has empty *derived* needs, so
+        the macro it invokes read as unconditional and the helper the
+        expansion reaches was zeroed — `--features typescript` failed
+        with `E0425` under a green gate. The marker's feature is what
+        the invoker contributes.
+        """
+        self.assertIn(
+            ("shared", ["typescript"]), _offending(self.HAND_WRITTEN_FN_INVOKER)
+        )
+
     def test_a_language_bound_local_is_not_a_helper_call(self) -> None:
         source = self.TWO_HOPS.replace(
-            "        shared();\n    }\n\n    #[cfg(feature = \"python\")]",
-            "        let shared = 1;\n        assert_eq!(shared, 1);\n    }\n\n    #[cfg(feature = \"python\")]",
+            '        shared();\n    }\n\n    #[cfg(feature = "python")]',
+            '        let shared = 1;\n        assert_eq!(shared, 1);\n    }\n\n    #[cfg(feature = "python")]',
             1,
         )
         self.assertEqual(_offending(source % 'feature = "python"'), [])
 
     def test_a_call_inherits_its_inner_guard(self) -> None:
         source = self.TWO_HOPS.replace(
-            "        shared();\n    }\n\n    #[cfg(feature = \"python\")]",
+            '        shared();\n    }\n\n    #[cfg(feature = "python")]',
             '        #[cfg(feature = "python")]\n        shared();\n    }\n\n    #[cfg(feature = "python")]',
             1,
         )
@@ -856,7 +1037,7 @@ mod tests {
         )
 
     def test_an_all_guard_keeps_a_matching_helper_gate(self) -> None:
-        source = '''
+        source = """
 #[cfg(test)]
 mod tests {
     #[cfg(all(feature = "python", feature = "rust"))]
@@ -867,11 +1048,11 @@ mod tests {
         shared::<PythonParser, RustParser>();
     }
 }
-'''
+"""
         self.assertEqual(_offending(source), [])
 
     def test_function_values_survive_a_local_in_another_scope(self) -> None:
-        source = '''
+        source = """
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "python")]
@@ -887,7 +1068,7 @@ mod tests {
         { let shared = 1; consume(shared); }
     }
 }
-'''
+"""
         self.assertEqual(_offending(source), [("shared", ["rust"])])
         mixed = source.replace(
             "consume(shared);\n        {",
@@ -2048,9 +2229,7 @@ mod tests {
         root = pathlib.Path(directory)
         (root / "src").mkdir()
         (root / "big-code-analysis-ast" / "src").mkdir(parents=True)
-        (root / "big-code-analysis-ast" / "src" / "langs.rs").write_text(
-            LANGS_FIXTURE
-        )
+        (root / "big-code-analysis-ast" / "src" / "langs.rs").write_text(LANGS_FIXTURE)
         (root / "src" / "fixture.rs").write_text(source)
         return root
 

@@ -1046,7 +1046,7 @@ def _shadowed_references(body: str) -> set[int]:
         elif token.group() == ";":
             scopes[-1].update(pending[-1])
             pending[-1].clear()
-        elif body[max(0, token.start() - 2):token.start()] == "::":
+        elif body[max(0, token.start() - 2) : token.start()] == "::":
             continue
         elif any(token.group() in scope for scope in scopes):
             shadowed.add(token.start())
@@ -1418,7 +1418,9 @@ def scan_source(
                 if hit.start(1) in shadowed:
                     continue
                 n = index + bisect.bisect_right(line_starts, hit.start()) - 1
-                sites.append((hit.group(1), "all(" + ", ".join(guarded.get(n, ())) + ")"))
+                sites.append(
+                    (hit.group(1), "all(" + ", ".join(guarded.get(n, ())) + ")")
+                )
                 languages = attribution[innermost[n]] if n in guarded else None
                 if languages is None:
                     unguarded_set.add(hit.group(1))
@@ -1571,7 +1573,8 @@ def test_scope_files(root: pathlib.Path, sources: list[pathlib.Path]) -> set[str
     which is 79 panics on a single-language leg.
     """
     return {
-        path for path, predicate in module_gates(root, sources).items()
+        path
+        for path, predicate in module_gates(root, sources).items()
         if predicate_requires_test(predicate)
     }
 
@@ -1843,6 +1846,59 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
                 continue
             needs[index] |= {f for f in languages if not gate_excludes(predicate, f)}
 
+    # A `macro_rules!` body is a template, not a user: it is compiled
+    # nowhere by itself, only where it is invoked. Its own needs are
+    # empty (a template names no language of its own), so reading it as
+    # an unconditional user would zero the needs of every helper it
+    # calls and exempt them from both checks — which is how
+    # `control_flow_tests.rs`'s shared helpers kept a two-language gate
+    # while a macro-generated Go test called them, and `--features go`
+    # failed to compile with the gate reporting OK (#1697, C2a). So a
+    # macro takes its status from the items that invoke it: a `mod`
+    # contributes the positive language atoms of its gate; another item
+    # its own needs. An invoker with *no* gate (a bare `mod`, an
+    # ungated test) makes the macro genuinely unconditional — its
+    # expansion is compiled in every build — and that is recorded in
+    # `macro_unconditional` so the seed below keeps treating the macro
+    # as a user, as it must: gating a helper such a macro reaches would
+    # drop it from the zero-language build (`E0425`). A macro with only
+    # gated invokers is never a seed.
+    macro_unconditional: set[int] = set()
+    for item in items:
+        if item.kind != "macro" or not item.in_test_scope:
+            continue
+        for other in items:
+            if other.index == item.index or item.name not in other.references:
+                continue
+            if _resolve_call(items, scopes, other, item.name) != item.index:
+                continue
+            if other.kind == "mod":
+                # `cfg(test)` and the like are not language gates; only
+                # a positive feature atom narrows the builds the `mod`
+                # — and so the expansion — is compiled into.
+                gate = effective_predicate(items, other) or ""
+                positive = (
+                    frozenset(FEATURE_NAME_RE.findall(gate)) & KNOWN_FEATURES
+                ) - negated_features(gate)
+                if not positive:
+                    macro_unconditional.add(item.index)
+                needs[item.index] |= positive
+            else:
+                # A `fn` invoker contributes what it needs plus what its
+                # `hand-written(…)` marker declares: a test whose parser
+                # is named only inside the macro's expansion has empty
+                # derived needs and *is* gated, so reading it as
+                # unconditional zeroed the helper the expansion reaches
+                # — `E0425` on the single-language leg under a green gate
+                # (#1697 review).
+                # An invoker contributing nothing is itself an
+                # unconditional seed below and reaches the macro that
+                # way too; the entry here keeps the two readings in step.
+                contributed = needs[other.index] | other.hand_written
+                if not contributed:
+                    macro_unconditional.add(item.index)
+                needs[item.index] |= contributed
+
     # A referent with even one unconditional caller must stay
     # unconditional itself, whatever its other callers need. Without
     # this the reverse propagation below gates a helper on the union of
@@ -1891,10 +1947,18 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
             # holds as always-compiled — which is how `checker.rs`'s two
             # `assert_*_is_string` macros lost the 17-language gate their
             # actual callers give them and went dead on every leg.
+            # Nor is a macro whose every invoker is gated (see above).
             if not item.in_test_scope or item.kind == "mod":
                 continue
+            if item.kind == "macro" and item.index not in macro_unconditional:
+                continue
             if item.index not in unconditional:
-                if needs[item.index] and not item.is_public:
+                # A `hand-written(…)` marker is a need the derivation
+                # cannot see, not an absence of one: the test that
+                # carries it is gated on that feature and compiled into
+                # no other build, so it seeds nothing as unconditional
+                # (#1697 review).
+                if (needs[item.index] or item.hand_written) and not item.is_public:
                     continue
                 unconditional.add(item.index)
                 changed = True

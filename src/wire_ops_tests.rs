@@ -48,6 +48,7 @@ fn ops_fixtures() -> Vec<(crate::LANG, &'static str)> {
     ]
 }
 
+#[cfg(feature = "rust")]
 fn parse_ops(lang: crate::LANG, source: &str) -> ops::Ops {
     crate::test_support::parse_named(lang, "fixture", source)
         .ops()

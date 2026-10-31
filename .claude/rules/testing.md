@@ -591,6 +591,18 @@ why in a comment:
   out — a scoped `#[allow(unused_imports)]` beats a hand-copied union of
   seven files' gates.
 
+One thing it does see since #1697 that it did not before: a helper
+reached only through a **`macro_rules!`-generated test**. A macro body
+is a template with no needs of its own, and the gate once read it as an
+always-compiled caller, which zeroed the needs of every helper it
+invoked — `control_flow_tests.rs`'s shared `check` / `answers!` kept a
+two-language gate while a macro-generated Go test called them, and
+`--features go` failed with twenty `E0425`s under a green gate. A macro
+now inherits the gate of each `mod` that invokes it, so the helpers it
+reaches are checked against the union of those `mod`s. The parser named
+*inside* the macro is still invisible, which is what the `hand-written`
+marker on such a `mod` is for.
+
 Say so with a marker the gate reads, not prose alone:
 
 ```rust
