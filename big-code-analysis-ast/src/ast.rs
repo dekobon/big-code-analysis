@@ -158,7 +158,7 @@ pub struct AstResponse {
 /// error naming the limit.
 ///
 /// The bound is set well clear of real source: the deepest AST across the
-/// ~8 000-file corpus under `tests/repositories` (TensorFlow, serde,
+/// integration corpus under `tests/repositories` (TensorFlow, serde,
 /// DeepSpeech, …) is 188 levels. It is also set well clear of the stack:
 /// the earliest measured overflow of any emitted format was 2 000 levels
 /// on a debug build's default 2 MiB thread.

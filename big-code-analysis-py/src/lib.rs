@@ -329,10 +329,10 @@ fn analyze(
     // nested function space. The two are independent (file-level vs nested
     // spaces), so both can be set. For `vcs=True` the expensive part is
     // the history walk, which touches no Python objects and so runs
-    // off-GIL (#620), mirroring `vcs_metrics()` and the batch path; the
+    // off-GIL (#620), mirroring `vcs.rank()` and the batch path; the
     // cheap JSON-injection step (which builds Python errors) stays under
     // the re-acquired GIL. For whole-repo ranking prefer
-    // `vcs_metrics()`, which walks history once.
+    // `vcs.rank()`, which walks history once.
     //
     // `vcs_per_function=True` does **not** get that split: only the
     // session open is detached below, and the blame itself runs inside
@@ -612,8 +612,8 @@ impl PyVcsOptions {
         clippy::too_many_arguments,
         clippy::fn_params_excessive_bools,
         // `as_of: Option<Bound<PyAny>>` is the PyO3 keyword-argument FFI
-        // shape; `extract_as_of` borrows it. Same pattern as the former
-        // `vcs_metrics` entry point.
+        // shape; `extract_as_of` borrows it. This is the one `as_of`
+        // site since #612 moved the flat kwargs onto `Options`.
         clippy::needless_pass_by_value
     )]
     fn py_new(

@@ -25,10 +25,11 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Explicit-override env var honoured when `--since` is absent and the
-/// GitHub Actions signals are inconclusive. Documented in
-/// `recipes/ci.md` for users who want to mimic the GHA auto-detection
-/// from a local shell or a non-GHA CI runner.
+/// Explicit-override env var, the first signal `auto_detect_base`
+/// consults when `--since` is absent — ahead of the GitHub Actions
+/// variables below. Documented in `recipes/ci.md` for users who want
+/// to mimic the GHA auto-detection from a local shell or a non-GHA CI
+/// runner.
 pub(crate) const BCA_DIFF_BASE_ENV: &str = "BCA_DIFF_BASE";
 
 /// GitHub Actions sets `GITHUB_BASE_REF` to the target branch on

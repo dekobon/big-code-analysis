@@ -409,7 +409,7 @@ impl CodeMetrics {
 /// JSON nesting levels (its object plus its `spaces` array), so parsing
 /// one of these documents back caps out near 61 levels — the emit limit
 /// is the more permissive of the two. On the source side, the deepest
-/// space nesting across the 14 450-file corpus under `tests/repositories`
+/// space nesting across the integration corpus under `tests/repositories`
 /// is 10 levels.
 pub const MAX_SPACE_SERIALIZE_DEPTH: usize = 128;
 

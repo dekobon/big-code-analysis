@@ -203,10 +203,10 @@ impl Checker for RustCode {
     /// `trait`, `const`, or `static` item marked test-only by an
     /// outer or inner attribute (`#[test]`, `#[cfg(test)]`,
     /// `#[tokio::test]`, `#![cfg(test)]`, …), or is one of the
-    /// `#[…]` siblings that mark it. The runtime guard
-    /// in `spaces::metrics_with_options` only consults this hook
+    /// `#[…]` siblings that mark it. The metric walk (`metrics_inner`
+    /// in the root crate's `spaces::compute`) only consults this hook
     /// when the caller opts in via `MetricsOptions::exclude_tests`,
-    /// so the default `metrics()` entry point is unaffected.
+    /// so a default `MetricsOptions` leaves every subtree in.
     fn should_skip_subtree<'a>(
         node: &Node<'a>,
         code: &[u8],

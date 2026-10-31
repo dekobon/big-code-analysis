@@ -73,8 +73,10 @@ use crate::LANG;
 pub enum MetricsError {
     /// The walker produced no top-level `big_code_analysis::FuncSpace`.
     ///
-    /// Reserved — not produced today. `metrics_with_options` always
-    /// pushes a synthetic top-level [`SpaceKind::Unit`][crate::SpaceKind]
+    /// Reserved — not produced today. The metric walk
+    /// (`metrics_inner` in the root crate's `spaces::compute`, behind
+    /// `big_code_analysis::analyze`) always pushes a synthetic top-level
+    /// [`SpaceKind::Unit`][crate::SpaceKind]
     /// `FuncSpace` onto its state stack before walking the AST, so
     /// every parse — including empty input, whitespace-only input,
     /// and comment-only input — currently returns

@@ -286,16 +286,14 @@ fn guess_language_vim_modeline_with_trailing_blank_lines() {
 fn guess_language_name_outlives_input_buffer() {
     // The returned name is `&'static str`: it must remain valid after
     // the owned input buffer is dropped. This pins the honest lifetime
-    // (issue #506) — the name borrows from static tables / literals
-    // (`name()`, `fake::get_true`), never from `buf`.
+    // (issue #506) — the name is `LANG::name()`'s static literal (or
+    // the `""` of an unrecognised file), never borrowed from `buf`.
     let name: &'static str = {
         let buf: Vec<u8> = b"// -*- foo: bar; mode: Objective-C++; hello: world\n".to_vec();
         let (lang, name) = guess_language(&buf, "foo.mm");
         assert_eq!(lang, Some(LANG::Cpp));
-        // `.mm` stays on `Cpp`; `name` is `LANG::Cpp.name()` directly
-        // (the `fake` override was retired with #724) — a `&'static str`
-        // from static tables / literals, never borrowed from `buf`
-        // (issue #506).
+        // `.mm` stays on `Cpp` (the `fake` override was retired with
+        // #724), so this is `LANG::Cpp.name()`'s literal.
         name
     };
     assert_eq!(name, "cpp");

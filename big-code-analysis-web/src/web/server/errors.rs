@@ -44,7 +44,7 @@ pub(crate) const INTERNAL_SERVER_ERROR: &str = "Internal server error";
 pub(crate) const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 /// Error body emitted when metric computation fails for a parsed source.
 ///
-/// Defensive, like [`AST_BUILD_FAILED`]: `metrics_with_options` does not
+/// Defensive, like [`AST_BUILD_FAILED`]: `Ast::metrics` does not
 /// error for the web crate today (every `MetricsError` variant is either
 /// reserved or guarded against by the `all-languages` feature pin), so
 /// this `500` is unreachable today and exists to keep failures off the

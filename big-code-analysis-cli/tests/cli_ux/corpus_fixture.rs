@@ -1,6 +1,6 @@
 //! Unit tests for the integration-corpus guard in `tests/common`.
 //!
-//! Nineteen tests in this crate analyse a real source file from the
+//! Many tests in this crate analyse a real source file from the
 //! `DeepSpeech` corpus, which is a git submodule and therefore absent
 //! from a fresh clone or `git worktree`. Before #1171 each of them
 //! failed with `bca`'s generic `error: path does not exist: …`, which

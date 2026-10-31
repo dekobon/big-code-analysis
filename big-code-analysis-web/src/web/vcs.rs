@@ -111,7 +111,7 @@ pub struct WebVcsPayload {
     pub exclude_bots: Option<bool>,
     /// Override the bot-author exclusion regex (matched against the
     /// author name/email). Parity with the CLI `--bot-pattern` and the
-    /// Python `vcs_metrics(bot_pattern=…)`.
+    /// Python `vcs.Options(bot_pattern=…)`.
     pub bot_pattern: Option<String>,
     /// Reference "now" (RFC 3339 / `@unix` / git date) for snapshots.
     pub as_of: Option<String>,

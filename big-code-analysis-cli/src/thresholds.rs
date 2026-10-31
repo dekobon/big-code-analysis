@@ -3,7 +3,11 @@
 //! Maps stable metric names (the same set surfaced by `bca list-metrics`,
 //! plus dotted names for sub-metrics that don't reduce to a single scalar
 //! such as `halstead.volume` or `loc.lloc`) to scalar extractors that read
-//! per-function values out of [`big_code_analysis::CodeMetrics`].
+//! per-function values out of [`big_code_analysis::CodeMetrics`]. The
+//! accepted names are the ids of
+//! [`big_code_analysis::metric_catalog::METRICS`]; the `EXTRACTORS` table
+//! here owns only the accessor each id reads, and
+//! `extractor_ids_match_library_catalog` pins the two id-sets equal.
 //!
 //! `ThresholdSet::evaluate_with_policy` walks a [`FuncSpace`] tree and yields one
 //! [`Violation`] per `(function, metric)` pair whose value exceeds its
@@ -68,8 +72,9 @@ struct MetricExtractor {
     metric: Metric,
 }
 
-/// Source of truth for accepted threshold names. Order matters only for
-/// `--help`-style listings; lookup is by name.
+/// The accessor each threshold name reads. The names themselves are the
+/// library catalog's ids (see the module docs); order here matters only
+/// for `--help`-style listings, and lookup is by name.
 ///
 /// **Accessor convention (issue #709).** Each metric is thresholded
 /// against the accessor that matches how that metric is conventionally

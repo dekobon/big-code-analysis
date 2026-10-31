@@ -325,7 +325,7 @@ pub fn build_trend(
 /// Rank `entries` by descending risk score, breaking ties on the file
 /// path (ascending), then truncate to the top `top` (`0` = keep all).
 ///
-/// The single definition of the `bca vcs` / `POST /vcs` / `vcs_metrics`
+/// The single definition of the `bca vcs` / `POST /vcs` / `vcs.rank`
 /// output ordering, shared by all three front ends so the float-compare
 /// and tie-break contract cannot drift between them. `key` extracts the
 /// `(path, risk_score)` pair from each entry, so callers keep their own

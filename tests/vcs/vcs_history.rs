@@ -832,7 +832,7 @@ fn as_of_before_first_commit_is_an_empty_snapshot() {
     );
 }
 
-/// Issue #648: the `bca vcs` / web `/vcs` / py `vcs_metrics` surfaces all
+/// Issue #648: the `bca vcs` / web `/vcs` / py `vcs.rank` surfaces all
 /// drive the *cached* entry point, so the re-anchoring must hold there too
 /// (the cache is HEAD-keyed and must not serve an `as_of` snapshot).
 #[test]

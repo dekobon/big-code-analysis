@@ -37,8 +37,9 @@ crate-type = ["cdylib", "rlib"]
 default = ["pyo3/auto-initialize"]
 
 [dependencies]
-# `vcs` adds the change-history backend for `vcs_metrics()` and the
-# `analyze(..., vcs=True)` opt-in (issue #328), on top of the default
+# `vcs` adds the change-history backend for the `vcs` submodule
+# (`vcs.rank` and friends, #612) and the `analyze(..., vcs=True)`
+# opt-in (issue #328), on top of the default
 # `all-languages`.
 big-code-analysis = { path = "..", default-features = true, features = ["vcs"] }
 # `ignore` + `globset` back `analyze_paths` (issue #658): the directory
@@ -49,17 +50,17 @@ big-code-analysis = { path = "..", default-features = true, features = ["vcs"] }
 ignore = "^0.4"
 globset = "^0.4"
 pyo3 = { workspace = true }
-# `serde` (derive) builds the `vcs_metrics()` report struct that is
-# serialized to JSON and handed to the conversion layer (issue #328).
-serde = { workspace = true }
+# `serde_json` alone: the report structs the bindings serialize
+# (`wire::VcsReport` and friends) derive `Serialize` in the library,
+# so this crate needs no `serde` of its own outside `[dev-dependencies]`.
 serde_json = { workspace = true }
 
 [dev-dependencies]
-# `serde` (derive) is used only by the conversion-layer key-order
-# test, which derives `Serialize` on a local struct to exercise
-# the real `to_string` → `json.loads` boundary without depending
-# on `FuncSpace`'s declaration order. Inherits version + features
-# from `[workspace.dependencies]`.
+# `serde` (derive) is used only by `#[cfg(test)]` structs in
+# `conversion.rs` (the key-order and non-finite-float tests), which
+# derive `Serialize` locally to exercise the real `to_string` →
+# `json.loads` boundary without depending on `FuncSpace`'s declaration
+# order. Inherits version + features from `[workspace.dependencies]`.
 serde.workspace = true
 # `tempfile` backs the `analyze_path` integration tests that need a
 # real on-disk file (shebang detection, unknown-extension probe).

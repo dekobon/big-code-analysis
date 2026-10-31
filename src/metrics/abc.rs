@@ -77,9 +77,12 @@ mod tcl;
 /// paper-defined keyword set (`else`, `case`, `default`, `?`, plus
 /// `try` / `catch` for C++ and Java) contribute to the condition
 /// count. Per-language `impl Abc` blocks narrow this set where
-/// appropriate — e.g., C++/Rust/Go/Python exclude `default` since
-/// it falls through unconditionally (matching the Rust `_ =>` and
-/// Java `default:` precedent). The short-
+/// appropriate, and one narrowing is near-universal: every language
+/// with a dedicated `default` / `_` wildcard arm kind excludes it,
+/// since it falls through unconditionally and would inflate `C` on
+/// every `switch` / `match` regardless of body. Ruby's `case … else`
+/// is the one fallback that still pays, because its `Else` node is
+/// the same kind `if … else` uses (`abc/ruby.rs`). The short-
 /// circuit logical operators `&&` and `||` (and per-language
 /// equivalents — Python's `and` / `or`, Lua's `and` / `or`, Tcl's
 /// `&&` / `||`, Perl's `&&` / `||` / `//` / `and` / `or`)
@@ -98,11 +101,10 @@ mod tcl;
 /// `x` contributes one, `y` contributes one, and `printf(...)`
 /// contributes one branch). The walker machinery for this —
 /// modelled on the former `java_count_unary_conditions` /
-/// `java_inspect_container` — is present today for Java, Groovy,
-/// C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++,
-/// Python, Perl, Lua, Tcl, iRules, Kotlin, Ruby, and Elixir. So
-/// `if (a && b)` reports 2 conditions across this set, matching
-/// the paper. Bash is the lone exception: its `&&` / `||` are
+/// `java_inspect_container` — is wired for every language but
+/// Bash (the C family included), so `if (a && b)` reports 2
+/// conditions everywhere else, matching the paper. Bash is the
+/// lone exception: its `&&` / `||` are
 /// command-list separators rather than boolean-expression operands
 /// with named leaf operands, so Fitzpatrick's Rule 9 does not map
 /// onto its grammar and the walker is deliberately not wired.

@@ -36,9 +36,12 @@
 //! the type `bca check` gates on: finite, non-negative for a count, any
 //! finite value for the `mi.*` floors (whose scale goes negative), with
 //! a `UserWarning` for a limit that can never fire or fires on every
-//! value. The mapping table below pins which
-//! JSON field is compared against the limit — mirroring the CLI's
-//! `EXTRACTORS` table in `big-code-analysis-cli/src/thresholds.rs`.
+//! value. The accepted names are the ids of
+//! [`metric_catalog::METRICS`](big_code_analysis::metric_catalog::METRICS);
+//! the mapping table below pins which JSON field each is compared
+//! against, the binding's counterpart of the typed accessors in the
+//! CLI's `EXTRACTORS` table (`big-code-analysis-cli/src/thresholds.rs`),
+//! and both tables are tested against the catalog.
 //!
 //! # Interior-space emission
 //!

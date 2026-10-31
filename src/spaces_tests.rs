@@ -3001,7 +3001,7 @@ mod empty_root_contract {
 
     // Regression guard for issue #262: the `MetricsError::EmptyRoot`
     // variant is documented as "Reserved — not produced today".
-    // `metrics_with_options` pushes a synthetic top-level Unit
+    // `metrics_inner` pushes a synthetic top-level Unit
     // `FuncSpace` before walking, so every parse — including empty,
     // whitespace-only, and comment-only input — currently returns
     // `Ok(FuncSpace { kind: Unit, .. })`. If the walker is ever

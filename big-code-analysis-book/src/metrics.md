@@ -366,7 +366,7 @@ since adopted it.
 
 ### Per-language deviations
 
-- **No language** scores the recursion increment (B3): the metric
+- **No language** scores the recursion increment (B1): the metric
   walk resolves no calls, so a function calling itself costs nothing
   beyond its explicit control flow.
 - **Elixir** does not score jump statements either. Elixir control

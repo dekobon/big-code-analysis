@@ -133,8 +133,8 @@ def run(
 
     ``bca.analyze_batch`` omits skipped files — generated ones and
     those the read gate declines (empty/tiny, UTF-16 BOM, binary) —
-    from its returned list entirely (with the #542 default
-    ``skip_generated=True``), so ``len(batch)`` is the
+    from its returned list entirely (with the default
+    ``skip_generated=True``, flipped at 2.0), so ``len(batch)`` is the
     analysed-or-failed count, not the input count. We surface the gap as ``skipped`` (=
     ``len(materialised) - len(batch)``) so the totals reconcile:
     ``analyzed + errors + skipped == len(materialised)``. In a

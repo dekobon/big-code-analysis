@@ -160,8 +160,8 @@ and answers `500` with the `serialize_failed` token:
 | `/ast` | 512 | one AST node |
 
 Both limits sit far above anything real source reaches. Across the
-corpus this project tests against (TensorFlow, DeepSpeech, serde, and
-others; roughly fourteen thousand files) the deepest AST measured 188
+integration corpus under `tests/repositories` (TensorFlow, DeepSpeech,
+serde, and others) the deepest AST measured 188
 nodes and the deepest function-space nesting 10 when the limits were
 set (#1056). The `/metrics` limit is also more generous than the read
 side: a JSON document of nested spaces cannot be parsed back past ~61

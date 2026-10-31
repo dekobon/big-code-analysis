@@ -63,7 +63,7 @@ impl std::str::FromStr for RiskFormula {
     type Err = Error;
 
     /// Parse the user-facing formula name. The single source of truth
-    /// shared by the web (`POST /vcs`) and Python (`vcs_metrics`) front
+    /// shared by the web (`POST /vcs`) and Python (`vcs.Options`) front
     /// ends; the CLI uses a clap `ValueEnum` instead.
     fn from_str(s: &str) -> Result<Self, Error> {
         match s {

@@ -37,9 +37,9 @@ const CORPUS_ROOT: &str = "tests/repositories";
 /// The corpus holding [`FIXTURE_FILE`].
 const FIXTURE_CORPUS: &str = "DeepSpeech";
 
-/// A small real-source file, relative to [`FIXTURE_CORPUS`]. Nineteen
-/// tests in this crate analyse it, which is what makes its absence
-/// worth a named diagnostic.
+/// A small real-source file, relative to [`FIXTURE_CORPUS`]. Enough
+/// tests in this crate analyse it that its absence is worth a named
+/// diagnostic.
 const FIXTURE_FILE: &str = "stats.py";
 
 /// Absolute path to the workspace root, derived from this crate's
@@ -55,7 +55,7 @@ fn workspace_root() -> std::path::PathBuf {
 /// Absolute path to the shared real-source fixture, panicking with a
 /// message that names its own cause when the corpus is not checked out.
 ///
-/// Without the submodule these nineteen tests failed with `bca`'s
+/// Without the submodule the tests that analyse it failed with `bca`'s
 /// generic `error: path does not exist: …`, which reads as a bug in
 /// whatever the author was changing rather than as missing setup — the
 /// papercut #1171 is about.

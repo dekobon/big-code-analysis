@@ -34,14 +34,16 @@ use crate::macros::implement_metric_trait;
 use crate::metrics::ConstraintReach;
 use crate::*;
 
-// TODO: Find a way to increment the cognitive complexity value
-// for recursive code. For some kind of languages, such as C++, it is pretty
-// hard to detect, just parsing the code, if a determined function is recursive
-// because the call graph of a function is solved at runtime.
-// So a possible solution could be searching for a crate which implements
-// a light language interpreter, computing the call graph, and then detecting
-// if there are cycles. At this point, it is possible to figure out if a
-// function is recursive or not.
+// No language scores the specification's recursion increment (B1, "each
+// method in a recursion cycle"), and this is a decision rather than a gap:
+// the walk is a single pass over one file's syntax tree and resolves no
+// calls, so a function calling itself costs nothing beyond its explicit
+// control flow. Scoring it would need a call graph — name resolution
+// across overloads, methods, closures and, for the C family and friends,
+// dispatch decided at runtime — and even a same-file approximation would
+// make the metric depend on which other functions happen to be in the
+// file. The book's cognitive-complexity chapter states the same
+// deviation for users.
 
 /// The `Cognitive Complexity` metric.
 #[derive(Debug, Clone, PartialEq)]

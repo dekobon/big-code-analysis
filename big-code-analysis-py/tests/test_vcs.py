@@ -1,7 +1,7 @@
 """Tests for the change-history (VCS) bindings (issue #328).
 
 Each builds a throwaway git repo with a fixed author and a commit dated
-relative to wall-clock now (both ``vcs_metrics`` and ``analyze(vcs=True)``
+relative to wall-clock now (both ``vcs.rank`` and ``analyze(vcs=True)``
 default to wall-clock time), so per-window counts are deterministic.
 """
 
