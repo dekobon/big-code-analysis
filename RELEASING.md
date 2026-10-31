@@ -1269,8 +1269,8 @@ What the python-wheels pipeline does:
    (OIDC); the workflow has no `PYPI_API_TOKEN` secret to leak.
    [PEP 740](https://peps.python.org/pep-0740/)
    [Sigstore](https://www.sigstore.dev/) attestations are generated
-   automatically by `pypa/gh-action-pypi-publish` (on by default
-   since its v1.14.0).
+   automatically by `pypa/gh-action-pypi-publish` (on by default in
+   the pinned version).
 
 ### One-time PyPI setup
 

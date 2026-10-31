@@ -32,9 +32,9 @@ corpora nor a Python venv, and neither absence names itself:
   source file from the `DeepSpeech` corpus. Since #1171 each names the
   cause and the remedy; before it they read as bugs in whatever you
   were changing.
-- Without `big-code-analysis-py/.venv`, `py-typecheck` reports ~33
-  mypy errors (`pytest` untyped without its stubs) and `py-test` dies
-  with "Couldn't find a virtualenv".
+- Without `big-code-analysis-py/.venv`, `py-typecheck` reports mypy
+  errors from an untyped `pytest` (its stubs live in the venv) and
+  `py-test` dies with "Couldn't find a virtualenv".
 
 Both are bootstrap artifacts, not regressions. The cargo stages
 themselves work in a worktree — that was #1145, fixed by the

@@ -11,7 +11,7 @@ To compute metrics:
 
 ./utils/check-grammar-crate.py compute-metrics -u REPO_URL -p LOCAL_DIR -g TREE_SITTER_GRAMMAR
 
-NOTE: The compute-metrics subcommand MUST be run on a clean master branch!
+NOTE: The compute-metrics subcommand MUST be run on a clean main branch!
 
 To compute metrics on a continuous integration system:
 
@@ -199,8 +199,8 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
     old_dir.mkdir(parents=True, exist_ok=True)
     new_dir.mkdir(parents=True, exist_ok=True)
 
-    # Git clone big-code-analysis master branch repository
-    print("Cloning big-code-analysis master branch into /tmp")
+    # Git clone big-code-analysis main branch repository
+    print("Cloning big-code-analysis main branch into /tmp")
     run_subprocess(
         "git",
         "clone",

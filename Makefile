@@ -254,13 +254,13 @@ check-tools-test:
 # One-shot bootstrap for a fresh clone or a fresh `git worktree`: the
 # two steps nothing else states and nothing else detects (#1171).
 #
-# 1. The integration corpora under tests/repositories/. Without them 24
-#    tests fail — 5 corpus tests and 19 CLI tests that analyse a real
-#    source file from the DeepSpeech corpus.
+# 1. The integration corpora under tests/repositories/. Without them the
+#    corpus tests under tests/corpus/ fail, as do the CLI tests that
+#    analyse a real source file from the DeepSpeech corpus.
 # 2. big-code-analysis-py/.venv. Without it `make pre-commit`'s
-#    py-typecheck stage reports ~33 mypy errors (pytest is untyped
-#    without its stubs) and py-test dies with "Couldn't find a
-#    virtualenv".
+#    py-typecheck stage reports mypy errors from an untyped pytest
+#    (its stubs live in the venv) and py-test dies with "Couldn't find
+#    a virtualenv".
 #
 # Idempotent and cheap when there is nothing to do: the corpus half
 # classifies each submodule with a stat-only `git diff` (~60 ms for all
@@ -282,8 +282,9 @@ worktree-setup:
 	  $(MAKE) --no-print-directory py-bootstrap; \
 	else \
 	  echo "worktree-setup: uv not found; skipping the Python venv."; \
-	  echo "  Until it exists, 'make pre-commit' reports ~33 mypy errors from"; \
-	  echo "  py-typecheck and py-test dies with \"Couldn't find a virtualenv\"."; \
+	  echo "  Until it exists, 'make pre-commit' reports mypy errors from an"; \
+	  echo "  untyped pytest in py-typecheck and py-test dies with \"Couldn't"; \
+	  echo "  find a virtualenv\"."; \
 	  echo "  Install uv (curl -LsSf https://astral.sh/uv/install.sh | sh), then"; \
 	  echo "  re-run 'make worktree-setup'."; \
 	fi

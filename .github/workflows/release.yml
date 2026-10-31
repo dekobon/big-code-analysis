@@ -31,9 +31,11 @@ env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
   RUSTFLAGS: "-D warnings"
-  # Pinned toolchain for deterministic release builds. Separate from the
-  # library MSRV (1.94, enforced in ci.yml); release-time builds use a
-  # newer compiler to pick up post-MSRV optimisations.
+  # Pinned toolchain for deterministic release builds. Pinned
+  # independently of the library MSRV (`rust-version` in Cargo.toml,
+  # enforced in ci.yml), so a release never floats with `stable`; today
+  # the two coincide. Bumping this pin never requires an MSRV bump;
+  # raising the MSRV past it does.
   RUST_TOOLCHAIN: "1.94.0"
   CROSS_VERSION: "0.2.5"
   # cargo-deb 2.x cannot parse `resolver = "3"` in Cargo.toml (stabilised

@@ -9,36 +9,36 @@ TS_CRATE=$(grep "$1" Cargo.toml | tr -d ' ')
 # Disable/Enable CI flag
 RUN_CI="no"
 
-# Temporary master branch Cargo.toml filename
-MASTER_CARGO_TOML="master-cargo.toml"
+# Temporary main branch Cargo.toml filename
+MAIN_CARGO_TOML="main-cargo.toml"
 
-# Download master branch Cargo.toml and save it in a temporary file
-wget -LqO - https://raw.githubusercontent.com/dekobon/big-code-analysis/master/Cargo.toml | tr -d ' ' >"$MASTER_CARGO_TOML"
+# Download main branch Cargo.toml and save it in a temporary file
+wget -LqO - https://raw.githubusercontent.com/dekobon/big-code-analysis/main/Cargo.toml | tr -d ' ' >"$MAIN_CARGO_TOML"
 
 # Get the name of the current crate
 TS_CRATE_NAME=$(echo "$TS_CRATE" | cut -f1 -d "=")
 
-# Get the crate name from the master branch Cargo.toml
-MASTER_TS_CRATE_NAME=$(grep "$TS_CRATE_NAME" "$MASTER_CARGO_TOML" | head -n 1 | cut -f1 -d "=")
+# Get the crate name from the main branch Cargo.toml
+MAIN_TS_CRATE_NAME=$(grep "$TS_CRATE_NAME" "$MAIN_CARGO_TOML" | head -n 1 | cut -f1 -d "=")
 
-# If the current crate name is not present in master branch, exit the script
-if [ -z "$MASTER_TS_CRATE_NAME" ]; then
+# If the current crate name is not present in main branch, exit the script
+if [ -z "$MAIN_TS_CRATE_NAME" ]; then
 	exit 0
 fi
 
-# Get the same crate from the master branch Cargo.toml
-MASTER_TS_CRATE=$(grep "$TS_CRATE" "$MASTER_CARGO_TOML" | head -n 1)
+# Get the same crate from the main branch Cargo.toml
+MAIN_TS_CRATE=$(grep "$TS_CRATE" "$MAIN_CARGO_TOML" | head -n 1)
 
 # If the current crate has been updated, save the crate name
-if [ -z "$MASTER_TS_CRATE" ]; then
+if [ -z "$MAIN_TS_CRATE" ]; then
 	# Enable CI flag
 	RUN_CI="yes"
 	# Name of tree-sitter crate
 	TREE_SITTER_CRATE=$TS_CRATE_NAME
 fi
 
-# Remove temporary master branch Cargo.toml file
-rm -rf "$MASTER_CARGO_TOML"
+# Remove temporary main branch Cargo.toml file
+rm -rf "$MAIN_CARGO_TOML"
 
 # If any crates have been updated, exit the script
 if [ "$RUN_CI" = "no" ]; then

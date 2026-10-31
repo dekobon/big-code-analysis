@@ -44,8 +44,8 @@ name: Python wheels
 #     token. The `publish` job mints a short-lived GitHub OIDC token
 #     and exchanges it inside pypa/gh-action-pypi-publish for a one-off
 #     PyPI upload credential. Attestations (Sigstore-signed) are
-#     generated and uploaded automatically by the action since v1.14.0,
-#     so the dedicated `sigstore/gh-action-sigstore-python` step the
+#     generated and uploaded automatically by the action, so the
+#     dedicated `sigstore/gh-action-sigstore-python` step the
 #     #271 issue proposed is redundant — keeping it out of this
 #     workflow avoids signing the same artefacts twice with conflicting
 #     identities. The PyPI side requires a Trusted Publisher entry
@@ -486,7 +486,7 @@ jobs:
           require "cp312-abi3 / aarch64 wheel" dist/*-cp312-abi3-manylinux_2_28_aarch64.whl
           require "sdist tarball" dist/*.tar.gz
 
-      # pypa/gh-action-pypi-publish v1.14.0 turns on PEP 740 Sigstore
+      # pypa/gh-action-pypi-publish turns on PEP 740 Sigstore
       # attestations by default when invoked with id-token: write. No
       # username / password / api-token inputs — the trusted-publisher
       # exchange is the only auth path, and a missing TP registration
