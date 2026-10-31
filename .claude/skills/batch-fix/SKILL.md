@@ -1072,16 +1072,18 @@ pre-commit run --all-files
 ```
 
 **When you redirect a gate to a log file, use a path that is yours alone
-— put your issue number in it.** Every agent in a wave runs on the same
-host and shares `/tmp`, so an obvious fixed name such as `/tmp/pc.log`
-gets written by all of them at once. That has already
-produced a wrong diagnosis here: one agent paired its own exit status
-with a neighbour's log, read a `fmt-check` failure out of it, and spent
-the attempt on code it had never touched.
+— `mktemp` it, with your issue number in the template.** Every agent in
+a wave runs on the same host and shares `/tmp`, so an obvious fixed
+name such as `/tmp/pc.log` gets written by all of them at once, and an
+issue-numbered fixed name still collides with your own retry. That has
+already produced a wrong diagnosis here: one agent paired its own exit
+status with a neighbour's log, read a `fmt-check` failure out of it,
+and spent the attempt on code it had never touched.
 
 ```bash
-make pre-commit > /tmp/pc-<ISSUE_NUMBER>.log 2>&1
-grep '^BCA_GATE:' /tmp/pc-<ISSUE_NUMBER>.log
+log=$(mktemp "${TMPDIR:-/tmp}/bca-pre-commit-<ISSUE_NUMBER>.XXXXXX.log")
+make pre-commit >"$log" 2>&1
+grep '^BCA_GATE:' "$log"
 ```
 
 Step 6a explains how to read that verdict line and why an exit status
@@ -1089,8 +1091,8 @@ reported by the harness is not one. The requirement here is narrower: the
 path must be unique to you. Before believing a failure you did not
 expect, confirm the log is describing your tree — a passing `make
 pre-commit` run names its project root well over a hundred times, so
-`grep -c "$PROJECT_ROOT" /tmp/pc-<ISSUE_NUMBER>.log` returning 0 means
-you are reading someone else's run.
+`grep -c "$PROJECT_ROOT" "$log"` returning 0 means you are reading
+someone else's run.
 
 If any check fails on code you changed, fix and retry (one attempt).
 If it fails again or fails on code you did not change, report as FAILED.
@@ -1156,7 +1158,8 @@ Update BOTH the issue body AND add a comment. Use `--body-file` with a
 temp file to avoid quoting issues:
 
 ```bash
-cat > /tmp/issue-comment-<ISSUE_NUMBER>.md <<'COMMENT_EOF'
+comment=$(mktemp "${TMPDIR:-/tmp}/bca-issue-comment-<ISSUE_NUMBER>.XXXXXX.md")
+cat > "$comment" <<'COMMENT_EOF'
 ## Fix Summary
 
 **Root cause**: <what was wrong and why>
@@ -1173,14 +1176,15 @@ cat > /tmp/issue-comment-<ISSUE_NUMBER>.md <<'COMMENT_EOF'
 
 <any additional notes, follow-up items, or related issues>
 COMMENT_EOF
-gh issue comment <ISSUE_NUMBER> --body-file /tmp/issue-comment-<ISSUE_NUMBER>.md
+gh issue comment <ISSUE_NUMBER> --body-file "$comment"
 ```
 
 Also update the issue body to reflect the fix status:
 
 ```bash
-gh issue view <ISSUE_NUMBER> --json body --jq '.body' > /tmp/issue-body-<ISSUE_NUMBER>.md
-cat >> /tmp/issue-body-<ISSUE_NUMBER>.md <<'BODY_EOF'
+body=$(mktemp "${TMPDIR:-/tmp}/bca-issue-body-<ISSUE_NUMBER>.XXXXXX.md")
+gh issue view <ISSUE_NUMBER> --json body --jq '.body' > "$body"
+cat >> "$body" <<'BODY_EOF'
 
 ---
 
@@ -1190,7 +1194,7 @@ cat >> /tmp/issue-body-<ISSUE_NUMBER>.md <<'BODY_EOF'
 **Commit**: <hash> on branch <branch-name>
 **Root cause**: <brief summary>
 BODY_EOF
-gh issue edit <ISSUE_NUMBER> --body-file /tmp/issue-body-<ISSUE_NUMBER>.md
+gh issue edit <ISSUE_NUMBER> --body-file "$body"
 ```
 
 ### Phase 7: Report Result

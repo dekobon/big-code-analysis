@@ -815,19 +815,38 @@ attributed to your change. A sequential pair taken during
 `corpus/walk/halstead` 19% slower between two builds that differ only
 in a hash function neither benchmark reaches.
 
-Interleave instead. Keep a binary per side:
+Interleave instead. Keep a binary per side. A paired series is
+usually compared across sessions, and the base binary is slow to
+rebuild, so the copy goes under `/var/tmp/bca/<issue>/` rather than
+`/tmp` (see
+[`.claude/rules/temp-files.md`](../../.claude/rules/temp-files.md)):
 
 ```bash
-cargo bench -p big-code-analysis-bench --bench metric_walk --no-run
-cp target/release/deps/metric_walk-* /tmp/metric_walk_before
+mkdir -p /var/tmp/bca/<issue>
+bin_dir=$(mktemp -d -p /var/tmp/bca/<issue> bench-bin.XXXXXX) && echo "BIN_DIR=$bin_dir"
+exe=$(cargo bench -p big-code-analysis-bench --bench metric_walk --no-run \
+  --message-format=json 2>/dev/null \
+  | jq -r 'select(.reason == "compiler-artifact" and .target.name == "metric_walk") | .executable')
+cp "$exe" "$bin_dir/metric_walk_before"
+cat >> "$bin_dir/PROVENANCE.md" <<EOF
+metric_walk_before: $(git rev-parse HEAD) at $(date -u +%FT%TZ)
+  built:      cargo bench -p big-code-analysis-bench --bench metric_walk --no-run
+  regenerate: git checkout $(git rev-parse --short HEAD) && the same command, then cp the executable
+EOF
 ```
+
+Take the executable's path from cargo's JSON rather than a glob:
+`target/release/deps/metric_walk-*` matches the `.d` dependency file
+as well, so `cp` gets two sources and fails. The `BIN_DIR=` line is
+what a later session reads, since the variable does not survive the
+tool call.
 
 Then alternate them round by round, flipping which side goes first so
 a one-way drift does not always land on the same arm, and narrow each
 run to the benchmarks under test:
 
 ```bash
-taskset -c 3 /tmp/metric_walk_before --bench --discard-baseline --noplot \
+taskset -c 3 "$bin_dir/metric_walk_before" --bench --discard-baseline --noplot \
   --sample-size 30 --warm-up-time 1 --measurement-time 3 'corpus/walk/loc'
 ```
 

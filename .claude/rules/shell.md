@@ -147,8 +147,9 @@ is a waiter, that is the whole bug.
     { echo "no BCA_GATE line after 30 min — crashed, killed, or still running" >&2; exit 1; }
   ```
 
-  Three details earn their place. The `for` ceiling is what makes a
-  dead job a bounded failure instead of a hang. `-s` on both greps
+  Three details earn their place (and a fourth, the `mktemp` template,
+  is [`temp-files.md`](temp-files.md)'s). The `for` ceiling is what
+  makes a dead job a bounded failure instead of a hang. `-s` on both greps
   suppresses `No such file or directory` before the log exists —
   without it the loop emits one stderr line per tick, forever. And the
   trailing `grep ||` makes the no-verdict case exit non-zero, so

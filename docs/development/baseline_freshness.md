@@ -88,10 +88,11 @@ On a green `main` only the first two can appear.
 The job is three commands, and they are the same ones locally:
 
 ```bash
-cp .bca-baseline.toml /tmp/old-baseline.toml
+old=$(mktemp "${TMPDIR:-/tmp}/bca-old-baseline.XXXXXX.toml")
+cp .bca-baseline.toml "$old"
 make self-scan-write-baseline-headroom
 cargo run --quiet --release -p big-code-analysis-cli -- \
-  diff-baseline /tmp/old-baseline.toml .bca-baseline.toml --format markdown
+  diff-baseline "$old" .bca-baseline.toml --format markdown
 ```
 
 Drop `--exit-code`; as above it is informational. With the flag a

@@ -166,7 +166,10 @@ Two habits that idiom encodes:
 - **Give every run its own log path.** A fixed `/tmp/pc.log` is shared
   by every checkout, worktree, and tool on the host. During one batch a
   concurrent run's log was read as this one's, and a `fmt-check` failure
-  was diagnosed against code that had never been touched.
+  was diagnosed against code that had never been touched. The same
+  rule covers every scratch file; the tiers — and where a file that
+  must outlive a reboot goes instead — are in
+  [`.claude/rules/temp-files.md`](.claude/rules/temp-files.md).
 - **Read the verdict from the log, not from a reported exit status.**
   Some tooling reports the status of the last command on the line, so
   `make pre-commit >log 2>&1; echo "EXIT=$?"` announces `echo`'s

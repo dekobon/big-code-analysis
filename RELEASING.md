@@ -198,7 +198,8 @@ end-to-end from a clean environment:
 
 ```bash
 VERSION=0.1.0
-python -m venv /tmp/bca-rel && . /tmp/bca-rel/bin/activate
+venv=$(mktemp -d "${TMPDIR:-/tmp}/bca-rel-venv.XXXXXX")
+python -m venv "$venv" && . "$venv/bin/activate"
 # Library bindings (importable module):
 pip install "big-code-analysis==${VERSION}"
 python -c "import big_code_analysis as bca; print(bca.__version__)"

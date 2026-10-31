@@ -545,11 +545,12 @@ default behaviour: none of the four features auto-enable without
 an env signal. To preview the GHA experience locally:
 
 ```bash
-GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=/tmp/bca-summary.md \
+summary=$(mktemp "${TMPDIR:-/tmp}/bca-summary.XXXXXX.md")
+GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY="$summary" \
   BCA_DIFF_BASE=main \
   bca check --paths . --exclude-from .bcaignore \
       --baseline .bca-baseline.toml
-cat /tmp/bca-summary.md
+cat "$summary"
 ```
 
 For a non-GHA CI (GitLab, Buildkite, Jenkins), set the env vars
