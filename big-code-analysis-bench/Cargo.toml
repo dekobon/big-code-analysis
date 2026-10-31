@@ -31,7 +31,9 @@ workspace = true
 # Path-only, deliberately unversioned: the crate is never published, so
 # there is no registry fallback to pin, and `check-versions.py` has no
 # internal pin to keep in lockstep.
-big-code-analysis = { path = ".." }
+# `vcs` is on so the harness can time `vcs::score::apply_percentile`
+# (#1267), the one hot path here that is not a walk over an AST.
+big-code-analysis = { path = "..", features = ["vcs"] }
 
 [dev-dependencies]
 # `html_reports` writes `target/criterion/report/index.html`, which is

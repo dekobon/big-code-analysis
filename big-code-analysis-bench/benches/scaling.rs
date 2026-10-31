@@ -26,6 +26,7 @@ use std::process::ExitCode;
 use big_code_analysis_bench::cli::{Action, Mode, USAGE, parse_args};
 use big_code_analysis_bench::scaling;
 use big_code_analysis_bench::shapes::{PROBES, Probe};
+use big_code_analysis_bench::vcs::{self, VCS_PROBES, VcsProbe};
 
 /// Exit code for "a probe left its complexity class".
 ///
@@ -69,24 +70,30 @@ fn main() -> ExitCode {
     }
 
     let smoke_set;
-    let probes: &[Probe] = if args.mode == Mode::Smoke {
+    let smoke_ranking;
+    let (probes, ranking): (&[Probe], &[VcsProbe]) = if args.mode == Mode::Smoke {
         eprintln!(
             "note: smoke run at small sizes. Use `cargo bench -p \
              big-code-analysis-bench --bench scaling` for the real gate."
         );
         smoke_set = scaling::smoke_probes(PROBES);
-        &smoke_set
+        smoke_ranking = vcs::smoke_probes(VCS_PROBES);
+        (&smoke_set, &smoke_ranking)
     } else {
-        PROBES
+        (PROBES, VCS_PROBES)
     };
 
-    let report = match scaling::run(probes, args.rounds) {
+    let mut report = match scaling::run(probes, args.rounds) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("scaling harness could not run: {error}");
             return ExitCode::from(HARNESS_ERROR);
         }
     };
+    // The ranking probes grow a `Vec<Stats>` rather than a tree, so
+    // they are measured by their own runner and joined here, where one
+    // report carries the whole gate.
+    report.probes.extend(vcs::run(ranking, args.rounds).probes);
     print!("{report}");
 
     if args.mode != Mode::Gate || !optimized {

@@ -1724,12 +1724,6 @@ metric = "halstead.effort"
 value = 48730.801413215886
 
 [[entry]]
-path = "src/vcs/score.rs"
-qualified = "apply_percentile"
-metric = "halstead.effort"
-value = 71452.77150113358
-
-[[entry]]
 path = "src/vcs/stats.rs"
 qualified = "Accumulator::finalize"
 metric = "halstead.effort"

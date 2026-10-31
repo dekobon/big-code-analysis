@@ -128,8 +128,8 @@ jobs:
             exit 0
           fi
           {
-            echo "The scheduled \`benchmark.yml\` run measured a metric-walk"
-            echo "probe outside its declared complexity bound, twice."
+            echo "The scheduled \`benchmark.yml\` run measured a scaling probe"
+            echo "outside its declared complexity bound, twice."
             echo
             echo "- Run: ${RUN_URL}"
             echo
@@ -144,6 +144,6 @@ jobs:
             echo '```'
           } > /tmp/benchmark-issue-body.md
           gh issue create \
-            --title "Metric walk: complexity bound exceeded (run ${{ github.run_id }})" \
+            --title "Scaling gate: complexity bound exceeded (run ${{ github.run_id }})" \
             --label "bug" \
             --body-file /tmp/benchmark-issue-body.md

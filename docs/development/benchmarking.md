@@ -224,6 +224,15 @@ Read it as follows.
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
 | `abc/elixir-many-timeouts` | Elixir | width | malformed `receive` timeout clauses that must not each rescan every message clause | linear |
+| `vcs/all-equal` | — | files | `vcs::score::apply_percentile` over a population where every signal ties across all files (#1267) | linearithmic |
+| `vcs/duplicate-heavy` | — | files | the same pass where each signal takes a small fixed set of values, so every file shares each rank with a large slice of the population (#1267) | linearithmic |
+| `vcs/spread` | — | files | the same pass with few exact ties, so every file's binary searches land at a different index — the shape under which the search phase, which dominates the sort, costs the most (#1267) | linearithmic |
+
+The three `vcs/*` rows are the one hot path here that is not a walk
+over an AST: their input is a `Vec<Stats>` grown along the file count,
+measured by `big-code-analysis-bench/src/vcs.rs` with the same
+warm-up, rotation and three-point fit, and joined into the same report.
+See [The ranking pass](#ranking-pass).
 
 ### The control probes
 
@@ -749,6 +758,37 @@ the public type, which is a breaking change (#1110).
 `nested_fns` sidesteps it by reusing one identifier at every level, so
 the vocabulary is four operands at any depth and the timing is the walk
 alone.
+
+### The ranking pass {#ranking-pass}
+
+`vcs::score::apply_percentile` re-ranks every file's ten signals to a
+mid-rank percentile within the analyzed set. Until [#1267][ranking-pass]
+it took both tie counts — how many files sit strictly below a value,
+how many within the tie tolerance of it — by scanning the whole
+population per file, per signal: `O(signals × n²)`, re-paid on every
+cache hit and on every `bca vcs trend` point. Measured on the three
+`vcs/*` shapes before the fix: exponents **2.00 / 1.98 / 1.98**, with
+the 8 000-file cell at ~100 ms in release. The pass now sorts once per
+signal and takes the counts by binary search, fitting **1.14 / 1.09 /
+1.15** at ~1.5–7 ms for the same cell. The bound is 1.5: a sort is
+`O(n log n)`, which fits a little above 1.0 over a ladder this short,
+and the old form sits at 2.0 with nothing in between.
+
+The three shapes exist because a mid-rank implementation's cost can
+depend on the tie structure in ways a single shape hides. A per-element
+scan is quadratic on every shape; a per-tie-group walk would be linear
+on `all-equal` and quadratic on `spread`. All three on the ladder is
+what pins the class rather than one shape's constant.
+
+The reading is the number of distinct `risk_score` values the pass
+produced, taken once per cell outside the timed repetitions — it
+sorts, and inside the loop it would fold a second `O(n log n)` term into
+every sample. A reading of 1 on `spread` would mean the pass collapsed
+every file to one score; `readings_follow_the_tie_structure` in
+`big-code-analysis-bench/src/vcs.rs` asserts the three readings grow
+with the shape.
+
+[ranking-pass]: https://github.com/dekobon/big-code-analysis/issues/1267
 
 ## Criterion measurements
 

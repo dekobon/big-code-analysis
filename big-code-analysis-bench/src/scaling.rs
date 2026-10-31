@@ -200,7 +200,7 @@ impl Report {
 
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "metric-walk scaling ({} rounds)", self.rounds)?;
+        writeln!(f, "scaling probes ({} rounds)", self.rounds)?;
         for probe in &self.probes {
             writeln!(f)?;
             // An abandoned probe has no exponent worth printing: it is
@@ -263,19 +263,75 @@ fn millis(duration: Duration) -> f64 {
 /// timings.
 struct Pending {
     probe: usize,
-    size: usize,
-    bytes: usize,
-    reading: u64,
-    iterations: u32,
+    measured: Measured,
     ast: Ast,
     workload: Workload,
     options: MetricsOptions,
-    timings: Vec<Duration>,
+}
+
+/// The input-independent half of a cell under measurement: what the
+/// report shows about it, and the rounds it has accumulated. Shared
+/// with the ranking runner in [`crate::vcs`], whose cells hold a
+/// `Vec<Stats>` where [`Pending`] holds a tree.
+pub(crate) struct Measured {
+    /// Value of the probe's swept parameter for this cell.
+    pub(crate) size: usize,
+    /// Size of the generated input.
+    pub(crate) bytes: usize,
+    /// Headline value the one untimed run produced.
+    pub(crate) reading: u64,
+    /// Repetitions per timed sample, sized from that run.
+    pub(crate) iterations: u32,
+    /// Per-round timings, one per measurement round.
+    pub(crate) timings: Vec<Duration>,
+}
+
+/// The measurement schedule: every cell once per round, for `rounds`
+/// measured rounds after [`WARMUP_ROUNDS`] discarded ones, as `(round,
+/// cell index)` pairs.
+///
+/// The visit order is rotated each round so no cell sits at a fixed
+/// position in the schedule: drift or contention that arrives mid-run
+/// lands on every cell rather than on whichever one always runs last.
+/// An empty cell set — every probe abandoned over budget — yields
+/// nothing, so the rotation's `% cell_count` is never evaluated at
+/// zero; both runners share this so neither can reintroduce that
+/// division on its own.
+pub(crate) fn schedule(cell_count: usize, rounds: usize) -> impl Iterator<Item = (usize, usize)> {
+    (0..rounds + WARMUP_ROUNDS).flat_map(move |round| {
+        (0..cell_count).map(move |offset| (round, (offset + round) % cell_count))
+    })
+}
+
+impl Measured {
+    /// Files one round's sample: the elapsed time of `iterations`
+    /// repetitions, averaged per repetition, dropped for the warm-up
+    /// rounds.
+    pub(crate) fn record(&mut self, round: usize, elapsed: Duration) {
+        if round >= WARMUP_ROUNDS {
+            self.timings.push(elapsed / self.iterations);
+        }
+    }
+
+    /// Reduces the accumulated rounds to the cell's summary, sorting
+    /// `timings` in place.
+    pub(crate) fn reduce(&mut self) -> Cell {
+        self.timings.sort_unstable();
+        Cell {
+            size: self.size,
+            bytes: self.bytes,
+            reading: self.reading,
+            iterations: self.iterations,
+            min: self.timings.first().copied().unwrap_or_default(),
+            median: median(&self.timings),
+            max: self.timings.last().copied().unwrap_or_default(),
+        }
+    }
 }
 
 /// Repetitions a single timed sample needs to reach
 /// [`TARGET_SAMPLE`], given one observed walk.
-fn iterations_for(single_walk: Duration) -> u32 {
+pub(crate) fn iterations_for(single_walk: Duration) -> u32 {
     let observed = single_walk.as_nanos().max(1);
     let needed = TARGET_SAMPLE.as_nanos().div_ceil(observed);
     // A walk so fast that `needed` overflows `u32` cannot happen at
@@ -373,14 +429,16 @@ pub fn run_with_budget(
             }
             cells.push(Pending {
                 probe: index,
-                size,
-                bytes: source.len(),
-                reading,
+                measured: Measured {
+                    size,
+                    bytes: source.len(),
+                    reading,
+                    iterations: iterations_for(single_walk),
+                    timings: Vec::with_capacity(rounds),
+                },
                 workload: probe.workload,
-                iterations: iterations_for(single_walk),
                 ast,
                 options,
-                timings: Vec::with_capacity(rounds),
             });
         }
         if over_budget[index].is_none() {
@@ -388,22 +446,13 @@ pub fn run_with_budget(
         }
     }
 
-    let cell_count = pending.len();
-    for round in 0..(rounds + WARMUP_ROUNDS) {
-        for offset in 0..cell_count {
-            // Rotating the visit order spreads any drift or contention
-            // over every cell instead of concentrating it on whichever
-            // one always runs last.
-            let cell = &mut pending[(offset + round) % cell_count];
-            let started = Instant::now();
-            for _ in 0..cell.iterations {
-                black_box(cell.workload.walk(&cell.ast, cell.options)?);
-            }
-            let elapsed = started.elapsed() / cell.iterations;
-            if round >= WARMUP_ROUNDS {
-                cell.timings.push(elapsed);
-            }
+    for (round, index) in schedule(pending.len(), rounds) {
+        let cell = &mut pending[index];
+        let started = Instant::now();
+        for _ in 0..cell.measured.iterations {
+            black_box(cell.workload.walk(&cell.ast, cell.options)?);
         }
+        cell.measured.record(round, started.elapsed());
     }
 
     Ok(Report {
@@ -412,53 +461,49 @@ pub fn run_with_budget(
             .iter()
             .enumerate()
             .map(|(index, probe)| {
-                reduce(
-                    probe,
+                ProbeReport::reduce(
+                    probe.name,
+                    probe.max_exponent,
+                    probe.rationale,
                     over_budget[index],
-                    pending.iter_mut().filter(|c| c.probe == index),
+                    pending
+                        .iter_mut()
+                        .filter(|c| c.probe == index)
+                        .map(|c| c.measured.reduce())
+                        .collect(),
                 )
             })
             .collect(),
     })
 }
 
-fn reduce<'a>(
-    probe: &Probe,
-    over_budget: Option<(usize, Duration)>,
-    cells: impl Iterator<Item = &'a mut Pending>,
-) -> ProbeReport {
-    let cells: Vec<Cell> = cells
-        .map(|pending| {
-            pending.timings.sort_unstable();
-            Cell {
-                size: pending.size,
-                bytes: pending.bytes,
-                reading: pending.reading,
-                iterations: pending.iterations,
-                min: pending.timings.first().copied().unwrap_or_default(),
-                median: median(&pending.timings),
-                max: pending.timings.last().copied().unwrap_or_default(),
-            }
-        })
-        .collect();
+impl ProbeReport {
+    /// Fits the exponent over reduced cells and assembles the entry.
+    pub(crate) fn reduce(
+        name: &'static str,
+        max_exponent: f64,
+        rationale: &'static str,
+        over_budget: Option<(usize, Duration)>,
+        cells: Vec<Cell>,
+    ) -> Self {
+        let points: Vec<(f64, f64)> = cells
+            .iter()
+            .map(|cell| {
+                (
+                    cell.size as f64,
+                    (cell.median.as_nanos() as f64).max(MIN_MEASURABLE_NS),
+                )
+            })
+            .collect();
 
-    let points: Vec<(f64, f64)> = cells
-        .iter()
-        .map(|cell| {
-            (
-                cell.size as f64,
-                (cell.median.as_nanos() as f64).max(MIN_MEASURABLE_NS),
-            )
-        })
-        .collect();
-
-    ProbeReport {
-        name: probe.name,
-        exponent: fit_exponent(&points),
-        max_exponent: probe.max_exponent,
-        rationale: probe.rationale,
-        over_budget,
-        cells,
+        Self {
+            name,
+            exponent: fit_exponent(&points),
+            max_exponent,
+            rationale,
+            over_budget,
+            cells,
+        }
     }
 }
 
@@ -506,9 +551,43 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        ProbeReport, Report, SMOKE_SIZES, fit_exponent, median, run, run_with_budget, smoke_probes,
+        ProbeReport, Report, SMOKE_SIZES, WARMUP_ROUNDS, fit_exponent, median, run,
+        run_with_budget, schedule, smoke_probes,
     };
     use crate::shapes::PROBES;
+
+    /// Every cell is visited exactly once per round, the visit order
+    /// rotates by one each round, and an empty cell set yields no visits
+    /// at all — the case where the rotation's modulus would be zero.
+    #[test]
+    fn schedule_rotates_every_cell_once_per_round_and_tolerates_no_cells() {
+        // The exact sequence, not a per-round set: the visit order *is*
+        // the contract, since it is what spreads contention evenly, so
+        // a schedule that reversed the tail of each round must fail here.
+        assert_eq!(
+            WARMUP_ROUNDS, 2,
+            "the expected sequence below assumes two warm-up rounds"
+        );
+        let visits: Vec<(usize, usize)> = schedule(3, 2).collect();
+        assert_eq!(
+            visits,
+            [
+                (0, 0),
+                (0, 1),
+                (0, 2),
+                (1, 1),
+                (1, 2),
+                (1, 0),
+                (2, 2),
+                (2, 0),
+                (2, 1),
+                (3, 0),
+                (3, 1),
+                (3, 2),
+            ]
+        );
+        assert_eq!(schedule(0, 5).count(), 0);
+    }
 
     /// Perfectly linear data fits an exponent of 1.
     #[test]

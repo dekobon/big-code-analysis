@@ -351,6 +351,23 @@ for historical reference.
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
 
+- **`--risk-formula percentile` ranks in `O(signals × n log n)`**
+  (#1267). The mid-rank pass scanned the whole population twice per
+  file per signal, so an 8 000-file ranking cost ~100 ms in release
+  (the issue measured 12.5 s for 10 000 files in a debug build) and
+  was paid again on every cache hit and every `bca vcs trend` point;
+  it now sorts once per signal and takes both tie counts by binary
+  search, 1.5–7 ms at the same 8 000 by population shape. The counts
+  are the scan's `less` predicate and an exact decomposition of its
+  tie predicate, evaluated on the same operands, so
+  every emitted `risk_score` is bit-identical — including the
+  non-transitive handling of chained near-ties and the behaviour on
+  NaN or infinite signals — and `RISK_SCORE_VERSION` stays `2`;
+  cached entries remain valid. A frozen copy of the pairwise form in
+  `score_tests.rs` is the oracle, and three `vcs/*` probes join the
+  complexity-class gate (fitted 2.00 / 1.98 / 1.98 before, 1.14 /
+  1.09 / 1.15 after).
+
 ### Fixed
 
 - **The quarterly mutation-testing gate can run, and finish** (#1710,

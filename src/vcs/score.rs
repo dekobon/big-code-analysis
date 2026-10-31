@@ -77,9 +77,10 @@ const HIGH_DEV_BONUS: f64 = 0.35;
 const MID_DEV_BONUS: f64 = 0.15;
 /// Multiplicative bump for a file first seen within the recent window.
 const NEW_FILE_BONUS: f64 = 0.15;
-/// Absolute tolerance for treating two percentile signals as tied. All
-/// signals are integer counts or ratios in `[0, 1]`, so `1e-9` is far
-/// below any meaningful difference yet absorbs floating-point ratio drift.
+/// Absolute tolerance for treating two percentile signals as tied. The
+/// signals are integer counts, a ratio in `[0, 1]`, and two entropies
+/// in bits, so `1e-9` is far below any meaningful difference yet
+/// absorbs the accumulation-order drift of the entropy sums.
 const TIE_TOLERANCE: f64 = 1e-9;
 
 /// Raw signals consumed by the weighted formula. Decoupled from
@@ -185,7 +186,8 @@ pub(super) fn ln1p(x: f64) -> f64 {
 /// (so identical values share a percentile), scaled to `[0, 100]`, and
 /// the per-file mean across signals becomes the score. With fewer than
 /// two files percentiles are undefined, so the weighted score is left
-/// in place.
+/// in place. The pass is `O(signals × n log n)`: one sort per signal
+/// and three binary searches per file per signal (#1267).
 ///
 /// The `u64 → f64` signal casts are exact for every realistic churn
 /// count (well under 2^53) and the result is ordinal, so the precision
@@ -222,28 +224,73 @@ pub fn apply_percentile(stats: &mut [Stats]) {
     let mut blended = vec![0.0_f64; n];
     for extract in extractors {
         let values: Vec<f64> = stats.iter().map(extract).collect();
-        for (i, &v) in values.iter().enumerate() {
-            // Tie tolerance: integer-derived signals compare bit-exact,
-            // but the dilution signal `1 - top/total` can land ~1 ULP
-            // apart for mathematically-equal ratios (e.g. 2/6 vs 1/3).
-            // `f64::EPSILON` is the ULP at magnitude 1.0 (too tight here),
-            // so use a small absolute tolerance — and apply it to BOTH
-            // filters so a near-equal value is counted as tied, never as
-            // both "less" and "equal" (which could push `pct` past 1.0).
-            let less = values.iter().filter(|&&o| o < v - TIE_TOLERANCE).count();
-            let equal = values
-                .iter()
-                .filter(|&&o| (o - v).abs() < TIE_TOLERANCE)
-                .count();
-            // Mid-rank: average position among equal values, in [0, 1].
-            let pct = (less as f64 + (equal as f64 - 1.0) / 2.0) / (n as f64 - 1.0);
-            blended[i] += pct.clamp(0.0, 1.0);
+        for (i, pct) in mid_rank_percentiles(&values).into_iter().enumerate() {
+            blended[i] += pct;
         }
     }
     let signal_count = extractors.len() as f64;
     for (s, blend) in stats.iter_mut().zip(blended) {
         s.risk_score = (blend / signal_count) * 100.0;
     }
+}
+
+/// Mid-rank percentile of every value within `values`, in `[0, 1]`.
+///
+/// For each `v`: `less` is the count strictly below `v - TIE_TOLERANCE`,
+/// `equal` the count within the open band `(v - T, v + T)` (always
+/// including `v` itself when finite), and the mid-rank is
+/// `(less + (equal - 1) / 2) / (n - 1)`, clamped. Requires `n >= 2`,
+/// which [`apply_percentile`] guards; on one value the denominator is
+/// zero and the result is NaN.
+///
+/// `less` is its own search rather than the band's lower edge: `o <
+/// v - T` rounds `v - T` while `o - v <= -T` rounds `o - v`, and the
+/// two can disagree on the boundary. The scan evaluated both, so both
+/// are kept; `mid_rank_kernel_exact_tolerance_boundary` pins a case
+/// where collapsing them would change the answer.
+///
+/// Both counts are taken by binary search over one sorted copy rather
+/// than by scanning `values` per element (#1267), and they are
+/// bit-identical to that scan for every input: each predicate below is
+/// the scan's own expression, evaluated on the same operands in the
+/// same order, and each is monotone over the sorted order — `o - v` is
+/// non-decreasing in `o` under round-to-nearest, through subnormals
+/// and overflow alike — so `partition_point` returns the exact count.
+/// The open band is counted as `#{o - v < T} - #{o - v <= -T}` rather
+/// than against `v ± T`: comparing `o` to a rounded `v + T` and
+/// comparing the rounded `o - v` to `T` round at different points, and
+/// the two disagree at the band's edges. Only the latter is what the
+/// scan evaluated.
+///
+/// NaN sorts last: every predicate is false on a NaN `o` — the scan
+/// counted it as neither less nor equal to anything, itself included —
+/// so it must sit in the false suffix, where `total_cmp` alone would
+/// put only a positive-signed one. A NaN `v` finds every predicate
+/// false, ranks `-0.5 / (n - 1)` and clamps to `0`, as before.
+#[allow(clippy::cast_precision_loss)]
+fn mid_rank_percentiles(values: &[f64]) -> Vec<f64> {
+    let n = values.len();
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable_by(|a, b| a.is_nan().cmp(&b.is_nan()).then_with(|| a.total_cmp(b)));
+    values
+        .iter()
+        .map(|&v| {
+            // Tie tolerance: integer-derived signals compare bit-exact,
+            // but the entropies are sums whose accumulation order can
+            // leave mathematically-equal values a few ULPs apart.
+            // `f64::EPSILON` is the ULP at magnitude 1.0 (too tight here),
+            // so use a small absolute tolerance — and apply it to BOTH
+            // counts so a near-equal value is counted as tied, never as
+            // both "less" and "equal".
+            let less = sorted.partition_point(|&o| o < v - TIE_TOLERANCE);
+            let below_band = sorted.partition_point(|&o| o - v <= -TIE_TOLERANCE);
+            let below_or_in_band = sorted.partition_point(|&o| o - v < TIE_TOLERANCE);
+            let equal = below_or_in_band - below_band;
+            // Mid-rank: average position among equal values, in [0, 1].
+            let pct = (less as f64 + (equal as f64 - 1.0) / 2.0) / (n as f64 - 1.0);
+            pct.clamp(0.0, 1.0)
+        })
+        .collect()
 }
 
 #[cfg(test)]
