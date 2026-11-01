@@ -74,7 +74,7 @@ impl Cognitive for JavaCode {
             Else => {
                 increment_by_one(stats);
             }
-            // Per SonarSource Cognitive Complexity §B2, labeled `break LABEL`
+            // Per SonarSource Cognitive Complexity §B1, labeled `break LABEL`
             // and `continue LABEL` each add +1 for breaking the structured
             // control flow. Plain `break;` / `continue;` are not penalized.
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {

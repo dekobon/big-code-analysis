@@ -72,7 +72,7 @@ impl Cognitive for PhpCode {
             _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
             }
-            // Per SonarSource Cognitive Complexity §B2, `goto label;` is an
+            // Per SonarSource Cognitive Complexity §B1, `goto label;` is an
             // unstructured jump and adds +1 (matching C++/C#/Go/Perl/Lua
             // goto). PHP has no *labeled* `break`/`continue`; its only
             // non-default jump argument is the numeric level form

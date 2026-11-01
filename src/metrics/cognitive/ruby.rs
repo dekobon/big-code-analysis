@@ -121,7 +121,7 @@ impl Cognitive for RubyCode {
             // Ruby has no labeled loops: `break`/`next` are always
             // unlabeled (the token's only optional child is a return-value
             // expression, never a label). Per SonarSource Cognitive
-            // Complexity §B2, an unlabeled break/continue adds +0 — the
+            // Complexity §B1, an unlabeled break/continue adds +0 — the
             // enclosing loop's nesting already accounts for it — so they are
             // intentionally excluded here. `redo` (restart the current loop
             // iteration) and `retry` (re-run a rescued `begin` block) are

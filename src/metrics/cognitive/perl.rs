@@ -106,7 +106,7 @@ impl Cognitive for PerlCode {
             {
                 increment_by_one(stats);
             }
-            // SonarSource §B2: `goto` is a non-local jump and adds +1.
+            // SonarSource §B1: `goto` is a non-local jump and adds +1.
             // `goto LABEL;` parses as `goto_expression` wrapping the
             // anonymous `goto` keyword token; the walker visits both, so
             // matching only the `GotoExpression` statement node counts the
@@ -114,7 +114,7 @@ impl Cognitive for PerlCode {
             P::GotoExpression => {
                 increment_by_one(stats);
             }
-            // SonarSource §B2: labeled `last LABEL` / `next LABEL` /
+            // SonarSource §B1: labeled `last LABEL` / `next LABEL` /
             // `redo LABEL` each add +1 for breaking structured control
             // flow; bare `last;` / `next;` / `redo;` are +0. The jump
             // target is carried as an `Identifier` child of

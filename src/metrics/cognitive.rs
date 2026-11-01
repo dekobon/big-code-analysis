@@ -436,7 +436,7 @@ macro_rules! js_cognitive {
                 Else => {
                     increment_by_one(stats);
                 }
-                // Per SonarSource Cognitive Complexity §B2, a labeled
+                // Per SonarSource Cognitive Complexity §B1, a labeled
                 // `break LABEL` / `continue LABEL` is an unstructured jump
                 // and adds +1. The JS-family grammar exposes the label as a
                 // `StatementIdentifier` child (not the plain `Identifier`
@@ -4743,7 +4743,7 @@ fn ie(x: bool) -> i32 {
     #[cfg(feature = "java")]
     #[test]
     fn java_labeled_break_continue() {
-        // Per SonarSource Cognitive Complexity §B2 (issue #225), labeled
+        // Per SonarSource Cognitive Complexity §B1 (issue #225), labeled
         // `break LABEL` and `continue LABEL` each add +1 because they break
         // structured control flow. Mirrors `go_labeled_break_continue` and
         // `rust_break_continue_labeled`.
@@ -4787,7 +4787,7 @@ fn ie(x: bool) -> i32 {
     fn java_unlabeled_break_continue_not_counted() {
         // Negative test for issue #225: plain `break;` / `continue;` are
         // *not* unstructured jumps under SonarSource Cognitive Complexity
-        // §B2 and must add 0. Only the surrounding `for` + `if` contribute.
+        // §B1 and must add 0. Only the surrounding `for` + `if` contribute.
         // expected: for (+1) + if (+2) + if (+2) = 5.
         check_metrics::<JavaParser>(
             "class X {
@@ -5154,7 +5154,7 @@ fn ie(x: bool) -> i32 {
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_goto_statement() {
-        // Per SonarSource Cognitive Complexity §B2 (issue #225), any `goto`
+        // Per SonarSource Cognitive Complexity §B1 (issue #225), any `goto`
         // is an unstructured jump and adds +1. Mirrors C++'s `GotoStatement`
         // and Go's `GotoStatement` handling.
         // expected: if (+1, nesting=0) + goto neg (+1) = 2.
@@ -5191,7 +5191,7 @@ fn ie(x: bool) -> i32 {
     #[test]
     fn csharp_goto_case_and_default() {
         // `goto case` and `goto default` inside a `switch` are also
-        // unstructured jumps (+1 each) per SonarSource §B2.
+        // unstructured jumps (+1 each) per SonarSource §B1.
         // expected: switch (+1, nesting=0) + goto case 2 (+1)
         // + goto default (+1) = 3.
         check_metrics::<CsharpParser>(
@@ -5231,7 +5231,7 @@ fn ie(x: bool) -> i32 {
         // Negative test for issue #225: C#'s grammar does not allow
         // labeled `break`/`continue` (those are syntactically rejected),
         // and plain `break;` / `continue;` are not unstructured jumps under
-        // SonarSource §B2 — they must add 0. Only the `for` + `if`
+        // SonarSource §B1 — they must add 0. Only the `for` + `if`
         // contribute.
         // expected: for (+1) + if (+2) = 3.
         check_metrics::<CsharpParser>(
@@ -5560,7 +5560,7 @@ fn ie(x: bool) -> i32 {
         // (cognitive 2). Matching only `GotoExpression` scores the correct
         // +1.
         check_metrics::<PerlParser>("sub f { goto LABEL; LABEL: return; }", "foo.pl", |metric| {
-            // expected: one `goto` jump (§B2) = +1
+            // expected: one `goto` jump (§B1) = +1
             assert_eq!(metric.cognitive.cognitive_sum(), 1);
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
@@ -5581,7 +5581,7 @@ fn ie(x: bool) -> i32 {
         // carried as an `Identifier` child of `loop_control_statement`
         // (`Label` is the loop-*definition* node `OUTER:`). Gating on
         // `Label` was a dead arm — labeled jumps scored +0. Each labeled
-        // form is now +1 (§B2). The bare forms below stay +0.
+        // form is now +1 (§B1). The bare forms below stay +0.
         check_metrics::<PerlParser>(
             "OUTER: for my $i (@a) { # +1 for
                  last OUTER;  # +1 labeled
@@ -5609,7 +5609,7 @@ fn ie(x: bool) -> i32 {
     #[test]
     fn perl_bare_loop_control_zero() {
         // Bare `last;` / `next;` / `redo;` have no `Identifier` jump-target
-        // child and must stay +0 — only the surrounding loop counts (§B2).
+        // child and must stay +0 — only the surrounding loop counts (§B1).
         check_metrics::<PerlParser>(
             "for my $i (@a) { # +1 for
                  last;  # +0
@@ -5887,7 +5887,7 @@ fn ie(x: bool) -> i32 {
         // Regression (#450): tree-sitter-kotlin-ng has no break/continue
         // jump-statement kind — `break@outer` / `continue@outer` are
         // `labeled_expression` nodes. The Kotlin impl had no arm for them,
-        // so labeled jumps scored +0. Each labeled jump is now +1 (§B2);
+        // so labeled jumps scored +0. Each labeled jump is now +1 (§B1);
         // the bare `break` below (a plain identifier) stays +0.
         check_metrics::<KotlinParser>(
             "fun f() {
@@ -7489,7 +7489,7 @@ end",
     fn lua_cognitive_break_continue() {
         // Lua's `break` is always unlabeled (the grammar has no labeled
         // break and no `continue`), so per SonarSource Cognitive Complexity
-        // §B2 it adds +0 — issue #435. for(+1) + if at depth 1 (+2) = 3.
+        // §B1 it adds +0 — issue #435. for(+1) + if at depth 1 (+2) = 3.
         check_metrics::<LuaParser>(
             "local function f(t)
     for i = 1, #t do
@@ -7521,7 +7521,7 @@ end",
     #[test]
     fn lua_cognitive_goto_counted() {
         // `goto label` is a genuinely unstructured jump and adds +1 per
-        // SonarSource §B2, even though Lua's unlabeled `break` does not
+        // SonarSource §B1, even though Lua's unlabeled `break` does not
         // (issue #435). Only the `goto` contributes: +1.
         check_metrics::<LuaParser>(
             "local function f()
@@ -8694,7 +8694,7 @@ end",
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_labeled_break_continue() {
-        // SonarSource B2: labeled break/continue each add +1.
+        // SonarSource B1: labeled break/continue each add +1.
         check_metrics::<GroovyParser>(
             "void f() {
                 outer:
@@ -8745,7 +8745,7 @@ end",
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_unlabeled_break_continue_not_counted() {
-        // SonarSource B2: plain `break` / `continue` are NOT
+        // SonarSource B1: plain `break` / `continue` are NOT
         // unstructured jumps and must add 0 — only labeled forms
         // pay the +1. Matches Java's identical fixture.
         check_metrics::<GroovyParser>(
@@ -9858,7 +9858,7 @@ end",
     #[test]
     fn php_goto_counted() {
         // `goto label;` is a genuinely unstructured jump and adds +1 per
-        // SonarSource Cognitive Complexity §B2 (issue #435), matching
+        // SonarSource Cognitive Complexity §B1 (issue #435), matching
         // C++/C#/Go/Perl/Lua goto handling.
         check_metrics::<PhpParser>(
             "<?php
@@ -10224,7 +10224,7 @@ end",
     #[test]
     fn ruby_break_next() {
         // Ruby has no labeled loops, so `break`/`next` are always
-        // unlabeled. Per SonarSource Cognitive Complexity §B2 an unlabeled
+        // unlabeled. Per SonarSource Cognitive Complexity §B1 an unlabeled
         // break/continue adds +0 (issue #435) — only the enclosing `while`
         // (+1) counts → 1.
         check_metrics::<RubyParser>(
@@ -10242,7 +10242,7 @@ end",
     fn ruby_redo_retry_counted() {
         // `redo` (restart the current loop iteration) and `retry` (re-run a
         // rescued `begin` block) are genuinely unstructured jumps with no
-        // structured equivalent, so each adds +1 per SonarSource §B2
+        // structured equivalent, so each adds +1 per SonarSource §B1
         // (issue #435) even though `break`/`next` do not.
         check_metrics::<RubyParser>(
             "def foo\n  while a\n    redo\n  end\n  begin\n    work\n  rescue\n    retry\n  end\nend\n",
@@ -10444,7 +10444,7 @@ end",
     #[cfg(feature = "javascript")]
     #[test]
     fn javascript_labeled_break_continue() {
-        // Per SonarSource Cognitive Complexity §B2 (issue #435), a labeled
+        // Per SonarSource Cognitive Complexity §B1 (issue #435), a labeled
         // `break LABEL` / `continue LABEL` is an unstructured jump and adds
         // +1. The JS-family grammar exposes the label as a
         // `statement_identifier` child of the break/continue node.
@@ -10484,7 +10484,7 @@ end",
     #[test]
     fn javascript_unlabeled_break_continue_not_counted() {
         // Negative test for issue #435: plain `break;` / `continue;` are
-        // not unstructured jumps under SonarSource §B2 and add +0. Only the
+        // not unstructured jumps under SonarSource §B1 and add +0. Only the
         // surrounding `for` + two `if`s contribute.
         check_metrics::<JavascriptParser>(
             "function scan(m) {

@@ -86,7 +86,7 @@ impl Cognitive for KotlinCode {
                     increment_by_one(stats);
                 }
             }
-            // SonarSource §B2: labeled `break@outer` / `continue@outer`
+            // SonarSource §B1: labeled `break@outer` / `continue@outer`
             // each add +1 for breaking structured control flow; bare
             // `break` / `continue` are +0. See `kotlin_is_labeled_jump`
             // for how the grammar models the labeled-jump shape (#450).

@@ -62,7 +62,7 @@ impl Cognitive for CsharpCode {
             Else => {
                 increment_by_one(stats);
             }
-            // Per SonarSource Cognitive Complexity §B2, any `goto` (including
+            // Per SonarSource Cognitive Complexity §B1, any `goto` (including
             // `goto label`, `goto case x`, `goto default`) is an unstructured
             // jump and adds +1. C#'s grammar does not allow labeled
             // `break`/`continue` (those forms are syntactically rejected), so

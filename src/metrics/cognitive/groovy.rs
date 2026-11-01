@@ -70,7 +70,7 @@ impl Cognitive for GroovyCode {
             Else => {
                 increment_by_one(stats);
             }
-            // SonarSource B2: labeled break/continue each +1 for breaking
+            // SonarSource B1: labeled break/continue each +1 for breaking
             // structured control flow. Same shape as Java.
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);

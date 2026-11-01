@@ -53,7 +53,7 @@ impl Cognitive for LuaCode {
             }
             // `else` increments without nesting. Lua's `break` is always
             // unlabeled (the grammar has no labeled break, and no
-            // `continue`), so per SonarSource Cognitive Complexity §B2 it
+            // `continue`), so per SonarSource Cognitive Complexity §B1 it
             // adds +0 — the enclosing loop's nesting already accounts for
             // it. Only `goto label` is a genuinely unstructured jump and
             // adds +1.

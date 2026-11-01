@@ -374,7 +374,7 @@ since adopted it.
   built from macro-shaped `Call` nodes rather than dedicated grammar
   productions, and the language has no `break` / `continue` / `goto`.
   The implementation therefore scores only the nesting-bearing
-  constructs it can identify and omits the unstructured-jump (B2)
+  constructs it can identify and omits the unstructured-jump (B1)
   increments that the SonarSource specification adds for languages
   that expose those shapes syntactically. A `with` expression's `else`
   clauses act like `case` arms. The `with` expression already
