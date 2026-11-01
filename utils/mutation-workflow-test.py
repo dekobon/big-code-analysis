@@ -431,8 +431,14 @@ class PrepareTests(HarnessCase):
         r = self.h.run(self.bodies["prepare"])
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.h.outputs()
-        self.assertEqual(json.loads(out["shards"]), list(range(10)))
-        self.assertEqual(out["count"], str(len(json.loads(out["shards"]))))
+        shards = json.loads(out["shards"])
+        # The count is a tuning knob the workflow comment sizes from the
+        # last run; what this pins is the shape every consumer relies on
+        # — a dense 0..n list and a count that equals its length — not
+        # the number itself.
+        self.assertEqual(shards, list(range(len(shards))))
+        self.assertGreater(len(shards), 1)
+        self.assertEqual(out["count"], str(len(shards)))
 
 
 class MutantsStepTests(HarnessCase):
@@ -462,6 +468,24 @@ class MutantsStepTests(HarnessCase):
                 self.assertEqual(len(summary["timeout"]), 1 if "STUB_TIMEOUT" in files else 0)
 
     def test_cargo_mutants_receives_the_shard_and_strategy(self) -> None:
+        # The step runs in the scratch root, where an unquoted glob
+        # matches nothing and bash passes it through as its own text,
+        # indistinguishable from the quoted form. One file per glob
+        # makes a dropped quote arrive as that file's path instead.
+        # Bash without `globstar` reads an unquoted `**` as `*`, so a
+        # `dir/**/*.rs` pattern expands only against a file exactly one
+        # level below `dir`: each seed sits at that depth, which is
+        # where a seed at `dir/x.rs` would have let an unquoted pattern
+        # pass through verbatim and the check fall silent.
+        for rel in (
+            "src/metrics/cognitive/x.rs",
+            "big-code-analysis-ast/src/checker/sub/x.rs",
+            "big-code-analysis-ast/src/getter/sub/x.rs",
+            "big-code-analysis-ast/src/roles/sub/x.rs",
+        ):
+            path = self.h.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
         self.run_mutants(STUB_CAUGHT="src/a.rs:1:1: x")
         main_calls = [c for c in self.h.calls() if c[:2] == ["mutants", "--package"]]
         self.assertEqual(len(main_calls), 1, self.h.calls())
@@ -472,9 +496,19 @@ class MutantsStepTests(HarnessCase):
         self.assertIn("--in-place", argv)
         # The #1710 glob: whole-path matched, so it must reach the
         # subdirectories, and must arrive as one unexpanded argument.
-        self.assertIn("src/metrics/**/*.rs", argv)
-        self.assertIn("big-code-analysis-ast/src/checker.rs", argv)
-        self.assertIn("big-code-analysis-ast/src/getter.rs", argv)
+        # The per-language globs (#1728) likewise, and in this order.
+        selected = [argv[i + 1] for i, a in enumerate(argv) if a == "-f"]
+        self.assertEqual(
+            selected,
+            [
+                "src/metrics/**/*.rs",
+                "big-code-analysis-ast/src/checker.rs",
+                "big-code-analysis-ast/src/getter.rs",
+                "big-code-analysis-ast/src/checker/**/*.rs",
+                "big-code-analysis-ast/src/getter/**/*.rs",
+                "big-code-analysis-ast/src/roles/**/*.rs",
+            ],
+        )
         self.assertEqual(argv[argv.index("--shard") + 1], "3/8")
         self.assertEqual(argv[argv.index("--sharding") + 1], "round-robin")
         self.assertNotIn("-j", argv)

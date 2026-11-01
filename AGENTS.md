@@ -579,8 +579,13 @@ See [Benchmarking](docs/development/benchmarking.md#chain-audit).
 
 **Mutation testing** runs out-of-band on a quarterly cron via
 `.github/workflows/mutation-test.yml` against `src/metrics/`,
-`big-code-analysis-ast/src/checker.rs`, and
-`big-code-analysis-ast/src/getter.rs`. It is intentionally not part of
+`big-code-analysis-ast/src/checker.rs`,
+`big-code-analysis-ast/src/getter.rs`, and the per-language
+`big-code-analysis-ast/src/checker/`, `getter/` and `roles/` modules
+(the last only for the gate functions written directly in a language
+module: cargo-mutants never visits a macro token tree, so neither a
+`role_table!`'s membership lists nor a gate emitted by
+`else_if_*_gate!` or a family fragment is mutated). It is intentionally not part of
 the per-PR gate (a full run is hours, sharded across a matrix). Escapes
 auto-file a GitHub issue labelled `mutation-testing`; the script that
 summarises each shard and aggregates the report,

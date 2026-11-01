@@ -1,9 +1,12 @@
 # Mutation testing
 
 `big-code-analysis` runs [cargo-mutants][cm] quarterly against every
-metric implementation under `src/metrics/`, plus the two dispatcher
-files `big-code-analysis-ast/src/checker.rs` and
-`big-code-analysis-ast/src/getter.rs`. Mutation testing complements
+metric implementation under `src/metrics/`, the two dispatcher files
+`big-code-analysis-ast/src/checker.rs` and
+`big-code-analysis-ast/src/getter.rs`, and the per-language modules
+under `big-code-analysis-ast/src/checker/`,
+`big-code-analysis-ast/src/getter/` and
+`big-code-analysis-ast/src/roles/` (#1728). Mutation testing complements
 the regular test suite by mechanically mutating production code
 (flipping `>` to `>=`, replacing a function body with
 `Default::default()`) and re-running the tests. Any mutant that
@@ -34,9 +37,12 @@ quarterly health check without slowing day-to-day work.
 - On `workflow_dispatch` for ad-hoc runs from the Actions tab.
 
 The selection is `src/metrics/**/*.rs`,
-`big-code-analysis-ast/src/checker.rs` and
-`big-code-analysis-ast/src/getter.rs`: several thousand mutants, each
-an incremental rebuild plus two crates' test suites, run serially
+`big-code-analysis-ast/src/checker.rs`,
+`big-code-analysis-ast/src/getter.rs`, and the per-language
+`big-code-analysis-ast/src/checker/**/*.rs`,
+`big-code-analysis-ast/src/getter/**/*.rs` and
+`big-code-analysis-ast/src/roles/**/*.rs`: about five thousand mutants,
+each an incremental rebuild plus two crates' test suites, run serially
 because `--in-place` rules out `-j`. That is far past the six hours
 at which GitHub cancels a hosted-runner job, so the run is split
 across a matrix (#1726). Three jobs:
@@ -86,13 +92,43 @@ earlier attempt's summary, which then looks like a shard that was not
 re-run. When the attempt column disagrees with what you re-ran, that
 is what happened.
 
+The per-language `roles/*.rs` modules contribute only the gate
+functions written directly in a language module (the Elixir and Tcl
+text gates, `is_switch_body_kind`, Java's `has_class_body`, PHP's
+`continues_else_clause`, and the like). cargo-mutants mutates `fn`
+items it can see in the source, and anything inside a macro is a
+token tree it never visits: the `owns [...]` / `pays [...]` membership
+lists of a `role_table!` invocation, and equally every gate a macro
+*emits* — the thirteen `else_if_parent_clause_gate!` /
+`else_if_prev_sibling_gate!` invocations, and the gates the
+`js_family`, `c_family` and `tcl_family` fragments expand to.
+`cargo mutants --list -p big-code-analysis-ast -f big-code-analysis-ast/src/roles/control_flow.rs`
+lists nothing — the `-p` matters, since from the repository root the
+unqualified form selects the root crate and reads zero for the wrong
+reason — and the `js_family.rs` listing is empty likewise. None of that is mutation-tested by this
+selection. A kind missing from a row is still caught only by a
+fixture that exercises it.
+
 Size the shard count from the previous complete run's slowest shard.
 The step timeout is 270 minutes; if any shard's `Run cargo-mutants`
 step exceeds about 200, raise the count in `prepare` before the next
-cron. The current ten rests on the first complete run (41219179754,
+cron. The rate comes from the first complete run (41219179754,
 2026-10-31): eight shards of ~475 mutants took 145 to 231 minutes,
 18 to 29 seconds per mutant on `ubuntu-latest`, with three past the
-200-minute mark. The laptop figure the count was first sized from,
+200-minute mark. That blended rate hides the split that matters: the
+slowest shard's `mutants.out/outcomes.json` — the file in each report
+artifact that records per-mutant `duration` — prices a root-crate
+mutant at ~28 seconds and an ast-crate one, which rebuilds both
+crates, at ~39, with a missed mutant about twice either since both
+suites then run to completion. The current sixteen rests on those
+per-crate rates and the census after #1728 widened the selection:
+`cargo mutants --list` (27.1.0, at 8222deba) reports 5048
+mutants, up from 3673, and the ast share rose from 5 % to 31 % since
+every added mutant is in that crate. Sixteen shards hold about 316
+each, roughly 165 minutes at the slow-runner rates; fourteen would
+have been ~361 and ~190 minutes, inside the timeout but with the
+margin eaten by the 1.6x host variance the first run showed between
+two shards of identical composition. The laptop figure the count was first sized from,
 about ten seconds per mutant, is roughly half the hosted cost. Both
 halves of `utils/mutation-report.py` are covered by `make
 mutation-report-test`, and the workflow's four `run:` bodies by `make
@@ -153,7 +189,10 @@ and `big-code-analysis-ast`:
 cargo mutants --package big-code-analysis --package big-code-analysis-ast \
   --in-place \
   -f 'src/metrics/**/*.rs' -f big-code-analysis-ast/src/checker.rs \
-  -f big-code-analysis-ast/src/getter.rs
+  -f big-code-analysis-ast/src/getter.rs \
+  -f 'big-code-analysis-ast/src/checker/**/*.rs' \
+  -f 'big-code-analysis-ast/src/getter/**/*.rs' \
+  -f 'big-code-analysis-ast/src/roles/**/*.rs'
 ```
 
 Keep `--in-place`. Without it cargo-mutants copies the whole tree,

@@ -1,7 +1,7 @@
 name: Mutation testing
 
 # Quarterly run of cargo-mutants against the highest-leverage modules
-# (metrics, checker, getter). Mutation testing is too slow to gate
+# (metrics, checker, getter, roles). Mutation testing is too slow to gate
 # per-PR CI, so this workflow only runs on the cron schedule and on
 # manual dispatch. See docs/development/mutation_testing.md for the
 # rationale and local-invocation notes.
@@ -34,9 +34,17 @@ jobs:
   # from this output, so an absent shard is still expected by `report`.
   # Size it from the previous complete run's slowest shard: a hosted
   # runner is cancelled at six hours, and the step timeout below is
-  # the real budget. Ten gives ~380 mutants per shard: the first
-  # complete run (41219179754, eight shards of ~475) measured 18-29 s
-  # per mutant on ubuntu-latest and ran three shards past 200 min.
+  # the real budget. The first complete run (41219179754, eight shards
+  # of ~475) ran three shards past 200 min; its slowest shard's
+  # `mutants.out/outcomes.json` (where per-mutant `duration` lives)
+  # prices a root-crate mutant at ~28 s and an ast-crate one — which
+  # rebuilds both crates — at ~39 s, and a missed mutant at about
+  # twice either. Widening the selection to the per-language checker/,
+  # getter/ and roles/ modules (#1728) took the census from 3673 to
+  # 5048 mutants (`cargo mutants --list`, 27.1.0, at 8222deba)
+  # and the ast share from 5 % to 31 %. Sixteen gives ~316 per shard,
+  # about 165 min at those slow-runner rates; the margin to 270 is for
+  # the runner variance that made identical shards differ 1.6x.
   prepare:
     name: shard list
     runs-on: ubuntu-latest
@@ -48,7 +56,7 @@ jobs:
       - id: define
         run: |
           set -euo pipefail
-          shards='[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]'
+          shards='[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]'
           echo "shards=${shards}" >> "$GITHUB_OUTPUT"
           echo "count=$(jq -n "${shards} | length")" >> "$GITHUB_OUTPUT"
 
@@ -134,6 +142,9 @@ jobs:
             -f 'src/metrics/**/*.rs' \
             -f big-code-analysis-ast/src/checker.rs \
             -f big-code-analysis-ast/src/getter.rs \
+            -f 'big-code-analysis-ast/src/checker/**/*.rs' \
+            -f 'big-code-analysis-ast/src/getter/**/*.rs' \
+            -f 'big-code-analysis-ast/src/roles/**/*.rs' \
             --shard "${SHARD_K}/${SHARD_N}" \
             --sharding round-robin \
             | tee target/mutants/mutants.log || status=$?
@@ -188,7 +199,7 @@ jobs:
 
       # Fan-in is by file name, not directory: every summary is
       # `shard-summary-<k>.json`, so merging into one directory is
-      # correct whether one artifact or eight arrived. Zero matches is
+      # correct whether one artifact or every one arrived. Zero matches is
       # not an error here; `report` says "0 of N complete" instead.
       - name: Download shard summaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

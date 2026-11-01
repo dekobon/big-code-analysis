@@ -685,7 +685,8 @@ for historical reference.
   regression. That run also measured the hosted cost at 18 to 29
   seconds per mutant, about double the laptop figure the eight-shard
   split was sized from, and ran three shards past the 200-minute
-  mark the sizing rule names; the count is ten from the next cron.
+  mark the sizing rule names; the count was raised to ten, and #1728
+  then to sixteen when the selection widened (see its own entry).
 
 - **`bca --help` and `bca check --help` name the live flags** (#1709).
   The exit-code footer and the `check` description said the hidden,
