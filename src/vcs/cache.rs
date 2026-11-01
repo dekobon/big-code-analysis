@@ -247,9 +247,9 @@ impl HistoryCache {
 /// `HEAD` (the entry key) nor any field of `Options`. Left out, an edited
 /// mailmap served stale author counts indefinitely — the incremental
 /// splice re-persisted the pre-edit digests under each new head, so the
-/// divergence outlived `HEAD` moving. The backend's `repo::mailmap_digest`
-/// documents what the value covers and why it digests gix's merged
-/// snapshot rather than the raw source bytes.
+/// divergence outlived `HEAD` moving. The backend's
+/// `WalkContext::mailmap_digest` documents what the value covers and why
+/// it digests gix's merged snapshot rather than the raw source bytes.
 ///
 /// It is not the only walk input outside `Options`: the git diff
 /// configuration (`diff.algorithm`, diff drivers) decides the recorded

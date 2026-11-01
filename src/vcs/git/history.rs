@@ -12,6 +12,8 @@
 //! commits onto a cached tail and re-window at the current `now`.
 
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 
@@ -33,6 +35,106 @@ type RenameEdges = Vec<(PathBuf, PathBuf)>;
 /// Touched text files as `(location path at the commit, churn)` pairs.
 type TouchedFiles = Vec<(PathBuf, u64)>;
 
+/// The per-build inputs a history walk reads, opened once and shared by
+/// everything that consumes them.
+///
+/// The mailmap is read by [`WalkContext::open`] and reachable only through
+/// this context because the persistent cache stamps every entry with a
+/// digest of the mailmap its events were resolved under
+/// ([`mailmap_digest`](Self::mailmap_digest)): the digest and the walk have
+/// to read the *same* snapshot, or an entry carries one view over events
+/// resolved under another. Until #1409 each read the mailmap for itself
+/// and nothing made the two reads agree. An edit landing between them
+/// stamped an entry with the pre-edit digest over post-edit events. Worse,
+/// `open_mailmap` turns a failed or mid-rewrite read into an empty or
+/// partial snapshot rather than an error, so a truncate-then-write save of
+/// *unchanged* content could leave an entry stamped with the full mailmap's
+/// digest over events resolved under none of it — and since the bytes
+/// never changed, no later run fingerprinted differently: the wrong hit was
+/// served until `--clear-cache`. With one snapshot behind both consumers, a
+/// transient read yields a *consistent* pair — the partial map's digest
+/// over events resolved under that same partial map — which the next clean
+/// read fails to match and overwrites.
+///
+/// The fix does not retire an entry a release before #1409 mis-stamped:
+/// its stamp equals the digest the fixed code computes for the same
+/// mailmap, so it is served until its events leave the long window or
+/// `--clear-cache` runs.
+pub(super) struct WalkContext<'a> {
+    /// The opened repository the walk traverses.
+    repo: &'a gix::Repository,
+    /// The walk-affecting options (windows, traversal mode, filters).
+    pub(super) options: &'a Options,
+    /// The repository's effective mailmap, as
+    /// [`gix::Repository::open_mailmap`] merged it when this context was
+    /// opened.
+    mailmap: gix::mailmap::Snapshot,
+    /// Reference time in Unix seconds: `--as-of`, else the wall clock.
+    pub(super) now: i64,
+}
+
+impl<'a> WalkContext<'a> {
+    /// Open the inputs for one build, reading the mailmap exactly once.
+    pub(super) fn open(repo: &'a gix::Repository, options: &'a Options, now: i64) -> Self {
+        Self {
+            repo,
+            options,
+            mailmap: repo.open_mailmap(),
+            now,
+        }
+    }
+
+    /// The oldest commit time the walk admits: the long window's start,
+    /// anchored at `now`. Derived here so the walk's cutoff and a splice's
+    /// prune cannot be computed from two different reference times.
+    #[must_use]
+    pub(super) fn long_boundary(&self) -> i64 {
+        window_boundary(self.now, self.options.long_window_secs)
+    }
+
+    /// A stable 64-bit digest of the mailmap this context resolves
+    /// identities through — the merged snapshot
+    /// [`gix::Repository::open_mailmap`] produces.
+    ///
+    /// Author identities are canonicalised at *walk* time and stored in the
+    /// cache as digests, so a mailmap edit changes the recorded events
+    /// without moving `HEAD` or any field of [`Options`]. Feeding this value
+    /// into [`cache::fingerprint`](crate::vcs::cache::fingerprint) is what
+    /// stops a stale event log being replayed — or, worse, spliced into and
+    /// re-persisted — under a mailmap it was not walked with (issue #1262).
+    ///
+    /// # Why the parsed snapshot rather than the source bytes
+    ///
+    /// `open_mailmap` merges up to four sources whose selection is
+    /// conditional: the working-tree `.mailmap` (uncommitted edits
+    /// included), `HEAD:.mailmap` for a bare repo *when `mailmap.blob` is
+    /// unset*, the `mailmap.blob` object, and the `mailmap.file` path.
+    /// Re-deriving that list here would be a coverage claim nothing checks
+    /// — a source missed (or one added by a future gix release, the
+    /// dependency being caret-ranged) silently reproduces this bug for that
+    /// source. Digesting the merged snapshot instead delegates the source
+    /// list to gix, so it cannot drift.
+    ///
+    /// `Snapshot::iter` is documented as ordered by `(old_email, old_name)`,
+    /// so the digest is deterministic across processes, and `DefaultHasher`
+    /// is created with fixed keys for the same cross-process stability
+    /// [`cache::fingerprint`](crate::vcs::cache::fingerprint) relies on.
+    /// That documented order is why this hashes `entries()` rather than the
+    /// `Snapshot` itself, which also derives `Hash`: the derive would rest
+    /// on gix's private field layout, where `iter`'s ordering is part of its
+    /// contract. The `Vec` is a mailmap's worth of borrowed slices.
+    ///
+    /// Digesting the parsed entries also means a comment- or
+    /// whitespace-only `.mailmap` edit does not cost a needless cold walk:
+    /// the resolution it feeds is unchanged, so replaying is correct.
+    #[must_use]
+    pub(super) fn mailmap_digest(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.mailmap.entries().hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// Walk history from `tip`, emitting one [`CommitEvent`] per in-window,
 /// non-merge, non-bot-only commit, newest-first.
 ///
@@ -47,21 +149,21 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// Returns a backend [`Error`] variant if the rev-walk, a tree lookup,
 /// or a diff fails.
 pub(crate) fn collect_events(
-    repo: &gix::Repository,
+    walk: &WalkContext<'_>,
     tip: gix::ObjectId,
-    options: &Options,
-    now: i64,
     stop_oids: &HashSet<gix::ObjectId>,
 ) -> Result<(Vec<CommitEvent>, Option<gix::ObjectId>), Error> {
-    let long_boundary = window_boundary(now, options.long_window_secs);
+    let WalkContext {
+        repo, options, now, ..
+    } = *walk;
+    let long_boundary = walk.long_boundary();
 
-    let mailmap = repo.open_mailmap();
     let bots = if options.exclude_bots {
         Some(BotFilter::new(&options.bot_pattern)?)
     } else {
         None
     };
-    let resolver = ParticipantResolver::new(&mailmap, bots.as_ref());
+    let resolver = ParticipantResolver::new(&walk.mailmap, bots.as_ref());
 
     let rewrites = options.follow_renames.then(Rewrites::default);
     let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
@@ -75,7 +177,7 @@ pub(crate) fn collect_events(
     // The cutoff prunes commits older than the long window during
     // traversal; the in-loop guard re-checks inclusively for the
     // boundary commit and any out-of-order timestamps.
-    let walk = platform
+    let commits = platform
         .sorting(Sorting::ByCommitTimeCutoff {
             order: CommitTimeOrder::NewestFirst,
             seconds: long_boundary,
@@ -83,7 +185,7 @@ pub(crate) fn collect_events(
         .all()
         .map_err(walk_err)?;
 
-    for info in walk {
+    for info in commits {
         let info = info.map_err(walk_err)?;
 
         // Reached a commit already covered by a cached tail: stop before
@@ -103,7 +205,7 @@ pub(crate) fn collect_events(
         }
 
         if let Some(event) = process_commit(
-            repo, &commit, info.id, raw_time, options, &resolver, rewrites, &mut cache,
+            walk, &commit, info.id, raw_time, &resolver, rewrites, &mut cache,
         )? {
             events.push(event);
         }
@@ -120,17 +222,16 @@ pub(crate) fn collect_events(
 /// merges (unless opted in) and bot-only commits contribute nothing.
 /// Diffs against the first parent and records raw (pre-alias) touched
 /// locations plus the rename edges replay needs.
-#[allow(clippy::too_many_arguments)]
 fn process_commit(
-    repo: &gix::Repository,
+    walk: &WalkContext<'_>,
     commit: &gix::Commit<'_>,
     oid: gix::ObjectId,
     raw_time: i64,
-    options: &Options,
     resolver: &ParticipantResolver<'_>,
     rewrites: Option<Rewrites>,
     cache: &mut gix::diff::blob::Platform,
 ) -> Result<Option<CommitEvent>, Error> {
+    let WalkContext { repo, options, .. } = *walk;
     // Only the first parent (for the diff base) and whether more than
     // one exists (the merge check) are needed, so avoid collecting the
     // parent ids into a `Vec` for every walked commit.
@@ -271,3 +372,7 @@ fn classify_commit(commit: &gix::Commit<'_>) -> Result<Classification, Error> {
     let message = commit.message_raw().map_err(walk_err)?;
     Ok(classify::classify(message))
 }
+
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod tests;
