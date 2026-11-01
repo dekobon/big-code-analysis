@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{DiffError, MetricSet};
+use crate::format_util::slash_path;
 
 /// JSON key under which each per-file document nests its metric values.
 const METRICS_KEY: &str = "metrics";
@@ -135,19 +136,14 @@ fn read_json(path: &Path) -> Result<Value, DiffError> {
 }
 
 /// Convert a path into a stable string key, erroring on non-UTF-8 rather
-/// than lossily transcoding (identifier paths must round-trip).
-///
-/// The OS separator is normalized to `/` so a directory-set's relpath
-/// fallback key is platform-independent: a file at `nested/y.json` keys
-/// identically whether the walk ran on Unix or Windows (where
-/// `to_str()` would otherwise yield `nested\y.json`, breaking pairing
-/// against a `/`-keyed set and the documented `bca diff` contract).
+/// than lossily transcoding (identifier paths must round-trip). The
+/// `/` normalisation is [`slash_path`]'s, so a directory set's relpath
+/// fallback keys the same way on every platform and the same way
+/// `bca vcs` names a file.
 fn path_to_key(path: &Path) -> Result<String, DiffError> {
-    path.to_str()
-        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
-        .ok_or_else(|| DiffError::NonUtf8Path {
-            path: path.to_path_buf(),
-        })
+    slash_path(path).ok_or_else(|| DiffError::NonUtf8Path {
+        path: path.to_path_buf(),
+    })
 }
 
 /// Recursively collect `*.json` files under a directory. Uses the same

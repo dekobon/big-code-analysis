@@ -120,6 +120,71 @@ fn vcs_json_ranks_the_tracked_file() {
     }
 }
 
+/// The bus-factor `by_directory[].directory` keys are rendered by the
+/// library and `files[].path` by the CLI, in one report. Each directory
+/// must be a prefix of the file paths it groups, spelled the same way, or
+/// a consumer joining the two tables pairs nothing. The expected set is
+/// derived from `files[].path`, so the test pins agreement rather than
+/// either spelling alone; the literal pins keep it from passing on two
+/// empty sides.
+#[test]
+fn vcs_json_directory_keys_match_the_file_paths_they_group() {
+    let now = now();
+    let dir = tempfile::tempdir().expect("tempdir");
+    git_at(dir.path(), now, &["init", "-q", "-b", "main"]);
+    git_at(dir.path(), now, &["config", "commit.gpgsign", "false"]);
+    std::fs::create_dir_all(dir.path().join("src/nested")).expect("mkdir");
+    std::fs::write(dir.path().join("src/top.rs"), "fn a() {}\n").expect("write");
+    std::fs::write(dir.path().join("src/nested/deep.rs"), "fn b() {}\n").expect("write");
+    git_at(dir.path(), now - 5 * DAY, &["add", "."]);
+    git_at(dir.path(), now - 5 * DAY, &["commit", "-q", "-m", "add"]);
+
+    let assert = cli()
+        .current_dir(dir.path())
+        .args(["vcs", "--paths", ".", "--format", "json"])
+        .assert()
+        .success();
+    let doc: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).expect("json");
+
+    let paths: Vec<&str> = doc["files"]
+        .as_array()
+        .expect("files array")
+        .iter()
+        .map(|f| f["path"].as_str().expect("path is a string"))
+        .collect();
+    let directories: std::collections::BTreeSet<&str> =
+        doc["vcs_aggregate"]["bus_factor"]["by_directory"]
+            .as_array()
+            .expect("by_directory array")
+            .iter()
+            .map(|d| d["directory"].as_str().expect("directory is a string"))
+            .collect();
+    // Bus factor groups by the top-level directory and the one beneath it.
+    let from_paths: std::collections::BTreeSet<&str> = paths
+        .iter()
+        .flat_map(|path| {
+            let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+            let depth2 = parent
+                .match_indices('/')
+                .nth(1)
+                .map_or(parent, |(i, _)| &parent[..i]);
+            let depth1 = depth2.split_once('/').map_or(depth2, |(top, _)| top);
+            [depth1, depth2]
+        })
+        .filter(|d| !d.is_empty())
+        .collect();
+
+    assert_eq!(
+        directories,
+        ["src", "src/nested"].into_iter().collect(),
+        "the fixture's two directory groups"
+    );
+    assert_eq!(
+        directories, from_paths,
+        "every by_directory key must be spelled as the files[].path it groups ({paths:?})"
+    );
+}
+
 /// #659: `bca vcs --format text` renders the same human ranked table the
 /// bare `bca vcs` prints — the human format is now named and selectable
 /// here, not only the unnamed default.
