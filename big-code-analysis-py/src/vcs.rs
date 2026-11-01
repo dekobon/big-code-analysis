@@ -10,7 +10,8 @@
 //! with the batch helpers ([`build_index_for`], [`open_blame_for`],
 //! [`workdir_root_for`]) reusing one history index across a tree walk.
 //!
-//! These all produce / mutate JSON strings, reusing the same
+//! The reports produce JSON strings and the injectors mutate the
+//! `FuncSpace` before it is serialized; both reach Python through the same
 //! `conversion::json_string_to_py` boundary as the AST entry points, so
 //! the Python side sees ordinary dicts.
 
@@ -18,13 +19,13 @@ use std::path::{Path, PathBuf};
 
 use pyo3::PyErr;
 use pyo3::exceptions::PyValueError;
-use serde_json::Value;
 
 use big_code_analysis::vcs::{
     self, AuthorHashKey, CacheConfig, Options, build_history_index_cached, build_trend, hotspot,
     parse_timestamp, parse_window, score_commit, score_diff, workdir_root,
 };
 use big_code_analysis::wire::{self, VcsReport, VcsReportFile};
+use big_code_analysis::{FuncSpace, Metric};
 
 /// Knobs accepted from Python, all optional (Python defaults map here).
 // The booleans mirror independent `bca vcs` CLI toggles; a flags
@@ -317,105 +318,84 @@ pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::BlameSession> {
         .map(|engine| std::sync::Arc::new(engine).session())
 }
 
-/// Inject a file-level `vcs` block using a pre-built [`HistoryIndex`].
+/// Attach a file-level `vcs` block to `space` from a pre-built
+/// [`vcs::HistoryIndex`].
 ///
 /// Backs both `analyze(..., vcs=True)` (single file) and the batch
 /// `vcs=True` path (#670): the caller builds the index off-GIL (#620) —
 /// one per containing repository for the batch path, reused across every
-/// file in that repo — and this attaches the matching block (and a
-/// hotspot score from the subtree cyclomatic sum already present in the
-/// JSON). A file with no index entry (untracked / binary) yields
-/// `Ok(None)`: the input is unchanged.
+/// file in that repo — and this attaches the matching block, with a
+/// hotspot score from the subtree cyclomatic sum. A file with no index
+/// entry (untracked / binary) is left untouched.
 ///
-/// The JSON is borrowed and the rewrite returned only when there is one, so
-/// a no-op costs nothing and a caller keeps its input to fall back on when
-/// the rewrite fails (#1349).
+/// The block goes on the [`FuncSpace`] before it is serialized, as the
+/// CLI's `vcs_command::inject` does, not into its JSON afterwards. A
+/// `serde_json::Value` round trip sorts every object's keys (the
+/// workspace leaves `preserve_order` off), so the earlier JSON injector
+/// broke the byte-for-byte parity with `bca metrics -O json` that
+/// [`crate::conversion`] documents whenever a block was attached, and
+/// paid a parse and a re-serialization per injector besides.
 pub(crate) fn inject_vcs_with_index(
-    funcspace_json: &str,
+    space: &mut FuncSpace,
     file_path: &Path,
     index: &vcs::HistoryIndex,
-) -> Result<Option<String>, PyErr> {
+) {
     let canonical = file_path
         .canonicalize()
         .unwrap_or_else(|_| file_path.to_path_buf());
-    let Some(stat) = index.get_for_path(&canonical) else {
-        return Ok(None);
-    };
-
-    let mut doc: Value = serde_json::from_str(funcspace_json)
-        .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
-    let mut wire_vcs = wire::Vcs::from(stat);
-    attach_vcs_to_space(&mut doc, &mut wire_vcs, HotspotComplexity::SubtreeSum)?;
-    reserialize(&doc).map(Some)
+    if let Some(stat) = index.get_for_path(&canonical) {
+        attach_vcs_to_space(space, stat.clone(), HotspotComplexity::SubtreeSum);
+    }
 }
 
-/// Serialize an injected metrics document back to the JSON string the
-/// Python boundary converts.
-fn reserialize(doc: &Value) -> Result<String, PyErr> {
-    serde_json::to_string(doc)
-        .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
-}
-
-/// Which serialized cyclomatic figure a space's `hotspot_score` is
-/// scored from. The choice follows the space's position in the tree, as
-/// the CLI's `vcs_command::inject` / `assign_child_stats` make it: the
-/// file (root) space uses the subtree rollup so the file-level score
-/// matches `bca vcs`, and every descendant — container or function — uses
-/// its own figure so nested complexity is not re-counted at each
-/// enclosing level (#709, #1624).
+/// Which cyclomatic figure a space's `hotspot_score` is scored from. The
+/// choice follows the space's position in the tree, as the CLI's
+/// `vcs_command::inject` / `assign_child_stats` make it: the file (root)
+/// space uses the subtree rollup so the file-level score matches `bca
+/// vcs`, and every descendant — container or function — uses its own
+/// figure so nested complexity is not re-counted at each enclosing level
+/// (#709, #1624).
 #[derive(Clone, Copy, Debug)]
 enum HotspotComplexity {
     /// `cyclomatic.sum`: the space plus everything nested in it.
     SubtreeSum,
-    /// `cyclomatic.value`: the space's own complexity (serialized since
-    /// #958).
+    /// `cyclomatic.value`: the space's own complexity.
     Own,
 }
 
 impl HotspotComplexity {
-    /// The key under the serialized `metrics.cyclomatic` object.
-    const fn json_key(self) -> &'static str {
+    fn of(self, space: &FuncSpace) -> u64 {
         match self {
-            Self::SubtreeSum => "sum",
-            Self::Own => "value",
+            Self::SubtreeSum => space.metrics.cyclomatic.cyclomatic_sum(),
+            Self::Own => space.metrics.cyclomatic.cyclomatic(),
         }
     }
 }
 
-/// Fill `wire_vcs.hotspot_score` from the space's `complexity` figure and
-/// insert the serialized block under the space's `metrics.vcs`. Shared by
-/// the file-level [`inject_vcs_with_index`] and the per-function
-/// [`attach_vcs_block`] so the two paths compute the hotspot and serialize
-/// the block identically and cannot drift (mirrors the CLI's
-/// `set_hotspot_score`).
+/// Fill `stat.hotspot_score` from the space's `complexity` figure and set
+/// it as the space's `metrics.vcs`. Shared by the file-level
+/// [`inject_vcs_with_index`] and the per-function [`assign_child_stats`]
+/// so the two paths compute the hotspot identically and cannot drift
+/// (mirrors the CLI's `set_hotspot_score`).
 ///
-/// The hotspot needs the cyclomatic figure already in the serialized
-/// metrics (present when cyclomatic was computed); a space without it
-/// keeps `hotspot_score` unset.
-fn attach_vcs_to_space(
-    space: &mut Value,
-    wire_vcs: &mut wire::Vcs,
-    complexity: HotspotComplexity,
-) -> Result<(), PyErr> {
-    if let Some(figure) = space
-        .get("metrics")
-        .and_then(|m| m.get("cyclomatic"))
-        .and_then(|c| c.get(complexity.json_key()))
-        .and_then(Value::as_f64)
-    {
-        wire_vcs.hotspot_score = Some(hotspot::hotspot_score(figure, wire_vcs.churn_recent));
+/// One deliberate difference from the CLI: a space whose cyclomatic was
+/// not computed (excluded via `metrics=`) keeps `hotspot_score` unset
+/// rather than scoring from the zeroed figure. `selected` is the set the
+/// serializer consults to elide a metric, so this is exactly "the
+/// serialized metrics carry no `cyclomatic`".
+fn attach_vcs_to_space(space: &mut FuncSpace, mut stat: vcs::Stats, complexity: HotspotComplexity) {
+    if space.metrics.selected.contains(Metric::Cyclomatic) {
+        // Cyclomatic counts stay far below 2^53, so the cast is exact.
+        #[allow(clippy::cast_precision_loss)]
+        let figure = complexity.of(space) as f64;
+        stat.hotspot_score = Some(hotspot::hotspot_score(figure, stat.churn_recent));
     }
-    let vcs_value = serde_json::to_value(&*wire_vcs)
-        .map_err(|e| PyValueError::new_err(format!("serializing vcs block: {e}")))?;
-    if let Some(metrics) = space.get_mut("metrics").and_then(Value::as_object_mut) {
-        metrics.insert("vcs".to_owned(), vcs_value);
-    }
-    Ok(())
+    space.metrics.vcs = Some(stat);
 }
 
-/// Inject per-function `vcs` blocks into every nested function / method /
-/// class space of a file's metrics JSON using a pre-built
-/// [`PerFunctionBlame`] engine (issue #329 / #578).
+/// Attach per-function `vcs` blocks to every nested function / method /
+/// class space of a file using a pre-built blame session (issue #329 /
+/// #578).
 ///
 /// Backs both `analyze(..., vcs_per_function=True)` (single file) and the
 /// batch `vcs_per_function=True` path (#670): the caller opens the blame
@@ -427,27 +407,23 @@ fn attach_vcs_to_space(
 /// The file-level (root) space is left untouched here — it carries the
 /// whole-file block that [`inject_vcs_with_index`] attaches when
 /// `vcs=True` is also set. A file with no nested spaces, or an unblameable
-/// file (untracked, outside the work tree, deleted at the target ref),
-/// yields `Ok(None)` (unchanged), mirroring the CLI's graceful
-/// degradation (`bca metrics --vcs-per-function` never aborts the walk on
-/// one bad file).
+/// file (untracked, outside the work tree, deleted at the target ref), is
+/// left unchanged, mirroring the CLI's graceful degradation (`bca metrics
+/// --vcs-per-function` never aborts the walk on one bad file).
 pub(crate) fn inject_vcs_per_function_with_blame(
-    funcspace_json: &str,
+    space: &mut FuncSpace,
     file_path: &Path,
     blame: &mut vcs::BlameSession,
-) -> Result<Option<String>, PyErr> {
-    let mut doc: Value = serde_json::from_str(funcspace_json)
-        .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
-
+) {
     // Pre-order over descendants (the root is the file space). The same
     // traversal collects the spans and, after the single blame, replays in
     // lockstep to attach each returned `Stats`, so spans and stats line up
     // one-to-one (mirrors the CLI's `collect_child_spans` /
     // `assign_child_stats`).
     let mut spans = Vec::new();
-    collect_child_spans(&doc, &mut spans);
+    collect_child_spans(space, &mut spans);
     if spans.is_empty() {
-        return Ok(None);
+        return;
     }
 
     // Blame the file exactly once and reuse the result across every span —
@@ -456,7 +432,7 @@ pub(crate) fn inject_vcs_per_function_with_blame(
     // metrics), so one unblameable file is silent rather than fatal —
     // matching the CLI's per-file skip.
     let Ok(stats) = blame.per_function(file_path, &spans) else {
-        return Ok(None);
+        return;
     };
 
     // `per_function` returns exactly one `Stats` per span, and
@@ -466,67 +442,54 @@ pub(crate) fn inject_vcs_per_function_with_blame(
     // `vcs_command::inject_per_function`).
     debug_assert_eq!(stats.len(), spans.len());
     let mut stats = stats.into_iter();
-    assign_child_stats(&mut doc, &mut stats)?;
+    assign_child_stats(space, &mut stats);
     debug_assert!(
         stats.next().is_none(),
         "per-function VCS stats outnumbered the spaces they attach to"
     );
-    reserialize(&doc).map(Some)
 }
 
 /// Collect the 1-based inclusive line span of every descendant space, in
-/// pre-order, reading `start_line` / `end_line` from the JSON tree.
-/// Saturates a span line past `u32::MAX` (no real source file reaches that
-/// line count) rather than wrapping. Mirrors the CLI's
-/// `vcs_command::collect_child_spans`, which walks `FuncSpace` structs;
-/// here the same shape is read from the serialized JSON.
-fn collect_child_spans(node: &Value, out: &mut Vec<vcs::LineSpan>) {
-    let Some(children) = node.get("spaces").and_then(Value::as_array) else {
-        return;
-    };
-    for child in children {
-        let start = json_line(child, "start_line");
-        let end = json_line(child, "end_line");
+/// pre-order. Saturates a span line past `u32::MAX` (no real source file
+/// reaches that line count) rather than wrapping. Mirrors the CLI's
+/// `vcs_command::collect_child_spans`.
+///
+/// Walks with an explicit stack of child iterators rather than recursing:
+/// this runs before serialization, which is where the space depth is
+/// bounded (`MAX_SPACE_SERIALIZE_DEPTH`), so a recursive walk would
+/// overflow the thread stack — an abort, not a catchable error — on
+/// nesting the serializer would have refused with a `ValueError`.
+fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
+    let mut pending = vec![space.spaces.iter()];
+    while let Some(children) = pending.last_mut() {
+        let Some(child) = children.next() else {
+            pending.pop();
+            continue;
+        };
+        let start = u32::try_from(child.start_line).unwrap_or(u32::MAX);
+        let end = u32::try_from(child.end_line).unwrap_or(u32::MAX);
         out.push(vcs::LineSpan::new(start, end));
-        collect_child_spans(child, out);
+        pending.push(child.spaces.iter());
     }
-}
-
-/// Read a 1-based line number field from a space's JSON, saturating to
-/// `u32::MAX` (the serializer emits these as JSON integers).
-fn json_line(node: &Value, field: &str) -> u32 {
-    node.get(field)
-        .and_then(Value::as_u64)
-        .map_or(u32::MAX, |line| u32::try_from(line).unwrap_or(u32::MAX))
 }
 
 /// Replay the [`collect_child_spans`] pre-order, attaching one blame
-/// `vcs::Stats` to each descendant space's `metrics.vcs` and filling its
-/// per-function `hotspot_score` from that space's own cyclomatic.
-/// Mirrors the CLI's `vcs_command::assign_child_stats`.
-fn assign_child_stats(
-    node: &mut Value,
-    stats: &mut impl Iterator<Item = vcs::Stats>,
-) -> Result<(), PyErr> {
-    let Some(children) = node.get_mut("spaces").and_then(Value::as_array_mut) else {
-        return Ok(());
-    };
-    for child in children {
+/// `vcs::Stats` to each descendant space and filling its per-function
+/// `hotspot_score` from that space's own cyclomatic. Mirrors the CLI's
+/// `vcs_command::assign_child_stats`, and walks iteratively for the
+/// reason [`collect_child_spans`] gives.
+fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
+    let mut pending = vec![space.spaces.iter_mut()];
+    while let Some(children) = pending.last_mut() {
+        let Some(child) = children.next() else {
+            pending.pop();
+            continue;
+        };
         if let Some(stat) = stats.next() {
-            attach_vcs_block(child, &stat)?;
+            attach_vcs_to_space(child, stat, HotspotComplexity::Own);
         }
-        assign_child_stats(child, stats)?;
+        pending.push(child.spaces.iter_mut());
     }
-    Ok(())
-}
-
-/// Serialize one `Stats` (with a hotspot score derived from the space's own
-/// cyclomatic) into a descendant space's `metrics.vcs`. Mirrors
-/// [`inject_vcs_with_index`]'s file-level attachment so the per-function
-/// block shape is byte-identical to the CLI's.
-fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
-    let mut wire_vcs = wire::Vcs::from(stat);
-    attach_vcs_to_space(space, &mut wire_vcs, HotspotComplexity::Own)
 }
 
 /// Map a [`vcs::Error`] to the matching Python exception (#624).
@@ -566,7 +529,16 @@ fn vcs_error_to_py(error: vcs::Error) -> PyErr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+
+    /// `outer` own 2 (one `if`), `inner` own 3 (two `if`s), so `outer`'s
+    /// subtree sum is 5 and the file's is 1 + 2 + 3 = 6. Hand-derived;
+    /// the setup asserts below hold the analysis to it.
+    const NESTED: &[u8] = b"def outer(x):\n    if x:\n        pass\n    def inner(y):\n        if y:\n            pass\n        if y > 1:\n            pass\n";
+
+    fn nested_space(options: MetricsOptions) -> FuncSpace {
+        analyze(Source::new(LANG::Python, NESTED), options).expect("the fixture parses")
+    }
 
     fn stats_with_churn(churn_recent: u64) -> vcs::Stats {
         vcs::Stats {
@@ -575,56 +547,121 @@ mod tests {
         }
     }
 
-    fn hotspot_of(space: &Value) -> Option<f64> {
-        space["metrics"]["vcs"]["hotspot_score"].as_f64()
+    fn hotspot_of(space: &FuncSpace) -> Option<f64> {
+        space.metrics.vcs.as_ref().and_then(|vcs| vcs.hotspot_score)
     }
 
-    /// #1624: every descendant scores from its own `value` and
-    /// `SubtreeSum` reads `sum`, matching the CLI's `assign_child_stats` /
-    /// `inject`. The mid space's `sum` differs from its `value`, so a
-    /// descendant path scoring by `sum` moves its score. The root is
-    /// attached here directly, because `inject_vcs_with_index` needs a
-    /// history index; that call site's choice of `SubtreeSum` is pinned by
-    /// `test_analyze_vcs_per_function_hotspot_matches_cli` in
+    /// #1624: every descendant scores from its own cyclomatic and
+    /// `SubtreeSum` reads the subtree sum, matching the CLI's
+    /// `assign_child_stats` / `inject`. `outer`'s sum differs from its own
+    /// figure, so a descendant path scoring by sum moves its score. The
+    /// root is attached here directly, because `inject_vcs_with_index`
+    /// needs a history index; that call site's choice of `SubtreeSum` is
+    /// pinned by `test_analyze_vcs_per_function_hotspot_matches_cli` in
     /// `tests/test_vcs.py`.
     #[test]
     fn descendants_score_their_own_value_and_subtree_sum_reads_sum() {
-        let leaf = json!({ "metrics": { "cyclomatic": { "sum": 2, "value": 2 } }, "spaces": [] });
-        let mid =
-            json!({ "metrics": { "cyclomatic": { "sum": 6, "value": 4 } }, "spaces": [leaf] });
-        let mut root =
-            json!({ "metrics": { "cyclomatic": { "sum": 7, "value": 1 } }, "spaces": [mid] });
+        let mut root = nested_space(MetricsOptions::default());
+        let outer = &root.spaces[0];
+        assert_eq!(
+            (
+                outer.metrics.cyclomatic.cyclomatic(),
+                outer.metrics.cyclomatic.cyclomatic_sum()
+            ),
+            (2, 5)
+        );
+        assert_eq!(root.metrics.cyclomatic.cyclomatic_sum(), 6);
 
-        let mut root_vcs = wire::Vcs::from(&stats_with_churn(10));
-        attach_vcs_to_space(&mut root, &mut root_vcs, HotspotComplexity::SubtreeSum)
-            .expect("root attach serializes");
+        attach_vcs_to_space(
+            &mut root,
+            stats_with_churn(10),
+            HotspotComplexity::SubtreeSum,
+        );
         let mut stats = [stats_with_churn(3), stats_with_churn(5)].into_iter();
-        assign_child_stats(&mut root, &mut stats).expect("descendant attach serializes");
+        assign_child_stats(&mut root, &mut stats);
         assert!(stats.next().is_none(), "one stat per descendant");
 
-        assert_eq!(hotspot_of(&root), Some(70.0), "root: sum 7 x churn 10");
-        let mid = &root["spaces"][0];
+        assert_eq!(hotspot_of(&root), Some(60.0), "root: sum 6 x churn 10");
+        let outer = &root.spaces[0];
         assert_eq!(
-            hotspot_of(mid),
-            Some(12.0),
-            "mid: value 4 x churn 3, not sum 6"
+            hotspot_of(outer),
+            Some(6.0),
+            "outer: own 2 x churn 3, not sum 5"
         );
         assert_eq!(
-            hotspot_of(&mid["spaces"][0]),
-            Some(10.0),
-            "leaf: value 2 x churn 5"
+            hotspot_of(&outer.spaces[0]),
+            Some(15.0),
+            "inner: own 3 x churn 5"
         );
     }
 
-    /// A space whose serialized metrics carry no cyclomatic (excluded via
-    /// `metrics=`) still gets its block, with no hotspot.
+    /// A space whose cyclomatic was not computed (excluded via `metrics=`)
+    /// still gets its block, with no hotspot (#1742 tracks the CLI, which
+    /// scores the zeroed figure instead).
     #[test]
     fn space_without_cyclomatic_gets_a_block_without_a_hotspot() {
-        let mut space = json!({ "metrics": {}, "spaces": [] });
-        let mut wire_vcs = wire::Vcs::from(&stats_with_churn(7));
-        attach_vcs_to_space(&mut space, &mut wire_vcs, HotspotComplexity::Own)
-            .expect("attach serializes");
-        assert_eq!(space["metrics"]["vcs"]["churn_recent"], json!(7));
+        let mut space = nested_space(MetricsOptions::default().with_only(&[Metric::Loc]));
+        assert!(!space.metrics.selected.contains(Metric::Cyclomatic));
+        attach_vcs_to_space(&mut space, stats_with_churn(7), HotspotComplexity::Own);
+        let vcs = space.metrics.vcs.as_ref().expect("the block is attached");
+        assert_eq!(vcs.churn_recent, 7);
         assert_eq!(hotspot_of(&space), None);
+    }
+
+    /// The spans the single blame is asked for are every descendant's, in
+    /// the pre-order `assign_child_stats` replays.
+    #[test]
+    fn child_spans_are_every_descendant_in_pre_order() {
+        let space = nested_space(MetricsOptions::default());
+        let mut spans = Vec::new();
+        collect_child_spans(&space, &mut spans);
+        assert_eq!(spans, [vcs::LineSpan::new(1, 8), vcs::LineSpan::new(4, 8)]);
+    }
+
+    /// Both injector walks run before serialization bounds the space depth
+    /// at `MAX_SPACE_SERIALIZE_DEPTH`, so nesting far past it must reach
+    /// the serializer's catchable error rather than abort on the stack
+    /// (#1768). The chain is built directly, as `src/wire.rs`'s
+    /// `space_chain` does, because analysing this depth in a debug build
+    /// is slow.
+    #[test]
+    fn injector_walks_survive_nesting_past_the_serialize_bound() {
+        const DEPTH: usize = 10_000;
+        /// Far below a production thread's stack, so a walk that recurses
+        /// per level fails here rather than riding on the test runner's.
+        const TIGHT_STACK: usize = 128 * 1024;
+
+        let file = analyze(
+            Source::new(LANG::Python, b"def f():\n    pass\n"),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .expect("the fixture parses");
+        let leaf = file.spaces[0].clone();
+        let mut root = file;
+        let mut cursor = &mut root.spaces[0];
+        for _ in 1..DEPTH {
+            cursor.spaces.push(leaf.clone());
+            cursor = &mut cursor.spaces[0];
+        }
+
+        let (spans, attached) = std::thread::Builder::new()
+            .stack_size(TIGHT_STACK)
+            .spawn(move || {
+                let mut spans = Vec::new();
+                collect_child_spans(&root, &mut spans);
+                let mut stats = std::iter::repeat_with(vcs::Stats::default).take(spans.len());
+                assign_child_stats(&mut root, &mut stats);
+                let mut attached = 0;
+                let mut cursor = &root;
+                while let Some(child) = cursor.spaces.first() {
+                    attached += usize::from(child.metrics.vcs.is_some());
+                    cursor = child;
+                }
+                (spans.len(), attached)
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the injector walks must not overflow the stack");
+        assert_eq!((spans, attached), (DEPTH, DEPTH));
     }
 }
