@@ -499,6 +499,15 @@ for historical reference.
   grows with the size of the in-scope tree. The output is unchanged.
   (#1768)
 
+- A `bca vcs` cache miss no longer parses every entry in the
+  repository's cache directory in full. Incompatible entries are kept,
+  since a run with other options may still use them, so they accumulate
+  with each option, mailmap, diff-config or shallow-boundary change;
+  each miss deserialized all of them, event logs included, before
+  checking compatibility. It now reads each entry's versions and
+  fingerprint first and parses only a compatible one in full: 201
+  entries took 0.27 s against 0.6 s. Results are unchanged. (#1768)
+
 - `bca diff` no longer compares a metric leaf present on one side only
   against `0`. Two captures taken with different `--metrics` sets (or by
   two bca versions whose emitters differ) listed every leaf of an absent

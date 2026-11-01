@@ -235,12 +235,54 @@ impl HistoryCache {
     /// fingerprint's shallow-boundary term retires that entry instead.
     #[must_use]
     pub(crate) fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
+        EntryHeader {
+            cache_schema_version: self.cache_schema_version,
+            vcs_schema_version: self.vcs_schema_version,
+            risk_score_version: self.risk_score_version,
+            options_fingerprint: self.options_fingerprint,
+            truncated_shallow_clone: self.truncated_shallow_clone,
+        }
+        .is_compatible(options_fingerprint, current_shallow)
+    }
+}
+
+/// The fields of a [`HistoryCache`] that [`HistoryCache::is_compatible`]
+/// reads, deserialized from an entry without its event log. serde skips
+/// the unknown `events` and `head_sha` keys without allocating, so
+/// [`load_compatible`] can reject an entry for the price of a scan rather
+/// than of building every event in it.
+#[derive(Deserialize)]
+struct EntryHeader {
+    cache_schema_version: u32,
+    vcs_schema_version: u32,
+    risk_score_version: u32,
+    options_fingerprint: u64,
+    #[serde(default)]
+    truncated_shallow_clone: bool,
+}
+
+impl EntryHeader {
+    fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
         self.cache_schema_version == CACHE_SCHEMA_VERSION
             && self.vcs_schema_version == VCS_SCHEMA_VERSION
             && self.risk_score_version == RISK_SCORE_VERSION
             && self.options_fingerprint == options_fingerprint
             && self.truncated_shallow_clone == current_shallow
     }
+}
+
+// Entries deserialized in full, event log included, on this thread.
+//
+// `load_compatible` returns the same entries whether it parses every file
+// in full or reads each header first, so no assertion on its result can
+// tell the two apart and a revert would be silent. This is the observable
+// `load_compatible_parses_only_compatible_entries` reads.
+crate::observation::counter!(entries_parsed);
+
+/// Deserialize a whole entry, `None` when it is not a valid one.
+fn parse_entry(bytes: &[u8]) -> Option<HistoryCache> {
+    entries_parsed::record();
+    serde_json::from_slice(bytes).ok()
 }
 
 /// Digests of the walk inputs the repository supplies outside [`Options`].
@@ -402,14 +444,33 @@ pub(crate) fn entry_path(repo_dir: &Path, head_sha: &str) -> PathBuf {
 /// or corrupt file (all non-fatal — the history is simply recomputed).
 #[must_use]
 pub(crate) fn load(path: &Path) -> Option<HistoryCache> {
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    parse_entry(&std::fs::read(path).ok()?)
 }
 
 /// Load every entry in `repo_dir` whose versions, option fingerprint, and
 /// shallow state match the current run, paired with its file path. Used to
 /// find a prior entry whose `HEAD` is an ancestor of the current one for an
 /// incremental walk. A non-existent directory yields an empty list.
+///
+/// Each file's [`EntryHeader`] is read before its events. Nothing deletes
+/// an incompatible entry (another run with other options may still use
+/// it), so they accumulate with every option, mailmap, diff-config or
+/// shallow-boundary change, and a full parse of each would grow the cost
+/// of every cache miss with that history rather than with the entries
+/// that can serve it.
+///
+/// The price is a second scan of each compatible entry: the header pass
+/// skips its events and the full parse reads them again. On a 1.3 MB
+/// entry of 2,311 events, in an optimized build, a full parse took 2.1 ms,
+/// the header alone 0.5 ms and both 2.6 ms, so a compatible entry costs a
+/// quarter more than a full parse did and a stale one a quarter of it.
+/// Compatible entries are few, about one per cached branch head, since a
+/// splice deletes the ancestor entry it extended. One pass would need a
+/// hand-written visitor that checks each header field as it arrives and
+/// then reads or abandons the events (`Box<RawValue>` would not do it, as
+/// capturing the events scans them too); that saves the 0.5 ms per
+/// compatible entry, and most of a stale one's, for a second
+/// `HistoryCache` deserializer to keep in step with the derive.
 #[must_use]
 pub(crate) fn load_compatible(
     repo_dir: &Path,
@@ -423,8 +484,10 @@ pub(crate) fn load_compatible(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Some(cache) = load(&path)
-            && cache.is_compatible(options_fingerprint, current_shallow)
+            && let Ok(bytes) = std::fs::read(&path)
+            && serde_json::from_slice::<EntryHeader>(&bytes)
+                .is_ok_and(|header| header.is_compatible(options_fingerprint, current_shallow))
+            && let Some(cache) = parse_entry(&bytes)
         {
             out.push((path, cache));
         }
