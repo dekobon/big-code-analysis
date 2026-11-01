@@ -150,6 +150,8 @@ number and the higher number stays as a redirect.
 | [104](#104-a-gate-that-cannot-go-red-is-not-a-gate-and-three-ways-to-build-one) | A gate that cannot go red is not a gate, and three ways to build one |
 | [105](#105-a-dependency-declared-twice-is-used-once-and-udeps-cannot-say-which) | A dependency declared twice is used once, and `udeps` cannot say which |
 | [106](#106-an-equivalent-rewrite-is-bit-exact-only-when-it-preserves-the-originals-rounding) | An equivalent rewrite is bit-exact only when it preserves the original's rounding |
+| [107](#107-an-alias-resolver-gives-a-unique-keyed-collection-collisions-its-keys-cannot-see) | An alias resolver gives a unique-keyed collection collisions its keys cannot see |
+| [108](#108-a-two-sided-comparison-that-drops-what-one-side-lacks-reports-absence-as-agreement-or-as-a-default) | A two-sided comparison that drops what one side lacks reports absence as agreement, or as a default |
 
 ---
 
@@ -2013,6 +2015,16 @@ Both would have fallen to 0 in the guard too the moment the slot
 declined them. The audit that catches this is done before the change, by
 enumerating what the delegate can refuse.
 
+**A digest test could not isolate a field from the step that made its
+section count** (#1425). `diff_config_digest` hashes each configured
+`diff.<driver>` by name and then by its fields, so the step that first
+makes a section a driver moves the digest by the name alone and would
+mask a dropped field term — seen by perturbation. The test makes the
+driver count in a step of its own, keeps a section with no behaviour
+field (a bare `command`) a non-input asserted as an equality, and then
+steps each field against its predecessor so every comparison isolates
+one term.
+
 ---
 
 ## 51. Hand-rolled match arms drift from their enum list without an integration coverage guard
@@ -2285,6 +2297,23 @@ for its headline use case. Only the integration test
 `fuzzy_match_covers_renamed_function` caught it; every unit test of the
 hash passed, because none of them renamed anything. The fix elides
 whole-word occurrences of the function's own bare name before hashing.
+
+**The converse holds for a cache key: it should be sensitive to more
+than its consumer reads, never less** (#1425, whole-branch review). The
+VCS cache's diff-config fingerprint hashes a driver's `binary` and
+`textconv` as written, although gix-diff's blob pipeline folds them
+(`is_binary && binary_to_text_command.is_none()`), so `binary = true`
+under a textconv reads as text and an edit between the two changes no
+churn. The review proposed hashing the four classes the pipeline
+distinguishes, and that version was briefly on the branch; it was
+reverted. The fold is a private reading inside a caret-ranged
+dependency, so reproducing it couples the key to code a minor gix bump
+may change, and the two errors are not symmetric: a key finer than the
+consumer costs one cold walk, a coarser one serves stale churn until
+`--clear-cache`. `binary_tag` hashes the raw `Option<bool>`, and the
+digest test steps `binary` under a textconv and asserts the two digests
+differ. A near-duplicate digest must drop exactly the dimensions its
+match ignores; an invalidation key may keep any of them.
 
 ---
 
@@ -3416,6 +3445,14 @@ opt-in fixture policy. `AGENTS.md`'s rule to re-verify a deferred
 issue's premises covers in-source FIXMEs, which are trusted *more* for
 sitting beside the code.
 
+**A probe's verdict is scoped to the filesystem it ran on** (#1349). A
+batch note called the Python bindings' directory probe dead, "verified
+by probe": on ext4 a directory's `st_size` is 4096, so the reader opens
+it and gets `EISDIR` unaided; on btrfs an empty one is 0, on ZFS 2, on
+NTFS all are 0. `tempfile::tempdir()` lands on whatever `/tmp` is, and
+`analyze_path_raises_is_a_directory_for_an_empty_directory` fails there
+with `None` once the guard goes. It stayed, on the decline path.
+
 ---
 
 ## 85. Coverage measures execution, not discrimination
@@ -3722,6 +3759,11 @@ consumer sees a plausible empty collection and every result built on it
 is silently wrong. Thread the materialized value out of the stage that
 consumed the source; and if a comment defends the re-read as cheaper,
 answer that comment in the replacement, or the re-read comes back.
+The same rule covers a source that can be read twice but is mutable:
+when one read feeds the work and another stamps it — a cache
+fingerprint — a write between them lets the stamp certify a result
+derived from a different input, so derive the stamp from the one read
+the work consumed.
 
 The failure is invisible because both reads succeed. The first consumer
 drains the source as part of its normal work; the second read's empty
@@ -3742,6 +3784,19 @@ the project had exempted. The fix materializes the list once, before
 the walk, and carries it out in `CheckWalk::seeds`; the pre-existing
 regression test for #497 passed throughout, because it spelled the
 seed list as a file.
+
+**`bca vcs` read the mailmap once for the cache stamp and again inside
+the walk** (#1409). gix's `open_mailmap` swallows read errors, so a
+partial read during a non-atomic `.mailmap` save would resolve the
+window's authors under an empty mailmap while the stamp recorded the
+full one, and the entry would never self-heal — a path found in review,
+not in the field. The review's finding was that the digest half of the
+pairing was convention, not a type guarantee. `WalkContext` now owns
+the one snapshot, private, with `mailmap_digest()` on it, so the walk
+cannot open its own, and
+`the_walk_resolves_identities_through_the_captured_snapshot` writes the
+inverse mailmap to disk *after* capturing the snapshot, so each of the
+three possible resolutions records a different digest.
 
 ---
 
@@ -3887,6 +3942,18 @@ space whose own value breached. #958 added those four `*.value` fields;
 value. When #1196 moved it, the extractor table noted that the JSON
 field now disagreed — and stopped there; the binding that reads that
 field is the consumer the note needed to name.
+
+**`hotspot_score` diverged a third time** (#1624; #709 first). `bca
+metrics --vcs-per-function` scores each nested space from its own
+cyclomatic, serialized as `cyclomatic.value`; the Python binding,
+filling the same field from the JSON, read `cyclomatic.sum`, so an
+enclosing function re-counted every nested closure's complexity. #709
+had fixed the CLI side only.
+`test_analyze_vcs_per_function_hotspot_matches_cli` now runs both on a
+fixture where `sum != value` — which a Python lambda cannot supply,
+since it opens no space — and holds for the default metric selection
+only: the CLI still scores a space whose cyclomatic was never computed
+(#1742).
 
 ---
 
@@ -4586,5 +4653,74 @@ instances of the pattern: a test asserted the sign of `1.0 − NaN`,
 which Rust leaves unspecified, and a "NaN entropies" fixture never
 carried a NaN to the kernel because the extractor's `.max(0.0)` had
 scrubbed it first (cf. lesson 7).
+
+---
+
+## 107. An alias resolver gives a unique-keyed collection collisions its keys cannot see
+
+**Lesson:** When a resolver starts mapping several spellings onto one
+id, every collection keyed by spelling upstream of it — a dict, a
+manifest table — can name one id twice while its own keys stay unique.
+The collision surfaces as two gates on one metric when the map stays
+keyed by spelling, or as a silent overwrite when it is canonicalised
+without a guard. Before lifting or widening such a resolver, grep the
+old call sites for the duplicate guard they grew (`contains_key`,
+"already set") and port it with the rules: the guard belongs beside
+the resolver, where every consumer reaches it, not in the one table
+layer that first hit the bug (cf. lesson 59). Where last-wins is the
+contract, as for a repeated `--threshold` flag, say so where the flag
+is parsed.
+
+The collision is invisible from both sides. The input is valid under
+its own type, the resolver answers each key correctly, and the result
+is well-formed; nothing errors, and only a count of gates per id, or a
+fixture naming one metric twice, can see it.
+
+**The threshold-name resolver's lift left the CLI's duplicate check
+behind** (#1618, first seen as #1165). `bca check` resolves `sloc` and
+`loc.sloc` to the same metric; #1165 found the `[thresholds]` tables
+gating that metric at both limits, two offender lines per breach, and
+canonicalised the tables and the flag layer, with the tables rejecting
+a second spelling. Lifting the resolver into
+`metric_catalog::resolve_threshold_metric` for the Python bindings'
+`to_sarif(thresholds=)` reproduced the double gating in the first
+draft of the lift, in a dict whose keys were unique. The guard now
+sits in the library beside the resolver, as
+`resolve_new_threshold_metric`, and the tables and the dict both call
+it.
+
+---
+
+## 108. A two-sided comparison that drops what one side lacks reports absence as agreement, or as a default
+
+**Lesson:** When diffing two structures, decide for every path what a
+one-sided value means before comparing anything, and give that answer
+its own output: an added or removed row, never a comparison against a
+default and never silence. Walk the union of both sides' keys, and
+treat a missing or non-object side as an empty object so every path
+under it is still classified. The two wrong shapes are an
+`unwrap_or(0)` on the absent side, which turns absence into movement
+(cf. lesson 71), and a `let (Some(a), Some(b)) = … else { return }`
+guard, which turns it into agreement. Both produce a clean-looking
+result.
+
+Same-shaped sides are the normal case and the only one the fixtures
+exercise; a mismatched pair — two captures with different `--metrics`
+sets, two versions whose emitters differ — is a user's situation, not
+a test's. The first shape over-reports with numbers that look like
+real movement; the second under-reports, which no output can show.
+
+**`bca diff` listed every leaf of an absent family as `0 → n`**
+(#1623). Two captures with different `--metrics` sets printed 17
+phantom rows for a one-function file, `mi.original 0 → 124.69` among
+them reading as an improvement, and the magnitude filter hid only the
+leaves that were zero anyway. The fix's first draft kept `main`'s
+both-present guard and object-only recursion, so a side whose
+`metrics` was not an object, and a scalar facing an object, still
+vanished; the per-issue reviewers, not the author's tests, found both.
+`collect_leaves` now classifies each path (`LeafValues::classify`)
+over `union_keys` before descending, `presence_rows` renders the
+one-sided ones, and `non_object_side_makes_every_leaf_one_sided` pins
+the scalar case.
 
 ---
