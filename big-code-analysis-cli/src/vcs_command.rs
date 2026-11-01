@@ -439,7 +439,7 @@ fn path_to_string(path: &Path) -> Option<String> {
     // The on-disk walk in `rank` yields OS-native separators on Windows
     // (`strip_prefix` of a canonicalized path → `src\work.rs`), so
     // normalize at this single output chokepoint. Mirrors
-    // `metric_diff::path_to_key`.
+    // `metric_diff::load::path_to_key`.
     path.to_str()
         .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
         .or_else(|| {

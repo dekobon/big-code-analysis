@@ -521,8 +521,10 @@ pub(crate) enum Command {
     DiffBaseline(DiffBaselineArgs),
     /// Compare two metric-output runs and report, per metric, which
     /// files changed (old to new), plus files added/removed between the
-    /// two sets. Each side is a per-file JSON file or a directory tree of
-    /// them (the form `bca metrics -O json --output-dir DIR` writes).
+    /// two sets and metric fields present on one side only, which are
+    /// listed rather than compared against `0`. Each side is a per-file
+    /// JSON file or a directory tree of them (the form `bca metrics -O
+    /// json --output-dir DIR` writes).
     /// Replaces the grammar-bump glue chain — the external
     /// `json-minimal-tests` binary plus `split-minimal-tests.py` — with
     /// one native command. Exits 0 on success by default; the diff is

@@ -90,14 +90,14 @@ pub(crate) fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
         validate_output_path(output, "diff");
     }
     let diff = if let Some(since_ref) = args.since.as_deref() {
-        // `--since` takes at most one positional (the after-side tree),
-        // which clap binds to `old` first. A second positional (`new`)
-        // is ambiguous in this mode, so reject it with a clear message
-        // rather than silently ignoring it.
+        // `--since` takes at most one positional (a relative path scope
+        // applied to both sides), which clap binds to `old` first. A
+        // second positional (`new`) has no meaning in this mode, so
+        // reject it with a clear message rather than silently ignoring it.
         if args.new.is_some() {
             die(
-                "bca diff --since takes at most one positional (the after-side tree); \
-                 omit it to diff against the working tree",
+                "bca diff --since takes at most one positional (a relative path scope \
+                 applied to both sides); the after side is always the working tree",
             );
         }
         compute_since_diff(&globals, &args, since_ref)
@@ -125,9 +125,10 @@ pub(crate) fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
     write_output_or_stdout(args.output.as_deref(), "write diff to", rendered.as_bytes());
-    // Opt-in metric-gate signal (#692): exit 2 when any delta survives the
-    // active `--min-change` / `--metric` filtering. Off by default — the
-    // diff stays informational.
+    // Opt-in metric-gate signal (#692): exit 2 when any delta, or any
+    // one-sided field (#1623), survives the active `--min-change` /
+    // `--metric` filtering; `--min-change` does not apply to fields. Off
+    // by default — the diff stays informational.
     if args.exit_code && !diff.is_empty() {
         process::exit(crate::EXIT_GATE_BREACH);
     }
