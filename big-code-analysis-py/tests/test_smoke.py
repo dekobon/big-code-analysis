@@ -333,8 +333,11 @@ def test_analyze_skips_binary_file_like_cli_walker(tmp_path: Path) -> None:
     """
     src = tmp_path / "blob.py"
     # A run of high bytes that cannot decode as UTF-8, long enough to
-    # clear the three-byte empty cutoff and fill the leading window.
-    src.write_bytes(b"\xff\xfe\x00\x01\x02\x03" * 16)
+    # clear the three-byte empty cutoff and fill the leading window. It
+    # must not open with ``\xff\xfe`` or ``\xfe\xff``: those are UTF-16
+    # BOMs, which the reader declines on a separate gate before it
+    # validates any UTF-8.
+    src.write_bytes(b"\x80\xff\xfe\x00\x01\x02" * 16)
     assert bca.analyze(src) is None
 
 

@@ -56,8 +56,11 @@ Non-UTF-8 paths are already handled up front: the recommended
 first place. The file-backed [`Ast::from_path`][ast_from_path] is the
 one entry point that reads a path itself, and it returns its own
 `#[non_exhaustive]` [`FromPathError`][FromPathError] (`Io`,
-`NonUtf8Path`, `Unreadable`, `UnknownLanguage`, `Parse(MetricsError)`)
-rather than widening `MetricsError`.
+`NonUtf8Path`, `Skipped(SkipReason)`, `UnknownLanguage`,
+`Parse(MetricsError)`) rather than widening `MetricsError`. `Skipped`
+carries the same [`SkipReason`][SkipReason] the `bca` walker prints when
+it skips an empty, tiny, UTF-16 or non-UTF-8 file, so a caller can say
+which gate declined the file; it supersedes the deprecated `Unreadable`.
 
 ## Tree-sitter does not always say "no"
 
@@ -123,6 +126,7 @@ warning sink.
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [ast_from_path]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_path
 [FromPathError]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.FromPathError.html
+[SkipReason]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.SkipReason.html
 [`Source::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html#method.with_name
 [`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html

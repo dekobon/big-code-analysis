@@ -342,8 +342,10 @@ section.
   below) is a wire-shape break reserved for `3.0`.
 - **Prelude**: `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
-  `MetricsOptions`, `MetricsError`, `FromPathError`, `LANG`,
-  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`). The `metrics_from_tree`
+  `MetricsOptions`, `MetricsError`, `FromPathError`, `SkipReason`,
+  `LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`;
+  `SkipReason`, the payload of `FromPathError::Skipped`, joined at
+  2.5.0). The `metrics_from_tree`
   entry was removed at `2.0` along with the free function it named;
   tree adoption now goes through `Ast::from_tree_sitter`. New
   items may be added; nothing in the set is removed before `3.0`.
@@ -770,8 +772,15 @@ reach the raw tree-sitter surface.
   `root_node`, `suppressions`, `language`, `source`, `name`) is
   shape-stable. `from_path` (#727) is the file-backed counterpart to
   `parse`; it returns the `#[non_exhaustive]` `FromPathError` (`Io`,
-  `NonUtf8Path`, `Unreadable`, `UnknownLanguage`, `Parse(MetricsError)`),
-  which the prelude also re-exports.
+  `NonUtf8Path`, `Skipped(SkipReason)`, `UnknownLanguage`,
+  `Parse(MetricsError)`), which the prelude also re-exports. `Skipped`
+  (added 2.5.0, #1348) carries the reader's `SkipReason` for a file
+  `analyze` would skip. It replaces `Unreadable`, which is
+  `#[deprecated]` since 2.5.0 and no longer produced: an existing arm
+  on it still compiles, with a deprecation warning, and never fires, so
+  match `Skipped(_)` instead. As with `ConcurrentErrors::Producer`
+  above, the variant stays through `2.x`; its removal is reserved for
+  3.0.
   `dump_cursor` and `dump_indexed` (#1684) name the two export
   strategies explicitly (one cursor walk, or `Node::child`-indexed
   enumeration), and both produce the same tree as `dump`, which runs

@@ -57,9 +57,9 @@ variant set and matching patterns. `MetricsError` is
 
 Tip: `use big_code_analysis::prelude::*;` brings the recommended
 entry points (`analyze`, `Ast`, `Source`, `MetricsOptions`,
-`MetricsError`, `FromPathError`, `LANG`, `FuncSpace`, `CodeMetrics`,
-`SpaceKind`, `Metric`) into scope in one line. Anything outside the
-prelude is still reachable by name, for example
+`MetricsError`, `FromPathError`, `SkipReason`, `LANG`, `FuncSpace`,
+`CodeMetrics`, `SpaceKind`, `Metric`) into scope in one line.
+Anything outside the prelude is still reachable by name, for example
 `use big_code_analysis::guess_language;`.
 
 > Need more than metrics from one parse (operators and operands, an

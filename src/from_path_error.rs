@@ -1,6 +1,6 @@
 //! Error type of the file-backed [`Ast::from_path`][crate::Ast::from_path].
 
-use crate::MetricsError;
+use crate::{MetricsError, SkipReason};
 
 /// Error returned by [`Ast::from_path`][crate::Ast::from_path].
 ///
@@ -26,12 +26,22 @@ pub enum FromPathError {
     /// silently corrupting correlation — mirroring `analyze`'s strict
     /// default.
     NonUtf8Path,
-    /// The file is empty, too small, binary, or encoded in an unsupported
-    /// encoding (UTF-16, invalid UTF-8) — the same files
-    /// [`analyze`][crate::analyze] skips. `from_path` reuses the library's
-    /// text reader for byte-exact metric parity with `analyze`, so these
-    /// inputs cannot yield a tree.
+    /// Superseded by [`Skipped`](Self::Skipped), which names the gate that
+    /// declined the file (#1348). `from_path` has not produced this variant
+    /// since 2.5.0; it stays so an existing match arm compiles, and its
+    /// removal is reserved for 3.0.
+    #[deprecated(
+        since = "2.5.0",
+        note = "`from_path` reports `Skipped(SkipReason)` instead"
+    )]
     Unreadable,
+    /// The text reader declined the file: it is empty, too small to parse,
+    /// or in an encoding the metric engine cannot read (UTF-16, invalid
+    /// UTF-8) — the same files [`analyze`][crate::analyze] skips. `from_path`
+    /// reuses the library's text reader for byte-exact metric parity with
+    /// `analyze`, so these inputs cannot yield a tree; the [`SkipReason`]
+    /// says which gate declined the file.
+    Skipped(SkipReason),
     /// No language is registered for the path (unknown extension and no
     /// recognizable shebang / mode line).
     UnknownLanguage,
@@ -46,9 +56,11 @@ impl std::fmt::Display for FromPathError {
         match self {
             Self::Io(e) => write!(f, "could not read file: {e}"),
             Self::NonUtf8Path => f.write_str("path is not valid UTF-8"),
+            #[allow(deprecated)]
             Self::Unreadable => {
                 f.write_str("file is empty, binary, or not valid UTF-8 source text")
             }
+            Self::Skipped(reason) => write!(f, "cannot parse {reason}"),
             Self::UnknownLanguage => f.write_str("no language is registered for this path"),
             Self::Parse(e) => write!(f, "{e}"),
         }
@@ -87,6 +99,7 @@ mod tests {
 
     #[cfg(feature = "rust")]
     #[test]
+    #[allow(deprecated)]
     fn from_path_error_display_covers_every_variant() {
         let io = FromPathError::Io(IoError::new(ErrorKind::PermissionDenied, "denied"));
         assert!(io.to_string().contains("could not read file"));
@@ -102,6 +115,11 @@ mod tests {
                 .to_string()
                 .contains("empty, binary")
         );
+        // `Skipped` renders the reader's own phrase, so the message names
+        // the gate that fired rather than the pre-#1348 three-way guess.
+        let skipped = FromPathError::Skipped(SkipReason::NotUtf8).to_string();
+        assert!(skipped.contains("cannot parse"));
+        assert!(skipped.contains(&SkipReason::NotUtf8.to_string()));
         assert!(
             FromPathError::UnknownLanguage
                 .to_string()
@@ -117,6 +135,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn from_path_error_source_chains_only_for_wrapping_variants() {
         // `Io` and `Parse` wrap an underlying error and must expose it;
         // the leaf variants must report no source.
@@ -129,6 +148,7 @@ mod tests {
         for leaf in [
             FromPathError::NonUtf8Path,
             FromPathError::Unreadable,
+            FromPathError::Skipped(SkipReason::Empty),
             FromPathError::UnknownLanguage,
         ] {
             assert!(leaf.source().is_none(), "{leaf:?} must report no source");

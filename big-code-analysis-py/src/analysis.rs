@@ -125,7 +125,7 @@ pub(crate) struct AnalyzeOptions {
     /// default keeps `FuncSpace.name` a round-trippable identifier
     /// (#316).
     pub allow_lossy_path: bool,
-    /// Skip the file (return `Ok(None)`) when its leading window
+    /// Skip the file ([`Outcome::SkippedGenerated`]) when its leading window
     /// matches [`big_code_analysis::is_generated`]'s `@generated` /
     /// `DO NOT EDIT` / `GENERATED CODE` predicate. Default `true`
     /// matches the CLI walker (#317).
@@ -273,6 +273,26 @@ impl From<serde_json::Error> for AnalysisError {
     }
 }
 
+/// What [`analyze_path`] did with one path.
+///
+/// Two of the three outcomes emit no record, and they used to share one
+/// `Ok(None)` that each caller told apart by inference — `push_one_result`
+/// read "the reader declined it" off `!skip_generated`, which held only
+/// while these were the only two silent outcomes (lesson 42, #1238).
+/// Naming them makes a new one a compile error at every consumer instead
+/// of a mislabelled `None` slot (#1348).
+#[derive(Debug)]
+pub(crate) enum Outcome {
+    /// The file parsed; the serialised `FuncSpace` JSON.
+    Analyzed(String),
+    /// `skip_generated` is on and the file carries a generated-code marker.
+    SkippedGenerated,
+    /// The text reader declined the file — empty, three bytes or fewer, a
+    /// UTF-16 BOM, or a non-UTF-8 leading window. The reason stops here:
+    /// Python sees a `None` for the file, as it always has.
+    Declined,
+}
+
 /// Analyse a single file on disk.
 ///
 /// Reads the file, resolves its language via
@@ -293,11 +313,12 @@ impl From<serde_json::Error> for AnalysisError {
 /// binding applies the walker's pre-dispatch gating verbatim: files of
 /// three bytes or fewer are treated as empty, a UTF-8 BOM is stripped,
 /// a UTF-16 BOM or a non-UTF-8 leading window marks the file as binary, and
-/// CR/CRLF line endings are normalised to LF. Each of these cases
-/// returns `Ok(None)` — the same "no record emitted" signal the CLI
-/// walker uses when it skips a file (and the same the `skip_generated`
-/// filter below uses). A prior plain `std::fs::read` diverged here by
-/// parsing tiny / binary / BOM-prefixed files the CLI silently skips.
+/// CR/CRLF line endings are normalised to LF. Each of these cases is
+/// [`Outcome::Declined`] — no record, as when the CLI walker skips a file,
+/// but named apart from the `skip_generated` filter's
+/// [`Outcome::SkippedGenerated`] so no caller has to guess which fired
+/// (#1348). A prior plain `std::fs::read` diverged here by parsing tiny /
+/// binary / BOM-prefixed files the CLI silently skips.
 ///
 /// `exclude_tests` mirrors the CLI's `--exclude-tests` flag (#315):
 /// when `true`, the analysis runs under
@@ -323,9 +344,9 @@ impl From<serde_json::Error> for AnalysisError {
 ///
 /// * `true` (default) — files whose leading window matches
 ///   [`big_code_analysis::is_generated`] (`@generated` /
-///   `DO NOT EDIT` / `GENERATED CODE` markers) return `Ok(None)`
-///   without parsing, mirroring the CLI walker which emits no
-///   record for these files.
+///   `DO NOT EDIT` / `GENERATED CODE` markers) are
+///   [`Outcome::SkippedGenerated`] without parsing, mirroring the CLI
+///   walker which emits no record for these files.
 /// * `false` — the marker check is bypassed and every readable
 ///   file produces a populated `FuncSpace`.
 ///
@@ -333,10 +354,7 @@ impl From<serde_json::Error> for AnalysisError {
 /// and parsing: a file with a generated marker but an unknown
 /// extension still skips silently rather than raising
 /// `UnsupportedLanguage`, matching the CLI walker's ordering.
-pub(crate) fn analyze_path(
-    path: &Path,
-    opts: AnalyzeOptions,
-) -> Result<Option<String>, AnalysisError> {
+pub(crate) fn analyze_path(path: &Path, opts: AnalyzeOptions) -> Result<Outcome, AnalysisError> {
     // Settle the `FuncSpace.name` policy *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
     // in the `AnalysisError::Io` arm — the `filename` field on the
@@ -361,13 +379,14 @@ pub(crate) fn analyze_path(
     // binding inherits the walker's pre-dispatch file gating verbatim
     // (issue #706, #640): files of three bytes or fewer are treated as
     // empty, a UTF-8 BOM is stripped, a UTF-16 BOM or a non-UTF-8 leading
-    // window marks the file as binary, and CR/CRLF endings are normalised to LF
-    // with a guaranteed trailing newline. Each skip case returns
-    // `Ok(None)` — the same "no record emitted" signal the CLI walker
-    // uses when it discards a file, and the same signal `skip_generated`
-    // already uses below. A plain read diverged here: the bindings parsed
-    // tiny / binary / BOM-prefixed files the CLI silently skips, and
-    // computed metrics on un-normalised bytes.
+    // window marks the file as binary, and CR/CRLF endings are normalised
+    // to LF with a guaranteed trailing newline. A skip is
+    // `Outcome::Declined` — no record, as when the CLI walker discards a
+    // file. The reader's reason is not fetched: nothing in this crate may
+    // surface it (Python sees `None`), and the directory probe below
+    // needs none. A plain read diverged here: the bindings parsed tiny /
+    // binary / BOM-prefixed files the CLI silently skips, and computed
+    // metrics on un-normalised bytes.
     //
     // I/O failures still surface as `AnalysisError::Io` carrying the path
     // so the Python `OSError` can dispatch to FileNotFoundError /
@@ -380,13 +399,13 @@ pub(crate) fn analyze_path(
     };
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
-    // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
-    // matches the CLI walker, which discards generated files without
-    // attempting to resolve their language. `read_file_with_eol` has
-    // already EOL-normalised `code`, matching the bytes the CLI walker
-    // feeds to `is_generated` / `guess_language`.
+    // skips rather than raising `UnsupportedLanguage` — matches the CLI
+    // walker, which discards generated files without attempting to
+    // resolve their language. The reader has already EOL-normalised
+    // `code`, matching the bytes the CLI walker feeds to `is_generated` /
+    // `guess_language`.
     if opts.skip_generated && is_generated(&code) {
-        return Ok(None);
+        return Ok(Outcome::SkippedGenerated);
     }
     // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
     // only care about the variant; the display name is recovered
@@ -397,34 +416,37 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name.into_owned()), opts).map(Some)
+    analyze_bytes(lang, &code, Some(name.into_owned()), opts).map(Outcome::Analyzed)
 }
 
-/// The outcome for a path [`read_file_with_eol`] declined to read: no
-/// record (`Ok(None)`), unless the path is a directory.
+/// The outcome for a path [`read_file_with_eol`] declined to read:
+/// [`Outcome::Declined`], unless the path is a directory.
 ///
 /// The reader decides "three bytes or fewer" from `st_size` alone and only
 /// opens a *regular* file to check readability, so a directory whose
 /// `st_size` is three or less is declined as an empty file without being
 /// opened: every directory on NTFS (length 0), and every empty one — or a
 /// nearly empty one — on btrfs (twice the summed entry-name lengths) and
-/// ZFS (the entry count). Re-issue the plain read here so a directory
-/// named directly stays a hard `OSError` (`IsADirectoryError` on unix)
-/// carrying the platform's real errno. A larger directory, such as any on
-/// ext4 (4096) or APFS, never gets here: the reader opens it, the first
-/// read fails with EISDIR, and that propagates as an `Err`.
+/// ZFS (the entry count plus 2 for `.` and `..`). Re-issue the plain read
+/// here so a directory named directly stays a hard `OSError`
+/// (`IsADirectoryError` on unix) carrying the platform's real errno. A
+/// larger directory, such as any on ext4 (4096) or APFS, never gets here:
+/// the reader opens it, the first read fails with EISDIR, and that
+/// propagates as an `Err`.
 ///
 /// The probe sits on the decline path rather than ahead of the read so a
 /// file that parses pays one `stat`, not two (#1349); only a declined file
-/// pays the second.
-fn skip_unless_directory(path: &Path) -> Result<Option<String>, AnalysisError> {
+/// pays the second. `Ast::from_path` carries the same probe
+/// (`spaces::ast::skipped_or_directory`); the reader-level fix that
+/// retires both is #1762.
+fn skip_unless_directory(path: &Path) -> Result<Outcome, AnalysisError> {
     if path.is_dir() {
         let err = std::fs::read(path)
             .err()
             .unwrap_or_else(|| std::io::Error::other("path is a directory"));
         return Err(AnalysisError::io(err, path));
     }
-    Ok(None)
+    Ok(Outcome::Declined)
 }
 
 pub(crate) fn analyze_source(
@@ -472,6 +494,14 @@ pub(crate) const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The JSON of an [`Outcome::Analyzed`], failing on any other outcome.
+    fn analysed_json(outcome: Result<Outcome, AnalysisError>) -> String {
+        match outcome.expect("analysis succeeds") {
+            Outcome::Analyzed(json) => json,
+            other => panic!("expected an analysed file, got {other:?}"),
+        }
+    }
 
     fn parse_json(s: &str) -> serde_json::Value {
         serde_json::from_str(s).expect("analyze output is valid JSON")
@@ -691,9 +721,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path, AnalyzeOptions::default())
-            .expect("shebang script analyses")
-            .expect("non-generated file yields a populated FuncSpace");
+        let json = analysed_json(analyze_path(&path, AnalyzeOptions::default()));
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -812,8 +840,47 @@ mod tests {
         let tiny = dir.path().join("tiny.rs");
         std::fs::write(&tiny, b"ab\n").expect("write fixture");
         assert!(
-            matches!(skip_unless_directory(&tiny), Ok(None)),
+            matches!(skip_unless_directory(&tiny), Ok(Outcome::Declined)),
             "a declined regular file is a skip",
+        );
+    }
+
+    #[test]
+    fn analyze_path_names_a_read_gate_skip_apart_from_a_generated_one() {
+        // Every class the reader declines — empty, three bytes or fewer,
+        // a UTF-16 BOM, a non-UTF-8 leading window — is `Declined`, and
+        // a generated file is `SkippedGenerated`: the two silent outcomes
+        // `push_one_result` used to tell apart by inference (#1348). The
+        // `.rs` extension would parse if a gate let the bytes through, so
+        // a row that reaches the parser fails as `Analyzed`.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let declined: [(&str, &[u8]); 4] = [
+            ("empty.rs", b""),
+            ("tiny.rs", b"ab\n"),
+            (
+                "utf16.rs",
+                b"\xFF\xFEf\0n\0 \0m\0a\0i\0n\0(\0)\0 \0{\0}\0\n\0",
+            ),
+            ("binary.rs", b"\x80\x81\x82\x83 not text\n"),
+        ];
+        for (name, bytes) in declined {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).expect("write fixture");
+            let out =
+                analyze_path(&path, AnalyzeOptions::default()).expect("a skip is not an error");
+            assert!(
+                matches!(out, Outcome::Declined),
+                "{name}: expected Declined, got {out:?}"
+            );
+        }
+        let generated = dir.path().join("gen.rs");
+        std::fs::write(&generated, b"// @generated DO NOT EDIT\npub fn x() {}\n")
+            .expect("write fixture");
+        let out = analyze_path(&generated, AnalyzeOptions::default())
+            .expect("a generated file is not an error");
+        assert!(
+            matches!(out, Outcome::SkippedGenerated),
+            "gen.rs: expected SkippedGenerated, got {out:?}"
         );
     }
 
@@ -830,15 +897,13 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let json = analyze_path(
+        let json = analysed_json(analyze_path(
             &path,
             AnalyzeOptions {
                 allow_lossy_path: true,
                 ..AnalyzeOptions::default()
             },
-        )
-        .expect("lossy mode parses non-UTF-8 path")
-        .expect("non-generated file yields a populated FuncSpace");
+        ));
         let value = parse_json(&json);
         let name = value
             .get("name")
@@ -867,13 +932,13 @@ mod tests {
         // CLI parity (#317): a file whose leading window matches
         // `is_generated` must be skipped without parsing, just like
         // `bca metrics --output-format json` discards it from the
-        // walker. Returning `Ok(None)` is the Python-facing "no
-        // record emitted" signal.
+        // walker. `Outcome::SkippedGenerated` is the Python-facing "no
+        // record emitted" signal, named apart from a read-gate skip.
         //
         // Test-via-revert: removing the `if skip_generated &&
-        // is_generated(&code) { return Ok(None); }` branch makes
-        // this test fail because the file parses fine and the
-        // function returns `Ok(Some(_))`.
+        // is_generated(&code) { return Ok(Outcome::SkippedGenerated); }`
+        // branch makes this test fail because the file parses fine and
+        // the function returns `Outcome::Analyzed`.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("gen.rs");
         std::fs::write(
@@ -890,8 +955,8 @@ mod tests {
         )
         .expect("generated file is not an error");
         assert!(
-            out.is_none(),
-            "skip_generated=true must elide the FuncSpace, got Some(_)",
+            matches!(out, Outcome::SkippedGenerated),
+            "skip_generated=true must elide the FuncSpace, got {out:?}",
         );
     }
 
@@ -912,15 +977,13 @@ mod tests {
             b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
         )
         .expect("write fixture");
-        let json = analyze_path(
+        let json = analysed_json(analyze_path(
             &path,
             AnalyzeOptions {
                 skip_generated: false,
                 ..AnalyzeOptions::default()
             },
-        )
-        .expect("generated file parses with skip_generated=false")
-        .expect("skip_generated=false must yield Some(json)");
+        ));
         let value = parse_json(&json);
         assert_eq!(
             value.get("kind").and_then(serde_json::Value::as_str),
@@ -958,6 +1021,9 @@ mod tests {
             },
         )
         .expect("skip must precede language inference");
-        assert!(out.is_none(), "expected None, got {out:?}");
+        assert!(
+            matches!(out, Outcome::SkippedGenerated),
+            "expected SkippedGenerated, got {out:?}"
+        );
     }
 }

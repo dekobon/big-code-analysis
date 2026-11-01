@@ -213,7 +213,7 @@ def test_analyze_paths_skips_generated_by_default(tmp_path: Path) -> None:
     _write(tmp_path, "gen.rs", "// @generated DO NOT EDIT\nfn g() {}\n")
     results = bca.analyze_paths(tmp_path)
     assert _names(results) == {"real.rs"}
-    # The generated file must be cleanly skipped (Ok(None) → no element),
+    # The generated file must be cleanly skipped (no element),
     # not error-folded into the failure stream. ``_names`` alone drops
     # AnalysisFailure elements, so it cannot distinguish "skipped" from
     # "errored"; assert gen.rs appears in neither result kind (#921).

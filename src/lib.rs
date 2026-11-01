@@ -399,6 +399,7 @@ pub mod prelude {
         Metric,
         MetricsError,
         MetricsOptions,
+        SkipReason,
         Source,
         SpaceKind,
         // Core entry points

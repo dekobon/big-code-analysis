@@ -25,6 +25,36 @@ impl fmt::Debug for Ast {
     }
 }
 
+/// The error for a path the text reader declined for `reason`:
+/// [`Skipped`](crate::FromPathError::Skipped), unless the path is a
+/// directory.
+///
+/// The reader decides "three bytes or fewer" from `st_size` alone and only
+/// opens a *regular* file to check readability, so a directory whose
+/// `st_size` is three or less — every directory on NTFS, an empty or nearly
+/// empty one on btrfs and ZFS — is declined as an empty or too-small file
+/// without being opened, and would surface here as `Skipped(Empty)` (size
+/// 0: NTFS, an empty btrfs directory) or `Skipped(TooSmall)` (sizes 1 to 3:
+/// ZFS, where an empty directory is 2): a specific, false reason a caller
+/// would act on. Re-issue the plain read so such a directory stays the
+/// [`Io`](crate::FromPathError::Io) error carrying the platform's real
+/// errno, as a larger directory already is where the reader opens it and
+/// the first read fails with EISDIR (ext4, APFS). The Python bindings'
+/// `analyze_path` guards the same case the same way (#1349); the
+/// reader-level fix that retires both probes is #1762.
+pub(super) fn skipped_or_directory(
+    path: &std::path::Path,
+    reason: crate::SkipReason,
+) -> crate::FromPathError {
+    if path.is_dir() {
+        let err = std::fs::read(path)
+            .err()
+            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
+        return crate::FromPathError::Io(err);
+    }
+    crate::FromPathError::Skipped(reason)
+}
+
 impl Ast {
     /// Parse `source` into a reusable [`Ast`]. Equivalent to the parse half
     /// of [`analyze`]: every [`Ast::metrics`] call on the returned handle
@@ -94,9 +124,10 @@ impl Ast {
     /// Returns a [`FromPathError`](crate::FromPathError) variant for each
     /// distinct failure: a real I/O fault
     /// ([`Io`](crate::FromPathError::Io)), a non-UTF-8 path
-    /// ([`NonUtf8Path`](crate::FromPathError::NonUtf8Path)), an empty /
-    /// binary / non-UTF-8 file
-    /// ([`Unreadable`](crate::FromPathError::Unreadable)), an unrecognized
+    /// ([`NonUtf8Path`](crate::FromPathError::NonUtf8Path)), a file the
+    /// text reader declines — empty, three bytes or fewer, a UTF-16 BOM, a
+    /// non-UTF-8 leading window — ([`Skipped`](crate::FromPathError::Skipped),
+    /// carrying the reader's [`SkipReason`](crate::SkipReason)), an unrecognized
     /// language ([`UnknownLanguage`](crate::FromPathError::UnknownLanguage)),
     /// or a disabled-language build
     /// ([`Parse`](crate::FromPathError::Parse)). `from_path` never silently
@@ -108,9 +139,9 @@ impl Ast {
         // lossy conversion rather than corrupting it, matching `analyze`'s
         // strict default.
         let name = path.to_str().ok_or(FromPathError::NonUtf8Path)?.to_owned();
-        let code = crate::read_file_with_eol(path)
+        let code = crate::read_file_with_eol_classified(path)
             .map_err(FromPathError::Io)?
-            .ok_or(FromPathError::Unreadable)?;
+            .map_err(|reason| skipped_or_directory(path, reason))?;
         let lang = crate::guess_language(&code, path)
             .0
             .ok_or(FromPathError::UnknownLanguage)?;

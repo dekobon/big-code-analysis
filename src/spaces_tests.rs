@@ -2215,7 +2215,7 @@ class Bag:
 //     mention is the `assert_eq!` checking the detection worked.
 #[cfg(feature = "rust")]
 mod from_path_tests {
-    use crate::{Ast, FromPathError, LANG, MetricsOptions, SpaceKind};
+    use crate::{Ast, FromPathError, LANG, MetricsOptions, SkipReason, SpaceKind};
     use std::io::Write;
 
     fn write_file(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -2278,15 +2278,65 @@ mod from_path_tests {
     }
 
     #[test]
-    fn from_path_tiny_or_binary_file_is_unreadable() {
-        // Files of three bytes or fewer, and binary/non-UTF-8 files, are
-        // the inputs `analyze` skips; `from_path` reports them as
-        // `Unreadable` rather than handing back an empty tree.
+    fn from_path_names_the_reason_a_file_is_skipped() {
+        // The inputs `analyze` skips — empty, three bytes or fewer, a
+        // UTF-16 BOM, a non-UTF-8 leading window — are errors here, not
+        // empty trees, and each carries the reader's own reason rather
+        // than one flattened `Unreadable` (#1348). One row per
+        // `SkipReason` variant, so a reason the reader stops forwarding
+        // fails its own row instead of passing on a sibling's.
         let dir = tempfile::tempdir().expect("tempdir");
+        let cases: [(&str, &[u8], SkipReason); 4] = [
+            ("empty.rs", b"", SkipReason::Empty),
+            ("tiny.rs", b"ab", SkipReason::TooSmall),
+            (
+                "utf16.rs",
+                b"\xFF\xFEf\0n\0 \0m\0a\0i\0n\0(\0)\0 \0{\0}\0\n\0",
+                SkipReason::Utf16Bom,
+            ),
+            (
+                "binary.rs",
+                b"\x80\x81\x82\x83 not text\n",
+                SkipReason::NotUtf8,
+            ),
+        ];
+        for (name, bytes, reason) in cases {
+            let path = write_file(dir.path(), name, bytes);
+            assert!(
+                matches!(Ast::from_path(&path), Err(FromPathError::Skipped(r)) if r == reason),
+                "{name}: expected Skipped({reason:?})",
+            );
+        }
+    }
+
+    #[test]
+    fn from_path_directory_is_an_io_error_never_a_skip() {
+        // A directory is not a file `analyze` would skip; it is an I/O
+        // fault. Where the reader opens it (ext4, APFS) the read fails
+        // with EISDIR on its own; where `st_size` is three or less
+        // (btrfs, ZFS, NTFS) only the decline-path probe turns the
+        // reader's `Empty` or `TooSmall` back into `Io`. The helper is
+        // therefore also called directly, with each reason the reader
+        // could have given, so the probe is pinned whatever filesystem
+        // runs the test and does not branch on the reason.
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(matches!(
+            Ast::from_path(dir.path()),
+            Err(FromPathError::Io(_))
+        ));
+        for reason in [SkipReason::Empty, SkipReason::TooSmall] {
+            assert!(
+                matches!(
+                    crate::spaces::ast::skipped_or_directory(dir.path(), reason),
+                    FromPathError::Io(_)
+                ),
+                "{reason:?}"
+            );
+        }
         let tiny = write_file(dir.path(), "tiny.rs", b"ab");
         assert!(matches!(
-            Ast::from_path(&tiny),
-            Err(FromPathError::Unreadable)
+            crate::spaces::ast::skipped_or_directory(&tiny, SkipReason::TooSmall),
+            FromPathError::Skipped(SkipReason::TooSmall)
         ));
     }
 

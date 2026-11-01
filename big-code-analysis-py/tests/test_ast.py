@@ -132,8 +132,22 @@ def test_from_path_missing_file_raises(tmp_path: Path) -> None:
 def test_from_path_binary_file_raises(tmp_path: Path) -> None:
     blob = tmp_path / "blob.rs"
     blob.write_bytes(b"\x00\x01\x02\xff\xfe garbage \x00 bytes here \x00\x00")
-    with pytest.raises(ValueError, match="not valid UTF-8 source text"):
+    with pytest.raises(ValueError, match="non-UTF-8 contents"):
         bca.Ast.from_path(blob)
+
+
+def test_from_path_names_the_reason_a_file_is_skipped(tmp_path: Path) -> None:
+    # Each file ``analyze()`` would skip raises with the reader's own reason
+    # rather than one "empty, binary, or not valid UTF-8" guess (#1348); the
+    # binary case above covers the non-UTF-8 window.
+    empty = tmp_path / "empty.rs"
+    empty.write_bytes(b"")
+    with pytest.raises(ValueError, match="empty file"):
+        bca.Ast.from_path(empty)
+    utf16 = tmp_path / "utf16.rs"
+    utf16.write_bytes(b"\xff\xfe" + "fn main() {}\n".encode("utf-16-le"))
+    with pytest.raises(ValueError, match="UTF-16"):
+        bca.Ast.from_path(utf16)
 
 
 # ----- dump ----------------------------------------------------------------
