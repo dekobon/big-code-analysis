@@ -11,14 +11,26 @@ Runs the CLI (`ops`, `metrics`, `find -t call`, `find -t string`,
 that ends at EOF) through both revisions and counts differing outputs.
 
 Repairs over the R06 driver: fixture roots are arguments and are
-validated; a run that fails on BOTH sides is a failure, never "equal"
-(the old tuple compare read a shared crash as parity); a signal kill is
-classified apart from a non-zero exit; the cut set is recorded so the
-sweep is reproducible.
+validated; every root is walked recursively (the fixture store this
+landed, `control_flow/<lang>/`, nests one directory per language) with
+symlinks skipped and logged; the extension table is derived from the
+`mk_langs!` rows (`drift_common.langs_by_extension`), so a fixture
+spelled with an extension the enum owns cannot be skipped; outputs are
+compared as bytes; a run that fails on BOTH sides is a failure, never
+"equal" (the old tuple compare read a shared crash as parity); a
+signal kill is classified apart from a non-zero exit; the cut set is
+recorded so the sweep is reproducible.
+
+The sweep is quadratic in the fixture: about 0.48 cuts per byte, each
+a near-full copy of the input, so a 100 KB fixture would mean ~48k
+cuts and 2.4 GB of cut files. Each cut is therefore written inside its
+job and deleted after it, and `--max-bytes` (default 16384) refuses a
+larger fixture up front, naming the cost, rather than filling the
+disk part-way through.
 
 usage: recovery-oracle.py --base-bca B --head-bca B --base-verbatim V
                           --head-verbatim V --root DIR ... [--jobs N]
-                          [--record FILE]
+                          [--record FILE] [--max-bytes N]
 
 The cut inputs live in a `mkdtemp` directory under `${TMPDIR:-/tmp}`
 for the run and are removed after it; `--record` keeps the cut set so
@@ -33,35 +45,30 @@ import argparse
 import json
 import pathlib
 import re
-import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-LANGS = {
-    ".java": ["java"], ".py": ["python"], ".cpp": ["cpp", "mozcpp", "ccomment", "preproc"],
-    ".cc": ["cpp", "mozcpp"], ".hpp": ["cpp", "mozcpp"], ".hh": ["cpp", "mozcpp"],
-    ".h": ["cpp", "mozcpp", "c", "ccomment", "preproc"], ".mjs": ["javascript", "mozjs"],
-    ".pm": ["perl"], ".exs": ["elixir"], ".bash": ["bash"],
-    ".c": ["c"], ".m": ["objc"], ".cs": ["csharp"], ".ex": ["elixir"], ".go": ["go"],
-    ".groovy": ["groovy"], ".irule": ["irules"], ".js": ["javascript", "mozjs"],
-    ".jsx": ["javascript"], ".kt": ["kotlin"], ".lua": ["lua"], ".pl": ["perl"],
-    ".php": ["php"], ".rb": ["ruby"], ".rs": ["rust"], ".sh": ["bash"], ".tcl": ["tcl"],
-    ".ts": ["typescript"], ".tsx": ["tsx"],
-}
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(UTILS_DIR))
+
+import drift_common as dc  # noqa: E402
+
+# dotted extension -> the slugs that read it, from the enum.
+LANGS = dc.langs_by_extension()
 CLI = [["ops", "-O", "json"], ["metrics", "-O", "json"], ["find", "-t", "call"],
        ["find", "-t", "string"], ["dump"]]
+DEFAULT_MAX_BYTES = 16384
 
 FAILURES: list[tuple[list[str], str, str]] = []
+SKIPPED_LINKS: list[str] = []
 
 
-def checked(argv: list[str]) -> tuple[int, str, str]:
-    r = subprocess.run(argv, capture_output=True, text=True, errors="replace")
-    if r.returncode < 0:
-        FAILURES.append((argv, f"signal {-r.returncode}", r.stderr[-400:]))
-    elif r.returncode != 0:
-        FAILURES.append((argv, f"exit {r.returncode}", r.stderr[-400:]))
-    return (r.returncode, r.stdout, r.stderr)
+def checked(argv: list[str]) -> tuple[int, bytes, bytes]:
+    c = dc.capture(argv)
+    if c.how is not None:
+        FAILURES.append((argv, c.how, c.preview()))
+    return (c.returncode, c.stdout, c.stderr)
 
 
 def cuts_for(data: bytes) -> list[int]:
@@ -83,6 +90,7 @@ def cuts_for(data: bytes) -> list[int]:
 
 def main(argv: list[str] | None = None) -> int:
     FAILURES.clear()
+    SKIPPED_LINKS.clear()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-bca", required=True)
     ap.add_argument("--head-bca", required=True)
@@ -91,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", action="append", default=[], type=pathlib.Path)
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--record", type=pathlib.Path, help="write the cut set here")
+    ap.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_BYTES,
+        help="refuse a fixture larger than this: the cut count, and so the work, is quadratic in its size",
+    )
     args = ap.parse_args(argv)
     for b in (args.base_bca, args.head_bca, args.base_verbatim, args.head_verbatim):
         if not pathlib.Path(b).is_file():
@@ -101,18 +115,25 @@ def main(argv: list[str] | None = None) -> int:
         if not r.is_dir():
             sys.exit(f"missing fixture root {r}")
 
-    def one(job: tuple[str, int, str, pathlib.Path]) -> tuple[int, list[tuple[str, int, str, str]]]:
-        fixture, cut, lang, p = job
+    def one(job: tuple[str, int, str, pathlib.Path, bytes, str]) -> tuple[int, list[tuple[str, int, str, str]]]:
+        fixture, cut, lang, cut_path, data, suffix = job
+        # One cut file per job, removed after it: with every cut written
+        # up front the scratch directory is O(n²) in the fixture.
+        p = cut_path.with_name(f"{cut_path.name}-{lang}{suffix}")
+        p.write_bytes(data[:cut])
         diffs = []
-        for argv in CLI:
-            a = checked([args.base_bca, *argv, "--no-config", "--language", lang, "-p", str(p)])
-            b = checked([args.head_bca, *argv, "--no-config", "--language", lang, "-p", str(p)])
+        try:
+            for cmd in CLI:
+                a = checked([args.base_bca, *cmd, "--no-config", "--language", lang, "-p", str(p)])
+                b = checked([args.head_bca, *cmd, "--no-config", "--language", lang, "-p", str(p)])
+                if a != b:
+                    diffs.append((fixture, cut, lang, " ".join(cmd)))
+            a = checked([args.base_verbatim, lang, str(p)])
+            b = checked([args.head_verbatim, lang, str(p)])
             if a != b:
-                diffs.append((fixture, cut, lang, " ".join(argv)))
-        a = checked([args.base_verbatim, lang, str(p)])
-        b = checked([args.head_verbatim, lang, str(p)])
-        if a != b:
-            diffs.append((fixture, cut, lang, "verbatim"))
+                diffs.append((fixture, cut, lang, "verbatim"))
+        finally:
+            p.unlink()
         return len(CLI) + 1, diffs
 
     total = 0
@@ -121,22 +142,26 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="bca-recovery-cuts.") as d:
         jobs = []
         for ri, root in enumerate(args.root):
-            for fixture in sorted(f for f in root.iterdir() if f.is_file() and not f.is_symlink()):
-                langs = LANGS.get(fixture.suffix)
-                if not langs:
-                    sys.stderr.write(f"skipping {fixture}: no language for {fixture.suffix!r}\n")
-                    continue
-                ident = f"{root.name}#{ri}/{fixture.name}"
+            root = root.resolve()
+            for fixture in dc.walk(root, tuple(LANGS), (".git",), SKIPPED_LINKS):
+                rel = fixture.relative_to(root)
+                ident = f"{root.name}#{ri}/{rel}"
                 if ident in cut_record:
                     sys.exit(f"duplicate fixture identity {ident}")
+                size = fixture.stat().st_size
+                if size > args.max_bytes:
+                    sys.exit(
+                        f"{fixture} is {size} bytes, over --max-bytes {args.max_bytes}: the sweep is "
+                        f"quadratic (about {int(size * 0.48)} cuts of up to {size} bytes each, "
+                        f"~{size * size * 0.48 / 2 / 1e6:.0f} MB of cut input); split the fixture or raise the limit"
+                    )
                 data = fixture.read_bytes()
                 cuts = cuts_for(data)
                 cut_record[ident] = cuts
                 for cut in cuts:
-                    p = pathlib.Path(d) / f"r{ri}-{fixture.stem}-cut{cut}{fixture.suffix}"
-                    p.write_bytes(data[:cut])
-                    for lang in langs:
-                        jobs.append((ident, cut, lang, p))
+                    cut_path = pathlib.Path(d) / f"r{ri}-{str(rel).replace('/', '__')}-cut{cut}"
+                    for lang in LANGS[fixture.suffix]:
+                        jobs.append((ident, cut, lang, cut_path, data, fixture.suffix))
         if not jobs:
             sys.exit("no fixtures matched a known extension")
         with ThreadPoolExecutor(max_workers=args.jobs) as ex:
@@ -148,12 +173,15 @@ def main(argv: list[str] | None = None) -> int:
             "binaries": {k: v for k, v in vars(args).items() if k.endswith(("bca", "verbatim"))},
             "fixtures": len(cut_record), "cuts": cut_record,
             "total": total, "differing": diffs, "failures": [(a, h, e) for a, h, e in FAILURES],
+            "skipped_symlinks": SKIPPED_LINKS,
         }, indent=0))
     print(f"recovery inputs x (lang, cmd): {total}; differing: {len(diffs)}; failed executions: {len(FAILURES)}")
+    if SKIPPED_LINKS:
+        sys.stderr.write(f"skipped {len(SKIPPED_LINKS)} symlink(s)\n")
     for dd in diffs[:40]:
         print("DIFF", dd)
-    for argv, how, err in FAILURES[:20]:
-        print("FAIL", how, " ".join(str(a) for a in argv), err.strip()[-200:])
+    for cmd, how, err in FAILURES[:20]:
+        print("FAIL", how, " ".join(str(a) for a in cmd), err.strip()[-200:])
     return 1 if (diffs or FAILURES) else 0
 
 

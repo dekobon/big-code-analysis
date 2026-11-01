@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Self-tests for `utils/drift-oracle.py` on a stub `bca` and a stub
 `verbatim-oracle`: the manifest records which views the capture
-carries, the verbatim view is optional, a failed execution makes the
-capture incomplete, and a symlink is skipped and logged rather than
-followed.
+carries and the grammar pins of the checkout, the verbatim view is
+optional and its argv contract pinned, a failed execution makes the
+capture incomplete — and so does an interrupted recapture, which may
+not leave the previous complete manifest behind — outputs are bytes,
+and a symlink is skipped and logged rather than followed.
 
 Run: ``python3 -B -m unittest -q utils/drift-oracle-test.py``.
 """
@@ -34,6 +36,7 @@ def _load(name: str, filename: str):
 
 
 oracle = _load("drift_oracle", "drift-oracle.py")
+dc = oracle.dc
 
 
 def _stub(path: pathlib.Path, body: str) -> pathlib.Path:
@@ -47,7 +50,7 @@ class DriftOracleTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name)
         self.bca = _stub(self.root / "bca", "sys.stdout.write(' '.join(sys.argv[1:]) + '\\n')")
-        self.verbatim = _stub(self.root / "verbatim-oracle", "sys.stdout.write('{\"v\": ' + repr(sys.argv[1:]) + '}\\n')")
+        self.verbatim = _stub(self.root / "verbatim-oracle", "import json; sys.stdout.write(json.dumps({'v': sys.argv[1:]}) + '\\n')")
         self.fixtures = self.root / "fx"
         self.fixtures.mkdir()
         (self.fixtures / "a.rs").write_text("fn a() {}\n")
@@ -76,10 +79,50 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual(m["outputs_per_file"], len(m["views"]))
         self.assertEqual(sorted(m["keys"]), ["python/fx/b.py", "rust/fx/a.rs"])
         self.assertEqual(m["verbatim"]["path"], str(self.verbatim))
+        self.assertEqual(m["version"], dc.MANIFEST_VERSION)
+        # The pins default to this checkout's Cargo.toml, never `{}`.
+        self.assertEqual(m["grammar_pins"], dc.grammar_pins())
+        self.assertIn("tree-sitter-rust", m["grammar_pins"])
         key = self.out / "rust" / "fx" / "a.rs"
-        self.assertTrue(key.with_name("a.rs.verbatim.jsonl").is_file())
+        # The driver <-> bin contract: `verbatim-oracle <slug> <path>`.
+        self.assertEqual(
+            json.loads(key.with_name("a.rs.verbatim.jsonl").read_text()),
+            {"v": ["rust", str(self.fixtures / "a.rs")]},
+        )
         self.assertTrue(key.with_name("a.rs.ops.txt").is_file())
         self.assertIn("--language rust", key.with_name("a.rs.metrics_exclude_tests.txt").read_text())
+
+    def test_outputs_are_captured_as_bytes(self) -> None:
+        # A text capture would fold b"\xff\r\n" and b"\xfe\n" to the same
+        # "\ufffd\n", so a real change in the binary's output would
+        # compare equal (D2 on #1744).
+        _stub(self.bca, "sys.stdout.buffer.write(b'\\xff\\r\\n' if 'ops' in sys.argv else b'\\xfe\\n')")
+        rc, _, _, _ = self._run("--lang", "rust")
+        self.assertEqual(rc, 0)
+        key = self.out / "rust" / "fx" / "a.rs"
+        self.assertEqual(key.with_name("a.rs.ops.txt").read_bytes(), b"\xff\r\n")
+        self.assertEqual(key.with_name("a.rs.dump.txt").read_bytes(), b"\xfe\n")
+
+    def test_an_interrupted_recapture_does_not_leave_a_complete_manifest(self) -> None:
+        rc, _, _, m = self._run("--lang", "rust")
+        self.assertEqual((rc, m["complete"]), (0, True))
+        # The second run into the same directory dies mid-capture.
+        real_capture = dc.capture
+
+        def dying(argv: list[str]):
+            if "dump" in argv:
+                raise KeyboardInterrupt
+            return real_capture(argv)
+
+        dc.capture = dying
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self._run("--lang", "rust")
+        finally:
+            dc.capture = real_capture
+        m = json.loads((self.out / "manifest.json").read_text())
+        self.assertFalse(m["complete"], "the stale complete manifest was rewritten before the first output")
+        self.assertEqual(m["version"], dc.MANIFEST_VERSION)
 
     def test_capture_without_verbatim_records_only_cli_views(self) -> None:
         rc, _, _, m = self._run("--lang", "rust")
@@ -101,6 +144,9 @@ class DriftOracleTests(unittest.TestCase):
     def test_a_missing_binary_or_root_fails_before_any_capture(self) -> None:
         rc, _, _, m = self._run("--verbatim", str(self.root / "none"), "--lang", "rust")
         self.assertEqual(rc, f"missing binary {self.root / 'none'}")
+        self.assertEqual(m, {})
+        rc, _, _, m = self._run("--repo-toml", str(self.root / "no.toml"), "--lang", "rust")
+        self.assertEqual(rc, f"missing --repo-toml {self.root / 'no.toml'}")
         self.assertEqual(m, {})
         rc, _, _, _ = self._run("--root", f"other={self.root / 'nope'}", "--lang", "rust")
         self.assertTrue(str(rc).startswith("missing fixture root other="), rc)

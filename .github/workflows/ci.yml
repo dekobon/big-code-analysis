@@ -842,6 +842,8 @@ jobs:
       # run by hand around a role-table change, so these are the only
       # per-PR check that their refusals (dirty tree, one-sided view,
       # bad anchor) and classifications still hold.
+      - name: drift-common self-tests (explicit)
+        run: python3 -B -m unittest -q utils/drift_common-test.py
       - name: drift-oracle self-tests (explicit)
         run: python3 -B -m unittest -q utils/drift-oracle-test.py
       - name: drift-compare self-tests (explicit)

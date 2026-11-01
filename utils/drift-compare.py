@@ -4,10 +4,13 @@
 A byte diff alone cannot see a file that one capture skipped; the
 manifest's key set is compared first, and a key missing on either side
 is a failure before any content is read. Exit 1 on any difference,
-2 when the captures cannot be compared at all.
+2 when the captures cannot be compared at all: a manifest missing,
+unreadable or of another `version` than this reader's; a capture that
+is not complete; inputs that differ by content; grammar pins that
+differ or are empty on either side.
 
 The view set is compared the same way. A capture made without
-`--verbatim` (a base older than #1744) carries five CLI views and no
+`--verbatim` (a base older than #1744) carries the CLI views and no
 `verbatim` one; a view present on only one side is **refused**, not
 reported as "0 differing" — a zero over an absent view is the silent
 pass this driver exists to prevent. `--only-shared-views` opts into
@@ -30,18 +33,10 @@ import json
 import pathlib
 import sys
 
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(UTILS_DIR))
 
-def m_inputs(m: dict) -> dict[str, str]:
-    return m.get("inputs_sha256", {})
-
-
-def m_views(m: dict) -> list[str]:
-    """The views a capture carries. A manifest written before the
-    `views` field existed carried every CLI view and always the
-    verbatim one."""
-    if "views" in m:
-        return list(m["views"])
-    return [*m["cli_cmds"], *m["metrics_options"], "verbatim"]
+import drift_common as dc  # noqa: E402
 
 
 def suffix(view: str) -> str:
@@ -62,10 +57,28 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+def load_manifest(side: str, out_dir: pathlib.Path) -> dict | None:
+    """The side's manifest, or None after printing why it cannot be
+    compared: missing, unreadable, or not this reader's version."""
+    path = out_dir / "manifest.json"
+    try:
+        m = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        print(f"{side} manifest cannot be read ({path}: {e}); nothing compared")
+        return None
+    version = m.get("version")
+    if version != dc.MANIFEST_VERSION:
+        print(f"{side} manifest is version {version!r}, this reader compares version {dc.MANIFEST_VERSION}; recapture it")
+        return None
+    return m
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    mb = json.loads((args.base / "manifest.json").read_text())
-    mh = json.loads((args.head / "manifest.json").read_text())
+    mb = load_manifest("base", args.base)
+    mh = load_manifest("head", args.head)
+    if mb is None or mh is None:
+        return 2
     kb, kh = set(mb["keys"]), set(mh["keys"])
     if args.lang:
         langs = set(args.lang)
@@ -79,17 +92,22 @@ def main(argv: list[str] | None = None) -> int:
         if not m.get("complete", False):
             print(f"{side} capture is not complete ({m.get('failed_executions', '?')} failed executions); refusing to compare")
             return 2
-    ib, ih = m_inputs(mb), m_inputs(mh)
+        if not m.get("grammar_pins"):
+            print(f"{side} capture records no grammar pins; refusing to compare")
+            return 2
+    ib, ih = mb["inputs_sha256"], mh["inputs_sha256"]
     changed = sorted(k for k in ib.keys() & ih.keys() if ib[k] != ih[k])
     if changed:
         for k in changed[:10]:
             print(f"INPUT changed between captures: {k}")
         print(f"{len(changed)} input file(s) differ by content; the captures are not of the same inputs")
         return 2
-    if mb.get("grammar_pins") != mh.get("grammar_pins"):
+    if mb["grammar_pins"] != mh["grammar_pins"]:
         print("grammar pins differ between captures")
         return 2
-    vb, vh = m_views(mb), m_views(mh)
+    if mb["bca"]["sha256"] == mh["bca"]["sha256"]:
+        print("note: same bca on both sides")
+    vb, vh = list(mb["views"]), list(mh["views"])
     one_sided = sorted(set(vb) ^ set(vh))
     shared = [v for v in vb if v in vh]
     if not shared:

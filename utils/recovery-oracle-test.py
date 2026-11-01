@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Self-tests for `utils/recovery-oracle.py` on stub binaries: the cut
 set reaches every token class lesson 102 names, equal sides are zero,
-a drift is a difference, a crash on both sides is a failure rather than
-parity, and the cut inputs are written under `TMPDIR`, never a fixed
-path.
+a drift is a difference, outputs compare as bytes, a crash on both
+sides is a failure rather than parity, nested fixture roots are walked,
+an oversized fixture is refused up front, and the cut inputs are
+written one at a time under `TMPDIR`, never a fixed path.
 
 Run: ``python3 -B -m unittest -q utils/recovery-oracle-test.py``.
 """
@@ -46,12 +47,12 @@ def _stub(path: pathlib.Path, body: str) -> str:
 
 
 # Echoes the argv and the input bytes, so output depends on the cut.
-ECHO = "sys.stdout.write(' '.join(sys.argv[1:]) + '\\n' + open(sys.argv[-1], 'rb').read().decode())"
+ECHO = "sys.stdout.buffer.write((' '.join(sys.argv[1:]) + '\\n').encode() + open(sys.argv[-1], 'rb').read())"
 # Echoes the argv and the input, and for a `bca` invocation appends a
 # marker to any input holding a stranded `else` at the end.
 DRIFT = (
     "data = open(sys.argv[-1], 'rb').read()\n"
-    "sys.stdout.write(' '.join(sys.argv[1:]) + '\\n' + data.decode())\n"
+    "sys.stdout.buffer.write((' '.join(sys.argv[1:]) + '\\n').encode() + data)\n"
     "if data.rstrip().endswith(b'else'): sys.stdout.write('DRIFT\\n')"
 )
 
@@ -124,6 +125,58 @@ class SweepTests(unittest.TestCase):
             self.assertIn(f"DIFF ('fx#0/a.rs', {cut}, 'rust', 'ops -O json')", out)
         self.assertNotIn("'verbatim')", out)
 
+    def test_outputs_compare_as_bytes(self) -> None:
+        # Text capture with errors="replace" folds b"\xff\r\n" and
+        # b"\xfe\n" to the same "\ufffd\n": a real drift reads as parity.
+        base = _stub(self.root / "bca-base", "sys.stdout.buffer.write(b'\\xff\\r\\n')")
+        head = _stub(self.root / "bca-head", "sys.stdout.buffer.write(b'\\xfe\\n')")
+        v = _stub(self.root / "verbatim", ECHO)
+        rc, out = self._run(base, head, v, v)
+        self.assertEqual(rc, 1)
+        self.assertIn(f"differing: {len(ro.cuts_for(FIXTURE)) * len(ro.CLI)}; failed executions: 0", out)
+
+    def test_verbatim_argv_is_slug_then_path(self) -> None:
+        # The driver <-> bin contract: `verbatim-oracle <slug> <path>`.
+        log = self.root / "argv.log"
+        bca = _stub(self.root / "bca", ECHO)
+        v = _stub(self.root / "verbatim", f"open({str(log)!r}, 'a').write(repr(sys.argv[1:]) + '\\n')")
+        rc, _ = self._run(bca, bca, v, v)
+        self.assertEqual(rc, 0)
+        lines = log.read_text().splitlines()
+        self.assertEqual(len(lines), 2 * len(ro.cuts_for(FIXTURE)))
+        for line in lines:
+            slug, path = eval(line)  # noqa: S307 — our own repr
+            self.assertEqual(slug, "rust")
+            self.assertTrue(path.endswith("-rust.rs"), path)
+            self.assertIn("bca-recovery-cuts.", path)
+
+    def test_nested_fixture_roots_are_walked_and_a_symlink_is_skipped(self) -> None:
+        # The fixture store this landed is `control_flow/<lang>/`; a flat
+        # iterdir found nothing there (D6 on #1744).
+        (self.fixtures / "a.rs").unlink()
+        (self.fixtures / "rust").mkdir()
+        (self.fixtures / "rust" / "r07.rs").write_bytes(FIXTURE)
+        (self.fixtures / "python").mkdir()
+        (self.fixtures / "python" / "r07.py").write_bytes(b"if a:\n  pass\n")
+        os.symlink(self.fixtures / "rust" / "r07.rs", self.fixtures / "link.rs")
+        bca = _stub(self.root / "bca", ECHO)
+        rc, out = self._run(bca, bca, bca, bca)
+        self.assertEqual(rc, 0)
+        record = json.loads(self.record.read_text())
+        self.assertEqual(sorted(record["cuts"]), ["fx#0/python/r07.py", "fx#0/rust/r07.rs"])
+        self.assertEqual(record["skipped_symlinks"], [str(self.fixtures / "link.rs")])
+        self.assertIn("differing: 0", out)
+
+    def test_an_oversized_fixture_is_refused_before_any_cut(self) -> None:
+        (self.fixtures / "big.rs").write_bytes(b"x" * 100)
+        bca = _stub(self.root / "bca", ECHO)
+        rc, _ = self._run(bca, bca, bca, bca, "--max-bytes", "64")
+        self.assertTrue(str(rc).startswith(f"{self.fixtures / 'big.rs'} is 100 bytes, over --max-bytes 64"), rc)
+        self.assertIn("quadratic", str(rc))
+        self.assertFalse(self.record.exists())
+        rc, _ = self._run(bca, bca, bca, bca, "--max-bytes", "100")
+        self.assertEqual(rc, 0)
+
     def test_a_crash_on_both_sides_is_a_failure_not_parity(self) -> None:
         crash = _stub(self.root / "crash", "sys.exit(2)")
         v = _stub(self.root / "verbatim", ECHO)
@@ -160,6 +213,22 @@ class SweepTests(unittest.TestCase):
         paths = (cuts_dir / "paths").read_text().split()
         self.assertTrue(paths)
         self.assertTrue(all(p.startswith(str(scratch) + "/bca-recovery-cuts.") for p in paths), paths[:3])
+
+    def test_each_cut_is_written_for_its_job_and_removed_after(self) -> None:
+        # Writing every cut up front is O(n²) disk; the stub counts the
+        # cut files beside its input, which must never exceed the job
+        # width.
+        counts = self.root / "counts"
+        stub = _stub(
+            self.root / "count",
+            "import os\n"
+            f"open({str(counts)!r}, 'a').write(str(len(os.listdir(os.path.dirname(sys.argv[-1])))) + '\\n')",
+        )
+        rc, _ = self._run(stub, stub, stub, stub, "--jobs", "2")
+        self.assertEqual(rc, 0)
+        seen = [int(x) for x in counts.read_text().split()]
+        self.assertTrue(seen)
+        self.assertLessEqual(max(seen), 2, "at most one cut file per concurrent job")
 
     def test_missing_binary_or_root_fails_before_the_sweep(self) -> None:
         bca = _stub(self.root / "bca", ECHO)

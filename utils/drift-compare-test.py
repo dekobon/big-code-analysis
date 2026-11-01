@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Self-tests for `utils/drift-compare.py` on synthetic captures: the
-one-sided-view refusal and its `--only-shared-views` opt-in, the key
-and byte comparisons, and the refusals an incomplete or mismatched
-capture earns.
+"""Self-tests for `utils/drift-compare.py` on synthetic captures built
+through `drift_common.build_manifest`: the one-sided-view refusal and
+its `--only-shared-views` opt-in, the key and byte comparisons, and
+the refusals a missing, foreign-version, incomplete, pin-less or
+mismatched capture earns.
 
 Run: ``python3 -B -m unittest -q utils/drift-compare-test.py``.
 """
@@ -31,6 +32,7 @@ def _load(name: str, filename: str):
 
 
 compare = _load("drift_compare", "drift-compare.py")
+dc = compare.dc
 
 CLI = {"ops": ["ops"], "dump": ["dump"]}
 METRICS = {"metrics": []}
@@ -45,23 +47,24 @@ def _capture(
     content: str = "same",
     complete: bool = True,
     sha: str = "a" * 64,
-    views_field: bool = True,
 ) -> pathlib.Path:
     root.mkdir(parents=True)
     views = [*CLI, *METRICS, *(["verbatim"] if verbatim else [])]
-    manifest = {
-        "complete": complete,
-        "failed_executions": 0 if complete else 1,
-        "bca": {"path": "bca", "sha256": sha},
-        "verbatim": {"path": "v", "sha256": sha} if verbatim else None,
-        "metrics_options": METRICS,
-        "cli_cmds": CLI,
-        "keys": keys,
-        "inputs_sha256": {k: "0" * 64 for k in keys},
-        "grammar_pins": {"tree-sitter-rust": "=0.24.0"},
-    }
-    if views_field:
-        manifest["views"] = views
+    manifest = dc.build_manifest(
+        complete=complete,
+        failed_executions=0 if complete else 1,
+        bca={"path": "bca", "sha256": sha},
+        verbatim={"path": "v", "sha256": sha} if verbatim else None,
+        views=views,
+        roots={"fx": "/fx"},
+        metrics_options=METRICS,
+        cli_cmds=CLI,
+        populations={"rust": 1, "python": 1},
+        keys=keys,
+        inputs_sha256={k: "0" * 64 for k in keys},
+        grammar_pins={"tree-sitter-rust": "=0.24.0"},
+        skipped_symlinks=[],
+    )
     (root / "manifest.json").write_text(json.dumps(manifest))
     for key in keys:
         dst = root / key
@@ -79,6 +82,11 @@ class DriftCompareTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def _edit(self, capture: pathlib.Path, **fields: object) -> None:
+        m = json.loads((capture / "manifest.json").read_text())
+        m.update(fields)
+        (capture / "manifest.json").write_text(json.dumps(m))
+
     def _run(self, base: pathlib.Path, head: pathlib.Path, *extra: str) -> tuple[int, str, dict]:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -92,13 +100,43 @@ class DriftCompareTests(unittest.TestCase):
 
     def test_identical_captures_compare_equal_over_every_view(self) -> None:
         base = _capture(self.root / "base", verbatim=True)
-        head = _capture(self.root / "head", verbatim=True)
-        rc, _, s = self._run(base, head)
+        head = _capture(self.root / "head", verbatim=True, sha="b" * 64)
+        rc, text, s = self._run(base, head)
         self.assertEqual(rc, 0)
         self.assertEqual(s["views_compared"], ["ops", "dump", "metrics", "verbatim"])
         self.assertEqual(s["views_uncompared"], [])
         self.assertEqual(s["outputs_compared"], len(KEYS) * 4)
         self.assertEqual(s["differing"], 0)
+        self.assertNotIn("same bca", text)
+
+    def test_the_same_bca_on_both_sides_is_noted_not_refused(self) -> None:
+        # Head-vs-head over the verbatim view is a stated use; say so
+        # rather than let a reader mistake it for a base-vs-head zero.
+        base = _capture(self.root / "base", verbatim=True)
+        head = _capture(self.root / "head", verbatim=True)
+        rc, text, s = self._run(base, head)
+        self.assertEqual(rc, 0)
+        self.assertIn("note: same bca on both sides", text)
+        self.assertEqual(s["differing"], 0)
+
+    def test_a_missing_or_foreign_version_manifest_is_exit_2(self) -> None:
+        good = _capture(self.root / "good", verbatim=True)
+        rc, text, s = self._run(good, self.root / "nowhere")
+        self.assertEqual(rc, 2)
+        self.assertIn("head manifest cannot be read", text)
+        self.assertEqual(s, {})
+        legacy = _capture(self.root / "legacy", verbatim=True)
+        m = json.loads((legacy / "manifest.json").read_text())
+        del m["version"]
+        (legacy / "manifest.json").write_text(json.dumps(m))
+        rc, text, _ = self._run(legacy, good)
+        self.assertEqual(rc, 2)
+        self.assertIn("base manifest is version None", text)
+        future = _capture(self.root / "future", verbatim=True)
+        self._edit(future, version=dc.MANIFEST_VERSION + 1)
+        rc, text, _ = self._run(good, future)
+        self.assertEqual(rc, 2)
+        self.assertIn(f"head manifest is version {dc.MANIFEST_VERSION + 1}", text)
 
     def test_a_byte_difference_is_reported(self) -> None:
         base = _capture(self.root / "base", verbatim=True)
@@ -127,19 +165,10 @@ class DriftCompareTests(unittest.TestCase):
         self.assertEqual(s["views_uncompared"], ["verbatim"])
         self.assertEqual(s["outputs_compared"], len(KEYS) * 3)
 
-    def test_a_legacy_manifest_without_views_carries_the_verbatim_view(self) -> None:
-        base = _capture(self.root / "base", verbatim=True, views_field=False)
-        head = _capture(self.root / "head", verbatim=True)
-        rc, _, s = self._run(base, head)
-        self.assertEqual(rc, 0)
-        self.assertEqual(s["views_compared"], ["ops", "dump", "metrics", "verbatim"])
-
     def test_no_shared_view_is_refused(self) -> None:
         base = _capture(self.root / "base", verbatim=False)
         head = _capture(self.root / "head", verbatim=True)
-        mh = json.loads((head / "manifest.json").read_text())
-        mh["views"] = ["verbatim"]
-        (head / "manifest.json").write_text(json.dumps(mh))
+        self._edit(head, views=["verbatim"])
         rc, text, _ = self._run(base, head, "--only-shared-views")
         self.assertEqual(rc, 2)
         self.assertIn("no view on both sides", text)
@@ -169,19 +198,26 @@ class DriftCompareTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("head capture is not complete", text)
         other_input = _capture(self.root / "input", verbatim=True)
-        m = json.loads((other_input / "manifest.json").read_text())
-        m["inputs_sha256"][KEYS[0]] = "1" * 64
-        (other_input / "manifest.json").write_text(json.dumps(m))
+        self._edit(other_input, inputs_sha256={KEYS[0]: "1" * 64, KEYS[1]: "0" * 64})
         rc, text, _ = self._run(good, other_input)
         self.assertEqual(rc, 2)
         self.assertIn("INPUT changed between captures", text)
         other_pin = _capture(self.root / "pin", verbatim=True)
-        m = json.loads((other_pin / "manifest.json").read_text())
-        m["grammar_pins"] = {}
-        (other_pin / "manifest.json").write_text(json.dumps(m))
+        self._edit(other_pin, grammar_pins={"tree-sitter-rust": "=0.25.0"})
         rc, text, _ = self._run(good, other_pin)
         self.assertEqual(rc, 2)
         self.assertIn("grammar pins differ", text)
+
+    def test_empty_pins_on_either_side_are_refused_not_vacuously_equal(self) -> None:
+        # `{} == {}` passed the pin check before D3 on #1744.
+        for side in ("base", "head"):
+            a = _capture(self.root / f"{side}-a", verbatim=True)
+            b = _capture(self.root / f"{side}-b", verbatim=True)
+            self._edit(a if side == "base" else b, grammar_pins={})
+            rc, text, s = self._run(a, b)
+            self.assertEqual(rc, 2, side)
+            self.assertIn(f"{side} capture records no grammar pins", text)
+            self.assertEqual(s, {})
 
     def test_lang_filter_narrows_the_populations(self) -> None:
         base = _capture(self.root / "base", verbatim=True)
