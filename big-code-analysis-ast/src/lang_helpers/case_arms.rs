@@ -223,7 +223,7 @@ pub(crate) fn tcl_command_is_switch_arm<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    use crate::lang_helpers::tcl::tcl_command_name;
+    use crate::lang_helpers::tcl::{TclCommandWord, tcl_command_word};
 
     if node.kind_id() != Tcl::Command as u16 {
         return false;
@@ -236,8 +236,7 @@ pub(crate) fn tcl_command_is_switch_arm<'a>(
     };
     if arm_list.kind_id() != Tcl::BracedWord as u16
         || word_list.kind_id() != Tcl::WordList as u16
-        || switch.kind_id() != Tcl::Command as u16
-        || tcl_command_name(&switch, code) != Some("switch")
+        || tcl_command_word(&switch, code, ancestors) != TclCommandWord::Switch
     {
         return false;
     }

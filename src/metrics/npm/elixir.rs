@@ -23,10 +23,7 @@ impl Npm for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::lang_helpers::elixir::{
-            ElixirCallTarget, elixir_call_keyword, elixir_call_target,
-            elixir_do_block_call_children,
-        };
+        use crate::lang_helpers::elixir::{ElixirCallTarget, elixir_call_target};
 
         // The space-opening node for a `defmodule` Call is the node
         // itself, and the walker pushes that space before running any
@@ -56,25 +53,38 @@ impl Npm for ElixirCode {
         // descend deeper — methods nested inside another `defmodule`
         // are attributed to that inner module via its own pass. Which of
         // the four macros is public is this consumer's reading too.
-        // The uncached read, deliberately: each statement is another
-        // node than the one the walk is visiting, so the cached read
-        // would evict the module's own word from the slot before NPA
-        // asks for it, and the statements miss when they are visited in
-        // turn anyway (`elixir_call_keyword`'s doc).
-        for stmt in elixir_do_block_call_children(node) {
-            match elixir_call_keyword(&stmt, code)
-                .map_or(ElixirCallTarget::Other, ElixirCallTarget::from_text)
+        // Each statement is another node than the one the walk is
+        // visiting, so the slot computes its word without storing it
+        // and the module's own word stays served for NPA (#1737); the
+        // statements are read once more when visited in turn. Each is
+        // asked under its own chain — the module's plus the module and
+        // the block, as NPA asks the `Member` row — so a gate that
+        // reads the chain is handed the statement's parent, not the
+        // module's.
+        let under = ancestors.of_children(node);
+        for block in node
+            .children()
+            .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
+        {
+            let in_block = under.get().of_children(&block);
+            // role-bypass: allow(Call, FuncOpener, Container, Member) — traversal:
+            // which of the block's statements to read the word of
+            for stmt in block
+                .children()
+                .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
             {
-                ElixirCallTarget::Def | ElixirCallTarget::Defmacro => {
-                    stats.class_nm += 1;
-                    stats.class_npm += 1;
+                match elixir_call_target(&stmt, code, in_block.get()) {
+                    ElixirCallTarget::Def | ElixirCallTarget::Defmacro => {
+                        stats.class_nm += 1;
+                        stats.class_npm += 1;
+                    }
+                    // `defp` / `defmacrop` are methods but not public,
+                    // so they bump `class_nm` only.
+                    ElixirCallTarget::Defp | ElixirCallTarget::Defmacrop => {
+                        stats.class_nm += 1;
+                    }
+                    _ => {}
                 }
-                // `defp` / `defmacrop` are methods but not public, so
-                // they bump `class_nm` only.
-                ElixirCallTarget::Defp | ElixirCallTarget::Defmacrop => {
-                    stats.class_nm += 1;
-                }
-                _ => {}
             }
         }
     }

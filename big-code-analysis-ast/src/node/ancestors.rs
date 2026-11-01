@@ -135,15 +135,53 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
-    /// This chain, memoising `Ancestors::fold_down` through
-    /// `cache`, which the walker that keeps the chain owns for the whole
-    /// walk.
+    /// This chain, memoising `Ancestors::fold_down` and the per-node
+    /// memos through `cache`, without recording a visit: the word slots
+    /// serve only the node the cache was told is being visited, and
+    /// nothing tells it here. Test-only, for a test that drives a fold
+    /// or a memo directly: a walk lends its cache through
+    /// [`for_walk`](Self::for_walk), which is the only non-test
+    /// constructor that sets `folds`, so no lender can lend the cache
+    /// and skip the visit (#1737).
+    #[cfg(test)]
     #[inline]
     #[must_use]
-    pub const fn with_folds(self, cache: &'chain FoldCache) -> Self {
+    pub(crate) const fn with_folds(self, cache: &'chain FoldCache) -> Self {
         Self {
             folds: Some(cache),
             ..self
+        }
+    }
+
+    /// The chain a walk hands its predicates for `node`, the node it is
+    /// visiting: [`checked`](Self::checked) on `chain`, lending `folds`
+    /// with the visit recorded on it (#1737). Every walk that keeps a
+    /// [`FoldCache`] constructs through here, so lending the cache and
+    /// naming the visited node are one step that no lender can split —
+    /// by construction, since the test-only `with_folds` is the only
+    /// other way to set `folds` — the fold-cache half of what #1601 asks
+    /// for the [`SiblingCache`], which stays a separate
+    /// [`with_siblings`](Self::with_siblings) because the dump walk
+    /// records no siblings.
+    ///
+    /// The visit is what `Ancestors::classified` keys the word slots
+    /// on: an ask about `node` is served and stored, an ask about any
+    /// other node — an enclosing call read from a descendant, a module's
+    /// statements read while the module is visited — is computed and
+    /// not stored, so it cannot evict the visited node's answer. A
+    /// derived chain ([`of_children`](Self::of_children), `below`,
+    /// [`iter`](Self::iter)) carries the same cache and so the same
+    /// visit.
+    #[must_use]
+    pub fn for_walk(
+        chain: &'chain [Node<'tree>],
+        node: &Node<'tree>,
+        folds: &'chain FoldCache,
+    ) -> Self {
+        folds.visited.set(node.id());
+        Self {
+            folds: Some(folds),
+            ..Self::checked(chain, node)
         }
     }
 
@@ -286,18 +324,21 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         answer
     }
 
-    /// `classify(node)`'s discriminant under `slot`, read from the walk's
-    /// word slot when it holds this node's answer and recorded there
-    /// otherwise; computed every time on a chain with no cache. The
-    /// caller converts the `u8` back to its enum; `classify` must be a
-    /// pure function of the node and the source for one walk.
+    /// `classify(node)`'s discriminant under `slot`. When `node` is the
+    /// one the walk is visiting ([`for_walk`](Self::for_walk)), the
+    /// answer is read from the walk's word slot after the first ask and
+    /// recorded there by it; an ask about any other node is computed and
+    /// not stored, so it never evicts the visited node's answer (#1737).
+    /// Computed every time on a chain with no cache, or one lent without
+    /// a visit. The caller converts the `u8` back to its enum; `classify`
+    /// must be a pure function of the node and the source for one walk.
     pub(crate) fn classified(
         self,
         slot: WordSlot,
         node: &Node<'_>,
         classify: impl FnOnce() -> u8,
     ) -> u8 {
-        let Some(cache) = self.folds else {
+        let Some(cache) = self.folds.filter(|cache| cache.visited.get() == node.id()) else {
             return classify();
         };
         let cell = &cache.words[slot as usize];
@@ -338,8 +379,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// [`Ancestors::parent`] trusts `chain.last()` unvalidated, so such a
     /// drift would feed every predicate a wrong ancestor silently rather
     /// than fail. Walkers that maintain a chain should construct through
-    /// here; [`Ancestors::known`] stays unchecked for the callers that
-    /// deliberately pair a chain with a foreign node.
+    /// here — through [`for_walk`](Self::for_walk) when they lend a
+    /// [`FoldCache`]; [`Ancestors::known`] stays unchecked for the
+    /// callers that deliberately pair a chain with a foreign node.
     ///
     /// # Two checks, because the exact one is not affordable by default
     ///
@@ -555,10 +597,10 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     #[inline]
     #[must_use]
     pub fn iter(self, node: &Node<'tree>) -> AncestorIter<'tree, 'chain> {
-        match self.chain {
-            Some(chain) => AncestorIter::Chain(chain, self.siblings, self.folds),
-            None => AncestorIter::Climb(node.parent()),
-        }
+        AncestorIter(match self.chain {
+            Some(chain) => AncestorSource::Chain(chain, self.siblings, self.folds),
+            None => AncestorSource::Climb(node.parent()),
+        })
     }
 
     /// The siblings after `node`, nearest first: what
@@ -868,8 +910,9 @@ impl MemoQuestion {
 const _: () = assert!(MemoQuestion::KeywordsLeadTheirList as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-depth states of the walk's memoised folds, for
-/// `Ancestors::fold_down` (#1597), and the per-node memos for
-/// `Ancestors::node_memo`.
+/// `Ancestors::fold_down` (#1597), the per-node memos for
+/// `Ancestors::node_memo`, and the word slots keyed on the node the
+/// walk is visiting (`Ancestors::classified`).
 ///
 /// One slot per depth and lane, keyed by the id of the ancestor at that
 /// depth: the state folded over every ancestor above it. Interior
@@ -883,20 +926,41 @@ pub struct FoldCache {
     lanes: [RefCell<Vec<(usize, u8)>>; FoldLane::COUNT],
     nodes: [NodeMemo; MemoQuestion::COUNT],
     words: [Cell<(usize, u8)>; WordSlot::COUNT],
+    /// The id of the node the walk is visiting, as [`Ancestors::for_walk`]
+    /// last recorded it; 0 — no node's id — until a walk records one.
+    visited: Cell<usize>,
 }
 
-/// The text-classified constructs whose last answer a walk keeps
-/// (#1697). A grammar that spells `if`, `switch` or `return` as a
-/// generic `call` / `command` told apart only by its target text is
-/// asked the same question of the same node by every metric that runs on
-/// it — four reads of one field and one text compare where a kind-based
-/// language pays none. `compute_per_node` runs every selected metric on
-/// one node before moving to the next, so the asks arrive back to back:
-/// one slot holding the last node's id and its answer serves them all,
-/// and an ask about a *different* node in between (a consumer re-reading
-/// the enclosing call) simply evicts it at the cost of one extra read,
-/// never more than the uncached count. No map, no allocation, `O(1)`
+/// The text-classified constructs whose answer for the visited node a
+/// walk keeps (#1697, #1737). A grammar that spells `if`, `switch` or
+/// `return` as a generic `call` / `command` told apart only by its
+/// target text is asked the same question of the same node by every
+/// metric that runs on it — four reads of one field and one text
+/// compare where a kind-based language pays none. One slot holding the
+/// visited node's id and its answer serves them all, however many asks
+/// about *other* nodes arrive in between: an ask about a node the walk
+/// is not visiting (a consumer reading the enclosing call, a module
+/// reading its statements) is computed and not stored, so it costs its
+/// one read and nothing else. Keying on the visit, which
+/// [`Ancestors::for_walk`] records, is what makes that so — before
+/// #1737 the slot held the *last node asked* and such an ask evicted
+/// the visited node's answer, which made "may this site use the cached
+/// read" a judgement per call site. No map, no allocation, `O(1)`
 /// memory, dropped with the walk.
+///
+/// The bound is one read per (consumer, target) per visit. The
+/// last-asked slot served two cross-visit shapes for free that this
+/// one does not — a keyword pair's enclosing call asked by each of its
+/// sections, an `else` token's `if` — so a file of `N` keyword
+/// sections or `N` if-else blocks pays `N` more reads than it did,
+/// linear either way (`cognitive/elixir-keyword-sections` prices it:
+/// 1.03 → 1.12, within noise on every fixture measured). That is
+/// accepted because the visited path dominates: an Elixir `call` is
+/// asked four to seven times while visited, and the typed
+/// `NodeMemo<T>` fold #1737 offered as its second option would put a
+/// `HashMap` probe on every one of those asks to save the tens of
+/// nanoseconds the two cross-visit shapes re-read — measured on the
+/// #1737 branch, not assumed, which is why the slot stays a `Cell`.
 ///
 /// The slot holds the classification's `#[repr(u8)]` discriminant; the
 /// enum is the language helper's (`ElixirCallTarget`, `TclCommandWord`),
@@ -1021,7 +1085,17 @@ mod same_lane_reentry {
 }
 
 /// Ancestor iterator returned by [`Ancestors::iter`], nearest first.
-pub enum AncestorIter<'tree, 'chain> {
+///
+/// The representation is private so that [`Ancestors::iter`] is its
+/// only constructor: every chain it yields carries the caches of the
+/// `Ancestors` it was made from, and nothing else can pair a
+/// [`FoldCache`] with a chain. That is what lets
+/// [`Ancestors::for_walk`] be the one place a visit is recorded
+/// (#1737) — a public variant holding `Option<&FoldCache>` would have
+/// let any caller lend a cache without one.
+pub struct AncestorIter<'tree, 'chain>(AncestorSource<'tree, 'chain>);
+
+enum AncestorSource<'tree, 'chain> {
     /// The not-yet-yielded prefix of a known chain, and the walk's
     /// [`SiblingCache`] and [`FoldCache`] if it lent them. The prefix's
     /// last element is the next ancestor, and the prefix before it is
@@ -1046,8 +1120,8 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
     type Item = (Node<'tree>, Ancestors<'tree, 'chain>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Chain(remaining, siblings, folds) => {
+        match &mut self.0 {
+            AncestorSource::Chain(remaining, siblings, folds) => {
                 let (&nearest, above) = remaining.split_last()?;
                 *remaining = above;
                 let ancestors = Ancestors {
@@ -1057,7 +1131,7 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
                 };
                 Some((nearest, ancestors))
             }
-            Self::Climb(next) => {
+            AncestorSource::Climb(next) => {
                 let nearest = (*next)?;
                 *next = nearest.parent();
                 Some((nearest, Ancestors::unknown()))
@@ -1462,6 +1536,102 @@ mod tests {
                 .is_none(),
             "a chain rebuilt with `known` carries nothing, which is why `below` exists"
         );
+    }
+
+    /// The word slot serves the node the walk is visiting and no other
+    /// (#1737). Through a chain built with `for_walk` for `a`, the first
+    /// ask about `a` computes and every later one is served — across
+    /// asks about another node `b` through the walk's own chain, a chain
+    /// derived from it with `of_children`, `below` and `iter`, and the
+    /// fold-free chain `fold_down` hands its step, each of which computes
+    /// `b`'s answer and stores nothing. Restoring the last-node-asked
+    /// slot, which stored every ask, fails at the second ask about `a`:
+    /// the ask about `b` in between evicted it. A chain lent the cache
+    /// without a visit computes every ask, and a later `for_walk` for `b`
+    /// retires `a`'s entry.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn the_word_slot_serves_only_the_visited_node() {
+        use std::cell::Cell;
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { g(1); }\n");
+        let root = tree.get_root();
+        let a = root.child(0).expect("the fn item");
+        let body = a
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the body");
+        let b = body.child(1).expect("the call statement");
+        assert_ne!(a.id(), b.id());
+
+        let runs = Cell::new(0_usize);
+        let computes = |answer: u8| {
+            let runs = &runs;
+            move || {
+                runs.set(runs.get() + 1);
+                answer
+            }
+        };
+        let cache = FoldCache::default();
+        let chain = [root];
+        let walk = Ancestors::for_walk(&chain, &a, &cache);
+        let slot = WordSlot::ElixirCallTarget;
+
+        assert_eq!(walk.classified(slot, &a, computes(1)), 1);
+        assert_eq!(runs.get(), 1, "the first ask computes");
+        assert_eq!(walk.classified(slot, &a, computes(9)), 1);
+        assert_eq!(runs.get(), 1, "the second ask is served");
+
+        assert_eq!(walk.classified(slot, &b, computes(2)), 2);
+        assert_eq!(walk.classified(slot, &b, computes(2)), 2);
+        assert_eq!(
+            runs.get(),
+            3,
+            "an ask about another node computes every time"
+        );
+        assert_eq!(walk.classified(slot, &a, computes(9)), 1);
+        assert_eq!(
+            runs.get(),
+            3,
+            "and does not evict the visited node's answer"
+        );
+
+        let under = walk.of_children(&a);
+        assert_eq!(under.get().classified(slot, &b, computes(2)), 2);
+        let children = walk.children_chain(&a).expect("a known chain extends");
+        assert_eq!(walk.below(&children).classified(slot, &b, computes(2)), 2);
+        let (_, above) = walk.iter(&b).next().expect("b has a parent");
+        assert_eq!(above.classified(slot, &b, computes(2)), 2);
+        let folded = walk.fold_down(&a, 0, FoldLane::DocInBody, 0, |_, _, outer, _| {
+            outer.classified(slot, &b, computes(2))
+        });
+        assert_eq!(folded, 2);
+        assert_eq!(runs.get(), 7, "each derived chain's ask computes");
+        assert_eq!(walk.classified(slot, &a, computes(9)), 1);
+        assert_eq!(runs.get(), 7, "and none of them evicts");
+        assert_eq!(under.get().classified(slot, &a, computes(9)), 1);
+        assert_eq!(runs.get(), 7, "a derived chain serves the visited node too");
+
+        let never_visited = FoldCache::default();
+        let unvisited = Ancestors::known(&chain).with_folds(&never_visited);
+        assert_eq!(unvisited.classified(slot, &a, computes(1)), 1);
+        assert_eq!(unvisited.classified(slot, &a, computes(1)), 1);
+        assert_eq!(
+            runs.get(),
+            9,
+            "a cache lent without a visit computes every ask"
+        );
+
+        let chain_b = [root, a, body];
+        let walk_b = Ancestors::for_walk(&chain_b, &b, &cache);
+        assert_eq!(walk_b.classified(slot, &b, computes(2)), 2);
+        assert_eq!(walk_b.classified(slot, &b, computes(9)), 2);
+        assert_eq!(
+            runs.get(),
+            10,
+            "the new visit's first ask computes, the next is served"
+        );
+        assert_eq!(walk_b.classified(slot, &a, computes(1)), 1);
+        assert_eq!(runs.get(), 11, "the retired node is computed again");
     }
 
     /// `of_children` hands a body's members the chain that is their own:

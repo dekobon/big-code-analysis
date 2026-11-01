@@ -18,16 +18,17 @@ use crate::node::{Ancestors, FoldLane, Node, WordSlot};
 /// (e.g. `Module.func(…)` parses as `RemoteCallWithParentheses` with
 /// the dotted name as target) or when the bytes are not valid UTF-8.
 ///
-/// This is the uncached read. A consumer asking about the node the walk
-/// is visiting reads [`elixir_call_target`], which answers from the
-/// walk's word slot after the first metric asks. An ask about an
-/// *enclosing* call from a descendant evicts the visited node's entry,
-/// so it is a judgement per site: a scan that asks about many other
-/// nodes while the visited one has metrics still to run stays here
-/// (`npm/elixir.rs`'s statement loop); a single ask from a node no
-/// later metric reads the slot for (cognitive's `else` token and
-/// section pair) may use the cached read, and hits when the enclosing
-/// call was the last node visited (#1697).
+/// This is the text-returning primitive, for a caller holding no
+/// [`Ancestors`] or only an ancestor iterator derived from one (the
+/// `with`-argument and guard-position walks in `elixir_decisions`), or
+/// one that wants the text rather than the word. The `quote` fold's
+/// step is the same case: the chain `fold_down` hands it lends no
+/// cache, so a cached read there would only compute. A caller holding
+/// a chain reads [`elixir_call_target`], which answers from the walk's
+/// word slot for the node the walk is visiting and computes, without
+/// storing, for any other node (#1697, #1737); asking it about an
+/// enclosing call or a module's statements costs the one read this
+/// does, so there is no judgement to make per site.
 #[inline]
 #[must_use]
 pub fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
@@ -55,10 +56,11 @@ crate::observation::counter!(call_keyword_reads, cfg(any(test, feature = "test-s
 /// The control-flow rows (`Branch`, `Switch`, `Loop`, `Exit`) and
 /// `Member` gate on it directly, `FuncOpener` / `Container` through the
 /// crate's `elixir_declaration` projection, and cyclomatic, cognitive,
-/// ABC, NPM and NPA branch on it; one `call` is asked by all of them in sequence, and
-/// [`elixir_call_target`] answers from the walk's word slot after the
-/// first. `Other` is every other target — a user function, a remote
-/// call, a computed callee, invalid UTF-8 — cached like any answer.
+/// ABC, NPM and NPA branch on it; one `call` is asked by all of them
+/// while the walk visits it, and [`elixir_call_target`] answers from the
+/// walk's word slot after the first. `Other` is every other target — a
+/// user function, a remote call, a computed callee, invalid UTF-8 —
+/// cached like any answer.
 ///
 /// `#[repr(u8)]` because the slot stores the discriminant; the
 /// conversion back is total, reading anything past the table as
@@ -228,10 +230,11 @@ impl ElixirCallTarget {
 
 /// [`ElixirCallTarget`] of `node`: `Other` for anything but a `call`
 /// whose `target` is an `identifier` spelling one of the words. Read
-/// once per `call` per walk when the walk lent a cache — the slot holds
-/// the last node asked (#1697); every row gate and metric consumer that
-/// wants the word goes through here, so the `call_keyword_reads`
-/// counter counts misses.
+/// once per `call` per walk for the node the walk is visiting — the
+/// slot holds that node's answer (#1697, #1737) — and once per ask
+/// about any other node, which is computed and not stored; every row
+/// gate and metric consumer that wants the word goes through here, so
+/// the `call_keyword_reads` counter counts misses.
 #[inline]
 #[must_use]
 pub fn elixir_call_target<'a>(
@@ -322,21 +325,6 @@ pub(crate) fn elixir_is_inside_quote_block<'a>(
     ancestors
         .iter(node)
         .any(|(n, _)| elixir_call_keyword(&n, code) == Some("quote"))
-}
-
-/// Iterates the direct-child `Call` nodes inside the `do_block` of an
-/// Elixir Call (typically a `defmodule`). Used by `Npm` / `Npa` to scan
-/// a module body for method-defining macros / `defstruct` without
-/// descending into nested modules. Yields no items when the Call has
-/// no `do_block`.
-#[inline]
-pub fn elixir_do_block_call_children<'a>(
-    node: &'a Node<'a>,
-) -> impl Iterator<Item = Node<'a>> + 'a {
-    node.children()
-        .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
-        .flat_map(|do_block| do_block.children())
-        .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
 }
 
 /// The `binary_operator` that applies `op`, an operator token, or `None`
@@ -616,13 +604,18 @@ mod tests {
         );
     }
 
-    // The word slot's budget (#1697): asked about one `call` several
-    // times in a row — as cyclomatic, cognitive, ABC and nexits ask on
-    // one visit — a walk that lent a cache reads the target once per
-    // `call`, and one that did not reads it every time. The fixture has
-    // no ask about another node between the repeats, so misses == calls
-    // exactly; the answers agree either way, so only the counter tells
-    // the two apart.
+    // The word slot's budget (#1697, #1737): asked about one `call`
+    // several times while it is visited — as cyclomatic, cognitive, ABC
+    // and nexits ask on one visit — a walk that lent a cache through
+    // `for_walk` reads the target once per `call`, and one that lent
+    // none reads it every time. Between the repeats each `call` is also
+    // asked about its enclosing `call` through the same chain, as the
+    // `else:` pair and the `CaseArm` gate ask about theirs: that ask is
+    // computed and not stored, so it costs one read and the visited
+    // node's next ask is still served. Under the last-node-asked slot
+    // this replaced, the foreign ask evicted the entry and the repeat
+    // after it read again. The answers agree either way, so only the
+    // counter tells the two apart.
     #[cfg(feature = "elixir")]
     #[test]
     fn call_target_is_read_once_per_call_under_a_cache() {
@@ -631,6 +624,8 @@ mod tests {
         let source = b"defmodule M do\n  def f(a) do\n    if a, do: throw(:x)\n    unless a, do: raise(\"y\")\n    case a do\n      _ -> g()\n    end\n    Kernel.exit(1)\n  end\nend\n";
         let cache = FoldCache::default();
         let mut calls = 0;
+        let mut enclosing_asks = 0;
+        let mut answers = std::collections::HashMap::new();
         let mut cached = Vec::new();
         let before = call_keyword_reads::observed();
         for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
@@ -638,11 +633,22 @@ mod tests {
                 return;
             }
             calls += 1;
-            let chain = Ancestors::known(chain).with_folds(&cache);
-            let first = elixir_call_target(node, source, chain);
+            let walk = Ancestors::for_walk(chain, node, &cache);
+            let first = elixir_call_target(node, source, walk);
+            let enclosing = chain
+                .iter()
+                .rev()
+                .find(|ancestor| ancestor.kind_id() == Elixir::Call as u16);
             for _ in 1..ASKS {
-                assert_eq!(elixir_call_target(node, source, chain), first);
+                if let Some(enclosing) = enclosing {
+                    enclosing_asks += 1;
+                    // Visited earlier in pre-order, so its answer is on record.
+                    let recorded = answers[&enclosing.id()];
+                    assert_eq!(elixir_call_target(enclosing, source, walk), recorded);
+                }
+                assert_eq!(elixir_call_target(node, source, walk), first);
             }
+            answers.insert(node.id(), first);
             cached.push(first);
         });
         let cached_reads = call_keyword_reads::observed() - before;
@@ -680,7 +686,14 @@ mod tests {
                 .flat_map(|&t| std::iter::repeat_n(t, ASKS))
                 .collect::<Vec<_>>()
         );
-        assert_eq!((cached_reads, uncached_reads), (calls, ASKS * calls));
+        // Every call but the `defmodule` has an enclosing call to ask
+        // about, `ASKS - 1` times each.
+        assert_eq!(enclosing_asks, (calls - 1) * (ASKS - 1));
+        assert_eq!(
+            (cached_reads, uncached_reads),
+            (calls + enclosing_asks, ASKS * calls),
+            "one read per visited call plus one per ask about its enclosing call"
+        );
     }
 
     // A node that is not a `call` is `Other` before any read, and the

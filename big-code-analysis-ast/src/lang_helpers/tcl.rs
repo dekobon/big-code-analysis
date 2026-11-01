@@ -53,9 +53,15 @@ pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
 /// is what keeps the computed forms out; matching the quoted spellings
 /// would mean unquoting the bytes for a style no real Tcl uses.
 ///
-/// Callers dispatch on the returned name so each `command` node resolves it
-/// exactly once per metric walk — the helpers below take the resolved
-/// identity as a precondition rather than re-deriving it.
+/// This is the text-returning primitive, for a caller holding no
+/// [`Ancestors`] or one that wants the text rather
+/// than the word. A caller holding a chain reads [`tcl_command_word`],
+/// which answers from the walk's word slot for the node the walk is
+/// visiting and computes, without storing, for any other node (#1697,
+/// #1737); asking it about an enclosing command — the `switch` an arm
+/// candidate's grandparent is — costs the one read this does, so there
+/// is no judgement to make per site. The helpers below take the
+/// resolved identity as a precondition rather than re-deriving it.
 ///
 /// The name is normalised through
 /// [`strip_global_qualifier`](crate::lang_helpers::strip_global_qualifier),
@@ -132,11 +138,11 @@ pub fn tcl_try_handler_bodies<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<
 /// What a `command`'s leading `simple_word` spells, for every word some
 /// consumer tells apart (#1697): the raw identity, not a policy reading.
 /// `Switch`, `Loop` and `Exit` gate on it, and cyclomatic, cognitive,
-/// ABC and nexits branch on it; one `command` is asked by all of them in
-/// sequence, and [`tcl_command_word`] answers from the walk's word slot
-/// after the first. `Other` is every other leading word — a user proc, a
-/// computed callee, a quoted or braced spelling, invalid UTF-8 — cached
-/// like any answer.
+/// ABC and nexits branch on it; one `command` is asked by all of them
+/// while the walk visits it, and [`tcl_command_word`] answers from the
+/// walk's word slot after the first. `Other` is every other leading
+/// word — a user proc, a computed callee, a quoted or braced spelling,
+/// invalid UTF-8 — cached like any answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -213,8 +219,9 @@ impl TclCommandWord {
 
 /// [`TclCommandWord`] of `node`: `Other` for anything but a `command`
 /// whose leading word resolves (see [`tcl_command_name`]) to one of the
-/// words. Read once per `command` per walk when the walk lent a cache —
-/// the slot holds the last node asked (#1697).
+/// words. Read once per `command` per walk for the node the walk is
+/// visiting — the slot holds that node's answer (#1697, #1737) — and
+/// once per ask about any other node, which is computed and not stored.
 #[inline]
 #[must_use]
 pub fn tcl_command_word<'a>(
@@ -236,12 +243,17 @@ mod tests {
     use crate::TclCode;
     use crate::test_support::for_each_node_with_chain;
 
-    // The word slot's budget (#1697): asked about one `command` several
-    // times in a row — as cyclomatic, cognitive, ABC and nexits ask on
-    // one visit — a walk that lent a cache reads the name once per
-    // `command`, and one that did not reads it every time. The fixture
-    // has no ask about another node between the repeats, so misses ==
-    // commands exactly; the answers agree either way, so only the
+    // The word slot's budget (#1697, #1737): asked about one `command`
+    // several times while it is visited — as cyclomatic, cognitive, ABC
+    // and nexits ask on one visit — a walk that lent a cache through
+    // `for_walk` reads the name once per `command`, and one that lent
+    // none reads it every time. Between the repeats each `command` is
+    // also asked about its enclosing `command` through the same chain,
+    // as the `CaseArm` gate asks about an arm's `switch`: that ask is
+    // computed and not stored, so it costs one read and the visited
+    // node's next ask is still served. Under the last-node-asked slot
+    // this replaced, the foreign ask evicted the entry and the repeat
+    // after it read again. The answers agree either way, so only the
     // counter tells the two apart.
     #[cfg(feature = "tcl")]
     #[test]
@@ -251,6 +263,8 @@ mod tests {
         let source = b"proc f {a} {\n    switch $a { x { ::return 1 } }\n    for {set i 0} {$i < 3} {incr i} { }\n    puts error\n    $a 1\n}\n";
         let cache = FoldCache::default();
         let mut commands = 0;
+        let mut enclosing_asks = 0;
+        let mut answers = std::collections::HashMap::new();
         let mut cached = Vec::new();
         let before = command_name_reads::observed();
         for_each_node_with_chain::<TclCode>(source, |node, chain| {
@@ -258,11 +272,22 @@ mod tests {
                 return;
             }
             commands += 1;
-            let chain = Ancestors::known(chain).with_folds(&cache);
-            let first = tcl_command_word(node, source, chain);
+            let walk = Ancestors::for_walk(chain, node, &cache);
+            let first = tcl_command_word(node, source, walk);
+            let enclosing = chain
+                .iter()
+                .rev()
+                .find(|ancestor| ancestor.kind_id() == Tcl::Command as u16);
             for _ in 1..ASKS {
-                assert_eq!(tcl_command_word(node, source, chain), first);
+                if let Some(enclosing) = enclosing {
+                    enclosing_asks += 1;
+                    // Visited earlier in pre-order, so its answer is on record.
+                    let recorded = answers[&enclosing.id()];
+                    assert_eq!(tcl_command_word(enclosing, source, walk), recorded);
+                }
+                assert_eq!(tcl_command_word(node, source, walk), first);
             }
+            answers.insert(node.id(), first);
             cached.push(first);
         });
         let cached_reads = command_name_reads::observed() - before;
@@ -298,7 +323,15 @@ mod tests {
                 .flat_map(|&w| std::iter::repeat_n(w, ASKS))
                 .collect::<Vec<_>>()
         );
-        assert_eq!((cached_reads, uncached_reads), (commands, ASKS * commands));
+        // The arm list's command, `::return`, and the `for` body's `$i
+        // < 3` and `incr` sit under another command; `switch`, `for`,
+        // `puts` and `$a 1` are the proc's own.
+        assert_eq!(enclosing_asks, 4 * (ASKS - 1));
+        assert_eq!(
+            (cached_reads, uncached_reads),
+            (commands + enclosing_asks, ASKS * commands),
+            "one read per visited command plus one per ask about its enclosing command"
+        );
     }
 
     // A node that is not a `command` is `Other` before any read: the

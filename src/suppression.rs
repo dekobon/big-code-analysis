@@ -763,7 +763,9 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
         // predicates that consult an ancestor — Elixir's `quote`
         // template check, the JS-family name-binding walk — read it off
         // `chain` rather than climbing with `Node::parent` (#1088).
-        let ancestors = Ancestors::checked(&chain, &node).with_folds(&folds);
+        // `for_walk` lends the memo and records the visit in one step,
+        // the only way a walk may attach a `FoldCache` (#1737).
+        let ancestors = Ancestors::for_walk(&chain, &node, &folds);
         let child_enclosing = if T::Checker::is_func_with_code(&node, code, ancestors) {
             T::Getter::get_func_name(&node, code, ancestors).or(enclosing)
         } else {

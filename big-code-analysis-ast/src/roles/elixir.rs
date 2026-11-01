@@ -49,9 +49,9 @@ fn class_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -
 /// A `call` whose target spells `defstruct`, directly in a module body:
 /// the struct's fields are the module's attributes (`npa/elixir.rs`).
 /// NPA asks this of each statement while visiting the module, so each
-/// ask is about a node other than the visited one and evicts the
-/// module's word from the slot; that costs nothing, because NPA is the
-/// last metric on the node and nothing asks about the module again.
+/// ask is about a node other than the visited one: computed, one read
+/// each, and not stored, so the module's own word stays in the slot
+/// (#1737).
 fn struct_macro<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     elixir_call_target(node, code, ancestors) == ElixirCallTarget::Defstruct
 }

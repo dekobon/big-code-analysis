@@ -305,9 +305,10 @@ impl<'a> Frame<'a> {
 ///
 /// That swap is invisible to the test suite: an unknown chain answers
 /// identically and only costs more, so nothing here pins the chain by
-/// asserting on output. Three things do. `Ancestors::checked` in
-/// [`Export::finish`] carries a `debug_assert!` that catches a dropped
-/// pop on every fixture the dump walk sees, and `make chain-audit`
+/// asserting on output. Three things do. `Ancestors::for_walk` in
+/// [`Export::finish`] runs `Ancestors::checked`, whose `debug_assert!`
+/// catches a dropped pop on every fixture the dump walk sees, and
+/// `make chain-audit`
 /// upgrades it to the exact `chain.last() == node.parent()` check —
 /// the only one that sees a dropped *push*: `finish` pops before it
 /// asks, so a walk that never pushes empties the chain on its first
@@ -363,7 +364,7 @@ impl<'a, 'code> Export<'a, 'code> {
             self.comment,
             frame.field,
             frame.children,
-            Ancestors::checked(&self.chain, &frame.node).with_folds(&self.folds),
+            Ancestors::for_walk(&self.chain, &frame.node, &self.folds),
         );
         match self.stack.last_mut() {
             Some(parent) => {
@@ -1158,8 +1159,9 @@ mod tests {
     /// wide erroring `eval` line is scanned once per export rather than
     /// once per braced word (#1686). The export is the same either way —
     /// every word keeps its children, as the count pins — so only the
-    /// scan count can see the cache; dropping `.with_folds` from
-    /// `Export::finish` takes it to `width` for both strategies.
+    /// scan count can see the cache; rebuilding the chain in
+    /// `Export::finish` with `Ancestors::checked` alone, the cache
+    /// unlent, takes it to `width` for both strategies.
     #[cfg(feature = "tcl")]
     #[test]
     fn each_strategy_scans_an_erroring_argument_list_once() {

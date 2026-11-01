@@ -16,8 +16,9 @@
 /// script answer whether the list is scanned once or `width` times,
 /// so every metric, the Halstead vocabulary, the dump and the `string`
 /// count come out the same either way, and only the scan counter tells
-/// a memoised walk from the quadratic one. Dropping `.with_folds` from
-/// `metrics_inner` or `ops_inner` takes that seam's row to `width`; the
+/// a memoised walk from the quadratic one. Rebuilding the chain in
+/// `metrics_inner` or `ops_inner` with `Ancestors::checked` alone, the
+/// cache unlent, takes that seam's row to `width`; the
 /// dump and count seams are pinned the same way beside their walks in
 /// `big-code-analysis-ast`, and listed here so the four cannot drift
 /// apart.
@@ -340,29 +341,37 @@ fn each_ast_dump_entry_point_enters_exactly_its_own_builder() {
     }
 }
 
-/// The word slot on the walk's `FoldCache` (#1697): the real
+/// The word slot on the walk's `FoldCache` (#1697, #1737): the real
 /// `Ast::metrics` walk reads an Elixir `call`'s target text once for the
 /// visited node, however many of promotion, cognitive, cyclomatic, ABC,
-/// nexits, NPM and NPA ask — the slot answers all but the first. The
-/// output cannot show it (every read answers alike); only the read
-/// counter does, and the AST crate's own tests drive a replica walker,
-/// not this one. What this pins is the invariant the slot rests on:
-/// `compute_per_node` runs the metrics back to back on one node, and
-/// every ask about *another* node is one the design priced — so a
-/// metric reorder that let a later metric re-ask after an eviction, or
-/// a new consumer reading an enclosing call through the cached spelling
-/// where it evicts, raises the count.
+/// nexits, NPM and NPA ask — the slot answers all but the first — and
+/// once per ask about any *other* node, which is computed and never
+/// stored. The output cannot show it (every read answers alike); only
+/// the read counter does, and the AST crate's own tests drive a replica
+/// walker, not this one. What this pins is that the walk records its
+/// visit on every node (`Ancestors::for_walk`) and that nothing re-reads
+/// the visited node after an ask about another: a lender that rebuilt
+/// the chain without the visit would read once per metric, and a
+/// consumer re-asking about an enclosing call pays one read per ask.
 ///
 /// The budget, derived: one read per `call` at promotion (10), plus the
-/// asks about other nodes that cost a miss each — the `def`'s quote
-/// fold reading the enclosing `defmodule` once per walk (1); NPM's
-/// uncached read of the module's two `def`-family statements (2); NPA's
-/// `struct_macro` asked of the same two statements through the slot,
-/// evicting the module (2); the `else:` section's read of its `if`
-/// from the pair, after `throw` was visited in between (1);
-/// and the `CaseArm` gate's uncached read of the enclosing `case` for
-/// its one arm, by cyclomatic and ABC (2); the `defmodule` itself is
-/// never re-asked after NPA, so its eviction costs nothing. 18 reads.
+/// asks about other nodes, each computed without storing, in walk
+/// order — while the `defmodule` is visited, NPM's read of its two
+/// `def`-family statements under their own chain (2) and NPA's
+/// `struct_macro` asked of the same two (2), the module's own word
+/// staying in the slot throughout; the `def`'s quote fold reading the
+/// enclosing `defmodule` through the text primitive, since the fold's
+/// step chain lends no cache (1); the `else:` section's read of its
+/// `if` from the pair (1); and the `CaseArm` gate's read of the
+/// enclosing `case` for its one arm, by cyclomatic and ABC, through the
+/// slot about a node the walk is not visiting (2). 18 reads — the
+/// count #1697 derived for the last-node-asked slot, whose evictions
+/// never happened to a node any later metric re-asked. That slot could
+/// hold 18 only while NPM read its statements uncached; NPM now reads
+/// them through the slot, and restoring the eviction (`classified`
+/// storing every ask) reads the module again at NPA's `defmodule`
+/// check, 19. The count no longer depends on `compute_per_node`'s
+/// metric order.
 #[cfg(feature = "elixir")]
 #[test]
 fn the_metric_walk_reads_each_elixir_call_target_once() {
@@ -387,20 +396,26 @@ fn the_metric_walk_reads_each_elixir_call_target_once() {
     let reads = call_keyword_reads::observed() - before;
     assert_eq!(
         reads,
-        call_nodes + 1 + 2 + 2 + 1 + 2,
+        call_nodes + 2 + 2 + 1 + 1 + 2,
         "one read per call, plus the priced asks about other nodes"
     );
 }
 
 /// The Tcl twin: the real metric walk reads a `command`'s leading word
 /// once for the visited node, however many of cognitive, cyclomatic,
-/// ABC and nexits ask (#1697). The asks about other nodes are all
-/// cyclomatic's `CaseArm` gate reading a candidate arm's grandparent
-/// through the uncached helper, for every command three levels under
-/// another: the arm list's command reads `switch`, the two `return`s
-/// read their arm's pattern word `x` / `y`, and the `for` body's three
-/// commands (`$i < 3`, `incr`, `puts`) read `for` — six reads, five of
-/// them rejected candidates. ABC does not read the arm row.
+/// ABC and nexits ask (#1697, #1737). The asks about other nodes are
+/// all cyclomatic's `CaseArm` gate reading a candidate arm's
+/// grandparent through the slot — about a node the walk is not
+/// visiting, so computed and not stored — for every command three
+/// levels under another: the arm list's command reads `switch`, the
+/// two `return`s read the arm-list command, whose leading word is `x`
+/// (`x { return 1 } y { return 2 }` is one `command` named `x`, `y` a
+/// `simple_word` in its `word_list`, so in this spelling the `y` arm
+/// is not an arm to the gate), and the `for` body's three commands
+/// (`$i < 3`, `incr`, `puts`) read `for` — six reads, five of them
+/// rejected candidates. ABC does not read the arm row. Each ask
+/// evicted nothing under the last-node-asked slot either, so the count
+/// is the same as before #1737.
 #[cfg(feature = "tcl")]
 #[test]
 fn the_metric_walk_reads_each_tcl_command_word_once() {

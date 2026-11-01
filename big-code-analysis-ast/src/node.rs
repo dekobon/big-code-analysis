@@ -1021,9 +1021,7 @@ impl<'a> Search<'a> for Node<'a> {
             chain.truncate(depth);
             action(
                 &node,
-                Ancestors::checked(&chain, &node)
-                    .with_siblings(&siblings)
-                    .with_folds(&folds),
+                Ancestors::for_walk(&chain, &node, &folds).with_siblings(&siblings),
             );
             chain.push(node);
             // Source order in, tail reversed in place, so the LIFO
@@ -1642,8 +1640,8 @@ mod tests {
     /// rather than once per braced word (#1686). The filter answers the
     /// same either way — none of the words is a string, since an
     /// unreadable list keeps the script answer — so the scan count is
-    /// what sees the cache; dropping `.with_folds` from the walk takes it
-    /// to `width`.
+    /// what sees the cache; rebuilding the walk's chain with
+    /// `Ancestors::checked` alone, the cache unlent, takes it to `width`.
     #[cfg(feature = "tcl")]
     #[test]
     fn act_on_node_scans_an_erroring_argument_list_once() {

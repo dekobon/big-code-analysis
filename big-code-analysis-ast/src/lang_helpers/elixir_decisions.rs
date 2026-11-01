@@ -9,7 +9,7 @@
 //! one module — here, beside the rows that gate on it (#1695; it was
 //! `src/metrics/elixir_decisions.rs` in the root until then).
 
-use crate::lang_helpers::elixir::{ElixirCallTarget, elixir_call_keyword};
+use crate::lang_helpers::elixir::{ElixirCallTarget, elixir_call_keyword, elixir_call_target};
 use crate::node::MemoQuestion;
 use crate::{Ancestors, Elixir, Node};
 
@@ -343,8 +343,9 @@ fn elixir_is_default_clause<'a>(
         // text compare so non-`true` booleans bail early.
         E::Boolean => {
             pattern.utf8_text(code) == Some("true")
-                && elixir_do_section_call(node, code, ancestors)
-                    .is_some_and(|call| elixir_call_keyword(&call, code) == Some("cond"))
+                && elixir_do_section_call(node, code, ancestors).is_some_and(|call| {
+                    elixir_call_target(&call, code, ancestors) == ElixirCallTarget::Cond
+                })
         }
         _ => false,
     }
@@ -366,7 +367,7 @@ fn elixir_clauses_skip_head<'a>(
 ) -> bool {
     ancestors.parent_has_kind(node, Elixir::AnonymousFunction as u16)
         || elixir_do_section_call(node, code, ancestors)
-            .is_some_and(|call| elixir_call_keyword(&call, code) == Some("for"))
+            .is_some_and(|call| elixir_call_target(&call, code, ancestors) == ElixirCallTarget::For)
 }
 
 /// Returns `true` when `node` is its parent's first `stab_clause` —
