@@ -713,7 +713,7 @@ value = 7.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 558.0
+value = 552.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"

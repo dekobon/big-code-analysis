@@ -1013,9 +1013,14 @@ def to_sarif(
     ``"loc.dloc"``,
     ``"nom"``, ``"tokens"``, ``"nexits"``, ``"nargs"``,
     ``"mi.original"``, ``"mi.sei"``, ``"mi.visual_studio"``,
-    ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. An unknown name
-    raises :class:`ValueError` listing the accepted set, so a
-    typo fails fast instead of silently producing an empty run.
+    ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. Names resolve by the
+    rule ``bca check --threshold`` applies: a bare ``loc`` sub-metric
+    name (``"sloc"``) stands for its dotted id, and a family head with
+    no single scalar (``"mi"``, ``"halstead"``, ``"loc"``) raises
+    :class:`ValueError` naming the ids, and so does one id given under
+    both spellings. Any other unknown name raises
+    :class:`ValueError` listing the accepted set, so a typo fails fast
+    instead of silently producing an empty run.
 
     Limits follow ``bca check``'s rules. A count's limit is a ceiling
     and must be finite and non-negative. An ``mi.*`` limit is a floor
@@ -1074,8 +1079,8 @@ def to_sarif(
     ------
     TypeError
         If ``result`` is not a dict / iterable of dicts, or a
-        threshold value is not a number, or a threshold key is not
-        a string.
+        threshold value is not a number (a ``bool`` counts as not
+        one), or a threshold key is not a string.
     ValueError
         If a threshold limit is negative on a count metric (an ``mi.*``
         floor may be negative), is non-finite, or names a metric

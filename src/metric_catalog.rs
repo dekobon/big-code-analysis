@@ -36,6 +36,11 @@
 //! Python bindings' `metrics=` both resolve through it, so a name copied
 //! from `bca list-metrics` or `bca check --threshold` works in either or
 //! neither (#1614).
+//! [`resolve_threshold_metric`](crate::metric_catalog::resolve_threshold_metric)
+//! is its scalar-granular counterpart: a threshold gates one
+//! [`METRICS`](crate::metric_catalog::METRICS) entry, not a family, so
+//! `bca check --threshold` and the Python bindings' `to_sarif(thresholds=)`
+//! both resolve a threshold name through it (#1618).
 //!
 //! [`output::sarif`]: crate::output
 //! [`output::code_climate`]: crate::output
@@ -651,6 +656,199 @@ impl fmt::Display for UnknownSelectorError {
 
 impl std::error::Error for UnknownSelectorError {}
 
+/// Resolve a threshold name to the [`METRICS`] scalar it gates.
+///
+/// The accepted spellings are the ones `bca check --threshold` takes,
+/// and the Python bindings' `to_sarif(thresholds=)` resolves through the
+/// same function, so a name works in both or in neither (#1618):
+///
+/// - a [`METRICS`] id, dotted (`loc.sloc`, `mi.original`) or bare
+///   (`cognitive`, `nom`), which is returned as is;
+/// - a `bca list-metrics` row name that abbreviates a dotted id of its
+///   family (`sloc` for `loc.sloc`, and the other `loc` rows) — the
+///   spelling `bca diff --metric` buckets by, so a name copied between
+///   the two commands keeps targeting one metric (#514).
+///
+/// Unlike [`resolve_selector`], a family head with no scalar of its own
+/// (`halstead`, `loc`, `mi`) is **ambiguous** here: a threshold needs
+/// one value to compare, and guessing one would silently gate the wrong
+/// thing. Matching is strict lowercase. [`crate::threshold_metric_for_name`]
+/// is the family-granular reading of the same ids that in-source
+/// suppression uses; it takes no row-name alias.
+///
+/// # Errors
+///
+/// [`ThresholdMetricError::Ambiguous`] for a family head, carrying the
+/// concrete ids; [`ThresholdMetricError::Unknown`] for anything else,
+/// carrying the closest ids as a did-you-mean hint.
+pub fn resolve_threshold_metric(name: &str) -> Result<&'static MetricInfo, ThresholdMetricError> {
+    if let Some(info) = lookup(name) {
+        return Ok(info);
+    }
+    // A row name that abbreviates a dotted id of the family owning the
+    // row: `loc`'s rows are its sub-measurements, so `sloc` is `loc.sloc`.
+    // Every other family's one row is the family name itself, and no
+    // `<family>.<family>` id exists, so the rule fires for `loc` alone
+    // and nothing here names that family.
+    let abbreviated = FAMILIES
+        .iter()
+        .filter(|family| family.rows.iter().any(|row| row.name == name))
+        .find_map(|family| {
+            METRICS
+                .iter()
+                .find(|m| m.id.rsplit_once('.') == Some((family.name, name)))
+        });
+    if let Some(info) = abbreviated {
+        return Ok(info);
+    }
+    let candidates: Vec<&'static str> = METRICS
+        .iter()
+        .filter(|m| m.family == name)
+        .map(|m| m.id)
+        .collect();
+    if candidates.is_empty() {
+        return Err(ThresholdMetricError::Unknown {
+            input: name.to_owned(),
+            suggestions: closest_names(name, threshold_metric_ids()),
+        });
+    }
+    Err(ThresholdMetricError::Ambiguous {
+        input: name.to_owned(),
+        candidates,
+    })
+}
+
+/// Resolve `name` as [`resolve_threshold_metric`] does, then reject it
+/// when `taken` already holds the id it resolves to.
+///
+/// This is the duplicate a collection keyed by spelling cannot see for
+/// itself: `sloc` and `loc.sloc` are distinct keys naming one metric,
+/// and left in, the pair would gate it at both limits and report each
+/// breach once per limit (#1165). The guard lives beside the resolver
+/// so every consumer of the vocabulary — the `bca.toml` tables, the
+/// Python bindings' `to_sarif(thresholds=)` dict — refuses the pair with
+/// one rule and one wording (#1618). `taken` is asked for the resolved
+/// id, which is always the canonical dotted or bare form.
+///
+/// # Errors
+///
+/// [`ThresholdMetricError::Duplicate`] when `taken` holds the resolved
+/// id; otherwise the errors of [`resolve_threshold_metric`].
+pub fn resolve_new_threshold_metric(
+    name: &str,
+    taken: impl FnOnce(&str) -> bool,
+) -> Result<&'static MetricInfo, ThresholdMetricError> {
+    let info = resolve_threshold_metric(name)?;
+    if taken(info.id) {
+        return Err(ThresholdMetricError::Duplicate {
+            input: name.to_owned(),
+            id: info.id,
+        });
+    }
+    Ok(info)
+}
+
+/// The `bca list-metrics` row name that abbreviates the dotted `id`
+/// (`sloc` for `loc.sloc`): the inverse of the row-name rule in
+/// [`resolve_threshold_metric`], so `None` for every id that rule cannot
+/// reach.
+fn row_abbreviation(id: &str) -> Option<&'static str> {
+    let (family, leaf) = id.rsplit_once('.')?;
+    FAMILIES
+        .iter()
+        .find(|f| f.name == family)?
+        .rows
+        .iter()
+        .find(|row| row.name == leaf)
+        .map(|row| row.name)
+}
+
+/// The [`METRICS`] ids, sorted: the vocabulary
+/// [`ThresholdMetricError::Unknown`] suggests from and lists.
+fn threshold_metric_ids() -> &'static [&'static str] {
+    static IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+        let mut ids: Vec<&'static str> = METRICS.iter().map(|m| m.id).collect();
+        ids.sort_unstable();
+        ids
+    });
+    &IDS
+}
+
+/// Why [`resolve_threshold_metric`] or [`resolve_new_threshold_metric`]
+/// rejected a name.
+///
+/// The [`Display`](fmt::Display) rendering is a bare message with no
+/// severity prefix — the wording `bca check --threshold` prints and the
+/// Python bindings raise — and is not SemVer-protected; a front end that
+/// wants its own composes it from the fields and the sorted [`METRICS`]
+/// ids.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ThresholdMetricError {
+    /// A family head that [`METRICS`] exposes only through dotted ids
+    /// (`halstead`, `loc`, `mi`), so no single scalar answers it.
+    #[non_exhaustive]
+    Ambiguous {
+        /// The rejected input, verbatim.
+        input: String,
+        /// The family's dotted ids, in catalog order.
+        candidates: Vec<&'static str>,
+    },
+    /// Not a [`METRICS`] id, a `loc` row name, or a family head.
+    #[non_exhaustive]
+    Unknown {
+        /// The rejected input, verbatim.
+        input: String,
+        /// The [`METRICS`] ids closest to the input, best first; empty
+        /// when nothing is close. At most three, all tied on closeness.
+        suggestions: Vec<&'static str>,
+    },
+    /// A name resolving to a [`METRICS`] id the caller's collection
+    /// already holds, typically under its other spelling (`sloc` after
+    /// `loc.sloc`); raised by [`resolve_new_threshold_metric`] alone.
+    #[non_exhaustive]
+    Duplicate {
+        /// The rejected input, verbatim.
+        input: String,
+        /// The id it resolves to, which is already set.
+        id: &'static str,
+    },
+}
+
+impl fmt::Display for ThresholdMetricError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ambiguous { input, candidates } => write!(
+                f,
+                "ambiguous metric {input:?}: this family has no single threshold scalar; \
+                 did you mean one of: {}?",
+                candidates.join(", ")
+            ),
+            Self::Unknown { input, suggestions } => write!(
+                f,
+                "unknown threshold metric {input:?}{}; known metrics: {}",
+                render_suggestion(suggestions),
+                threshold_metric_ids().join(", ")
+            ),
+            // Names both spellings rather than quoting the earlier key,
+            // which would read as `"loc.ploc": "loc.ploc" is already set`
+            // whenever the dotted form is the one seen second. An id with
+            // no row-name spelling can only be taken under the same one,
+            // which no spelling-keyed collection produces but a caller's
+            // predicate may, so it gets no "other spelling" to name.
+            Self::Duplicate { input, id } => {
+                write!(f, "{input:?}: {id:?} is already set")?;
+                match row_abbreviation(id) {
+                    Some(row) => write!(f, "; `{row}` and `{id}` are one metric, so set it once"),
+                    None => f.write_str("; set it once"),
+                }
+            }
+        }
+    }
+}
+
+impl std::error::Error for ThresholdMetricError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1111,5 +1309,201 @@ mod tests {
     fn resolve_selector_is_case_sensitive() {
         let err = resolve_selector("Loc").expect_err("case-sensitive");
         assert_eq!(err.suggestions(), ["loc"]);
+    }
+
+    /// Every catalog id resolves to its own entry, dotted or bare: the
+    /// spelling `bca check --threshold` has always taken.
+    #[test]
+    fn resolve_threshold_metric_takes_every_catalog_id() {
+        for info in METRICS {
+            let resolved = resolve_threshold_metric(info.id).expect(info.id);
+            assert_eq!(resolved.id, info.id);
+        }
+    }
+
+    /// A `loc` row name abbreviates its dotted id (#514), and that is the
+    /// only family whose rows do: `cyclomatic` is an id in its own right,
+    /// so it resolves to itself rather than to `cyclomatic.modified`.
+    #[test]
+    fn resolve_threshold_metric_rewrites_loc_row_names() {
+        for row in ["sloc", "ploc", "lloc", "cloc", "blank", "dloc"] {
+            assert_eq!(
+                resolve_threshold_metric(row).map(|m| m.id),
+                Ok(format!("loc.{row}").as_str()),
+                "{row}"
+            );
+        }
+        assert_eq!(
+            resolve_threshold_metric("cyclomatic").map(|m| m.id),
+            Ok("cyclomatic")
+        );
+    }
+
+    /// The bare leaf of a dotted id outside `loc` is not a row name and
+    /// is not an alias: `volume` and `modified` stay unknown, as they are
+    /// for `bca check --threshold`.
+    #[test]
+    fn resolve_threshold_metric_takes_no_leaf_outside_loc() {
+        for leaf in ["volume", "modified", "original", "visual_studio"] {
+            assert!(
+                matches!(
+                    resolve_threshold_metric(leaf),
+                    Err(ThresholdMetricError::Unknown { .. })
+                ),
+                "{leaf} must be unknown"
+            );
+        }
+    }
+
+    /// A family head with no scalar of its own is rejected with the
+    /// concrete ids, in catalog order, and the message `bca check`
+    /// prints for it.
+    #[test]
+    fn resolve_threshold_metric_rejects_a_family_head_with_candidates() {
+        let err = resolve_threshold_metric("mi").expect_err("ambiguous");
+        assert_eq!(
+            err,
+            ThresholdMetricError::Ambiguous {
+                input: "mi".to_owned(),
+                candidates: vec!["mi.original", "mi.sei", "mi.visual_studio"],
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            "ambiguous metric \"mi\": this family has no single threshold scalar; \
+             did you mean one of: mi.original, mi.sei, mi.visual_studio?"
+        );
+        for head in ["halstead", "loc"] {
+            let err = resolve_threshold_metric(head).expect_err(head);
+            let ThresholdMetricError::Ambiguous { candidates, .. } = &err else {
+                panic!("{head}: {err:?}");
+            };
+            let expected: Vec<&str> = METRICS
+                .iter()
+                .filter(|m| m.family == head)
+                .map(|m| m.id)
+                .collect();
+            assert_eq!(candidates, &expected, "{head}");
+        }
+    }
+
+    /// Every family head that is not itself an id is ambiguous, and every
+    /// one that is resolves: the split is derived from the catalog, not
+    /// listed, so a new family lands on the right side by construction.
+    #[test]
+    fn every_family_head_is_an_id_or_ambiguous() {
+        for family in FAMILIES {
+            let resolved = resolve_threshold_metric(family.name);
+            if lookup(family.name).is_some() {
+                assert_eq!(resolved.map(|m| m.id), Ok(family.name));
+            } else {
+                assert!(
+                    matches!(resolved, Err(ThresholdMetricError::Ambiguous { .. })),
+                    "{}: {resolved:?}",
+                    family.name
+                );
+            }
+        }
+    }
+
+    /// An unknown name carries the closest ids and lists the sorted
+    /// vocabulary, in the wording `bca check --threshold` prints.
+    #[test]
+    fn unknown_threshold_metric_suggests_the_closest_id() {
+        let err = resolve_threshold_metric("cyclomatc").expect_err("unknown");
+        assert_eq!(
+            err,
+            ThresholdMetricError::Unknown {
+                input: "cyclomatc".to_owned(),
+                suggestions: vec!["cyclomatic"],
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            "unknown threshold metric \"cyclomatc\"; did you mean `cyclomatic`?; known \
+             metrics: abc, cognitive, cyclomatic, cyclomatic.modified, halstead.bugs, \
+             halstead.difficulty, halstead.effort, halstead.time, halstead.volume, \
+             loc.blank, loc.cloc, loc.dloc, loc.lloc, loc.ploc, loc.sloc, mi.original, \
+             mi.sei, mi.visual_studio, nargs, nexits, nom, npa, npm, tokens, wmc"
+        );
+    }
+
+    #[test]
+    fn unknown_threshold_metric_without_a_close_id_omits_the_hint() {
+        let err = resolve_threshold_metric("made.up.metric").expect_err("unknown");
+        assert_eq!(
+            err,
+            ThresholdMetricError::Unknown {
+                input: "made.up.metric".to_owned(),
+                suggestions: Vec::new(),
+            }
+        );
+        assert!(
+            err.to_string()
+                .starts_with("unknown threshold metric \"made.up.metric\"; known metrics: abc, "),
+            "{err}"
+        );
+    }
+
+    /// Strict lowercase: a capitalised id is unknown, and the hint names
+    /// the spelling that works.
+    #[test]
+    fn resolve_threshold_metric_is_case_sensitive() {
+        let err = resolve_threshold_metric("Cognitive").expect_err("case-sensitive");
+        assert_eq!(
+            err,
+            ThresholdMetricError::Unknown {
+                input: "Cognitive".to_owned(),
+                suggestions: vec!["cognitive"],
+            }
+        );
+    }
+
+    /// `resolve_new_threshold_metric` is `resolve_threshold_metric` plus
+    /// the guard a spelling-keyed collection cannot apply for itself: a
+    /// second spelling of a taken `loc` metric is a `Duplicate` in either
+    /// order, naming the input and the id; a name not yet taken resolves;
+    /// an unknown or ambiguous name reports as the plain resolver does.
+    #[test]
+    fn resolve_new_threshold_metric_rejects_a_second_spelling() {
+        let taken = ["loc.sloc", "cognitive"];
+        let is_taken = |id: &str| taken.contains(&id);
+        for input in ["sloc", "loc.sloc"] {
+            assert_eq!(
+                resolve_new_threshold_metric(input, is_taken).map(|m| m.id),
+                Err(ThresholdMetricError::Duplicate {
+                    input: input.to_owned(),
+                    id: "loc.sloc",
+                })
+            );
+        }
+        assert_eq!(
+            resolve_new_threshold_metric("ploc", is_taken).map(|m| m.id),
+            Ok("loc.ploc")
+        );
+        assert!(matches!(
+            resolve_new_threshold_metric("mi", is_taken),
+            Err(ThresholdMetricError::Ambiguous { .. })
+        ));
+        assert!(matches!(
+            resolve_new_threshold_metric("nope", is_taken),
+            Err(ThresholdMetricError::Unknown { .. })
+        ));
+        // The wording names both spellings, so the message reads correctly
+        // whichever of the two was seen second.
+        assert_eq!(
+            resolve_new_threshold_metric("loc.sloc", is_taken)
+                .expect_err("taken")
+                .to_string(),
+            "\"loc.sloc\": \"loc.sloc\" is already set; `sloc` and `loc.sloc` are one \
+             metric, so set it once"
+        );
+        // An id no row abbreviates names no second spelling.
+        assert_eq!(
+            resolve_new_threshold_metric("cognitive", is_taken)
+                .expect_err("taken")
+                .to_string(),
+            "\"cognitive\": \"cognitive\" is already set; set it once"
+        );
     }
 }

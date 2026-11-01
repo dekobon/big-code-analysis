@@ -230,7 +230,7 @@ pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec
         .map(|(name, limit)| {
             let canonical = crate::metric_alias::normalize_for_check(name)
                 .unwrap_or_else(|e| die(format_args!("{flag}: {e}")));
-            (canonical.into_owned(), *limit)
+            (canonical.to_owned(), *limit)
         })
         .collect()
 }

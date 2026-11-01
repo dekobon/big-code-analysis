@@ -20,70 +20,90 @@
 //! internal form. Existing spellings keep working unchanged.
 //!
 //! Both directions are derived from the library catalog
-//! ([`big_code_analysis::metric_catalog`]), not hand-maintained, so they
+//! ([`big_code_analysis::metric_catalog`]), not hand-maintained — which
+//! family expands into row-named buckets is read off its rows — so they
 //! stay correct as metrics are added.
 //!
 //! [`thresholds`]: crate::thresholds
 
-use std::borrow::Cow;
+use big_code_analysis::metric_catalog::{
+    FAMILIES, METRICS, MetricFamily, MetricRow, ThresholdMetricError, resolve_threshold_metric,
+};
 
-use big_code_analysis::metric_catalog::METRICS;
-
-/// Family name whose dotted ids carry a meaningful leaf the `diff`
-/// buckets surface directly (`loc.sloc` -> `sloc`). Every other family's
-/// `diff` bucket is the family name, so a dotted id there collapses to
-/// its family (`halstead.volume` -> `halstead`).
+/// The `list-metrics` rows `diff` buckets `family`'s leaves by, when it
+/// has them. A family whose rows name its sub-measurements, as `loc`'s
+/// do (`sloc`, `ploc`, …), expands to one bucket per row; every other
+/// family is a single row named after itself and one bucket of that
+/// name, so a dotted id there collapses to its family (`halstead.volume`
+/// -> `halstead`).
 ///
-/// Single source of truth for the one expanded family;
-/// [`metric_diff`](crate::metric_diff) imports it so the alias layer and
-/// the diff bucketing cannot drift apart.
-pub(crate) const EXPANDED_FAMILY: &str = "loc";
+/// Read off the catalog rather than naming `loc`, because
+/// [`known_diff_metric_names`] accepts every row of every family: a
+/// family that grows such rows must expand on the `diff` side the same
+/// moment, or `--metric <row>` would validate and then match no bucket —
+/// an empty diff, and exit 0 under `--exit-code` (#662). The bucketing in
+/// [`metric_diff`](crate::metric_diff) and [`normalize_for_diff`] both
+/// read it through [`diff_bucket`].
+/// `every_known_diff_name_is_a_bucket_a_leaf_can_land_in` walks every
+/// row to pin the two sides equal over today's catalog, and
+/// `a_second_family_with_rows_of_its_own_expands_too` grows a family
+/// rows of its own, which a rule naming `loc` would miss.
+pub(crate) fn expanded_rows(family: &MetricFamily) -> Option<&'static [MetricRow]> {
+    family
+        .rows
+        .iter()
+        .any(|row| row.name != family.name)
+        .then_some(family.rows)
+}
+
+/// The `diff` bucket for `leaf`, a leaf path under `family`'s subtree:
+/// the row it names when the family expands, otherwise the family
+/// itself. A leaf of an expanded family that no row names falls back to
+/// the family name too, so it is never silently dropped.
+///
+/// A leaf names a row when it is that row's name, alone or followed by
+/// an emitter suffix (`sloc`, `sloc_average`, `sloc_max`). The row names
+/// are matched whole, longest first, rather than splitting the leaf at
+/// its first `_`: a row whose own name holds an underscore
+/// (`unique_operators`) would otherwise bucket under `unique`, or under
+/// the family, and `--metric unique_operators` would match nothing.
+pub(crate) fn diff_bucket(family: &MetricFamily, leaf: &str) -> &'static str {
+    let names_row = |row: &&MetricRow| {
+        leaf.strip_prefix(row.name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['_', '.']))
+    };
+    expanded_rows(family)
+        .and_then(|rows| {
+            rows.iter()
+                .filter(names_row)
+                .max_by_key(|row| row.name.len())
+        })
+        .map_or(family.name, |row| row.name)
+}
 
 /// Normalize a `diff --metric` bucket name into the dotted id
 /// `check --threshold` understands.
 ///
-/// - A name already accepted by `check` (a [`METRICS`] id, dotted or
-///   bare) passes through unchanged.
-/// - A bare `loc` sub-metric (`sloc`, `ploc`, …) maps to its dotted id
-///   (`loc.sloc`, …) — the unambiguous case.
-/// - A bare family head that `check` only exposes through sub-metrics
-///   (`halstead`, `mi`) is **ambiguous**: there is no single threshold
-///   scalar for it. These return `Err` with a "did you mean" hint listing
-///   the concrete dotted ids, rather than silently guessing one.
-/// - Any other name is returned unchanged as `Ok`; the caller's existing
-///   unknown-metric handling produces the final error so the suggestion
-///   set stays in one place.
-pub(crate) fn normalize_for_check(name: &str) -> Result<Cow<'_, str>, String> {
-    // Already a recognised check id (covers every dotted leaf and the
-    // bare ids with no sub-metric): nothing to do.
-    if METRICS.iter().any(|m| m.id == name) {
-        return Ok(Cow::Borrowed(name));
+/// The rules are the library's
+/// [`resolve_threshold_metric`], which the Python bindings'
+/// `to_sarif(thresholds=)` also uses, so a name works in both or in
+/// neither (#1618): a [`METRICS`] id passes through, a bare `loc`
+/// sub-metric (`sloc`) becomes its dotted id (`loc.sloc`), and an
+/// ambiguous family head (`halstead`, `mi`) is `Err` with the concrete
+/// ids, in the library error's own wording.
+///
+/// One rule is this layer's: a name the library finds *unknown* is
+/// returned unchanged as `Ok`. The callers resolve it one layer down,
+/// in `ThresholdSet::build_tiered`, which renders the library's
+/// unknown-name error and its did-you-mean list; `canonical_cli_thresholds`
+/// says why the two typo classes must not split across the clap boundary
+/// (#1165).
+pub(crate) fn normalize_for_check(name: &str) -> Result<&str, String> {
+    match resolve_threshold_metric(name) {
+        Ok(info) => Ok(info.id),
+        Err(ThresholdMetricError::Unknown { .. }) => Ok(name),
+        Err(err) => Err(err.to_string()),
     }
-    // A bare `loc` sub-metric: rewrite to its dotted id.
-    if let Some(info) = METRICS
-        .iter()
-        .find(|m| m.family == EXPANDED_FAMILY && leaf_of(m.id) == name)
-    {
-        return Ok(Cow::Owned(info.id.to_string()));
-    }
-    // A bare family head that check only exposes via dotted sub-metrics
-    // (e.g. `halstead`, `mi`): ambiguous, so reject with the concrete
-    // candidates rather than picking one.
-    let dotted: Vec<&str> = METRICS
-        .iter()
-        .filter(|m| m.family == name && m.id != name)
-        .map(|m| m.id)
-        .collect();
-    if !dotted.is_empty() {
-        return Err(format!(
-            "ambiguous metric {name:?}: this family has no single threshold scalar; \
-             did you mean one of: {}?",
-            dotted.join(", ")
-        ));
-    }
-    // Unknown to this mapping; let the caller's own unknown-name path
-    // report it (it owns the canonical suggestion list).
-    Ok(Cow::Borrowed(name))
 }
 
 /// Normalize a `check`-style dotted id into the bare `diff --metric`
@@ -99,18 +119,19 @@ pub(crate) fn normalize_for_check(name: &str) -> Result<Cow<'_, str>, String> {
 ///   literally, exactly as before.
 ///
 /// This direction is always unambiguous: every dotted id maps to exactly
-/// one bucket.
-pub(crate) fn normalize_for_diff(name: &str) -> Cow<'_, str> {
-    match METRICS.iter().find(|m| m.id == name) {
-        Some(info) if info.family == EXPANDED_FAMILY => Cow::Owned(leaf_of(info.id).to_string()),
-        Some(info) => Cow::Borrowed(info.family),
-        None => Cow::Borrowed(name),
-    }
+/// one bucket, the one [`diff_bucket`] gives the leaf it names.
+pub(crate) fn normalize_for_diff(name: &str) -> &str {
+    let Some(info) = METRICS.iter().find(|m| m.id == name) else {
+        return name;
+    };
+    FAMILIES
+        .iter()
+        .find(|family| family.name == info.family)
+        .map_or(info.family, |family| diff_bucket(family, leaf_of(info.id)))
 }
 
 /// The leaf segment of a dotted id (`loc.sloc` -> `sloc`); a bare id is
-/// its own leaf. Used only for `loc` sub-metrics, whose bucket name is
-/// the leaf.
+/// its own leaf.
 fn leaf_of(id: &str) -> &str {
     id.rsplit_once('.').map_or(id, |(_, leaf)| leaf)
 }
@@ -145,8 +166,7 @@ fn validate_one_diff_metric(name: &str, known: &[&'static str]) -> Result<(), St
     // Resolve dotted / aliased spellings to their bucket name first, so
     // `cyclomatic.modified` and `sloc` both validate against the bucket
     // set the diff filter actually compares against.
-    let resolved = normalize_for_diff(name);
-    if known.contains(&resolved.as_ref()) {
+    if known.contains(&normalize_for_diff(name)) {
         return Ok(());
     }
     Err(unknown_metric_message(name, known))
@@ -189,16 +209,6 @@ pub(crate) fn metric_for_name(name: &str) -> Result<big_code_analysis::Metric, S
     big_code_analysis::metric_catalog::resolve_selector(name).map_err(|_| {
         unknown_metric_message(name, big_code_analysis::metric_catalog::selector_names())
     })
-}
-
-/// Static assertion at first use that the catalog still contains the
-/// `loc` family we expand; a future catalog edit that renamed or dropped
-/// it would otherwise silently disable the `loc` sub-metric aliasing.
-#[cfg(test)]
-fn expanded_family_exists() -> bool {
-    big_code_analysis::metric_catalog::FAMILIES
-        .iter()
-        .any(|f| f.name == EXPANDED_FAMILY)
 }
 
 #[cfg(test)]

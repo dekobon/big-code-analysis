@@ -22,7 +22,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use big_code_analysis::metric_catalog::{Change, Threshold};
+use big_code_analysis::metric_catalog::{
+    Change, Threshold, ThresholdMetricError, resolve_new_threshold_metric, resolve_threshold_metric,
+};
 use big_code_analysis::{
     CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, SuppressionScope,
     threshold_metric_for_name,
@@ -263,8 +265,11 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
 ];
 
-/// Names accepted by `--threshold` and the `[thresholds]` TOML table.
-/// Sorted, deduplicated. Used for error messages and tests.
+/// The canonical names `--threshold` and the `[thresholds]` TOML table
+/// gate: the `EXTRACTORS` ids, sorted. The unknown-name message lists
+/// the library's catalog ids instead (`extractor_ids_match_library_catalog`
+/// pins the two sets equal), so this is read by tests alone.
+#[cfg(test)]
 pub(crate) fn known_metric_names() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = EXTRACTORS.iter().map(|e| e.name).collect();
     names.sort_unstable();
@@ -357,16 +362,19 @@ pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let value: f64 = limit
         .parse()
         .map_err(|e| format!("invalid limit {limit:?} for {name:?}: {e}"))?;
-    match crate::metric_alias::normalize_for_check(name) {
-        Ok(canonical) if big_code_analysis::metric_catalog::lookup(&canonical).is_some() => {
-            checked_threshold(&canonical, value)?;
+    match resolve_threshold_metric(name) {
+        Ok(info) => {
+            checked_threshold(info.id, value)?;
         }
-        _ if !value.is_finite() => {
+        // An unknown or ambiguous name is reported one layer down, with
+        // its did-you-mean list; only the limit's own shape is checked
+        // here.
+        Err(_) if !value.is_finite() => {
             return Err(format!(
                 "limit for {name:?} must be a finite number; got {value}"
             ));
         }
-        _ => {}
+        Err(_) => {}
     }
     Ok((name.to_string(), value))
 }
@@ -476,27 +484,25 @@ fn parse_soft_table(value: &toml::Value) -> Result<BTreeMap<String, SoftLimit>, 
 /// An ambiguous family head (`halstead`, `mi`) has no single threshold
 /// scalar and is rejected here, as is a table naming one metric under two
 /// spellings: silently keeping whichever key sorts last is the same
-/// surprise this function exists to remove.
+/// surprise this function exists to remove. Both rejections are the
+/// library resolver's (`resolve_new_threshold_metric`), which the Python
+/// bindings' `to_sarif(thresholds=)` dict reads too, so the two
+/// front-ends refuse the pair with one rule and one wording (#1618).
 pub(crate) fn insert_canonical_limit<V>(
     into: &mut BTreeMap<String, V>,
     table: &str,
     name: &str,
     value: V,
 ) -> Result<(), String> {
-    let canonical = crate::metric_alias::normalize_for_check(name)
-        .map_err(|e| format!("{table} {e}"))?
-        .into_owned();
-    if into.contains_key(&canonical) {
-        // Names both spellings rather than quoting the earlier key,
-        // which would read as `"loc.ploc": "loc.ploc" is already set`
-        // whenever the dotted form is the one written second.
-        return Err(format!(
-            "{table} {name:?}: {canonical:?} is already set in this table under its other \
-             spelling; a bare `loc` sub-metric name and its dotted id (`ploc`, `loc.ploc`) \
-             are one metric, so set it once"
-        ));
-    }
-    into.insert(canonical, value);
+    let canonical = match resolve_new_threshold_metric(name, |id| into.contains_key(id)) {
+        Ok(info) => info.id,
+        // An unknown name keys the table as written: `ThresholdSet::build_tiered`
+        // reports it, with its did-you-mean list, on the surface the
+        // other typo classes use (#1165).
+        Err(ThresholdMetricError::Unknown { .. }) => name,
+        Err(err) => return Err(format!("{table} {err}")),
+    };
+    into.insert(canonical.to_owned(), value);
     Ok(())
 }
 
@@ -972,13 +978,26 @@ impl ThresholdSet {
             // is what let a merge key two spellings of one metric and
             // gate it twice, so this layer now takes canonical keys as an
             // invariant rather than restoring it after the fact.
+            // The unknown-name message is the library resolver's, so the
+            // CLI and the Python bindings print one wording (#1618). The
+            // lookup stays by exact key: resolving through the catalog
+            // would re-admit the alias spellings `insert_canonical_limit`
+            // already folded, and `hard.get(name)` below would miss them.
             let extractor = lookup_extractor(name).ok_or_else(|| {
-                let known = known_metric_names();
-                format!(
-                    "unknown threshold metric {name:?}{}; known metrics: {}",
-                    crate::threshold_suggestion::format_suggestion(name, &known),
-                    known.join(", ")
-                )
+                match resolve_threshold_metric(name) {
+                    Err(unresolved) => unresolved.to_string(),
+                    // A catalog id with no extractor, or an alias spelling
+                    // handed in without `insert_canonical_limit`'s folding:
+                    // a table or caller drift that
+                    // `extractor_ids_match_library_catalog` in
+                    // `thresholds_tests.rs` pins against, reported rather
+                    // than gated silently.
+                    Ok(info) => format!(
+                        "threshold metric {name:?} has no extractor or is an un-normalised \
+                         alias (the catalog resolves it to {:?})",
+                        info.id
+                    ),
+                }
             })?;
             let threshold = checked_threshold(extractor.name, *limit)?;
             let hard_limit = hard
