@@ -26,6 +26,22 @@ for historical reference.
 
 ### Added
 
+- The role-series drift drivers from #1697 land in `utils/` with
+  self-tests in `make pre-commit`: `drift-oracle.py` captures every
+  CLI view — and, given the new `verbatim-oracle` binary from
+  `big-code-analysis-bench`, the library's verbatim view — per file
+  and language under an options matrix; `drift-compare.py` compares
+  two captures on keys and bytes and refuses a view only one side
+  carries; `recovery-oracle.py` is the lesson-102 truncation sweep;
+  `perturb.py` is the `.claude/rules/testing.md` perturbation driver,
+  which refuses a target that is modified, untracked, ignored or
+  absent and restores bytes from memory; `coverage-diff.py` compares
+  two `llvm-cov` reports by covered count per file. The extension
+  tables, grammar-pin reader, byte-level capture and versioned
+  manifest they share live in `drift_common.py`, derived from
+  `role_tables.py` so a sweep cannot skip an extension the enum owns.
+  `verbatim-oracle` reports a failed view as an error naming the file,
+  never as an empty record (#1744, part of #1701).
 - `ChildAncestors::descend` and `ChildAncestors::ascend` in
   `big-code-analysis-ast` (#1401), for a consumer that reads a body's
   statements through the wrappers they sit in and holds one chain
@@ -107,6 +123,19 @@ for historical reference.
   preprocessor conditional — was caught by the new
   `loc/c-conditional-per-struct-depth` probe and removed. The AST crate
   is outside `STABILITY.md`; no root-crate re-export changes.
+- The 25 hand-written control-flow fixtures that were the #1697 oracle
+  inputs are preserved in the `big-code-analysis-output` submodule
+  under `control_flow/<lang>/` and snapshotted per function by
+  `tests/corpus/control_flow_test.rs`, freezing the #1720 Rust
+  type-syntax `for` and #1602 Elixir keyword-section behaviours
+  (#1744, the fixture-preservation half of #1700).
+- `role_table!`'s test-only `canonical()` and `utils/role_tables.py
+  --dump` emit each declared row's paying mode as a trailing
+  `mode=owners|split|never` field, replacing `pays_never=`, so the
+  differential test holds the Python reader to the `pays []`
+  split-empty mode rather than only to the kind lists, which that mode
+  shares with an owner-paying row. The canonical line's schema is now
+  stated in both emitters' docs (#1745, part of #1701).
 - The documentation toolchain moves from mdBook 0.4.40 +
   mdbook-i18n-helpers 0.3.6 to mdBook 0.5.4 + helpers 0.4.0, in
   `pages.yml`, the `Makefile` book targets, the `Dockerfile` and
