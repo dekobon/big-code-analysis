@@ -15,11 +15,12 @@ use crate::{Ancestors, Lua, LuaCode, Node};
 /// `M.x = 1`): LDoc's `get_fun_name` stops at `,`, `<` and `[`, so
 /// `local a, b = …`, `local x <const> = …` and `M[1] = …` name no item.
 fn assigns_one_name<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
-    let Some(targets) = node.child(0) else {
-        return false;
-    };
-    let mut names = targets.children().filter(Node::is_named);
-    names.next().is_some_and(|name| is_dotted_name(&name)) && names.next().is_none()
+    // The grammar always emits the `variable_list` first, empty when
+    // recovery had to invent the target (`= 1` on its own).
+    node.child(0).is_some_and(|targets| {
+        let mut names = targets.children().filter(Node::is_named);
+        names.next().is_some_and(|name| is_dotted_name(&name)) && names.next().is_none()
+    })
 }
 
 /// An identifier, or a `.` index of one (`M.a.b`).

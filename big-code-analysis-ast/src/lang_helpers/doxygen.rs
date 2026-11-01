@@ -680,23 +680,28 @@ mod tests {
             .preorder()
             .find(preproc_conditional)
             .expect("a nest");
-        let uncached = Ancestors::known(&[]);
-        let before = conditionals_read::observed();
-        assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
-        assert_eq!(
-            conditionals_read::observed() - before,
-            0,
-            "an entry question reads no nest"
-        );
-        let before = conditionals_read::observed();
-        assert!(conditional_declares::<crate::langs::CCode>(
-            &outermost, uncached
-        ));
-        assert_eq!(
-            conditionals_read::observed() - before,
-            DEPTH,
-            "one walk, each level once"
-        );
+        // Both uncached contexts: a known chain, under which the walk
+        // hands each child a one-entry chain, and no chain at all (a
+        // `find` / `count` consumer), under which the walk hands the
+        // climbing context through unchanged.
+        for uncached in [Ancestors::known(&[]), Ancestors::unknown()] {
+            let before = conditionals_read::observed();
+            assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
+            assert_eq!(
+                conditionals_read::observed() - before,
+                0,
+                "an entry question reads no nest"
+            );
+            let before = conditionals_read::observed();
+            assert!(conditional_declares::<crate::langs::CCode>(
+                &outermost, uncached
+            ));
+            assert_eq!(
+                conditionals_read::observed() - before,
+                DEPTH,
+                "one walk, each level once"
+            );
+        }
     }
 
     /// `no_entry_inside` asks the row of an error's sole named child

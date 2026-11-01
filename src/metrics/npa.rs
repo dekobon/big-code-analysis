@@ -4005,6 +4005,23 @@ mod tests {
 
     #[cfg(feature = "rust")]
     #[test]
+    fn rust_tuple_struct_comments_between_fields_are_not_fields() {
+        // A comment of either kind between positional fields is skipped
+        // without resetting the pending `pub` (the `Comment` row's kind
+        // table, #1699): 3 fields, 2 public. Counting a comment as a
+        // field reads 5 / 3 — or 4 / 2 with the `pub` reset.
+        check_metrics::<RustParser>(
+            "struct Bar(pub /* a */ i32, // b\n pub u8, /* c */ String);",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
     fn rust_unit_struct_has_no_attributes() {
         // `struct Empty;` is a unit struct (no fields). 0 attributes.
         check_metrics::<RustParser>("struct Empty;", "foo.rs", |metric| {

@@ -33,6 +33,9 @@ fn ruby_documented_core<'a, 'c>(
         let inner = match node.kind_id().into() {
             // role-bypass: allow(Branch) — the modifier's body is the
             // documented item; doc attachment, not membership
+            // The `?`s are defensive: the grammar requires a modifier's
+            // `body`, and an empty body is no node at all rather than an
+            // empty wrapper, so neither arm's `None` has a spelling.
             Ruby::IfModifier | Ruby::UnlessModifier => node.child_by_field_name("body")?,
             Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0)?,
             _ => return Some((node, chain)),
