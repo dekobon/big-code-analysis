@@ -610,7 +610,8 @@ pub(crate) struct DiffBaselineArgs {
 ///
 /// Two input modes:
 /// - File/dir mode: two positional metric-output sets (`<old> <new>`),
-///   each a per-file JSON file or a directory tree of them.
+///   each a per-file JSON file, an aggregate file, or a directory tree
+///   of either.
 /// - `--since <ref> [<scope>]`: analyze the tree at `<ref>` for the
 ///   before side and the working tree for the after side; the optional
 ///   positional is a relative path scope applied to both.
@@ -634,7 +635,8 @@ pub(crate) struct DiffArgs {
     #[clap(flatten)]
     pub(crate) tuning: WalkTuningArgs,
     /// In file/dir mode: the old (base) metric output — the "before"
-    /// side (a per-file JSON file or a directory of per-file JSON).
+    /// side (a per-file JSON file, an aggregate file from `--output`, or
+    /// a directory of either).
     /// In `--since` mode: an optional *relative path scope* (a
     /// subdirectory or file), equivalent to `--paths`, applied to both
     /// sides — so `bca diff --since HEAD src` diffs only the `src`
@@ -645,7 +647,8 @@ pub(crate) struct DiffArgs {
     #[clap(value_parser)]
     pub(crate) old: Option<PathBuf>,
     /// In file/dir mode: the new (after) metric output (a per-file JSON
-    /// file or a directory of them). Not used in `--since` mode, where
+    /// file, an aggregate file, or a directory of either). Not used in
+    /// `--since` mode, where
     /// the after side is always the working tree and the single
     /// positional is a path scope — a second positional with `--since`
     /// is rejected at runtime.

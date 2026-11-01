@@ -50,10 +50,10 @@ destination is given, which suits pipelines.
 
 `bca diff` compares two JSON metric runs and reports, per metric, which
 files changed (old → new), plus any files added or removed between the
-two sets. Each side is either a single per-file JSON document or a whole
-directory tree of them (what `metrics -O json --output-dir <dir>`
-writes), so the common workflow is two `bca metrics` runs into separate
-directories:
+two sets. Each side is a single per-file JSON document, the aggregate
+file `metrics -O json --output <file>` writes, or a whole directory tree
+of either (what `metrics -O json --output-dir <dir>` writes), so the
+common workflow is two `bca metrics` runs into separate directories:
 
 ```bash
 snap=$(mktemp -d "${TMPDIR:-/tmp}/bca-diff.XXXXXX")
@@ -98,6 +98,21 @@ measure. "Present" means numeric: a leaf written as `null` on one side
 (how a non-finite derived value, such as a `vcs` ratio with nothing to
 divide by, is serialized) reads as absent there, so two captures by the
 same bca version can list a field that became applicable between them.
+
+A document pairs with the other side's document of the same `name`,
+the source path bca recorded, compared in lexical form: `.` components
+are dropped, so captures taken with `-p ./src` and `-p src` pair, and a
+`..` is kept. A directory side reads every `*.json` file under it and
+passes over any other file, such as a README. Input `bca diff` cannot
+pair is an error (exit 1) naming it, never a file silently missing from
+one side: a directory with no `*.json` file (a capture written with
+`-O yaml`, say), JSON with no `metrics` object, two documents with one
+`name`, and a document with no `name` unless it is a whole file inside
+a directory side, where its relative path stands in. `bca metrics`
+writes no `name` for a source path that is not valid UTF-8, and no
+layout can diff such a file. A symlinked `*.json` file is read like the file it names, and one that
+dangles is an error. A symlinked directory inside a side is not entered,
+as the source walk enters none.
 
 Useful flags:
 

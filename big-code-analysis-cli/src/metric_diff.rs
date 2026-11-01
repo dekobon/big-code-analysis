@@ -7,8 +7,11 @@
 //!
 //! ## What is compared
 //!
-//! Each side is either a single per-file JSON document or a directory
-//! tree of them (the shape `bca metrics -O json --output <dir>` writes).
+//! Each side is a single per-file JSON document, the aggregate array of
+//! them `bca metrics -O json --output <file>` writes, or a directory tree
+//! of either (the shape `bca metrics -O json --output-dir <dir>` writes).
+//! Anything else is an error naming the input (see `load`), never a gap
+//! that would read as an added or removed file.
 //! Inputs are parsed as raw [`serde_json::Value`] rather than the
 //! library's [`big_code_analysis::FuncSpace`] type: `FuncSpace` /
 //! `CodeMetrics` derive only `Serialize` (with a *custom* `CodeMetrics`
@@ -54,8 +57,9 @@ use crate::metric_alias::{diff_bucket, expanded_rows};
 // compares and renders what it loaded.
 mod load;
 
-use load::load_set;
+pub(crate) use load::DocumentOrigin;
 pub(crate) use load::set_from_spaces;
+use load::{load_set, path_to_key};
 
 /// Which of the two trees a `bca diff --since` walk was analysing.
 /// Named rather than a bare `&str` so a caller cannot label the
@@ -102,6 +106,24 @@ pub(crate) enum DiffError {
     Serialize {
         path: PathBuf,
         source: serde_json::Error,
+    },
+    /// An input held JSON that is not a per-file metrics document: not
+    /// an object, or one with no `metrics` object (an `ops` result, say).
+    NotADocument { origin: DocumentOrigin },
+    /// A document with no `name` was read where no path can stand in for
+    /// one: a single-file side, or an element of an aggregate array.
+    Nameless { origin: DocumentOrigin },
+    /// A directory side held no `*.json` file: a capture written in
+    /// another format, or a path that is not a capture at all. Loaded as
+    /// an empty set it would report every file of the other side removed
+    /// or added, or, against another such directory, no change.
+    NoDocuments { path: PathBuf },
+    /// Two documents on one side key on the same name, so the second
+    /// would silently replace the first.
+    DuplicateName {
+        name: String,
+        first: DocumentOrigin,
+        second: DocumentOrigin,
     },
     /// A path component was not valid UTF-8, so it cannot serve as a
     /// stable pairing key. Identifier paths must round-trip losslessly
@@ -160,6 +182,36 @@ impl std::fmt::Display for DiffError {
                     path.display()
                 )
             }
+            Self::NotADocument { origin } => write!(
+                f,
+                "{origin} is not a `bca metrics -O json` document: it has no `metrics` object"
+            ),
+            // No fallback is suggested: bca's own nameless documents come
+            // from a non-UTF-8 source path, whose output-dir file path is
+            // not UTF-8 either, so moving one into a directory side fails
+            // on that path instead.
+            Self::Nameless { origin } => write!(
+                f,
+                "{origin} has no `name` to pair it on: set `name` to its source \
+                 path; `bca metrics` itself writes a null `name` only for a source \
+                 path that is not valid UTF-8, which `bca diff` cannot pair until \
+                 that file is renamed"
+            ),
+            Self::NoDocuments { path } => write!(
+                f,
+                "{} holds no `*.json` file; a directory side is read as the \
+                 tree `bca metrics -O json --output-dir` writes",
+                path.display()
+            ),
+            Self::DuplicateName {
+                name,
+                first,
+                second,
+            } => write!(
+                f,
+                "{first} and {second} are both named {name:?}; a side holds one \
+                 document per source file"
+            ),
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
             }
@@ -462,6 +514,7 @@ impl MetricDiff {
     /// sections are omitted; an all-empty diff renders just the summary
     /// line.
     pub(crate) fn render_tty(&self, strip_prefix: &str) -> String {
+        let strip_prefix = &key_prefix(strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
         for (title, rows) in self.listed_sections(strip_prefix) {
@@ -496,6 +549,7 @@ impl MetricDiff {
     /// whitespace collapsing and a path is never read as inline markup
     /// (`pkg/__init__.py` as a bulleted item renders `init` in bold).
     pub(crate) fn render_markdown(&self, strip_prefix: &str) -> String {
+        let strip_prefix = &key_prefix(strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
         for (title, rows) in self.listed_sections(strip_prefix) {
@@ -566,6 +620,24 @@ struct Summary {
     removed_files: usize,
     added_fields: usize,
     removed_fields: usize,
+}
+
+/// `--strip-prefix` spelled the way the file keys are: a key drops every
+/// `.` component (see [`path_to_key`]), so the `./src/` a user copies
+/// from a `-p ./src` walk must drop it too or it would match nothing. A
+/// trailing `/` survives, since `src/` and `src` strip different text,
+/// but is never doubled: the key of `/` is already `/`.
+fn key_prefix(prefix: &str) -> String {
+    if prefix.is_empty() {
+        return String::new();
+    }
+    let Ok(mut key) = path_to_key(Path::new(prefix)) else {
+        return prefix.to_owned();
+    };
+    if prefix.ends_with('/') && !key.is_empty() && !key.ends_with('/') {
+        key.push('/');
+    }
+    key
 }
 
 /// Column-aligned `<file>  <metric>  <field>` rows for a one-sided-field
@@ -693,7 +765,10 @@ struct MetricLeaf {
 /// missing on one side is yielded as such rather than diffed against an
 /// invented `0.0`, which is indistinguishable from a real zero. A side
 /// whose `metrics` is not an object holds no families, so every family
-/// of the other side is one-sided.
+/// of the other side is one-sided; neither loader builds such a side (the
+/// on-disk one refuses it as [`DiffError::NotADocument`], and a `--since`
+/// side always serializes an object), so only a set handed straight to
+/// [`MetricDiff::from_sets`] reaches it.
 fn metric_leaves(old_metrics: &Value, new_metrics: &Value) -> Vec<MetricLeaf> {
     let mut out = Vec::new();
     let old_obj = old_metrics.as_object();

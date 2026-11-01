@@ -507,10 +507,11 @@ for historical reference.
   `removed_fields`. This supersedes the 2.4.0 wording that a
   pre-upgrade capture "reports the new keys as changes wherever the
   older side's absent field differs"; those keys now appear in
-  `added_fields` rather than in a bucket. A side whose `metrics` is not
-  a JSON object, or a bare number facing an object at the same path, is
-  likewise listed rather than dropped. A family that is itself a bare
-  number has no field path, so the text and Markdown forms show
+  `added_fields` rather than in a bucket. A bare number facing an object
+  at the same path is likewise listed rather than dropped (a side whose
+  `metrics` is not a JSON object is refused; see below). A family that
+  is itself a bare number has no field path, so the text and Markdown
+  forms show
   `(scalar)` in the field column and the JSON rows carry an empty
   `field`. "Present" means numeric: a leaf that is `null` on one side —
   how a non-finite derived value such as a `vcs` ratio is written — reads
@@ -804,6 +805,26 @@ for historical reference.
   file's read, parse, VCS attach and serialization now run in one GIL
   release, so the blame behind `analyze(..., vcs_per_function=True)`
   no longer holds the GIL (#1768).
+
+- `bca diff` no longer drops or mis-keys an input it cannot pair, each
+  of which used to read as an added or removed file and exit 0. The
+  aggregate file `bca metrics -O json --output <file>` writes (a
+  top-level array) now loads element by element, so it diffs against
+  another aggregate or an `--output-dir` tree; it was read as one
+  nameless document, reported as one file removed and one added. JSON
+  with no `metrics` object, two documents sharing a `name` (the second
+  used to replace the first), a nameless document outside a directory,
+  and a `*.json` symlink that dangles or a `*.json` entry that cannot be
+  `stat`ed are now errors (exit 1) naming the input. So is a directory
+  side holding no `*.json` file: two `-O yaml --output-dir`
+  captures used to diff as no change, exit 0 under `--exit-code`. Other
+  files in a directory side are still passed over. A symlinked
+  directory inside a side is still not entered. Documents pair on the
+  lexical form of their `name`, with `.` components dropped, so
+  captures taken with `-p ./src` and `-p src` pair rather than listing
+  each file as removed and added; a `--since` diff of the whole tree
+  accordingly names `src/a.rs` where it named `./src/a.rs`, and
+  `--strip-prefix ./src/` still matches.
 
 - `bca diff --since` removes the extracted `<ref>` tree on every error,
   as the book already promised; only a run killed by a signal leaves it
