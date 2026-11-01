@@ -334,6 +334,52 @@ fn write_load_roundtrip_then_clear() {
 }
 
 #[test]
+fn load_compatible_parses_only_compatible_entries() {
+    // Three entries: one the run can use, two it cannot (another
+    // fingerprint, another shallow state). Only the first may be built in
+    // full; the others are rejected on their header. A compatible header
+    // over an event log that does not parse is still no candidate.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = repo_dir(dir.path(), Path::new("/some/repo"));
+    write_atomic(&entry_path(&repo, "aaaa"), &sample_cache(99)).expect("write");
+    write_atomic(&entry_path(&repo, "bbbb"), &sample_cache(100)).expect("write");
+    let shallow = HistoryCache {
+        truncated_shallow_clone: true,
+        ..sample_cache(99)
+    };
+    write_atomic(&entry_path(&repo, "cccc"), &shallow).expect("write");
+
+    let before = entries_parsed::observed();
+    let found = load_compatible(&repo, 99, false);
+    assert_eq!(
+        found
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>(),
+        [entry_path(&repo, "aaaa")],
+        "only the compatible entry is a candidate"
+    );
+    assert_eq!(
+        entries_parsed::observed() - before,
+        1,
+        "an incompatible entry must be rejected on its header, not parsed in full"
+    );
+
+    let mut corrupt = serde_json::to_value(sample_cache(99)).expect("to value");
+    corrupt["events"] = serde_json::json!("not an event log");
+    std::fs::write(
+        entry_path(&repo, "dddd"),
+        serde_json::to_vec(&corrupt).expect("serialize"),
+    )
+    .expect("write corrupt");
+    assert_eq!(
+        load_compatible(&repo, 99, false).len(),
+        1,
+        "a compatible header over a corrupt event log is ignored, not fatal"
+    );
+}
+
+#[test]
 fn distinct_repo_paths_get_distinct_directories() {
     let root = Path::new("/cache");
     assert_ne!(
