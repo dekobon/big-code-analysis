@@ -200,6 +200,15 @@ pub(crate) fn json_error(
     error_kind: &'static str,
     id: String,
 ) -> HttpResponse {
+    // `error_kind::ALL` is what the STABILITY.md gate checks, so a token
+    // that reaches the wire without being in it is undocumented (#1302).
+    // Every error body passes through here, so any test that drives an
+    // error path checks its token, including a `const` declared outside
+    // the `tokens!` list.
+    debug_assert!(
+        error_kind::ALL.contains(&error_kind),
+        "error_kind `{error_kind}` is not declared in the `error_kind::tokens!` list"
+    );
     HttpResponse::build(status).json(Error {
         error: error.into(),
         error_kind,
@@ -221,83 +230,116 @@ pub(crate) fn not_acceptable_message() -> String {
 /// Closed vocabulary of stable `snake_case` machine tokens carried in the
 /// `error_kind` field of the uniform error body (#631).
 ///
-/// Each constant names one distinct client-input or server-side failure
-/// cause. The set is governed by `STABILITY.md`; adding a token is an
+/// Each token constant names one distinct client-input or server-side
+/// failure cause; [`error_kind::ALL`] lists them all. The set is governed
+/// by `STABILITY.md`, and `error_kind_vocabulary_matches_stability_md`
+/// holds that document's list to `ALL` (#1302). Adding a token is an
 /// additive change, renaming or removing one is a break. Clients branch
 /// on these tokens instead of string-matching the free-form `error`
 /// prose. The vcs-family mapping lives in [`vcs_error_kind`]; see there
 /// for why a new `vcs::Error` variant cannot be *compile*-forced to pick
 /// a token, and which test stands in for the compiler (#1245).
 pub(crate) mod error_kind {
-    /// `file_name` (and content sniffing) mapped to no supported language.
-    pub(crate) const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
-    /// The request body could not be parsed / deserialized (malformed
-    /// JSON, a missing required field, a wrong type, or — with
-    /// `deny_unknown_fields` — an unrecognised key, #633). serde's precise
-    /// message names the offending key in the `error` prose.
-    pub(crate) const BAD_REQUEST: &str = "bad_request";
-    /// The request body carried an unrecognised key, rejected by
-    /// `#[serde(deny_unknown_fields)]` (#633). The offending key is named
-    /// in the human `error` prose.
-    pub(crate) const UNKNOWN_FIELD: &str = "unknown_field";
-    /// A query-string parameter was missing or malformed.
-    pub(crate) const BAD_QUERY: &str = "bad_query";
-    /// The `scope` query flag was not a recognised value (#638).
-    pub(crate) const INVALID_SCOPE_FLAG: &str = "invalid_scope_flag";
-    /// A `/vcs/jit` payload combined `diff` with commit-mode fields.
-    pub(crate) const VCS_MODE_CONFLICT: &str = "vcs_mode_conflict";
-    /// The request body exceeded the maximum accepted size.
-    pub(crate) const PAYLOAD_TOO_LARGE: &str = "payload_too_large";
-    /// A transport-level read failure while draining the request body.
-    pub(crate) const READ_ERROR: &str = "read_error";
-    /// The blocking parse task panicked or was cancelled (server fault).
-    pub(crate) const INTERNAL_ERROR: &str = "internal_error";
-    /// The parse exceeded the configured deadline.
-    pub(crate) const PARSE_TIMEOUT: &str = "parse_timeout";
-    /// The orphaned-task pool was saturated; the request was shed.
-    pub(crate) const PARSE_POOL_SATURATED: &str = "parse_pool_saturated";
-    /// AST construction yielded no root node (defensive 500).
-    pub(crate) const AST_BUILD_FAILED: &str = "ast_build_failed";
-    /// Metric computation failed for a parsed source (defensive 500).
-    pub(crate) const METRICS_FAILED: &str = "metrics_failed";
-    /// The history walk itself failed (environment / backend, not input).
-    pub(crate) const VCS_INTERNAL_ERROR: &str = "vcs_internal_error";
-    /// The target path is not inside a supported VCS working tree.
-    pub(crate) const VCS_NOT_A_REPOSITORY: &str = "vcs_not_a_repository";
-    /// A `reference` / `commit` could not be resolved.
-    pub(crate) const VCS_INVALID_REVISION: &str = "vcs_invalid_revision";
-    /// A bot-author glob pattern was malformed.
-    pub(crate) const VCS_INVALID_BOT_PATTERN: &str = "vcs_invalid_bot_pattern";
-    /// A time-window option was malformed.
-    pub(crate) const VCS_INVALID_WINDOW: &str = "vcs_invalid_window";
-    /// An `as-of` / point timestamp was malformed.
-    pub(crate) const VCS_INVALID_TIMESTAMP: &str = "vcs_invalid_timestamp";
-    /// The risk-score formula was malformed.
-    pub(crate) const VCS_INVALID_FORMULA: &str = "vcs_invalid_formula";
-    /// A file-type scope option was malformed.
-    pub(crate) const VCS_INVALID_FILE_TYPE_SCOPE: &str = "vcs_invalid_file_type_scope";
-    /// The bus-factor threshold was out of range.
-    pub(crate) const VCS_INVALID_BUS_FACTOR_THRESHOLD: &str = "vcs_invalid_bus_factor_threshold";
-    /// The `author_hash_key` was empty, or was supplied without
-    /// `emit_author_details` (which it has no effect without) — #956.
-    pub(crate) const VCS_INVALID_AUTHOR_HASH_KEY: &str = "vcs_invalid_author_hash_key";
-    /// A trend point-count / span option was malformed.
-    pub(crate) const VCS_INVALID_TREND: &str = "vcs_invalid_trend";
-    /// The unified diff passed to `/vcs/jit` was malformed.
-    pub(crate) const VCS_INVALID_DIFF: &str = "vcs_invalid_diff";
-    /// No registered resource matched the request URL.
-    pub(crate) const NOT_FOUND: &str = "not_found";
-    /// The resource does not accept the request method.
-    pub(crate) const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
-    /// The `POST` body carried an unsupported / missing `Content-Type`.
-    pub(crate) const UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
-    /// The request `Accept` header named only media types this server
-    /// cannot produce; content negotiation answered `406` (#657).
-    pub(crate) const NOT_ACCEPTABLE: &str = "not_acceptable";
-    /// The negotiated serializer failed to encode the response (defensive
-    /// `500`); the response types are plain data, so this is unreachable
-    /// today (#657).
-    pub(crate) const SERIALIZE_FAILED: &str = "serialize_failed";
+    /// Declares each token constant and also collects all of them into
+    /// [`ALL`], so the vocabulary is enumerable from the one list that
+    /// defines it (#1302).
+    ///
+    /// Rust cannot enumerate a module's constants, so without this a test
+    /// has nothing to walk, and a hand-written copy of the list fails open
+    /// in exactly the case it exists for: the author who forgets to
+    /// document a new token forgets the copy too.
+    macro_rules! tokens {
+        ($($(#[$meta:meta])* pub(crate) const $name:ident: &str = $token:literal;)+) => {
+            $($(#[$meta])* pub(crate) const $name: &str = $token;)+
+
+            /// Every token declared above, in declaration order.
+            pub(crate) const ALL: &[&str] = &[$($name),+];
+        };
+    }
+
+    // Add a token inside this invocation, never as a bare `const` beside
+    // it: only these entries reach `ALL`, and so only these are held to
+    // `STABILITY.md` by `error_kind_vocabulary_matches_stability_md`.
+    // `json_error` debug-asserts membership, so a token emitted from
+    // outside the list still fails any test that reaches it.
+    //
+    // rustfmt does not format the entries of a brace-delimited macro
+    // invocation, so the entries below are outside the formatting gate.
+    // `make rustfmt-bail` cannot see that either, because it probes match
+    // arms and there are none here. The entries keep ordinary item syntax
+    // so they read and grep like any other `const`.
+    tokens! {
+        /// `file_name` (and content sniffing) mapped to no supported language.
+        pub(crate) const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
+        /// The request body could not be parsed / deserialized (malformed
+        /// JSON, a missing required field, a wrong type, or — with
+        /// `deny_unknown_fields` — an unrecognised key, #633). serde's precise
+        /// message names the offending key in the `error` prose.
+        pub(crate) const BAD_REQUEST: &str = "bad_request";
+        /// The request body carried an unrecognised key, rejected by
+        /// `#[serde(deny_unknown_fields)]` (#633). The offending key is named
+        /// in the human `error` prose.
+        pub(crate) const UNKNOWN_FIELD: &str = "unknown_field";
+        /// A query-string parameter was missing or malformed.
+        pub(crate) const BAD_QUERY: &str = "bad_query";
+        /// The `scope` query flag was not a recognised value (#638).
+        pub(crate) const INVALID_SCOPE_FLAG: &str = "invalid_scope_flag";
+        /// A `/vcs/jit` payload combined `diff` with commit-mode fields.
+        pub(crate) const VCS_MODE_CONFLICT: &str = "vcs_mode_conflict";
+        /// The request body exceeded the maximum accepted size.
+        pub(crate) const PAYLOAD_TOO_LARGE: &str = "payload_too_large";
+        /// A transport-level read failure while draining the request body.
+        pub(crate) const READ_ERROR: &str = "read_error";
+        /// The blocking parse task panicked or was cancelled (server fault).
+        pub(crate) const INTERNAL_ERROR: &str = "internal_error";
+        /// The parse exceeded the configured deadline.
+        pub(crate) const PARSE_TIMEOUT: &str = "parse_timeout";
+        /// The orphaned-task pool was saturated; the request was shed.
+        pub(crate) const PARSE_POOL_SATURATED: &str = "parse_pool_saturated";
+        /// AST construction yielded no root node (defensive 500).
+        pub(crate) const AST_BUILD_FAILED: &str = "ast_build_failed";
+        /// Metric computation failed for a parsed source (defensive 500).
+        pub(crate) const METRICS_FAILED: &str = "metrics_failed";
+        /// The history walk itself failed (environment / backend, not input).
+        pub(crate) const VCS_INTERNAL_ERROR: &str = "vcs_internal_error";
+        /// The target path is not inside a supported VCS working tree.
+        pub(crate) const VCS_NOT_A_REPOSITORY: &str = "vcs_not_a_repository";
+        /// A `reference` / `commit` could not be resolved.
+        pub(crate) const VCS_INVALID_REVISION: &str = "vcs_invalid_revision";
+        /// A bot-author glob pattern was malformed.
+        pub(crate) const VCS_INVALID_BOT_PATTERN: &str = "vcs_invalid_bot_pattern";
+        /// A time-window option was malformed.
+        pub(crate) const VCS_INVALID_WINDOW: &str = "vcs_invalid_window";
+        /// An `as-of` / point timestamp was malformed.
+        pub(crate) const VCS_INVALID_TIMESTAMP: &str = "vcs_invalid_timestamp";
+        /// The risk-score formula was malformed.
+        pub(crate) const VCS_INVALID_FORMULA: &str = "vcs_invalid_formula";
+        /// A file-type scope option was malformed.
+        pub(crate) const VCS_INVALID_FILE_TYPE_SCOPE: &str = "vcs_invalid_file_type_scope";
+        /// The bus-factor threshold was out of range.
+        pub(crate) const VCS_INVALID_BUS_FACTOR_THRESHOLD: &str =
+            "vcs_invalid_bus_factor_threshold";
+        /// The `author_hash_key` was empty, or was supplied without
+        /// `emit_author_details` (which it has no effect without) — #956.
+        pub(crate) const VCS_INVALID_AUTHOR_HASH_KEY: &str = "vcs_invalid_author_hash_key";
+        /// A trend point-count / span option was malformed.
+        pub(crate) const VCS_INVALID_TREND: &str = "vcs_invalid_trend";
+        /// The unified diff passed to `/vcs/jit` was malformed.
+        pub(crate) const VCS_INVALID_DIFF: &str = "vcs_invalid_diff";
+        /// No registered resource matched the request URL.
+        pub(crate) const NOT_FOUND: &str = "not_found";
+        /// The resource does not accept the request method.
+        pub(crate) const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
+        /// The `POST` body carried an unsupported / missing `Content-Type`.
+        pub(crate) const UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
+        /// The request `Accept` header named only media types this server
+        /// cannot produce; content negotiation answered `406` (#657).
+        pub(crate) const NOT_ACCEPTABLE: &str = "not_acceptable";
+        /// The negotiated serializer failed to encode the response (defensive
+        /// `500`); the response types are plain data, so this is unreachable
+        /// today (#657).
+        pub(crate) const SERIALIZE_FAILED: &str = "serialize_failed";
+    }
 }
 
 /// Stable `error_kind` token for a [`VcsError`] (#631).
