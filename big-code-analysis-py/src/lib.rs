@@ -189,8 +189,8 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
             // strerror carries only the human message; CPython owns
             // the errno rendering (#617).
             let msg = strip_os_error_suffix(&source.to_string()).to_owned();
-            // `analyze_path` resolves the `FuncSpace.name` *before*
-            // `std::fs::read`, so in strict mode (`allow_lossy_path
+            // `analyze_path` checks the path is UTF-8 *before* the
+            // file read, so in strict mode (`allow_lossy_path
             // = False`) any path reaching this arm is valid UTF-8
             // and `path.display()` is lossless. In opt-in lossy mode
             // (#316) the caller has explicitly accepted U+FFFD
@@ -345,15 +345,20 @@ fn analyze(
         None => Ok(None),
         Some(mut json) => {
             if vcs {
-                let root = crate::vcs::repo_root_for(&path).to_path_buf();
-                if let Some(index) = py.detach(|| crate::vcs::build_index_for(&root)) {
-                    json = crate::vcs::inject_vcs_with_index(json, &path, &index)?;
+                let root = crate::vcs::repo_root_for(&path);
+                if let Some(index) = py.detach(|| crate::vcs::build_index_for(root))
+                    && let Some(injected) = crate::vcs::inject_vcs_with_index(&json, &path, &index)?
+                {
+                    json = injected;
                 }
             }
             if vcs_per_function {
-                let root = crate::vcs::repo_root_for(&path).to_path_buf();
-                if let Some(mut blame) = py.detach(|| crate::vcs::open_blame_for(&root)) {
-                    json = crate::vcs::inject_vcs_per_function_with_blame(json, &path, &mut blame)?;
+                let root = crate::vcs::repo_root_for(&path);
+                if let Some(mut blame) = py.detach(|| crate::vcs::open_blame_for(root))
+                    && let Some(injected) =
+                        crate::vcs::inject_vcs_per_function_with_blame(&json, &path, &mut blame)?
+                {
+                    json = injected;
                 }
             }
             conversion::json_string_to_py(py, &json).map(Some)

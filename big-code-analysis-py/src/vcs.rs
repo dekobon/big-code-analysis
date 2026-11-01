@@ -324,25 +324,35 @@ pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::BlameSession> {
 /// one per containing repository for the batch path, reused across every
 /// file in that repo — and this attaches the matching block (and a
 /// hotspot score from the subtree cyclomatic sum already present in the
-/// JSON). A file with no index entry (untracked / binary) is returned
-/// unchanged.
+/// JSON). A file with no index entry (untracked / binary) yields
+/// `Ok(None)`: the input is unchanged.
+///
+/// The JSON is borrowed and the rewrite returned only when there is one, so
+/// a no-op costs nothing and a caller keeps its input to fall back on when
+/// the rewrite fails (#1349).
 pub(crate) fn inject_vcs_with_index(
-    funcspace_json: String,
+    funcspace_json: &str,
     file_path: &Path,
     index: &vcs::HistoryIndex,
-) -> Result<String, PyErr> {
+) -> Result<Option<String>, PyErr> {
     let canonical = file_path
         .canonicalize()
         .unwrap_or_else(|_| file_path.to_path_buf());
     let Some(stat) = index.get_for_path(&canonical) else {
-        return Ok(funcspace_json);
+        return Ok(None);
     };
 
-    let mut doc: Value = serde_json::from_str(&funcspace_json)
+    let mut doc: Value = serde_json::from_str(funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
     let mut wire_vcs = wire::Vcs::from(stat);
     attach_vcs_to_space(&mut doc, &mut wire_vcs, HotspotComplexity::SubtreeSum)?;
-    serde_json::to_string(&doc)
+    reserialize(&doc).map(Some)
+}
+
+/// Serialize an injected metrics document back to the JSON string the
+/// Python boundary converts.
+fn reserialize(doc: &Value) -> Result<String, PyErr> {
+    serde_json::to_string(doc)
         .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
 }
 
@@ -417,15 +427,16 @@ fn attach_vcs_to_space(
 /// The file-level (root) space is left untouched here — it carries the
 /// whole-file block that [`inject_vcs_with_index`] attaches when
 /// `vcs=True` is also set. A file with no nested spaces, or an unblameable
-/// file (untracked, outside the work tree, deleted at the target ref), is
-/// returned unchanged, mirroring the CLI's graceful degradation (`bca
-/// metrics --vcs-per-function` never aborts the walk on one bad file).
+/// file (untracked, outside the work tree, deleted at the target ref),
+/// yields `Ok(None)` (unchanged), mirroring the CLI's graceful
+/// degradation (`bca metrics --vcs-per-function` never aborts the walk on
+/// one bad file).
 pub(crate) fn inject_vcs_per_function_with_blame(
-    funcspace_json: String,
+    funcspace_json: &str,
     file_path: &Path,
     blame: &mut vcs::BlameSession,
-) -> Result<String, PyErr> {
-    let mut doc: Value = serde_json::from_str(&funcspace_json)
+) -> Result<Option<String>, PyErr> {
+    let mut doc: Value = serde_json::from_str(funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
 
     // Pre-order over descendants (the root is the file space). The same
@@ -436,7 +447,7 @@ pub(crate) fn inject_vcs_per_function_with_blame(
     let mut spans = Vec::new();
     collect_child_spans(&doc, &mut spans);
     if spans.is_empty() {
-        return Ok(funcspace_json);
+        return Ok(None);
     }
 
     // Blame the file exactly once and reuse the result across every span —
@@ -445,7 +456,7 @@ pub(crate) fn inject_vcs_per_function_with_blame(
     // metrics), so one unblameable file is silent rather than fatal —
     // matching the CLI's per-file skip.
     let Ok(stats) = blame.per_function(file_path, &spans) else {
-        return Ok(funcspace_json);
+        return Ok(None);
     };
 
     // `per_function` returns exactly one `Stats` per span, and
@@ -460,8 +471,7 @@ pub(crate) fn inject_vcs_per_function_with_blame(
         stats.next().is_none(),
         "per-function VCS stats outnumbered the spaces they attach to"
     );
-    serde_json::to_string(&doc)
-        .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
+    reserialize(&doc).map(Some)
 }
 
 /// Collect the 1-based inclusive line span of every descendant space, in
