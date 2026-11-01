@@ -66,6 +66,12 @@ pub(crate) fn strip_path_prefix<'a>(path: &'a str, prefix: &str) -> &'a str {
     }
 }
 
+// The `/`-separated path projection `bca diff`'s set loader and `bca
+// vcs`'s output identities share, re-exported from the library so the
+// bus-factor report's `by_directory[].directory` keys in the same `bca
+// vcs` output cannot drift from `files[].path`.
+pub(crate) use big_code_analysis::slash_path;
+
 /// Separator between a path and its qualified symbol in a rendered
 /// offender identity.
 pub(crate) const ID_SEP: &str = "::";

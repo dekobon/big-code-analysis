@@ -135,7 +135,9 @@ section.
     `suggestions()`, `Display + Error`. Its `Display` wording and the
     suggestion set are not SemVer-protected. The `#[doc(hidden)]`
     `format_suggestion` re-export that backs the suggestions exists for
-    the CLI and is outside this contract.
+    the CLI and is outside this contract, as is the `#[doc(hidden)]`
+    `slash_path` re-export that the CLI's `bca vcs` path keys and `bca
+    diff` document keys share with the library.
   - `metric_catalog::resolve_threshold_metric` and
     `metric_catalog::ThresholdMetricError` (added #1618): the
     threshold-name vocabulary `bca check --threshold` and the Python

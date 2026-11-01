@@ -731,7 +731,7 @@ value = 5.0
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 531.0
+value = 529.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -1445,7 +1445,7 @@ value = 6.0
 path = "src/vcs/bus_factor.rs"
 qualified = "compute"
 metric = "halstead.effort"
-value = 48322.36668354654
+value = 48479.25748446715
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
