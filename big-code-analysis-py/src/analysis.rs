@@ -28,6 +28,7 @@
 //! [`big_code_analysis::guess_language`]. See `_native.pyi`'s
 //! `analyze.__doc__` for the user-facing contract.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::path::Path;
 
@@ -336,7 +337,7 @@ pub(crate) fn analyze_path(
     path: &Path,
     opts: AnalyzeOptions,
 ) -> Result<Option<String>, AnalysisError> {
-    // Resolve the `FuncSpace.name` *before* the file read so a
+    // Settle the `FuncSpace.name` policy *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
     // in the `AnalysisError::Io` arm — the `filename` field on the
     // resulting Python `OSError` would otherwise carry U+FFFD
@@ -346,9 +347,13 @@ pub(crate) fn analyze_path(
     // accepted U+FFFD substitution for the `FuncSpace.name` field,
     // so `to_string_lossy` is the documented behaviour rather than
     // a silent identifier corruption.
+    //
+    // Only the *check* has to precede the read. The owned `String` is
+    // built after both skip gates below, so a file they decline costs no
+    // allocation (#1349); the borrowed form is free for a UTF-8 path.
     let name = match path.to_str() {
-        Some(s) => s.to_owned(),
-        None if opts.allow_lossy_path => path.to_string_lossy().into_owned(),
+        Some(s) => Cow::Borrowed(s),
+        None if opts.allow_lossy_path => path.to_string_lossy(),
         None => return Err(AnalysisError::NonUtf8Path),
     };
     // Read through the SAME helper the CLI walker uses
@@ -367,27 +372,11 @@ pub(crate) fn analyze_path(
     // I/O failures still surface as `AnalysisError::Io` carrying the path
     // so the Python `OSError` can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError via `errno` / `filename` — the
-    // `File::open` inside `read_file_with_eol` is where those errors
-    // originate, exactly as the prior `std::fs::read` was.
-    //
-    // A directory is the one input where `read_file_with_eol` masks the
-    // error: on Linux `File::open` on a directory succeeds and the
-    // subsequent `read_exact` fails into a silent `Ok(None)` (a "skip"),
-    // not the EISDIR `Err` a plain `std::fs::read` produced. Re-issue the
-    // plain read for that case so a directory named directly stays a hard
-    // `IsADirectoryError` (with the platform's real errno) rather than
-    // being silently dropped — the walker never hands a directory to this
-    // single-file path, so this is purely a robustness guard for the
-    // direct `analyze` entry point.
-    if path.is_dir() {
-        let err = std::fs::read(path)
-            .err()
-            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
-        return Err(AnalysisError::io(err, path));
-    }
+    // `File::open` and reads inside `read_file_with_eol` are where those
+    // errors originate, exactly as the prior `std::fs::read` was.
     let Some(code) = read_file_with_eol(path).map_err(|source| AnalysisError::io(source, path))?
     else {
-        return Ok(None);
+        return skip_unless_directory(path);
     };
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
@@ -408,7 +397,34 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name), opts).map(Some)
+    analyze_bytes(lang, &code, Some(name.into_owned()), opts).map(Some)
+}
+
+/// The outcome for a path [`read_file_with_eol`] declined to read: no
+/// record (`Ok(None)`), unless the path is a directory.
+///
+/// The reader decides "three bytes or fewer" from `st_size` alone and only
+/// opens a *regular* file to check readability, so a directory whose
+/// `st_size` is three or less is declined as an empty file without being
+/// opened: every directory on NTFS (length 0), and every empty one — or a
+/// nearly empty one — on btrfs (twice the summed entry-name lengths) and
+/// ZFS (the entry count). Re-issue the plain read here so a directory
+/// named directly stays a hard `OSError` (`IsADirectoryError` on unix)
+/// carrying the platform's real errno. A larger directory, such as any on
+/// ext4 (4096) or APFS, never gets here: the reader opens it, the first
+/// read fails with EISDIR, and that propagates as an `Err`.
+///
+/// The probe sits on the decline path rather than ahead of the read so a
+/// file that parses pays one `stat`, not two (#1349); only a declined file
+/// pays the second.
+fn skip_unless_directory(path: &Path) -> Result<Option<String>, AnalysisError> {
+    if path.is_dir() {
+        let err = std::fs::read(path)
+            .err()
+            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
+        return Err(AnalysisError::io(err, path));
+    }
+    Ok(None)
 }
 
 pub(crate) fn analyze_source(
@@ -734,6 +750,70 @@ mod tests {
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "strict mode must reject non-UTF-8 path, got {err:?}",
+        );
+    }
+
+    // `cfg(unix)` alone, unlike the two siblings: APFS refuses to *create*
+    // a non-UTF-8 name, but this test never creates the path.
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_rejects_non_utf8_path_before_reading_it() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        // The path does not exist, so a UTF-8 check that ran *after* the
+        // read would surface `Io` (whose `filename` would carry U+FFFD)
+        // instead. #1349 moved the name allocation behind the read gates;
+        // this pins that the check itself did not move with it.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join(OsStr::from_bytes(&[0xffu8, 0xff, b'.', b'r', b's']));
+        let err = analyze_path(&path, AnalyzeOptions::default());
+        assert!(
+            matches!(err, Err(AnalysisError::NonUtf8Path)),
+            "the UTF-8 check must precede the read, got {err:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_raises_is_a_directory_for_an_empty_directory() {
+        // An empty directory is the case the reader cannot see on btrfs
+        // (`st_size` 0) and ZFS (2), both under the three-byte cutoff, so
+        // `read_file_with_eol` declines it as an empty file without
+        // opening it. Only the decline-path probe turns that back into
+        // EISDIR. On ext4 (4096) and APFS the read itself fails with
+        // EISDIR and this passes without the probe, so the direct
+        // `skip_unless_directory` test below is the
+        // filesystem-independent guard.
+        let dir = tempfile::tempdir().expect("tempdir");
+        match analyze_path(dir.path(), AnalyzeOptions::default()) {
+            Err(AnalysisError::Io { source, path }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
+                assert_eq!(path, dir.path());
+            }
+            other => panic!("a directory must raise EISDIR, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skip_unless_directory_raises_for_a_directory_and_skips_a_file() {
+        // Called directly so the directory arm is exercised whatever
+        // `st_size` the host filesystem gives an empty directory; the
+        // file arm pins that a declined regular file stays a silent skip.
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The errno is platform-specific (EISDIR on unix, an access error
+        // on Windows), so pin the variant and the path it names rather
+        // than the kind.
+        match skip_unless_directory(dir.path()) {
+            Err(AnalysisError::Io { path, .. }) => assert_eq!(path, dir.path()),
+            other => panic!("a declined directory must raise, not {other:?}"),
+        }
+        let tiny = dir.path().join("tiny.rs");
+        std::fs::write(&tiny, b"ab\n").expect("write fixture");
+        assert!(
+            matches!(skip_unless_directory(&tiny), Ok(None)),
+            "a declined regular file is a skip",
         );
     }
 

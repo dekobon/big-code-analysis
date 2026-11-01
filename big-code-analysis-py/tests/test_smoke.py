@@ -342,10 +342,12 @@ def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
     """A path that exists but is a directory must *raise*, not be silently
     skipped (#706).
 
-    ``read_file_with_eol`` masks this case on Linux: ``File::open`` on a
-    directory succeeds and the later read fails into a silent ``Ok(None)``
-    skip. ``analyze_path`` guards against that by re-issuing a plain read
-    for a directory so the OS error surfaces as a hard exception.
+    ``read_file_with_eol`` masks this case wherever a directory's
+    ``st_size`` is three or less (every directory on NTFS, an empty one
+    on btrfs or ZFS): it reads as an empty file and is skipped without
+    being opened. ``analyze_path`` re-issues a plain read for a declined
+    path that is a directory, so the OS error surfaces as a hard
+    exception. On ext4 and APFS the read itself fails with ``EISDIR``.
 
     The exact ``OSError`` subclass is errno-derived and therefore
     platform-specific: Linux/macOS yield ``IsADirectoryError`` (``EISDIR``)
@@ -353,9 +355,10 @@ def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
     directory read). Assert the common ``OSError`` base — every subclass
     satisfies the contract that a directory must not be silently skipped.
 
-    Test-via-revert (Linux): deleting the ``if path.is_dir()`` guard in
-    ``analyze_path`` makes ``analyze`` on a directory return ``None``, so
-    the ``else`` branch fails.
+    Test-via-revert (Windows, or a btrfs / ZFS ``tmp_path``): deleting the
+    ``if path.is_dir()`` guard in ``analysis::skip_unless_directory``
+    makes ``analyze`` on a directory return ``None``, so the ``else``
+    branch fails.
     """
     try:
         bca.analyze(tmp_path)
