@@ -106,10 +106,16 @@ and `cargo run -p big-code-analysis-web --`.
   and refuses a view only one side carries; `recovery-oracle.py` is
   the lesson-102 truncation sweep; `perturb.py` is the
   `.claude/rules/testing.md` perturbation driver, which refuses a
-  dirty target and restores from memory; `coverage-diff.py` compares
-  two `llvm-cov` reports by covered count. Each has a `*-test.py` in
-  `make pre-commit` that stubs the binaries, which is the only thing
-  that lints them (#1477).
+  target that is modified, untracked, ignored or absent and restores
+  from memory; `coverage-diff.py` compares two `llvm-cov` reports by
+  covered count. The extension tables,
+  grammar-pin reader, byte-level subprocess capture and manifest
+  shape the three drift drivers share live in `drift_common.py`,
+  derived from `role_tables.py` so a sweep cannot skip an extension
+  the enum owns. Each has a `*-test.py` in `make pre-commit` that
+  stubs the binaries it drives (`coverage-diff-test.py` runs real
+  `git` on a scratch repository), which is the only thing that lints
+  them (#1477).
 - Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
   (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
