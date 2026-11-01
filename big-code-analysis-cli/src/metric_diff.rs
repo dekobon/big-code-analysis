@@ -135,6 +135,13 @@ pub(crate) enum DiffError {
     /// reloads, so that side's set is short the same way — and for the
     /// same reason it must not be reported as a code change.
     UnwritableOutputs { side: DiffSide, count: usize },
+    /// A `--since` step outside the metric walk failed once the extracted
+    /// `<ref>` tree existed: materializing the tree, or locating the
+    /// working tree's repository root. `reason` is the complete message
+    /// the `diff` module built. Returned rather than exited on, so the
+    /// partial extraction is removed by its `TempTree` dropping, as on
+    /// every other error path.
+    Since { reason: String },
 }
 
 impl std::fmt::Display for DiffError {
@@ -183,6 +190,7 @@ impl std::fmt::Display for DiffError {
                     crate::walk_failure_summary(*count)
                 )
             }
+            Self::Since { reason } => f.write_str(reason),
         }
     }
 }

@@ -262,13 +262,11 @@ fn since_leaves_no_temp_trees_behind() {
     let repo = repo_with_flat_commit();
     fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
 
-    // Anchor a private TMPDIR so this run's temp trees are isolated and
-    // observable. TempDir auto-removes on drop, so after a clean exit
+    // Anchor a private temp dir so this run's temp trees are isolated
+    // and observable. TempDir auto-removes on drop, so after a clean exit
     // the dir must hold no leftover extraction trees.
     let tmp = tempfile::tempdir().expect("tmp scratch");
-    cli()
-        .current_dir(repo.path())
-        .env("TMPDIR", tmp.path())
+    cli_in_private_tmp(repo.path(), tmp.path())
         .args(["diff", "--since", "HEAD", "--paths", "src"])
         .assert()
         .success();
@@ -285,6 +283,163 @@ fn since_leaves_no_temp_trees_behind() {
             .map(std::fs::DirEntry::path)
             .collect::<Vec<_>>()
     );
+}
+
+/// An extraction that fails part-way removes the files it had already
+/// written. The ref tree holds `a.rs` and then a non-UTF-8 name, which
+/// `materialize_tree` refuses only after writing `a.rs` (`ls-tree` lists
+/// paths in byte order). Exiting from inside `compute_since_diff` skipped
+/// the `TempDir` destructor and left that partial tree in `TMPDIR`. Not
+/// on macOS, whose filesystems refuse such a name, nor Windows, which has
+/// no byte-path constructor.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+#[test]
+fn since_removes_a_partial_extraction_on_error() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let repo = repo_with_flat_commit();
+    let name = std::ffi::OsStr::from_bytes(b"\xff.rs");
+    // A filesystem mounted `utf8only` (ZFS) refuses the name too.
+    if let Err(e) = fs::write(repo.path().join(name), FLAT_SOURCE) {
+        eprintln!("skipping: this filesystem refuses a non-UTF-8 name: {e}");
+        return;
+    }
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "non-utf8"]);
+
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli()
+        .current_dir(repo.path())
+        .env("TMPDIR", tmp.path())
+        .args(["diff", "--since", "HEAD"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("non-UTF-8 path"));
+
+    let leftovers: Vec<_> = fs::read_dir(tmp.path())
+        .expect("read scratch")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(leftovers, Vec::<std::path::PathBuf>::new());
+}
+
+/// A `bca` command whose temporary files land in `tmp` alone. Windows
+/// reads `TMP` / `TEMP` rather than `TMPDIR`, so all three are set, or
+/// the run there would use the real temporary directory and every
+/// leftover check below would pass on an empty `tmp`.
+fn cli_in_private_tmp(repo: &Path, tmp: &Path) -> Command {
+    let mut cmd = cli();
+    cmd.current_dir(repo)
+        .env("TMPDIR", tmp)
+        .env("TMP", tmp)
+        .env("TEMP", tmp);
+    cmd
+}
+
+/// Assert the run left nothing in its private temporary directory.
+fn assert_no_leftovers(tmp: &Path) {
+    let leftovers: Vec<_> = fs::read_dir(tmp)
+        .expect("read scratch")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(leftovers, Vec::<std::path::PathBuf>::new());
+}
+
+/// The walks run after the `<ref>` tree is extracted and exit the
+/// process on a bad input, which runs no destructors; `die` removes the
+/// tree itself. Each test below reaches a different one of those exits.
+/// A glob that does not compile is the first.
+#[test]
+fn since_removes_the_tree_when_a_glob_does_not_compile() {
+    let repo = repo_with_flat_commit();
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli_in_private_tmp(repo.path(), tmp.path())
+        .args(["diff", "--since", "HEAD", "-I", "["])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("invalid glob pattern"));
+    assert_no_leftovers(tmp.path());
+}
+
+/// A scope that exists only in the working tree is missing from the
+/// extracted `<ref>` tree, and the before walk refuses the seed.
+#[test]
+fn since_removes_the_tree_when_the_scope_is_absent_at_the_ref() {
+    let repo = repo_with_flat_commit();
+    fs::create_dir(repo.path().join("newdir")).expect("mkdir newdir");
+    fs::write(repo.path().join("newdir/b.rs"), FLAT_SOURCE).expect("write b.rs");
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli_in_private_tmp(repo.path(), tmp.path())
+        .args(["diff", "--since", "HEAD", "newdir"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path does not exist"));
+    assert_no_leftovers(tmp.path());
+}
+
+/// An unknown `-l` is resolved by the walk, after extraction.
+#[test]
+fn since_removes_the_tree_on_an_unknown_language() {
+    let repo = repo_with_flat_commit();
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli_in_private_tmp(repo.path(), tmp.path())
+        .args(["diff", "--since", "HEAD", "-l", "bogus"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unknown --language value"));
+    assert_no_leftovers(tmp.path());
+}
+
+/// A relative `--exclude-from` is read from each side's root, so a file
+/// present only in the working tree is missing from the extracted
+/// `<ref>` tree and the before walk fails to read it.
+#[test]
+fn since_removes_the_tree_when_the_exclude_file_is_absent_at_the_ref() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join(".bcaignore"), "src/gen.rs\n").expect("write ignore");
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli_in_private_tmp(repo.path(), tmp.path())
+        .args(["diff", "--since", "HEAD", "--exclude-from", ".bcaignore"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(".bcaignore"));
+    assert_no_leftovers(tmp.path());
+}
+
+/// A relative `--exclude-from` names a file at each side's root, not in
+/// the directory `bca` was started from: run from `src/`, the
+/// repository's `.bcaignore` still applies to both sides. Checking the
+/// file against the starting directory before extraction broke this.
+#[test]
+fn since_reads_a_relative_exclude_from_at_each_root() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/gen.rs"), FLAT_SOURCE).expect("write gen.rs");
+    fs::write(repo.path().join(".bcaignore"), "src/gen.rs\n").expect("write ignore");
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "gen"]);
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("grow work.rs");
+    fs::write(repo.path().join("src/gen.rs"), BRANCHY_SOURCE).expect("grow gen.rs");
+
+    let assert = cli()
+        .current_dir(repo.path().join("src"))
+        .args([
+            "diff",
+            "--since",
+            "HEAD",
+            "--exclude-from",
+            ".bcaignore",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    // The unexcluded file is analysed on both sides, so the run is not
+    // vacuous; the excluded one appears on neither.
+    assert!(stdout.contains("work.rs"), "work.rs missing: {stdout}");
+    assert!(!stdout.contains("gen.rs"), "gen.rs not excluded: {stdout}");
 }
 
 #[test]
@@ -407,6 +562,27 @@ fn since_rejects_paths_from() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains("--paths-from is not supported"));
+}
+
+/// Each side reads `--exclude-from` itself, and stdin can be read once:
+/// the before walk drained it and the after walk applied no exclusions,
+/// so an excluded working-tree file was reported as added. Rejected the
+/// way `--paths-from` is.
+#[test]
+fn since_rejects_exclude_from_stdin() {
+    let repo = repo_with_flat_commit();
+    fs::create_dir(repo.path().join("newdir")).expect("mkdir newdir");
+    fs::write(repo.path().join("newdir/b.rs"), FLAT_SOURCE).expect("write b.rs");
+    let tmp = tempfile::tempdir().expect("tmp scratch");
+    cli_in_private_tmp(repo.path(), tmp.path())
+        .args(["diff", "--since", "HEAD", "--exclude-from", "-"])
+        .write_stdin("newdir/**\n")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "--exclude-from - is not supported",
+        ));
+    assert_no_leftovers(tmp.path());
 }
 
 /// #662: a typo'd `--metric` errors at parse time (exit 1) with the

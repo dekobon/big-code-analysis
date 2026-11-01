@@ -805,6 +805,19 @@ for historical reference.
   release, so the blame behind `analyze(..., vcs_per_function=True)`
   no longer holds the GIL (#1768).
 
+- `bca diff --since` removes the extracted `<ref>` tree on every error,
+  as the book already promised; only a run killed by a signal leaves it
+  behind. A failure after the extraction began exited without dropping
+  the temporary directory, leaving the ref's files in `TMPDIR`: a path
+  the extraction refuses (one that is not UTF-8), a scope or `--paths`
+  entry absent at the ref, an unknown `-l`, an unreadable
+  `--exclude-from` file, or a glob that does not compile.
+
+- `bca diff --since --exclude-from -` is rejected, as `--paths-from`
+  already is. Both sides read the patterns, and the first drained
+  stdin, so the after side applied no exclusions and reported the files
+  they should have hidden as added.
+
 ## [2.4.0] - 2026-10-21
 
 ### Added
