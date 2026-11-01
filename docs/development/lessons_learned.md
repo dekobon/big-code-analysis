@@ -4417,12 +4417,14 @@ prefix of growing length each time: 1.85 and 1.47 against the base's
 nest-axis probe (`loc/c-nested-conditional-docs`) grows one nest, whose
 copied prefix stays shallow, and read linear throughout. `chain_below`
 hands each child `[conditional]`; `loc/c-conditional-per-struct-depth`
-prices the independent-at-depth axis — 1.04 fixed, and with the copy
-reinstated 1.50 at the gate's sizes, *on* the `<=` bound rather than
-past it, so at those sizes it is not yet shown to discriminate
-(`.claude/rules/testing.md`, "Validate a scaling probe by removing what
-it prices"). It nests structs because nested C++ namespaces are
-quadratic under `loc` on `main` (#1767, found by that validation).
+prices the independent-at-depth axis. At the default depths the copy
+read 1.50 — *on* the `<=` bound, not past it, so the probe as first
+shipped would not have gone red — and at the next doubling 1.81 against
+0.94 fixed, which is where its sizes now sit (`.claude/rules/testing.md`,
+"Validate a scaling probe by removing what it prices"): a probe is
+validated at the sizes it ships with. It nests structs because nested
+C++ namespaces are quadratic under `loc` on `main` (#1767, found by
+that validation).
 Ruby's `ruby_documented_core` reproduced both halves in the same PR —
 an `of_children` ahead of the wrapper test, then a `descend` into the
 core itself, so `parent(core)` was the core. Its chain must end in the

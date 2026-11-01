@@ -1484,6 +1484,14 @@ const ATTRIBUTE_RUN_DEPTHS: [usize; 3] = [500, 1_000, 2_000];
 /// it did — 3.9 s for 80 KB of 200-deep statements (#1610).
 const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 
+/// Depths for `loc/c-conditional-per-struct-depth`, the next doubling
+/// above [`LINEAR_DEPTHS`]. The copy it prices is one short chain per
+/// conditional, so at [`LINEAR_DEPTHS`] the constant hides the exponent:
+/// with the copy reinstated it read 1.50 there, *on* the `<=` bound and
+/// not past it, and 1.81 here (#1699 review). A probe that passes with
+/// the defect present is no probe; these sizes are where it goes red.
+const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
+
 /// Bound for a probe expected to be linear in its size parameter.
 ///
 /// Set from measurement, not from theory. A genuinely linear walk does
@@ -2677,7 +2685,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.dloc(),
         },
         render: c_conditional_per_struct_depth,
-        sizes: LINEAR_DEPTHS,
+        sizes: CONDITIONAL_PER_DEPTH_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1699: `conditional_declares` asks each child of a \
                     conditional with a context whose `parent` is the \
@@ -2685,14 +2693,16 @@ pub const PROBES: &[Probe] = &[
                     walk's chain. A copy of the chain per conditional — \
                     `children_chain`, the first shape this took — is \
                     `O(depth)` each, and independent conditionals at \
-                    growing depths made it super-linear: 1.50 measured \
-                    with the copy, 1.04 without. The nested-conditional \
-                    probe grows the other axis and cannot see it. A \
-                    struct nest rather than a namespace nest: nested C++ \
-                    namespaces are quadratic under `loc` on their own \
-                    (pre-existing, every reading of the walk), which \
-                    would hide what this prices. Every block binds, so \
-                    the reading is the doc rows, one per level.",
+                    growing depths made it quadratic: 1.81 measured \
+                    with the copy at these sizes, 0.94 without (1.50 \
+                    and 1.04 at `LINEAR_DEPTHS`, where the copy sits on \
+                    the bound rather than past it). The \
+                    nested-conditional probe grows the other axis and \
+                    cannot see it. A struct nest rather than a namespace \
+                    nest: nested C++ namespaces are quadratic under `loc` \
+                    on their own (#1767), which would hide what this \
+                    prices. Every block binds, so the reading is the doc \
+                    rows, one per level.",
     },
     Probe {
         name: "loc/c-nested-conditional-docs",
