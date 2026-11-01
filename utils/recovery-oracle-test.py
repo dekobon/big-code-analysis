@@ -167,6 +167,31 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(record["skipped_symlinks"], [str(self.fixtures / "link.rs")])
         self.assertIn("differing: 0", out)
 
+    def test_fixtures_whose_paths_collide_under_a_separator_rewrite_get_distinct_cuts(self) -> None:
+        # `a/b.rs` and `a__b.rs` spelled their scratch cut name the same
+        # way, so two concurrent jobs could read and unlink each other's
+        # cut (N1 on #1744). The race is too narrow to provoke reliably
+        # with two small fixtures, so this pins the property the fix
+        # rests on instead: every (fixture, cut, lang) job is handed a
+        # distinct scratch path. The stub records the path it was given.
+        (self.fixtures / "a.rs").unlink()
+        (self.fixtures / "a").mkdir()
+        (self.fixtures / "a" / "b.rs").write_bytes(FIXTURE)
+        (self.fixtures / "a__b.rs").write_bytes(FIXTURE)
+        log = self.root / "paths.log"
+        seen = _stub(self.root / "seen", f"open({str(log)!r}, 'a').write(sys.argv[-1] + '\\n')")
+        rc, out = self._run(seen, seen, seen, seen, "--jobs", "1")
+        self.assertEqual(rc, 0, out)
+        paths = log.read_text().split()
+        per_cut = 2 * (len(ro.CLI) + 1)
+        expected_jobs = 2 * len(ro.cuts_for(FIXTURE))
+        self.assertEqual(len(paths), expected_jobs * per_cut)
+        # Each job's path is seen exactly `per_cut` times, by that job
+        # alone: a shared name would appear twice as often.
+        self.assertEqual(len(set(paths)), expected_jobs)
+        record = json.loads(self.record.read_text())
+        self.assertEqual(sorted(record["cuts"]), ["fx#0/a/b.rs", "fx#0/a__b.rs"])
+
     def test_an_oversized_fixture_is_refused_before_any_cut(self) -> None:
         (self.fixtures / "big.rs").write_bytes(b"x" * 100)
         bca = _stub(self.root / "bca", ECHO)

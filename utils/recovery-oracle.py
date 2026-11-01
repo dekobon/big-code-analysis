@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         jobs = []
         for ri, root in enumerate(args.root):
             root = root.resolve()
-            for fixture in dc.walk(root, tuple(LANGS), (".git",), SKIPPED_LINKS):
+            for fi, fixture in enumerate(dc.walk(root, tuple(LANGS), (".git",), SKIPPED_LINKS)):
                 rel = fixture.relative_to(root)
                 ident = f"{root.name}#{ri}/{rel}"
                 if ident in cut_record:
@@ -159,7 +159,11 @@ def main(argv: list[str] | None = None) -> int:
                 cuts = cuts_for(data)
                 cut_record[ident] = cuts
                 for cut in cuts:
-                    cut_path = pathlib.Path(d) / f"r{ri}-{str(rel).replace('/', '__')}-cut{cut}"
+                    # Numbered per fixture, not spelled from the relative
+                    # path: `a/b.rs` and `a__b.rs` would otherwise share a
+                    # scratch name, and two concurrent jobs would read and
+                    # unlink each other's cut.
+                    cut_path = pathlib.Path(d) / f"r{ri}-f{fi}-cut{cut}"
                     for lang in LANGS[fixture.suffix]:
                         jobs.append((ident, cut, lang, cut_path, data, fixture.suffix))
         if not jobs:
