@@ -838,6 +838,20 @@ jobs:
         env:
           MUTATION_WORKFLOW_REQUIRE_JQ: "1"
         run: python3 -m unittest -q utils/mutation-workflow-test.py
+      # The role-series drift drivers' self-tests (#1744): the drivers
+      # run by hand around a role-table change, so these are the only
+      # per-PR check that their refusals (dirty tree, one-sided view,
+      # bad anchor) and classifications still hold.
+      - name: drift-oracle self-tests (explicit)
+        run: python3 -B -m unittest -q utils/drift-oracle-test.py
+      - name: drift-compare self-tests (explicit)
+        run: python3 -B -m unittest -q utils/drift-compare-test.py
+      - name: recovery-oracle self-tests (explicit)
+        run: python3 -B -m unittest -q utils/recovery-oracle-test.py
+      - name: perturb self-tests (explicit)
+        run: python3 -B -m unittest -q utils/perturb-test.py
+      - name: coverage-diff self-tests (explicit)
+        run: python3 -B -m unittest -q utils/coverage-diff-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future

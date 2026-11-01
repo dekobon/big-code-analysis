@@ -158,6 +158,36 @@ repos:
         files: '^(\.github/workflows/mutation-test\.yml|utils/mutation-(report|workflow-test)\.py)$'
         entry: python3 -m unittest -q utils/mutation-workflow-test.py
         pass_filenames: false
+      - id: drift-oracle-test
+        name: drift-oracle-test
+        language: system
+        files: '^utils/drift-oracle(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/drift-oracle-test.py
+        pass_filenames: false
+      - id: drift-compare-test
+        name: drift-compare-test
+        language: system
+        files: '^utils/drift-compare(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/drift-compare-test.py
+        pass_filenames: false
+      - id: recovery-oracle-test
+        name: recovery-oracle-test
+        language: system
+        files: '^utils/recovery-oracle(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/recovery-oracle-test.py
+        pass_filenames: false
+      - id: perturb-test
+        name: perturb-test
+        language: system
+        files: '^utils/perturb(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/perturb-test.py
+        pass_filenames: false
+      - id: coverage-diff-test
+        name: coverage-diff-test
+        language: system
+        files: '^utils/coverage-diff(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/coverage-diff-test.py
+        pass_filenames: false
       - id: role-coverage
         name: role-coverage
         language: system

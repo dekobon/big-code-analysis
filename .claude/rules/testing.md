@@ -60,7 +60,10 @@ work, that copy is the only one of it anywhere, so it is tier 1 under
 is installed would otherwise delete the fix along with the sweep.
 `git stash push <file>` or a WIP commit *before the first perturbation*
 is the only acceptable form; if neither suits, stop and ask rather than
-start the sweep. An `.orig` in the run directory is a convenience copy
+start the sweep. `utils/perturb.py` (#1744) is that script: it refuses
+a dirty or untracked target outright, keeps the backup in memory and
+in a `mktemp` directory, and rejects an anchor that is absent or equal
+to its replacement. An `.orig` in the run directory is a convenience copy
 for the `cmp` below, never the backup. Put the driver itself in
 a file rather than nesting quotes through zsh into `python3 -c`,
 which is how those edits came to be applied inconsistently in the

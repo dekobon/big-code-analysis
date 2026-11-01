@@ -97,7 +97,19 @@ and `cargo run -p big-code-analysis-web --`.
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `patch-coverage.py` and `verify-name-only-churn.py` are not gates:
-  they take their paths as arguments or run against the cwd.
+  they take their paths as arguments or run against the cwd. Nor are
+  the role-series drift drivers (#1697, landed by #1744):
+  `drift-oracle.py` captures every CLI view — and, given the
+  `verbatim-oracle` binary from `big-code-analysis-bench`, the
+  library's verbatim view — per file and language under an options
+  matrix; `drift-compare.py` compares two captures on keys and bytes
+  and refuses a view only one side carries; `recovery-oracle.py` is
+  the lesson-102 truncation sweep; `perturb.py` is the
+  `.claude/rules/testing.md` perturbation driver, which refuses a
+  dirty target and restores from memory; `coverage-diff.py` compares
+  two `llvm-cov` reports by covered count. Each has a `*-test.py` in
+  `make pre-commit` that stubs the binaries, which is the only thing
+  that lints them (#1477).
 - Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
   (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
