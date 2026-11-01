@@ -143,8 +143,9 @@ impl CandidateGate<'_> {
     ) -> CandidateOutcome {
         // Resolving under the caller's spelling is also the proof that it
         // matches `Violation::metric`: the gate yields each entry's
-        // registry name, so a hit means the two strings are the same one
-        // and the filter below cannot silently select nothing.
+        // registry name, which is its threshold's catalog id, so a hit
+        // means the two strings are the same one and the filter below
+        // cannot silently select nothing.
         let global_soft = resolved_limit(self.resolved.global(), metric).unwrap_or_else(|| {
             die(format_args!(
                 "--explain-threshold {metric}: candidate limit did not resolve to a gated metric"
@@ -167,17 +168,14 @@ impl CandidateGate<'_> {
         // than what one report format happens to surface.
         for (v, coverage) in pairs
             .iter()
-            .filter(|(v, _)| v.metric == outcome.metric && !v.suppressed)
+            .filter(|(v, _)| v.metric() == outcome.metric && !v.suppressed)
         {
             // Every record here already breaches its language's soft
             // limit — that is what the walk gated on. The hard tier is the
             // subset that also breaches that language's candidate ceiling,
-            // which the walk stamped on the violation.
+            // which the walk decided and stamped on the violation.
             outcome.soft.record(coverage.as_ref());
-            let hard_breach = v
-                .hard_limit
-                .is_some_and(|ceiling| ceiling.breaches(v.value));
-            if hard_breach {
+            if v.hard_breach {
                 outcome.hard.record(coverage.as_ref());
             } else {
                 outcome.band_values.push(v.value);

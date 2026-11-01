@@ -376,7 +376,7 @@ fn run_check_walk(
         a.path
             .cmp(&b.path)
             .then(a.start_line.cmp(&b.start_line))
-            .then(a.metric.cmp(b.metric))
+            .then(a.metric().cmp(b.metric()))
     });
 
     CheckWalk {
