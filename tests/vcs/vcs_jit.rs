@@ -486,6 +486,22 @@ diff --git a/docs/b.md b/docs/b.md
         );
     }
     assert!(obj.contains_key("partial_risk_score"));
+    // The loop above sees only the top level. The zero-valued group the
+    // design guards against would sit one level down, in `contributions`
+    // (`JitContributions` carries `history` / `purpose` / `experience`), so
+    // pin that key set exactly: a group added to the diff path must fail
+    // here rather than slip past an absence list nobody extended (#1290).
+    let contributions: std::collections::BTreeSet<&str> = obj["contributions"]
+        .as_object()
+        .expect("contributions is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        contributions,
+        std::collections::BTreeSet::from(["size", "diffusion"]),
+        "diff contributions carry only the computable groups"
+    );
 }
 
 #[test]
