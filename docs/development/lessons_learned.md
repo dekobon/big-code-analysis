@@ -1454,6 +1454,19 @@ assignment — the parser emits only the unsuffixed kind. The defensive arm
 stays and carries the same `ast_has_kind_id` marker; what changed is that
 identifying the case took a probe rather than a grep.
 
+**A "defensive" list is where reachable kinds go to hide** (#1699,
+PR #1769). The per-language doc tables' `defensive` lists — kinds the
+harness requires declared and *unseen* — held JS `using_declaration`,
+TS `module` / `computed_property_name` / `variable_declaration`, TSX
+`html_comment` and C / Objective-C `preproc_elifdef`, some as kinds the
+fixture "leaves to" another language's; `bca dump` spelled every one
+(`using x = f()`, `module M {}`, `--> html` on its own line, `#elifdef`
+under `#ifdef`). Unseen was true only because no fixture spelled them,
+so the row
+tests exercised neither their classification nor, for the gated
+ones, either side of the gate. Each now has a row, and the lists hold
+only aliases unobserved under every context probed.
+
 ---
 
 ## 35. Two predicates classifying the same node must agree
@@ -4357,8 +4370,11 @@ off by one for every member, and a predicate reading the parent answers
 for the grandparent. Build the derived chain inside the arm that has
 already decided the node is a body, never before it: the derivation is
 an `O(depth)` copy, and placed ahead of the kind test it runs for every
-node the walk visits. Do not let "the predicate reads no chain today"
-stand in for the right chain.
+node the walk visits. Where qualifying nodes themselves sit at every
+depth and no consumer reads past `parent`, hand a one-entry chain
+(`Ancestors::below(&[node])`) instead, and say beside it what the first
+depth-reading consumer must widen. Do not let "the predicate reads no
+chain today" stand in for the right chain.
 
 The failure is invisible by construction. A predicate that reads no
 ancestry answers the same under any chain, so the wrong one passes every
@@ -4391,6 +4407,28 @@ inside a class took 3–6 s in each of `npa` and `npm` — "one allocation
 per body, never per node" was the commit message's claim and the diff's
 contradiction. Moved inside the body arms, 0.04 s;
 `npa/java-deep-expression` grows that depth and would have read it.
+
+**The copy was inside the kind arm and still quadratic** (#1699,
+PR #1769). `conditional_declares` built `children_chain(&conditional)`
+once per preprocessor conditional — per qualifying node, as above —
+and a documented conditional at every struct-nesting level copied a
+prefix of growing length each time: 1.85 and 1.47 against the base's
+0.97 at depth 16k in two reviewers' measurements. The existing
+nest-axis probe (`loc/c-nested-conditional-docs`) grows one nest, whose
+copied prefix stays shallow, and read linear throughout. `chain_below`
+hands each child `[conditional]`; `loc/c-conditional-per-struct-depth`
+prices the independent-at-depth axis — 1.04 fixed, and with the copy
+reinstated 1.50 at the gate's sizes, *on* the `<=` bound rather than
+past it, so at those sizes it is not yet shown to discriminate
+(`.claude/rules/testing.md`, "Validate a scaling probe by removing what
+it prices"). It nests structs because nested C++ namespaces are
+quadratic under `loc` on `main` (#1767, found by that validation).
+Ruby's `ruby_documented_core` reproduced both halves in the same PR —
+an `of_children` ahead of the wrapper test, then a `descend` into the
+core itself, so `parent(core)` was the core. Its chain must end in the
+*wrapper*, so `[node]` is not available there; it copies only on a
+wrapper hit, and `core_is_asked_with_its_own_chain` pins `parent(core)`
+to the tree's and no copy for an unwrapped core.
 
 ---
 

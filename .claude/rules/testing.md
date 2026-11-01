@@ -599,7 +599,7 @@ into a build lacking one. A test needs
 import needs `any(…)` of its users. `--fix` writes the markers and
 `--show` prints the derivation.
 
-Four things the derivation cannot see, so write those by hand and say
+Five things the derivation cannot see, so write those by hand and say
 why in a comment:
 
 - **A language chosen from a string.** A helper that maps a path
@@ -616,6 +616,17 @@ why in a comment:
 - **Which grammar a re-export serves.** Same reason, one step further
   out — a scoped `#[allow(unused_imports)]` beats a hand-copied union of
   seven files' gates.
+- **A private item of a parent module that a child file reaches through
+  `use super::*`.** `roles/doc_tests/doxygen.rs` reads `mod.rs`'s
+  harness that way; the scanner reads one file at a time, so the
+  helper's union is derived from `mod.rs`'s callers alone, and `--fix`
+  *narrows* a correct hand-written union to that. #1699's harness lost
+  `c`, `cpp`, `mozcpp` and `objc` this way, the four C-family
+  single-language test builds failed under a green gate, and an
+  isolated single-language test build is what exposed it. The
+  `hand-written(c, cpp, mozcpp, objc)` marker on each such item is the
+  load-bearing one; `utils/check-test-lang-gates-test.py` pins that the
+  gate keeps it.
 
 One thing it does see since #1697 that it did not before: a helper
 reached only through a **`macro_rules!`-generated test**. A macro body
