@@ -3572,6 +3572,8 @@ async fn test_web_vcs_trend_rejects_cache_knobs() {
 
 #[actix_rt::test]
 async fn test_web_vcs_jit_commit_happy_path() {
+    use std::collections::{BTreeMap, BTreeSet};
+
     let repo = build_temp_repo();
     let app = test::init_service(
         App::new()
@@ -3599,13 +3601,53 @@ async fn test_web_vcs_jit_commit_happy_path() {
     // A full commit report carries the score + every feature group.
     assert!(body["risk_score"].is_number());
     assert!(body["commit"]["id"].is_string());
-    for group in ["size", "diffusion", "history", "experience"] {
-        assert!(body["features"][group].is_object(), "features.{group}");
-    }
+    // Pin each feature group's field set: `is_object()` alone is satisfied
+    // by an empty `{}` (#1290).
+    let features: BTreeMap<&str, BTreeSet<&str>> = body["features"]
+        .as_object()
+        .expect("features is an object")
+        .iter()
+        .map(|(group, fields)| {
+            let fields = fields.as_object().expect("feature group is an object");
+            (group.as_str(), fields.keys().map(String::as_str).collect())
+        })
+        .collect();
+    assert_eq!(
+        features,
+        BTreeMap::from([
+            (
+                "size",
+                BTreeSet::from(["lines_added", "lines_deleted", "files_touched", "hunks"]),
+            ),
+            (
+                "diffusion",
+                BTreeSet::from(["subsystems", "directories", "entropy"]),
+            ),
+            (
+                "history",
+                BTreeSet::from([
+                    "prior_changes",
+                    "prior_distinct_authors",
+                    "prior_bug_fix_commits",
+                    "prior_security_fix_commits",
+                    "file_risk_max",
+                    "file_risk_mean",
+                    "new_files",
+                ]),
+            ),
+            (
+                "experience",
+                BTreeSet::from(["author_prior_commits", "author_recent_commits"]),
+            ),
+        ]),
+        "commit-mode feature groups and their fields"
+    );
 }
 
 #[actix_rt::test]
 async fn test_web_vcs_jit_diff_mode_partial_report() {
+    use std::collections::BTreeSet;
+
     // A bare diff in the request body (issue #580): no repo needed. The
     // response is the partial report — `source: "diff"`, a `partial_risk_score`,
     // and NO history / experience / purpose / risk_score keys.
@@ -3644,6 +3686,20 @@ async fn test_web_vcs_jit_diff_mode_partial_report() {
             "diff report must omit `{absent}`"
         );
     }
+    // The loop above sees only the top level; a zero-valued group would
+    // sit one level down, in `contributions`. Pin the key set so a group
+    // added to the diff path fails here (#1290).
+    let contributions: BTreeSet<&str> = body["contributions"]
+        .as_object()
+        .expect("contributions is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        contributions,
+        BTreeSet::from(["size", "diffusion"]),
+        "diff contributions carry only the computable groups"
+    );
 }
 
 #[actix_rt::test]

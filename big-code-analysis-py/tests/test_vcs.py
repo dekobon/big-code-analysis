@@ -523,7 +523,10 @@ def test_vcs_trend_shape(tmp_path: Path) -> None:
     # stamps ride the envelope once, never per point (#635).
     point = cast("dict[str, Any]", late[2])
     assert isinstance(point["vcs"], dict)
-    assert isinstance(point["vcs"]["risk_score"], (int, float))
+    # `float`, not `(int, float)`: `bool` subclasses `int`. The binding
+    # serializes `risk_score` as an `f64`, which `json.loads` always reads
+    # back as `float` (serde_json keeps the `.0` on a whole value).
+    assert isinstance(point["vcs"]["risk_score"], float)
     for constant in (
         "vcs_schema_version",
         "risk_score_version",
@@ -584,11 +587,32 @@ def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
     assert report["jit_score_version"] == 1
     # Commit-mode reports self-identify via ``source`` (issue #642).
     assert report["source"] == "commit"
-    assert isinstance(report["risk_score"], (int, float))
+    # `float`, not `(int, float)`: `bool` subclasses `int`, so the wider
+    # check accepts `True`. The one added line and the fix message both
+    # score positively and a root commit has no experience to subtract,
+    # so the score sits strictly above the formula's zero floor.
+    risk_score = report["risk_score"]
+    assert isinstance(risk_score, float)
+    assert risk_score > 0.0
     assert isinstance(report["commit"]["id"], str)
     assert len(report["commit"]["id"]) == 40
-    for group in ("size", "diffusion", "history", "experience"):
-        assert isinstance(report["features"][group], dict), group
+    # Pin each group's field set: an `isinstance(..., dict)` check is
+    # satisfied by an empty `{}`.
+    features = cast("dict[str, dict[str, Any]]", report["features"])
+    assert {group: set(fields) for group, fields in features.items()} == {
+        "size": {"lines_added", "lines_deleted", "files_touched", "hunks"},
+        "diffusion": {"subsystems", "directories", "entropy"},
+        "history": {
+            "prior_changes",
+            "prior_distinct_authors",
+            "prior_bug_fix_commits",
+            "prior_security_fix_commits",
+            "file_risk_max",
+            "file_risk_mean",
+            "new_files",
+        },
+        "experience": {"author_prior_commits", "author_recent_commits"},
+    }
     # A bug-fix message ("fix bug in work") is classified.
     assert report["commit"]["purpose"]["is_fix"] is True
 
@@ -617,13 +641,21 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
     cannot read a missing group as "low risk"."""
     report = bca_vcs.score_diff(_SAMPLE_DIFF)
     assert report["source"] == "diff"
-    assert isinstance(report["partial_risk_score"], (int, float))
+    # `float` rejects `True`, which `(int, float)` accepts; three added
+    # lines put the size term above zero.
+    partial_risk_score = report["partial_risk_score"]
+    assert isinstance(partial_risk_score, float)
+    assert partial_risk_score > 0.0
     assert report["size"]["files_touched"] == 2
     assert report["size"]["lines_added"] == 3
     assert report["diffusion"]["subsystems"] == 2  # src + docs
     # The whole point of #580: the unavailable groups have no key at all.
     for absent in ("history", "experience", "purpose", "commit", "risk_score"):
         assert absent not in report, absent
+    # The loop above sees only the top level; a zero-valued group would sit
+    # one level down, in `contributions`. Pin the key set so a group added
+    # to the diff path fails here (#1290).
+    assert set(report["contributions"]) == {"size", "diffusion"}
 
 
 def test_vcs_jit_malformed_diff_raises() -> None:

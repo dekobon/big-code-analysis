@@ -18,6 +18,7 @@
 //! repository built through the `git` CLI with a fixed identity, so the
 //! runs are deterministic and depend on no submodule.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command as Git;
 
@@ -87,12 +88,48 @@ fn commit_emits_stable_json_shape() {
     assert_eq!(json["jit_score_version"], 1);
     assert_eq!(json["source"], "commit", "commit-mode discriminator (#642)");
     assert!(json["risk_score"].is_number());
-    // Feature groups and contributions are present and structured.
+    // Pin each feature group's field set: `is_object()` alone is satisfied
+    // by an empty `{}` (#1290).
+    let features: BTreeMap<&str, BTreeSet<&str>> = json["features"]
+        .as_object()
+        .expect("features is an object")
+        .iter()
+        .map(|(group, fields)| {
+            let fields = fields.as_object().expect("feature group is an object");
+            (group.as_str(), fields.keys().map(String::as_str).collect())
+        })
+        .collect();
+    assert_eq!(
+        features,
+        BTreeMap::from([
+            (
+                "size",
+                BTreeSet::from(["lines_added", "lines_deleted", "files_touched", "hunks"]),
+            ),
+            (
+                "diffusion",
+                BTreeSet::from(["subsystems", "directories", "entropy"]),
+            ),
+            (
+                "history",
+                BTreeSet::from([
+                    "prior_changes",
+                    "prior_distinct_authors",
+                    "prior_bug_fix_commits",
+                    "prior_security_fix_commits",
+                    "file_risk_max",
+                    "file_risk_mean",
+                    "new_files",
+                ]),
+            ),
+            (
+                "experience",
+                BTreeSet::from(["author_prior_commits", "author_recent_commits"]),
+            ),
+        ]),
+        "commit-mode feature groups and their fields"
+    );
     for group in ["size", "diffusion", "history", "experience"] {
-        assert!(
-            json["features"][group].is_object(),
-            "features.{group} should be an object"
-        );
         assert!(
             json["contributions"][group].is_number(),
             "contributions.{group} should be a number"
@@ -331,6 +368,20 @@ fn diff_mode_emits_partial_report_with_unavailable_groups() {
             "diff report must omit `{absent}` so it is not misread as low risk"
         );
     }
+    // The top-level loop cannot see a zero-valued group nested in
+    // `contributions`, which is where reusing the commit type would put
+    // one; pin the exact key set so any new group fails here (#1290).
+    let contributions: BTreeSet<&str> = json["contributions"]
+        .as_object()
+        .expect("contributions is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        contributions,
+        BTreeSet::from(["size", "diffusion"]),
+        "diff contributions carry only the computable groups"
+    );
 }
 
 #[test]
