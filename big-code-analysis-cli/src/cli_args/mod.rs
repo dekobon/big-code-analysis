@@ -523,7 +523,8 @@ pub(crate) enum Command {
     /// files changed (old to new), plus files added/removed between the
     /// two sets and metric fields present on one side only, which are
     /// listed rather than compared against `0`. Each side is a per-file
-    /// JSON file or a directory tree of them (the form `bca metrics -O
+    /// JSON file, the aggregate file `bca metrics -O json --output FILE`
+    /// writes, or a directory tree of either (the form `bca metrics -O
     /// json --output-dir DIR` writes).
     /// Replaces the grammar-bump glue chain — the external
     /// `json-minimal-tests` binary plus `split-minimal-tests.py` — with

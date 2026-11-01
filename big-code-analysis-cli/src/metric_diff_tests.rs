@@ -316,11 +316,13 @@ fn tty_and_markdown_list_one_sided_fields() {
 }
 
 /// A side that is not a JSON object holds nothing numeric, so every leaf
-/// the other side has is one-sided — including the whole `metrics` tree
-/// when a document carries `null` there, and a family that is a bare
-/// number on one side and an object on the other, where the number is a
-/// leaf of its own (an empty `field`) and must not vanish under the walk
-/// into the object.
+/// the other side has is one-sided — including a whole `metrics` tree
+/// that is `null`, and a family that is a bare number on one side and an
+/// object on the other, where the number is a leaf of its own (an empty
+/// `field`) and must not vanish under the walk into the object. The
+/// family case is reachable from disk; the `null` tree is not, since the
+/// loader refuses that document (`json_without_a_metrics_object_is_not_a_document`),
+/// and is exercised here through `from_sets` directly.
 #[test]
 fn non_object_side_makes_every_leaf_one_sided() {
     let old = set("a", json!({ "cyclomatic": { "sum": 3.0 }, "nexits": 3.0 }));
@@ -839,9 +841,11 @@ pub fn classify(n: i32, m: i32) -> &'static str {
         PathBuf::from("some/other/spelling.rs"),
     )])
     .expect("in-memory set builds");
+    // Keyed in its lexical form, as an on-disk document's `name` is, so
+    // a `--since` side pairs with a capture taken with `-p src`.
     assert_eq!(
         divergent.keys().collect::<Vec<_>>(),
-        vec![name],
+        ["src/sample.rs"],
         "the in-memory set must key on the document's `name`, not the streamed path"
     );
 }
@@ -934,4 +938,361 @@ fn ops_item_in_a_since_walk_is_refused() {
     )])
     .expect_err("ops item");
     assert!(matches!(err, DiffError::UnexpectedAggregate), "{err:?}");
+}
+
+// --- input validation: nothing the loader cannot pair is skipped -------
+
+/// Write `doc` as JSON to `path`, creating parent directories.
+fn write_doc(path: &Path, doc: &Value) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("mkdir");
+    }
+    std::fs::write(path, serde_json::to_vec(doc).expect("encode")).expect("write");
+}
+
+/// A per-file document named `name` whose cyclomatic sum is `sum`.
+fn doc(name: &str, sum: f64) -> Value {
+    json!({ "name": name, "metrics": { "cyclomatic": { "sum": sum } } })
+}
+
+/// `bca metrics -O json --output <file>` writes one aggregate array.
+/// Each element is a per-file document and loads as one, so an aggregate
+/// pairs with the per-file tree of the same run. It used to key on the
+/// input path with an empty `metrics`, and the diff reported one file
+/// removed and another added, exit 0.
+#[test]
+fn aggregate_array_loads_each_element_and_pairs_with_a_tree() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let aggregate = dir.path().join("before.json");
+    write_doc(
+        &aggregate,
+        &json!([doc("src/a.rs", 3.0), doc("src/b.rs", 1.0)]),
+    );
+    let tree = dir.path().join("after");
+    write_doc(&tree.join("src/a.rs.json"), &doc("src/a.rs", 4.0));
+    write_doc(&tree.join("src/b.rs.json"), &doc("src/b.rs", 1.0));
+
+    let loaded = load_set(&aggregate).expect("aggregate loads");
+    assert_eq!(loaded.keys().collect::<Vec<_>>(), ["src/a.rs", "src/b.rs"]);
+    assert_eq!(loaded["src/a.rs"], json!({ "cyclomatic": { "sum": 3.0 } }));
+
+    let diff = MetricDiff::compute(&aggregate, &tree, 0.0, &[]).expect("diff");
+    assert_eq!(diff.added_files, [] as [String; 0]);
+    assert_eq!(diff.removed_files, [] as [String; 0]);
+    let changed = &diff.buckets["cyclomatic"].changed;
+    assert_eq!(
+        (
+            changed.len(),
+            changed[0].file.as_str(),
+            changed[0].old,
+            changed[0].new
+        ),
+        (1, "src/a.rs", 3.0, 4.0)
+    );
+}
+
+/// An element of an aggregate has no path of its own to key on, and a
+/// single-file side keyed on its own file name pairs with nothing on the
+/// other side; both are errors naming the document.
+#[test]
+fn nameless_document_outside_a_directory_is_an_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let aggregate = dir.path().join("agg.json");
+    write_doc(
+        &aggregate,
+        &json!([doc("src/a.rs", 1.0), { "metrics": { "nom": { "total": 1.0 } } }]),
+    );
+    let err = load_set(&aggregate).expect_err("nameless element");
+    assert!(
+        matches!(&err, DiffError::Nameless { origin } if *origin == DocumentOrigin::element(&aggregate, 1)),
+        "{err:?}"
+    );
+    // The hint names the one way bca itself writes a nameless document,
+    // and suggests no move into a directory side: that fallback never
+    // reaches an aggregate element, and for bca's own null `name` the
+    // output-dir path is not UTF-8 either.
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "{}[1] has no `name` to pair it on: set `name` to its source path; \
+             `bca metrics` itself writes a null `name` only for a source path \
+             that is not valid UTF-8, which `bca diff` cannot pair until that \
+             file is renamed",
+            aggregate.display()
+        )
+    );
+
+    let single = dir.path().join("one.json");
+    write_doc(&single, &json!({ "metrics": {} }));
+    let err = load_set(&single).expect_err("nameless file");
+    assert!(
+        matches!(&err, DiffError::Nameless { origin } if *origin == DocumentOrigin::file(&single)),
+        "{err:?}"
+    );
+
+    // An aggregate element inside a directory side has no fallback
+    // either, and `name: null` is the shape `bca metrics` writes.
+    let tree = dir.path().join("tree");
+    let nested = tree.join("agg.json");
+    write_doc(
+        &nested,
+        &json!([{ "name": null, "metrics": { "nom": { "total": 1.0 } } }]),
+    );
+    let err = load_set(&tree).expect_err("nameless element in a tree");
+    assert!(
+        matches!(&err, DiffError::Nameless { origin } if *origin == DocumentOrigin::element(&nested, 0)),
+        "{err:?}"
+    );
+}
+
+/// A document's `name` and a directory's relpath fallback both key in
+/// lexical form: `-p ./src` and `-p src` captures of one tree pair, as do
+/// a doubled or trailing separator. A `..` is kept, since collapsing it
+/// is only right when its parent is not a symlink.
+#[test]
+fn pairing_keys_drop_dot_components_and_keep_parent_components() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("old.json");
+    write_doc(
+        &old,
+        &json!([
+            doc("./src/a.rs", 1.0),
+            doc("src/./b.rs", 1.0),
+            doc("src//c.rs", 1.0),
+            doc("src/../d.rs", 1.0),
+        ]),
+    );
+    let loaded = load_set(&old).expect("aggregate loads");
+    assert_eq!(
+        loaded.keys().collect::<Vec<_>>(),
+        ["src/../d.rs", "src/a.rs", "src/b.rs", "src/c.rs"]
+    );
+
+    let new = dir.path().join("new.json");
+    write_doc(&new, &doc("src/a.rs", 2.0));
+    let diff = MetricDiff::compute(&old, &new, 0.0, &[]).expect("diff");
+    assert_eq!(
+        diff.buckets["cyclomatic"].changed[0].file, "src/a.rs",
+        "`./src/a.rs` must pair with `src/a.rs`"
+    );
+}
+
+/// Two spellings of one source path on one side are one document twice.
+#[test]
+fn spellings_of_one_path_on_one_side_are_duplicates() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let aggregate = dir.path().join("agg.json");
+    write_doc(
+        &aggregate,
+        &json!([doc("./src/a.rs", 1.0), doc("src/a.rs", 2.0)]),
+    );
+    let err = load_set(&aggregate).expect_err("one file twice");
+    assert!(
+        matches!(&err, DiffError::DuplicateName { name, .. } if name == "src/a.rs"),
+        "{err:?}"
+    );
+}
+
+/// A directory side reads only `*.json`. Any other file beside a
+/// document is not an input and is passed over, but a directory with no
+/// `*.json` file at all (a YAML capture, an empty or mistyped path) is an
+/// error naming it: loaded as an empty set it reports every file of the
+/// other side, or no change against another such directory. A `*.json`
+/// file holding the empty aggregate `[]` is a capture of a walk that
+/// matched nothing, and loads as the empty set it is, as it does when
+/// passed as a file.
+#[test]
+fn a_directory_side_needs_at_least_one_json_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let yaml = dir.path().join("yaml");
+    std::fs::create_dir_all(yaml.join("src")).expect("mkdir");
+    std::fs::write(yaml.join("src/a.rs.yml"), "name: src/a.rs\n").expect("write yaml");
+    let err = load_set(&yaml).expect_err("no json");
+    assert!(
+        matches!(&err, DiffError::NoDocuments { path } if *path == yaml),
+        "{err:?}"
+    );
+
+    let empty = dir.path().join("empty");
+    std::fs::create_dir(&empty).expect("mkdir");
+    let err = load_set(&empty).expect_err("empty");
+    assert!(
+        matches!(&err, DiffError::NoDocuments { path } if *path == empty),
+        "{err:?}"
+    );
+
+    let json_only_empty = dir.path().join("json-empty");
+    write_doc(&json_only_empty.join("all.json"), &json!([]));
+    let from_dir = load_set(&json_only_empty).expect("an empty aggregate is a capture");
+    assert!(from_dir.is_empty(), "{from_dir:?}");
+    let from_file = load_set(&json_only_empty.join("all.json")).expect("the same file alone");
+    assert!(from_file.is_empty(), "{from_file:?}");
+
+    let mixed = dir.path().join("mixed");
+    write_doc(&mixed.join("src/a.rs.json"), &doc("src/a.rs", 1.0));
+    std::fs::write(mixed.join("README.md"), "captured by CI\n").expect("write readme");
+    let loaded = load_set(&mixed).expect("a README beside the capture is ignored");
+    assert_eq!(loaded.keys().collect::<Vec<_>>(), ["src/a.rs"]);
+}
+
+/// `--strip-prefix` is matched against the lexical key, so the `./src/`
+/// a user copies from a `-p ./src` walk still strips; `./` alone strips
+/// nothing, and the trailing `/` is kept but not doubled, so `/` strips
+/// the root of an absolute name.
+#[test]
+fn strip_prefix_is_matched_in_key_form() {
+    // Keyed as the loader keys `./src/a.rs`.
+    let old = set("src/a.rs", json!({ "cyclomatic": { "sum": 1.0 } }));
+    let new = set("src/a.rs", json!({ "cyclomatic": { "sum": 2.0 } }));
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    for (prefix, row) in [
+        ("./src/", "a.rs.sum"),
+        ("src/", "a.rs.sum"),
+        ("./", "src/a.rs.sum"),
+        ("./src", "/a.rs.sum"),
+    ] {
+        let rendered = diff.render_tty(prefix);
+        assert!(
+            rendered.contains(&format!("  {row}  1 ")),
+            "{prefix}: {rendered}"
+        );
+    }
+
+    // The key form itself: `/` keeps its one slash, and `./` names no
+    // component at all.
+    assert_eq!(key_prefix("/"), "/");
+    assert_eq!(key_prefix("./"), "");
+
+    let old = set("/abs/a.rs", json!({ "cyclomatic": { "sum": 1.0 } }));
+    let new = set("/abs/a.rs", json!({ "cyclomatic": { "sum": 2.0 } }));
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    for (prefix, row) in [
+        ("/", "abs/a.rs.sum"),
+        ("/abs/", "a.rs.sum"),
+        ("./", "/abs/a.rs.sum"),
+    ] {
+        let rendered = diff.render_tty(prefix);
+        assert!(
+            rendered.contains(&format!("  {row}  1 ")),
+            "{prefix}: {rendered}"
+        );
+    }
+}
+
+/// JSON that is not a per-file metrics document (an `ops` result, an
+/// array of numbers, a `metrics` that is not an object) is refused rather
+/// than read as a file with no metrics, which would list every field of
+/// the other side's file as added or removed.
+#[test]
+fn json_without_a_metrics_object_is_not_a_document() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cases = [
+        (
+            "ops.json",
+            json!({ "name": "src/a.rs", "spaces": [] }),
+            None,
+        ),
+        (
+            "null.json",
+            json!({ "name": "src/a.rs", "metrics": null }),
+            None,
+        ),
+        ("number.json", json!(3), None),
+        ("numbers.json", json!([3]), Some(0)),
+    ];
+    for (file, value, element) in cases {
+        let path = dir.path().join(file);
+        write_doc(&path, &value);
+        let err = load_set(&path).expect_err(file);
+        let expected = DocumentOrigin {
+            path: path.clone(),
+            element,
+        };
+        assert!(
+            matches!(&err, DiffError::NotADocument { origin } if *origin == expected),
+            "{file}: {err:?}"
+        );
+    }
+}
+
+/// Two documents named alike on one side used to overwrite each other in
+/// load order, so the diff silently compared whichever came last. Both
+/// are named, in a directory and within one aggregate.
+#[test]
+fn duplicate_names_on_one_side_are_an_error_naming_both() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let tree = dir.path().join("tree");
+    write_doc(&tree.join("x.json"), &doc("src/a.rs", 1.0));
+    write_doc(&tree.join("y.json"), &doc("src/a.rs", 2.0));
+    let err = load_set(&tree).expect_err("duplicate in a tree");
+    assert!(
+        matches!(
+            &err,
+            DiffError::DuplicateName { name, first, second }
+                if name == "src/a.rs"
+                    && *first == DocumentOrigin::file(&tree.join("x.json"))
+                    && *second == DocumentOrigin::file(&tree.join("y.json"))
+        ),
+        "{err:?}"
+    );
+
+    let aggregate = dir.path().join("agg.json");
+    write_doc(
+        &aggregate,
+        &json!([doc("src/a.rs", 1.0), doc("src/a.rs", 2.0)]),
+    );
+    let err = load_set(&aggregate).expect_err("duplicate in an aggregate");
+    assert!(
+        matches!(
+            &err,
+            DiffError::DuplicateName { first, second, .. }
+                if *first == DocumentOrigin::element(&aggregate, 0)
+                    && *second == DocumentOrigin::element(&aggregate, 1)
+        ),
+        "{err:?}"
+    );
+}
+
+/// A `*.json` symlink that resolves to nothing is a read error naming the
+/// link. `Path::is_file` used to answer `false` for it, so the document
+/// vanished from its side and the diff reported it removed, exit 0.
+#[cfg(unix)]
+#[test]
+fn dangling_json_symlink_is_a_read_error_naming_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_doc(&dir.path().join("a.json"), &doc("src/a.rs", 1.0));
+    let link = dir.path().join("b.json");
+    std::os::unix::fs::symlink(dir.path().join("missing.json"), &link).expect("symlink");
+    let err = load_set(dir.path()).expect_err("dangling link");
+    assert!(
+        matches!(&err, DiffError::Read { path, .. } if *path == link),
+        "{err:?}"
+    );
+}
+
+/// The symlink policy, pinned in both directions: a symlinked document is
+/// read like the file it names, a symlinked directory inside the side is
+/// not entered (as the source walk enters none), and a side whose root is
+/// itself a symlink is followed, as a named `--paths` seed is.
+#[cfg(unix)]
+#[test]
+fn symlinked_documents_are_read_and_symlinked_directories_are_not_entered() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let outside = dir.path().join("outside");
+    write_doc(&outside.join("a.json"), &doc("src/a.rs", 1.0));
+    write_doc(&outside.join("nested/b.json"), &doc("src/b.rs", 1.0));
+    let side = dir.path().join("side");
+    std::fs::create_dir(&side).expect("mkdir side");
+    symlink(outside.join("a.json"), side.join("a.json")).expect("file link");
+    symlink(outside.join("nested"), side.join("nested")).expect("dir link");
+
+    let loaded = load_set(&side).expect("side loads");
+    assert_eq!(loaded.keys().collect::<Vec<_>>(), ["src/a.rs"]);
+
+    let root_link = dir.path().join("side-link");
+    symlink(&side, &root_link).expect("root link");
+    let loaded = load_set(&root_link).expect("linked root loads");
+    assert_eq!(loaded.keys().collect::<Vec<_>>(), ["src/a.rs"]);
 }

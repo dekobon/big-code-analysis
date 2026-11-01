@@ -1,9 +1,12 @@
 //! A path as the `/`-separated string that identifies it in output.
 //!
-//! One projection for every identifier a path becomes: the
-//! `by_directory[].directory` keys the bus-factor report renders here,
-//! and in the CLI the `files[].path` of the same `bca vcs` report and the
-//! keys `bca diff` pairs its two sets by. The CLI reaches it through the
+//! One separator and UTF-8 policy for every identifier a path becomes:
+//! the `by_directory[].directory` keys the bus-factor report renders
+//! here, and in the CLI the `files[].path` of the same `bca vcs` report
+//! and the last step of the key `bca diff` pairs a document by. That key
+//! is not this projection alone: the diff loader first rewrites the path
+//! lexically (its own `path_to_key`), so the `name` a capture recorded
+//! is not the key verbatim. The CLI reaches it through the
 //! `#[doc(hidden)]` re-export at the crate root, as it does
 //! [`format_suggestion`](crate::format_suggestion), so a prefix strip or
 //! a non-UTF-8 policy change cannot land in one copy and not the other.
