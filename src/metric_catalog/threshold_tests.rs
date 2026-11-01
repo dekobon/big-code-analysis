@@ -231,8 +231,9 @@ fn soft_limit_interval_moves_the_floor_by_a_fraction_of_a_unit() {
     // The step is formed as `unit - ratio * unit`, one rounding, so a
     // floor at zero lands within 4 ulps of the decimal a reader expects;
     // `(1 - ratio) * unit` rounds twice and sat 8 ulps above it, past
-    // the CLI's sig-fig snap, which then printed 0.855001 (#1621 code
-    // review). Measured in true ulps of 0.855 — a bit distance, since
+    // the result-scaled sig-fig snap of the time, which then printed
+    // 0.855001 (#1621 code review). Measured in true ulps of 0.855 — a
+    // bit distance, since
     // `f64::EPSILON` is the spacing at 1.0 and would read 8 as 4. The
     // 10-unit cases are exact.
     let s = soft_at(th("mi.original", 0.0), 0.95);
@@ -348,6 +349,432 @@ fn soft_limit_rejects_bad_ratios() {
         LimitError::BadRatio { ratio: 1.5 }.to_string(),
         "soft ratio must be in (0, 1]; got 1.5"
     );
+}
+
+// --- soft_limit_rounded (#373, #1621, #1648) ---
+//
+// The rounding, the snap and the hard-side clamp lived in the CLI's
+// `scale_threshold` until #1648; the rows below are its tests, moved
+// with the code, plus the synthetic direction/scale pairs the catalog
+// has no row for.
+
+/// [`Threshold::soft_limit_rounded`] for the limit `limit` of `id`,
+/// unwrapped: the ratio is always valid here.
+fn rounded(id: &str, limit: f64, ratio: f64) -> f64 {
+    th(id, limit)
+        .soft_limit_rounded(ratio)
+        .expect("valid ratio")
+        .limit()
+}
+
+/// `soft_limit_rounded` must trim the float-multiplication artifact so
+/// the emitted limit is the readable value the retired Python helper
+/// produced (`{:.6g}`). The canonical case is `nargs = 7`: `7 * 0.95`
+/// is `6.6499999999999995` in IEEE-754, which must round to exactly
+/// `6.65`.
+#[test]
+fn soft_limit_rounded_trims_float_artifact_to_six_sig_figs() {
+    assert_eq!(rounded("nargs", 7.0, 0.95), 6.65);
+}
+
+/// The rounded threshold is still a threshold of the same metric, so a
+/// caller can gate on it directly, and at `ratio == 1` it is the hard
+/// threshold itself.
+#[test]
+fn soft_limit_rounded_keeps_the_metric() {
+    let hard = th("mi.original", 20.0);
+    let soft = hard.soft_limit_rounded(0.9).expect("ratio ok");
+    assert_eq!(soft.id(), "mi.original");
+    assert_eq!(soft.limit(), 21.71);
+    assert!(soft.breaches(21.0), "the rounded floor gates");
+    assert!(!hard.breaches(21.0));
+    assert_eq!(hard.soft_limit_rounded(1.0).expect("ratio ok"), hard);
+}
+
+/// The direction of the scaling is the whole of #1166, so pin both
+/// arithmetics in one test: a higher-is-worse limit is a ceiling and
+/// must come *down*; a lower-is-worse `mi.*` limit is a floor and must
+/// go *up*. Asserted together so a future "simplify" cannot invert both
+/// and stay green — which is exactly what a single-direction test would
+/// have allowed.
+#[test]
+fn soft_limit_rounded_raises_a_floor_and_lowers_a_ceiling() {
+    // Ceiling: 15 * 0.9. Exact in decimal, and the float product is
+    // exact too, so this is a bit-exact expectation.
+    assert_eq!(rounded("cyclomatic", 15.0, 0.9), 13.5);
+    // Floor: 20 + 0.1 × 17.1 (one Visual Studio band on the 171-point
+    // scale), above the hard floor it derives from (#1621).
+    assert_eq!(rounded("mi.original", 20.0, 0.9), 21.71);
+    // The bug this pins: the floor must never land at or below its own
+    // hard limit, which `20 * 0.9 == 18` did.
+    assert!(rounded("mi.original", 20.0, 0.9) > 20.0);
+}
+
+/// An `mi.*` floor moves by `(1 - ratio)` of the metric's unit, not by
+/// a factor (#1621): one Visual Studio band is 17.1 points of
+/// `mi.original` / `mi.sei` and 10 of `mi.visual_studio`. Dividing a
+/// negative floor would *loosen* it — `-50 / 0.95` is `-52.63`, below
+/// the hard floor — so the negative case is the one this pins.
+#[test]
+fn soft_limit_rounded_shifts_an_interval_floor_by_its_unit() {
+    assert_eq!(rounded("mi.original", 20.0, 0.95), 20.855);
+    assert_eq!(rounded("mi.sei", 20.0, 0.95), 20.855);
+    assert_eq!(rounded("mi.visual_studio", 20.0, 0.95), 20.5);
+    let negative = rounded("mi.original", -50.0, 0.95);
+    assert_eq!(negative, -49.145);
+    assert!(
+        negative > -50.0,
+        "a soft floor must be stricter: {negative}"
+    );
+    // Clamped at the domain's top: a floor of 99.8 cannot rise past 100.
+    assert_eq!(rounded("mi.visual_studio", 99.8, 0.95), 100.0);
+}
+
+/// The floor's last significant figure rounds **up**, never down: a
+/// floor rounded down is a band that fires marginally late. Pins the
+/// direction with a value whose 6-sig-fig nearest-rounding would go the
+/// other way: `20 + 0.0001 × 17.1` is `20.00171`, which is `20.0017` to
+/// nearest and `20.0018` up.
+#[test]
+fn soft_limit_rounded_floor_rounds_up_not_to_nearest() {
+    let resolved = rounded("mi.original", 20.0, 0.9999);
+    assert_eq!(resolved, 20.0018);
+    assert!(
+        resolved >= 20.0 + 0.0001 * 17.1,
+        "a floor must not resolve below the exact value; got {resolved}"
+    );
+    // A value that *is* on the grid but carries float residue snaps to
+    // it rather than being promoted a tick: `0.07 × 17.1 = 1.197`.
+    assert_eq!(rounded("mi.original", 20.0, 0.93), 21.197);
+}
+
+/// The additive step's float residue is a larger share of a floor near
+/// zero than of the operands it came from, and larger still when the
+/// step cancels against a floor of the other sign: `-1 + 0.855` is
+/// `-0.14499999999999957`, which a snap measured on the *result* read as
+/// a genuine remainder and promoted to `-0.144999` (#1621 review). The
+/// snap is measured on the operands, so every realistic floor and ratio
+/// resolves to the decimal a reader expects.
+#[test]
+fn soft_limit_rounded_floor_snaps_to_the_decimal_near_zero() {
+    for (limit, ratio, expected) in [
+        (0.0, 0.95, 0.855),
+        (-1.0, 0.95, -0.145),
+        (1.0, 0.95, 1.855),
+        (-0.5, 0.95, 0.355),
+        (0.0, 0.9, 1.71),
+        (-1.0, 0.9, 0.71),
+        (0.0, 0.99, 0.171),
+        (-1.0, 0.99, -0.829),
+        (20.0, 0.95, 20.855),
+        (-50.0, 0.95, -49.145),
+        (-20.0, 0.95, -19.145),
+        // The unit term of the snap's operand: without it this floor
+        // resolves to -1.44699 (its residue read on its own scale).
+        (-1.96, 0.97, -1.447),
+        // A step that cancels the floor exactly is zero, not the ±1e-16
+        // residue the sum carries.
+        (-0.855, 0.95, 0.0),
+        (-1.71, 0.9, 0.0),
+        (-0.171, 0.99, 0.0),
+    ] {
+        assert_eq!(
+            rounded("mi.original", limit, ratio),
+            expected,
+            "mi.original = {limit} at {ratio}"
+        );
+    }
+    for (limit, ratio, expected) in [
+        (0.0, 0.95, 0.5),
+        (0.0, 0.9, 1.0),
+        (20.0, 0.95, 20.5),
+        (-0.3, 0.97, 0.0),
+    ] {
+        assert_eq!(
+            rounded("mi.visual_studio", limit, ratio),
+            expected,
+            "mi.visual_studio = {limit} at {ratio}"
+        );
+    }
+}
+
+/// Rounding never crosses the hard limit. A floor far smaller than its
+/// unit carries a genuine remainder inside the snap tolerance;
+/// unclamped, it lands on the wrong side of the hard limit and the CLI's
+/// `build_tiered` rejects a valid configuration as looser-than-hard. A
+/// ceiling with more figures than the grid holds, scaled by a hair, can
+/// sit within the snap tolerance of the tick *above* it and snap past
+/// the hard limit. The `ratio == 1` rows never reach the rounding
+/// (`soft_limit_rounded_ratio_one_is_identity`).
+#[test]
+fn soft_limit_rounded_never_crosses_the_hard_limit() {
+    let tiny_floor = 0.000_010_000_000_01;
+    assert!(rounded("mi.original", tiny_floor, 0.999_999_999_999_999_9) >= tiny_floor);
+    assert!(rounded("mi.original", 2.821_610_071_901_938e-7, 1.0) >= 2.821_610_071_901_938e-7);
+    // 9_999_999.999_999_998 · (1 − ε) is two ulps under the hard limit
+    // and within the snap tolerance of 10_000_000 — above the ceiling
+    // it was scaled from — so only the clamp keeps it under.
+    let off_grid_ceiling = 9_999_999.999_999_998;
+    assert_eq!(
+        rounded("cyclomatic", off_grid_ceiling, 1.0 - f64::EPSILON),
+        off_grid_ceiling
+    );
+    // 9_999_996 · (1 − ε) is 9_999_995.999…: too far from either tick
+    // to snap, so it rounds down to 9_999_990 (nearest read it as
+    // 10_000_000, the case the clamp was first added for).
+    assert_eq!(
+        rounded("cyclomatic", 9_999_996.0, 1.0 - f64::EPSILON),
+        9_999_990.0
+    );
+    for (metric, ceiling) in [("halstead.effort", 123_456.7), ("cyclomatic", 6.666_666_6)] {
+        assert_eq!(
+            rounded(metric, ceiling, 1.0),
+            ceiling,
+            "{metric} at 1.0 is the identity"
+        );
+    }
+}
+
+/// Exact products must pass through untouched: `50_000 * 0.95` is
+/// representable as `47_500.0`, so rounding must not perturb it. Pins
+/// that the 6-sig-fig rounding preserves full precision for the
+/// largest threshold in `bca.toml` (`halstead.effort`).
+#[test]
+fn soft_limit_rounded_preserves_large_exact_products() {
+    assert_eq!(rounded("halstead.effort", 50_000.0, 0.95), 47_500.0);
+}
+
+/// A ceiling whose product has more figures than the grid holds rounds
+/// **down**, never to nearest: `13801 · 0.95` is `13110.95`, which
+/// nearest read as `13111`, and the strict `>` of `breaches` then let a
+/// file of exactly 13111 lines through the soft tier the exact band
+/// would have reported. The rows are the shapes a six-figure grid
+/// cannot hold: a five-digit count with a two-figure ratio, a
+/// four-digit count with a three-figure one, and a tiny ratio whose
+/// product is so much smaller than its operand that the operand's ulps
+/// once swallowed its genuine remainder and snapped it up to `8`.
+#[test]
+fn soft_limit_rounded_ceiling_never_exceeds_the_exact_product() {
+    for (metric, limit, ratio, expected, first_breach) in [
+        ("loc.sloc", 799_999_999.0, 1e-8, 7.999_99, 8.0),
+        ("loc.sloc", 13_801.0, 0.95, 13_110.9, 13_111.0),
+        ("loc.sloc", 10_201.0, 0.99, 10_098.9, 10_099.0),
+        ("cyclomatic", 1_002.0, 0.999, 1_000.99, 1_001.0),
+        ("cyclomatic", 1_489.0, 0.955, 1_421.99, 1_422.0),
+        (
+            "halstead.effort",
+            1_234_567.0,
+            0.95,
+            1_172_830.0,
+            1_172_839.0,
+        ),
+    ] {
+        let soft = th(metric, limit)
+            .soft_limit_rounded(ratio)
+            .expect("ratio ok");
+        assert_eq!(soft.limit(), expected, "{metric} = {limit} at {ratio}");
+        assert!(
+            soft.breaches(first_breach),
+            "{first_breach} must breach the soft {metric} band {expected}"
+        );
+    }
+}
+
+/// Over every integer limit up to 200 000 and the ratios a band is
+/// written with, the rounded soft ceiling never exceeds the decimal
+/// product `limit · ratio`, and never falls more than one grid tick
+/// under it; a product the grid holds is the product itself. Each
+/// ratio is an integer fraction so the decimal product is computed
+/// exactly, as an integer over a power of ten, rather than through the
+/// float multiplication under test.
+#[test]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn soft_limit_rounded_ceiling_sweep_stays_under_the_product() {
+    const RATIOS: [(u64, u64); 6] = [
+        (95, 100),
+        (99, 100),
+        (9, 10),
+        (999, 1_000),
+        (955, 1_000),
+        (5, 10),
+    ];
+    let hard = |limit: u64| th("loc.sloc", limit as f64);
+    for limit in 1..=200_000_u64 {
+        for (numerator, denominator) in RATIOS {
+            let ratio = numerator as f64 / denominator as f64;
+            let product = limit * numerator;
+            // Correctly rounded, since both operands are exact.
+            let exact = product as f64 / denominator as f64;
+            let soft = hard(limit).soft_limit_rounded(ratio).expect("ratio ok");
+            let resolved = soft.limit();
+            assert!(
+                resolved <= exact,
+                "loc.sloc = {limit} at {ratio}: {resolved} is above the product {exact}"
+            );
+            let tick = 10f64.powi(exact.log10().floor() as i32 - (SOFT_LIMIT_SIG_FIGS - 1));
+            assert!(
+                exact - resolved < tick,
+                "loc.sloc = {limit} at {ratio}: {resolved} is a whole tick under {exact}"
+            );
+            let first_breach = (product / denominator + 1) as f64;
+            assert!(
+                soft.breaches(first_breach),
+                "loc.sloc = {limit} at {ratio}: {first_breach} escapes the band {resolved}"
+            );
+            let figures = product.to_string().trim_end_matches('0').len();
+            if figures <= usize::try_from(SOFT_LIMIT_SIG_FIGS).expect("a positive count") {
+                assert_eq!(
+                    resolved, exact,
+                    "loc.sloc = {limit} at {ratio} fits the grid"
+                );
+            }
+        }
+    }
+}
+
+/// `ratio == 1.0` is the documented no-op: every limit must survive
+/// scaling byte-for-byte so `--headroom 1.0` is a true parity run with
+/// the hard gate.
+#[test]
+fn soft_limit_rounded_ratio_one_is_identity() {
+    // `8.3`'s double sits a hair above the decimal, so `8.3 * 1e5` is
+    // `830000.0000000001`: a bare `ceil` in the floor direction once
+    // promoted it to `8.30001`, a soft floor strictly *above* the hard
+    // one on a run documented as parity. The grid snap absorbs that
+    // residue now, and the identity short-circuit keeps every ratio-1
+    // row from reaching the rounding at all; the rows further down with
+    // more figures than the grid holds are the ones only the
+    // short-circuit keeps.
+    for &limit in &[0.0, 7.0, 8.3, 15.0, 300.0, 50_000.0] {
+        for metric in ["cyclomatic", "mi.original"] {
+            assert_eq!(
+                rounded(metric, limit, 1.0).to_bits(),
+                limit.to_bits(),
+                "limit {limit} metric {metric}",
+            );
+        }
+    }
+    assert_eq!(rounded("mi.original", -50.0, 1.0), -50.0);
+    // More figures than the six-figure grid holds, each rounding toward
+    // the strict side — a ceiling down, a floor up — where the hard-side
+    // clamp cannot restore it: only skipping the rounding keeps these.
+    for (metric, limit) in [
+        ("halstead.effort", 1_234_564.0),
+        ("halstead.effort", 22_476.924),
+        ("cyclomatic", 5_366.234),
+        ("mi.original", 92.669_605),
+        ("mi.original", -14.774_235_32),
+    ] {
+        assert_eq!(
+            rounded(metric, limit, 1.0).to_bits(),
+            limit.to_bits(),
+            "limit {limit} metric {metric}"
+        );
+    }
+    // A floor the domain clamp handed back unchanged did not move
+    // either, whatever the ratio: out of domain above 100, with more
+    // figures than the grid holds, so only the short-circuit keeps it.
+    assert_eq!(
+        rounded("mi.visual_studio", 100.123_456, 0.9).to_bits(),
+        100.123_456_f64.to_bits()
+    );
+}
+
+/// A configured limit of `0` ("no value permitted") must stay `0`
+/// after scaling. `0 · ratio` is `0`, so the identity short-circuit
+/// returns it before any rounding; the rounding's own guard against
+/// `log10(0)` is reached by a ceiling the domain clamp takes to zero
+/// (`soft_limit_rounded_covers_the_synthetic_direction_scale_pairs`)
+/// and by `round_to_soft_grid(0.0)`.
+#[test]
+fn soft_limit_rounded_zero_limit_stays_zero() {
+    assert_eq!(rounded("cyclomatic", 0.0, 0.5).to_bits(), 0.0_f64.to_bits());
+}
+
+/// A subnormal-range limit must not poison the result with `NaN`: the
+/// sig-fig `factor` overflows to infinity for such inputs, so the
+/// rounding hands the scaled value back unrounded. No real threshold is
+/// this small, but `soft_limit_rounded` must stay total — a `NaN` would
+/// later be rejected by the CLI's `ThresholdSet::build` with a confusing
+/// error. Pinned to the scaled value, not merely to "finite": `f64::min`
+/// ignores a NaN, so the hard-side clamp alone would turn an unguarded
+/// NaN into the hard limit, a finite answer that is still the wrong one.
+#[test]
+fn soft_limit_rounded_subnormal_limit_stays_finite() {
+    let limit = 1e-320;
+    assert_eq!(rounded("cyclomatic", limit, 0.5), limit * 0.5);
+}
+
+/// An invalid ratio is `BadRatio`, never a silent scale.
+#[test]
+fn soft_limit_rounded_rejects_a_ratio_outside_the_band() {
+    let err = th("cyclomatic", 10.0)
+        .soft_limit_rounded(1.5)
+        .expect_err("a ratio above 1 loosens the tier");
+    assert_eq!(err, LimitError::BadRatio { ratio: 1.5 });
+}
+
+/// The direction/scale pairs the catalog has no row for. A ratio-scale
+/// floor is a quotient, so its snap operand is the limit alone (no unit
+/// term) and its last figure still goes up; an interval ceiling rounds
+/// down like any ceiling and is held at or below the hard limit.
+#[test]
+fn soft_limit_rounded_covers_the_synthetic_direction_scale_pairs() {
+    let rounded_synthetic = |info: &'static MetricInfo, limit: f64, ratio: f64| {
+        synthetic(info, limit)
+            .soft_limit_rounded(ratio)
+            .expect("ratio ok")
+            .limit()
+    };
+    // 7 / 0.95 is 7.368421052631579…: up to 7.36843, not 7.36842.
+    assert_eq!(rounded_synthetic(&RATIO_FLOOR, 7.0, 0.95), 7.368_43);
+    // 20 / 0.8 is exactly 25, on the grid, so no promotion.
+    assert_eq!(rounded_synthetic(&RATIO_FLOOR, 20.0, 0.8), 25.0);
+    assert!(rounded_synthetic(&RATIO_FLOOR, 7.0, 0.95) > 7.0);
+    // `soft_limit` caps the quotient at `f64::MAX` to keep it finite;
+    // rounding that *up* would overflow to infinity, so the cap stands.
+    assert_eq!(rounded_synthetic(&RATIO_FLOOR, 1e300, 1e-10), f64::MAX);
+
+    // 50 − 0.1 × 10 and 50 − 0.05 × 10, both exact.
+    assert_eq!(rounded_synthetic(&INTERVAL_CEILING, 50.0, 0.9), 49.0);
+    assert_eq!(rounded_synthetic(&INTERVAL_CEILING, 50.0, 0.95), 49.5);
+    // Clamped at the domain minimum, then held under the hard limit.
+    assert_eq!(rounded_synthetic(&INTERVAL_CEILING, 3.0, 0.5), 0.0);
+    // Out of domain: the exact arithmetic already hands the hard limit
+    // back, so the rounded form is the identity too.
+    assert_eq!(
+        rounded_synthetic(&INTERVAL_CEILING, -5.0, 0.9).to_bits(),
+        (-5.0_f64).to_bits()
+    );
+}
+
+/// The grid `soft_limit_rounded` resolves to, offered to a renderer for
+/// the quantities it derives from a rounded limit.
+#[test]
+fn round_to_soft_grid_rounds_to_nearest_six_figures() {
+    assert_eq!(Threshold::round_to_soft_grid(1.0 - 0.95), 0.05);
+    assert_eq!(Threshold::round_to_soft_grid(20.855 - 20.0), 0.855);
+    assert_eq!(Threshold::round_to_soft_grid(7.0 * 0.95), 6.65);
+    assert_eq!(Threshold::round_to_soft_grid(1_234_567.0), 1_234_570.0);
+    assert_eq!(Threshold::round_to_soft_grid(-1_234_564.0), -1_234_560.0);
+    // Nearest, not toward a strict side: that direction is
+    // `soft_limit_rounded`'s alone.
+    assert_eq!(Threshold::round_to_soft_grid(20.00171), 20.0017);
+    // The degenerate inputs pass through: zero, the non-finite values,
+    // and a subnormal whose sig-fig factor would overflow.
+    assert_eq!(
+        Threshold::round_to_soft_grid(0.0).to_bits(),
+        0.0_f64.to_bits()
+    );
+    assert!(Threshold::round_to_soft_grid(f64::NAN).is_nan());
+    assert_eq!(Threshold::round_to_soft_grid(f64::INFINITY), f64::INFINITY);
+    assert_eq!(
+        Threshold::round_to_soft_grid(f64::NEG_INFINITY),
+        f64::NEG_INFINITY
+    );
+    assert_eq!(Threshold::round_to_soft_grid(1e-320), 1e-320);
+    // The top of the grid: `f64::MAX` rounds to the finite tick below it.
+    assert!(Threshold::round_to_soft_grid(f64::MAX).is_finite());
 }
 
 #[test]

@@ -264,7 +264,13 @@ section.
     and `breaches`, `excess`, `severity`, `cmp_severity`, `cmp_breach`,
     `soft_limit`, `change` and `drift` are stable in signature. Their arithmetic is
     a value and may be corrected in a minor release, like any metric
-    number. `MetricInfo::cmp_worse` (added #1621) orders two values by
+    number. `soft_limit_rounded` and `round_to_soft_grid` (added #1648)
+    are stable in signature on the same terms: the first is `soft_limit`
+    resolved onto the six-significant-figure grid `bca check` gates on
+    and held on the hard limit's side, so a soft limit is never looser
+    than its hard one and `ratio == 1` is a bitwise identity; the grid's
+    width and the rounding's direction are values, not shape.
+    `MetricInfo::cmp_worse` (added #1621) orders two values by
     badness and sorts NaN as the worst value. `Checked`, `LimitError`,
     `LimitWarning`, `Change` and each struct-like variant are
     `#[non_exhaustive]`. The `Display` wording of `LimitError` and

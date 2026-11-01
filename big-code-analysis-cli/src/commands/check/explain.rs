@@ -38,8 +38,7 @@
 //! coverage tags that are correct for both tiers.
 
 use super::*;
-use crate::threshold_soft::{Rounding, round_sig_figs};
-use big_code_analysis::metric_catalog::Scale;
+use big_code_analysis::metric_catalog::{Scale, Threshold};
 
 /// Minimum number of soft-band offenders before a shared value is called
 /// a cluster. Below ten, "they all sit at N" describes a handful rather
@@ -208,10 +207,10 @@ impl CandidateGate<'_> {
 
     /// Languages gating this metric at something other than the candidate.
     // Both comparands are threshold *limits*, not measurements: `hard` is
-    // a config value verbatim and `soft` is `scale_threshold` applied to
-    // one, so two limits derived the same way from the same base are
-    // bit-identical and an exact comparison is the contract. Mirrors the
-    // module-level allow in `crate::threshold_lang`.
+    // a config value verbatim and `soft` is `Threshold::soft_limit_rounded`
+    // applied to one, so two limits derived the same way from the same
+    // base are bit-identical and an exact comparison is the contract.
+    // Mirrors the module-level allow in `crate::threshold_lang`.
     #[allow(clippy::float_cmp)]
     fn language_overrides(
         &self,
@@ -351,8 +350,8 @@ impl std::fmt::Display for SoftDerivation {
             Self::Shift { ratio, unit, delta } => {
                 // Rounded like the soft limit itself, so `1 - 0.95`
                 // reads `0.05` rather than `0.050000000000000044`.
-                let step = round_sig_figs(1.0 - ratio, Rounding::Nearest);
-                let moved = round_sig_figs(*delta, Rounding::Nearest);
+                let step = Threshold::round_to_soft_grid(1.0 - ratio);
+                let moved = Threshold::round_to_soft_grid(*delta);
                 write!(
                     f,
                     "{}{} ({} \u{d7} {}",
@@ -364,7 +363,7 @@ impl std::fmt::Display for SoftDerivation {
                 // A clamp at the domain edge made the move smaller than
                 // the product; say so rather than print a sum that does
                 // not add up.
-                let nominal = round_sig_figs(step * unit, Rounding::Nearest);
+                let nominal = Threshold::round_to_soft_grid(step * unit);
                 if moved.abs() < nominal {
                     write!(f, ", clamped")?;
                 }
