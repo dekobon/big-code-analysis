@@ -48,6 +48,12 @@ Each branch dispatches on the underlying `errno`:
 | `PermissionError` | 13 (`EACCES`) | Read bit denied for the calling user. |
 | `IsADirectoryError` | 21 (`EISDIR`) | Path resolves to a directory. |
 
+On Windows the Win32 code is on `err.winerror`, and `err.errno` holds
+the POSIX code CPython maps it to, so the same branches apply: a
+missing file or a missing parent directory is a `FileNotFoundError`.
+Windows reports a directory read as access denied, so a directory
+raises `PermissionError` there rather than `IsADirectoryError`.
+
 Use `except OSError` if you want to catch the whole family and
 inspect `err.errno` / `err.filename` yourself.
 

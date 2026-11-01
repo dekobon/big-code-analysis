@@ -160,7 +160,9 @@ class AnalysisFailure:
     classification — single-file :func:`analyze` raises a typed
     :class:`OSError` subclass instead (e.g. ``FileNotFoundError``,
     ``PermissionError``), which is the recommended path when
-    structured error dispatch matters.
+    structured error dispatch matters. On Windows ``<N>`` is the Win32
+    error code, not an ``errno``: ``ERROR_PATH_NOT_FOUND`` is 3, which
+    is ``ESRCH`` as an ``errno``.
     """
 
     @property
@@ -644,7 +646,9 @@ def analyze(
         For any underlying I/O failure. Dispatches to the canonical
         subclass (``FileNotFoundError``, ``PermissionError``,
         ``IsADirectoryError``, …) based on ``errno``, with
-        ``err.errno`` and ``err.filename`` populated.
+        ``err.errno`` and ``err.filename`` populated. On Windows the
+        Win32 code is on ``err.winerror`` and ``err.errno`` is the
+        POSIX code CPython maps it to.
 
     Pass ``vcs=True`` to attach a ``"vcs"`` block (change-history
     metrics) to the file's ``metrics`` from a one-shot history walk of
@@ -931,8 +935,9 @@ def language_for_file(
         For any underlying I/O failure, **only when ``read=True``**.
         Dispatches to the canonical subclass (``FileNotFoundError``,
         ``PermissionError``, ``IsADirectoryError``, …) based on
-        ``errno``, with ``err.errno`` and ``err.filename`` populated —
-        same shape as :func:`analyze`. For the prior "extension only,
+        ``errno``, with ``err.errno`` and ``err.filename`` populated
+        (and ``err.winerror`` on Windows) — same shape as
+        :func:`analyze`. For the prior "extension only,
         never raises" semantics pass ``read=False`` (the #682 successor
         to wrapping the call in ``try / except OSError``).
     """

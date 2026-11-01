@@ -165,6 +165,46 @@ fn strip_os_error_suffix(message: &str) -> &str {
     message
 }
 
+/// Which slot of `CPython`'s `OSError(errno, strerror, filename[,
+/// winerror])` constructor carries one `io::Error::raw_os_error()` code.
+#[derive(Debug, PartialEq, Eq)]
+enum OsErrorCode {
+    /// `OSError(errno, strerror, filename)`; `None` for an error with no
+    /// OS code behind it, such as a path holding a NUL byte.
+    Errno(Option<i32>),
+    /// `OSError(None, strerror, filename, winerror)`.
+    WinError(i32),
+}
+
+impl OsErrorCode {
+    /// Route `raw` to the slot `CPython` reads it from on this platform.
+    ///
+    /// On Windows `raw_os_error()` is a Win32 code, not an errno: passed
+    /// as `errno`, `ERROR_PATH_NOT_FOUND` (3) would read as `ESRCH` and
+    /// raise `ProcessLookupError`. Passed as `winerror`, `CPython` maps it
+    /// to the errno that picks the right subclass (`FileNotFoundError`
+    /// for 2 and 3, `PermissionError` for 5) and keeps the Win32 code on
+    /// `err.winerror`. Elsewhere `winerror` is ignored. With no code at
+    /// all the slot is left out even on Windows, where a `winerror` of
+    /// `None` would render as `[WinError None]` instead of the
+    /// `[Errno None]` every other platform shows. `on_windows` is a
+    /// parameter rather than a `cfg` so every arm is testable on any host.
+    const fn for_platform(raw: Option<i32>, on_windows: bool) -> Self {
+        match raw {
+            Some(code) if on_windows => Self::WinError(code),
+            _ => Self::Errno(raw),
+        }
+    }
+
+    /// The `OSError` carrying this code, `strerror` and `filename`.
+    fn into_py_err(self, strerror: String, filename: String) -> PyErr {
+        match self {
+            Self::Errno(errno) => PyOSError::new_err((errno, strerror, filename)),
+            Self::WinError(code) => PyOSError::new_err((None::<i32>, strerror, filename, code)),
+        }
+    }
+}
+
 /// Convert an internal `AnalysisError` to a concrete Python exception.
 ///
 /// Kept as a free function (rather than a `From<AnalysisError>` impl
@@ -178,14 +218,16 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
         // EACCES, etc.) and populates `err.errno` / `err.filename`
         // so idiomatic `except FileNotFoundError as e: e.filename`
         // works. Passing `e.to_string()` alone collapses every
-        // I/O failure to bare `OSError` with `errno is None`.
+        // I/O failure to bare `OSError` with `errno is None`. On
+        // Windows the code travels as `winerror` instead, which CPython
+        // maps to the errno that drives that dispatch.
         AnalysisError::Io { source, path } => {
-            let errno = source.raw_os_error();
+            let code = OsErrorCode::for_platform(source.raw_os_error(), cfg!(windows));
             // Rust's `io::Error` Display appends ` (os error N)` for
             // OS-backed errors, but CPython's `OSError(errno, …)`
-            // constructor already renders `[Errno N]` from the errno
-            // argument — passing the full Display doubles the errno
-            // text in the traceback. Strip Rust's suffix so the
+            // constructor already renders `[Errno N]` (`[WinError N]`
+            // on Windows) from the code — passing the full Display
+            // doubles the errno text in the traceback. Strip Rust's suffix so the
             // strerror carries only the human message; CPython owns
             // the errno rendering (#617).
             let msg = strip_os_error_suffix(&source.to_string()).to_owned();
@@ -200,7 +242,7 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
             // text, not identifiers, so `display()` is the right
             // call here — the caller has already certified that
             // lossy rendering is acceptable for this path.
-            PyOSError::new_err((errno, msg, path.display().to_string()))
+            code.into_py_err(msg, path.display().to_string())
         }
         AnalysisError::NonUtf8Path => PyValueError::new_err(
             "path is not valid UTF-8 and cannot be used as a FuncSpace name; \
@@ -939,7 +981,42 @@ fn register_vcs_submodule(parent: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_os_error_suffix;
+    use super::{OsErrorCode, strip_os_error_suffix};
+
+    /// Win32 `ERROR_PATH_NOT_FOUND`: read as an errno it is `ESRCH`, which
+    /// `CPython` dispatches to `ProcessLookupError`.
+    const ERROR_PATH_NOT_FOUND: i32 = 3;
+    /// POSIX "no such file or directory" on Linux and macOS.
+    const ENOENT: i32 = 2;
+
+    #[test]
+    fn windows_code_travels_as_winerror_not_errno() {
+        assert_eq!(
+            OsErrorCode::for_platform(Some(ERROR_PATH_NOT_FOUND), true),
+            OsErrorCode::WinError(ERROR_PATH_NOT_FOUND)
+        );
+    }
+
+    #[test]
+    fn non_windows_code_travels_as_errno() {
+        assert_eq!(
+            OsErrorCode::for_platform(Some(ENOENT), false),
+            OsErrorCode::Errno(Some(ENOENT))
+        );
+    }
+
+    /// A path with a NUL byte fails with no OS code. On Windows, passing
+    /// the `winerror` slot anyway rendered `[WinError None]` where every
+    /// other platform shows `[Errno None]`, so the slot is left out.
+    #[test]
+    fn a_non_os_error_passes_no_winerror_slot() {
+        for on_windows in [false, true] {
+            assert_eq!(
+                OsErrorCode::for_platform(None, on_windows),
+                OsErrorCode::Errno(None)
+            );
+        }
+    }
 
     #[test]
     fn strips_trailing_os_error_suffix() {
