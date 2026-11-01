@@ -171,6 +171,11 @@ pub(crate) fn enumerate_target_files(
                         // file's SLOC, since the source (empty tree) is 0.
                         files.insert(path, stats.after as u64);
                     }
+                    // Every path is diffed exactly once, so nothing in the
+                    // resource cache is ever read again; left alone it
+                    // holds every in-scope blob of the tree until the
+                    // enumeration ends. The buffers stay for reuse.
+                    cache.clear_resource_cache_keep_allocation();
                 }
                 Ok(ControlFlow::Continue(()))
             }),
