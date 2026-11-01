@@ -17,19 +17,13 @@ use big_code_analysis::vcs::{
 };
 
 use crate::common;
-use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
+use common::vcs_fixture::{DAY, FIXED_NOW, Repo, stats_for};
 
 /// Options pinned to the fixture clock; tweak fields per test.
 fn opts() -> Options {
     let mut options = Options::default();
     options.as_of = Some(FIXED_NOW);
     options
-}
-
-fn stats_for<'a>(index: &'a vcs::HistoryIndex, rel: &str) -> &'a vcs::Stats {
-    index
-        .get(Path::new(rel))
-        .unwrap_or_else(|| panic!("expected stats for {rel}; index has {} files", index.len()))
 }
 
 #[test]

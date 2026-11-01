@@ -7,6 +7,12 @@ use std::cell::Cell;
 use super::{
     LineRun, LineSpan, MAX_BLAME_ATTEMPTS, ObjectId, is_transient_object_miss, retry_transient,
 };
+use crate::vcs::git::tests::{commit_tree_as, tree_with};
+
+/// The identity every in-process fixture commit here is written as.
+const ADA: (&str, &str) = ("Ada", "ada@example.com");
+/// A fixed commit time; the blame tests read nothing off it.
+const SEED_TIME: i64 = 1_700_000_000;
 
 /// Drive `retry_transient` with a synthetic closure whose i-th call
 /// returns `outcomes[i]` (and counts calls), treating every `Err` as
@@ -239,20 +245,7 @@ fn thread_local_handle_carries_no_object_cache_until_one_is_set() {
 fn a_session_handle_carries_the_object_cache() {
     let dir = tempfile::tempdir().expect("temp dir");
     let repo = gix::init(dir.path()).expect("init repository");
-    let who = gix::actor::SignatureRef {
-        name: "Ada".into(),
-        email: "ada@example.com".into(),
-        time: "1700000000 +0000",
-    };
-    repo.commit_as(
-        who,
-        who,
-        "HEAD",
-        "seed",
-        repo.empty_tree().id,
-        gix::commit::NO_PARENT_IDS,
-    )
-    .expect("write seed commit");
+    commit_tree_as(&repo, ADA, SEED_TIME, repo.empty_tree().id, &[]);
 
     let engine = super::PerFunctionBlame::open(dir.path(), crate::vcs::options::Options::default())
         .expect("open blame engine");
@@ -320,38 +313,15 @@ fn a_blame_whose_blob_lookup_misses_is_retried() {
     let repo = gix::init(dir.path()).expect("init repository");
     let dangling =
         ObjectId::from_hex(b"2222222222222222222222222222222222222222").expect("valid hex");
-    let tree = gix::objs::Tree {
-        entries: vec![gix::objs::tree::Entry {
-            mode: gix::objs::tree::EntryKind::Blob.into(),
-            filename: "f.txt".into(),
-            oid: dangling,
-        }],
-    };
-    let tree_id = repo.write_object(&tree).expect("write tree").detach();
-    let who = gix::actor::SignatureRef {
-        name: "Ada".into(),
-        email: "ada@example.com".into(),
-        time: "1700000000 +0000",
-    };
-    let head = repo
-        .commit_as(
-            who,
-            who,
-            "HEAD",
-            "seed",
-            tree_id,
-            gix::commit::NO_PARENT_IDS,
-        )
-        .expect("write seed commit")
-        .detach();
+    let head = commit_tree_as(&repo, ADA, SEED_TIME, tree_with(&repo, dangling), &[]);
 
     let engine = super::PerFunctionBlame::open(dir.path(), crate::vcs::options::Options::default())
         .expect("open blame engine");
     let err = engine
         .new_state()
         .repo
-        .blame_file("f.txt".into(), head, engine.blame_options())
-        .expect_err("the blob behind f.txt was never written");
+        .blame_file("f.rs".into(), head, engine.blame_options())
+        .expect_err("the blob behind f.rs was never written");
     assert!(
         is_transient_object_miss(&err),
         "a blob miss under gix-blame's wrapper must still read as NotFound: {err}"

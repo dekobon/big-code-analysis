@@ -19,7 +19,7 @@ use big_code_analysis::vcs::{
 };
 
 use crate::common;
-use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
+use common::vcs_fixture::{DAY, FIXED_NOW, Repo, stats_for};
 
 /// Options pinned to the fixture's reference time so windowing is stable
 /// across the back-to-back runs a cache hit requires.
@@ -161,15 +161,63 @@ const FOLD_GRACE_INTO_ADA: &str = "Ada <ada@example.com> Grace <grace@example.co
 
 /// One file's distinct-author count over the long window.
 fn authors_long(index: &vcs::HistoryIndex, path: &str) -> u32 {
-    index
-        .get(Path::new(path))
-        .unwrap_or_else(|| {
-            panic!(
-                "expected {path} to be ranked; index has {} files",
-                index.len()
-            )
-        })
-        .authors_long
+    stats_for(index, path).authors_long
+}
+
+/// One file's added+deleted line churn over the long window.
+fn churn_long(index: &vcs::HistoryIndex, path: &str) -> u64 {
+    stats_for(index, path).churn_long
+}
+
+/// The two revisions of the issue's fixture (#1425): a unique line moves
+/// across repeated content. Myers records the move as one line removed
+/// and one added; histogram anchors on the low-occurrence line and
+/// records six of each. `git diff --numstat` agrees (`1 1` under
+/// `-c diff.algorithm=myers`, `6 6` under `histogram`), so the churn the
+/// walk records for commit two is decided by `diff.algorithm`.
+const UNIQUE_LINE_LAST: &str =
+    "fn a() {}\nfn b() {}\nfn c() {}\nfn a() {}\nfn b() {}\nfn c() {}\nfn only_once() {}\n";
+const UNIQUE_LINE_FIRST: &str =
+    "fn only_once() {}\nfn a() {}\nfn b() {}\nfn c() {}\nfn a() {}\nfn b() {}\nfn c() {}\n";
+
+/// `a.rs` churn over the fixture's two commits under each algorithm: the
+/// seven lines commit one adds, plus commit two's `1 + 1` (Myers, git's
+/// and gix's default) or `6 + 6` (histogram).
+const CHURN_UNDER_MYERS: u64 = 7 + 1 + 1;
+const CHURN_UNDER_HISTOGRAM: u64 = 7 + 6 + 6;
+
+/// A repo whose single file's recorded churn depends on `diff.algorithm`.
+///
+/// The algorithm is pinned to git's default in the repository config, so
+/// a contributor's global `diff.algorithm = histogram` cannot move the
+/// primed value the tests compare the later edit against.
+fn build_algorithm_sensitive_repo() -> Repo {
+    build_algorithm_sensitive_repo_with(|_| {})
+}
+
+/// [`build_algorithm_sensitive_repo`] with `setup` run after the
+/// algorithm pin and before the first commit, so a file it writes is
+/// committed alongside `a.rs` and a key it sets is in place before any
+/// priming.
+fn build_algorithm_sensitive_repo_with(setup: impl FnOnce(&Repo)) -> Repo {
+    let repo = Repo::init();
+    repo.git(&["config", "diff.algorithm", "myers"]);
+    setup(&repo);
+    repo.write("a.rs", UNIQUE_LINE_LAST);
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 30 * DAY,
+        "feat: add a",
+    );
+    repo.write("a.rs", UNIQUE_LINE_FIRST);
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 10 * DAY,
+        "refactor: hoist only_once",
+    );
+    repo
 }
 
 #[test]
@@ -370,6 +418,198 @@ fn a_semantically_empty_mailmap_edit_still_hits_the_cache() {
         served.values().all(|stats| stats.commits_long == 0),
         "the emptied entry was still served, so the comment-only edit did \
          not invalidate it"
+    );
+}
+
+#[test]
+fn a_diff_algorithm_change_is_not_served_from_a_stale_entry() {
+    // Issue #1425, first repro: the blob-diff platform the walk records
+    // churn through is configured from `diff.algorithm`, so a config edit
+    // changes what a replay should produce while moving neither `HEAD`
+    // (the entry key) nor any field of `Options` — the mailmap's class
+    // (#1262), reached through the diff configuration instead.
+    let repo = build_algorithm_sensitive_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        churn_long(&primed, "a.rs"),
+        CHURN_UNDER_MYERS,
+        "the fixture must prime under git's default Myers, or the edit \
+         below changes nothing observable"
+    );
+
+    repo.git(&["config", "diff.algorithm", "histogram"]);
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        churn_long(&fresh, "a.rs"),
+        CHURN_UNDER_HISTOGRAM,
+        "histogram must record the moved line as six lines each way, or a \
+         stale hit and a fresh walk agree for the wrong reason"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a `diff.algorithm` edit must invalidate the entry rather than replay it"
+    );
+}
+
+#[test]
+fn a_diff_algorithm_change_is_not_baked_into_the_incremental_splice() {
+    // Issue #1425, second repro — the worse one. The splice adopts a cached
+    // tail's events wholesale and re-persists them under the new head, so
+    // a stale entry's Myers-era churn would survive `HEAD` moving and be
+    // reproduced by every later pure hit, indefinitely.
+    let repo = build_algorithm_sensitive_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        churn_long(&primed, "a.rs"),
+        CHURN_UNDER_MYERS,
+        "the primed entry records the Myers churn"
+    );
+
+    // Change the algorithm, then advance `HEAD` by a one-line edit so the
+    // run below takes the incremental path rather than the exact-entry hit.
+    repo.git(&["config", "diff.algorithm", "histogram"]);
+    repo.write("a.rs", &format!("{UNIQUE_LINE_FIRST}fn d() {{}}\n"));
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - DAY, "feat: add d");
+
+    let spliced = build_history_index_cached(repo.path(), &opts(), &cfg).expect("incremental");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        churn_long(&fresh, "a.rs"),
+        CHURN_UNDER_HISTOGRAM + 1,
+        "histogram churn over the three commits: the two-commit value plus \
+         the one line commit three adds"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&spliced),
+        "the splice must not adopt the cached tail's Myers-era churn"
+    );
+
+    // The entry the splice persisted must replay correctly too: staleness
+    // baked in here is what outlives `HEAD` moving.
+    let hit = build_history_index_cached(repo.path(), &opts(), &cfg).expect("pure hit");
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&hit),
+        "the persisted entry replays the histogram churn"
+    );
+
+    // …but that equality holds just as well if the run above *missed* and
+    // cold-walked, so on its own it is "a fresh walk equals a fresh walk".
+    // Emptying the entries and re-running separates the two: a served hit
+    // now replays zero commits, a miss reproduces `fresh`.
+    empty_entry_events(cache_dir.path());
+    let served = snapshot(
+        &build_history_index_cached(repo.path(), &opts(), &cfg).expect("emptied pure hit"),
+    );
+    assert!(!served.is_empty(), "the index seeds a.rs regardless of hit");
+    assert!(
+        served.values().all(|stats| stats.commits_long == 0),
+        "the persisted entry was not served, so the assertion above was \
+         comparing two cold walks"
+    );
+
+    // Cache-file hygiene rather than a #1425 claim: the Myers-era entry
+    // fingerprints differently, so it is neither a splice base nor
+    // superseded and lingers until `--clear-cache` — the same current
+    // behaviour the mailmap splice test pins, not a contract.
+    assert_eq!(
+        count_entries(cache_dir.path()),
+        2,
+        "the Myers-era entry is bypassed, not spliced onto"
+    );
+}
+
+#[test]
+fn a_diff_driver_algorithm_change_is_not_served_from_a_stale_entry() {
+    // A `diff.<driver>.algorithm` overrides `diff.algorithm` for the paths
+    // `.gitattributes` binds to the driver, so the driver sections are an
+    // input of their own. The binding is committed up front and never
+    // changes — the attribute bindings themselves are the one input still
+    // outside the fingerprint (see `git::cached`) — and the driver section
+    // exists before priming, so the edit below changes the driver's
+    // algorithm alone rather than creating the driver: a new section moves
+    // the digest by name, which would mask a dropped `algorithm` term.
+    // The driver's own algorithm is pinned to Myers as well: production
+    // opens the repository under the host's global config, where a
+    // `diff.rs.algorithm` would otherwise decide what the fixture primes.
+    let repo = build_algorithm_sensitive_repo_with(|repo| {
+        repo.write(".gitattributes", "*.rs diff=rs\n");
+        repo.git(&["config", "diff.rs.binary", "false"]);
+        repo.git(&["config", "diff.rs.algorithm", "myers"]);
+    });
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        churn_long(&primed, "a.rs"),
+        CHURN_UNDER_MYERS,
+        "the bound driver primes under the Myers it is pinned to"
+    );
+
+    repo.git(&["config", "diff.rs.algorithm", "histogram"]);
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        churn_long(&fresh, "a.rs"),
+        CHURN_UNDER_HISTOGRAM,
+        "the driver's histogram must apply to the bound path, or this test \
+         proves nothing about driver settings"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a `diff.<driver>.algorithm` edit must invalidate the entry too"
+    );
+}
+
+#[test]
+fn a_big_file_threshold_change_is_not_served_from_a_stale_entry() {
+    // `core.bigFileThreshold` decides whether a blob is diffed at all: one
+    // over it is binary to the platform, so it records no churn and drops
+    // out of the seeded file set. The seed is re-enumerated every run, so
+    // output equality cannot tell a served entry from a miss here —
+    // emptying the entry's events can (#951's technique): a served hit
+    // then replays zero commits for the file that stays under the threshold.
+    let repo = build_algorithm_sensitive_repo_with(|repo| repo.write("b.rs", "fn b() {}\n"));
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    empty_entry_events(cache_dir.path());
+
+    // Between the two files' sizes: `a.rs` (78 bytes at both revisions)
+    // becomes binary, `b.rs` (10 bytes) stays text.
+    repo.git(&["config", "core.bigFileThreshold", "32"]);
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        snapshot(&fresh).keys().collect::<Vec<_>>(),
+        ["b.rs"],
+        "the threshold must drop a.rs from the seed, or it is not being read"
+    );
+    assert_eq!(
+        stats_for(&fresh, "b.rs").commits_long,
+        1,
+        "b.rs keeps its commit, so an emptied served hit (zero) diverges"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a `core.bigFileThreshold` edit must invalidate the entry rather than \
+         replay its emptied events"
     );
 }
 

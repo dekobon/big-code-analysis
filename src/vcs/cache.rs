@@ -45,15 +45,20 @@
 //!
 //! A cached entry is honoured only when its [`CACHE_SCHEMA_VERSION`],
 //! [`VCS_SCHEMA_VERSION`], [`RISK_SCORE_VERSION`], the `fingerprint` of
-//! the walk-affecting options *and the repository mailmap*, and the
-//! shallow state under which it was walked all match the current run;
-//! otherwise it is ignored and the history recomputed. Window changes
-//! alter the fingerprint, so they force a fresh walk, as the issue
-//! specifies. A `.mailmap` edit does too: it changes the author identities
-//! resolved into the event log while leaving `HEAD` — and every option —
-//! untouched (issue #1262). A shallow clone that is later deepened
-//! (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
-//! entry key is unchanged; the shallow-state match in
+//! the walk-affecting options *and the repository's mailmap and diff
+//! configuration*, and the shallow state under which it was walked all
+//! match the current run; otherwise it is ignored and the history
+//! recomputed. Window changes alter the fingerprint, so they force a
+//! fresh walk, as the issue specifies. A `.mailmap` edit does too: it
+//! changes the author identities resolved into the event log while
+//! leaving `HEAD` — and every option — untouched (issue #1262). So does
+//! a change to the diff settings that decide how gix diffs —
+//! `diff.algorithm`, `core.bigFileThreshold`, or a `diff.<driver>`
+//! section's `algorithm`, `binary` or `textconv` presence — which rewrite
+//! the recorded churn the same way (issue #1425); a driver's `command`
+//! never runs on this path and does not count. A shallow clone that is
+//! later deepened (`git fetch --unshallow`) leaves `HEAD` unmoved, so
+//! the entry key is unchanged; the shallow-state match in
 //! `HistoryCache::is_compatible` is what forces a re-walk to replace the
 //! truncated counts (issue #810). A corrupt or unreadable entry is
 //! silently ignored, never fatal.
@@ -192,9 +197,10 @@ pub(crate) struct HistoryCache {
     pub vcs_schema_version: u32,
     /// Composite-formula version the events were produced under.
     pub risk_score_version: u32,
-    /// [`fingerprint`] of the walk-affecting options and the repository
-    /// mailmap. The field name predates the mailmap term (#1262) and is
-    /// kept because renaming it would change the serialized shape.
+    /// [`fingerprint`] of the walk-affecting options and the repository's
+    /// [`WalkInputDigests`]. The field name predates the mailmap term
+    /// (#1262) and is kept because renaming it would change the
+    /// serialized shape.
     pub options_fingerprint: u64,
     /// The `HEAD` (or `--ref`) object id the walk reached, hex-encoded.
     pub head_sha: String,
@@ -233,27 +239,60 @@ impl HistoryCache {
     }
 }
 
+/// Digests of the walk inputs the repository supplies outside [`Options`].
+///
+/// Each is input the way an option is — it decides what the walk records
+/// — while a change to it moves neither `HEAD` (the entry key) nor any
+/// option field, so each has to enter [`fingerprint`] on its own. The
+/// backend's `WalkContext` produces both from the one mailmap snapshot
+/// and the one diff platform its walk uses, so an entry's stamp and its
+/// events cannot come from two reads (issue #1409). Two named fields
+/// rather than two `u64` parameters, so a call site cannot transpose
+/// them.
+#[derive(Clone, Copy, Debug, Hash)]
+pub(crate) struct WalkInputDigests {
+    /// The effective mailmap, as gix merged it (issue #1262).
+    pub mailmap: u64,
+    /// The effective diff configuration — `diff.algorithm`,
+    /// `core.bigFileThreshold`, and each `diff.<driver>` section's
+    /// `algorithm`, `binary` and `textconv` presence — as gix configured
+    /// the walk's diff platform from it (issue #1425).
+    pub diff_config: u64,
+}
+
 /// A stable 64-bit fingerprint of everything that changes *which commits
 /// the walk visits or how they are recorded* — the window lengths,
 /// traversal mode, merge/rename/bot toggles, the bot pattern, and the
-/// `--as-of` reference time from [`Options`], plus `mailmap_digest`.
+/// `--as-of` reference time from [`Options`], plus the repository-side
+/// [`WalkInputDigests`].
 ///
 /// # Walk input that lives outside `Options`
 ///
-/// `mailmap_digest` (issue #1262) covers the repository `.mailmap`, which
-/// is walk input the way an option is: author identities are canonicalised
-/// through it *at walk time* and stored in the event log as digests, so a
-/// mailmap edit changes what a replay would produce while moving neither
-/// `HEAD` (the entry key) nor any field of `Options`. Left out, an edited
-/// mailmap served stale author counts indefinitely — the incremental
-/// splice re-persisted the pre-edit digests under each new head, so the
-/// divergence outlived `HEAD` moving. The backend's
-/// `WalkContext::mailmap_digest` documents what the value covers and why
-/// it digests gix's merged snapshot rather than the raw source bytes.
+/// `inputs.mailmap` (issue #1262) covers the repository `.mailmap`: author
+/// identities are canonicalised through it *at walk time* and stored in
+/// the event log as digests, so a mailmap edit changes what a replay would
+/// produce. Left out, an edited mailmap served stale author counts
+/// indefinitely — the incremental splice re-persisted the pre-edit digests
+/// under each new head, so the divergence outlived `HEAD` moving. The
+/// backend's `WalkContext::mailmap_digest` documents what the value covers
+/// and why it digests gix's merged snapshot rather than the raw source
+/// bytes.
 ///
-/// It is not the only walk input outside `Options`: the git diff
-/// configuration (`diff.algorithm`, diff drivers) decides the recorded
-/// churn and is not fingerprinted yet — see the `git::cached` module docs.
+/// `inputs.diff_config` (issue #1425) covers the git diff configuration
+/// the walk's blob-diff platform is built from, which decides the line
+/// counts recorded per commit — Myers and histogram disagree on the same
+/// edit, and a blob over `core.bigFileThreshold` is not diffed at all —
+/// so a change served the old churn, and the splice carried it forward,
+/// exactly as the mailmap did. `WalkContext::diff_config_digest` owns the
+/// list of what it projects and names the one input still outside the
+/// fingerprint, the `diff` attribute bindings; the `git::cached` module
+/// docs record why the configuration is fingerprinted rather than the
+/// algorithm pinned in the walk.
+///
+/// Adding a term retires every entry stamped before it on its own — the
+/// value moves for an unchanged configuration — so neither #1262 nor
+/// #1425 bumped [`CACHE_SCHEMA_VERSION`]; that version is for a change in
+/// what a recorded event *means*.
 ///
 /// Note what this term does *not* generalise to. An input is fingerprinted
 /// only when it is hashed here, and what is hashed is the option's
@@ -286,9 +325,9 @@ impl HistoryCache {
 /// inputs, so the fingerprint need only be self-consistent within one
 /// format version.
 #[must_use]
-pub(crate) fn fingerprint(options: &Options, mailmap_digest: u64) -> u64 {
+pub(crate) fn fingerprint(options: &Options, inputs: WalkInputDigests) -> u64 {
     let mut hasher = DefaultHasher::new();
-    mailmap_digest.hash(&mut hasher);
+    inputs.hash(&mut hasher);
     options.long_window_secs.hash(&mut hasher);
     options.recent_window_secs.hash(&mut hasher);
     options.full_history.hash(&mut hasher);
