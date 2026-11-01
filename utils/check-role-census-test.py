@@ -417,7 +417,8 @@ class CensusTests(unittest.TestCase):
         # R07's `ElseIf` rows take, where only a `pays_itself` owner pays
         # at the leaf (#1697). The canonical dump prints `payers=[]
         # pays_never=false` for this and for a plain `owns [..]` row
-        # alike, so the mode is visible to the reader only.
+        # alike; its `mode=` field is what tells them apart (#1745), and
+        # check-role-coverage-test.py pins that on the dump.
         self.t.write(
             "java",
             "    lang: Java;\n"

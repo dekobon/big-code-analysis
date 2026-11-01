@@ -494,6 +494,35 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(first, self.t.baseline.read_text())
         self.assertIn("[Java tree-sitter-java 0.23.5]", first)
 
+    def test_the_canonical_dump_names_each_paying_mode(self) -> None:
+        # `--dump` is the Rust differential test's oracle, and the lists
+        # it prints are the same for a `pays []` row and a plain
+        # `owns [..]` row, so the mode is its own field (#1745): one row
+        # per shape, pinned here so a reader that collapsed two of them
+        # would disagree with `canonical()` rather than match it.
+        self.t.table(
+            "    Call { owns [MethodInvocation] pays [] }\n"
+            "    Branch { owns [Identifier] pays [LT] }\n"
+            "    Container { owns [Volatile] pays never }\n"
+        )
+        table = rt.parse_table(self.t.roles / "java.rs")
+        self.assertEqual(
+            rt.dump_table(table, self.t.languages / "language_java.rs"),
+            "lang Java\n"
+            "Call rows owners=[5] payers=[] wraps=[] excluded=[] pays_never=false mode=split\n"
+            "Branch rows owners=[1] payers=[2] wraps=[] excluded=[] pays_never=false mode=split\n"
+            "Container rows owners=[6] payers=[] wraps=[] excluded=[] pays_never=true mode=never\n",
+        )
+        self.t.table("    Call { owns [MethodInvocation] }\n    Branch { pending R07 }\n    Container { absent \"none\" }\n")
+        table = rt.parse_table(self.t.roles / "java.rs")
+        self.assertEqual(
+            rt.dump_table(table, self.t.languages / "language_java.rs"),
+            "lang Java\n"
+            "Call rows owners=[5] payers=[] wraps=[] excluded=[] pays_never=false mode=owners\n"
+            "Branch pending R07\n"
+            "Container absent none\n",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -908,13 +908,14 @@ macro_rules! role_table {
                     .collect::<Vec<_>>()
                     .join(";");
                 format!(
-                    "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] pays_never={}",
+                    "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] pays_never={} mode={}",
                     stringify!($role),
                     ids(OWNERS),
                     ids(PAYERS),
                     ids(WRAPS),
                     excluded,
-                    PAYS_NEVER
+                    PAYS_NEVER,
+                    stringify!($mode)
                 )
             }
 
@@ -1635,10 +1636,13 @@ mod tests {
     // meaning. This holds it to the compiled constants: every table's
     // `canonical()` must equal what `--dump` prints for the same file.
     // The canonical form is the *kind lists* — owners, payers, wraps,
-    // exclusions and `pays never` — which is what the three gates read;
-    // an owner's or payer's gate, `holds_payer`, `under`, `pays_itself`
-    // and `opens` are not in it, and the reader's handling of those is
-    // pinned by `utils/check-role-census-test.py` instead.
+    // exclusions — and the paying mode, which is what the three gates
+    // read. The mode is its own field (#1745) because `pays []` and a
+    // plain `owns [..]` row print the same lists, so a reader that
+    // misread one as the other agreed with every table until the mode
+    // was emitted. An owner's or payer's gate, `holds_payer`, `under`,
+    // `pays_itself` and `opens` are not in it, and the reader's handling
+    // of those is pinned by `utils/check-role-census-test.py` instead.
     // Every language's module is compiled unconditionally, so the
     // comparison needs no grammar and runs in every build. A missing
     // `python3` is a failure, not a skip: a pass that ran nothing would
@@ -2112,8 +2116,9 @@ mod tests {
     /// tail `OWNERS_PAY && owns_kind(..)` short-circuits before any
     /// gate; a marked owner under `never` neither owns nor pays. The
     /// row's declared lists are what the DSL reader sees: no payers,
-    /// `pays_never` false — indistinguishable in `canonical()` from an
-    /// owner-paying row, which is why this pins the predicates.
+    /// `pays_never` false — the same lists an owner-paying row prints,
+    /// so only the `mode=` field of `canonical()` tells the two apart
+    /// (#1745), which is why this pins the predicates as well.
     #[cfg(feature = "java")]
     #[test]
     fn a_split_row_with_no_payers_pays_only_at_its_self_paying_owners() {
@@ -2160,6 +2165,41 @@ mod tests {
             (&[] as &[u16], false)
         );
         assert!(!else_if::lists_kind(Java::ForStatement as u16));
+        assert_eq!(
+            else_if::canonical(),
+            "ElseIf rows owners=[206,205,190] payers=[] wraps=[] excluded=[] \
+             pays_never=false mode=split"
+        );
+    }
+
+    /// `canonical()` names the row's mode as its own field, so the
+    /// Python reader is held to the mode and not only to the lists it
+    /// prints (#1745): a split row with payers and one without both
+    /// read `split`, a plain row `owners`, a `pays never` row `never`.
+    /// `pays_never=` stays beside it, redundant with `mode=never`, so a
+    /// reader of either field reads the same answer.
+    #[test]
+    fn canonical_names_each_paying_mode() {
+        use dsl_gates::{comparison, else_if, guard, member};
+        let mode_of = |row: String| {
+            let (_, mode) = row
+                .rsplit_once(" mode=")
+                .expect("every declared row ends in its mode");
+            mode.to_owned()
+        };
+        assert_eq!(
+            [
+                mode_of(comparison::canonical()),
+                mode_of(else_if::canonical()),
+                mode_of(member::canonical()),
+                mode_of(guard::canonical()),
+            ],
+            ["split", "split", "owners", "never"]
+        );
+        assert_eq!(
+            member::canonical(),
+            "Member rows owners=[249] payers=[] wraps=[] excluded=[] pays_never=false mode=owners"
+        );
     }
 
     /// `TEXT_GATED` is true exactly when an owner is `text_gated_by`:
@@ -2357,7 +2397,7 @@ mod tests {
         assert_eq!(seen, [(true, false, false, false)]);
         assert_eq!(
             guard::canonical(),
-            "Guard rows owners=[184] payers=[] wraps=[] excluded=[] pays_never=true"
+            "Guard rows owners=[184] payers=[] wraps=[] excluded=[] pays_never=true mode=never"
         );
     }
 }

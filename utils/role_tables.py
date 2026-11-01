@@ -808,7 +808,7 @@ def dump_table(table: Table, enum_path: pathlib.Path) -> str:
             never = "true" if row.pays_mode == "never" else "false"
             lines.append(
                 f"{role} rows owners=[{owners}] payers=[{payers}] wraps=[{wraps}] "
-                f"excluded=[{excluded}] pays_never={never}"
+                f"excluded=[{excluded}] pays_never={never} mode={row.pays_mode}"
             )
     return "\n".join(lines) + "\n"
 
