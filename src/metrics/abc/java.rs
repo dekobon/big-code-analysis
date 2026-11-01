@@ -229,6 +229,8 @@ fn java_count_token_branch<'a>(
         // dump`. An argument that is itself a call (`A(f())`) scores 2:
         // `argument_list` is not a branch node, so the inner
         // `method_invocation` is the only other node counted (§5).
+        // role-bypass: allow(DocTarget) — whether the constant calls a
+        // constructor, an ABC branch reading, not whether it takes a doc comment
         EnumConstant => node.is_child(ArgumentList as u16),
         _ => false,
     };

@@ -65,6 +65,8 @@ impl Npa for RustCode {
         // or `trait` body, a trait's associated `type` — lands on the
         // Impl or Trait space the walk has open; which of the two, and
         // what it is, is this consumer's reading of the row.
+        // role-bypass: allow(DocTarget) — which item holds the positional fields
+        // the attribute count walks, not whether it takes a doc comment
         if node.kind_id() == StructItem as u16 {
             rust_count_struct_attrs(node, code, ancestors, stats);
         } else if member::owns(node, code, ancestors) {
@@ -197,7 +199,8 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
     let mut public = 0;
     let mut pending_pub = false;
     for child in list.children() {
-        match child.kind_id().into() {
+        let kind = child.kind_id();
+        match kind.into() {
             // Open / close parens and comma separators — skipped.
             LPAREN | RPAREN | COMMA => {
                 pending_pub = false;
@@ -212,10 +215,12 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
             }
             // `attribute_item` decorates the next field but does not
             // contribute to visibility. Skip without resetting the
-            // pending-pub flag. `line_comment` / `block_comment` may
-            // sit between fields (e.g. `pub struct Foo(/* x */ i32);`)
-            // and similarly must not count as a field.
-            AttributeItem | LineComment | BlockComment => {}
+            // pending-pub flag. A comment may sit between fields
+            // (`pub struct Foo(/* x */ i32);`) and similarly must not
+            // count as a field: the `Comment` row's kind table rather
+            // than a restated list (#1699).
+            AttributeItem => {}
+            _ if crate::roles::rust::comment::lists_kind(kind) => {}
             // Any other child is treated as a positional field type
             // (primitive_type, type_identifier, generic_type,
             // reference_type, tuple_type, ...). One increment per

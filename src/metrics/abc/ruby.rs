@@ -80,6 +80,8 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
     match node.kind_id().into() {
         ParenthesizedStatements | Begin => last_operand(node).map(|o| (o, false)),
+        // role-bypass: allow(DocTarget) — the operand an assignment wraps, for
+        // the peel; not whether it takes a doc comment
         Assignment | Assignment2 => node.child_by_field_name("right").map(|o| (o, false)),
         Unary | Unary2 | Unary3 | Unary4 | Unary5 => node
             .child_by_field_name("operator")
@@ -235,6 +237,8 @@ impl Abc for RubyCode {
 
         let kind = node.kind_id();
         match kind.into() {
+            // role-bypass: allow(DocTarget) — an ABC assignment; not whether it
+            // takes a doc comment
             Assignment | Assignment2 | OperatorAssignment | OperatorAssignment2 => {
                 stats.assignments += 1.;
             }

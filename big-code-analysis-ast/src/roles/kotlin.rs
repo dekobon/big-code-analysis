@@ -2,11 +2,12 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::kotlin_when_entry_is_else;
+use crate::lang_helpers::doc_comment::kotlin_doc;
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Kotlin, Node, Search};
@@ -113,6 +114,10 @@ fn class_or_interface<'a>(
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
 else_if_prev_sibling_gate!(Kotlin, Else);
+
+// Whether a block comment opens with the KDoc marker — `/**`, any but
+// the empty `/**/` — read from the bytes. KDoc has no line form.
+crate::roles::byte_gate!(opens_with_kdoc_marker, kotlin_doc);
 
 role_table! {
     lang: Kotlin;
@@ -293,13 +298,41 @@ role_table! {
     // A property declaration in a class body — `val a = 1`, or a
     // destructuring `val (a, b) = …` the consumer counts by variable.
     Member { owns [PropertyDeclaration] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The two comment kinds; KDoc has no line form, so only the block
+    // comment is a `DocComment` owner, under the marker gate (#1699).
+    Comment { owns [LineComment, BlockComment] }
+    DocComment { owns [BlockComment(text_gated_by opens_with_kdoc_marker)] }
     Docstring { absent "Kotlin documents with KDoc comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The declarations Dokka documents. The package directive binds no
+    // comment (`BindFirstShebangWithWhitespaceOnly`), an import none,
+    // and an `init` block has no page to carry one. Outside the
+    // space-tree rows: the type alias, the enum entry and the two
+    // parameter kinds (a primary constructor's `val` parameter is a
+    // property Dokka documents) — the parity exceptions
+    // `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ClassDeclaration,
+            ObjectDeclaration,
+            CompanionObject,
+            FunctionDeclaration,
+            PropertyDeclaration,
+            TypeAlias,
+            SecondaryConstructor,
+            EnumEntry,
+            Parameter,
+            ClassParameter,
+        ]
+    }
+    DocRunOpener { absent "Dokka attaches every KDoc to a declaration; none documents by its own content" }
+    DocRunDirective { absent "Dokka reads no directive comment" }
+    // Beyond the callables and the closures: an accessor and an `init`
+    // block open function spaces without being callees (#1184), and
+    // Dokka reads a KDoc in them no more than one in a method. The
+    // lambda literal is a `Closure` owner; that it holds a doc comment
+    // *without* a body-child test is the Checker's refinement, not a
+    // row entry.
+    HoldsDocInBody { owns [Getter, Setter, AnonymousInitializer] }
 }
 
 #[cfg(test)]

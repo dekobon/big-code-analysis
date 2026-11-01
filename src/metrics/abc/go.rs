@@ -126,10 +126,12 @@ fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
 // have).
 fn go_walk_for_statement(node: &Node, conditions: &mut f64) {
     use Go as G;
-    let Some(header) = node
-        .children()
-        .find(|child| child.is_named() && !matches!(child.kind_id().into(), G::Comment | G::Block))
-    else {
+    // A comment is the `Comment` row's kind table; the `block` is the
+    // body, which is no header (#1699).
+    let Some(header) = node.children().find(|child| {
+        let kind = child.kind_id();
+        child.is_named() && !crate::roles::go::comment::lists_kind(kind) && kind != G::Block as u16
+    }) else {
         return;
     };
     let slot = if matches!(header.kind_id().into(), G::ForClause) {
@@ -261,6 +263,8 @@ impl Abc for GoCode {
             // `var ( a = 1 \n b int )` block on its own; a multi-name
             // `var p, q = 1, 2` is one spec and so scores 1, matching
             // `p, q := 1, 2`. `const` stays excluded, as everywhere else.
+            // role-bypass: allow(DocTarget) — a spec with a value is an ABC
+            // assignment; not whether it takes a doc comment
             G::VarSpec if node.child_by_field_name("value").is_some() => {
                 stats.assignments += 1.;
             }

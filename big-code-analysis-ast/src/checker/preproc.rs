@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for PreprocCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Preproc::Comment
-    }
+    // The one `Comment` row of `roles/preproc.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(preproc);
 
     impl_row_predicates!(preproc, string_lit, is_string, is_string_with_code);
 }

@@ -7,6 +7,37 @@
 use crate::node::{Node, Tree};
 use crate::traits::{LanguageInfo, ParserTrait};
 
+/// Every declared owner of `owners` was met by a fixture (`seen` is the
+/// kind ids its walk emitted), except the never-emitted aliases in
+/// `defensive`, which must not have been — and each of those must still
+/// be declared, so dropping a defensive alias from a row fails here
+/// rather than leaving the alias to the role-coverage gate (which
+/// forgives a kind another row claims). The one such check for the four
+/// role-table test harnesses (`roles/*_tests.rs`, `roles/doc_tests/`):
+/// a declared-and-unseen alias that is *not* in `defensive` fails here,
+/// which the inline copies this replaced did not all check.
+pub fn owners_covered(
+    seen: &std::collections::BTreeSet<u16>,
+    owners: &[&[u16]],
+    defensive: &[u16],
+) {
+    for &k in defensive {
+        assert!(
+            owners.iter().copied().flatten().any(|&o| o == k),
+            "defensive kind {k} is no longer declared by any row"
+        );
+        assert!(
+            !seen.contains(&k),
+            "defensive kind {k} is now emitted; its row needs a look"
+        );
+    }
+    for &k in owners.iter().copied().flatten() {
+        if !defensive.contains(&k) {
+            assert!(seen.contains(&k), "fixture never emits kind {k}");
+        }
+    }
+}
+
 /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
 /// exactly as `big_code_analysis::spaces::compute::metrics_inner` does,
 /// and hands each node to `check` together with that chain.

@@ -100,11 +100,11 @@ struct RubyFrame<'a> {
 fn reads_through(kind: u16) -> bool {
     use Ruby::*;
 
-    // role-bypass: allow(Branch, Switch, Loop, Catch, ElseIf, CaseArm) — the
+    // role-bypass: allow(Branch, Switch, Loop, Catch, ElseIf, CaseArm, DocTarget) — the
     // wrappers whose statements run at class scope, read for their
     // children; not whether they branch, switch, loop, chain or arm a
     // case, which is the control-flow rows' and the `CaseArm` row's
-    // question (#1697)
+    // question (#1697), nor whether an assignment takes a doc comment
     matches!(
         kind.into(),
         If | Unless
@@ -141,6 +141,8 @@ fn reads_through(kind: u16) -> bool {
 fn is_assignment(kind: u16) -> bool {
     use Ruby::*;
 
+    // role-bypass: allow(DocTarget) — an assignment statement for the
+    // class-scope ledger; not whether it takes a doc comment
     matches!(
         kind.into(),
         Assignment | Assignment2 | OperatorAssignment | OperatorAssignment2

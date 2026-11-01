@@ -3,75 +3,8 @@
 
 use super::*;
 use crate::lang_helpers::doc_comment::{
-    documents_where_it_sits, ldoc_opener, lua_long_comment, node_bytes, run_continues_to,
+    ldoc_opener, lua_long_comment, node_bytes, run_continues_to,
 };
-
-/// Whether `node` is an item LDoc's `item_follows` (`lang.lua`) documents:
-/// a `function` statement, local or not; an assignment to one plain or
-/// dotted name, local (`local x = 1`, not a bare `local x`) or not
-/// (`M.x = 1`); a table field with a name (`new = function … end`); or a
-/// `return` of a function or a table. `get_fun_name` stops at `,`, `<`
-/// and `[`, so `local a, b = …`, `local x <const> = …` and `M[1] = …`
-/// name no item.
-fn lua_ldoc_item(node: &Node) -> bool {
-    // role-bypass: allow(FuncOpener, Exit) — doc attachment, not membership:
-    // what an LDoc block documents is `DocTarget`'s own row (R09); a
-    // `return` of a function or table is a documentable item, not an exit
-    match node.kind_id().into() {
-        Lua::FunctionDeclaration | Lua::FunctionDeclaration2 | Lua::FunctionDeclaration3 => true,
-        Lua::AssignmentStatement | Lua::AssignmentStatement2 => lua_assigns_one_name(node),
-        Lua::VariableDeclaration | Lua::VariableDeclaration2 => node.children().any(|child| {
-            matches!(
-                child.kind_id().into(),
-                Lua::AssignmentStatement | Lua::AssignmentStatement2
-            ) && lua_assigns_one_name(&child)
-        }),
-        // `name = value`; the bracket form starts with `[` and a positional
-        // field has no `=`.
-        Lua::Field => {
-            node.child(0)
-                .is_some_and(|name| name.kind_id() == Lua::Identifier)
-                && node.child(1).is_some_and(|eq| eq.kind_id() == Lua::EQ)
-        }
-        Lua::ReturnStatement => node
-            .children()
-            .find(|child| {
-                matches!(
-                    child.kind_id().into(),
-                    Lua::ExpressionList | Lua::ExpressionList2
-                )
-            })
-            .and_then(|list| list.children().find(Node::is_named))
-            .is_some_and(|value| {
-                // role-bypass: allow(Closure) — what an assigned value
-                // documents as, not whether it is a closure
-                matches!(
-                    value.kind_id().into(),
-                    Lua::FunctionDefinition | Lua::TableConstructor
-                )
-            }),
-        _ => false,
-    }
-}
-
-/// Whether `assignment`'s target list is a single plain or dotted name.
-fn lua_assigns_one_name(assignment: &Node) -> bool {
-    let Some(targets) = assignment.child(0) else {
-        return false;
-    };
-    let mut names = targets.children().filter(Node::is_named);
-    names.next().is_some_and(|name| lua_is_dotted_name(&name)) && names.next().is_none()
-}
-
-/// An identifier, or a `.` index of one (`M.a.b`).
-fn lua_is_dotted_name(node: &Node) -> bool {
-    node.preorder().filter(Node::is_named).all(|part| {
-        matches!(
-            part.kind_id().into(),
-            Lua::Identifier | Lua::DotIndexExpression | Lua::DotIndexExpression2
-        )
-    })
-}
 
 /// What the text of the block `first` opens holds, read over the run
 /// `first` starts, as `leading_doc_run` delimits it.
@@ -145,6 +78,8 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
         let opens_run = before.peek().is_none_or(|above| {
             !(LuaCode::is_comment(above) && run_continues_to::<LuaCode>(above, &sibling, code))
         });
+        // role-bypass: allow(Comment, DocRunOpener) — the backward scan for an
+        // earlier block: run traversal over the rows, not membership
         if opens_run
             && sibling.kind_id() == Lua::Comment
             && ldoc_opener(node_bytes(&sibling, code))
@@ -154,24 +89,9 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
         }
         earliest = sibling;
     }
+    // role-bypass: allow(Comment) — whether the file opens with a comment or
+    // a shebang, LDoc's first-token rule; traversal, not membership
     matches!(earliest.kind_id().into(), Lua::Comment | Lua::HashBangLine)
-}
-
-/// The trailing comment that heads `first`'s LDoc group, when `first` sits
-/// directly under a row that ends in one: LDoc lexes a line comment with
-/// its newline and gathers every consecutive comment token into one group
-/// whose first token decides whether it is an LDoc block (`parse.lua`), so
-/// a `---` row under `x = 1 -- note` belongs to that `--` group. The run
-/// `leading_doc_run` hands over leaves such a comment out, as go/doc does,
-/// so it is looked up here.
-fn lua_group_head_above<'a>(
-    first: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    ancestors.siblings_before(first).next().filter(|above| {
-        LuaCode::is_comment(above) && run_continues_to::<LuaCode>(above, first, code)
-    })
 }
 
 /// The first statement of a `block`, which stands for it: the grammar parks
@@ -184,41 +104,46 @@ fn lua_block_first_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 }
 
 impl Checker for LuaCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Lua::Comment
-    }
+    // The `Comment` row of `roles/lua.rs` (#1699); no `DocComment`.
+    impl_comment_from_rows!(lua);
 
-    // LDoc documents what a module declares; a `---` block inside a function
-    // body — LuaLS's `---@type` on a local, an LDoc `@fixme` — annotates the
-    // code there rather than documenting it, as PHP's in-body `@var` does.
-    // Elsewhere LDoc (`parse.lua`) discards a block with no text, keeps one
-    // that is the file's first, that carries a tag, or that an item
-    // follows, and drops any other with a "definition cannot be parsed"
-    // warning. Unlike LDoc, a tagged block counts without an item or a name
-    // to attach to.
+    // The `DocRunOpener` row of `roles/lua.rs` is the opener candidate: a
+    // `---` comment where LDoc reads one — outside a function body (a
+    // `---` block in a body, LuaLS's `---@type` on a local or an LDoc
+    // `@fixme`, annotates the code there rather than documenting it, as
+    // PHP's in-body `@var` does) and not continuing a `--` group. The
+    // content decision needs the sibling after the run and stays here:
+    // LDoc (`parse.lua`) discards a block with no text, keeps one that is
+    // the file's first, that carries a tag, or that an item follows —
+    // the `DocTarget` row — and drops any other with a "definition cannot
+    // be parsed" warning. Unlike LDoc, a tagged block counts without an
+    // item or a name to attach to.
     fn is_doc_run_opener<'a>(
         first: &Node<'a>,
         next: Option<&Node<'a>>,
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        if !(first.kind_id() == Lua::Comment
-            && ldoc_opener(node_bytes(first, code))
-            && documents_where_it_sits::<Self>(first, code, ancestors))
-            || lua_group_head_above(first, code, ancestors)
-                .is_some_and(|head| !ldoc_opener(node_bytes(&head, code)))
-        {
+        if !crate::roles::lua::doc_run_opener::owns(first, code, ancestors) {
             return false;
         }
+        // role-bypass: allow(DocRunOpener, DocTarget) — the content decision
+        // over the run and the item after it: context the row cannot see,
+        // since it needs `next`; not membership
         let text = lua_block_text(first, code, ancestors);
         let item = next.map(|next| lua_block_first_statement(next).unwrap_or(*next));
         text.text
-            && (item.as_ref().is_some_and(lua_ldoc_item)
+            && (item
+                .as_ref()
+                .is_some_and(|item| crate::roles::lua::doc_target::owns(item, code, ancestors))
                 || text.tag
                 || lua_first_ldoc_block(first, code, ancestors))
     }
 
     fn ends_doc_run(node: &Node, code: &[u8]) -> bool {
+        // role-bypass: allow(Comment) — which comment form ends a run (a long
+        // comment's closing newline is not part of it); run traversal, not
+        // membership
         node.kind_id() == Lua::Comment && lua_long_comment(node_bytes(node, code))
     }
 

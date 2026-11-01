@@ -201,10 +201,11 @@ macro_rules! impl_js_family_const_binding {
             if !owner.is_some_and(|node| node.kind_id() == VariableDeclarator) {
                 return false;
             }
+            // role-bypass: allow(DocTarget, DeclKeyword) — whether the binding's
+            // declaration is a `const`, for the ABC assignment count: not whether the
+            // declaration takes a doc comment, nor whether the token is a keyword
             climb.next().is_some_and(|declaration| {
                 declaration.kind_id() == LexicalDeclaration
-                    // role-bypass: allow(DeclKeyword) — which declaration keyword, not whether
-                    // the token is one
                     && declaration
                         .child_by_field_name("kind")
                         .is_some_and(|keyword| keyword.kind_id() == Const)

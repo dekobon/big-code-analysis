@@ -78,6 +78,35 @@ for historical reference.
 
 ### Changed
 
+- The seven documentation roles — `Comment`, `DocComment`, `Docstring`,
+  `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody` —
+  are declared per language in `big-code-analysis-ast/src/roles/` and
+  read by `Checker::is_comment`, `is_doc_comment`, `is_doc_target`,
+  `holds_doc_comment_in_body`, `is_doc_run_opener`,
+  `is_doc_run_directive`, and sharing one backward scan with Python's
+  `python_documentation_string_run`, in place of the per-language kind
+  lists those predicates held (#1699, part of #1690). The role census
+  has no pending cell. Doxygen's string-keyed entry list
+  (`doxygen_entry`) is now id-keyed rows, with a test per dialect that
+  holds the row to the exact id set the old names denoted;
+  `doxygen_target` composes the dialect's row with the `ERROR`-recovery
+  clause for the Checker, and `doxygen_entry` reads the row directly
+  through `DoxygenRow`. A context a row cannot see — a declaration
+  under TypeScript's `export`, Ruby's `then` wrapper and YARD scope,
+  Rust's tuple-struct field slot, Doxygen's `ERROR` holding an entry,
+  Lua's run content — stays a named `fn` beside the row read, in
+  `checker/<lang>.rs` or, where the Checker and the row both read it,
+  in `lang_helpers/` (`ruby.rs`, `doxygen.rs`). Zero output change,
+  measured on the tree the entry describes: the corpus, fixture,
+  recovery and per-node C-family `is_doc_target` oracles against the
+  base revision all read 0 differing (the revision and counts are on
+  #1699). One migration defect was caught by the row tests before any
+  capture saw it — a destructuring `export const {x} = o;` under a
+  `/** */` briefly documented in TypeScript — and the base answer
+  restored; one cost regression introduced in review — a chain copy per
+  preprocessor conditional — was caught by the new
+  `loc/c-conditional-per-struct-depth` probe and removed. The AST crate
+  is outside `STABILITY.md`; no root-crate re-export changes.
 - The documentation toolchain moves from mdBook 0.4.40 +
   mdbook-i18n-helpers 0.3.6 to mdBook 0.5.4 + helpers 0.4.0, in
   `pages.yml`, the `Makefile` book targets, the `Dockerfile` and

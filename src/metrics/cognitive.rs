@@ -445,6 +445,8 @@ macro_rules! js_cognitive {
                 BreakStatement | ContinueStatement if node.is_child(StatementIdentifier as u16) => {
                     increment_by_one(stats);
                 }
+                // role-bypass: allow(DocTarget) — a statement boundary for the boolean
+                // sequence; not whether the statement takes a doc comment
                 ExpressionStatement => {
                     // Reset the boolean sequence
                     stats.boolean_seq.reset();

@@ -2,11 +2,14 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
-use crate::checker::ruby::is_stabby_lambda_body;
 use crate::lang_helpers::case_arms::ruby_in_clause_counts;
+use crate::lang_helpers::doc_comment::{node_bytes, ruby_directive_opener, ruby_magic_comment};
+use crate::lang_helpers::ruby::{
+    YardScope, is_stabby_lambda_body, ruby_documented_call, ruby_yard_reads,
+};
 use crate::role_table;
 use crate::{Ancestors, Node, Ruby};
 
@@ -64,6 +67,63 @@ fn kernel_raise_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<
         receiver.kind_id() == Ruby::Constant as u16 && receiver.utf8_text(code) == Some("Kernel")
     })
 }
+
+/// Whether an `alias` names a method: `Alias` is the `alias new old`
+/// statement, which YARD's alias handler documents; a global-variable
+/// alias (`alias $new $old`) names no method, and YARD takes none.
+fn alias_names_a_method<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("name")
+        .is_none_or(|name| name.kind_id() != Ruby::GlobalVariable as u16)
+}
+
+/// Whether a `class << X` opens on a constant: YARD registers a class for
+/// `class << Const`, but nothing for `class << self` or another object.
+fn singleton_of_a_constant<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("value").is_some_and(|value| {
+        matches!(
+            value.kind_id().into(),
+            Ruby::Constant | Ruby::ScopeResolution | Ruby::ScopeResolution2
+        )
+    })
+}
+
+/// Whether an assignment binds what YARD's constant or class-variable
+/// handler documents — `MAX = 10`, the scoped `Foo::BAR = 1`, `@@count
+/// = 0` — and not a local or an instance variable.
+fn binds_a_constant_or_class_variable<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+    node.child_by_field_name("left").is_some_and(|left| {
+        // role-bypass: allow(Member) — which assignment YARD documents,
+        // not whether the target is a container's member
+        matches!(
+            left.kind_id().into(),
+            Ruby::Constant | Ruby::ScopeResolution | Ruby::ScopeResolution2 | Ruby::ClassVariable
+        )
+    })
+}
+
+/// Whether a call is one YARD documents from the comment run above it:
+/// an `attr*` macro, `alias_method`, or a visibility-wrapped `def` —
+/// told by the method name's bytes.
+fn yard_documented_call<'a>(node: &Node<'a>, code: &[u8], _: Ancestors<'a, '_>) -> bool {
+    ruby_documented_call(node, code)
+}
+
+/// Whether a comment opens an RDoc `##` or YARD `@!` directive block
+/// where the tools read one — a namespace body, never a method's: such
+/// a block documents a method that has no `def` to sit above
+/// (`define_method`, a DSL call).
+fn opens_a_directive_block_where_yard_reads<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ruby_directive_opener(node_bytes(node, code))
+        && ruby_yard_reads(YardScope::Namespace, node, ancestors)
+}
+
+// Whether a comment is a shebang or a magic comment (`# frozen_string_literal:
+// true`), a run member that is not documentation text.
+crate::roles::byte_gate!(is_magic_comment, ruby_magic_comment);
 
 role_table! {
     lang: Ruby;
@@ -273,11 +333,49 @@ role_table! {
             ClassVariable(gated_by is_assignment_target),
         ]
     }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind. RDoc and YARD read a comment run by its
+    // position above a statement, never by a marker, so no single
+    // comment is a `DocComment` (#1699).
+    Comment { owns [Comment] }
+    DocComment { absent "YARD reads a comment run by its position above a statement, never by a marker" }
     Docstring { absent "Ruby documents with RDoc / YARD comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The statements YARD documents from the comment run directly above
+    // them: a `def`, `class` or `module`; a `class << Const`; a constant
+    // or class-variable assignment (`Assignment2` and `ScopeResolution2`
+    // are the grammar's aliased productions, grammar-dispatch §1); a
+    // method alias (`alias`, or the `alias_method` call); an `attr*`
+    // call; a visibility-wrapped `def` (`private def m`) — the last two
+    // told by the call's bytes across the four `call` aliases. `Alias2`
+    // is the keyword token inside the statement, never a statement, and
+    // is left out. The row is the candidate; where YARD *reads* — a
+    // namespace or `def` body, never a `case` or loop body — and the
+    // `then` / modifier wrapper the grammar parks a comment ahead of are
+    // the Checker's context over the original node. Outside the
+    // space-tree rows: the singleton class, the alias, the assignment
+    // and the calls — the parity exceptions `roles/doc_tests/parity.rs`
+    // records.
+    DocTarget {
+        owns [
+            Method,
+            SingletonMethod,
+            Class,
+            Module,
+            Alias(gated_by alias_names_a_method),
+            SingletonClass(gated_by singleton_of_a_constant),
+            Assignment(gated_by binds_a_constant_or_class_variable),
+            Assignment2(gated_by binds_a_constant_or_class_variable),
+            Call(text_gated_by yard_documented_call),
+            Call2(text_gated_by yard_documented_call),
+            Call3(text_gated_by yard_documented_call),
+            Call4(text_gated_by yard_documented_call),
+        ]
+    }
+    // RDoc's `##` and YARD's `@!` directive blocks document a method
+    // that has no `def` to sit above, where the tools read — a
+    // namespace body, never a method's.
+    DocRunOpener { owns [Comment(text_gated_by opens_a_directive_block_where_yard_reads)] }
+    // A shebang or a magic comment: a run member that is not
+    // documentation text.
+    DocRunDirective { owns [Comment(text_gated_by is_magic_comment)] }
+    HoldsDocInBody { absent "YARD reads a comment run by scope, which the Checker folds; nothing beyond the `def` withholds one" }
 }

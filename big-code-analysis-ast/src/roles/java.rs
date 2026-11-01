@@ -4,13 +4,36 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::checker::java_anonymous_class_body;
+use crate::lang_helpers::doc_comment::java_doc;
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Java, Node};
+
+// Whether a comment opens with javac's doc marker (`/**`, not `/**/`;
+// a `///` Markdown line, JEP 467), read from the bytes.
+crate::roles::byte_gate!(opens_with_javadoc_marker, java_doc);
+
+/// Whether a `package` declaration takes the file's first doc comment:
+/// javac's `attach` gives it the comment, javadoc reads a package's
+/// only from `package-info.java`, and javac's lint calls it dangling
+/// once a declaration follows — so a package documents when no
+/// declaration follows it before the next package, which is that
+/// file's shape (`package-info.java`), and a file of repeated packages
+/// — invalid, but parsed without error — is read in disjoint stretches
+/// rather than to its end from each one (#1446). The scan reads the
+/// row's *kind table* (`lists_kind`), never `owns`: asking `owns` of a
+/// sibling package would re-enter this gate from inside its own scan,
+/// quadratic on repeated packages.
+fn package_takes_the_file_doc<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .siblings_after(node)
+        .find(|n| doc_target::lists_kind(n.kind_id()))
+        .is_none_or(|n| n.kind_id() == Java::PackageDeclaration as u16)
+}
 
 /// Whether an `object_creation_expression` carries a `class_body`, which
 /// makes it an anonymous class rather than a plain `new Foo()` (#463).
@@ -283,13 +306,56 @@ role_table! {
     // is an abstract method at the bytecode level and is counted by the
     // method consumer, not here.
     Member { owns [FieldDeclaration, ConstantDeclaration] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The two comment kinds; either can open with javac's doc marker,
+    // so both are `DocComment` owners under the byte gate and
+    // `is_comment` is the two rows' kind tables as one (#1699).
+    Comment { owns [LineComment, BlockComment] }
+    DocComment {
+        owns [
+            LineComment(text_gated_by opens_with_javadoc_marker),
+            BlockComment(text_gated_by opens_with_javadoc_marker),
+        ]
+    }
     Docstring { absent "Java documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // What javac attaches a doc comment to (`JavacParser`'s `attach`
+    // calls): a type, a member, an enum constant and a module. An
+    // import or a statement takes none, and an initializer's is
+    // dropped (`ignoreDanglingComments`). The package declaration is
+    // gated on the file's shape (#1446). The space-tree rows the
+    // targets overlap are `FuncOpener` / `Container` / `Member`; the
+    // targets outside those — the module, the enum constant, an
+    // annotation type's element (an abstract method at the bytecode
+    // level, counted by the method consumer and not a member here) —
+    // are the parity exceptions `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            PackageDeclaration(gated_by package_takes_the_file_doc),
+            ModuleDeclaration,
+            ClassDeclaration,
+            InterfaceDeclaration,
+            EnumDeclaration,
+            RecordDeclaration,
+            AnnotationTypeDeclaration,
+            MethodDeclaration,
+            ConstructorDeclaration,
+            CompactConstructorDeclaration,
+            FieldDeclaration,
+            ConstantDeclaration,
+            AnnotationTypeElementDeclaration,
+            EnumConstant,
+        ]
+    }
+    DocRunOpener { absent "javadoc attaches every doc comment to a declaration; none documents by its own content" }
+    DocRunDirective { absent "javadoc reads no directive comment" }
+    // Beyond the callables and the lambda: a `static { … }` initializer
+    // (a `FuncOpener` that is nobody's callee, #1184), an instance
+    // initializer's bare `block`, and a `switch_block` — every one
+    // executable code, a field initializer's `switch` expression
+    // holding one outside any method — so javadoc reads a doc comment
+    // in each no more than one in a method body. The full answer is
+    // `func_opener::is_callable ∪ closure::owns ∪` this row, composed
+    // in `checker/java.rs`.
+    HoldsDocInBody { owns [StaticInitializer, Block, SwitchBlock] }
 }
 
 #[cfg(test)]

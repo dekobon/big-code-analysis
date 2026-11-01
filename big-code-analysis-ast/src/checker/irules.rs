@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for IrulesCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Irules::Comment
-    }
+    // The one `Comment` row of `roles/irules.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(irules);
 
     // iRules code is dominated by `when EVENT { … }` event handlers; real
     // scripts frequently contain no `proc` at all. Treating `when` handlers

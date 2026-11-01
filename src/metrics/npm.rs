@@ -362,6 +362,8 @@ macro_rules! impl_npm_java_like {
                         stats.interface_nm += node
                             .children()
                             .filter(|n| {
+                                // role-bypass: allow(DocTarget) — the element is the abstract
+                                // method the method count reads, not a doc-target question
                                 matches!(n.kind_id().into(), AnnotationTypeElementDeclaration)
                             })
                             .count();
@@ -428,6 +430,8 @@ macro_rules! ts_npm_compute {
                     for member in node.children() {
                         // Field-as-arrow-function (`foo = () => …`) is a
                         // class method written as a field initializer.
+                        // role-bypass: allow(DocTarget) — an abstract signature counted beside
+                        // the callables; not whether it takes a doc comment
                         let method = func_opener::is_callable(&member, code, members)
                             || member.kind_id() == AbstractMethodSignature as u16
                             || (member::owns(&member, code, members)
@@ -448,6 +452,8 @@ macro_rules! ts_npm_compute {
                 InterfaceBody => {
                     let count = node
                         .children()
+                        // role-bypass: allow(DocTarget) — an interface's signatures for the
+                        // method count; not whether each takes a doc comment
                         .filter(|c| {
                             matches!(
                                 c.kind_id().into(),

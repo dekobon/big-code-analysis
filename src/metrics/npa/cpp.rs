@@ -68,6 +68,8 @@ macro_rules! cpp_family_npa {
                         // other way, for a templated member *function*. The
                         // helper declines every payload that is not a data
                         // member through the predicate `Npm` counts with.
+                        // role-bypass: allow(DocTarget) — the template wrapper descended
+                        // for a data member; not whether it takes a doc comment
                         TemplateDeclaration if cpp_template_declares_data_member(&child) => {
                             add_attributes(stats, 1, current_is_public);
                         }

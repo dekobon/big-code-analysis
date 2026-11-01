@@ -2,11 +2,16 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
+use crate::lang_helpers::doc_comment::phpdoc;
 use crate::role_table;
 use crate::{Ancestors, Node, Php};
+
+// Whether a comment opens with the DocBlock marker PHP's scanner reads
+// (`/**` followed by whitespace), from the bytes.
+crate::roles::byte_gate!(opens_with_docblock_marker, phpdoc);
 
 /// Whether an `if_statement` continues a two-word `else if`: its parent
 /// is an `else_clause` (either alias), read off the chain (#1084).
@@ -229,13 +234,39 @@ role_table! {
     // its two aliased ids, which only an interface counts as a member
     // (`npa/php.rs`); an enum case is a tag, not a member.
     Member { owns [PropertyDeclaration, ConstDeclaration, ConstDeclaration2] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind, a `DocComment` owner under the DocBlock
+    // marker gate (#1699).
+    Comment { owns [Comment] }
+    DocComment { owns [Comment(text_gated_by opens_with_docblock_marker)] }
     Docstring { absent "PHP documents with PHPDoc comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The structural elements phpDocumentor's reflection builds: a
+    // class, interface, trait or enum, a function or method, a
+    // property, a class or global constant and an enum case. `define()`
+    // is a call the grammar parses as a statement, so a DocBlock above
+    // it stays a plain comment, where phpDocumentor reads it as a
+    // constant's; a `use`, a `namespace` or any other statement takes
+    // none. Outside the space-tree rows: the enum case (a tag, not a
+    // member) — the parity exception `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ClassDeclaration,
+            InterfaceDeclaration,
+            TraitDeclaration,
+            EnumDeclaration,
+            FunctionDefinition,
+            MethodDeclaration,
+            PropertyDeclaration,
+            ConstDeclaration,
+            ConstDeclaration2,
+            EnumCase,
+        ]
+    }
+    DocRunOpener { absent "phpDocumentor attaches every DocBlock to an element or the file; none documents by its own content" }
+    DocRunDirective { absent "phpDocumentor reads no directive comment" }
+    // Nothing beyond the callables and the closures: which child is the
+    // body — a `compound_statement`, or an arrow function's expression —
+    // is the Checker's body-child test, not a kind.
+    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }
 
 #[cfg(test)]

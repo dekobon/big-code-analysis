@@ -2,17 +2,18 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::Tsx;
 use crate::role_table;
 use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::roles::js_family::{
     js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
-    js_family_decl_keywords, js_family_exits, js_family_func_openers, js_family_loops,
-    js_family_modifiers, js_family_short_circuit_payers, js_family_strings,
-    ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
+    js_family_decl_keywords, js_family_doc_gates, js_family_doc_targets, js_family_exits,
+    js_family_func_openers, js_family_loops, js_family_modifiers, js_family_short_circuit_payers,
+    js_family_strings, ts_doc_gates, ts_family_decl_keywords, ts_family_doc_targets,
+    ts_family_gates, ts_family_modifiers,
 };
 
 ts_family_gates!(Tsx);
@@ -20,6 +21,10 @@ ts_family_gates!(Tsx);
 // under `else { … }` sits inside the statement block (#1697).
 else_if_parent_clause_gate!(Tsx, ElseClause);
 js_family_binding_gates!(Tsx, TsxCode, PublicFieldDefinition);
+
+// The documentation gates, per dialect (#1699): tsc reads `/***` as a doc block; TSX follows tsc, as TypeScript does.
+js_family_doc_gates!(Tsx, tsdoc_block);
+ts_doc_gates!(Tsx, tsx);
 
 role_table! {
     lang: Tsx;
@@ -151,11 +156,32 @@ role_table! {
     // written as a field, which the consumers tell apart themselves —
     // the row recognises the declaration, the consumer reads its value.
     Member { owns [PublicFieldDefinition, PropertySignature] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
-    Docstring { absent "TSX documents with JSDoc comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The two comment kinds — a `/* */` or `//` `comment` and the Annex-B
+    // `<!-- -->` `html_comment` (#697); only the first can open with the
+    // TSDoc block marker (#1699).
+    Comment { owns [Comment, HtmlComment] }
+    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker)] }
+    Docstring { absent "TypeScript documents with TSDoc comments, not string literals" }
+    // What tsc and TypeDoc document: JSDoc's declarations without its
+    // assignment statements (which tsc does not declare), plus
+    // TypeScript's own — the `ts_family_doc_targets!` fragment. An
+    // enum member without an initializer is a bare name under the
+    // `enum_body`: an identifier or a computed name on the fragment,
+    // and the `string` kind here, which TS and TSX number differently.
+    // tsc reads a declaration's comments before its first token only,
+    // so a declaration *under* an `export_statement` or
+    // `ambient_declaration` documents nothing on its own — parent
+    // context the Checker composes, not a gate here; the row answers
+    // the candidate. Most targets are outside the space-tree rows —
+    // the parity exceptions `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ..js_family_doc_targets!(),
+            ..ts_family_doc_targets!(),
+            String2(gated_by under_enum_body),
+        ]
+    }
+    DocRunOpener { absent "TSDoc attaches every doc comment to a declaration or the module; none documents by its own content" }
+    DocRunDirective { absent "TSDoc reads no directive comment" }
+    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }

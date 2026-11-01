@@ -19,7 +19,9 @@ bare ``Kind`` spellings count inside the block holding it, a ``use …
 as X`` alias resolves, and a plain ``use …::Lang;`` is what decides
 which language a ``kind() == "…"`` string compare is checked against —
 a string with no language in scope is reported as unresolved, never
-guessed from its spelling. A match's arm patterns are read whole, over
+guessed from its spelling, unless the site is exempted, when the
+exemption's role is checked against every language whose row claims
+that spelling. A match's arm patterns are read whole, over
 as many lines and ``|`` alternatives as they span, with a guard
 dropped. Macros are the part a text scan would miss, so three bounded
 shapes are resolved from their ``macro_rules!`` headers: a macro whose
@@ -786,7 +788,8 @@ def scan(
     # 4. kind() == "…": a string names no language, so the lexical scope
     # decides — a glob, a plain `use …::Lang;`, an alias, or the languages
     # a macro body is invoked with. With no language in scope the site is
-    # reported as unresolved rather than guessed from the spelling.
+    # reported as unresolved rather than guessed from the spelling — or,
+    # exempted, checked against every language that spells the kind.
     for m in re.finditer(r"\.kind\(\)\s*[!=]=", masked):
         j = m.end()
         while j < len(src.text) and src.text[j] in " \t":
@@ -803,10 +806,18 @@ def scan(
             globs, aliases, named = scope_at(scopes, m.start())
             candidates = globs | named | set(aliases.values())
             if not candidates and any(s_ == lit for (_, s_) in cl.by_string):
-                problems.append(
-                    f"{src.rel}:{src.line(m.start())}: `kind() == {lit!r}` spells a role-claimed kind but no language is in scope here; import the language or exempt the site"
-                )
-                continue
+                if not any(start <= m.start() < end for (start, end, _, _) in exempt):
+                    problems.append(
+                        f"{src.rel}:{src.line(m.start())}: `kind() == {lit!r}` spells a role-claimed kind but no language is in scope here; import the language or exempt the site"
+                    )
+                    continue
+                # An exempted site needs no language in scope — a
+                # name-keyed compare is often exactly the one that serves
+                # several languages — but its exemption must still name a
+                # role that claims the spelling, so every language whose
+                # row claims it is a candidate and `record` checks the
+                # role as it does in scope.
+                candidates = {l_ for (l_, s_) in cl.by_string if s_ == lit}
         for lang in candidates:
             variant = cl.by_string.get((lang, lit))
             if variant:

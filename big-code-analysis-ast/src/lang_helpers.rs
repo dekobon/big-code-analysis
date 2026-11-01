@@ -32,6 +32,9 @@ pub mod elixir_decisions;
 pub(crate) mod irules;
 pub mod perl;
 pub mod python;
+// Crate-private: YARD's scope and call-form rules, read by this crate's
+// `Checker` impl and the Ruby role rows only (#1699).
+pub(crate) mod ruby;
 pub mod tcl;
 // Crate-private for the same reason as `irules` above: the braced-word
 // slot rule is read by this crate's three classifiers and by nothing

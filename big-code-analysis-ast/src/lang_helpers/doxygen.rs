@@ -237,7 +237,7 @@ crate::observation::counter!(conditionals_read);
 /// every conditional's answer is stored, the nested ones' included, so
 /// each is read once per walk; any other caller reads the nest afresh.
 #[must_use]
-pub(crate) fn conditional_declares(node: &Node, ancestors: Ancestors) -> bool {
+pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
     let unshared = NodeMemo::default();
     let memo = ancestors
         .node_memo(MemoQuestion::ConditionalDeclares)
@@ -253,9 +253,14 @@ pub(crate) fn conditional_declares(node: &Node, ancestors: Ancestors) -> bool {
         }
         if expanded {
             conditionals_read::record();
+            let parent = [conditional];
+            let below = chain_below(ancestors, &parent);
             let declares = conditional.children().any(|child| {
-                doxygen_entry(&child)
-                    || (preproc_conditional(&child) && memo.get(&child) == Some(true))
+                if preproc_conditional(&child) {
+                    memo.get(&child) == Some(true)
+                } else {
+                    doxygen_entry::<T>(&child, below)
+                }
             });
             memo.set(&conditional, declares);
             continue;
@@ -269,6 +274,29 @@ pub(crate) fn conditional_declares(node: &Node, ancestors: Ancestors) -> bool {
         );
     }
     memo.get(node) == Some(true)
+}
+
+/// The context a conditional's children are asked with: a chain of one
+/// entry, the conditional itself, so a gate reading `parent` takes the
+/// conditional and not the nest's parent — with the walk's fold cache
+/// carried, no sibling cache, and no allocation (the entry is the
+/// caller's local). It is `parent` and nothing more: a chain of the
+/// real depth would cost a copy of the prefix per conditional, which
+/// across independent conditionals at growing depths is quadratic, and
+/// no C-family `DocTarget` gate reads past `parent` — one that folded
+/// or counted depth through this one-entry chain would answer off the
+/// wrong depth, so the first such gate must widen this, not reuse it.
+/// With no chain known (`Ancestors::unknown`) the gate climbs, which is
+/// exact and allocation-free as well.
+fn chain_below<'a, 'c>(
+    ancestors: Ancestors<'a, 'c>,
+    parent: &'c [Node<'a>; 1],
+) -> Ancestors<'a, 'c> {
+    if ancestors.is_known() {
+        ancestors.below(parent)
+    } else {
+        ancestors
+    }
 }
 
 // Doxygen's scanner keeps every doc block it meets until the next entry
@@ -311,7 +339,7 @@ pub(crate) fn doxygen_container(node: &Node) -> bool {
 /// error holding no entry ([`no_entry_inside`]), and a statement the
 /// grammar had to end itself ([`unterminated`]).
 #[must_use]
-pub(crate) fn doxygen_skips(node: &Node, ancestors: Ancestors) -> bool {
+pub(crate) fn doxygen_skips<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
     match node.kind() {
         // `alone_macro` is Mozilla's C++ grammar reading a lone `FOO` line.
         "preproc_include"
@@ -322,9 +350,9 @@ pub(crate) fn doxygen_skips(node: &Node, ancestors: Ancestors) -> bool {
         | "alone_macro"
         | ":"
         | ";" => true,
-        "expression_statement" => node.child_count() == 1 || unterminated(node),
-        "ERROR" => no_entry_inside(node),
-        _ => preproc_conditional(node) && !conditional_declares(node, ancestors),
+        "expression_statement" => !statement_is_macro_call(node),
+        "ERROR" => no_entry_inside::<T>(node, ancestors),
+        _ => preproc_conditional(node) && !conditional_declares::<T>(node, ancestors),
     }
 }
 
@@ -332,14 +360,20 @@ pub(crate) fn doxygen_skips(node: &Node, ancestors: Ancestors) -> bool {
 /// and nested parse errors, at most one named node that is not itself an
 /// entry — a stray `}`, `@end` in a `.h` read as C or C++, `Q_OBJECT`, or
 /// a macro call missing its `;`. A larger one, such as an Objective-C
-/// `@interface` in a `.h`, is an entry.
-fn no_entry_inside(error: &Node) -> bool {
+/// `@interface` in a `.h`, is an entry. The child is asked with a chain
+/// ending in the error, as a conditional's children are
+/// ([`chain_below`]), not with the error's own, under which its
+/// `parent` would be the error's (lesson 103).
+pub(crate) fn no_entry_inside<T: DoxygenRow>(error: &Node, ancestors: Ancestors) -> bool {
     let mut named = error
         .children()
         .filter(|child| child.is_named() && !child.is_error() && child.kind() != "comment");
     match (named.next(), named.next()) {
         (None, _) => true,
-        (Some(only), None) => !doxygen_entry(&only),
+        (Some(only), None) => {
+            let parent = [*error];
+            !doxygen_entry::<T>(&only, chain_below(ancestors, &parent))
+        }
         _ => false,
     }
 }
@@ -352,76 +386,78 @@ fn unterminated(statement: &Node) -> bool {
     statement.children().last().is_some_and(|c| c.is_missing())
 }
 
-/// What Doxygen documents from a doc block before it: a declaration or a
-/// definition, a macro, a typedef or alias, a namespace, a `using`, a
-/// `friend`, a template (a forward-declared one included), a type with a
-/// body, an enumerator, an Objective-C container, property, method or
-/// instance variable, a macro call at file or class scope (which Doxygen
-/// reads as a function), and a preprocessor conditional holding any of
-/// these. A forward declaration of a type (`struct S;`, `@class C;`,
-/// `@protocol P;`), an explicit instantiation, `@synthesize` / `@dynamic`
-/// and a closing `}` or `@end` take none; Doxygen drops the block.
+/// Whether an `expression_statement` outside a body is a macro call
+/// (`FOO(bar);`), which Doxygen documents as a function, or code the
+/// grammar misread — an Objective-C method in a `.h` read as C++ — that
+/// Doxygen's own scanner still reads as the entry it is: not the empty
+/// statement, and not one the grammar had to end itself. The gate the
+/// `DocTarget` rows read for the statement kinds, and the complement of
+/// what `doxygen_skips` reads past.
 #[must_use]
-pub(crate) fn doxygen_target(node: &Node, ancestors: Ancestors) -> bool {
-    doxygen_entry(node) || (preproc_conditional(node) && conditional_declares(node, ancestors))
+pub(crate) fn statement_is_macro_call(statement: &Node) -> bool {
+    statement.child_count() > 1 && !unterminated(statement)
 }
 
-/// [`doxygen_target`] short of a preprocessor conditional.
-fn doxygen_entry(node: &Node) -> bool {
-    let has_body = |specifier: &Node| specifier.child_by_field_name("body").is_some();
-    match node.kind() {
-        "declaration"
-        | "function_definition"
-        | "type_definition"
-        | "preproc_def"
-        | "preproc_function_def"
-        | "linkage_specification"
-        | "enumerator"
-        | "namespace_definition"
-        | "using_declaration"
-        | "alias_declaration"
-        | "friend_declaration"
-        | "template_declaration"
-        | "class_interface"
-        | "class_implementation"
-        | "protocol_declaration"
-        | "qualified_protocol_interface_declaration"
-        | "property_declaration"
-        | "method_declaration"
-        | "method_definition"
-        | "instance_variable" => true,
-        // Code the grammar could not parse, often behind a macro Doxygen's
-        // preprocessor would expand: given the benefit of the doubt, as
-        // before #1613, rather than dropping the block on a parse failure.
-        // One holding no entry is read past (`doxygen_skips`).
-        "ERROR" => !no_entry_inside(node),
-        "struct_specifier" | "union_specifier" | "enum_specifier" | "class_specifier" => {
-            has_body(node)
-        }
-        // `struct In;` in a class body declares no member.
-        "field_declaration" => {
-            node.child_by_field_name("declarator").is_some()
-                || node.child_by_field_name("type").is_none_or(|t| {
-                    !matches!(
-                        t.kind(),
-                        "struct_specifier"
-                            | "union_specifier"
-                            | "enum_specifier"
-                            | "class_specifier"
-                    ) || has_body(&t)
-                })
-        }
-        // Outside a body a statement is a macro call (`FOO(bar);`), which
-        // Doxygen documents as a function, or code the grammar misread —
-        // an Objective-C method in a `.h` read as C++ — that Doxygen's own
-        // scanner still reads as the entry it is. The empty statement is
-        // read past (`doxygen_skips`).
-        "expression_statement" => node.child_count() > 1 && !unterminated(node),
-        "implementation_definition" => node
-            .child(0)
-            .is_some_and(|d| d.kind() != "property_implementation"),
-        _ => false,
+/// What Doxygen documents from a doc block before it: the dialect's
+/// `DocTarget` row (through [`DoxygenRow`], so this stays one fn for the
+/// four dialects' tables), plus the one clause no row can spell — a parse
+/// error holding an entry. The `ERROR` kind is the generated enum's
+/// sentinel, which no row may own (`utils/role_tables.py` strips it),
+/// so recovery is composed here, as the named context the Checker reads
+/// (#1699).
+#[must_use]
+pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    // role-bypass: allow(DocTarget) — the `ERROR` sentinel holding an
+    // entry: recovery, not a kind a row can own
+    T::doc_target_row(node, code, ancestors)
+        || (node.is_error() && !no_entry_inside::<T>(node, ancestors))
+}
+
+/// What Doxygen documents from a doc block before it, short of a
+/// preprocessor conditional — the *entry*: the dialect's `DocTarget`
+/// row (`roles/<lang>.rs`, the C-family fragments in
+/// `roles/c_family.rs`) less the conditional owners, plus a parse error
+/// holding an entry. The conditional test comes *first*, so a
+/// conditional is no entry here whatever it holds and the row's
+/// `conditional_declares` gate is never reached through this fn —
+/// [`conditional_declares`]'s own post-order walk asks this of a
+/// conditional's non-conditional children only and reads its memo for
+/// the rest, so the two defences are independent and either alone
+/// keeps the walk from re-entering itself. Code the grammar could not parse,
+/// often behind a macro Doxygen's preprocessor would expand, is given
+/// the benefit of the doubt, as before #1613, rather than dropping the
+/// block on a parse failure; an error holding no entry is read past
+/// (`doxygen_skips`).
+///
+/// The row is asked with no bytes, which is exact because no C-family
+/// `DocTarget` gate reads any — `impl_doxygen_row!` in
+/// `checker/doxygen_doc_binding.rs` asserts `!TEXT_GATED` at build time
+/// — and with the caller's chain, which the remaining gates ignore (a
+/// field, the children, the memo). It reads the *row*, through
+/// `T::doc_target_row`, not `T::is_doc_target`: the Checker composes the
+/// `ERROR` clause this fn already handles, and a dialect that someday
+/// hand-writes a byte-reading `is_doc_target` would otherwise slip past
+/// the row's assertion.
+fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
+    if node.is_error() {
+        return !no_entry_inside::<T>(node, ancestors);
     }
+    !preproc_conditional(node) && T::doc_target_row(node, &[], ancestors)
+}
+
+/// The `DocTarget` row of a C-family dialect, as the one function the
+/// Doxygen helpers read targets through; implemented by
+/// `impl_doxygen_row!` (`checker/doxygen_doc_binding.rs`) beside the
+/// Checker that composes it. Only the row: no helper bounded on this
+/// reads a `Checker` method, so a `Checker` supertrait would be a bound
+/// nothing uses.
+pub(crate) trait DoxygenRow {
+    /// The dialect's `doc_target::owns`.
+    fn doc_target_row<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool;
 }
 
 /// Whether a C-family doc comment binds to what follows it: one among a
@@ -590,14 +626,18 @@ mod tests {
             let walk = Ancestors::known(&[]).with_folds(&cache);
             let before = conditionals_read::observed();
             for level in &nest {
-                assert_eq!(conditional_declares(level, walk), declares, "{bottom}");
+                assert_eq!(
+                    conditional_declares::<crate::langs::CCode>(level, walk),
+                    declares,
+                    "{bottom}"
+                );
             }
             let memoised = conditionals_read::observed() - before;
 
             let before = conditionals_read::observed();
             for level in &nest {
                 assert_eq!(
-                    conditional_declares(level, Ancestors::known(&[])),
+                    conditional_declares::<crate::langs::CCode>(level, Ancestors::known(&[])),
                     declares,
                     "{bottom}"
                 );
@@ -609,6 +649,102 @@ mod tests {
                 assert_eq!(unmemoised, DEPTH * (DEPTH + 1) / 2, "{bottom}");
             }
         }
+    }
+
+    /// `doxygen_entry` must test `preproc_conditional` *before* reading
+    /// the row: the row's conditional owners are gated by
+    /// `conditional_declares`, so the other order would run that walk
+    /// from inside an entry question about a conditional. Two defences
+    /// keep the walk from re-entering itself — this order, and the
+    /// walk asking `doxygen_entry` of non-conditional children only —
+    /// and when it had the first alone, reversing it cost `2^depth - 1`
+    /// reads on the uncached path (4,095 at this depth) against `depth`.
+    /// Pinned by count on the uncached path: asking the entry question
+    /// of the outermost conditional must read **nothing** — it is no
+    /// entry whatever it holds, and the reversed order reads the nest
+    /// once — and asking `conditional_declares` of it reads each level
+    /// once (#1699).
+    #[cfg(feature = "c")]
+    #[test]
+    fn doxygen_entry_never_reenters_the_conditional_walk() {
+        use crate::node::Tree;
+        const DEPTH: usize = 12;
+        let source = format!(
+            "{}int x;\n{}",
+            "#ifdef A\n".repeat(DEPTH),
+            "#endif\n".repeat(DEPTH)
+        );
+        let tree = Tree::new::<crate::langs::CCode>(source.as_bytes());
+        let outermost = tree
+            .get_root()
+            .preorder()
+            .find(preproc_conditional)
+            .expect("a nest");
+        let uncached = Ancestors::known(&[]);
+        let before = conditionals_read::observed();
+        assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
+        assert_eq!(
+            conditionals_read::observed() - before,
+            0,
+            "an entry question reads no nest"
+        );
+        let before = conditionals_read::observed();
+        assert!(conditional_declares::<crate::langs::CCode>(
+            &outermost, uncached
+        ));
+        assert_eq!(
+            conditionals_read::observed() - before,
+            DEPTH,
+            "one walk, each level once"
+        );
+    }
+
+    /// `no_entry_inside` asks the row of an error's sole named child
+    /// with a chain ending in the *error* — the child's parent — not
+    /// the error's own chain, under which `parent` would be the error's
+    /// parent (lesson 103). No C-family gate reads the chain today, so
+    /// the production rows cannot tell; a row that checks `parent`
+    /// against the tree does. `Q_OBJECT` then `int after;` recovers as
+    /// a declaration whose `ERROR` holds one `identifier`.
+    #[cfg(feature = "c")]
+    #[test]
+    fn error_child_is_asked_with_the_error_as_its_parent() {
+        use crate::node::Tree;
+        use std::cell::Cell;
+        thread_local! { static ASKED: Cell<usize> = const { Cell::new(0) }; }
+        struct ParentChecked;
+        impl DoxygenRow for ParentChecked {
+            fn doc_target_row<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+                assert_eq!(
+                    ancestors.parent(node).map(|p| p.id()),
+                    node.parent().map(|p| p.id()),
+                    "{} asked with a chain not its own",
+                    node.kind()
+                );
+                ASKED.with(|asked| asked.set(asked.get() + 1));
+                false
+            }
+        }
+        let source = b"int ok;\nQ_OBJECT\nint after;\n";
+        let tree = Tree::new::<crate::langs::CCode>(source);
+        let root = tree.get_root();
+        let mut chain = vec![root];
+        let mut stack: Vec<(Node, usize)> = root.children().map(|c| (c, 1)).collect();
+        let mut errors = 0;
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            if node.is_error() {
+                errors += 1;
+                assert!(no_entry_inside::<ParentChecked>(
+                    &node,
+                    Ancestors::known(&chain)
+                ));
+            }
+            chain.push(node);
+            stack.extend(node.children().map(|c| (c, depth + 1)));
+        }
+        assert_eq!(errors, 1, "one recovery error in the fixture");
+        assert_eq!(ASKED.with(Cell::get), 1, "the sole child was asked once");
     }
 
     #[test]

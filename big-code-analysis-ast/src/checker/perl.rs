@@ -2,22 +2,13 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{node_bytes, pod_comment_region};
 
 impl Checker for PerlCode {
-    fn is_comment(node: &Node) -> bool {
-        matches!(node.kind_id().into(), Perl::Comments | Perl::PodStatement)
-    }
-
+    // The `Comment` and `DocComment` rows of `roles/perl.rs` (#1699):
+    // `pod_statement` sits on `DocComment` alone, so `is_comment`'s
+    // union is what keeps a `=begin comment` region a comment.
     // perldoc extracts POD wherever it sits, a sub body included.
-    const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = true;
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        // POD is Perl's documentation syntax; a `#` comment never is, and
-        // neither is a POD block opening a `comment` region, Perl's idiom
-        // for commenting code out.
-        node.kind_id() == Perl::PodStatement && !pod_comment_region(node_bytes(node, code))
-    }
+    impl_doc_comment_rows_in_bodies!(perl);
 
     // The space tree is declared in `roles/perl.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and

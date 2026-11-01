@@ -135,7 +135,7 @@ fn python_count_ternary_condition(node: &Node, code: &[u8], conditions: &mut f64
         .children()
         .skip_while(|child| child.kind_id() != If as u16)
         .skip(1)
-        .find(|child| child.kind_id() != Comment as u16)
+        .find(|child| !PythonCode::is_comment(child))
     {
         python_count_condition(&condition, code, conditions);
     }

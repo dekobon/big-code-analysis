@@ -26,6 +26,8 @@ use super::*;
 /// declines. `ancestors` is the member's chain.
 fn objc_is_method<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     use crate::roles::objc::func_opener;
+    // role-bypass: allow(DocTarget) — a bodiless method declaration counted
+    // beside the callables; not whether it takes a doc comment
     member.kind_id() == Objc::MethodDeclaration as u16
         || (func_opener::is_callable(member, code, ancestors)
             && !ObjcCode::is_non_member_function(member, code, ancestors))
@@ -58,6 +60,8 @@ impl Npm for ObjcCode {
                 // are direct too. (`@implementation` method *definitions*
                 // are never direct children — they are always wrapped in
                 // an `implementation_definition`, handled below.)
+                // role-bypass: allow(DocTarget) — a method the count reads; not
+                // whether it takes a doc comment
                 MethodDeclaration => methods += 1,
                 // `@implementation` wraps each member in an
                 // `implementation_definition`, and a `@protocol` groups
@@ -66,6 +70,8 @@ impl Npm for ObjcCode {
                 // are descended one level for method nodes (free C
                 // functions and `@synthesize`, also wrapped by the former,
                 // are not methods, so they are skipped).
+                // role-bypass: allow(DocTarget) — the two wrappers descended for
+                // their methods; not whether either takes a doc comment
                 ImplementationDefinition | QualifiedProtocolInterfaceDeclaration => {
                     let in_wrapper = members.of_children(&child);
                     methods += child

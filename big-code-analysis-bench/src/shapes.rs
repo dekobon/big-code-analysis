@@ -579,6 +579,17 @@ pub fn c_nested_conditional_docs(depth: usize) -> String {
     )
 }
 
+/// C: one documented, shallow conditional per struct level, each at a
+/// greater depth than the last.
+#[must_use]
+pub fn c_conditional_per_struct_depth(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "struct S {\n/** d */\n#ifdef A\nint x;\n#endif\n".repeat(depth),
+        "};\n".repeat(depth)
+    )
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -2655,6 +2666,33 @@ pub const PROBES: &[Probe] = &[
         rationale: "#1613: a stretch of `@file` blocks ending at no target \
                     is credited once, from its last gathering comment; \
                     every block is a doc row.",
+    },
+    Probe {
+        name: "loc/c-conditional-per-struct-depth",
+        lang: LANG::C,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.dloc(),
+        },
+        render: c_conditional_per_struct_depth,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1699: `conditional_declares` asks each child of a \
+                    conditional with a context whose `parent` is the \
+                    conditional, built from one local and no copy of the \
+                    walk's chain. A copy of the chain per conditional — \
+                    `children_chain`, the first shape this took — is \
+                    `O(depth)` each, and independent conditionals at \
+                    growing depths made it super-linear: 1.50 measured \
+                    with the copy, 1.04 without. The nested-conditional \
+                    probe grows the other axis and cannot see it. A \
+                    struct nest rather than a namespace nest: nested C++ \
+                    namespaces are quadratic under `loc` on their own \
+                    (pre-existing, every reading of the walk), which \
+                    would hide what this prices. Every block binds, so \
+                    the reading is the doc rows, one per level.",
     },
     Probe {
         name: "loc/c-nested-conditional-docs",

@@ -359,6 +359,227 @@ pub(crate) use {
     ts_family_decl_keywords, ts_family_gates, ts_family_modifiers,
 };
 
+// ---------------------------------------------------------------------
+// The documentation rows (#1699). What JSDoc's `astnode.getInfo` names,
+// and so documents: a declaration, a class member, an object member, a
+// variable declaration whose first declarator binds an identifier, an
+// export other than a bare `export { … }` list, and an expression
+// statement that assigns to a name or a member (`x = 1`, `a.b += 1`).
+// Any other statement — a call, an `if`, an `import`, a destructuring
+// assignment — takes none, checked with `jsdoc -X`. The TypeScript
+// grammars add what tsc and TypeDoc document on their own rows; the
+// `export` / `ambient` *parent* context tsc reads is the Checker's.
+// ---------------------------------------------------------------------
+
+/// The JSDoc targets every JS-family grammar spells.
+macro_rules! js_family_doc_targets {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            FunctionDeclaration,
+            GeneratorFunctionDeclaration,
+            ClassDeclaration,
+            MethodDefinition,
+            Pair,
+            ShorthandPropertyIdentifier,
+            VariableDeclaration(gated_by first_declarator_binds_a_name),
+            LexicalDeclaration(gated_by first_declarator_binds_a_name),
+        ] $($rest)*);
+    };
+}
+
+/// The documentation gates the JS family's rows read, per dialect
+/// because each table reads the dialect's kind ids. Each is a pure read
+/// of the node's fields or children.
+macro_rules! js_family_doc_gates {
+    ($lang:ident, $block:ident) => {
+        // Whether a comment opens with the block marker the dialect's
+        // tool reads — `$block`, named at the invocation: JSDoc's
+        // rejects `/***`, tsc's takes it and rejects only the empty
+        // `/**/` — read from the bytes. An Annex-B `<!-- -->`
+        // `html_comment` is a comment and never documentation.
+        $crate::roles::byte_gate!(
+            opens_with_doc_block_marker,
+            $crate::lang_helpers::doc_comment::$block
+        );
+
+        /// Whether a `var` / `let` / `const` declaration's first
+        /// declarator binds a plain identifier — what JSDoc and tsc
+        /// name; a destructuring declaration documents no binding.
+        fn first_declarator_binds_a_name<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            node.children()
+                .find(|c| c.kind_id() == $lang::VariableDeclarator as u16)
+                .and_then(|d| d.child_by_field_name("name"))
+                .is_some_and(|name| name.kind_id() == $lang::Identifier as u16)
+        }
+    };
+}
+
+/// The JavaScript-only gates: an export other than a bare `export { … }`
+/// list, and an expression statement assigning to a name or a member
+/// (past the parentheses, by role, since a comment after `(` is a child
+/// before it) — but never to a destructuring pattern.
+macro_rules! js_doc_gates {
+    ($lang:ident) => {
+        fn export_declares<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            !node.is_child($lang::ExportClause as u16)
+        }
+
+        fn assigns_to_a_name_or_member<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            use $lang::*;
+            let mut expr = node.child(0);
+            while let Some(e) = expr.filter(|e| e.kind_id() == ParenthesizedExpression) {
+                expr = e
+                    .children()
+                    .find(|c| c.is_named() && !c.as_tree_sitter().is_extra());
+            }
+            expr.filter(|e| {
+                matches!(
+                    e.kind_id().into(),
+                    AssignmentExpression | AugmentedAssignmentExpression
+                )
+            })
+            .and_then(|e| e.child_by_field_name("left"))
+            .is_some_and(|left| !matches!(left.kind_id().into(), ObjectPattern | ArrayPattern))
+        }
+    };
+}
+
+/// The TypeScript-only targets both TS grammars spell beside the JSDoc
+/// ones: what tsc and TypeDoc document — interfaces and their members,
+/// type aliases, enums and their members, namespaces and modules,
+/// ambient declarations, abstract members and parameters. JSDoc's
+/// assignment statements are not here: tsc does not declare them. The
+/// `using` form is one, read by its own gate; an enum member without an
+/// initializer is a bare name under the `enum_body`, gated on that
+/// parent.
+macro_rules! ts_family_doc_targets {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            AbstractClassDeclaration,
+            InterfaceDeclaration,
+            TypeAliasDeclaration,
+            EnumDeclaration,
+            Module,
+            AmbientDeclaration,
+            FunctionSignature,
+            MethodSignature,
+            AbstractMethodSignature,
+            PublicFieldDefinition,
+            PropertySignature,
+            IndexSignature,
+            CallSignature,
+            ConstructSignature,
+            EnumAssignment,
+            RequiredParameter,
+            RequiredParameter2,
+            OptionalParameter,
+            OptionalParameter2,
+            ExportStatement(gated_by export_declares_to_tsc),
+            ExpressionStatement(gated_by using_declares),
+            PropertyIdentifier(gated_by under_enum_body),
+            ComputedPropertyName(gated_by under_enum_body),
+        ] $($rest)*);
+    };
+}
+
+/// The TypeScript-only gates. `export_declares_to_tsc` reads the
+/// *child* of an export — what it declares, under its own local gate
+/// (`export const {x} = o;` binds no name and documents nothing, as
+/// the bare `const {x} = o;` does not), or the names an `export { … }`
+/// list re-exports; `export *` and `export default <expr>` take none,
+/// while the anonymous `export default function () {}` and `export
+/// default class {}` document as their named twins do. The child is
+/// asked through the row's `owns` with the *export's* chain: exact,
+/// because the `declaration` field holds a `declaration` supertype or
+/// an `internal_module` (`node-types.json`) and the row's chain-reading
+/// owners — the enum-member kinds under `under_enum_body` — are never
+/// among those, which `roles/doc_tests/mod.rs` pins; and the parent context
+/// tsc reads (a declaration under `export` documents nothing on its
+/// own) is the Checker's over the *export*, never applied to the child.
+macro_rules! ts_doc_gates {
+    ($lang:ident, $roles:ident) => {
+        fn export_declares_to_tsc<'a>(
+            node: &$crate::Node<'a>,
+            code: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            use $lang::*;
+            node.child_by_field_name("declaration").map_or_else(
+                || {
+                    node.is_child(ExportClause as u16)
+                        || node.child_by_field_name("value").is_some_and(|value| {
+                            matches!(
+                                value.kind_id().into(),
+                                FunctionExpression | GeneratorFunction | Class
+                            )
+                        })
+                },
+                |inner| {
+                    $crate::roles::$roles::doc_target::owns(&inner, code, ancestors)
+                        || inner.kind_id() == InternalModule as u16
+                },
+            )
+        }
+
+        /// The grammar parses `using x = f()` as an assignment its
+        /// `using` token opens, under an `await_expression` for `await
+        /// using`; tsc declares `x` as it does for `const x = f()`. An
+        /// `internal_module` statement (`namespace N { }` after a
+        /// modifier) is a declaration too.
+        fn using_declares<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            use $lang::*;
+            node.child(0).is_some_and(|e| {
+                if e.kind_id() == InternalModule {
+                    return true;
+                }
+                let assignment = if e.kind_id() == AwaitExpression {
+                    e.children()
+                        .find(|c| c.is_named() && !c.as_tree_sitter().is_extra())
+                } else {
+                    Some(e)
+                };
+                assignment.is_some_and(|a| {
+                    a.kind_id() == AssignmentExpression
+                        && a.child(0).is_some_and(|u| u.kind_id() == Using)
+                        && a.child_by_field_name("left")
+                            .is_some_and(|left| left.kind_id() == Identifier)
+                })
+            })
+        }
+
+        /// An enum member without an initializer is a bare name in the
+        /// enum body; anywhere else a `property_identifier` is a member
+        /// name after a modifier or a `.`, inside what it names.
+        fn under_enum_body<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            ancestors.parent_has_kind(node, $lang::EnumBody as u16)
+        }
+    };
+}
+
+pub(crate) use {
+    js_doc_gates, js_family_doc_gates, js_family_doc_targets, ts_doc_gates, ts_family_doc_targets,
+};
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::for_each_node_with_chain;

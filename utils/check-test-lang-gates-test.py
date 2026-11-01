@@ -1877,6 +1877,37 @@ mod tests {
         self.assertEqual(gate.stale_markers(items, needs), [])
         self.assertEqual(gate.over_gated(items, needs), [])
 
+    def test_a_helper_read_from_a_sibling_file_keeps_its_marker(self) -> None:
+        # A `fn` or `const` a sibling file reaches through `use super::*`
+        # has callers the derivation cannot see (it resolves a macro
+        # invoked from a sibling, not a plain call), so the helper's own
+        # callers derive a *narrower* union and the marker for the
+        # sibling's languages is load-bearing. #1699's `doc_tests/mod.rs`
+        # harness lost `c`, `cpp`, `mozcpp`, `objc` to a `--fix` that
+        # read only `mod.rs`, and `doc_tests/doxygen.rs` then failed to
+        # compile on every C-family subset.
+        items = _scan(
+            """
+#[cfg(test)]
+mod tests {
+    // test-lang-gates: hand-written(c) — read by a sibling file through
+    //     `use super::*`, which the derivation does not follow
+    #[cfg(any(feature = "c", feature = "python"))]
+    fn shared_helper() {}
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        check_metrics::<PythonParser>("a = 1", "f.py", |m| { shared_helper(); });
+    }
+}
+"""
+        )
+        needs = gate.resolve_needs(items)
+        self.assertEqual(gate.stale_markers(items, needs), [])
+        self.assertEqual(gate.over_gated(items, needs), [])
+        self.assertEqual(gate.offenders(items, needs), [])
+
     def test_a_doc_comment_is_not_a_marker(self) -> None:
         # `///` renders into the crate documentation. A directive read
         # out of prose is one a reader has no reason to think is live.

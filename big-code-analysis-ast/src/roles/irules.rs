@@ -2,8 +2,8 @@
 //! paying-construct roles (#1694, #1695), the space tree (#1696) and the
 //! control flow — `Branch`, `Switch`, `Loop`, `Catch`, `ElseIf`, `Exit`
 //! (#1697) — are declared, the Tcl-shaped ones through the shared
-//! `tcl_family` fragments (contract 5 of #1690); the rest are pending
-//! the package that declares each (#1692).
+//! `tcl_family` fragments (contract 5 of #1690) and the documentation
+//! rows (#1699) are declared.
 
 use crate::lang_helpers::case_arms::irules_switch_arm_is_decision;
 use crate::role_table;
@@ -122,11 +122,16 @@ role_table! {
     Container { owns [SourceFile(opens Unit)] }
     Closure { absent "Tcl has no anonymous function kind; `apply` takes a list" }
     Member { absent "Tcl has no container to hold a member" }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind. The grammar marks no comment as
+    // documentation and no comment-run convention is recognised here —
+    // #1655 names a BCA convention for iRules as the epic's own work —
+    // so the six documentation rows are absent and `is_comment` is this
+    // row's kind table alone (#1699).
+    Comment { owns [Comment] }
+    DocComment { absent "the grammar marks no comment as documentation; the BCA convention is #1655's" }
     Docstring { absent "Tcl documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    DocTarget { absent "no comment is recognised as documentation, so nothing is its target" }
+    DocRunOpener { absent "no comment-run convention is recognised; the BCA convention is #1655's" }
+    DocRunDirective { absent "no comment-run convention is recognised; the BCA convention is #1655's" }
+    HoldsDocInBody { absent "no kind holds documentation in a body beyond the handler or procedure" }
 }

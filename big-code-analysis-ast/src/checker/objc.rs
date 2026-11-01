@@ -3,12 +3,15 @@
 
 use super::*;
 
-impl Checker for ObjcCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Objc::Comment
-    }
+impl_doxygen_row!(ObjcCode, objc);
 
-    impl_doxygen_doc_comment!();
+impl Checker for ObjcCode {
+    // The `Comment` and `DocComment` rows of `roles/objc.rs` (#1699):
+    // the one comment kind, documentation under one of Doxygen's markers.
+    // Doxygen appends every doc block in a function body to that
+    // function's documentation as its in-body description
+    // (`HIDE_IN_BODY_DOCS` defaults to NO, #1597).
+    impl_doc_comment_rows_in_bodies!(objc);
 
     // Objective-C adds `@interface`, `@implementation`, `@protocol`,
     // `@property`, methods and instance variables; `@class C;`,

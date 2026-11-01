@@ -4,17 +4,12 @@
 use super::*;
 
 impl Checker for JavascriptCode {
-    fn is_comment(node: &Node) -> bool {
-        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
-        // is a comment kind for loc/tokens/find parity (#697).
-        matches!(
-            node.kind_id().into(),
-            Javascript::Comment | Javascript::HtmlComment
-        )
-    }
-
     // JSDoc ignores `/***`; plain JavaScript follows it.
-    impl_js_family_doc_comment!(Javascript, javadoc_block);
+    // The Annex-B `<!-- -->` `html_comment` is a comment kind for
+    // loc / tokens / find parity (#697) and never documentation.
+    // JSDoc documents inner symbols (`outer~inner`), so a `/** */` on a
+    // function or property declared in a body is documentation.
+    impl_doc_comment_rows_in_bodies!(javascript);
 
     // JSDoc's `getLeadingJsdocComment` takes the nearest block comment
     // before a node, line comments filtered out, so a plain `/* */` in
@@ -28,7 +23,7 @@ impl Checker for JavascriptCode {
         |node, code| Self::is_comment(node)
             && !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b"/*"),
         crate::lang_helpers::doc_comment::jsdoc_virtual,
-        jsdoc_target,
+        crate::roles::javascript::doc_target::owns,
         |_| true
     );
 

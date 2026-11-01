@@ -2,8 +2,8 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::lang_helpers::case_arms::{tcl_command_is_switch_arm, tcl_switch_arm_list};
 use crate::lang_helpers::tcl::{TclCommandWord, tcl_command_word, tcl_try_handler_bodies};
@@ -131,11 +131,16 @@ role_table! {
     Closure { absent "Tcl has no anonymous function kind; `apply` takes a list" }
     Container { owns [SourceFile(opens Unit)] }
     Member { absent "Tcl has no container to hold a member" }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind. The grammar marks no comment as
+    // documentation, and no convention a tool reads over a comment run
+    // (Ruff!'s `#` blocks above a `proc`) is recognised here, so the six
+    // documentation rows are absent — unsupported, not nonexistent —
+    // and `is_comment` is this row's kind table alone (#1699).
+    Comment { owns [Comment] }
+    DocComment { absent "the grammar marks no comment as documentation; no tool's convention is read" }
     Docstring { absent "Tcl documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    DocTarget { absent "no comment is recognised as documentation, so nothing is its target" }
+    DocRunOpener { absent "no comment-run convention (Ruff!) is recognised" }
+    DocRunDirective { absent "no comment-run convention (Ruff!) is recognised" }
+    HoldsDocInBody { absent "no kind holds documentation in a body beyond the procedure" }
 }

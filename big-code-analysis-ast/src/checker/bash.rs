@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for BashCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Bash::Comment
-    }
+    // The one `Comment` row of `roles/bash.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(bash);
 
     // The space tree is declared in `roles/bash.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and

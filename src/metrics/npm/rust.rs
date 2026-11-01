@@ -41,6 +41,8 @@ impl Npm for RustCode {
         // grandparent keeps free-standing functions out of the count
         // without walking the parent list eagerly.
         use crate::roles::rust::func_opener;
+        // role-bypass: allow(DocTarget) — a trait's bodiless signature is a method
+        // the count reads beside the callables, not a doc-target question
         if !(func_opener::is_callable(node, code, ancestors)
             || node.kind_id() == FunctionSignatureItem as u16)
         {

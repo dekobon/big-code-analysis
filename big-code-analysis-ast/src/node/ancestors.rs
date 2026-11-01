@@ -252,6 +252,14 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         answer
     }
 
+    /// Whether the chain is known — a walk handed it in — rather than
+    /// the climbing [`Ancestors::unknown`]. A caller that would derive a
+    /// chain for a node's children ([`below`](Self::below)) has nothing
+    /// to derive from otherwise, and the climb is already exact.
+    pub(crate) const fn is_known(self) -> bool {
+        self.chain.is_some()
+    }
+
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
     /// one a walk lent a [`FoldCache`] with. Otherwise every fold runs
     /// from the root, so a predicate whose own climb is bounded takes that
@@ -417,7 +425,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// and folded all seventeen onto this, and #1697 the `ElseIf`
     /// gates. Two sites spelling their binding `|parent|` were left
     /// alone and would each fit:
-    /// `is_stabby_lambda_body` (`src/checker/ruby.rs`) and
+    /// `is_stabby_lambda_body` (`src/lang_helpers/ruby.rs`) and
     /// `is_useful_comment` (`src/checker/rust.rs`, a let-chain).
     ///
     /// A `false` when `node` has no parent is the answer every one of

@@ -105,10 +105,11 @@ macro_rules! cpp_family_npm {
                         // nested `template_declaration` as a child, which the
                         // helper declines because the two-header form it would
                         // spell is not valid C++ at class scope.
-                        // role-bypass: allow(Member) — the row's member read as a
-                        // bodiless *method* by its declarator, beside the
+                        // role-bypass: allow(Member, DocTarget) — the row's member read
+                        // as a bodiless *method* by its declarator, beside the
                         // non-member wrappers; the attribute consumer reads the
-                        // same row the other way
+                        // same row the other way, and whether each takes a doc
+                        // comment is neither's question
                         FieldDeclaration | Declaration | Declaration2 | Declaration3
                         | Declaration4 | TemplateDeclaration
                             if super::npa::cpp_declares_function(&child) =>

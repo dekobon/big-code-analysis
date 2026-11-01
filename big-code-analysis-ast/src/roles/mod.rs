@@ -43,15 +43,15 @@
 //! | `Closure` | an anonymous function, whether or not it opens a space |
 //! | `Container` | a node that opens a class-like, unit or namespace space |
 //! | `Member` | a field, property or attribute of a `Container` (see below) |
-//! | `Comment` | any comment |
-//! | `DocComment` | a comment a documentation tool reads |
-//! | `Docstring` | a string literal that serves as documentation |
-//! | `DocTarget` | a declaration a doc comment attaches to |
+//! | `Comment` | a comment kind that is not documentation by kind (see below) |
+//! | `DocComment` | a comment a documentation tool reads, by kind or by its marker |
+//! | `Docstring` | a string literal that serves as documentation, by position |
+//! | `DocTarget` | a declaration a doc comment attaches to, as a candidate (see below) |
 //! | `DocRunOpener` | a comment whose own content makes its run documentation (see below) |
 //! | `DocRunDirective` | a member of a doc run that is *not* documentation (see below) |
-//! | `HoldsDocInBody` | an ancestor whose body is executable-code context for a doc comment |
+//! | `HoldsDocInBody` | a kind beyond the callables and closures whose body holds a doc comment (see below) |
 //!
-//! Four of those need more than a line, because a short reading of the
+//! Some of those need more than a line, because a short reading of the
 //! word files different kinds from the contract it names:
 //!
 //! - `Exit` is what the exit count reads today: `return` and `throw`,
@@ -73,12 +73,59 @@
 //!   attribute's only declaration. The row recognises the node; which
 //!   body it sits in, its visibility, and how many names one node binds
 //!   are the consumer's reading.
-//! - `HoldsDocInBody` is `Checker::holds_doc_comment_in_body`: an
-//!   ancestor whose body is executable-code context, in which a comment
-//!   is documentation only where the language's tool reads one there.
-//!   A function or closure by default; Java adds `static { … }`, a bare
-//!   `block` and a `switch_block` — the last reachable from a field
-//!   initializer, outside any function. A class body is not one.
+//! - `Comment` and `DocComment` partition the comment kinds: a kind that
+//!   is documentation *by kind* — Groovy's `groovydoc_comment`, Perl's
+//!   `pod_statement` — sits on `DocComment` alone, under the gate that
+//!   tells an empty `/**/` or a POD `=begin comment` region from
+//!   documentation, and `Comment` holds the rest. "Any comment" is the
+//!   two rows' kind tables as one, which is what `Checker::is_comment`
+//!   reads (it has no bytes and no chain, so it reads `lists_kind`, not
+//!   `owns`), and what makes `is_doc_comment ⇒ is_comment` structural.
+//!   `Docstring` reaches neither predicate: a docstring is no comment.
+//! - `DocTarget` is the *candidate* under the gates that read the node
+//!   itself — a declarator binds a name, a specifier has a body, a Go
+//!   declaration sits outside a function body. The context a row cannot
+//!   see is the Checker's, as a named `fn` beside the row read: tsc's
+//!   "a declaration directly under `export` documents nothing on its
+//!   own", Ruby's `then` wrapper and YARD scope, Rust's any-kind
+//!   tuple-struct slot, Doxygen's `ERROR` holding an entry. Where that
+//!   makes the row over-approximate the Checker, `doc_tests/mod.rs` pins it.
+//!   Lua's row is read by the opener's content decision alone; its
+//!   `Checker::is_doc_target` stays the trait default, since LDoc
+//!   attaches nothing to a declaration a plain `--` run precedes.
+//! - `HoldsDocInBody` is the *residual* of
+//!   `Checker::holds_doc_comment_in_body`: the kinds a language's tool
+//!   reads a doc comment in as a body beyond the callables and closures
+//!   — Java's `static { … }`, bare `block` and `switch_block`, Kotlin's
+//!   accessors and `init`, C#'s property and indexer in every form. The
+//!   full answer an adapter composes is `func_opener::is_callable ∪
+//!   closure::owns ∪ holds_doc_in_body::owns`, then the language's
+//!   body-child test (`checker/<lang>.rs`), which no kind spells. A
+//!   class body is never one.
+//!
+//! A row gate may be generic over its own language's `Checker` tag —
+//! Lua's opener reads `documents_where_it_sits::<LuaCode>`, the C-family
+//! conditional gate `conditional_declares::<CCode>` — which is a
+//! type-level cycle (`roles` → `checker` → `roles`) that is harmless
+//! exactly while the `Checker` methods it reaches read *other* rows, or
+//! read this one only through a projection that cannot re-enter the
+//! gate (`doxygen_entry` tests `preproc_conditional` first;
+//! `doxygen_entry_never_reenters_the_conditional_walk` pins it).
+//!
+//! # For the documentation epic (#1654, #1655)
+//!
+//! An adapter's *recognition set* is its rows: these seven, composed
+//! with the named context fns in `checker/<lang>.rs` listed above. What
+//! is not a row: the `DocBinding` (`lang_helpers/doc_comment.rs`: its
+//! `kept` policy and `skips`, `forward`, `gathers` callbacks), which decides *which* doc
+//! comments of a stretch attach; candidate selection between the source
+//! and legacy views; owner normalisation; and text decoding. Those stay
+//! the epic's mechanisms, reading the rows. The reusable helpers beside
+//! the rows: the marker tests in `lang_helpers/doc_comment.rs`, the
+//! Doxygen entry projection and conditional memo in
+//! `lang_helpers/doxygen.rs`, YARD's scope fold and call forms in
+//! `lang_helpers/ruby.rs`, and Python's run and assignment helpers in
+//! `lang_helpers/python.rs`.
 //!
 //! # The row grammar
 //!
@@ -95,7 +142,7 @@
 //!                        ObjectCreationExpression(opens Class gated_by has_class_body)] }
 //!     Guard      { owns [Guard] pays never }
 //!     NullSafe   { absent "no `?.` or `??`" }
-//!     Comment    { pending R09 }
+//!     Comment    { pending R11 }
 //! }
 //! ```
 //!
@@ -296,15 +343,30 @@
 //! and `PAYERS` (#1694, #1695); the items no package reads yet are what
 //! the module-level allow below is for.
 
-// The keyword, paying-construct, space-tree, call / string and
-// control-flow rows have consumers (#1693–#1698). What no Rust reader
-// reaches is what `utils/role_tables.py` reads from the declarations
-// instead — the `ABSENT` / `PENDING` constants and `EXCLUDED` — plus the
-// emissions of the R09 rows (`Comment`, `DocComment`, `Docstring`,
-// `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody`)
-// every language still declares `pending`; that package narrows this
-// allow as it lands.
+// Every role has consumers (#1693–#1699). What no Rust reader reaches
+// is what `utils/role_tables.py` reads from the declarations instead —
+// the `ABSENT` / `PENDING` constants and `EXCLUDED` — and the
+// predicates the macro emits for uniformity on every row that no
+// consumer asks of that row (`canonical`, a `pays_*` on an owner-only
+// role, every predicate of an `absent` row): 58 items with the allow
+// off at #1699's close. Narrowing it is a DSL question — emitting less
+// per row, or `#[allow]` per emitted item — for #1701.
 #![allow(dead_code)]
+
+/// Emits a `text_gated_by` gate that reads the node's bytes through one
+/// of `lang_helpers::doc_comment`'s marker tests (#1699): `$name` is the
+/// gate the row names, `$test` the byte predicate. Per language because
+/// the gate fn resolves at the row; what each marker means to its tool
+/// is the `//` comment above the invocation (a `///` on a macro call
+/// is an unused doc comment).
+macro_rules! byte_gate {
+    ($name:ident, $test:path) => {
+        fn $name<'a>(node: &$crate::Node<'a>, code: &[u8], _: $crate::Ancestors<'a, '_>) -> bool {
+            $test($crate::lang_helpers::doc_comment::node_bytes(node, code))
+        }
+    };
+}
+pub(crate) use byte_gate;
 
 pub mod bash;
 pub mod c;
@@ -350,6 +412,11 @@ mod call_string_tests;
 // dispatchers that read them (#1697).
 #[cfg(test)]
 mod control_flow_tests;
+
+// The seven documentation rows, pinned independently of the `Checker`
+// predicates that read them (#1699).
+#[cfg(test)]
+mod doc_tests;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -583,7 +650,7 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
 ///     }
 ///     Guard { owns [Guard] pays never }
 ///     NullSafe { absent "no `?.`" }
-///     Comment { pending R09 }
+///     Comment { pending R11 }
 /// }
 /// # fn main() {
 /// assert_eq!(exit::OWNERS.len(), 2);
@@ -1483,6 +1550,42 @@ macro_rules! role_table {
     };
 }
 
+/// Every language's `DocTarget` owners, named by `LANG` variant: the one
+/// list a cross-language test enumerates languages from — the rows are
+/// compiled unconditionally, so a test over a feature-gated set filters
+/// this by the enabled languages' names — held to the enum by
+/// `doc_target_rows_name_every_language` below.
+#[cfg(test)]
+pub(crate) fn doc_target_rows() -> &'static [(&'static str, &'static [u16])] {
+    &[
+        ("Bash", bash::doc_target::OWNERS),
+        ("C", c::doc_target::OWNERS),
+        ("Ccomment", ccomment::doc_target::OWNERS),
+        ("Cpp", cpp::doc_target::OWNERS),
+        ("Csharp", csharp::doc_target::OWNERS),
+        ("Elixir", elixir::doc_target::OWNERS),
+        ("Go", go::doc_target::OWNERS),
+        ("Groovy", groovy::doc_target::OWNERS),
+        ("Irules", irules::doc_target::OWNERS),
+        ("Java", java::doc_target::OWNERS),
+        ("Javascript", javascript::doc_target::OWNERS),
+        ("Kotlin", kotlin::doc_target::OWNERS),
+        ("Lua", lua::doc_target::OWNERS),
+        ("Mozcpp", mozcpp::doc_target::OWNERS),
+        ("Mozjs", mozjs::doc_target::OWNERS),
+        ("Objc", objc::doc_target::OWNERS),
+        ("Perl", perl::doc_target::OWNERS),
+        ("Php", php::doc_target::OWNERS),
+        ("Preproc", preproc::doc_target::OWNERS),
+        ("Python", python::doc_target::OWNERS),
+        ("Ruby", ruby::doc_target::OWNERS),
+        ("Rust", rust::doc_target::OWNERS),
+        ("Tcl", tcl::doc_target::OWNERS),
+        ("Tsx", tsx::doc_target::OWNERS),
+        ("Typescript", typescript::doc_target::OWNERS),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Ancestors, Java, Node};
@@ -1548,6 +1651,21 @@ mod tests {
     // LF bytes, so a Windows developer with python3 can still run it by
     // hand.
     type Canonical = fn() -> String;
+
+    /// `doc_target_rows` names every `LANG` once, under the variant's
+    /// own spelling, so a cross-language test enumerating from it
+    /// cannot miss a language the enum has or spell one differently.
+    #[test]
+    fn doc_target_rows_name_every_language() {
+        let rows = super::doc_target_rows();
+        let listed: std::collections::BTreeSet<String> =
+            rows.iter().map(|(name, _)| (*name).to_owned()).collect();
+        let known: std::collections::BTreeSet<String> = crate::LANG::into_enum_iter()
+            .map(|l| format!("{l:?}"))
+            .collect();
+        pretty_assertions::assert_eq!(listed, known);
+        assert_eq!(rows.len(), known.len(), "no language listed twice");
+    }
 
     #[cfg(not(windows))]
     #[test]

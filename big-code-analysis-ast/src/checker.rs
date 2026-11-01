@@ -27,41 +27,18 @@ static RE: OnceLock<Regex> = OnceLock::new();
 // `roles/js_family.rs`'s `js_family_binding_gates!` emits the walk per
 // dialect, and each dialect's `FuncOpener` / `Closure` rows read it.
 
-// Generate the documentation rule for a JS-family `Checker` block: a
-// `/**` comment only — an Annex-B `<!-- -->` `HtmlComment` never — read by
-// `$rule`, the block rule of the language's own tool, and kept inside a
-// function body, because JSDoc documents inner symbols (`outer~inner`), so
-// a `/** */` on a function or property declared in a body is documentation
-// (#1597).
-macro_rules! impl_js_family_doc_comment {
-    ($lang:ident, $rule:ident) => {
+// The `Comment` and `DocComment` rows of a language whose tool reads a
+// doc comment inside a function body as documentation (#1597, #1699):
+// `is_comment` from the two rows' kind tables, `is_doc_comment` from the
+// `DocComment` row under its gate, and the body flag. Why the tool reads
+// one there — Doxygen's in-body description, JSDoc's inner symbols,
+// perldoc's POD anywhere — is the one line above each invocation.
+macro_rules! impl_doc_comment_rows_in_bodies {
+    ($roles:ident) => {
         const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = true;
 
-        fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-            node.kind_id() == $lang::Comment
-                && $crate::lang_helpers::doc_comment::$rule(
-                    $crate::lang_helpers::doc_comment::node_bytes(node, code),
-                )
-        }
-    };
-}
-
-// Generate the documentation rule for a C-family `Checker` block: a
-// Doxygen comment block, kept inside a function body. Doxygen appends
-// every doc block in a function body to that function's documentation as
-// its in-body description (`HIDE_IN_BODY_DOCS` defaults to NO), so an
-// in-body `///` or `/** */` is documentation here, as it is in the
-// published output (#1597).
-macro_rules! impl_doxygen_doc_comment {
-    () => {
-        const DOC_COMMENTS_IN_FUNCTION_BODIES: bool = true;
-
-        fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-            Self::is_comment(node)
-                && $crate::lang_helpers::doc_comment::doxygen(
-                    $crate::lang_helpers::doc_comment::node_bytes(node, code),
-                )
-        }
+        impl_comment_from_rows!($roles);
+        impl_doc_comment_from_row!($roles);
     };
 }
 
@@ -89,6 +66,88 @@ macro_rules! impl_row_predicates {
 
         fn $with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
             $crate::roles::$roles::$row::owns(node, code, ancestors)
+        }
+    };
+}
+
+// Emits a `Checker::is_comment` that reads the language's `Comment` and
+// `DocComment` rows as one kind table (#1699). The predicate takes no
+// bytes and no chain, so it reads `lists_kind` — each row's owners,
+// gates aside — rather than `owns`: a comment the documentation gate
+// rejects (an empty `/**/`, a POD `=begin comment` region) is still a
+// comment, and a kind that is documentation *by kind* (Groovy's
+// `groovydoc_comment`, Perl's `pod_statement`) sits only on the
+// `DocComment` row, so the union is what makes `is_doc_comment ⇒
+// is_comment` structural. Per-language rationale — which kinds are
+// comments and why a documentation row is absent — sits on the rows.
+macro_rules! impl_comment_from_rows {
+    ($roles:ident) => {
+        fn is_comment(node: &Node) -> bool {
+            let kind = node.kind_id();
+            $crate::roles::$roles::comment::lists_kind(kind)
+                || $crate::roles::$roles::doc_comment::lists_kind(kind)
+        }
+    };
+}
+
+// Emits a byte-only `Checker` predicate — `is_doc_comment` from the
+// `DocComment` row, `is_doc_run_directive` from `DocRunDirective` —
+// that reads the row under its gate (#1699). The predicate carries the
+// bytes a `text_gated_by` marker test reads and no chain, so the row is
+// asked with a *known-empty* chain: exact while every gate of the row
+// reads the node's own bytes or children (a marker, Rust's
+// `doc_comment` child), which `roles/doc_tests/mod.rs` pins by reading
+// each predicate beside its row asked with the real chain, on a nested
+// fixture per language; `Ancestors::unknown()` would instead climb
+// `Node::parent` at `O(depth)` and mask a future chain-reading gate by
+// answering it. Per-language rationale — which marker the tool reads,
+// which kinds can carry one — sits on the row.
+macro_rules! impl_byte_gated_row_predicate {
+    ($roles:ident, $row:ident, $method:ident) => {
+        fn $method(node: &Node, code: &[u8]) -> bool {
+            $crate::roles::$roles::$row::owns(node, code, Ancestors::known(&[]))
+        }
+    };
+}
+
+// The two predicates `impl_byte_gated_row_predicate!` emits, by name.
+macro_rules! impl_doc_comment_from_row {
+    ($roles:ident) => {
+        impl_byte_gated_row_predicate!($roles, doc_comment, is_doc_comment);
+    };
+}
+macro_rules! impl_doc_run_directive_from_row {
+    ($roles:ident) => {
+        impl_byte_gated_row_predicate!($roles, doc_run_directive, is_doc_run_directive);
+    };
+}
+
+// The `HoldsDocInBody` row of a language, read inside its hand-written
+// `holds_doc_comment_in_body` for the kinds it names beyond the
+// callables and closures (#1699): asked with `ancestors`, the chain the
+// trait hands in (the ancestor's own), and no bytes — exact while no
+// such row reads bytes, which the build asserts. An expression rather
+// than an emitted method, so the per-language branch order and the
+// body-child test stay visible in `checker/<lang>.rs`.
+macro_rules! holds_doc_in_body_kind {
+    ($roles:ident, $ancestor:expr, $ancestors:expr) => {{
+        const _: () = assert!(
+            !$crate::roles::$roles::holds_doc_in_body::TEXT_GATED,
+            "the `HoldsDocInBody` row reads bytes; the body test cannot forward with `&[]`"
+        );
+        $crate::roles::$roles::holds_doc_in_body::owns($ancestor, &[], $ancestors)
+    }};
+}
+
+// Emits a `Checker::is_doc_target` that reads the language's `DocTarget`
+// row with the node's own chain (#1699) — for the languages whose
+// targets are the row alone. Where context the row cannot see composes
+// with it (a wrapper's parent, a scope fold, a sentinel), the Checker
+// writes `is_doc_target` by hand beside a named context fn.
+macro_rules! impl_doc_target_from_row {
+    ($roles:ident) => {
+        fn is_doc_target<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+            $crate::roles::$roles::doc_target::owns(node, code, ancestors)
         }
     };
 }
@@ -778,7 +837,7 @@ mod perl;
 mod php;
 mod preproc;
 mod python;
-pub mod ruby;
+mod ruby;
 mod rust;
 mod tcl;
 mod tsx;
@@ -810,10 +869,17 @@ pub fn csharp_accessor_count(node: &Node) -> usize {
     csharp_accessors(node).count()
 }
 
+// Each accessor search a C# member's gate runs. The search is the cost
+// the doc-comment body test avoids by reading the `HoldsDocInBody` row
+// *before* the callable test (#1612): no verdict can see the order, so
+// the count is what pins it (`csharp_body_test_reads_the_row_before_the_accessor_search`).
+crate::observation::counter!(csharp_accessor_searches);
+
 /// The `accessor_declaration`s in a C# member's `accessor_list`.
 // role-bypass: allow(FuncOpener) — which children are a member's accessors
 // (the gate the row reads), not whether an accessor opens a space
 fn csharp_accessors<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
+    csharp_accessor_searches::record();
     node.children()
         .filter(|c| c.kind_id() == Csharp::AccessorList as u16)
         .flat_map(|list| list.children())
@@ -937,8 +1003,8 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
 /// whether that item is prunable: `#[cfg(test)] use foo;` keeps both
 /// rows, because a `use_declaration` is not on this list (#1431).
 fn rust_prunable_item(node: &Node) -> bool {
-    // role-bypass: allow(FuncOpener, Container, Member) — which items a
-    // `#[cfg(test)]` prunes, not membership
+    // role-bypass: allow(FuncOpener, Container, Member, DocTarget) — which
+    // items a `#[cfg(test)]` prunes, not membership
     matches!(
         node.kind_id().into(),
         Rust::ModItem
@@ -1211,6 +1277,8 @@ fn rust_attribute_run_before(node: &Node, code: &[u8]) -> bool {
 // `body` field before scanning. Non-module items have no inner-attribute
 // test form, so this returns `false` for them immediately.
 fn rust_inner_attr_marks_test(node: &Node, code: &[u8]) -> bool {
+    // role-bypass: allow(DocTarget) — which item kind takes an inner
+    // attribute, not whether it is a doc target
     node.kind_id() == Rust::ModItem
         && node.child_by_field_name("body").is_some_and(|body| {
             body.children()

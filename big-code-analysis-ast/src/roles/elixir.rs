@@ -6,8 +6,7 @@
 //! Halstead keyword roles (#1693), the paying-construct roles (#1694,
 //! #1695), the space tree (#1696) and the control flow — `Branch`,
 //! `Switch`, `Loop`, `Catch`, `Exit`, with `ElseIf` absent (#1697) — are
-//! declared; the rest are pending the package that declares each
-//! (#1692).
+//! declared, and the documentation rows (#1699) with them.
 
 use crate::lang_helpers::elixir::{
     ElixirCallTarget, ElixirDeclaration, elixir_applying_operator, elixir_call_target,
@@ -251,12 +250,17 @@ role_table! {
     // row gating the same `Call` kind on its target text, beside the
     // two space rows.
     Member { owns [Call(text_gated_by struct_macro)] }
-    Comment { pending R09 }
-    Docstring { pending R09 }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The one comment kind. Elixir's documentation is the `@doc` /
+    // `@moduledoc` attribute — a `Call` whose argument is a string —
+    // which is neither a comment nor a bare docstring; recognising it
+    // is the documentation epic's D19 (#1676), so
+    // its five documentation rows are absent rather than pending (#1699).
+    Comment { owns [Comment] }
+    Docstring { absent "extraction owned by #1676" }
+    DocTarget { absent "a `@doc` attribute names its target by position; extraction owned by #1676" }
+    DocRunOpener { absent "ExDoc reads `@doc` attributes, never a comment run" }
+    DocRunDirective { absent "ExDoc reads `@doc` attributes, never a comment run" }
+    HoldsDocInBody { absent "no kind holds documentation in a body beyond the definition" }
 }
 
 #[cfg(test)]

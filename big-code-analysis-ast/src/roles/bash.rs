@@ -2,8 +2,8 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::lang_helpers::bash::bash_test_connective;
 use crate::lang_helpers::case_arms::bash_case_item_is_bare_wildcard;
@@ -206,13 +206,18 @@ role_table! {
     Container { owns [Program(opens Unit)] }
     Closure { absent "Bash has no anonymous function" }
     Member { absent "Bash has no container to hold a member" }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind. The grammar marks no comment as
+    // documentation, and no convention a tool reads over a comment run
+    // (shdoc's `# @description` blocks) is recognised here, so the six
+    // documentation rows are absent — unsupported, not nonexistent —
+    // and `is_comment` is this row's kind table alone (#1699).
+    Comment { owns [Comment] }
+    DocComment { absent "the grammar marks no comment as documentation; no tool's convention is read" }
     Docstring { absent "Bash documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    DocTarget { absent "no comment is recognised as documentation, so nothing is its target" }
+    DocRunOpener { absent "no comment-run convention (shdoc) is recognised" }
+    DocRunDirective { absent "no comment-run convention (shdoc) is recognised" }
+    HoldsDocInBody { absent "no kind holds documentation in a body beyond the function" }
 }
 
 #[cfg(test)]

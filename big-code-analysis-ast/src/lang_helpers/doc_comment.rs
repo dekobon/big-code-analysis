@@ -1010,6 +1010,24 @@ fn is_comment_format(format: &[u8]) -> bool {
         .is_some_and(|after| after.first().is_none_or(u8::is_ascii_whitespace))
 }
 
+/// The trailing comment that heads `first`'s LDoc group, when `first` sits
+/// directly under a row that ends in one: LDoc lexes a line comment with
+/// its newline and gathers every consecutive comment token into one group
+/// whose first token decides whether it is an LDoc block (`parse.lua`), so
+/// a `---` row under `x = 1 -- note` belongs to that `--` group. The run
+/// `leading_doc_run` hands over leaves such a comment out, as go/doc does,
+/// so it is looked up here.
+pub(crate) fn lua_group_head_above<'a, T: Checker>(
+    first: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
+    ancestors
+        .siblings_before(first)
+        .next()
+        .filter(|above| T::is_comment(above) && run_continues_to::<T>(above, first, code))
+}
+
 /// An LDoc block opener, per `lang.lua`: a line comment starting with
 /// three or more dashes (`start_comment_ = '^%-%-%-+'`, so a line of
 /// dashes alone opens too) unless it ends in a dash run preceded by a

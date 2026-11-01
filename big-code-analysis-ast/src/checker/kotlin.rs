@@ -2,20 +2,13 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{kotlin_doc, never_joins, node_bytes};
+use crate::lang_helpers::doc_comment::never_joins;
 
 impl Checker for KotlinCode {
-    fn is_comment(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Kotlin::LineComment | Kotlin::BlockComment
-        )
-    }
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        // KDoc has no line form, so only a `BlockComment` can qualify.
-        node.kind_id() == Kotlin::BlockComment && kotlin_doc(node_bytes(node, code))
-    }
+    // The `Comment` and `DocComment` rows of `roles/kotlin.rs` (#1699):
+    // KDoc has no line form, so only the block comment can qualify.
+    impl_comment_from_rows!(kotlin);
+    impl_doc_comment_from_row!(kotlin);
 
     // Kotlin's parser closes each declaration with
     // `PrecedingDocCommentsBinder`, which pulls in the last KDoc of the
@@ -37,50 +30,29 @@ impl Checker for KotlinCode {
         skips: |node, _| node.kind_id() == Kotlin::AnnotatedExpression,
         forward: |comment, _, ancestors| {
             !ancestors.parent(comment).is_some_and(|parent| {
-                // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
-                // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
-                matches!(
-                    parent.kind_id().into(),
-                    Kotlin::ClassDeclaration
-                        | Kotlin::ObjectDeclaration
-                        | Kotlin::CompanionObject
-                        | Kotlin::FunctionDeclaration
-                        | Kotlin::PropertyDeclaration
-                        | Kotlin::TypeAlias
-                        | Kotlin::SecondaryConstructor
-                        | Kotlin::PrimaryConstructor
-                        | Kotlin::EnumEntry
-                        | Kotlin::Parameter
-                        | Kotlin::ClassParameter
-                        | Kotlin::Getter
-                        | Kotlin::Setter
-                        | Kotlin::Modifiers
-                )
+                let kind = parent.kind_id();
+                // The declarations are the `DocTarget` row's kind table;
+                // beside them the primary constructor, the accessors and
+                // the modifier list, which hold a KDoc in a signature
+                // without being targets themselves.
+                crate::roles::kotlin::doc_target::lists_kind(kind)
+                    // role-bypass: allow(FuncOpener, HoldsDocInBody) — a KDoc *inside* one
+                    // of these is in its signature; where a declaration's children end
+                    // is a binding question, not membership
+                    || matches!(
+                        kind.into(),
+                        Kotlin::PrimaryConstructor
+                            | Kotlin::Getter
+                            | Kotlin::Setter
+                            | Kotlin::Modifiers
+                    )
             })
         },
         ..DocBinding::new(KeptDocs::Last { joins: never_joins })
     });
 
-    // The declarations Dokka documents. The package directive binds no
-    // comment (`BindFirstShebangWithWhitespaceOnly`), an import none, and
-    // an `init` block has no page to carry one.
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
-        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
-        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
-        matches!(
-            node.kind_id().into(),
-            Kotlin::ClassDeclaration
-                | Kotlin::ObjectDeclaration
-                | Kotlin::CompanionObject
-                | Kotlin::FunctionDeclaration
-                | Kotlin::PropertyDeclaration
-                | Kotlin::TypeAlias
-                | Kotlin::SecondaryConstructor
-                | Kotlin::EnumEntry
-                | Kotlin::Parameter
-                | Kotlin::ClassParameter
-        )
-    }
+    // The `DocTarget` row of `roles/kotlin.rs` (#1699).
+    impl_doc_target_from_row!(kotlin);
 
     // Kotlin's KDoc lookup reads past a declaration's annotations and
     // modifiers, so a KDoc after `@Deprecated(…)` documents the function:
@@ -100,19 +72,15 @@ impl Checker for KotlinCode {
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        // role-bypass: allow(Closure) — where a comment sits in a body, not
-        // whether the node opens a space
+        // role-bypass: allow(Closure) — the lambda is all body, decided
+        // without the body-child test below; a Checker refinement over
+        // the `Closure` row, not membership
         if ancestor.kind_id() == Kotlin::LambdaLiteral {
             return true;
         }
         (Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || matches!(
-                ancestor.kind_id().into(),
-                // role-bypass: allow(FuncOpener) — where a comment sits in a body, not
-                // whether the node opens a space
-                Kotlin::Getter | Kotlin::Setter | Kotlin::AnonymousInitializer
-            ))
+            || holds_doc_in_body_kind!(kotlin, ancestor, ancestors))
             && matches!(below.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
     }
 

@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for ElixirCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Elixir::Comment
-    }
+    // The one `Comment` row of `roles/elixir.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(elixir);
 
     // Elixir has no syntactic function-definition node: `def` / `defp`
     // / `defmacro` / `defmacrop` / `defmodule` are ordinary `call`s with

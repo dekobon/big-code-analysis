@@ -44,8 +44,9 @@ impl Npa for KotlinCode {
             // primary-constructor parameter property — counts once toward
             // the enclosing class. Parameters without `val`/`var` are plain
             // constructor arguments, not attributes.
-            // role-bypass: allow(DeclKeyword) — whether the parameter declares a property, a
-            // question about the parameter, not whether the token is a declaration keyword
+            // role-bypass: allow(DeclKeyword, DocTarget) — whether the parameter declares a
+            // property, a question about the parameter, not whether the token is a
+            // declaration keyword or the parameter a doc target
             ClassParameter
                 if node
                     .children()

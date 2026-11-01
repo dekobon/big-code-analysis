@@ -45,8 +45,9 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
     let Some(parent) = ancestors.parent(eq_node) else {
         return false;
     };
-    // role-bypass: allow(Member) — the binding shape a `=` initialises, a
-    // local or a property alike; not whether it is a container's member
+    // role-bypass: allow(Member, DocTarget) — the binding shape a `=` initialises,
+    // a local or a property alike; not whether it is a container's member or
+    // a doc target
     if !matches!(
         parent.kind_id().into(),
         PropertyDeclaration | ClassParameter
@@ -379,6 +380,8 @@ impl Abc for KotlinCode {
             // that is itself a call (`A(f())`) scores 2: `value_arguments`
             // is not a branch node, so the inner `call_expression` is the
             // only other node counted (no double count, §5).
+            // role-bypass: allow(DocTarget) — whether the entry calls a constructor,
+            // an ABC branch reading, not whether it takes a doc comment
             EnumEntry if node.is_child(ValueArguments as u16) => {
                 stats.branches += 1.;
             }

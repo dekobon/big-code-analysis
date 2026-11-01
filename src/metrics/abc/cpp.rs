@@ -54,8 +54,12 @@ fn cpp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
         "parenthesized_expression" | "co_await_expression" => wrapped_operand(node),
         // A GNU statement expression yields only its final expression statement.
         "compound_statement" => last_operand(node)
+            // role-bypass: allow(DocTarget) — the statement a statement expression
+            // yields, for the peel; not whether it takes a doc comment
             .filter(|statement| statement.kind() == "expression_statement")
             .and_then(|statement| wrapped_operand(&statement)),
+        // role-bypass: allow(DocTarget) — a declaration's value, for the peel;
+        // not whether it takes a doc comment
         "condition_clause" | "cast_expression" | "declaration" => node.child_by_field_name("value"),
         "initializer_list" => sole_operand(node),
         "comma_expression" => node.child_by_field_name("right"),

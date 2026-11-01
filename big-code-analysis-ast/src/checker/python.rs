@@ -4,9 +4,10 @@
 use super::*;
 
 impl Checker for PythonCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Python::Comment
-    }
+    // The `Comment` row of `roles/python.rs` (#1699); no `DocComment` —
+    // a docstring is the `Docstring` row's, which neither comment
+    // predicate reads.
+    impl_comment_from_rows!(python);
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         // comment containing coding info are useful

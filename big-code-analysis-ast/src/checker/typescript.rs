@@ -3,18 +3,16 @@
 
 use super::*;
 
-impl Checker for TypescriptCode {
-    fn is_comment(node: &Node) -> bool {
-        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
-        // is a comment kind for loc/tokens/find parity (#697).
-        matches!(
-            node.kind_id().into(),
-            Typescript::Comment | Typescript::HtmlComment
-        )
-    }
+// The `DocTarget` row under tsc's wrapper context (#1699).
+tsdoc_target!(Typescript, typescript);
 
+impl Checker for TypescriptCode {
     // tsc reads `/***` as JSDoc, so TypeScript follows tsc, not JSDoc.
-    impl_js_family_doc_comment!(Typescript, tsdoc_block);
+    // The Annex-B `<!-- -->` `html_comment` is a comment kind for
+    // loc / tokens / find parity (#697) and never documentation.
+    // JSDoc documents inner symbols (`outer~inner`), so a `/** */` on a
+    // function or property declared in a body is documentation.
+    impl_doc_comment_rows_in_bodies!(typescript);
 
     // tsc's `getJSDocCommentsAndTags` takes the last `/**` before a
     // declaration's first token, past every plain comment; a comment after
@@ -29,6 +27,10 @@ impl Checker for TypescriptCode {
         |node, code| Self::is_comment(node) && !Self::is_doc_comment(node, code),
         crate::lang_helpers::doc_comment::tsdoc_module,
         tsdoc_target,
+        // role-bypass: allow(DocTarget) — the parameter subset of the targets before
+        // which a doc comment after code on its row still documents: a binding
+        // policy over the row, not membership (no `Parameter` row exists to read;
+        // #1701)
         |target| matches!(
             target.kind_id().into(),
             Typescript::RequiredParameter

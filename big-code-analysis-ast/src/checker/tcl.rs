@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for TclCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Tcl::Comment
-    }
+    // The one `Comment` row of `roles/tcl.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(tcl);
 
     // The space tree is declared in `roles/tcl.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and

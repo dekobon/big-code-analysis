@@ -2,14 +2,22 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
+use crate::lang_helpers::doc_comment::{node_bytes, pod_comment_region};
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_bareword_is_call, perl_bareword_is_key,
 };
 use crate::role_table;
 use crate::{Ancestors, Node, Perl};
+
+/// Whether a POD block is documentation rather than a `=begin comment`
+/// region — Perl's idiom for commenting code out, which perldoc skips —
+/// read from the bytes.
+fn pod_documents<'a>(node: &Node<'a>, code: &[u8], _: Ancestors<'a, '_>) -> bool {
+    !pod_comment_region(node_bytes(node, code))
+}
 
 /// Whether an expression holds one of the `ShortCircuit` payers among
 /// its tokens, with an `and` counted only where it is the operator and
@@ -248,13 +256,24 @@ role_table! {
     Closure { owns [AnonymousFunction] }
     Container { owns [SourceFile(opens Unit)] }
     Member { absent "Perl has no container space to hold a member; a package is not one" }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // POD is Perl's documentation syntax and its own kind; a `#`
+    // comment never is. `pod_statement` sits on `DocComment` alone —
+    // under a byte gate, since a `=begin comment` region is POD the
+    // tool does not read — and `Comment` holds the `#` kind;
+    // `is_comment` is the two kind tables as one, which keeps a comment
+    // region a comment (#1699).
+    Comment { owns [Comments] }
+    DocComment { owns [PodStatement(text_gated_by pod_documents)] }
     Docstring { absent "Perl documents with POD, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // perldoc extracts POD wherever it sits, attached to nothing —
+    // there is no `DocBinding` and no declaration a block binds to.
+    DocTarget { absent "perldoc reads POD wherever it sits; no declaration is its target" }
+    DocRunOpener { absent "a POD block is documentation by its own kind, not by opening a run" }
+    DocRunDirective { absent "perldoc reads no directive comment" }
+    // perldoc extracts POD from a sub body too
+    // (`DOC_COMMENTS_IN_FUNCTION_BODIES`), so no ancestor withholds
+    // one: nothing to name here.
+    HoldsDocInBody { absent "perldoc reads POD in any body; no kind withholds it" }
 }
 
 #[cfg(test)]

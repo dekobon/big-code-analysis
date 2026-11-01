@@ -105,6 +105,9 @@ impl Npa for ObjcCode {
                     attributes += 1;
                     public += 1;
                 }
+                // role-bypass: allow(DocTarget) — a protocol's `@optional` /
+                // `@required` group descended for its properties; not whether
+                // the group takes a doc comment
                 QualifiedProtocolInterfaceDeclaration => {
                     let properties = objc_count_group_properties(&child, code, members);
                     attributes += properties;

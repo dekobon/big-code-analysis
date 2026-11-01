@@ -32,6 +32,11 @@
 ./tests/**
 ./**/tests/**
 ./**/*_tests.rs
+# A `#[cfg(test)]` module that outgrew one file and became a directory
+# (`roles/doc_tests/{mod,doxygen,parity}.rs`, #1699): the same
+# `#[cfg(test)] mod *_tests;` loads it, and the `*_tests.rs` glob above
+# does not reach a file inside it.
+./**/*_tests/**
 # Same rationale as `./**/*_tests.rs`, different naming: `test_support.rs`
 # is a `#[cfg(test)]`-only module of helpers shared across the per-metric
 # test modules (#1066). It is not a sibling unit-test file, so the

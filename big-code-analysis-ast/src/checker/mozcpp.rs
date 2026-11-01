@@ -3,12 +3,15 @@
 
 use super::*;
 
-impl Checker for MozcppCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Mozcpp::Comment
-    }
+impl_doxygen_row!(MozcppCode, mozcpp);
 
-    impl_doxygen_doc_comment!();
+impl Checker for MozcppCode {
+    // The `Comment` and `DocComment` rows of `roles/mozcpp.rs` (#1699):
+    // the one comment kind, documentation under one of Doxygen's markers.
+    // Doxygen appends every doc block in a function body to that
+    // function's documentation as its in-body description
+    // (`HIDE_IN_BODY_DOCS` defaults to NO, #1597).
+    impl_doc_comment_rows_in_bodies!(mozcpp);
 
     // Mozilla's C++ grammar names its nodes as tree-sitter-cpp does, so
     // C++'s rule applies unchanged (#1613).

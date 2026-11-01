@@ -469,6 +469,16 @@ fn p(n: &Node) -> bool { use Python::*; matches!(n.kind_id().into(), ReturnState
         self.assertEqual(code, 1)
         self.assertIn("spells a role-claimed kind but no language is in scope", out)
 
+    def test_string_compare_with_no_language_in_scope_is_satisfied_by_an_exemption(self) -> None:
+        self.t.src("a.rs", "fn f(n: &Node) -> bool {\n    // role-bypass: allow(Call) — a name-keyed read that serves every language\n    n.kind() == \"call\"\n}\n")
+        self.assertEqual(self.t.findings(), [])
+
+    def test_string_compare_with_no_language_in_scope_rejects_a_wrong_role_exemption(self) -> None:
+        self.t.src("a.rs", "fn f(n: &Node) -> bool {\n    // role-bypass: allow(Exit) — wrong role\n    n.kind() == \"call\"\n}\n")
+        code, out = self.t.run("--bootstrap")
+        self.assertEqual(code, 1, out)
+        self.assertIn("exemption names ['Exit']", out)
+
     def test_string_compare_follows_a_plain_use_of_the_language(self) -> None:
         self.t.src("a.rs", "use crate::Java;\nfn f(n: &Node) -> bool { n.kind() == \"call\" }\nfn g(n: &Node) -> bool { n.kind() == \"method_invocation\" }\n")
         # `call` is Python's spelling; with Java in scope it is not a finding

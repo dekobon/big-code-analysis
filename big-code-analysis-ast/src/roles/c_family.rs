@@ -363,3 +363,232 @@ pub(crate) use {
     cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
     cpp_family_loops, cpp_family_short_circuit_payers,
 };
+
+// ---------------------------------------------------------------------
+// The documentation rows (#1699). What Doxygen documents from a doc
+// block before it — the *entries*, read through `lang_helpers::doxygen`
+// until the rows: a declaration or a definition, a macro, a typedef, an
+// enumerator, a type with a body, a field, and a macro call at file or
+// class scope (which Doxygen reads as a function); C++ adds a
+// namespace, a `using`, an alias, a `friend` and a template (a
+// forward-declared one included); Objective-C a container, property,
+// method or instance variable. Every alias id of each is listed: the
+// helper matched `node.kind()` strings, which an alias shares, and
+// `roles/doc_tests/doxygen.rs` asserts per dialect that the id set with those
+// strings equals the row — exactly. A preprocessor conditional holding
+// an entry in any branch at any depth is a target too, through the
+// post-order memo in `lang_helpers::doxygen::conditional_declares`,
+// which reads the rows back as "entry without conditionals"
+// (`doxygen_entry`) and must never be asked of a conditional from
+// inside its own walk. The `ERROR` node — an entry when it holds one
+// — is the sentinel no row may own, and stays the Checker's clause.
+// ---------------------------------------------------------------------
+
+/// The entry kinds every dialect spells the same way, named once so a
+/// kind missing from one dialect's row is a kind missing from the
+/// fragment: a typedef, the two macro forms, a linkage block, an
+/// enumerator, the three C specifiers with a body, a field, and the
+/// two `expression_statement` ids (a macro call at file scope).
+/// `declaration` and `function_definition` are aliased per grammar —
+/// one and two ids in C and Objective-C, four each in the C++ grammars
+/// (#285, lesson 2) — so those ride the per-shape fragments below.
+macro_rules! c_family_doc_entries {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            TypeDefinition,
+            PreprocDef,
+            PreprocFunctionDef,
+            LinkageSpecification,
+            Enumerator,
+            StructSpecifier(gated_by has_body),
+            UnionSpecifier(gated_by has_body),
+            EnumSpecifier(gated_by has_body),
+            FieldDeclaration(gated_by field_declares),
+            ExpressionStatement(gated_by is_macro_call_statement),
+            ExpressionStatement2(gated_by is_macro_call_statement),
+        ] $($rest)*);
+    };
+}
+
+/// The C-shape aliases of `declaration` and `function_definition`: one
+/// and two ids, as the C and Objective-C grammars spell them.
+macro_rules! c_doc_declarations {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            Declaration,
+            FunctionDefinition,
+            FunctionDefinition2,
+        ] $($rest)*);
+    };
+}
+
+/// What the C++ grammars add to `c_family_doc_entries!`: the C++-shape
+/// aliases of `declaration` and `function_definition` (four ids each)
+/// and the C++-only kinds — a namespace, a `using`, an alias, a
+/// `friend`, a template and a class with a body.
+macro_rules! cpp_doc_entries {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            Declaration,
+            Declaration2,
+            Declaration3,
+            Declaration4,
+            FunctionDefinition,
+            FunctionDefinition2,
+            FunctionDefinition3,
+            FunctionDefinition4,
+            NamespaceDefinition,
+            UsingDeclaration,
+            AliasDeclaration,
+            FriendDeclaration,
+            TemplateDeclaration,
+            ClassSpecifier(gated_by has_body),
+        ] $($rest)*);
+    };
+}
+
+/// The preprocessor conditionals, each an entry when any branch at any
+/// depth holds one: every alias of the five rules the C and C++
+/// grammars share — four ids apiece. Objective-C aliases them
+/// differently and lists its own.
+macro_rules! c_family_doc_conditionals {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            PreprocIf(gated_by conditional_declares),
+            PreprocIf2(gated_by conditional_declares),
+            PreprocIf3(gated_by conditional_declares),
+            PreprocIf4(gated_by conditional_declares),
+            PreprocIfdef(gated_by conditional_declares),
+            PreprocIfdef2(gated_by conditional_declares),
+            PreprocIfdef3(gated_by conditional_declares),
+            PreprocIfdef4(gated_by conditional_declares),
+            PreprocElse(gated_by conditional_declares),
+            PreprocElse2(gated_by conditional_declares),
+            PreprocElse3(gated_by conditional_declares),
+            PreprocElse4(gated_by conditional_declares),
+            PreprocElif(gated_by conditional_declares),
+            PreprocElif2(gated_by conditional_declares),
+            PreprocElif3(gated_by conditional_declares),
+            PreprocElif4(gated_by conditional_declares),
+            PreprocElifdef(gated_by conditional_declares),
+            PreprocElifdef2(gated_by conditional_declares),
+            PreprocElifdef3(gated_by conditional_declares),
+            PreprocElifdef4(gated_by conditional_declares),
+        ] $($rest)*);
+    };
+}
+
+/// Objective-C's preprocessor conditionals, aliased differently from the
+/// C and C++ grammars (`preproc_else` and `preproc_elif` five ways,
+/// `preproc_ifdef` three, `preproc_elifdef` two), each an entry when any
+/// branch at any depth holds one.
+macro_rules! objc_doc_conditionals {
+    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
+        $crate::role_table!(@owners $cont [$($acc)*
+            PreprocIf(gated_by conditional_declares),
+            PreprocIf2(gated_by conditional_declares),
+            PreprocIf3(gated_by conditional_declares),
+            PreprocIf4(gated_by conditional_declares),
+            PreprocIfdef(gated_by conditional_declares),
+            PreprocIfdef2(gated_by conditional_declares),
+            PreprocIfdef3(gated_by conditional_declares),
+            PreprocElse(gated_by conditional_declares),
+            PreprocElse2(gated_by conditional_declares),
+            PreprocElse3(gated_by conditional_declares),
+            PreprocElse4(gated_by conditional_declares),
+            PreprocElse5(gated_by conditional_declares),
+            PreprocElif(gated_by conditional_declares),
+            PreprocElif2(gated_by conditional_declares),
+            PreprocElif3(gated_by conditional_declares),
+            PreprocElif4(gated_by conditional_declares),
+            PreprocElif5(gated_by conditional_declares),
+            PreprocElifdef(gated_by conditional_declares),
+            PreprocElifdef2(gated_by conditional_declares),
+        ] $($rest)*);
+    };
+}
+
+/// The gates the documentation rows read, per dialect because each
+/// table reads the dialect's kind ids and the gate fns resolve at the
+/// row; `$code` is the dialect's `Checker` tag the conditional memo is
+/// keyed on. Each is a pure read of the node — a field, the children —
+/// or, for the conditionals, the memoised walk in
+/// `lang_helpers::doxygen`. `has_body` is emitted by `cpp_family_gates!`
+/// for the two C++ dialects, which this macro's `with_has_body` arm
+/// emits for C and Objective-C.
+macro_rules! c_family_doc_gates {
+    (with_has_body $code:ident) => {
+        /// Whether a `struct` / `union` / `enum` specifier carries a
+        /// `body` field: a definition Doxygen documents, not a forward
+        /// declaration or a parameter type.
+        fn has_body<'a>(node: &$crate::Node<'a>, _: &[u8], _: $crate::Ancestors<'a, '_>) -> bool {
+            $crate::checker::cpp_specifier_has_body(node)
+        }
+
+        c_family_doc_gates!($code);
+    };
+    ($code:ident) => {
+        // Whether a comment opens with one of Doxygen's markers (`/**`,
+        // `/*!`, `///`, `//!`), read from the bytes.
+        $crate::roles::byte_gate!(
+            opens_with_doxygen_marker,
+            $crate::lang_helpers::doc_comment::doxygen
+        );
+
+        /// Whether a `field_declaration` declares a member: one with a
+        /// declarator, or whose type is not a bodiless specifier —
+        /// `struct In;` in a class body declares none.
+        fn field_declares<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::roles::c_family::field_declaration_declares(node)
+        }
+
+        /// Whether an `expression_statement` is a macro call at file or
+        /// class scope (`FOO(bar);`), which Doxygen documents as a
+        /// function — or code the grammar misread, an Objective-C method
+        /// in a `.h` read as C++, that Doxygen's own scanner reads as the
+        /// entry it is. The empty statement and one whose `;` the grammar
+        /// invented (`FOO`, `42`, `@end`) are read past.
+        fn is_macro_call_statement<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            _: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::lang_helpers::doxygen::statement_is_macro_call(node)
+        }
+
+        /// Whether a preprocessor conditional holds an entry in any
+        /// branch at any depth, through the post-order memo on the
+        /// walk's cache (`conditionals_read` counts the walks).
+        fn conditional_declares<'a>(
+            node: &$crate::Node<'a>,
+            _: &[u8],
+            ancestors: $crate::Ancestors<'a, '_>,
+        ) -> bool {
+            $crate::lang_helpers::doxygen::conditional_declares::<$crate::$code>(node, ancestors)
+        }
+    };
+}
+
+/// Whether a `field_declaration` declares a member: `struct In;` in a
+/// class body declares none, so a declarator or a type that is not a
+/// bodiless specifier is needed. The specifier's kind is read by name:
+/// the four dialects spell it alike and the gate is one fn for all.
+#[must_use]
+pub(crate) fn field_declaration_declares(node: &crate::Node<'_>) -> bool {
+    node.child_by_field_name("declarator").is_some()
+        || node.child_by_field_name("type").is_none_or(|t| {
+            !matches!(
+                t.kind(),
+                "struct_specifier" | "union_specifier" | "enum_specifier" | "class_specifier"
+            ) || crate::checker::cpp_specifier_has_body(&t)
+        })
+}
+
+pub(crate) use {
+    c_doc_declarations, c_family_doc_conditionals, c_family_doc_entries, c_family_doc_gates,
+    cpp_doc_entries, objc_doc_conditionals,
+};

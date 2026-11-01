@@ -60,6 +60,8 @@ impl Npm for GoCode {
             G::InterfaceType => {
                 let mut methods = 0_usize;
                 let mut exported = 0_usize;
+                // role-bypass: allow(DocTarget) — an interface's methods for the
+                // method count; not whether each takes a doc comment
                 for method in node
                     .children()
                     .filter(|c| matches!(c.kind_id().into(), G::MethodElem))

@@ -4,11 +4,13 @@
 //! consumer reads is decided where that consumer lives, not here. The
 //! Halstead keyword roles (#1693), the paying-construct roles (#1694,
 //! #1695), the space tree (#1696) and the control flow — `Branch`,
-//! `Switch`, `Loop`, `Catch`, `ElseIf`, `Exit` (#1697) — are declared;
-//! the rest are pending the package that declares each (#1692).
+//! `Switch`, `Loop`, `Catch`, `ElseIf`, `Exit` (#1697) — are declared,
+//! and the documentation rows (#1699) with them.
 
 use crate::lang_helpers::case_arms::python_case_clause_counts;
-use crate::lang_helpers::python::{python_is_block, python_is_bound_self_attribute};
+use crate::lang_helpers::python::{
+    python_is_block, python_is_bound_self_attribute, python_is_documentation_string,
+};
 use crate::role_table;
 use crate::{Ancestors, Node, Python};
 
@@ -65,6 +67,15 @@ fn under_case_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a,
 /// `python_is_bound_self_attribute`, under the row's gate signature.
 fn is_bound_self_attribute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     python_is_bound_self_attribute(node, code, ancestors)
+}
+
+/// Whether a string is documentation by position: a bare statement's
+/// value (never a fragment of a concatenation), a `str` literal, in a
+/// docstring, additional-docstring or attribute-docstring place (PEP
+/// 257 / 258, Sphinx). Reads the bytes for the literal's prefix and an
+/// `__init__`'s names.
+fn is_documentation_string<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    python_is_documentation_string(node, code, ancestors)
 }
 
 role_table! {
@@ -218,13 +229,33 @@ role_table! {
         ]
     }
     Primitive { absent "Python's built-in types are ordinary identifiers" }
-    Comment { pending R09 }
+    // The one comment kind. A Sphinx `#:` comment documents the
+    // assignment beside or below it, but it is read by position and
+    // never by a marker alone, so there is no `DocComment` row and
+    // `is_doc_comment` stays the trait default (#1699).
+    Comment { owns [Comment] }
     DocComment { absent "Python documents with docstrings, not comments" }
-    Docstring { pending R09 }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // A string statement in a documenting position: the `string` when
+    // it is the statement's value, the `concatenated_string` when the
+    // value is an implicit concatenation — one owner per docstring, a
+    // fragment under the concatenation never. The gate is the backward
+    // scan that decides a run, which `python_documentation_string_run`
+    // reads at the run's final member. Neither `is_comment` nor
+    // `is_doc_comment` reads this row: a docstring is no comment.
+    Docstring {
+        owns [
+            String(text_gated_by is_documentation_string),
+            ConcatenatedString(text_gated_by is_documentation_string),
+        ]
+    }
+    // A docstring names its target by position — the body it opens, the
+    // assignment before it — which the `Docstring` gate reads; no kind is
+    // recognised as taking one, and an adapter reads
+    // `lang_helpers::python`'s assignment helpers for the attribute form.
+    DocTarget { absent "a docstring's target is read by position in the `Docstring` gate, never as a kind" }
+    DocRunOpener { absent "a docstring is a string statement, not a comment run" }
+    DocRunDirective { absent "a docstring is a string statement, not a comment run" }
+    HoldsDocInBody { absent "no comment is documentation; nothing withholds one" }
 }
 
 #[cfg(test)]

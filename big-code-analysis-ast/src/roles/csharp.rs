@@ -2,14 +2,15 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::checker::{csharp_is_aliased_modifier, csharp_member_has_accessors};
 use crate::getter::node_text;
 use crate::lang_helpers::case_arms::{
     csharp_case_token_is_switch_arm, csharp_switch_expression_arm_is_bare_discard,
 };
+use crate::lang_helpers::doc_comment::csharp_doc;
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Csharp, Node};
@@ -66,6 +67,11 @@ fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
 else_if_prev_sibling_gate!(Csharp, Else);
+
+// Whether a comment opens with the XML-doc marker Roslyn reads — `///`
+// or `/**`, neither the `////` banner nor the empty `/**/` — from the
+// bytes.
+crate::roles::byte_gate!(opens_with_xml_doc_marker, csharp_doc);
 
 role_table! {
     lang: Csharp;
@@ -281,11 +287,47 @@ role_table! {
     // positional record's parameters become properties at the IL level
     // and have no declaration node to recognise (`npa/csharp.rs`).
     Member { owns [FieldDeclaration] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind, a `DocComment` owner under the marker gate
+    // (#1699).
+    Comment { owns [Comment] }
+    DocComment { owns [Comment(text_gated_by opens_with_xml_doc_marker)] }
     Docstring { absent "C# documents with `///` comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The members `DocumentationCommentCompiler` writes: a type, a
+    // delegate, a member and an enum member. A namespace (block or
+    // file-scoped), a `using`, an assembly attribute, a top-level
+    // statement and an accessor take none; checked with `dotnet build`
+    // and CS1587. Outside the space-tree rows: the delegate, the event
+    // field and event, and the enum member — the parity exceptions
+    // `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ClassDeclaration,
+            StructDeclaration,
+            RecordDeclaration,
+            InterfaceDeclaration,
+            EnumDeclaration,
+            DelegateDeclaration,
+            MethodDeclaration,
+            ConstructorDeclaration,
+            DestructorDeclaration,
+            OperatorDeclaration,
+            ConversionOperatorDeclaration,
+            FieldDeclaration,
+            EventFieldDeclaration,
+            EventDeclaration,
+            PropertyDeclaration,
+            IndexerDeclaration,
+            EnumMemberDeclaration,
+        ]
+    }
+    DocRunOpener { absent "Roslyn attaches every doc comment to a member; none documents by its own content" }
+    DocRunDirective { absent "Roslyn reads no directive comment" }
+    // A property or indexer holds every doc comment in it but those in
+    // its accessor list: Roslyn binds one only before the member, so a
+    // comment in its header or initializer documents nothing. Both are
+    // `FuncOpener` owners in their accessor-less form; this row names
+    // them in *every* form, and the Checker reads it before the
+    // callable test so the accessor search is never run per comment
+    // (#1612). Which child is the accessor list is the Checker's.
+    HoldsDocInBody { owns [IndexerDeclaration, PropertyDeclaration] }
 }

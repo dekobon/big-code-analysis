@@ -3,12 +3,15 @@
 
 use super::*;
 
-impl Checker for CppCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Cpp::Comment
-    }
+impl_doxygen_row!(CppCode, cpp);
 
-    impl_doxygen_doc_comment!();
+impl Checker for CppCode {
+    // The `Comment` and `DocComment` rows of `roles/cpp.rs` (#1699):
+    // the one comment kind, documentation under one of Doxygen's markers.
+    // Doxygen appends every doc block in a function body to that
+    // function's documentation as its in-body description
+    // (`HIDE_IN_BODY_DOCS` defaults to NO, #1597).
+    impl_doc_comment_rows_in_bodies!(cpp);
 
     // C++ adds namespaces, `using`, templates (a forward-declared template
     // included), friends and access specifiers, which Doxygen reads past;

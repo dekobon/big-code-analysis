@@ -196,9 +196,37 @@ pub fn python_is_bare_string(node: &Node, ancestors: Ancestors<'_, '_>) -> bool 
     python_is_bare_statement_value(node, ancestors)
 }
 
+/// Whether `value` — a `string` or `concatenated_string` — is a
+/// documentation string by position: a `str` literal that is the sole
+/// value of a bare statement in a docstring, additional-docstring or
+/// attribute-docstring place, per `documentation_run`, which holds the
+/// rules. One fragment of a concatenation answers `false` on its own:
+/// its nearest non-parenthesis ancestor is the `concatenated_string`,
+/// not a statement, so the scan finds no body to read — the mechanism,
+/// not a second test, which is why no `parent` check precedes it. The
+/// `Docstring` row's gate (`roles/python.rs`, #1699): one backward scan
+/// over the statement's siblings, which the run helper shares by asking
+/// this of a run's final member only. A caller asking it of every
+/// member of a run pays one scan per member.
+#[must_use]
+pub(crate) fn python_is_documentation_string(
+    value: &Node,
+    code: &[u8],
+    ancestors: Ancestors<'_, '_>,
+) -> bool {
+    documentation_run(value, code, ancestors).is_some()
+}
+
+// Each backward scan `documentation_run` makes. The scan is one per run
+// — the helper asks at the run's final member only —
+// and `one_scan_per_run` pins it by count, since no probe
+// can tell one scan per run from two (#1699).
+crate::observation::counter!(docstring_runs_scanned);
+
 /// The first statement of the documentation-string run that the bare
 /// string statement holding `value` belongs to, or `None` when that
-/// statement is not documentation. `value` is a `string` or
+/// statement is not documentation — or holds more than one value, a
+/// discarded tuple being no docstring. `value` is a `string` or
 /// `concatenated_string`, per [`python_is_bare_statement_value`], and the
 /// statement documents where Python tooling reads documentation (#1597):
 ///
@@ -223,7 +251,7 @@ pub fn python_is_bare_string(node: &Node, ancestors: Ancestors<'_, '_>) -> bool 
 /// One backward scan answers both: the string statements before it,
 /// skipping comments, are the run, and the first other statement ends
 /// the run and is the one an attribute docstring is documented by.
-fn documentation_run_start<'a>(
+fn documentation_run<'a>(
     value: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
@@ -234,6 +262,13 @@ fn documentation_run_start<'a>(
         return None;
     }
     let ((statement, statement_ancestors), up) = enclosing_statement(value, ancestors)?;
+    // A string of a discarded tuple (`"a", "b"`) is no docstring: the
+    // statement holds two values. Checked here, the one place, so the
+    // row and the run helper cannot differ on it.
+    if !is_bare_statement(&statement) {
+        return None;
+    }
+    docstring_runs_scanned::record();
     let attributes = body_attributes(up, code)?;
     let mut first = statement;
     for sibling in statement_ancestors
@@ -267,7 +302,11 @@ pub fn python_documentation_string_run(
     {
         return;
     }
-    let Some(first) = documentation_run_start(value, code, ancestors) else {
+    // The run's final member. `documentation_run` is the backward scan
+    // the `Docstring` row's gate reads (#1699) and the one this needs for
+    // the run's first member, so it runs once, here: the row's verdict
+    // is `first.is_some()` by construction, the gate being this call.
+    let Some(first) = documentation_run(value, code, ancestors) else {
         return;
     };
     for member in std::iter::once(first)

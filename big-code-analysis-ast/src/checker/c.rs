@@ -3,12 +3,15 @@
 
 use super::*;
 
-impl Checker for CCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == C::Comment
-    }
+impl_doxygen_row!(CCode, c);
 
-    impl_doxygen_doc_comment!();
+impl Checker for CCode {
+    // The `Comment` and `DocComment` rows of `roles/c.rs` (#1699):
+    // the one comment kind, documentation under one of Doxygen's markers.
+    // Doxygen appends every doc block in a function body to that
+    // function's documentation as its in-body description
+    // (`HIDE_IN_BODY_DOCS` defaults to NO, #1597).
+    impl_doc_comment_rows_in_bodies!(c);
 
     // C as Doxygen reads it: a doc block documents the next declaration,
     // macro or typedef, read past `#include` and an empty conditional, and

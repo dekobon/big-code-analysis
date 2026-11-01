@@ -2,17 +2,29 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_binary_owners, c_family_calls, c_family_comparison_payers, c_family_decl_keywords,
-    c_family_loops, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
-    c_family_strings,
+    c_doc_declarations, c_family_binary_owners, c_family_calls, c_family_comparison_payers,
+    c_family_decl_keywords, c_family_doc_entries, c_family_doc_gates, c_family_loops,
+    c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
+    objc_doc_conditionals,
 };
 use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::{Ancestors, Node, Objc};
+
+// The documentation gates, per dialect (#1699).
+c_family_doc_gates!(with_has_body ObjcCode);
+
+/// Whether an `implementation_definition` is one Doxygen documents —
+/// not a `@synthesize` / `@dynamic` property implementation, which
+/// declares nothing of its own.
+fn implementation_is_not_a_property<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+    node.child(0)
+        .is_some_and(|d| d.kind_id() != Objc::PropertyImplementation as u16)
+}
 
 // The chained `if` sits directly inside an `else_clause`; a nested one
 // under `else { … }` sits inside the compound statement (#1697).
@@ -177,11 +189,38 @@ role_table! {
     // the `{ … }` block, which the consumer counts by declarator and
     // reads the access section of.
     Member { owns [PropertyDeclaration, InstanceVariable] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind, a `DocComment` owner under Doxygen's marker
+    // gate (#1699).
+    Comment { owns [Comment] }
+    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker)] }
     Docstring { absent "Objective-C documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // What Doxygen documents from a doc block before it: the entries of
+    // `roles/c_family.rs`'s fragment
+    // plus Objective-C's containers (a protocol's `@optional` /
+    // `@required` section included), property, methods and instance
+    // variable, and every
+    // preprocessor conditional holding an entry in any branch
+    // (`conditional_declares`, memoised). The `ERROR` node holding an
+    // entry is the Checker's clause. Most targets are outside the
+    // space-tree rows — a macro, a typedef, an enumerator, a field, a
+    // conditional — the parity exceptions `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ..c_family_doc_entries!(),
+            ..c_doc_declarations!(),
+            ClassInterface,
+            ClassImplementation,
+            ProtocolDeclaration,
+            QualifiedProtocolInterfaceDeclaration,
+            PropertyDeclaration,
+            MethodDeclaration,
+            MethodDefinition,
+            InstanceVariable,
+            ImplementationDefinition(gated_by implementation_is_not_a_property),
+            ..objc_doc_conditionals!(),
+        ]
+    }
+    DocRunOpener { absent "Doxygen attaches every block to an entry or the file; none documents by its own content" }
+    DocRunDirective { absent "Doxygen reads no directive comment" }
+    HoldsDocInBody { absent "Doxygen reads every block in a body as the function's in-body description; nothing withholds one" }
 }

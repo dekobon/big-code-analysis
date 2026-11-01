@@ -477,6 +477,9 @@ macro_rules! ts_npa_compute {
                             // at the class-body level so the attribute lands on
                             // the class space, not the method's own function
                             // space.
+                            // role-bypass: allow(DocTarget) — a constructor's parameter
+                            // properties for the attribute count; not whether each takes a
+                            // doc comment
                             for param in params.children().filter(|c| {
                                 matches!(c.kind_id().into(), RequiredParameter | RequiredParameter2)
                             }) {

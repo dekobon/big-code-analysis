@@ -425,6 +425,8 @@ pub(crate) fn ruby_walk_class_body(body: &Node<'_>, source: &[u8], stats: &mut S
             // variable where it is an assignment target. The lhs's chain
             // is the body's plus the statement, which is all the gate
             // reads.
+            // role-bypass: allow(DocTarget) — the statement whose target the
+            // attribute count reads; not whether it takes a doc comment
             Assignment | Assignment2 => {
                 let Some(lhs) = child.children().next() else {
                     continue;
@@ -669,6 +671,8 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
 pub(crate) fn cpp_template_declares_data_member(template: &Node) -> bool {
     template
         .children()
+        // role-bypass: allow(DocTarget) — the declaration a template wraps, read
+        // for its declarator; not whether it takes a doc comment
         .any(|child| child.kind() == "declaration" && !cpp_declares_function(&child))
 }
 

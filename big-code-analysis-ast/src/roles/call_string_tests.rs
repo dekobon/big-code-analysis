@@ -9,7 +9,7 @@
 //! bump that starts emitting one fails here rather than changing a
 //! count unseen (grammar-dispatch §1 / §2).
 
-use crate::test_support::for_each_node_with_chain;
+use crate::test_support::{for_each_node_with_chain, owners_covered};
 use crate::{Ancestors, Checker, LanguageInfo};
 
 /// The `(is_call_with_code, is_string_with_code)` answers per matched
@@ -60,50 +60,6 @@ fn verdicts<L: LanguageInfo + Checker>(
         }
     });
     (out, seen)
-}
-
-/// Every owner of both rows was met, except the never-emitted aliases,
-/// which must not have been — and each of those must still be declared,
-/// so dropping a defensive alias from a row fails here rather than
-/// leaving the alias to the role-coverage gate (which forgives a kind
-/// another row claims).
-#[cfg(any(
-    feature = "bash",
-    feature = "c",
-    feature = "cpp",
-    feature = "csharp",
-    feature = "go",
-    feature = "groovy",
-    feature = "irules",
-    feature = "javascript",
-    feature = "kotlin",
-    feature = "lua",
-    feature = "mozcpp",
-    feature = "mozjs",
-    feature = "objc",
-    feature = "perl",
-    feature = "php",
-    feature = "ruby",
-    feature = "rust",
-    feature = "tcl",
-    feature = "typescript",
-))]
-fn owners_covered(seen: &std::collections::BTreeSet<u16>, owners: &[&[u16]], defensive: &[u16]) {
-    for &k in defensive {
-        assert!(
-            owners.iter().copied().flatten().any(|&o| o == k),
-            "defensive kind {k} is no longer declared by either row"
-        );
-        assert!(
-            !seen.contains(&k),
-            "defensive kind {k} is now emitted; its row needs a look"
-        );
-    }
-    for &k in owners.iter().copied().flatten() {
-        if !defensive.contains(&k) {
-            assert!(seen.contains(&k), "fixture never emits kind {k}");
-        }
-    }
 }
 
 #[cfg(any(

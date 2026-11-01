@@ -54,6 +54,8 @@ impl Getter for TypescriptCode {
         // (`var aFun = function () {}`). The two differ only in which
         // field carries the name, so they collapse to one lookup.
         let bound_name = ancestors.parent(node).and_then(|parent| {
+            // role-bypass: allow(DocTarget) — which field of the parent carries the
+            // function's name; naming, not whether the pair takes a doc comment
             let field = match parent.kind_id().into() {
                 Typescript::Pair => "key",
                 Typescript::VariableDeclarator => "name",

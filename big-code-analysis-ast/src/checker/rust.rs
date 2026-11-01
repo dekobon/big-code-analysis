@@ -36,6 +36,9 @@ fn rust_doc_binds_forward<'a>(
 ) -> bool {
     let inner = rust_inner_doc(node_bytes(comment, code));
     let in_macro = ancestors.parent(comment).is_some_and(|parent| {
+        // role-bypass: allow(DocTarget) — a comment *inside* a macro definition's
+        // token trees documents what the expansion makes of it; binding context
+        // over the parent, not whether the definition is a target
         matches!(
             parent.kind_id().into(),
             Rust::TokenTree
@@ -50,19 +53,11 @@ fn rust_doc_binds_forward<'a>(
 }
 
 impl Checker for RustCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Rust::LineComment || node.kind_id() == Rust::BlockComment
-    }
-
-    fn is_doc_comment(node: &Node, _code: &[u8]) -> bool {
-        // tree-sitter-rust marks every doc form — `///`, `//!`, `/** */`,
-        // `/*! */` — with a `doc_comment` child after its opener and
-        // marker, and leaves `////` and `/**/` without one, so the bytes
-        // are never consulted. A plain comment has at most its two
-        // delimiters as children, so the count spares every one of them
-        // the cursor the child scan allocates.
-        Self::is_comment(node) && node.child_count() > 2 && node.is_child(Rust::DocComment as u16)
-    }
+    // The `Comment` and `DocComment` rows of `roles/rust.rs` (#1699):
+    // both comment kinds, documentation by the grammar's `doc_comment`
+    // child — a structural gate, so the bytes are never read.
+    impl_comment_from_rows!(rust);
+    impl_doc_comment_from_row!(rust);
 
     // rustc lints a doc comment on a statement or expression as unused and
     // rustdoc renders no item nested in a body, so a body holds its doc
@@ -87,37 +82,18 @@ impl Checker for RustCode {
         ..DocBinding::new(KeptDocs::All)
     });
 
-    // What rustc's `unused_doc_comments` lint leaves alone: an item, an
-    // associated or foreign item, a field or a variant. It lints a doc
-    // comment on an extern block, a macro invocation, a statement, an
-    // expression and a generic parameter, none of which is listed. A tuple
-    // struct's field has no node of its own, so its first token stands in.
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    // The `DocTarget` row of `roles/rust.rs` (#1699), plus the one
+    // clause no kind list spells: a tuple struct's field has no node of
+    // its own, so its first token — any named node under the
+    // `ordered_field_declaration_list` that is not a comment — stands
+    // in. Context on the parent, not membership, so it stays here.
+    fn is_doc_target<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        // role-bypass: allow(DocTarget) — the tuple-field slot: a position
+        // under the field list, decided for any named kind
         if ancestors.parent_has_kind(node, Rust::OrderedFieldDeclarationList as u16) {
             return node.is_named() && !Self::is_comment(node);
         }
-        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
-        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
-        matches!(
-            node.kind_id().into(),
-            Rust::ModItem
-                | Rust::StructItem
-                | Rust::UnionItem
-                | Rust::EnumItem
-                | Rust::EnumVariant
-                | Rust::FieldDeclaration
-                | Rust::ConstItem
-                | Rust::StaticItem
-                | Rust::TypeItem
-                | Rust::FunctionItem
-                | Rust::FunctionSignatureItem
-                | Rust::ImplItem
-                | Rust::TraitItem
-                | Rust::AssociatedType
-                | Rust::UseDeclaration
-                | Rust::ExternCrateDeclaration
-                | Rust::MacroDefinition
-        )
+        crate::roles::rust::doc_target::owns(node, code, ancestors)
     }
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {

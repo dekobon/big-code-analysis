@@ -2,27 +2,14 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
+use crate::lang_helpers::doc_comment::node_bytes;
 
 impl Checker for GroovyCode {
-    fn is_comment(node: &Node) -> bool {
-        // `groovydoc_comment` is Groovy's `/** … */` Groovydoc kind, a
-        // distinct grammar node (Groovy 150) from the `//` LineComment
-        // and `/* */` BlockComment. The `Loc` cloc arm already counts it
-        // (loc.rs); this restores parity so tokens/find agree too (#697).
-        matches!(
-            node.kind_id().into(),
-            Groovy::LineComment | Groovy::BlockComment | Groovy::GroovydocComment
-        )
-    }
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        // The grammar marks Groovydoc, but its `groovydoc_comment` also
-        // takes the empty `/**/`, which documents nothing. Groovy's own
-        // `GroovydocManager` reads any other comment opening `/**`, a
-        // `/***` one included, exactly as javac does for Javadoc.
-        node.kind_id() == Groovy::GroovydocComment && java_doc(node_bytes(node, code))
-    }
+    // The `Comment` and `DocComment` rows of `roles/groovy.rs` (#1699):
+    // `groovydoc_comment` sits on `DocComment` alone, so `is_comment`'s
+    // union is what keeps the empty `/**/` a comment (#697).
+    impl_comment_from_rows!(groovy);
+    impl_doc_comment_from_row!(groovy);
 
     // `GroovydocManager::findDocCommentByNode` reads the last comment
     // token before a declaration and keeps it only if it opens `/**`, so
@@ -36,34 +23,19 @@ impl Checker for GroovyCode {
         skips: |node, _| node.kind_id() == Groovy::PackageDeclaration,
         ..DocBinding::new(KeptDocs::Nearest {
             hidden: |comment, next| {
+                // role-bypass: allow(Comment) — which comment form the lexer hides
+                // when code follows on its row (a block form), a binding policy
+                // over the row, not membership
                 comment.kind_id() != Groovy::LineComment && next.start_row() == comment.end_row()
             },
         })
     });
 
-    // The nodes `AstBuilder` hands to `GroovydocManager::handle`: a type,
-    // a method or constructor, a field or property, an enum constant.
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
-        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment, not
-        // membership: what a doc comment binds to is `DocTarget`'s own row (R09)
-        matches!(
-            node.kind_id().into(),
-            Groovy::ClassDeclaration
-                | Groovy::TraitDeclaration
-                | Groovy::InterfaceDeclaration
-                | Groovy::EnumDeclaration
-                | Groovy::RecordDeclaration
-                | Groovy::AnnotationTypeDeclaration
-                | Groovy::MethodDeclaration
-                | Groovy::ConstructorDeclaration
-                | Groovy::FieldDeclaration
-                | Groovy::EnumConstant
-        )
-    }
+    // The `DocTarget` row of `roles/groovy.rs` (#1699).
+    impl_doc_target_from_row!(groovy);
 
-    // A `static { … }` initializer opens a function space without being
-    // `is_func`, and Groovydoc reads a doc comment in it no more than one
-    // in a method body.
+    // The callables and the closure, then the `HoldsDocInBody` row of
+    // `roles/groovy.rs` — `static { … }` (#1699).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
@@ -71,9 +43,7 @@ impl Checker for GroovyCode {
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            // role-bypass: allow(FuncOpener) — where a comment sits in a body, not
-            // whether the node opens a space
-            || ancestor.kind_id() == Groovy::StaticInitializer
+            || holds_doc_in_body_kind!(groovy, ancestor, ancestors)
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,

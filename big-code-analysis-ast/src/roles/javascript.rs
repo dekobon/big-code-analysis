@@ -2,22 +2,27 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::Javascript;
 use crate::role_table;
 use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::roles::js_family::{
-    js_family_binding_gates, js_family_closures, js_family_comparison_payers, js_family_containers,
-    js_family_decl_keywords, js_family_exits, js_family_func_openers, js_family_loops,
-    js_family_modifiers, js_family_short_circuit_payers, js_family_strings,
+    js_doc_gates, js_family_binding_gates, js_family_closures, js_family_comparison_payers,
+    js_family_containers, js_family_decl_keywords, js_family_doc_gates, js_family_doc_targets,
+    js_family_exits, js_family_func_openers, js_family_loops, js_family_modifiers,
+    js_family_short_circuit_payers, js_family_strings,
 };
 
 // The chained `if` sits directly inside an `else_clause`; a nested one
 // under `else { … }` sits inside the statement block (#1697).
 else_if_parent_clause_gate!(Javascript, ElseClause);
 js_family_binding_gates!(Javascript, JavascriptCode, FieldDefinition);
+
+// The documentation gates, per dialect (#1699): JSDoc ignores `/***`; plain JavaScript follows it.
+js_family_doc_gates!(Javascript, javadoc_block);
+js_doc_gates!(Javascript);
 
 role_table! {
     lang: Javascript;
@@ -115,11 +120,32 @@ role_table! {
     // themselves — the row recognises the declaration, the consumer
     // reads its value.
     Member { owns [FieldDefinition] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The two comment kinds — a `/* */` or `//` `comment` and the Annex-B
+    // `<!-- -->` `html_comment` (#697); only the first can open with the
+    // tool's block marker (#1699).
+    Comment { owns [Comment, HtmlComment] }
+    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker)] }
     Docstring { absent "JavaScript documents with JSDoc comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // What JSDoc's `astnode.getInfo` names: the family fragment, plus an
+    // export other than a bare `export { … }` list and an expression
+    // statement assigning to a name or a member. Every target but the
+    // class, method and field is outside the space-tree rows — the
+    // parity exceptions `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ..js_family_doc_targets!(),
+            UsingDeclaration(gated_by first_declarator_binds_a_name),
+            FieldDefinition,
+            ExportStatement(gated_by export_declares),
+            ExpressionStatement(gated_by assigns_to_a_name_or_member),
+        ]
+    }
+    DocRunOpener { absent "JSDoc attaches every doc comment to a declaration or a named symbol; none documents by its own content" }
+    DocRunDirective { absent "JSDoc reads no directive comment" }
+    // Nothing beyond the callables and the closures: JSDoc documents
+    // inner symbols (`outer~inner`), so a doc comment in a body stays
+    // documentation (`DOC_COMMENTS_IN_FUNCTION_BODIES`, #1597), and which
+    // child is the body — a statement block, an arrow's expression — is
+    // the Checker's body-child test, not a kind.
+    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }

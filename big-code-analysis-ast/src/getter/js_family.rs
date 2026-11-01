@@ -163,10 +163,12 @@ macro_rules! impl_js_family_get_op_type {
             // The `if` / `for` / `while` / `catch` keywords are the `Branch`
             // / `Loop` / `Catch` rows' payers and `get_paying_role` bills
             // them (#1697); the keywords no row owns stay here.
-            // role-bypass: allow(Comparison, Ternary, StringLit) — the operator classification
-            // of the spellings the rows' `under BinaryExpression` / `under TernaryExpression`
-            // gates leave out, and the operand classification of the string
-            // literals, a projection the `StringLit` row does not answer
+            // role-bypass: allow(Comparison, Ternary, StringLit, DocTarget) — the operator
+            // classification of the spellings the rows' `under BinaryExpression` / `under
+            // TernaryExpression` gates leave out, and the operand classification of the
+            // string literals and of `PropertyIdentifier` / `String`, which the TS rows
+            // own as doc targets only under an `enum_body`: a projection neither the
+            // `StringLit` nor the `DocTarget` row answers
             match node.kind_id().into() {
                 // Regex delimiter punctuation. A `regex` literal spells
                 // both of its delimiters with the same kind id real

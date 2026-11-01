@@ -2,31 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
-
-/// A declaration javac attaches a doc comment to, the package aside.
-fn java_declaration(node: &Node) -> bool {
-    // role-bypass: allow(FuncOpener, Container, Member) — doc attachment,
-    // not membership: what a doc comment binds to is `DocTarget`'s own
-    // row (R09), which overlaps the space openers and the members
-    // without being them.
-    matches!(
-        node.kind_id().into(),
-        Java::ModuleDeclaration
-            | Java::ClassDeclaration
-            | Java::InterfaceDeclaration
-            | Java::EnumDeclaration
-            | Java::RecordDeclaration
-            | Java::AnnotationTypeDeclaration
-            | Java::MethodDeclaration
-            | Java::ConstructorDeclaration
-            | Java::CompactConstructorDeclaration
-            | Java::FieldDeclaration
-            | Java::ConstantDeclaration
-            | Java::AnnotationTypeElementDeclaration
-            | Java::EnumConstant
-    )
-}
+use crate::lang_helpers::doc_comment::node_bytes;
 
 /// Whether two `///` doc comments on consecutive rows are one Markdown
 /// doc comment, as javac's scanner lexes them.
@@ -36,13 +12,11 @@ fn java_markdown_lines_join(prev: &Node, next: &Node, code: &[u8]) -> bool {
 }
 
 impl Checker for JavaCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Java::LineComment || node.kind_id() == Java::BlockComment
-    }
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        Self::is_comment(node) && java_doc(node_bytes(node, code))
-    }
+    // The `Comment` and `DocComment` rows of `roles/java.rs` (#1699):
+    // both comment kinds, documentation when they open with javac's
+    // marker, a byte gate on the row.
+    impl_comment_from_rows!(java);
+    impl_doc_comment_from_row!(java);
 
     // javac's `Token::docComment` gives a declaration the last doc comment
     // before its first token, its annotations and modifiers included, and
@@ -54,32 +28,15 @@ impl Checker for JavaCode {
         joins: java_markdown_lines_join,
     }));
 
-    // What javac attaches a doc comment to (`JavacParser`'s `attach`
-    // calls): a type, a member, an enum constant and a module. An import
-    // or a statement takes none, and an initializer's is dropped
-    // (`ignoreDanglingComments`). The package declaration takes the
-    // file's first doc comment, but javadoc reads a package's only from
-    // `package-info.java`, and javac's lint calls it dangling once a
-    // declaration follows; a file with none after its package is that
-    // file's shape. The scan stops at the next package too, so a file of
-    // repeated packages — invalid, but parsed without error — is read in
-    // disjoint stretches rather than to its end from each one (#1446).
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        if node.kind_id() == Java::PackageDeclaration {
-            return !ancestors
-                .siblings_after(node)
-                .find(|n| java_declaration(n) || n.kind_id() == Java::PackageDeclaration)
-                .is_some_and(|n| java_declaration(&n));
-        }
-        java_declaration(node)
-    }
+    // The `DocTarget` row of `roles/java.rs` (#1699): what javac
+    // attaches a doc comment to, with the package's file-shape gate
+    // (#1446) on the row, reading the node's own chain.
+    impl_doc_target_from_row!(java);
 
-    // A `static { … }` initializer opens a function space (#1184) without
-    // being `is_func`, and an instance initializer is a bare `block` in a
-    // class or enum body; javadoc reads a doc comment in either no more
-    // than one in a method body. Every `block` and `switch_block` is
-    // executable code — a field initializer's `switch` expression holds
-    // one outside any method — so the kind alone decides.
+    // The callables and the lambda, then the `HoldsDocInBody` row of
+    // `roles/java.rs` — `static { … }`, a bare `block`, a
+    // `switch_block` (#1699). The whole node counts: javac binds a doc
+    // comment only before a declaration's first token.
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
@@ -87,12 +44,7 @@ impl Checker for JavaCode {
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || matches!(
-                ancestor.kind_id().into(),
-                // role-bypass: allow(FuncOpener) — doc-comment context, not whether the node opens
-                // a space (`HoldsDocInBody`'s own row, R09)
-                Java::StaticInitializer | Java::Block | Java::SwitchBlock
-            )
+            || holds_doc_in_body_kind!(java, ancestor, ancestors)
     }
 
     // The space tree is declared in `roles/java.rs` (#1696): the

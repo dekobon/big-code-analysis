@@ -53,8 +53,10 @@ role_table! {
          literals they carry; it emits no such construct" }
     Member { absent "the preprocessor pass parses only directives, comments and the string \
          literals they carry; it emits no such construct" }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind the pass parses; nothing documents here,
+    // so `is_comment` is this row's kind table alone (#1699).
+    Comment { owns [Comment] }
+    DocComment { absent "the preprocessor pass reads no documentation; a comment is text to elide" }
     Docstring { absent "the preprocessor pass parses only directives, comments and the string \
          literals they carry; it emits no such construct" }
     DocTarget { absent "the preprocessor pass parses only directives, comments and the string \

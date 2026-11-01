@@ -2,11 +2,11 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::getter::node_text;
-use crate::lang_helpers::doc_comment::node_bytes;
+use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Groovy, Node};
@@ -159,6 +159,12 @@ else_if_prev_sibling_gate!(Groovy, Else);
 pub fn is_switch_body_kind(kind: u16) -> bool {
     kind == Groovy::SwitchBlock as u16
 }
+
+// Whether a `groovydoc_comment` opens with the marker Groovy's own
+// `GroovydocManager` reads: the grammar marks `/** … */` as its own
+// kind but also gives the empty `/**/` that kind, which documents
+// nothing; a `/***` one is read, exactly as javac reads Javadoc.
+crate::roles::byte_gate!(opens_with_groovydoc_marker, java_doc);
 
 role_table! {
     lang: Groovy;
@@ -384,13 +390,41 @@ role_table! {
     // A field declaration — `def field` included, whose `Def` modifier
     // the consumer reads for visibility — in a class or enum body.
     Member { owns [FieldDeclaration] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The grammar tells Groovydoc apart by kind: `groovydoc_comment` is
+    // the `/** … */` form, a distinct node (Groovy 150) from the `//`
+    // and `/* */` comments, so it sits on `DocComment` alone — under a
+    // byte gate, since the kind also takes the empty `/**/` — and
+    // `Comment` holds the other two. `is_comment` is the two kind tables
+    // as one, which is what keeps the empty `/**/` a comment (#697,
+    // #1699).
+    Comment { owns [LineComment, BlockComment] }
+    DocComment { owns [GroovydocComment(text_gated_by opens_with_groovydoc_marker)] }
     Docstring { absent "Groovy documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // The nodes `AstBuilder` hands to `GroovydocManager::handle`: a
+    // type, a method or constructor, a field or property, an enum
+    // constant. The enum constant is the one target outside the
+    // space-tree rows — the parity exception `roles/doc_tests/parity.rs`
+    // records.
+    DocTarget {
+        owns [
+            ClassDeclaration,
+            TraitDeclaration,
+            InterfaceDeclaration,
+            EnumDeclaration,
+            RecordDeclaration,
+            AnnotationTypeDeclaration,
+            MethodDeclaration,
+            ConstructorDeclaration,
+            FieldDeclaration,
+            EnumConstant,
+        ]
+    }
+    DocRunOpener { absent "Groovydoc attaches every doc comment to a declaration; none documents by its own content" }
+    DocRunDirective { absent "Groovydoc reads no directive comment" }
+    // Beyond the callables and the closure: a `static { … }` initializer
+    // opens a function space without being a callee, and Groovydoc
+    // reads a doc comment in it no more than one in a method body.
+    HoldsDocInBody { owns [StaticInitializer] }
 }
 
 #[cfg(test)]

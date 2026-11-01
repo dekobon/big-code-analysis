@@ -6,7 +6,7 @@
 //! from a language's table answers all-false; every declared owner must
 //! be met by the fixture.
 
-use crate::test_support::for_each_node_with_chain;
+use crate::test_support::{for_each_node_with_chain, owners_covered};
 use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
 
 #[cfg(any(
@@ -194,16 +194,7 @@ fn check<L: LanguageInfo + Checker + Getter>(
         );
         seen_kinds.insert(node.kind_id());
     });
-    for &k in owners.iter().copied().flatten() {
-        if defensive.contains(&k) {
-            assert!(
-                !seen_kinds.contains(&k),
-                "defensive kind {k} is now emitted; its row needs a look"
-            );
-        } else {
-            assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
-        }
-    }
+    owners_covered(&seen_kinds, owners, defensive);
 }
 
 #[cfg(feature = "rust")]
@@ -485,16 +476,7 @@ fn check_cpp<L: LanguageInfo + Checker + Getter>(
             ("struct S".to_owned(), false, SpaceKind::Unknown),
         ]
     );
-    for &k in owners.iter().copied().flatten() {
-        if defensive.contains(&k) {
-            assert!(
-                !seen_kinds.contains(&k),
-                "defensive kind {k} is now emitted; its row needs a look"
-            );
-        } else {
-            assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
-        }
-    }
+    owners_covered(&seen_kinds, owners, defensive);
 }
 
 #[cfg(feature = "cpp")]

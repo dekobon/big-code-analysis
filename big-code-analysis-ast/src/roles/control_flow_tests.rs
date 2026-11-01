@@ -16,7 +16,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::test_support::for_each_node_with_chain;
+use crate::test_support::{for_each_node_with_chain, owners_covered};
 use crate::{Ancestors, Checker, Node};
 
 /// What one node answers across the six rows, one slot per projection
@@ -289,21 +289,7 @@ fn check<C: Checker + crate::LanguageInfo>(
         .map(|(k, a)| ((*k).to_owned(), *a))
         .collect();
     pretty_assertions::assert_eq!(got, want);
-    for &k in defensive {
-        assert!(
-            declared.iter().copied().flatten().any(|&d| d == k),
-            "defensive kind {k} is no longer declared"
-        );
-        assert!(
-            !seen_kinds.contains(&k),
-            "defensive kind {k} is now emitted; its row needs a look"
-        );
-    }
-    for &k in declared.iter().copied().flatten() {
-        if !defensive.contains(&k) {
-            assert!(seen_kinds.contains(&k), "fixture never emits kind {k}");
-        }
-    }
+    owners_covered(&seen_kinds, declared, defensive);
 }
 
 /// The answers with the slots in `set` true — the table's shorthand:

@@ -213,6 +213,12 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1289.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
 qualified = "Checker"
 metric = "nom"
 value = 29.0
@@ -263,7 +269,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 632.0
+value = 642.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -308,6 +314,12 @@ metric = "nexits"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/python.rs"
+qualified = "documentation_run"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
@@ -317,13 +329,13 @@ value = 44.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "nom"
-value = 32.0
+value = 33.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "wmc"
-value = 60.0
+value = 61.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
@@ -365,13 +377,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 710.0
+value = 718.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1479.0
+value = 1550.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"

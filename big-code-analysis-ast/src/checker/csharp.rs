@@ -2,7 +2,6 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{csharp_doc, node_bytes};
 
 /// A preprocessor directive that is trivia to Roslyn: one that wraps no
 /// code, so the declaration after it keeps the doc comment above it.
@@ -22,13 +21,10 @@ fn csharp_directive(node: &Node) -> bool {
 }
 
 impl Checker for CsharpCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Csharp::Comment
-    }
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        Self::is_comment(node) && csharp_doc(node_bytes(node, code))
-    }
+    // The `Comment` and `DocComment` rows of `roles/csharp.rs` (#1699):
+    // the one comment kind, documentation under Roslyn's marker.
+    impl_comment_from_rows!(csharp);
+    impl_doc_comment_from_row!(csharp);
 
     // Roslyn's `GetDocumentationCommentTriviaFromSyntaxNode` reads a
     // member's leading trivia backwards: past plain comments and
@@ -49,54 +45,20 @@ impl Checker for CsharpCode {
         })
     });
 
-    // The members `DocumentationCommentCompiler` writes: a type, a
-    // delegate, a member and an enum member. A namespace (block or
-    // file-scoped), a `using`, an assembly attribute, a top-level
-    // statement and an accessor take none; checked with `dotnet build`
-    // and CS1587.
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
-        // role-bypass: allow(FuncOpener, Container, Member) — doc attachment,
-        // not membership: what a doc comment binds to is `DocTarget`'s own
-        // row (R09)
-        matches!(
-            node.kind_id().into(),
-            Csharp::ClassDeclaration
-                | Csharp::StructDeclaration
-                | Csharp::RecordDeclaration
-                | Csharp::InterfaceDeclaration
-                | Csharp::EnumDeclaration
-                | Csharp::DelegateDeclaration
-                | Csharp::MethodDeclaration
-                | Csharp::ConstructorDeclaration
-                | Csharp::DestructorDeclaration
-                | Csharp::OperatorDeclaration
-                | Csharp::ConversionOperatorDeclaration
-                | Csharp::FieldDeclaration
-                | Csharp::EventFieldDeclaration
-                | Csharp::EventDeclaration
-                | Csharp::PropertyDeclaration
-                | Csharp::IndexerDeclaration
-                | Csharp::EnumMemberDeclaration
-        )
-    }
+    // The `DocTarget` row of `roles/csharp.rs` (#1699).
+    impl_doc_target_from_row!(csharp);
 
-    // A property or indexer holds every doc comment in it but those in its
-    // accessor list: Roslyn binds one only before the member, so a comment
-    // in its header or initializer documents nothing, as one after a
-    // method's attribute does. Decided by the node on the comment's path
-    // rather than by `is_func`, whose accessor search rescans every
-    // comment in the list or the header for each of them (#1612).
+    // The `HoldsDocInBody` row of `roles/csharp.rs` — a property or
+    // indexer, which holds every doc comment in it but those in its
+    // accessor list — read *before* the callable test, whose accessor
+    // search would rescan every comment in the list or the header for
+    // each of them (#1612); then the callables and the closures (#1699).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        // role-bypass: allow(FuncOpener) — where a comment sits in a member's
-        // body, not whether the member opens a space
-        if matches!(
-            ancestor.kind_id().into(),
-            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
-        ) {
+        if holds_doc_in_body_kind!(csharp, ancestor, ancestors) {
             return below.kind_id() != Csharp::AccessorList;
         }
         Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)

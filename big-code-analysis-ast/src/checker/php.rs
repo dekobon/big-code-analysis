@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{never_joins, node_bytes, phpdoc};
+use crate::lang_helpers::doc_comment::never_joins;
 
 /// A top-level node phpDocumentor's `createFileDocBlock` passes over
 /// looking for the file's first element: `Declare_` and `InlineHTML`, which
@@ -37,9 +37,9 @@ fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
             return docs == 2
-                // role-bypass: allow(FuncOpener, Container, Member) — doc
-                // attachment, not membership: what a file docblock precedes
-                // is `DocTarget`'s own row (R09)
+                // role-bypass: allow(DocTarget, FuncOpener, Container, Member) — the subset
+                // of targets `createFileDocBlock` treats as the file's first element: a
+                // selection policy over the row, not membership
                 || !matches!(
                     node.kind_id().into(),
                     Php::ClassDeclaration
@@ -55,13 +55,10 @@ fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'
 }
 
 impl Checker for PhpCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Php::Comment
-    }
-
-    fn is_doc_comment(node: &Node, code: &[u8]) -> bool {
-        Self::is_comment(node) && phpdoc(node_bytes(node, code))
-    }
+    // The `Comment` and `DocComment` rows of `roles/php.rs` (#1699):
+    // the one comment kind, a DocBlock under PHP's marker.
+    impl_comment_from_rows!(php);
+    impl_doc_comment_from_row!(php);
 
     // phpDocumentor gives an element PHP-Parser's `getDocComment`: the
     // last DocBlock among the comments before the node's first token, so
@@ -76,25 +73,22 @@ impl Checker for PhpCode {
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
         forward: |comment, code, ancestors| {
             let in_signature = ancestors.parent(comment).is_some_and(|parent| {
-                // role-bypass: allow(FuncOpener, Closure, Container, Member) — doc attachment,
-                // not membership: what a doc comment binds to is `DocTarget`'s own row (R09)
-                matches!(
-                    parent.kind_id().into(),
-                    Php::ClassDeclaration
-                        | Php::InterfaceDeclaration
-                        | Php::TraitDeclaration
-                        | Php::EnumDeclaration
-                        | Php::FunctionDefinition
-                        | Php::MethodDeclaration
-                        | Php::PropertyDeclaration
-                        | Php::ConstDeclaration
-                        | Php::ConstDeclaration2
-                        | Php::EnumCase
-                        | Php::AnonymousFunction
-                        | Php::ArrowFunction
-                        | Php::FormalParameters
-                        | Php::PropertyPromotionParameter
-                )
+                let kind = parent.kind_id();
+                // The declarations are the `DocTarget` row's kind table;
+                // beside them the closures, a parameter list and a
+                // promoted parameter, which hold a DocBlock in a
+                // signature without being targets themselves.
+                crate::roles::php::doc_target::lists_kind(kind)
+                    // role-bypass: allow(Closure) — a DocBlock *inside* a closure is in
+                    // its signature; where a declaration's children end is a binding
+                    // question, not membership
+                    || matches!(
+                        kind.into(),
+                        Php::AnonymousFunction
+                            | Php::ArrowFunction
+                            | Php::FormalParameters
+                            | Php::PropertyPromotionParameter
+                    )
             });
             !in_signature && !php_file_docblock(comment, code, ancestors)
         },
@@ -107,30 +101,8 @@ impl Checker for PhpCode {
         })
     });
 
-    // The structural elements phpDocumentor's reflection builds: a class,
-    // interface, trait or enum, a function or method, a property, a class
-    // or global constant and an enum case. `define()` is a call the
-    // grammar parses as a statement, so a DocBlock above it stays a plain
-    // comment, where phpDocumentor reads it as a constant's; a `use`, a
-    // `namespace` or any other statement takes none.
-    fn is_doc_target<'a>(node: &Node<'a>, _code: &[u8], _: Ancestors<'a, '_>) -> bool {
-        // role-bypass: allow(FuncOpener, Container, Member) — doc
-        // attachment, not membership: what a doc comment binds to is
-        // `DocTarget`'s own row (R09)
-        matches!(
-            node.kind_id().into(),
-            Php::ClassDeclaration
-                | Php::InterfaceDeclaration
-                | Php::TraitDeclaration
-                | Php::EnumDeclaration
-                | Php::FunctionDefinition
-                | Php::MethodDeclaration
-                | Php::PropertyDeclaration
-                | Php::ConstDeclaration
-                | Php::ConstDeclaration2
-                | Php::EnumCase
-        )
-    }
+    // The `DocTarget` row of `roles/php.rs` (#1699).
+    impl_doc_target_from_row!(php);
 
     // PHP's parser binds the last docblock before a function's name to it,
     // so one written after `#[...]` attributes still documents it, and a
@@ -147,8 +119,9 @@ impl Checker for PhpCode {
         _ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        // role-bypass: allow(FuncOpener, Closure) — where a comment sits in a
-        // body, not whether the node opens a space
+        // role-bypass: allow(FuncOpener, Closure) — which child of an opener is
+        // its body, not whether the node opens a space; `HoldsDocInBody` is
+        // absent for PHP because nothing beyond the openers holds one
         match ancestor.kind_id().into() {
             Php::FunctionDefinition | Php::MethodDeclaration | Php::AnonymousFunction => {
                 below.kind_id() == Php::CompoundStatement

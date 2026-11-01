@@ -2,18 +2,22 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::Cpp;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_calls, c_family_decl_keywords, c_family_modifiers, c_family_primitives,
-    c_family_strings, cpp_family_binary_owners, cpp_family_comparison_payers,
-    cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
-    cpp_family_loops, cpp_family_short_circuit_payers,
+    c_family_calls, c_family_decl_keywords, c_family_doc_conditionals, c_family_doc_entries,
+    c_family_doc_gates, c_family_modifiers, c_family_primitives, c_family_strings, cpp_doc_entries,
+    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_containers,
+    cpp_family_exits, cpp_family_func_openers, cpp_family_gates, cpp_family_loops,
+    cpp_family_short_circuit_payers,
 };
 use crate::roles::control_flow::else_if_parent_clause_gate;
+
+// The documentation gates, per dialect (#1699).
+c_family_doc_gates!(CppCode);
 
 cpp_family_gates!(Cpp);
 // The chained `if` sits directly inside an `else_clause`; a nested one
@@ -123,11 +127,26 @@ role_table! {
     // declarator (#1300). Which it is, and the access section it sits
     // in, is the consumers' reading.
     Member { owns [FieldDeclaration] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The one comment kind, a `DocComment` owner under Doxygen's marker
+    // gate (#1699).
+    Comment { owns [Comment] }
+    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker)] }
     Docstring { absent "C++ documents with comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // What Doxygen documents from a doc block before it: the entries of
+    // `roles/c_family.rs`'s fragment, and every
+    // preprocessor conditional holding an entry in any branch
+    // (`conditional_declares`, memoised). The `ERROR` node holding an
+    // entry is the Checker's clause. Most targets are outside the
+    // space-tree rows — a macro, a typedef, an enumerator, a field, a
+    // conditional — the parity exceptions `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ..c_family_doc_entries!(),
+            ..cpp_doc_entries!(),
+            ..c_family_doc_conditionals!(),
+        ]
+    }
+    DocRunOpener { absent "Doxygen attaches every block to an entry or the file; none documents by its own content" }
+    DocRunDirective { absent "Doxygen reads no directive comment" }
+    HoldsDocInBody { absent "Doxygen reads every block in a body as the function's in-body description; nothing withholds one" }
 }

@@ -4,16 +4,12 @@
 use super::*;
 
 impl Checker for MozjsCode {
-    fn is_comment(node: &Node) -> bool {
-        // `html_comment` is the ECMAScript Annex-B `<!-- -->` form, a
-        // distinct named+extra grammar node (Mozjs 133 / JS 132 / TS 162
-        // / Tsx 168) alongside the `//` and `/* */` `comment` kind. It
-        // must classify as a comment for loc/tokens/find parity (#697).
-        matches!(node.kind_id().into(), Mozjs::Comment | Mozjs::HtmlComment)
-    }
-
     // JSDoc ignores `/***`; plain JavaScript follows it.
-    impl_js_family_doc_comment!(Mozjs, javadoc_block);
+    // The Annex-B `<!-- -->` `html_comment` is a comment kind for
+    // loc / tokens / find parity (#697) and never documentation.
+    // JSDoc documents inner symbols (`outer~inner`), so a `/** */` on a
+    // function or property declared in a body is documentation.
+    impl_doc_comment_rows_in_bodies!(mozjs);
 
     // JSDoc's `getLeadingJsdocComment` takes the nearest block comment
     // before a node, line comments filtered out, so a plain `/* */` in
@@ -27,7 +23,7 @@ impl Checker for MozjsCode {
         |node, code| Self::is_comment(node)
             && !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b"/*"),
         crate::lang_helpers::doc_comment::jsdoc_virtual,
-        jsdoc_target,
+        crate::roles::mozjs::doc_target::owns,
         |_| true
     );
 

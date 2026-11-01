@@ -110,6 +110,8 @@ impl Abc for LuaCode {
         // the row reads (#1695, #1697) are arms like the kind arms they replaced.
         let kind = node.kind_id();
         match kind.into() {
+            // role-bypass: allow(DocTarget) — an ABC assignment; not whether the
+            // statement names an LDoc item
             Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
                 stats.assignments += 1.;
             }

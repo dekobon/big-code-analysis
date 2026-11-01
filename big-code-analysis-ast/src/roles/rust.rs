@@ -2,8 +2,8 @@
 //! paying-construct roles — `Comparison`, `ShortCircuit`, `EagerLogical`,
 //! `Ternary`, `CaseArm`, `Guard`, `NullSafe` (#1694, #1695) — the space
 //! tree (#1696) and the control flow — `Branch`, `Switch`, `Loop`,
-//! `Catch`, `ElseIf`, `Exit` (#1697) — are declared; the rest are pending
-//! the package that declares each (#1692).
+//! `Catch`, `ElseIf`, `Exit` (#1697) — and
+//! the documentation rows (#1699) are declared.
 
 use crate::lang_helpers::case_arms::pattern_is_bare_underscore;
 use crate::role_table;
@@ -55,6 +55,15 @@ fn not_in_type_syntax<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
 /// Whether a `match_pattern` carries a guard: its `condition` field.
 fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
     node.child_by_field_name("condition").is_some()
+}
+
+/// Whether a comment carries the `doc_comment` child tree-sitter-rust
+/// marks every doc form with — `///`, `//!`, `/** */`, `/*! */` — and
+/// leaves `////` and `/**/` without, so the bytes are never consulted. A
+/// plain comment has at most its two delimiters as children, so the
+/// count spares every one of them the cursor the child scan allocates.
+fn has_doc_marker_child<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+    node.child_count() > 2 && node.is_child(Rust::DocComment as u16)
 }
 
 role_table! {
@@ -205,11 +214,56 @@ role_table! {
     // fields — which are type nodes, not declarations — stay with the
     // attribute consumer.
     Member { owns [FieldDeclaration, ConstItem, StaticItem, AssociatedType] }
-    Comment { pending R09 }
-    DocComment { pending R09 }
+    // The two comment kinds; either carries the grammar's `doc_comment`
+    // child in a doc form, so both are `DocComment` owners under a
+    // *child* gate — the one `DocComment` row that reads structure
+    // rather than bytes (#1699).
+    Comment { owns [LineComment, BlockComment] }
+    DocComment {
+        owns [
+            LineComment(gated_by has_doc_marker_child),
+            BlockComment(gated_by has_doc_marker_child),
+        ]
+    }
     Docstring { absent "Rust documents with `///` comments, not string literals" }
-    DocTarget { pending R09 }
-    DocRunOpener { pending R09 }
-    DocRunDirective { pending R09 }
-    HoldsDocInBody { pending R09 }
+    // What rustc's `unused_doc_comments` lint leaves alone: an item, an
+    // associated or foreign item, a field or a variant. It lints a doc
+    // comment on an extern block, a macro invocation, a statement, an
+    // expression and a generic parameter, none of which is listed. A
+    // tuple struct's field has no node of its own, so its first token
+    // stands in — a clause over *any* named kind under
+    // `ordered_field_declaration_list`, which no kind list spells and
+    // which stays in `checker/rust.rs`. Outside the space-tree rows:
+    // the module, enum, variant, type, `use`, `extern crate`, macro
+    // definition and function signature — the parity exceptions
+    // `roles/doc_tests/parity.rs` records.
+    DocTarget {
+        owns [
+            ModItem,
+            StructItem,
+            UnionItem,
+            EnumItem,
+            EnumVariant,
+            FieldDeclaration,
+            ConstItem,
+            StaticItem,
+            TypeItem,
+            FunctionItem,
+            FunctionSignatureItem,
+            ImplItem,
+            TraitItem,
+            AssociatedType,
+            UseDeclaration,
+            ExternCrateDeclaration,
+            MacroDefinition,
+        ]
+    }
+    DocRunOpener { absent "rustdoc attaches every doc comment to an item; none documents by its own content" }
+    DocRunDirective { absent "rustdoc reads no directive comment" }
+    // Nothing beyond the callables and the closure: rustc lints a doc
+    // comment on a statement as unused and rustdoc renders no item
+    // nested in a body, so the trait default holds, and the one
+    // exception — an inner `//!` opening a function's body is that
+    // function's own doc — is `Checker::doc_comment_opens_body`.
+    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the trait default" }
 }

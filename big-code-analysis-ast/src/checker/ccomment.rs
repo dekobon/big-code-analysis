@@ -4,9 +4,8 @@
 use super::*;
 
 impl Checker for CcommentCode {
-    fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Ccomment::Comment
-    }
+    // The one `Comment` row of `roles/ccomment.rs`; no `DocComment` row (#1699).
+    impl_comment_from_rows!(ccomment);
 
     fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
