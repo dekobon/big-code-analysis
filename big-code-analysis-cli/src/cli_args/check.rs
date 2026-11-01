@@ -603,20 +603,25 @@ pub(crate) struct DiffBaselineArgs {
     pub(crate) exit_code: bool,
 }
 
-/// Arguments for the `diff` subcommand (issue #487, `--since` from
-/// #492). Reports per-metric, per-file deltas plus added/removed files.
+// `diff` landed in #487, `--since` in #492, one-sided metric fields in #1623.
+/// Arguments for the `diff` subcommand. Reports per-metric, per-file
+/// deltas plus added/removed files and metric fields present on one
+/// side only.
 ///
 /// Two input modes:
 /// - File/dir mode: two positional metric-output sets (`<old> <new>`),
 ///   each a per-file JSON file or a directory tree of them.
-/// - `--since <ref> [<new>]`: analyze the tree at `<ref>` for the
-///   before side; the after side is the optional `<new>` source tree or
-///   the current working tree.
+/// - `--since <ref> [<scope>]`: analyze the tree at `<ref>` for the
+///   before side and the working tree for the after side; the optional
+///   positional is a relative path scope applied to both.
 ///
 /// `--format json` always emits every bucket; `--min-change` and
-/// `--metric` shape which deltas are reported. Exits 0 on success by
-/// default; the diff is informational, not a gate. With `--exit-code`,
-/// exits 2 when the filtered diff is non-empty.
+/// `--metric` shape which deltas are reported. A metric field present on
+/// one side only is listed as added or removed rather than compared
+/// against `0`; `--metric` filters those rows, `--min-change` does not,
+/// and `--exit-code` counts them. Exits 0 on success by default; the
+/// diff is informational, not a gate. With `--exit-code`, exits 2 when
+/// the filtered diff is non-empty.
 #[derive(Args, Debug)]
 pub(crate) struct DiffArgs {
     // `diff --since` walks both trees, so it consumes the walk-selection
@@ -667,7 +672,9 @@ pub(crate) struct DiffArgs {
     /// reported. `0` (the default) reports any change of any size;
     /// raise it to suppress small deltas and surface only the larger
     /// metric movements (e.g. on a grammar bump). Must be finite; a
-    /// negative value reads as `0`, with a warning.
+    /// negative value reads as `0`, with a warning. A metric field
+    /// present on one side only has no delta to measure, so it is
+    /// listed whatever the minimum; `--metric` is what filters it.
     #[clap(long = "min-change", default_value_t = 0.0, value_parser = parse_min_change)]
     pub(crate) min_change: f64,
     /// Restrict the diff to one or more metrics (repeatable). Names are

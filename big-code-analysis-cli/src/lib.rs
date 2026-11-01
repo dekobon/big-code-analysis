@@ -744,7 +744,7 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
 /// That name is the key — read off the serialized document, never
 /// reconstructed from an output path — so it is byte-identical across
 /// the two sides whenever the same logical file exists in both trees.
-/// [`metric_diff::set_from_spaces`] and [`metric_diff::load_dir_set`]
+/// [`metric_diff::set_from_spaces`] and `metric_diff::load::load_dir_set`
 /// share one keying helper precisely so the in-memory side here and the
 /// on-disk side of `bca diff <old> <new>` cannot diverge on it.
 ///

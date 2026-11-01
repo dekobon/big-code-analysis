@@ -7,4 +7,5 @@
 mod common;
 
 mod diff_baseline;
+mod diff_files;
 mod diff_since;
