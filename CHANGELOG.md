@@ -490,6 +490,15 @@ for historical reference.
   complexity-class gate (fitted 2.00 / 1.98 / 1.98 before, 1.14 /
   1.09 / 1.15 after).
 
+- `bca vcs` no longer holds every in-scope blob in memory while it
+  lists the files to rank. The enumeration diffs each file at the
+  target tree once through one resource cache that it never cleared, on
+  every build including a pure cache hit; it now drops each blob after
+  its diff. Peak RSS over this repository with one-day windows, where
+  the enumeration dominates, fell from 170 MB to 125-149 MB; the saving
+  grows with the size of the in-scope tree. The output is unchanged.
+  (#1768)
+
 - `bca diff` no longer compares a metric leaf present on one side only
   against `0`. Two captures taken with different `--metrics` sets (or by
   two bca versions whose emitters differ) listed every leaf of an absent
