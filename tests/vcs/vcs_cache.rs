@@ -12,6 +12,7 @@
 #![allow(clippy::float_cmp)]
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use big_code_analysis::vcs::{
@@ -167,6 +168,142 @@ fn authors_long(index: &vcs::HistoryIndex, path: &str) -> u32 {
 /// One file's added+deleted line churn over the long window.
 fn churn_long(index: &vcs::HistoryIndex, path: &str) -> u64 {
     stats_for(index, path).churn_long
+}
+
+/// One file's commit count over the long window.
+fn commits_long(index: &vcs::HistoryIndex, path: &str) -> u32 {
+    stats_for(index, path).commits_long
+}
+
+/// A repo with five commits to one file, a day or more apart, so a
+/// `--depth 1` clone of it holds one commit and a `--deepen 2` on that
+/// clone reaches three while the clone stays shallow: two commits remain
+/// behind the new boundary, so `is_shallow()` is as true after the deepen
+/// as before it and only the boundary itself has moved.
+fn build_five_commit_repo() -> Repo {
+    let repo = Repo::init();
+    for (revision, days_ago) in [40, 30, 20, 10, 2].into_iter().enumerate() {
+        let mut body = String::new();
+        for n in 0..=revision {
+            writeln!(body, "fn f{n}() {{}}").expect("write to a String");
+        }
+        repo.write("a.rs", &body);
+        repo.commit(
+            "Ada",
+            "ada@example.com",
+            FIXED_NOW - days_ago * DAY,
+            &format!("rev {revision}"),
+        );
+    }
+    repo
+}
+
+/// Prime the cache on a depth-1 clone of the five-commit repo, checking
+/// the fixture discriminates: the primed entry must see exactly one
+/// commit, or deepening the clone changes nothing a stale hit could get
+/// wrong. Returns the source as well, since a later `--deepen` fetches
+/// from it and a dropped `Repo` is a deleted directory.
+fn prime_depth_one_clone(cfg: &CacheConfig) -> (Repo, Repo) {
+    let source = build_five_commit_repo();
+    let clone = source.shallow_clone(1);
+    let primed = build_history_index_cached(clone.path(), &opts(), cfg).expect("prime");
+    assert!(primed.truncated_shallow_clone(), "the clone is shallow");
+    assert_eq!(
+        commits_long(&primed, "a.rs"),
+        1,
+        "a depth-1 clone must record one commit, or a deepen is not observable"
+    );
+    (source, clone)
+}
+
+/// The cached and uncached builds of a deepened, still-shallow clone
+/// must agree, and the fresh build must show the deepen reached
+/// `expected_commits` without unshallowing the clone — otherwise the
+/// #810 flag guard would retire the entry on its own and the boundary
+/// term would be untested.
+fn assert_deepened_clone_agrees(clone: &Repo, cfg: &CacheConfig, expected_commits: u32) {
+    let cached = build_history_index_cached(clone.path(), &opts(), cfg).expect("cached");
+    let fresh = build_history_index(clone.path(), &opts()).expect("fresh");
+    assert!(
+        fresh.truncated_shallow_clone(),
+        "the clone must still be shallow after the deepen"
+    );
+    assert_eq!(
+        commits_long(&fresh, "a.rs"),
+        expected_commits,
+        "the deepen must reach the commits behind the old boundary"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a deepen must invalidate the entry walked at the old depth"
+    );
+}
+
+#[test]
+fn a_deepened_shallow_clone_is_not_served_from_a_stale_entry() {
+    // A `git fetch --deepen` on a clone that stays shallow moves neither
+    // `HEAD` (the entry key) nor the `truncated_shallow_clone` flag that
+    // #810 compares, so without the shallow-boundary fingerprint term the
+    // entry walked at depth 1 was a pure hit and replayed one commit
+    // where a fresh walk sees three.
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+    let (_source, clone) = prime_depth_one_clone(&cfg);
+
+    clone.git(&["fetch", "--quiet", "--deepen", "2"]);
+
+    assert_deepened_clone_agrees(&clone, &cfg, 3);
+}
+
+#[test]
+fn a_deepen_is_not_baked_into_the_incremental_splice() {
+    // The worse half, as for the mailmap: a commit made after the deepen
+    // moves `HEAD`, so the exact entry misses, but the depth-1 entry is
+    // an ancestor candidate and the splice adopted its one-commit tail
+    // and re-persisted it under the new head. The second cached build
+    // reads that re-persisted entry back, so it checks what was written.
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+    let (_source, clone) = prime_depth_one_clone(&cfg);
+
+    clone.git(&["fetch", "--quiet", "--deepen", "2"]);
+    clone.write(
+        "a.rs",
+        "fn f0() {}\nfn f1() {}\nfn f2() {}\nfn f3() {}\nfn f4() {}\nfn f5() {}\n",
+    );
+    clone.commit("Ada", "ada@example.com", FIXED_NOW - DAY, "rev 5");
+
+    assert_deepened_clone_agrees(&clone, &cfg, 4);
+    assert_deepened_clone_agrees(&clone, &cfg, 4);
+}
+
+#[test]
+fn an_unreadable_shallow_boundary_fails_the_pure_hit_like_the_walk() {
+    // The digest needs `.git/shallow` parsed before the exact entry is
+    // looked up, so a corrupt file now refuses a pure hit it used to
+    // serve. That matches the uncached build, whose walk gix fails on the
+    // same file, rather than replaying an entry against a boundary
+    // nothing can read (`WalkContext::open` documents the choice). The
+    // uncached assertion carries the premise: should gix start tolerating
+    // the file, it fails, and the cached half needs rethinking. Reading the
+    // file as "no boundary" in `open` keeps this green (that digest misses
+    // and the walk fails); dropping the read, so the old hit is served,
+    // fails it.
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+    let (_source, clone) = prime_depth_one_clone(&cfg);
+
+    std::fs::write(clone.path().join(".git").join("shallow"), "not an id\n")
+        .expect("corrupt .git/shallow");
+
+    let cached = build_history_index_cached(clone.path(), &opts(), &cfg);
+    assert!(
+        cached.is_err(),
+        "a pure hit over an unparseable boundary must fail"
+    );
+    let fresh = build_history_index(clone.path(), &opts());
+    assert!(fresh.is_err(), "the uncached walk fails on the same file");
 }
 
 /// The two revisions of the issue's fixture (#1425): a unique line moves

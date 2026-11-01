@@ -57,10 +57,12 @@
 //! section's `algorithm`, `binary` or `textconv` presence — which rewrite
 //! the recorded churn the same way (issue #1425); a driver's `command`
 //! never runs on this path and does not count. A shallow clone that is
-//! later deepened (`git fetch --unshallow`) leaves `HEAD` unmoved, so
-//! the entry key is unchanged; the shallow-state match in
-//! `HistoryCache::is_compatible` is what forces a re-walk to replace the
-//! truncated counts (issue #810). A corrupt or unreadable entry is
+//! later deepened leaves `HEAD` unmoved, so the entry key is unchanged;
+//! the shallow-state match in `HistoryCache::is_compatible` forces a
+//! re-walk once the boundary is gone (`git fetch --unshallow`, issue
+//! #810), and the shallow-boundary term of the fingerprint does the same
+//! while the clone is still shallow but deeper than the entry was walked
+//! at (`--deepen`, a larger `--depth`). A corrupt or unreadable entry is
 //! silently ignored, never fatal.
 
 use std::collections::hash_map::DefaultHasher;
@@ -229,6 +231,8 @@ impl HistoryCache {
     /// and prevents reporting a complete walk's counts under a now-shallow
     /// clone as un-truncated (issue #810). A shallow-state mismatch forces
     /// a fresh walk that produces the correct counts and truncation flag.
+    /// A deepen that leaves the clone shallow does not flip the flag; the
+    /// fingerprint's shallow-boundary term retires that entry instead.
     #[must_use]
     pub(crate) fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
         self.cache_schema_version == CACHE_SCHEMA_VERSION
@@ -244,11 +248,13 @@ impl HistoryCache {
 /// Each is input the way an option is — it decides what the walk records
 /// — while a change to it moves neither `HEAD` (the entry key) nor any
 /// option field, so each has to enter [`fingerprint`] on its own. The
-/// backend's `WalkContext` produces both from the one mailmap snapshot
-/// and the one diff platform its walk uses, so an entry's stamp and its
-/// events cannot come from two reads (issue #1409). Two named fields
-/// rather than two `u64` parameters, so a call site cannot transpose
-/// them.
+/// backend's `WalkContext` produces all three from the one mailmap
+/// snapshot, the one diff platform and the one shallow-file read its
+/// walk was opened with. The walk consumes the first two, so for them an
+/// entry's stamp and its events cannot come from two reads (issue #1409);
+/// gix's walk re-reads the shallow file, and `WalkContext` says why that
+/// pair heals on the next run. Named fields rather than `u64`
+/// parameters, so a call site cannot transpose them.
 #[derive(Clone, Copy, Debug, Hash)]
 pub(crate) struct WalkInputDigests {
     /// The effective mailmap, as gix merged it (issue #1262).
@@ -258,6 +264,9 @@ pub(crate) struct WalkInputDigests {
     /// `algorithm`, `binary` and `textconv` presence — as gix configured
     /// the walk's diff platform from it (issue #1425).
     pub diff_config: u64,
+    /// The shallow boundary, the set of commits `.git/shallow` lists, or
+    /// the digest of no boundary for a clone with full history.
+    pub shallow_boundary: u64,
 }
 
 /// A stable 64-bit fingerprint of everything that changes *which commits
@@ -289,10 +298,20 @@ pub(crate) struct WalkInputDigests {
 /// docs record why the configuration is fingerprinted rather than the
 /// algorithm pinned in the walk.
 ///
+/// `inputs.shallow_boundary` covers the commits `.git/shallow` lists,
+/// behind which the walk records nothing. The entry's shallow flag
+/// (`truncated_shallow_clone`) sees only the boundary appearing or
+/// vanishing (issue #810); a clone deepened in place by `git fetch
+/// --deepen`, a larger `--depth` or an earlier `--shallow-since` is still
+/// shallow and still at the same `HEAD`, so the entry walked at the old
+/// depth was a pure hit and its truncated tail was spliced forward under
+/// each new head. `WalkContext::shallow_boundary_digest` says what the
+/// value hashes.
+///
 /// Adding a term retires every entry stamped before it on its own — the
-/// value moves for an unchanged configuration — so neither #1262 nor
-/// #1425 bumped [`CACHE_SCHEMA_VERSION`]; that version is for a change in
-/// what a recorded event *means*.
+/// value moves for an unchanged configuration — so neither #1262, #1425
+/// nor the shallow-boundary term bumped [`CACHE_SCHEMA_VERSION`]; that
+/// version is for a change in what a recorded event *means*.
 ///
 /// Note what this term does *not* generalise to. An input is fingerprinted
 /// only when it is hashed here, and what is hashed is the option's

@@ -779,6 +779,17 @@ for historical reference.
   documented as such (#1760). No `CACHE_SCHEMA_VERSION` bump: the added
   fingerprint term retires pre-fix entries on its own.
 
+- Deepening a shallow clone that stays shallow (`git fetch --deepen`, a
+  larger `--depth`, an earlier `--shallow-since`) now invalidates the
+  persistent VCS history cache. The clone's `HEAD` and shallow flag are
+  unchanged by such a fetch, so the entry walked at the old depth was a
+  pure hit, and a commit made afterwards spliced onto its truncated
+  tail and re-persisted it; only `git fetch --unshallow` (#810) retired
+  it. The commits `.git/shallow` lists are now a fingerprint term, so
+  the fix retires pre-fix entries on its own, as for #1425. A corrupt
+  `.git/shallow` now fails a cached run as it already failed an
+  uncached one, where 2.4.0 could still serve a pure cache hit (#1768).
+
 - Python bindings: with `vcs_per_function=True`, each nested space's
   `hotspot_score` is now scored from that space's own cyclomatic
   (`cyclomatic.value`) rather than its subtree `cyclomatic.sum`,

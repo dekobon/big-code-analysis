@@ -70,6 +70,7 @@ fn the_walk_resolves_identities_through_the_captured_snapshot() {
         diff: repo
             .diff_resource_cache_for_tree_diff()
             .expect("diff platform"),
+        shallow: None,
         now,
     };
     assert_ne!(
@@ -209,5 +210,63 @@ fn the_diff_config_digest_tracks_what_the_platform_reads() {
     assert_ne!(
         second_binary, threshold,
         "`core.bigFileThreshold` decides whether a blob is diffed at all"
+    );
+}
+
+/// Open `dir` isolated from the host, as `digest_after_config` does, and
+/// digest the shallow boundary a fresh context reads.
+fn shallow_digest(dir: &Path) -> u64 {
+    let repo = gix::open_opts(dir, gix::open::Options::isolated()).expect("open");
+    let options = Options::default();
+    WalkContext::open(&repo, &options, current_unix_seconds())
+        .expect("open context")
+        .shallow_boundary_digest()
+}
+
+/// The digest is over the *set* of boundary commits: it moves when the
+/// boundary appears, moves again when a deepen replaces it, and is the
+/// same for the same commits written in another order. The file is
+/// written by hand because what it lists is the whole input — the ids
+/// need not name objects the repository holds.
+#[test]
+fn the_shallow_boundary_digest_tracks_the_boundary_set() {
+    const FIRST: &str = "1111111111111111111111111111111111111111\n";
+    const SECOND: &str = "2222222222222222222222222222222222222222\n";
+    let dir = tempfile::tempdir().expect("temp dir");
+    gix::init(dir.path()).expect("init repository");
+    let shallow_file = dir.path().join(".git").join("shallow");
+
+    let full = shallow_digest(dir.path());
+    std::fs::write(&shallow_file, FIRST).expect("write shallow");
+    let one = shallow_digest(dir.path());
+    assert_ne!(full, one, "a boundary appearing moves the digest");
+
+    std::fs::write(&shallow_file, SECOND).expect("rewrite shallow");
+    let deepened = shallow_digest(dir.path());
+    assert_ne!(
+        one, deepened,
+        "a deepen replaces the boundary commits and must move the digest, \
+         though the clone is as shallow as before"
+    );
+
+    std::fs::write(&shallow_file, format!("{FIRST}{SECOND}")).expect("rewrite shallow");
+    let two = shallow_digest(dir.path());
+    std::fs::write(&shallow_file, format!("{SECOND}{FIRST}")).expect("rewrite shallow");
+    // gix-shallow sorts the list on read, so this row holds with or
+    // without `shallow_boundary_digest`'s own sort: removing that sort
+    // fails nothing. The sort stays as the digest's own guarantee, not
+    // a property this row covers.
+    assert_eq!(
+        two,
+        shallow_digest(dir.path()),
+        "the same boundary written in another order is the same set"
+    );
+    assert_ne!(deepened, two, "a wider boundary is a different set");
+
+    std::fs::remove_file(&shallow_file).expect("remove shallow");
+    assert_eq!(
+        full,
+        shallow_digest(dir.path()),
+        "`--unshallow` returns to the full-history digest"
     );
 }

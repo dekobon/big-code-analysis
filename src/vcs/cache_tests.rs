@@ -5,14 +5,17 @@ use std::path::PathBuf;
 /// Stand-in digests, deliberately neither `0` nor equal to each other, so
 /// an assertion here cannot pass because two default values coincide
 /// (`.claude/rules/testing.md`). No real digest is computed in this
-/// module — `WalkContext::mailmap_digest` and `diff_config_digest` live in
-/// the git backend, whose `history_tests` pin that the walk resolves
-/// identities through the snapshot the digest is taken from (#1409) and
-/// which diff settings the platform reads (#1425), and whose `vcs_cache`
-/// integration tests cover invalidation.
+/// module — `WalkContext::mailmap_digest`, `diff_config_digest` and
+/// `shallow_boundary_digest` live in the git backend, whose
+/// `history_tests` pin that the walk resolves identities through the
+/// snapshot the digest is taken from (#1409), which diff settings the
+/// platform reads (#1425) and that the shallow digest tracks the
+/// boundary set, and whose `vcs_cache` integration tests cover
+/// invalidation.
 const SAMPLE_INPUTS: WalkInputDigests = WalkInputDigests {
     mailmap: 0xfeed_face_dead_beef,
     diff_config: 0x0ddb_a11c_0ffe_e000,
+    shallow_boundary: 0x5a11_0bad_c0de_ba5e,
 };
 
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
@@ -136,11 +139,34 @@ fn fingerprint_changes_with_the_diff_config_digest() {
     let swapped = WalkInputDigests {
         mailmap: SAMPLE_INPUTS.diff_config,
         diff_config: SAMPLE_INPUTS.mailmap,
+        ..SAMPLE_INPUTS
     };
     assert_ne!(
         base,
         fingerprint(&options, swapped),
         "the mailmap and diff-config terms are not interchangeable"
+    );
+}
+
+#[test]
+fn fingerprint_changes_with_the_shallow_boundary_digest() {
+    // The shallow boundary is the third walk input outside `Options`: the
+    // walk records nothing behind the commits `.git/shallow` lists, and a
+    // deepen that leaves the clone shallow moves neither `HEAD` nor the
+    // `truncated_shallow_clone` flag `is_compatible` checks (#810 covers
+    // only `--unshallow`). Without this term the entry walked at the old
+    // depth was a pure hit, and the splice re-persisted its truncated
+    // tail under each new head.
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let deepened = WalkInputDigests {
+        shallow_boundary: SAMPLE_INPUTS.shallow_boundary ^ 1,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, deepened),
+        "a shallow-boundary change must change the fingerprint"
     );
 }
 

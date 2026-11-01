@@ -35,27 +35,41 @@ pub struct Repo {
 impl Repo {
     /// Initialise an empty repo on a `main` branch with signing off.
     pub fn init() -> Self {
+        Self::init_with_env(&[])
+    }
+
+    /// [`init`](Self::init) with extra environment on the `git init`
+    /// itself, so a test can point it at a hostile host configuration and
+    /// check the fixture does not read it.
+    pub fn init_with_env(env: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
-        run_git(dir.path(), &["init", "-q", "-b", "main"], &[]);
-        // Keep commits hermetic regardless of the host's global config.
-        run_git(dir.path(), &["config", "commit.gpgsign", "false"], &[]);
-        // Disable hooks for *every* commit-producing command, not just
-        // the ones that remember `--no-verify`. `git_at` forwards a
-        // verbatim arg array (`merge --no-ff`, `commit --amend`), so it
-        // cannot inject `--no-verify` per call the way `commit_inner`
-        // does; pointing `core.hooksPath` at an empty dir inside the
-        // temp repo neutralises any hook a contributor's global
-        // `core.hooksPath` would otherwise fire (#941). The per-call
-        // `--no-verify` flags then become belt-and-suspenders.
-        let no_hooks = dir.path().join(".bca-empty-hooks");
-        std::fs::create_dir_all(&no_hooks).expect("mkdir empty hooks dir");
-        let no_hooks = no_hooks.to_str().expect("hooks path is valid UTF-8");
-        run_git(dir.path(), &["config", "core.hooksPath", no_hooks], &[]);
-        run_git(dir.path(), &["config", "gc.auto", "0"], &[]);
-        // Pin line endings so churn line-counts are identical on a
-        // contributor with `core.autocrlf=true` (the Git-for-Windows
-        // default) — the integration tests assert exact churn values.
-        run_git(dir.path(), &["config", "core.autocrlf", "false"], &[]);
+        run_git(dir.path(), &["init", "-q", "-b", "main"], env);
+        configure(dir.path());
+        Self { dir }
+    }
+
+    /// Clone this repository shallowly at `depth` into a fresh temp dir,
+    /// configured like [`init`](Self::init). The `file://` spelling forces
+    /// the non-local transport, since a bare path clone ignores
+    /// `--depth`.
+    pub fn shallow_clone(&self, depth: u32) -> Self {
+        self.shallow_clone_with_env(depth, &[])
+    }
+
+    /// [`shallow_clone`](Self::shallow_clone) with extra environment on
+    /// the `git clone` itself, so a test can hand it a hostile host
+    /// configuration and check the clone does not consult it.
+    pub fn shallow_clone_with_env(&self, depth: u32, env: &[(&str, &str)]) -> Self {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let url = format!("file://{}", self.dir.path().display());
+        let depth = depth.to_string();
+        let dest = dir.path().to_str().expect("tempdir path is valid UTF-8");
+        run_git(
+            self.dir.path(),
+            &["clone", "--quiet", "--depth", &depth, &url, dest],
+            env,
+        );
+        configure(dir.path());
         Self { dir }
     }
 
@@ -134,13 +148,49 @@ impl Repo {
     }
 }
 
+/// Pin the repository at `dir` to a hermetic configuration.
+///
+/// [`run_git`] already keeps the host's global and system files away from
+/// the fixture's own `git`; these pins are written into the repository as
+/// well, so they also hold for a `git` that does not go through it.
+fn configure(dir: &Path) {
+    run_git(dir, &["config", "commit.gpgsign", "false"], &[]);
+    // Disable hooks for *every* commit-producing command, not just
+    // the ones that remember `--no-verify`. `git_at` forwards a
+    // verbatim arg array (`merge --no-ff`, `commit --amend`), so it
+    // cannot inject `--no-verify` per call the way `commit_inner`
+    // does; pointing `core.hooksPath` at an empty dir inside the
+    // temp repo neutralises any hook a contributor's global
+    // `core.hooksPath` would otherwise fire (#941). The per-call
+    // `--no-verify` flags then become belt-and-suspenders.
+    let no_hooks = dir.join(".bca-empty-hooks");
+    std::fs::create_dir_all(&no_hooks).expect("mkdir empty hooks dir");
+    let no_hooks = no_hooks.to_str().expect("hooks path is valid UTF-8");
+    run_git(dir, &["config", "core.hooksPath", no_hooks], &[]);
+    run_git(dir, &["config", "gc.auto", "0"], &[]);
+    // Pin line endings so churn line-counts are identical on a
+    // contributor with `core.autocrlf=true` (the Git-for-Windows
+    // default) — the integration tests assert exact churn values.
+    run_git(dir, &["config", "core.autocrlf", "false"], &[]);
+}
+
 /// Run `git <args>` in `dir` with extra environment, asserting success.
+///
+/// The host's global and system configuration are switched off for every
+/// call, and after `env` so no caller can switch them back on. The
+/// per-repository pins in [`configure`] cannot cover the commands that
+/// create the repository: `git init` fires a `reference-transaction` hook
+/// and `git clone` that and `post-checkout`, both before there is a
+/// repository to pin, so a contributor's global `core.hooksPath` used to
+/// reach them. Git for Windows maps `/dev/null` to `NUL`.
 fn run_git(dir: &Path, args: &[&str], env: &[(&str, &str)]) {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(dir);
     for (k, v) in env {
         cmd.env(k, v);
     }
+    cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1");
     let status = cmd.status().expect("spawn git");
     assert!(status.success(), "git {args:?} failed");
 }

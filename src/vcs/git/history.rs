@@ -68,6 +68,27 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// [`diff_config_digest`](Self::diff_config_digest) stamps an entry with
 /// it, and the walk takes its line counts through a clone of this one
 /// platform rather than a second one it configures for itself.
+///
+/// The shallow boundary is the third input read here, for
+/// [`shallow_boundary_digest`](Self::shallow_boundary_digest), so that
+/// deepening a clone that stays shallow — which moves neither `HEAD` nor
+/// `is_shallow()` — still retires the entry walked at the old depth.
+/// Unlike the mailmap and the diff platform, it is not the only read: gix's
+/// `rev_walk` calls `shallow_commits` itself when the traversal starts, to
+/// skip the grafted parents, and accepts no shallow set from the caller. Both
+/// reads share gix's snapshot, which re-reads `.git/shallow` only when the
+/// file's modification time has moved, so they disagree only when a fetch
+/// rewrites the file between this `open` and the walk. The entry is then
+/// stamped with the earlier boundary over events walked under the later
+/// one.
+///
+/// That window is left open because, unlike the mailmap pair #1409 closed,
+/// it heals itself. git replaces `.git/shallow` through a lock file and a
+/// rename, and gix fails rather than degrading on a file it cannot parse,
+/// so neither read sees a partial boundary. The next run reads the later
+/// boundary for both, matches no entry stamped with the earlier one, and
+/// walks again. A wrong hit needs the boundary to return to its earlier
+/// value, which takes a second fetch making the clone shallower.
 pub(super) struct WalkContext<'a> {
     /// The opened repository the walk traverses.
     repo: &'a gix::Repository,
@@ -83,6 +104,9 @@ pub(super) struct WalkContext<'a> {
     /// `diff=` bindings through. Its resource cache is empty: the walk
     /// clones it and fills the clone.
     diff: gix::diff::blob::Platform,
+    /// The shallow boundary (`.git/shallow`) as gix read it when this
+    /// context was opened; `None` for a clone with full history.
+    shallow: Option<gix::shallow::Commits>,
     /// Reference time in Unix seconds: `--as-of`, else the wall clock.
     pub(super) now: i64,
 }
@@ -98,7 +122,19 @@ impl<'a> WalkContext<'a> {
     /// `HEAD`'s tree) or an attributes file cannot be read. The diff keys
     /// are not a source of failure — the repository is opened leniently,
     /// so an unparseable `diff.algorithm`, `diff.<driver>.*` or
-    /// `core.bigFileThreshold` falls back to gix's default.
+    /// `core.bigFileThreshold` falls back to gix's default. Returns
+    /// [`Error::OpenRepository`] when `.git/shallow` exists but cannot be
+    /// read or parsed.
+    ///
+    /// [`repo::open`](super::repo::open) only stats that file, so before
+    /// this read a corrupt one failed the walk but not a pure cache hit,
+    /// which replayed an entry against a boundary nobody could read. Every
+    /// path now fails alike, which is the intent: the uncached and
+    /// incremental paths walk, and gix's walk reads the same file and
+    /// fails on it. Treating the failure as "no boundary" would not keep
+    /// the hit either, since that digest matches no entry stamped while
+    /// the file was readable, so the build would miss and walk into the
+    /// same error; only skipping the read restores the old hit.
     pub(super) fn open(
         repo: &'a gix::Repository,
         options: &'a Options,
@@ -109,20 +145,60 @@ impl<'a> WalkContext<'a> {
             options,
             mailmap: repo.open_mailmap(),
             diff: repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?,
+            shallow: repo
+                .shallow_commits()
+                .map_err(|e| Error::OpenRepository(e.to_string()))?,
             now,
         })
     }
 
     /// The digests of the walk inputs the repository supplies outside
     /// [`Options`], for [`cache::fingerprint`](crate::vcs::cache::fingerprint).
-    /// Both come from the snapshot and platform this context walks with,
-    /// never from a second read.
+    /// All three come from the snapshot, platform and shallow boundary
+    /// this context was opened with, never from a second read.
     #[must_use]
     pub(super) fn input_digests(&self) -> WalkInputDigests {
         WalkInputDigests {
             mailmap: self.mailmap_digest(),
             diff_config: self.diff_config_digest(),
+            shallow_boundary: self.shallow_boundary_digest(),
         }
+    }
+
+    /// A stable 64-bit digest of the shallow boundary — the commits
+    /// listed in `.git/shallow`, whose parents the clone does not hold —
+    /// or of no boundary for a clone with full history.
+    ///
+    /// The boundary decides where the walk stops recording, so it is a
+    /// walk input like the mailmap and the diff configuration, and like
+    /// them it moves without moving `HEAD` or any field of [`Options`].
+    /// `is_compatible`'s shallow flag catches only the boundary vanishing
+    /// (`git fetch --unshallow`, issue #810): a clone deepened in place by
+    /// `--deepen`, a larger `--depth` or an earlier `--shallow-since` is
+    /// still shallow, so without this term the entry walked at the old
+    /// depth was a pure hit, and the incremental splice re-persisted its
+    /// truncated tail under each new head.
+    ///
+    /// Hashed as a sorted set of raw object-id bytes: gix sorts the list
+    /// on read, but a rewrite of the file in another order should not
+    /// cost a cold walk whether or not that stays true, and the raw bytes
+    /// keep `ObjectId`'s `Hash` impl out of a persisted digest. The walk
+    /// reads the file again, and [`WalkContext`] says why a fetch landing
+    /// between the two reads costs a cold walk rather than a stale hit.
+    #[must_use]
+    pub(super) fn shallow_boundary_digest(&self) -> u64 {
+        let mut boundary: Vec<&gix::ObjectId> = self
+            .shallow
+            .as_ref()
+            .map(|commits| commits.iter().collect())
+            .unwrap_or_default();
+        boundary.sort_unstable();
+        let mut hasher = DefaultHasher::new();
+        boundary.len().hash(&mut hasher);
+        for id in boundary {
+            hasher.write(id.as_slice());
+        }
+        hasher.finish()
     }
 
     /// The oldest commit time the walk admits: the long window's start,
