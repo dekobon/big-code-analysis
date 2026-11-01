@@ -1,5 +1,18 @@
-//! CLI integration tests for `bca vcs jit` (issue #331): the JSON shape,
-//! the `--fail-above` CI gate exit code, and the outside-a-repo error.
+//! CLI integration tests for `bca vcs commit`, the JIT commit-risk score
+//! (issue #331; renamed from `vcs jit` by #603, while this file keeps the
+//! name of the `vcs_jit` module it tests): the JSON shape, `--diff` mode,
+//! the `--fail-above` CI gate exit code, flag placement, and the usage
+//! and outside-a-repo errors.
+//!
+//! Invocations spell the canonical `commit`. The deprecated `jit` alias
+//! appears only where it is the subject under test: the tests named
+//! `jit_*`, the `jit` rows of `ref_under_commit_is_a_usage_error`, and the
+//! hidden-alias half of `commit_listed_in_help_jit_hidden`. The removal
+//! checklist is `DEPRECATED_SUBCOMMAND_ALIASES` in `src/deprecations.rs`;
+//! when its `jit` row goes, so do these. One exception:
+//! `jit_and_fail_over_aliases_still_work` is also the only test showing a
+//! `--fail-over` value reaches the gate, so switch its `jit` to `commit`
+//! rather than delete it while that flag alias remains.
 //!
 //! Each test drives the real `bca` binary against a tiny throwaway git
 //! repository built through the `git` CLI with a fixed identity, so the
@@ -57,16 +70,19 @@ fn bca(dir: &Path) -> Command {
 }
 
 #[test]
-fn jit_emits_stable_json_shape() {
+fn commit_emits_stable_json_shape() {
     let repo = one_commit_repo("initial import");
     let output = bca(repo.path())
-        .args(["vcs", "jit", "HEAD", "-O", "json"])
+        .args(["vcs", "commit", "HEAD", "-O", "json"])
         .output()
-        .expect("run bca vcs jit");
-    assert!(output.status.success(), "jit should exit 0 inside a repo");
+        .expect("run bca vcs commit");
+    assert!(
+        output.status.success(),
+        "commit should exit 0 inside a repo"
+    );
 
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
+        serde_json::from_slice(&output.stdout).expect("commit output is valid JSON");
     assert_eq!(json["jit_schema_version"], 3);
     assert_eq!(json["jit_score_version"], 1);
     assert_eq!(json["source"], "commit", "commit-mode discriminator (#642)");
@@ -282,7 +298,7 @@ diff --git a/docs/b.md b/docs/b.md
 
 #[test]
 fn diff_mode_emits_partial_report_with_unavailable_groups() {
-    // `bca vcs jit --diff <file>` (issue #580): a bare diff scores only the
+    // `bca vcs commit --diff <file>` (issue #580): a bare diff scores only the
     // size + diffusion groups, and the JSON must mark the other groups
     // UNAVAILABLE (absent), not present as zero. No repository is needed.
     let dir = tempfile::tempdir().expect("tempdir");
@@ -290,11 +306,11 @@ fn diff_mode_emits_partial_report_with_unavailable_groups() {
     std::fs::write(&diff_path, SAMPLE_DIFF).expect("write diff");
 
     let output = bca(dir.path())
-        .args(["vcs", "jit", "--diff"])
+        .args(["vcs", "commit", "--diff"])
         .arg(&diff_path)
         .args(["-O", "json"])
         .output()
-        .expect("run bca vcs jit --diff");
+        .expect("run bca vcs commit --diff");
     assert!(output.status.success(), "diff scoring should exit 0");
 
     let json: serde_json::Value =
@@ -322,7 +338,7 @@ fn diff_mode_reads_stdin_with_dash() {
     // `--diff -` reads the diff from stdin, the conventional CLI marker.
     let dir = tempfile::tempdir().expect("tempdir");
     bca(dir.path())
-        .args(["vcs", "jit", "--diff", "-", "-O", "json"])
+        .args(["vcs", "commit", "--diff", "-", "-O", "json"])
         .write_stdin(SAMPLE_DIFF)
         .assert()
         .success()
@@ -339,7 +355,7 @@ fn diff_mode_malformed_input_errors() {
     )
     .expect("write diff");
     bca(dir.path())
-        .args(["vcs", "jit", "--diff"])
+        .args(["vcs", "commit", "--diff"])
         .arg(&diff_path)
         .assert()
         .failure()
@@ -354,9 +370,9 @@ fn diff_and_commit_spec_are_mutually_exclusive() {
     std::fs::write(&diff_path, SAMPLE_DIFF).expect("write diff");
     // Supplying both a positional commit and --diff is a clap usage
     // error (exit 1 — usage errors map to the tool-error code, not the
-    // `--fail-over` gate band; #594).
+    // `--fail-above` gate band; #594).
     bca(dir.path())
-        .args(["vcs", "jit", "HEAD", "--diff"])
+        .args(["vcs", "commit", "HEAD", "--diff"])
         .arg(&diff_path)
         .assert()
         .failure()
@@ -365,51 +381,52 @@ fn diff_and_commit_spec_are_mutually_exclusive() {
 }
 
 /// A history-tuning flag (`--long-window`) is accepted in the *subcommand*
-/// position (`vcs jit --long-window …`), the natural git/cargo/rg ordering,
+/// position (`vcs commit --long-window …`), the natural git/cargo/rg ordering,
 /// and genuinely tunes the walk — the echoed `long_window_days` reflects the
 /// supplied 6mo window, not the 12mo default (issue #598).
 #[test]
-fn jit_accepts_long_window_in_subcommand_position() {
+fn commit_accepts_long_window_in_subcommand_position() {
     let repo = one_commit_repo("initial import");
     let output = bca(repo.path())
-        .args(["vcs", "jit", "--long-window", "6mo", "-O", "json"])
+        .args(["vcs", "commit", "--long-window", "6mo", "-O", "json"])
         .output()
-        .expect("run bca vcs jit");
+        .expect("run bca vcs commit");
     assert!(
         output.status.success(),
         "subcommand-position flag should parse"
     );
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
+        serde_json::from_slice(&output.stdout).expect("commit output is valid JSON");
     // 6mo resolves to 183 days; the 12mo default would echo 365 (or 366).
     assert_eq!(json["long_window_days"], 183);
 }
 
-/// The historical parent-position spelling (`vcs --long-window … jit`) keeps
-/// working and resolves to the same tuned window — `global = true` makes the
-/// flag valid in either position rather than moving it (issue #598).
+/// The historical parent-position spelling (`vcs --long-window … commit`)
+/// keeps working and resolves to the same tuned window — `global = true`
+/// makes the flag valid in either position rather than moving it (issue
+/// #598).
 #[test]
-fn jit_accepts_long_window_in_parent_position() {
+fn commit_accepts_long_window_in_parent_position() {
     let repo = one_commit_repo("initial import");
     let output = bca(repo.path())
-        .args(["vcs", "--long-window", "6mo", "jit", "-O", "json"])
+        .args(["vcs", "--long-window", "6mo", "commit", "-O", "json"])
         .output()
-        .expect("run bca vcs jit");
+        .expect("run bca vcs commit");
     assert!(
         output.status.success(),
         "parent-position flag should still parse"
     );
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
+        serde_json::from_slice(&output.stdout).expect("commit output is valid JSON");
     assert_eq!(json["long_window_days"], 183);
 }
 
-/// `--ref` is meaningless under `jit` (the commit is positional), so it is a
+/// `--ref` is meaningless under `commit` (the commit is positional), so it is a
 /// usage error (exit 1) rather than the prior silent ignore. The message
 /// names both the conflicting flag and the subcommand (issue #598). Pinned in
 /// both flag positions because `--ref` is `global = true`.
 #[test]
-fn ref_under_jit_is_a_usage_error() {
+fn ref_under_commit_is_a_usage_error() {
     let repo = one_commit_repo("initial import");
     // Exercised in both flag positions and under both the canonical
     // `commit` spelling and the deprecated `jit` alias (#603); the error
@@ -436,7 +453,7 @@ fn outside_a_repo_errors() {
     // not-a-repository path — otherwise an unrelated failure (bad arg, panic)
     // exiting 1 would pass this test.
     bca(dir.path())
-        .args(["vcs", "jit", "HEAD"])
+        .args(["vcs", "commit", "HEAD"])
         .assert()
         .failure()
         .code(1)
