@@ -57,17 +57,37 @@ pub fn owners_covered(
 /// the walk cannot be measuring error recovery by accident.
 pub fn for_each_node_with_chain<L: LanguageInfo>(
     code: &[u8],
-    mut check: impl FnMut(&Node<'_>, &[Node<'_>]),
+    check: impl FnMut(&Node<'_>, &[Node<'_>]),
 ) -> usize {
     let tree = Tree::new::<L>(code);
-    let root = tree.get_root();
     assert!(
-        !root.has_error(),
+        !tree.get_root().has_error(),
         "fixture must parse cleanly, else the walk covers error recovery"
     );
+    walk_with_chain(&tree, check)
+}
 
+/// [`for_each_node_with_chain`] for a fixture that recovers into an
+/// `ERROR` on purpose: the shapes a grammar misparses (`$h{-not}`,
+/// tree-sitter-perl's subscript recovery) can only be walked this way.
+/// Same bookkeeping, same chain; only the clean-parse assertion is
+/// dropped, so a test that reaches for this is saying its fixture
+/// cannot parse cleanly, not that it did not check.
+///
+/// # Panics
+///
+/// When `L`'s per-language Cargo feature is disabled in this build (see
+/// [`ParserTrait::new`]).
+pub fn for_each_node_with_chain_tolerating_errors<L: LanguageInfo>(
+    code: &[u8],
+    check: impl FnMut(&Node<'_>, &[Node<'_>]),
+) -> usize {
+    walk_with_chain(&Tree::new::<L>(code), check)
+}
+
+fn walk_with_chain(tree: &Tree, mut check: impl FnMut(&Node<'_>, &[Node<'_>])) -> usize {
     let mut chain: Vec<Node<'_>> = Vec::new();
-    let mut stack = vec![(root, 0_usize)];
+    let mut stack = vec![(tree.get_root(), 0_usize)];
     let mut visited = 0;
     while let Some((node, depth)) = stack.pop() {
         chain.truncate(depth);

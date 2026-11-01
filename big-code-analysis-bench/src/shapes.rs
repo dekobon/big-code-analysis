@@ -977,6 +977,30 @@ pub fn perl_bareword_keys(width: usize) -> String {
     format!("sub f {{ return g({}); }}\n", keys.join(", "))
 }
 
+/// Perl: `sub f { return g(-name => g(-name => … 1)); }` — `depth`
+/// calls, each the value of a signed bareword key in the one above.
+///
+/// The depth shape for the ABC value peel's sign test (#1603); its
+/// width twin, reaching the same call site, is [`perl_bareword_keys`].
+/// Every call's argument list is a negated-operand slot, and the peel
+/// asks of the `-` under each `unary_expression` whether it signs a
+/// key, a test that reads the `-`'s parent and the token after it. The
+/// peel holds no ancestor chain, so the parent is handed in; replace
+/// `perl_dash_signs_keyword_key_under(&op, node)` at `abc/perl.rs`'s
+/// `P::DASH` arm with `perl_dash_signs_keyword_key(&op,
+/// Ancestors::unknown())` and the test climbs `Node::parent` for both
+/// reads — `O(depth)` per key and `O(depth²)` over the shape, fitting
+/// ~2 against ~1 (2.02 at 1.15 s for 4 000 keys against 1.09 at
+/// 5.9 ms on one host, 2.14 against 1.06 on a slower one).
+#[must_use]
+pub fn perl_nested_signed_keys(depth: usize) -> String {
+    format!(
+        "sub f {{ return {}1{}; }}\n",
+        "g(-name => ".repeat(depth),
+        ")".repeat(depth)
+    )
+}
+
 /// Perl: `my @r = (/a/, /a/, …);` — one list of `width` bare matches.
 ///
 /// The width shape for the Perl ABC pattern-role check, which asks of
@@ -3234,6 +3258,34 @@ pub const PROBES: &[Probe] = &[
                     form was. The reading is the operand count, which \
                     grows with the width; the branch count would not, \
                     since the fix leaves only `g` scoring one.",
+    },
+    Probe {
+        name: "abc/perl-nested-signed-keys",
+        lang: LANG::Perl,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.branches_sum(),
+        },
+        render: perl_nested_signed_keys,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "the ABC value peel's sign test, asked of the `-` \
+                    under every `unary_expression` it steps through \
+                    (#1603); `abc/perl-bareword-keys` is the width twin \
+                    reaching the same call site. The peel keeps no \
+                    ancestor chain, so the test is handed the `-`'s \
+                    parent, which the peel holds. Perturbation: replace \
+                    `perl_dash_signs_keyword_key_under(&op, node)` at \
+                    `abc/perl.rs`'s `P::DASH` arm with \
+                    `perl_dash_signs_keyword_key(&op, \
+                    Ancestors::unknown())`, which climbs `Node::parent` \
+                    per key, `O(depth)` each; this shape then fits ~2 \
+                    against ~1 (2.02 at 1.15 s for 4 000 keys against \
+                    1.09 at 5.9 ms on one host, 2.14 against 1.06 on a \
+                    slower one). The reading is the call count, one per \
+                    level.",
     },
     Probe {
         name: "abc/perl-pattern-list",

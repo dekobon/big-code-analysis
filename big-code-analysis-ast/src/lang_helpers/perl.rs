@@ -362,24 +362,68 @@ pub(crate) fn perl_bareword_key_sign<'a>(
 /// and the keyword token. [`perl_and_is_operator`] and
 /// [`perl_not_is_key`] decide whether the keyword is a key, and a key's
 /// sign is part of the string whether or not a space separates the two.
+///
+/// The chain supplies the `-`'s parent and the token after the `-`,
+/// through the walk's sibling cache where the parent is a wide `ERROR`
+/// (#1584). A consumer that holds the parent and no chain asks
+/// [`perl_dash_signs_keyword_key_under`]; the two differ only in how
+/// they find that token, and feed one `signs_keyword_key`.
 #[must_use]
 pub fn perl_dash_signs_keyword_key<'a>(dash: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    // A sign is a prefix `-`, whose parent is the subscript's `ERROR` or
-    // a `unary_expression`. An infix `-` is a real subtraction even
-    // before an auto-quoted key (`(1 - and => 2)` subtracts the string),
-    // and is by far the commonest `-`, so it is answered first.
-    let Some(parent) = ancestors
+    ancestors
         .parent(dash)
-        .filter(|parent| parent.kind_id() != Perl::BinaryExpression as u16)
-    else {
-        return false;
-    };
-    // `$h{-not}` keeps the keyword beside the `-`; `(-not => 1)` nests
-    // it as the first child of the `-`'s operand.
-    next_non_extra(dash, ancestors).is_some_and(|next| {
-        keyword_is_key(&next, &parent)
-            || first_non_extra(&next).is_some_and(|keyword| keyword_is_key(&keyword, &next))
-    })
+        .is_some_and(|parent| signs_keyword_key(&parent, || next_non_extra(dash, ancestors)))
+}
+
+/// [`perl_dash_signs_keyword_key`] for a consumer holding the `-`'s
+/// `parent` and no ancestor chain: ABC's value peel, which descends from
+/// a slot through the wrappers it reads and keeps no chain. Both forms
+/// hand the parent and the token after the `-` to `signs_keyword_key`,
+/// so what the sign *means* is decided once. What each form *reads* is
+/// its own: nothing stops this one calling `parent.parent()`, or the
+/// chain form climbing, before the core — keeping every read inside
+/// the core is a convention, and the parity test below is what holds
+/// the two forms to the same answer on each `-` shape it spells. A
+/// test that came to need the grandparent belongs in the core, with
+/// this form widened to supply it. Before this form, a one-node
+/// [`Ancestors::known`] stood in for the ancestry the peel did not
+/// have and would have answered "no grandparent" (#1603).
+///
+/// The token is found with [`Node::children_after`], an `O(index)` seek
+/// (#1584), which is bounded here: the only caller hands a
+/// `unary_expression` of at most three children, never a wide node. A
+/// `-` under a wide `ERROR` reaches the chain form through the walk,
+/// whose sibling cache answers it.
+#[must_use]
+pub fn perl_dash_signs_keyword_key_under<'a>(dash: &Node<'a>, parent: &Node<'a>) -> bool {
+    signs_keyword_key(parent, || next_non_extra_under(dash, parent))
+}
+
+// Whether the `-` whose parent is `parent` signs a `-and` / `-not` key,
+// given `next`, the way to the token after it: the one core both
+// `perl_dash_signs_keyword_key` and `perl_dash_signs_keyword_key_under`
+// reduce to. The semantics live here; the two forms differ in how they
+// find `next`, and by convention in nothing else — a read either form
+// added before calling in would not be shared, and only the parity
+// test would notice, on the shapes it spells.
+//
+// A sign is a prefix `-`, whose parent is the subscript's `ERROR` or a
+// `unary_expression`. An infix `-` is a real subtraction even before an
+// auto-quoted key (`(1 - and => 2)` subtracts the string), and is by far
+// the commonest `-`, so it is answered first and `next` is never asked
+// for it.
+fn signs_keyword_key<'a>(parent: &Node<'a>, next: impl FnOnce() -> Option<Node<'a>>) -> bool {
+    parent.kind_id() != Perl::BinaryExpression as u16
+        && next().is_some_and(|next| keyword_key_follows_sign(&next, parent))
+}
+
+// Whether `next`, the token after a prefix `-` under `parent`, is or
+// leads an auto-quoted keyword key: `$h{-not}` keeps the keyword beside
+// the `-`; `(-not => 1)` nests it as the first child of the `-`'s
+// operand.
+fn keyword_key_follows_sign(next: &Node, parent: &Node) -> bool {
+    keyword_is_key(next, parent)
+        || first_non_extra(next).is_some_and(|keyword| keyword_is_key(&keyword, next))
 }
 
 /// Whether `key`, an `and` / `not` key token whose ancestor chain is
@@ -523,7 +567,75 @@ fn next_non_extra<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<N
         .find(|sibling| !sibling.as_tree_sitter().is_extra())
 }
 
+// `next_non_extra` for a caller holding `node`'s `parent` and no chain:
+// the same filter over `Node::children_after`, which is what the chain
+// form runs when it has no sibling cache to ask.
+fn next_non_extra_under<'a>(node: &Node<'a>, parent: &Node<'a>) -> Option<Node<'a>> {
+    parent
+        .children_after(node)
+        .find(|sibling| !sibling.as_tree_sitter().is_extra())
+}
+
 fn first_non_extra<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     node.children()
         .find(|child| !child.as_tree_sitter().is_extra())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::for_each_node_with_chain_tolerating_errors;
+
+    // The two spellings of the sign test answer alike for every `-` in
+    // the tree: the chain form, which the getter and the metrics walk
+    // ask with the walk's chain, and the parent form the ABC peel asks
+    // with the node in hand. Both reduce to `signs_keyword_key`, so the
+    // sibling derivation is what differs by design; this pins that the
+    // answers agree on each `-` shape spelled here, which is as far as
+    // a test can hold two forms that each read the tree on their own
+    // (a read added before the core on one side shows up only if it
+    // changes an answer below). A fixture that parses cleanly cannot hold the subscript
+    // shape — `$h{-not}` recovers into an `ERROR` — so the walk is the
+    // error-tolerant replica of the walker's chain, and the answer list
+    // pins that every shape is present: the two subscripts, the four
+    // fat-comma keys (two infix, which are subtractions) and the
+    // negation. The file test `-e` lexes as one token and holds no
+    // `-`, so it is in the fixture only to show it is not asked.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn parent_form_of_the_sign_test_agrees_with_the_chain_form() {
+        let source = b"my %h; my $r;\n\
+                       f($h{-not}, $r->{-and});\n\
+                       f(-and => 1, -not => 2, 1 - and => 3, $x - not => 4);\n\
+                       f(-$x, -e $f);\n";
+        let mut dashes = Vec::new();
+        for_each_node_with_chain_tolerating_errors::<crate::langs::PerlCode>(
+            source,
+            |node, chain| {
+                if node.kind_id() != Perl::DASH as u16 {
+                    return;
+                }
+                let parent = chain.last().expect("a `-` token is never the root");
+                // `checked`, not `known`: the walk's chain discipline is
+                // asserted at every `-`, so a desync fails here rather
+                // than as a wrong answer below.
+                let with_chain = perl_dash_signs_keyword_key(node, Ancestors::checked(chain, node));
+                let with_parent = perl_dash_signs_keyword_key_under(node, parent);
+                assert_eq!(
+                    with_chain,
+                    with_parent,
+                    "`-` at byte {} under a {}",
+                    node.start_byte(),
+                    parent.kind()
+                );
+                dashes.push(with_chain);
+            },
+        );
+        assert_eq!(
+            dashes,
+            [true, true, true, true, false, false, false],
+            "the fixture's `-` tokens, in source order: the subscripts and \
+             prefix keys sign, the infix pair and the negation do not"
+        );
+    }
 }

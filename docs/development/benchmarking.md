@@ -195,6 +195,7 @@ Read it as follows.
 | `loc/perl-data-pod` | Perl | width | the one-pass POD scan of the data section after `__END__` (#1608) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |
+| `abc/perl-nested-signed-keys` | Perl | depth | the ABC value peel's `-and` / `-not` sign test, handed the `-`'s parent rather than a chain to climb (#1603) | linear |
 | `halstead/kotlin-short-interpolations` | Kotlin | width | the `$name` test's previous-token lookup in one string (#1584) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |

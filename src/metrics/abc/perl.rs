@@ -14,7 +14,7 @@ use super::{
     rows_own, wrapped_operand,
 };
 use crate::lang_helpers::perl::{
-    perl_and_is_operator, perl_dash_signs_keyword_key, perl_not_is_key,
+    perl_and_is_operator, perl_dash_signs_keyword_key_under, perl_not_is_key,
 };
 use crate::roles::perl::{
     branch, call, case_arm, comparison, else_if, null_safe, short_circuit, ternary,
@@ -116,7 +116,9 @@ fn perl_unparenthesized(node: Node<'_>) -> Node<'_> {
 // has a left operand, so `perl_and_is_operator` tells the two apart.
 // FIXME(#1545 upstream): a `-and` / `-not` key nests that shape as the
 // operand of a `-` (`f(-not => !$a)`); the sign is part of the key, so
-// the peel steps through it to the key.
+// the peel steps through it to the key. The peel keeps no ancestor
+// chain, so the sign test is asked with the `-`'s parent — the node in
+// hand — rather than a one-node chain posing as its ancestry (#1603).
 //
 // No operand is read by index: a comment may sit before or after it
 // (`(# c` / `! # c`, #1455).
@@ -140,13 +142,7 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
                     P::And if !perl_and_is_operator(&op, node) => {
                         perl_last_operand(node).map(|o| (o, false))
                     }
-                    // The `-`'s parent is all the chain the test reads.
-                    P::DASH
-                        if perl_dash_signs_keyword_key(
-                            &op,
-                            Ancestors::known(std::slice::from_ref(node)),
-                        ) =>
-                    {
+                    P::DASH if perl_dash_signs_keyword_key_under(&op, node) => {
                         wrapped_operand(node).map(|o| (o, false))
                     }
                     P::BANG | P::Not => wrapped_operand(node).map(|o| (o, true)),

@@ -471,6 +471,15 @@ pub(super) fn is_operand(child: &Node) -> bool {
 // to — `(…)`, a negation, an assignment's value, a type cast — and
 // whether that wrapper itself proves the operand boolean (only a
 // negation does). `None` for anything that is not a wrapper.
+//
+// A step holds the node it is peeling and no chain: `peel` descends
+// from a slot and keeps none, which is the soundness condition
+// `rows_own` states below. Ask parent-taking helpers
+// (`perl_and_is_operator`, `perl_not_is_key`,
+// `perl_dash_signs_keyword_key_under`); never build an
+// `Ancestors::known` from the node in hand, which would pose as an
+// ancestry the step does not have and answer "no grandparent" to any
+// helper that climbed (#1603).
 pub(super) type PeelStep<'a> = fn(&Node<'a>) -> Option<(Node<'a>, bool)>;
 
 // Every wrapper `step` descends, peeled: the operand they evaluate to,
@@ -516,11 +525,11 @@ pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 /// Whether any of the named rows owns `expr`: the leading clause of
 /// every language's `scores_itself`. The rows are asked with no
 /// ancestor chain, because the peel that reaches a slot's operand
-/// descends from the slot and keeps none; that is sound only for an
-/// owner gate that reads no ancestors, which is every owner gate of
-/// the `Comparison`, `ShortCircuit`, `Ternary` and `NullSafe` rows
-/// (the `CaseArm` / `Guard` owners that read the chain are never a
-/// slot's operand).
+/// descends from the slot and keeps none (see `PeelStep`); that is
+/// sound only for an owner gate that reads no ancestors, which is
+/// every owner gate of the `Comparison`, `ShortCircuit`, `Ternary` and
+/// `NullSafe` rows (the `CaseArm` / `Guard` owners that read the chain
+/// are never a slot's operand).
 macro_rules! rows_own {
     ($expr:expr, $code:expr; $($row:ident),+ $(,)?) => {{
         let unknown = Ancestors::unknown();
@@ -14976,6 +14985,54 @@ end
             "foo.pl",
             |space| {
                 assert_members_score(&space, &[("mine", 1, 1), ("other", 1, 1), ("core", 0, 1)]);
+            },
+        );
+    }
+
+    // The value peel steps through the sign of a `-and` / `-not` key to
+    // the key and on to its value, so `f(-not => !$a)` pays the `!$a`
+    // as its quoted twin does; `f(-!$a)` is a real negation under a
+    // `-`, a value the peel stops at, so it pays nothing. The sign test
+    // is asked with the `-`'s parent — the peel holds no chain — and
+    // reads the parent and the token after the `-`; a one-node
+    // `Ancestors::known` stood in for the chain and answered "no
+    // grandparent" to anything that climbed higher (#1603). The twin
+    // rows are the oracle (testing.md, "Take the expected value from
+    // outside the fix"), and `branches` pins the call. The key itself
+    // contributes to no ABC axis once peeled — `f(!$a)` scores every
+    // row the same — so nothing here can anchor it, and the revert test
+    // (neutralise `signs_keyword_key`: this test and
+    // `perl_dash_key_scores_like_its_quoted_twin` fail) is its only
+    // coverage; the twin test anchors the key's spelling textually.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_signed_keyword_key_peels_to_its_value() {
+        check_func_space::<PerlParser, _>(
+            "sub signed_and { f(-and => !$a); }\n\
+             sub signed_not { f(-not => !$a); }\n\
+             sub quoted_and { f('-and' => !$a); }\n\
+             sub quoted_not { f('-not' => !$a); }\n\
+             sub minus_value { f(-!$a); }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("signed_and", 1, 1),
+                        ("signed_not", 1, 1),
+                        ("quoted_and", 1, 1),
+                        ("quoted_not", 1, 1),
+                        ("minus_value", 0, 1),
+                    ],
+                );
+                for member in &space.spaces {
+                    assert_eq!(
+                        member.metrics.abc.branches(),
+                        1,
+                        "{:?}: one call",
+                        member.name
+                    );
+                }
             },
         );
     }
