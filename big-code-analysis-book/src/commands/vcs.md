@@ -245,11 +245,16 @@ The cache is a pure optimization: a hit is **bit-identical** to a fresh
 walk, and the time windows are recomputed against the *current* moment
 on every run rather than frozen when the entry was written. An entry is
 ignored, and the history recomputed, whenever the schema, the
-score-formula version, the *walk-affecting* options, or the repository's
-effective `.mailmap` differ; in particular **changing a window forces a
-fresh walk**. One walk input is not covered: the git diff configuration
-(`diff.algorithm`, diff drivers) decides the recorded churn, so after
-changing it run once with `--clear-cache`. Finalization-only knobs such
+score-formula version, the *walk-affecting* options, the repository's
+effective `.mailmap`, or the git diff configuration that decides how gix
+diffs (`diff.algorithm`, `core.bigFileThreshold`, and a `diff.<driver>`
+section's `algorithm`, `binary`, and whether it sets a `textconv`; a
+driver's `command` never runs here and does not count) differ; in
+particular **changing a window forces a fresh walk**. One walk input is
+not covered: the `diff` attribute bindings (`.gitattributes`,
+`.git/info/attributes`, the global attributes file) that route a path to
+a diff driver or mark it `-diff`, so after changing those run once with
+`--clear-cache`. Finalization-only knobs such
 as `--risk-formula`, `--emit-author-details`, `--author-hash-key`, and
 `--include-deleted` are applied on replay, so they reuse the same cached
 walk; a cached walk even re-finalizes under a *different* author-hash

@@ -1493,13 +1493,13 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 78301.03199310358
+value = 78478.58535363215
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "nexits"
-value = 11.0
+value = 12.0
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
@@ -1529,13 +1529,13 @@ value = 74116.87497554444
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "halstead.effort"
-value = 50912.70156532147
+value = 50009.85179765145
 
 [[entry]]
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "nexits"
-value = 8.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
@@ -1545,7 +1545,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L316>"
+qualified = "diff_collect::<anon@L497>"
 metric = "nexits"
 value = 6.0
 
@@ -1625,7 +1625,7 @@ value = 6.0
 path = "src/vcs/git/mod.rs"
 qualified = "build"
 metric = "nexits"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/git/mod.rs"

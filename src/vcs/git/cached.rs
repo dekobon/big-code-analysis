@@ -17,24 +17,47 @@
 //! current `now` rather than freezing at cache-write time.
 //!
 //! That contract holds only while every input the walk *records* is
-//! covered by the entry key or the fingerprint. The repository `.mailmap`
-//! is such an input and is neither: author identities are canonicalised
-//! through it at walk time and stored as digests, while an edit to it
-//! moves no `HEAD` (issue #1262). [`history::WalkContext::mailmap_digest`]
-//! therefore enters [`cache::fingerprint`] here, which covers all three
-//! cache paths at once — the pure hit, `load_compatible`'s ancestor
-//! selection for the incremental splice, and the entry [`persist`] writes
-//! back. A digest can only be taken from a context's snapshot, and this
-//! build opens exactly one context and walks through it, so an entry's
-//! stamp and its events share one read of the mailmap (issue #1409).
+//! covered by the entry key or the fingerprint. Two repository-side
+//! inputs are neither, and both enter [`cache::fingerprint`] here through
+//! [`history::WalkContext::input_digests`], which covers all three cache
+//! paths at once — the pure hit, `load_compatible`'s ancestor selection
+//! for the incremental splice, and the entry [`persist`] writes back. The
+//! `.mailmap` is one: author identities are canonicalised through it at
+//! walk time and stored as digests, while an edit to it moves no `HEAD`
+//! (issue #1262). The git diff configuration is the other: `diff.algorithm`,
+//! `core.bigFileThreshold` and the `diff.<driver>` sections' `algorithm`,
+//! `binary` and `textconv` configure the
+//! blob-diff platform that produces the recorded churn, and a change to
+//! them was served stale — and spliced forward under each new head — until
+//! `--clear-cache` (issue #1425). A digest can only be taken from a
+//! context's snapshot and platform, and this build opens exactly one
+//! context and walks through it, so an entry's stamp and its events share
+//! one read of each (issue #1409).
 //!
-//! The mailmap is not the last such input. The git diff configuration the
-//! walk's diff platform reads — `diff.algorithm` and the diff drivers —
-//! decides the churn recorded per commit, and nothing fingerprints it, so
-//! changing it is served stale (and spliced forward) until
-//! `--clear-cache`. Pinning the algorithm in the walk would also make
-//! churn host-independent; folding the config into the fingerprint would
-//! only invalidate.
+//! Fingerprinting the diff configuration was chosen over pinning the
+//! algorithm in the walk. A pin would also make churn host-independent,
+//! but it covers only `diff.algorithm`: a driver's own `algorithm`,
+//! `binary`, and `core.bigFileThreshold` would still need the fingerprint,
+//! and it changes the churn recorded for every repository with a
+//! non-default algorithm — a definition change for the metric, not a
+//! cache fix. The fingerprint only invalidates, so a cached run keeps
+//! reporting what `git diff` on that host reports.
+//!
+//! Two walk inputs remain outside both the key and the fingerprint. The
+//! shallow boundary is one: a still-shallow clone deepened in place
+//! (`git fetch --deepen`, a larger `--depth`, an earlier
+//! `--shallow-since`) moves neither `HEAD` nor `is_shallow()`, so the
+//! entry walked at the old depth is a pure hit and the splice re-persists
+//! its truncated tail under each new head; only a full `--unshallow`
+//! flips the bool [`cache::HistoryCache::is_compatible`] checks (issue
+//! #810). The `diff` attribute bindings that route a path to a driver or
+//! mark it `-diff` are the other. gix resolves them for every commit from
+//! the *current* index and attribute files, so a binding change is served
+//! stale until `--clear-cache` whether or not it moves `HEAD`: a staged
+//! `.gitattributes` or `info/attributes` edit hits the exact entry, and a
+//! committed `.gitattributes` edit splices onto the tail walked under the
+//! old bindings. [`history::WalkContext::diff_config_digest`] says why
+//! they are left out.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -116,8 +139,9 @@ pub(crate) fn build_cached(
     let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
 
     // Opened before the `--no-cache` early return: the walk needs the
-    // snapshot either way; only the digest is skipped there.
-    let walk = history::WalkContext::open(&repo, options, now);
+    // snapshot and the diff platform either way; only the digests are
+    // skipped there.
+    let walk = history::WalkContext::open(&repo, options, now)?;
 
     // Caching disabled, or no cache location available: plain walk + replay.
     let Some(repo_dir) = repo_dir.filter(|_| config.enabled) else {
@@ -125,7 +149,7 @@ pub(crate) fn build_cached(
         return Ok(assemble(seed, &events, options, now, workdir, shallow));
     };
 
-    let fingerprint = cache::fingerprint(options, walk.mailmap_digest());
+    let fingerprint = cache::fingerprint(options, walk.input_digests());
     let long_boundary = walk.long_boundary();
 
     // Pure hit: an exact, compatible entry that reaches back far enough.

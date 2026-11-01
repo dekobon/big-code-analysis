@@ -9,6 +9,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use big_code_analysis::vcs::{HistoryIndex, Stats};
 use tempfile::TempDir;
 
 /// Reference "now" for every VCS fixture test. Commit timestamps are
@@ -17,6 +18,14 @@ pub const FIXED_NOW: i64 = 1_700_000_000;
 
 /// One day in seconds, for expressing commit ages.
 pub const DAY: i64 = 86_400;
+
+/// The stats `index` ranks the repo-relative file `rel` under, failing
+/// loudly — naming the file and the index size — when it is absent.
+pub fn stats_for<'a>(index: &'a HistoryIndex, rel: &str) -> &'a Stats {
+    index
+        .get(Path::new(rel))
+        .unwrap_or_else(|| panic!("expected stats for {rel}; index has {} files", index.len()))
+}
 
 /// A throwaway git repository under a `TempDir` (auto-removed on drop).
 pub struct Repo {

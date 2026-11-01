@@ -2,14 +2,18 @@ use super::*;
 use crate::vcs::options::{Options, RiskFormula};
 use std::path::PathBuf;
 
-/// A stand-in mailmap digest, deliberately not `0`, so an assertion here
-/// cannot pass because two default values coincide
+/// Stand-in digests, deliberately neither `0` nor equal to each other, so
+/// an assertion here cannot pass because two default values coincide
 /// (`.claude/rules/testing.md`). No real digest is computed in this
-/// module — `WalkContext::mailmap_digest` lives in the git backend, whose
-/// `history_tests` pin that the walk resolves identities through the
-/// snapshot the digest is taken from (#1409) and whose `vcs_cache`
+/// module — `WalkContext::mailmap_digest` and `diff_config_digest` live in
+/// the git backend, whose `history_tests` pin that the walk resolves
+/// identities through the snapshot the digest is taken from (#1409) and
+/// which diff settings the platform reads (#1425), and whose `vcs_cache`
 /// integration tests cover invalidation.
-const SAMPLE_MAILMAP_DIGEST: u64 = 0xfeed_face_dead_beef;
+const SAMPLE_INPUTS: WalkInputDigests = WalkInputDigests {
+    mailmap: 0xfeed_face_dead_beef,
+    diff_config: 0x0ddb_a11c_0ffe_e000,
+};
 
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
     CommitEvent {
@@ -69,8 +73,8 @@ fn fingerprint_ignores_finalization_only_knobs() {
     ];
     for case in cases {
         assert_eq!(
-            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
-            fingerprint(&case, SAMPLE_MAILMAP_DIGEST)
+            fingerprint(&base, SAMPLE_INPUTS),
+            fingerprint(&case, SAMPLE_INPUTS)
         );
     }
 }
@@ -84,10 +88,14 @@ fn fingerprint_changes_with_the_mailmap_digest() {
     // replayed — and re-persisted by the incremental splice — under a
     // mailmap it was not walked with (issue #1262).
     let options = Options::default();
-    let base = fingerprint(&options, SAMPLE_MAILMAP_DIGEST);
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let edited = WalkInputDigests {
+        mailmap: SAMPLE_INPUTS.mailmap ^ 1,
+        ..SAMPLE_INPUTS
+    };
     assert_ne!(
         base,
-        fingerprint(&options, SAMPLE_MAILMAP_DIGEST ^ 1),
+        fingerprint(&options, edited),
         "a mailmap change must change the fingerprint"
     );
     // Both operands differ from `0` and from each other, so the inequality
@@ -99,6 +107,41 @@ fn fingerprint_changes_with_the_mailmap_digest() {
     // actually depends on is cross-*process*, which this test cannot
     // observe; `vcs_cache_dir_persists_and_replays_identically` in the CLI
     // suite covers it by priming and reading in two separate processes.
+}
+
+#[test]
+fn fingerprint_changes_with_the_diff_config_digest() {
+    // The diff configuration is the other walk input outside `Options`:
+    // the blob-diff platform built from it decides the churn recorded per
+    // commit, and a `git config` edit moves neither `HEAD` nor any option.
+    // Without this term the old churn was replayed — and spliced forward
+    // under each new head — until `--clear-cache` (issue #1425).
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let edited = WalkInputDigests {
+        diff_config: SAMPLE_INPUTS.diff_config ^ 1,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, edited),
+        "a diff configuration change must change the fingerprint"
+    );
+    // The two digests enter the hash as two fields, not folded into one
+    // symmetric value (`mailmap ^ diff_config` would pass the two
+    // assertions above). A transposition at the one site that builds the
+    // pair is a different matter: it is unobservable, since either term
+    // still invalidates, so the named fields are the defence there, not
+    // this test.
+    let swapped = WalkInputDigests {
+        mailmap: SAMPLE_INPUTS.diff_config,
+        diff_config: SAMPLE_INPUTS.mailmap,
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, swapped),
+        "the mailmap and diff-config terms are not interchangeable"
+    );
 }
 
 #[test]
@@ -140,8 +183,8 @@ fn fingerprint_changes_with_walk_affecting_knobs() {
     ];
     for case in cases {
         assert_ne!(
-            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
-            fingerprint(&case, SAMPLE_MAILMAP_DIGEST),
+            fingerprint(&base, SAMPLE_INPUTS),
+            fingerprint(&case, SAMPLE_INPUTS),
             "a walk-affecting option must change the fingerprint"
         );
     }

@@ -47,7 +47,7 @@ fn current_unix_seconds_is_a_recent_wall_clock() {
 /// file is `.rs` so the default `metrics` file-type scope keeps it: an
 /// out-of-scope file is skipped before its blob is read, and a `.txt`
 /// here let the enumeration test pass on the walk's failure instead.
-fn tree_with(repo: &gix::Repository, blob: gix::ObjectId) -> gix::ObjectId {
+pub(super) fn tree_with(repo: &gix::Repository, blob: gix::ObjectId) -> gix::ObjectId {
     let tree = gix::objs::Tree {
         entries: vec![gix::objs::tree::Entry {
             mode: gix::objs::tree::EntryKind::Blob.into(),
@@ -58,16 +58,37 @@ fn tree_with(repo: &gix::Repository, blob: gix::ObjectId) -> gix::ObjectId {
     repo.write_object(&tree).expect("write tree").detach()
 }
 
-/// Commit `tree` onto `HEAD` a day before now, inside every default window.
-fn commit_tree(repo: &gix::Repository, tree: gix::ObjectId, parents: &[gix::ObjectId]) {
-    let time = format!("{} +0000", current_unix_seconds() - 86_400);
+/// Commit `tree` onto `HEAD` as `name <email>` at `time` (Unix seconds),
+/// returning the commit id. The one place a test module builds a gix
+/// signature and commit; `history::tests` and `blame::tests` reach it
+/// too.
+pub(super) fn commit_tree_as(
+    repo: &gix::Repository,
+    (name, email): (&str, &str),
+    time: i64,
+    tree: gix::ObjectId,
+    parents: &[gix::ObjectId],
+) -> gix::ObjectId {
+    let time = format!("{time} +0000");
     let who = gix::actor::SignatureRef {
-        name: "Ada".into(),
-        email: "ada@example.com".into(),
+        name: name.into(),
+        email: email.into(),
         time: time.as_str(),
     };
     repo.commit_as(who, who, "HEAD", "c", tree, parents.iter().copied())
-        .expect("write commit");
+        .expect("write commit")
+        .detach()
+}
+
+/// Commit `tree` onto `HEAD` a day before now, inside every default window.
+fn commit_tree(repo: &gix::Repository, tree: gix::ObjectId, parents: &[gix::ObjectId]) {
+    commit_tree_as(
+        repo,
+        ("Ada", "ada@example.com"),
+        current_unix_seconds() - 86_400,
+        tree,
+        parents,
+    );
 }
 
 /// An id no fixture writes, so a tree naming it dangles.

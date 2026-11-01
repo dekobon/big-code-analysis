@@ -18,13 +18,14 @@ use std::ops::ControlFlow;
 use std::path::PathBuf;
 
 use gix::diff::Rewrites;
+use gix::diff::blob::Algorithm;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 
 use super::identity::ParticipantResolver;
 use super::repo::bstr_to_path;
 use super::{diff_err, diff_visitor, walk_err};
-use crate::vcs::cache::CommitEvent;
+use crate::vcs::cache::{CommitEvent, WalkInputDigests};
 use crate::vcs::classify::{self, Classification};
 use crate::vcs::error::Error;
 use crate::vcs::identity::{AuthorId, BotFilter};
@@ -56,10 +57,17 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// over events resolved under that same partial map — which the next clean
 /// read fails to match and overwrites.
 ///
-/// The fix does not retire an entry a release before #1409 mis-stamped:
-/// its stamp equals the digest the fixed code computes for the same
-/// mailmap, so it is served until its events leave the long window or
-/// `--clear-cache` runs.
+/// The fix alone would not retire an entry a release before #1409
+/// mis-stamped: its stamp equals the digest the fixed code computes for
+/// the same mailmap. The diff-configuration term #1425 added to the
+/// fingerprint in the same release does retire it, as it does every entry
+/// stamped before it; see `cache::fingerprint`.
+///
+/// The diff platform is held here for the same reason (issue #1425): the
+/// configuration it was built from decides the churn the walk records, so
+/// [`diff_config_digest`](Self::diff_config_digest) stamps an entry with
+/// it, and the walk takes its line counts through a clone of this one
+/// platform rather than a second one it configures for itself.
 pub(super) struct WalkContext<'a> {
     /// The opened repository the walk traverses.
     repo: &'a gix::Repository,
@@ -69,18 +77,51 @@ pub(super) struct WalkContext<'a> {
     /// [`gix::Repository::open_mailmap`] merged it when this context was
     /// opened.
     mailmap: gix::mailmap::Snapshot,
+    /// The blob-diff platform gix configured from the repository's diff
+    /// settings — `diff.algorithm`, the `diff.<driver>.*` sections,
+    /// `core.bigFileThreshold` — and the attribute stack it resolves
+    /// `diff=` bindings through. Its resource cache is empty: the walk
+    /// clones it and fills the clone.
+    diff: gix::diff::blob::Platform,
     /// Reference time in Unix seconds: `--as-of`, else the wall clock.
     pub(super) now: i64,
 }
 
 impl<'a> WalkContext<'a> {
-    /// Open the inputs for one build, reading the mailmap exactly once.
-    pub(super) fn open(repo: &'a gix::Repository, options: &'a Options, now: i64) -> Self {
-        Self {
+    /// Open the inputs for one build, reading the mailmap and the diff
+    /// configuration exactly once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Diff`] when gix cannot build the diff platform:
+    /// the index cannot be loaded (or, in a bare repository, built from
+    /// `HEAD`'s tree) or an attributes file cannot be read. The diff keys
+    /// are not a source of failure — the repository is opened leniently,
+    /// so an unparseable `diff.algorithm`, `diff.<driver>.*` or
+    /// `core.bigFileThreshold` falls back to gix's default.
+    pub(super) fn open(
+        repo: &'a gix::Repository,
+        options: &'a Options,
+        now: i64,
+    ) -> Result<Self, Error> {
+        Ok(Self {
             repo,
             options,
             mailmap: repo.open_mailmap(),
+            diff: repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?,
             now,
+        })
+    }
+
+    /// The digests of the walk inputs the repository supplies outside
+    /// [`Options`], for [`cache::fingerprint`](crate::vcs::cache::fingerprint).
+    /// Both come from the snapshot and platform this context walks with,
+    /// never from a second read.
+    #[must_use]
+    pub(super) fn input_digests(&self) -> WalkInputDigests {
+        WalkInputDigests {
+            mailmap: self.mailmap_digest(),
+            diff_config: self.diff_config_digest(),
         }
     }
 
@@ -133,6 +174,137 @@ impl<'a> WalkContext<'a> {
         self.mailmap.entries().hash(&mut hasher);
         hasher.finish()
     }
+
+    /// A stable 64-bit digest of the diff configuration this context's
+    /// platform diffs under: the resolved `diff.algorithm`, each
+    /// `diff.<driver>` section's `algorithm`, `binary` and `textconv`
+    /// presence, and `core.bigFileThreshold`.
+    ///
+    /// The platform decides the line counts the walk records — which
+    /// algorithm produces the edit script, and whether a blob is diffed
+    /// at all — so a change to any of these rewrites the churn of every
+    /// cached commit while moving neither `HEAD` nor any field of
+    /// [`Options`] (issue #1425, the class #1262 fixed for the mailmap).
+    /// The values are read off the platform gix built from the
+    /// repository, so git's precedence rules — repository over global
+    /// over system config, environment overrides — stay gix's, not a
+    /// list re-derived here.
+    ///
+    /// # What is projected, and what is left out
+    ///
+    /// gix's `Algorithm` and `Driver` derive no `Hash`, so the fields are
+    /// projected by hand against what `Platform::prepare_diff` and the
+    /// `Mode::ToGit` conversion consult:
+    ///
+    /// - `diff.<driver>.command` is skipped: the platform is built with
+    ///   `skip_internal_diff_if_external_is_configured = false`, so the
+    ///   internal diff runs whether or not an external one is configured.
+    /// - `diff.<driver>.binary` and `diff.<driver>.textconv` are hashed as
+    ///   the raw pair: `binary` as written ([`binary_tag`]) and the
+    ///   textconv by presence. Under `Mode::ToGit` a textconv never runs,
+    ///   but its presence makes the driver's paths text whatever `binary`
+    ///   says and, with `binary` unset, turns off the NUL-byte sniffing,
+    ///   so today `binary = true` and `binary = false` under a textconv
+    ///   are one behaviour and the raw pair cold-walks on an edit between
+    ///   them that the platform cannot observe. That fold is gix-diff's
+    ///   private reading of the two fields and the dependency is
+    ///   caret-ranged: re-deriving it here would turn a change to it into
+    ///   a stale hit, the class this digest exists to prevent, while the
+    ///   raw pair can only over-invalidate, which costs one cold walk —
+    ///   the same reason [`mailmap_digest`](Self::mailmap_digest) hashes
+    ///   gix's merged snapshot rather than a source list of its own.
+    /// - A section that sets none of `algorithm`, `binary` and `textconv`
+    ///   is skipped: it behaves exactly as no driver would, so a `command`-
+    ///   or `xfuncname`-only section in a user's global config must not
+    ///   cold-walk every repository.
+    /// - The `fs` capabilities are skipped: they govern worktree reads,
+    ///   and the tree-diff platform has no worktree roots.
+    ///
+    /// Each gix struct is destructured exhaustively, so a field a gix bump
+    /// adds to a driver or to either options struct fails to compile here
+    /// rather than silently staying outside the digest.
+    ///
+    /// `drivers()` is sorted by name, so section order in the config
+    /// cannot move the digest.
+    ///
+    /// Not covered are the `diff` *attribute* bindings that route a path
+    /// to a driver or mark it `-diff`. gix resolves them per path from the
+    /// attribute files it reads — the index's `.gitattributes` blobs,
+    /// `$GIT_DIR/info/attributes`, the global and system files — inside an
+    /// attribute stack that keeps those sources private; covering them
+    /// would mean re-deriving that source list — the coverage claim #1262
+    /// avoided — or resolving every path before the cache lookup. Neither
+    /// is done: a binding change, committed or not, is served stale until
+    /// `--clear-cache`, as the `git::cached` module docs record.
+    #[must_use]
+    pub(super) fn diff_config_digest(&self) -> u64 {
+        // Exhaustive destructures, for the reason `algorithm_tag` matches
+        // exhaustively: a field a gix bump adds fails here rather than
+        // staying out of a persisted digest. The ignored fields are the
+        // ones the list above leaves out.
+        let gix::diff::blob::platform::Options {
+            algorithm: platform_algorithm,
+            skip_internal_diff_if_external_is_configured: _,
+        } = self.diff.options;
+        let gix::diff::blob::pipeline::Options {
+            large_file_threshold_bytes,
+            fs: _,
+        } = self.diff.filter.options;
+        let mut hasher = DefaultHasher::new();
+        algorithm_tag(platform_algorithm).hash(&mut hasher);
+        large_file_threshold_bytes.hash(&mut hasher);
+        for driver in self.diff.filter.drivers() {
+            let gix::diff::blob::Driver {
+                name,
+                command: _,
+                algorithm,
+                binary_to_text_command,
+                is_binary,
+            } = driver;
+            let has_textconv = binary_to_text_command.is_some();
+            if algorithm.is_none() && is_binary.is_none() && !has_textconv {
+                continue;
+            }
+            name.hash(&mut hasher);
+            algorithm_tag(*algorithm).hash(&mut hasher);
+            binary_tag(*is_binary).hash(&mut hasher);
+            has_textconv.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+}
+
+/// Project an optional diff algorithm onto a small integer for the
+/// digest, since gix's `Algorithm` derives no `Hash`. `None` is a driver
+/// inheriting the platform's algorithm, which is hashed on its own, so it
+/// stays distinct from every explicit choice. Exhaustive, so a variant a
+/// gix bump adds fails here rather than hashing as an existing one. A
+/// fixed tag rather than `mem::discriminant`, whose hash is not promised
+/// stable across toolchains: the fingerprint this feeds is persisted.
+fn algorithm_tag(algorithm: Option<Algorithm>) -> u8 {
+    match algorithm {
+        None => 0,
+        Some(Algorithm::Histogram) => 1,
+        Some(Algorithm::Myers) => 2,
+        Some(Algorithm::MyersMinimal) => 3,
+    }
+}
+
+/// Project a driver's `binary` setting, as written, onto a small integer
+/// for the digest. `None` is a driver that leaves blob detection to the
+/// big-file threshold and the NUL sniff, `true` one whose paths are never
+/// diffed, `false` one whose paths are always text. A fixed tag rather
+/// than the derived `Hash` of an `Option<bool>`, for the reason
+/// [`algorithm_tag`] gives. Deliberately not folded with the textconv the
+/// way gix reads the pair; [`diff_config_digest`] says why.
+///
+/// [`diff_config_digest`]: WalkContext::diff_config_digest
+fn binary_tag(is_binary: Option<bool>) -> u8 {
+    match is_binary {
+        None => 0,
+        Some(true) => 1,
+        Some(false) => 2,
+    }
 }
 
 /// Walk history from `tip`, emitting one [`CommitEvent`] per in-window,
@@ -166,7 +338,16 @@ pub(crate) fn collect_events(
     let resolver = ParticipantResolver::new(&walk.mailmap, bots.as_ref());
 
     let rewrites = options.follow_renames.then(Rewrites::default);
-    let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
+    // Take line counts through the context's platform so the churn
+    // recorded here was produced under the configuration
+    // `diff_config_digest` stamps the entry with. The walk fills and
+    // clears a resource cache per commit, so it takes a clone — the
+    // drivers, the attribute stack and an empty cache, once per build —
+    // rather than a mutable borrow of the context. (`for_each_to_obtain_tree`
+    // builds a second platform per commit, whether or not rename tracking
+    // uses it, from the same configuration, so the digest covers it too;
+    // retiring that rebuild is #1761.)
+    let mut cache = walk.diff.clone();
 
     let mut events = Vec::new();
 
