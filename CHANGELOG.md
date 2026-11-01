@@ -785,6 +785,14 @@ for historical reference.
   classes no longer re-count nested complexity, so their scores drop;
   the file-level score is unchanged (#1624).
 
+- Python bindings on Windows: an I/O failure now raises the `OSError`
+  subclass its Win32 code means. The code was passed to CPython as an
+  `errno`, so a path under a missing directory (`ERROR_PATH_NOT_FOUND`,
+  3) raised `ProcessLookupError` instead of `FileNotFoundError`, and a
+  directory (`ERROR_ACCESS_DENIED`, 5) raised a bare `OSError`. It now
+  travels as `winerror`, which CPython maps to the matching errno, and
+  `err.winerror` carries the Win32 code. Unix is unchanged (#1768).
+
 ## [2.4.0] - 2026-10-21
 
 ### Added

@@ -352,11 +352,12 @@ def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
     path that is a directory, so the OS error surfaces as a hard
     exception. On ext4 and APFS the read itself fails with ``EISDIR``.
 
-    The exact ``OSError`` subclass is errno-derived and therefore
-    platform-specific: Linux/macOS yield ``IsADirectoryError`` (``EISDIR``)
-    while Windows surfaces a bare ``OSError`` (``[Errno 5]`` for a
-    directory read). Assert the common ``OSError`` base — every subclass
-    satisfies the contract that a directory must not be silently skipped.
+    The exact ``OSError`` subclass is platform-specific: Linux/macOS yield
+    ``IsADirectoryError`` (``EISDIR``) while Windows reports
+    ``ERROR_ACCESS_DENIED`` for a directory read, which CPython maps to
+    ``PermissionError``. Assert the common ``OSError`` base — every
+    subclass satisfies the contract that a directory must not be silently
+    skipped.
 
     Test-via-revert (Windows, or a btrfs / ZFS ``tmp_path``): deleting the
     ``if path.is_dir()`` guard in ``analysis::skip_unless_directory``
@@ -651,9 +652,35 @@ def test_analyze_raises_filenotfounderror_with_errno_and_filename(
     assert err.filename == str(missing)
     # #617 — CPython renders `[Errno N]` from the errno argument, so the
     # strerror must not also carry Rust's ` (os error N)` suffix; the
-    # errno fact appears exactly once in the rendered message.
+    # errno fact appears exactly once in the rendered message. On Windows
+    # the code arrives as `winerror`, which CPython renders instead.
     assert "os error" not in str(err)
-    assert "[Errno" in str(err)
+    assert ("[WinError" if sys.platform == "win32" else "[Errno") in str(err)
+
+
+def test_analyze_missing_parent_directory_raises_filenotfounderror(
+    tmp_path: Path,
+) -> None:
+    """A path under a missing directory must also be a FileNotFoundError.
+
+    On Windows this is ``ERROR_PATH_NOT_FOUND`` (3), not the
+    ``ERROR_FILE_NOT_FOUND`` (2) a missing file gives. Passed to CPython
+    as an ``errno``, 3 is ``ESRCH`` and raises ``ProcessLookupError``, so
+    ``except FileNotFoundError`` missed it; passed as ``winerror`` CPython
+    maps it to ``ENOENT``. A missing file cannot catch that bug, because
+    Win32 code 2 and ``ENOENT`` happen to share a number. On POSIX the
+    case is plain ``ENOENT`` either way.
+    """
+    import errno as _errno
+
+    missing = tmp_path / "no_such_dir" / "file.rs"
+    with pytest.raises(FileNotFoundError) as exc_info:
+        bca.analyze(missing)
+    err = exc_info.value
+    assert err.errno == _errno.ENOENT
+    assert err.filename == str(missing)
+    if sys.platform == "win32":
+        assert getattr(err, "winerror", None) == 3
 
 
 @pytest.mark.skipif(
