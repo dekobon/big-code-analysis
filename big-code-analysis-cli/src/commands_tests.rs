@@ -8,7 +8,6 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::diff::{DiffScope, DiffSource};
-use crate::threshold_soft::scale_threshold;
 use crate::thresholds::test_threshold;
 
 fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
@@ -1217,231 +1216,36 @@ fn effective_config_reflects_resolved_threshold_set() {
     assert!(effective.check.exclude_tests);
 }
 
-// --- Headroom scaling (#373) ---
+// --- Soft-tier scaling (#373, #1648) ---
 
-/// [`scale_threshold`] for the limit `limit` of `metric`, unwrapped: the
-/// ratio is always valid here.
-fn scaled(metric: &str, limit: f64, ratio: f64) -> f64 {
-    scale_threshold(&test_threshold(metric, limit), ratio).expect("valid ratio")
+/// Every ratio entry point resolves through the catalog's
+/// `Threshold::soft_limit_rounded`; the CLI adds only the lookup by
+/// canonical name. The canonical #373 case pins the seam end to end
+/// (`7 * 0.95` is `6.6499999999999995`, read back as `6.65`), and the
+/// `mi.*` floor pins that the lookup hands the catalog the metric, not
+/// just the number.
+#[test]
+#[allow(clippy::float_cmp)] // The exact rounded limits are the contract.
+fn scale_named_limit_resolves_through_the_catalog() {
+    assert_eq!(scale_named_limit("nargs", 7.0, 0.95), Ok(6.65));
+    assert_eq!(scale_named_limit("mi.original", 20.0, 0.9), Ok(21.71));
 }
 
-/// `scale_threshold` must trim the float-multiplication artifact so the
-/// emitted limit is the same readable value the Python helper produced
-/// (`{:.6g}`). The canonical case is `nargs = 7`: `7 * 0.95` is
-/// `6.6499999999999995` in IEEE-754, which must round to exactly `6.65`.
+/// A name the catalog does not know is returned unscaled rather than
+/// rejected here: `ThresholdSet::build_tiered` owns that error and its
+/// did-you-mean list.
 #[test]
-#[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
-fn scale_threshold_trims_float_artifact_to_six_sig_figs() {
-    assert_eq!(scaled("nargs", 7.0, 0.95), 6.65);
+#[allow(clippy::float_cmp)] // The unscaled limit must pass through bit-exact.
+fn scale_named_limit_passes_an_unknown_metric_through_unscaled() {
+    assert_eq!(scale_named_limit("not.a.metric", 7.0, 0.95), Ok(7.0));
 }
 
-/// The direction of the scaling is the whole of #1166, so pin both
-/// arithmetics in one test: a higher-is-worse limit is a ceiling and
-/// must come *down*; a lower-is-worse `mi.*` limit is a floor and must
-/// go *up*. Asserted together so a future "simplify" cannot invert both
-/// and stay green — which is exactly what a single-direction test would
-/// have allowed.
+/// An invalid ratio is the catalog's `BadRatio`, rendered as a string.
 #[test]
-#[allow(clippy::float_cmp)] // The exact resolved limits are the contract.
-fn scale_threshold_raises_a_floor_and_lowers_a_ceiling() {
-    // Ceiling: 15 * 0.9. Exact in decimal, and the float product is
-    // exact too, so this is a bit-exact expectation.
-    assert_eq!(scaled("cyclomatic", 15.0, 0.9), 13.5);
-    // Floor: 20 + 0.1 × 17.1 (one Visual Studio band on the 171-point
-    // scale), above the hard floor it derives from (#1621).
-    assert_eq!(scaled("mi.original", 20.0, 0.9), 21.71);
-    // The bug this pins: the floor must never land at or below its own
-    // hard limit, which `20 * 0.9 == 18` did.
-    assert!(scaled("mi.original", 20.0, 0.9) > 20.0);
-}
-
-/// An `mi.*` floor moves by `(1 - ratio)` of the metric's unit, not by
-/// a factor (#1621): one Visual Studio band is 17.1 points of
-/// `mi.original` / `mi.sei` and 10 of `mi.visual_studio`. Dividing a
-/// negative floor would *loosen* it — `-50 / 0.95` is `-52.63`, below
-/// the hard floor — so the negative case is the one this pins.
-#[test]
-#[allow(clippy::float_cmp)] // The exact resolved limits are the contract.
-fn scale_threshold_shifts_an_interval_floor_by_its_unit() {
-    assert_eq!(scaled("mi.original", 20.0, 0.95), 20.855);
-    assert_eq!(scaled("mi.sei", 20.0, 0.95), 20.855);
-    assert_eq!(scaled("mi.visual_studio", 20.0, 0.95), 20.5);
-    let negative = scaled("mi.original", -50.0, 0.95);
-    assert_eq!(negative, -49.145);
-    assert!(
-        negative > -50.0,
-        "a soft floor must be stricter: {negative}"
-    );
-    // Clamped at the domain's top: a floor of 99.8 cannot rise past 100.
-    assert_eq!(scaled("mi.visual_studio", 99.8, 0.95), 100.0);
-}
-
-/// The floor's last significant figure rounds **up**, never down: a
-/// floor rounded down is a band that fires marginally late. Pins the
-/// direction with a value whose 6-sig-fig nearest-rounding would go the
-/// other way: `20 + 0.0001 × 17.1` is `20.00171`, which is `20.0017` to
-/// nearest and `20.0018` up.
-#[test]
-#[allow(clippy::float_cmp)] // The rounding direction is the contract.
-fn scale_threshold_floor_rounds_up_not_to_nearest() {
-    let resolved = scaled("mi.original", 20.0, 0.9999);
-    assert_eq!(resolved, 20.0018);
-    assert!(
-        resolved >= 20.0 + 0.0001 * 17.1,
-        "a floor must not resolve below the exact value; got {resolved}"
-    );
-    // A value that *is* on the grid but carries float residue snaps to
-    // it rather than being promoted a tick: `0.07 × 17.1 = 1.197`.
-    assert_eq!(scaled("mi.original", 20.0, 0.93), 21.197);
-}
-
-/// The additive step's float residue is a larger share of a floor near
-/// zero than of the operands it came from, and larger still when the
-/// step cancels against a floor of the other sign: `-1 + 0.855` is
-/// `-0.14499999999999957`, which a snap measured on the *result* read as
-/// a genuine remainder and promoted to `-0.144999` (#1621 review). The
-/// snap is measured on the operands, so every realistic floor and ratio
-/// resolves to the decimal a reader expects.
-#[test]
-#[allow(clippy::float_cmp)] // The exact rounded output is the contract.
-fn scale_threshold_floor_snaps_to_the_decimal_near_zero() {
-    for (limit, ratio, expected) in [
-        (0.0, 0.95, 0.855),
-        (-1.0, 0.95, -0.145),
-        (1.0, 0.95, 1.855),
-        (-0.5, 0.95, 0.355),
-        (0.0, 0.9, 1.71),
-        (-1.0, 0.9, 0.71),
-        (0.0, 0.99, 0.171),
-        (-1.0, 0.99, -0.829),
-        (20.0, 0.95, 20.855),
-        (-50.0, 0.95, -49.145),
-        (-20.0, 0.95, -19.145),
-        // The unit term of the snap's operand: without it this floor
-        // resolves to -1.44699 (its residue read on its own scale).
-        (-1.96, 0.97, -1.447),
-        // A step that cancels the floor exactly is zero, not the ±1e-16
-        // residue the sum carries.
-        (-0.855, 0.95, 0.0),
-        (-1.71, 0.9, 0.0),
-        (-0.171, 0.99, 0.0),
-    ] {
-        assert_eq!(
-            scaled("mi.original", limit, ratio),
-            expected,
-            "mi.original = {limit} at {ratio}"
-        );
-    }
-    for (limit, ratio, expected) in [
-        (0.0, 0.95, 0.5),
-        (0.0, 0.9, 1.0),
-        (20.0, 0.95, 20.5),
-        (-0.3, 0.97, 0.0),
-    ] {
-        assert_eq!(
-            scaled("mi.visual_studio", limit, ratio),
-            expected,
-            "mi.visual_studio = {limit} at {ratio}"
-        );
-    }
-}
-
-/// Rounding never crosses the hard limit. A floor far smaller than its
-/// unit carries a genuine remainder inside the snap tolerance; unclamped,
-/// it lands on the wrong side of the hard limit and `build_tiered`
-/// rejects a valid configuration as looser-than-hard. The `ratio == 1`
-/// rows never reach the rounding (`scale_threshold_ratio_one_is_identity`).
-#[test]
-#[allow(clippy::float_cmp)] // The exact clamped output is the contract.
-fn scale_threshold_never_crosses_the_hard_limit() {
-    let tiny_floor = 0.000_010_000_000_01;
-    assert!(scaled("mi.original", tiny_floor, 0.999_999_999_999_999_9) >= tiny_floor);
-    assert!(scaled("mi.original", 2.821_610_071_901_938e-7, 1.0) >= 2.821_610_071_901_938e-7);
-    for (metric, ceiling) in [("halstead.effort", 123_456.7), ("cyclomatic", 6.666_666_6)] {
-        assert_eq!(
-            scaled(metric, ceiling, 1.0),
-            ceiling,
-            "{metric} at 1.0 is the identity"
-        );
-    }
-}
-
-/// Exact products must pass through untouched: `50_000 * 0.95` is
-/// representable as `47_500.0`, so rounding must not perturb it. Pins
-/// that the 6-sig-fig rounding preserves full precision for the
-/// largest threshold in `bca.toml` (`halstead.effort`).
-#[test]
-#[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
-fn scale_threshold_preserves_large_exact_products() {
-    assert_eq!(scaled("halstead.effort", 50_000.0, 0.95), 47_500.0);
-}
-
-/// `ratio == 1.0` is the documented no-op: every limit must survive
-/// scaling byte-for-byte so `--headroom 1.0` is a true parity run with
-/// the hard gate.
-#[test]
-#[allow(clippy::float_cmp)] // ratio == 1.0 must be a bit-exact identity.
-fn scale_threshold_ratio_one_is_identity() {
-    // `8.3` is the case a grid-exact list cannot see: its double sits a
-    // hair above the decimal, so `8.3 * 1e5` is `830000.0000000001` and
-    // a bare `ceil` in the floor direction promotes it to `8.30001` —
-    // a soft floor strictly *above* the hard one on a run documented as
-    // parity. Every other limit here is already on the sig-fig grid, so
-    // it passes whether or not the snap exists.
-    for &limit in &[0.0, 7.0, 8.3, 15.0, 300.0, 50_000.0] {
-        for metric in ["cyclomatic", "mi.original"] {
-            assert_eq!(
-                scaled(metric, limit, 1.0),
-                limit,
-                "limit {limit} metric {metric}",
-            );
-        }
-    }
-    assert_eq!(scaled("mi.original", -50.0, 1.0), -50.0);
-    // More figures than the six-figure grid holds, each rounding toward
-    // the strict side — a ceiling down, a floor up — where the hard-side
-    // clamp cannot restore it: only skipping the rounding keeps these.
-    for (metric, limit) in [
-        ("halstead.effort", 1_234_564.0),
-        ("halstead.effort", 22_476.924),
-        ("cyclomatic", 5_366.234),
-        ("mi.original", 92.669_605),
-        ("mi.original", -14.774_235_32),
-    ] {
-        assert_eq!(
-            scaled(metric, limit, 1.0),
-            limit,
-            "limit {limit} metric {metric}"
-        );
-    }
-}
-
-/// A configured limit of `0` ("no value permitted") must stay `0`
-/// after scaling — `log10(0)` is `-inf`, so the degenerate input has
-/// to be short-circuited rather than fed through the magnitude maths.
-#[test]
-#[allow(clippy::float_cmp)] // A zero limit must stay bit-exact zero.
-fn scale_threshold_zero_limit_stays_zero() {
-    assert_eq!(scaled("cyclomatic", 0.0, 0.5), 0.0);
-}
-
-/// A subnormal-range limit must not poison the result with `NaN`: the
-/// sig-fig `factor` overflows to infinity for such inputs, so the
-/// function returns the scaled value unrounded. No real threshold is
-/// this small, but `scale_threshold` must stay total — a `NaN` would
-/// later be rejected by `ThresholdSet::build` with a confusing error.
-#[test]
-fn scale_threshold_subnormal_limit_stays_finite() {
-    let scaled = scaled("cyclomatic", 1e-320, 0.5);
-    assert!(scaled.is_finite(), "expected finite, got {scaled}");
-}
-
-/// An invalid ratio is the layer's `BadRatio`, never a silent scale.
-#[test]
-fn scale_threshold_rejects_a_ratio_outside_the_band() {
-    let err = scale_threshold(&test_threshold("cyclomatic", 10.0), 1.5)
-        .expect_err("a ratio above 1 loosens the tier");
-    assert!(err.to_string().contains("(0, 1]"), "{err}");
+fn scale_named_limit_rejects_a_ratio_outside_the_band() {
+    let err =
+        scale_named_limit("cyclomatic", 10.0, 1.5).expect_err("a ratio above 1 loosens the tier");
+    assert!(err.contains("(0, 1]"), "{err}");
 }
 
 /// Minimal `CheckArgs` carrying only the `[check.exclude]` inputs under
