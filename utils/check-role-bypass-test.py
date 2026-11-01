@@ -300,6 +300,27 @@ fn f(node: &Node, code: &[u8]) -> bool { rows_own!(node, code; comparison, short
         code, out = self.t.run("--bootstrap")
         self.assertEqual(code, 0, out)
 
+    def test_macro_forwarding_one_kind_to_two_rows_is_a_forwarder(self) -> None:
+        # The R09 `is_comment` shape (#1699): one cached kind handed to
+        # two rows' `lists_kind`, the union being the whole answer. A
+        # `const` assertion beside the forward reads no kind and must
+        # not make the body a classifier.
+        self.t.src("a.rs", """
+macro_rules! impl_comment_from_rows {
+    ($roles:ident) => {
+        fn is_comment(node: &Node) -> bool {
+            const _: () = assert!(!$crate::roles::$roles::call::TEXT_GATED, "no bytes here");
+            let kind = node.kind_id();
+            $crate::roles::$roles::call::lists_kind(kind)
+                || $crate::roles::$roles::exit::lists_kind(kind)
+        }
+    };
+}
+impl_comment_from_rows!(java);
+""")
+        code, out = self.t.run("--bootstrap")
+        self.assertEqual(code, 0, out)
+
     def test_macro_that_reads_a_row_and_still_matches_kinds_is_unsupported(self) -> None:
         # A half-migrated classifier: the row read beside a `match` on
         # the kind. The row mention must not launder the match.
