@@ -17,10 +17,9 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         start_line: 1,
         end_line: 10,
         function: function.to_string(),
-        metric: "cyclomatic",
         value,
         threshold: test_threshold("cyclomatic", limit),
-        hard_limit: Some(test_threshold("cyclomatic", limit)),
+        hard_breach: test_threshold("cyclomatic", limit).breaches(value),
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -1531,9 +1530,13 @@ fn apply_check_exclude_unions_flag_and_file() {
 /// tests: `value` drives hard-breach detection; `coverage` selects the
 /// new/regressed bucket (`None` models "no `--baseline` supplied").
 ///
-/// `violation` stamps `hard_limit` from the same `10.0`, which is the
-/// hard-tier shape (soft limit == hard ceiling). Soft-tier tests that
-/// need the two to differ set `hard_limit` themselves.
+/// `violation` stamps `hard_breach` as the walk would with the hard
+/// ceiling at the same `10.0`, which is the hard-tier shape (soft limit
+/// == hard ceiling). The classifier reads only that flag, so whether a
+/// metric has a ceiling at all, and which way it points, is the walk's
+/// decision and is pinned where it is made, by
+/// `evaluate_stamps_hard_breach_in_the_metric_direction` in
+/// `thresholds_tests.rs`.
 fn pair(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
     (violation("a.rs", "f", value, 10.0), coverage)
 }
@@ -1606,61 +1609,6 @@ fn classify_hard_tier_never_escalates_to_breach() {
     let pairs = [pair(20.0, Some(Coverage::Regressed { recorded: 15.0 }))];
     let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::RegressionOnly);
-}
-
-#[test]
-fn classify_soft_tier_nan_value_is_not_breach() {
-    // A NaN metric value yields `NaN > hard == false`, so it never
-    // escalates to a hard breach; it falls to the new/regr split. Pins
-    // the documented defensive branch in `classify_check_outcome`.
-    let pairs = [pair(f64::NAN, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft);
-    assert_eq!(outcome, CheckOutcome::NewOnly);
-}
-
-#[test]
-fn classify_soft_tier_metric_without_hard_ceiling_is_not_breach() {
-    // A `[thresholds.soft]` absolute limit with no `[thresholds]`
-    // counterpart leaves the metric with no hard ceiling to exceed, so
-    // however far the value overshoots it stays an encroachment.
-    let mut pairs = [pair(999.0, Some(Coverage::New))];
-    pairs[0].0.hard_limit = None;
-    let outcome = classify_check_outcome(&pairs, Tier::Soft);
-    assert_eq!(outcome, CheckOutcome::NewOnly);
-}
-
-/// Build a `(Violation, Option<Coverage>)` pair for a lower-is-worse
-/// `mi.original` metric (#837): a value *below* the floor is the breach.
-///
-/// The soft floor is 50 and the hard floor 10 — the realistic soft-tier
-/// shape for a lower-is-worse metric, where the early-warning floor sits
-/// *above* the ceiling that constitutes a real breach.
-fn pair_low(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
-    let mut v = violation("a.rs", "f", value, 50.0);
-    v.metric = "mi.original";
-    v.threshold = test_threshold("mi.original", 50.0);
-    v.hard_limit = Some(test_threshold("mi.original", 10.0));
-    (v, coverage)
-}
-
-#[test]
-fn classify_soft_tier_lower_is_worse_hard_breach_escalates() {
-    // mi.original is lower-is-worse with a hard floor of 10. A value of 5
-    // is below the floor — a real hard breach — even though 5 > 10 is
-    // false. Before #837 the hardcoded `value > hard` missed this and the
-    // outcome fell to RegressionOnly, under-reporting the exit code.
-    let pairs = [pair_low(5.0, Some(Coverage::Regressed { recorded: 8.0 }))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft);
-    assert_eq!(outcome, CheckOutcome::HardBreach);
-}
-
-#[test]
-fn classify_soft_tier_lower_is_worse_above_floor_is_not_breach() {
-    // mi.original value 15 is above the hard floor 10, so it is not a hard
-    // breach; it falls to the new/regr split.
-    let pairs = [pair_low(15.0, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft);
-    assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
 #[test]

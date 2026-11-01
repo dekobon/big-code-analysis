@@ -435,10 +435,9 @@ fn violation_display_is_stable() {
         start_line: 10,
         end_line: 25,
         function: "do_stuff".into(),
-        metric: "cyclomatic",
         value: 17.0,
         threshold: test_threshold("cyclomatic", 15.0),
-        hard_limit: Some(test_threshold("cyclomatic", 15.0)),
+        hard_breach: true,
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -586,7 +585,7 @@ fn honor_policy_emits_for_non_matching_metric() {
         &mut out,
     );
     assert_eq!(out.len(), 1, "expected one violation; got {out:?}");
-    assert_eq!(out[0].metric, "cyclomatic");
+    assert_eq!(out[0].metric(), "cyclomatic");
 }
 
 #[test]
@@ -678,7 +677,7 @@ fn tokens_threshold_never_suppressed() {
         1,
         "tokens violation must survive SuppressionScope::All",
     );
-    assert_eq!(out[0].metric, "tokens");
+    assert_eq!(out[0].metric(), "tokens");
 }
 
 // -- qualified symbols (issue #377) -----------------------------------
@@ -749,10 +748,9 @@ fn sample_violation() -> Violation {
         start_line: 10,
         end_line: 20,
         function: "do_thing".to_string(),
-        metric: "cyclomatic",
         value: 30.0,
         threshold: test_threshold("cyclomatic", 10.0),
-        hard_limit: Some(test_threshold("cyclomatic", 10.0)),
+        hard_breach: true,
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -798,7 +796,6 @@ fn render_regressed_lower_is_worse_tag_is_well_formed() {
     // 142.75 dropping to 101.03 is worse by 41.72 points (#1621 made the
     // `mi.*` tag points rather than a percentage).
     let mut v = sample_violation();
-    v.metric = "mi.original";
     v.threshold = test_threshold("mi.original", 160.0);
     v.value = 101.03;
     let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 142.75 }));
@@ -825,9 +822,8 @@ fn render_regressed_direction_is_not_a_blanket_sign_flip() {
 
 /// The tag `format_regressed_tag` renders for `metric` moving from
 /// `recorded` to `value`.
-fn regressed_tag(metric: &'static str, recorded: f64, value: f64) -> String {
+fn regressed_tag(metric: &str, recorded: f64, value: f64) -> String {
     let v = Violation {
-        metric,
         value,
         threshold: test_threshold(metric, 0.0),
         ..sample_violation()
@@ -1034,6 +1030,94 @@ fn analyzed_leaf() -> (FuncSpace, f64, f64) {
     (space, mi, cyclo)
 }
 
+/// Stand-in `cyclomatic` extractors for the NaN row below: no analyzed
+/// input yields a NaN, so the value comes from the extractor, beside a
+/// control that reads a finite value through the same gate.
+static NAN_CYCLOMATIC: MetricExtractor = MetricExtractor {
+    name: "cyclomatic",
+    extract: |_| f64::NAN,
+    metric: Metric::Cyclomatic,
+};
+static PAST_BOTH_CYCLOMATIC: MetricExtractor = MetricExtractor {
+    name: "cyclomatic",
+    extract: |_| 1_000.0,
+    metric: Metric::Cyclomatic,
+};
+
+/// `Violation::hard_breach` is decided by the walk, in the metric's own
+/// direction (#837): a lower-is-worse `mi.*` value breaches its hard
+/// floor by falling *below* it, a ceiling by rising above, and a metric
+/// with a soft limit but no hard one never breaches, and a NaN value is
+/// never a violation at all. Pinned here because
+/// `classify_check_outcome` and `--explain-threshold` read only the flag.
+#[test]
+fn evaluate_stamps_hard_breach_in_the_metric_direction() {
+    let (space, mi, cyclo) = analyzed_leaf();
+    let hard_breach = |metric: &str, soft: f64, hard: Option<f64>| {
+        let raw = BTreeMap::from([(metric.to_string(), soft)]);
+        let hard: BTreeMap<String, f64> =
+            hard.map(|h| (metric.to_string(), h)).into_iter().collect();
+        let mut out = Vec::new();
+        ThresholdSet::build_tiered(&raw, &hard)
+            .expect("tiers build")
+            .evaluate_with_policy(
+                Path::new("fixture.rs"),
+                &space,
+                SuppressionPolicy::Honor,
+                false,
+                &mut out,
+            );
+        assert_eq!(out.len(), 1, "{metric} at soft {soft} must flag the leaf");
+        out[0].hard_breach
+    };
+    // A soft floor above the value flags it; the hard floor below the
+    // value is intact, one above it is breached.
+    assert!(!hard_breach("mi.original", mi + 50.0, Some(mi - 1.0)));
+    assert!(hard_breach("mi.original", mi + 50.0, Some(mi + 1.0)));
+    // A soft ceiling under the value flags it; the hard ceiling above the
+    // value is intact, and at the hard tier the ceiling is the threshold.
+    assert!(!hard_breach("cyclomatic", cyclo - 0.5, Some(cyclo + 5.0)));
+    assert!(hard_breach("cyclomatic", cyclo - 0.5, Some(cyclo - 0.5)));
+    // A `[thresholds.soft]` limit with no `[thresholds]` counterpart has no
+    // ceiling to exceed, in either direction and however far past the soft
+    // limit the value lands.
+    assert!(!hard_breach("cyclomatic", cyclo - 0.5, None));
+    assert!(!hard_breach("cyclomatic", 0.0, None));
+    assert!(!hard_breach("mi.original", mi + 50.0, None));
+
+    // A NaN value is never a violation, so it can never be stamped a hard
+    // breach: the soft gate's `breaches` refuses it first. The same gate
+    // reading a finite value past both limits does flag the leaf, so the
+    // empty result is the NaN's doing and not the fixture's.
+    let evaluate = |extractor: &'static MetricExtractor| {
+        let set = ThresholdSet {
+            entries: vec![ResolvedThreshold {
+                extractor,
+                threshold: checked_threshold("cyclomatic", 1.0).expect("valid soft limit"),
+                hard_limit: Some(checked_threshold("cyclomatic", 2.0).expect("valid hard limit")),
+            }],
+        };
+        let mut out = Vec::new();
+        set.evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &space,
+            SuppressionPolicy::Honor,
+            false,
+            &mut out,
+        );
+        out
+    };
+    let past = evaluate(&PAST_BOTH_CYCLOMATIC);
+    assert_eq!(
+        past.len(),
+        1,
+        "a finite value past both limits flags the leaf"
+    );
+    assert!(past[0].hard_breach);
+    let nan = evaluate(&NAN_CYCLOMATIC);
+    assert!(nan.is_empty(), "a NaN value is not a violation: {nan:?}");
+}
+
 #[test]
 fn mi_low_value_is_flagged_high_value_is_not() {
     // `mi.*` is lower-is-worse: a value BELOW the limit is the violation.
@@ -1058,7 +1142,7 @@ fn mi_low_value_is_flagged_high_value_is_not() {
         1,
         "MI {mi} below limit {high_limit} must be flagged, got {flagged:?}"
     );
-    assert_eq!(flagged[0].metric, "mi.original");
+    assert_eq!(flagged[0].metric(), "mi.original");
     assert_eq!(
         flagged[0].threshold.info().direction,
         Direction::LowerIsWorse,
@@ -1180,12 +1264,10 @@ fn higher_is_worse_metric_keeps_above_limit_gate() {
 
 /// A violation of `metric` at `value` against `limit`, its direction and
 /// scale taken from the catalog so a fixture cannot mislabel either.
-fn ranked(metric: &'static str, value: f64, limit: f64) -> Violation {
+fn ranked(metric: &str, value: f64, limit: f64) -> Violation {
     Violation {
-        metric,
         value,
         threshold: test_threshold(metric, limit),
-        hard_limit: Some(test_threshold(metric, limit)),
         ..sample_violation()
     }
 }
@@ -1231,8 +1313,8 @@ fn pick_worst_names_the_more_negative_mi_breach() {
     ];
     for (mild, deep) in &pairs {
         for vs in [[mild, deep], [deep, mild]] {
-            let worst = Violation::pick_worst(&vs).map(|w| (w.metric, w.value));
-            assert_eq!(worst, Some((deep.metric, deep.value)), "from {vs:?}");
+            let worst = Violation::pick_worst(&vs).map(|w| (w.metric(), w.value));
+            assert_eq!(worst, Some((deep.metric(), deep.value)), "from {vs:?}");
         }
     }
 }
@@ -1261,7 +1343,7 @@ fn cross_metric_ranking_reads_mi_in_index_units() {
     let mi = ranked("mi.original", -14.77, 20.0);
     for vs in [[&cognitive, &mi], [&mi, &cognitive]] {
         assert_eq!(
-            Violation::pick_worst(&vs).map(|w| w.metric),
+            Violation::pick_worst(&vs).map(Violation::metric),
             Some("cognitive")
         );
     }
@@ -1312,7 +1394,7 @@ fn equal_severity_breaks_on_metric_name_ascending() {
     let b = ranked("cyclomatic", 30.0, 15.0);
     for vs in [[&a, &b], [&b, &a]] {
         assert_eq!(
-            Violation::pick_worst(&vs).map(|w| w.metric),
+            Violation::pick_worst(&vs).map(Violation::metric),
             Some("cognitive")
         );
     }
@@ -1405,7 +1487,7 @@ fn function_scoped_metric_fires_on_nested_function() {
         "exactly the nested function fires, got {out:?}"
     );
     assert_eq!(out[0].function, "inner");
-    assert_eq!(out[0].metric, "cyclomatic");
+    assert_eq!(out[0].metric(), "cyclomatic");
 }
 
 #[test]
@@ -1450,7 +1532,7 @@ fn container_scoped_metric_fires_on_container_only() {
         "only the impl container fires for nom, got {out:?}"
     );
     assert_ne!(out[0].function, "<file>", "the Unit root must not be gated");
-    assert_eq!(out[0].metric, "nom");
+    assert_eq!(out[0].metric(), "nom");
 }
 
 #[test]
@@ -1477,7 +1559,7 @@ fn file_scoped_loc_fires_only_on_unit() {
         "only the Unit root fires for loc.sloc, got {out:?}"
     );
     assert_eq!(out[0].function, "<file>");
-    assert_eq!(out[0].metric, "loc.sloc");
+    assert_eq!(out[0].metric(), "loc.sloc");
 }
 
 #[test]

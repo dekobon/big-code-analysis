@@ -569,31 +569,34 @@ pub(crate) struct Violation {
     /// it. The field name stays `function` for source-compatibility with
     /// the many call sites built before the qualified form existed.
     pub(crate) function: String,
-    /// Metric that breached its threshold. Always `threshold.id()`;
-    /// kept as a field because every emitter reads it.
-    pub(crate) metric: &'static str,
     /// Observed metric value.
     pub(crate) value: f64,
     /// The validated limit for the tier the gate ran at. Carries the
-    /// metric's direction and scale, so every question about how badly
-    /// this violation breaches is answered by the catalog rather than
-    /// re-derived here (#1621).
+    /// metric's identity, direction and scale, so every question about
+    /// which metric breached and how badly is answered by the catalog
+    /// rather than re-derived here (#1621). [`Self::metric`] reads the
+    /// name from it: a separate name field could disagree with the
+    /// threshold it ranks by (#1643).
     pub(crate) threshold: Threshold,
-    /// The hard-tier ceiling for this metric *under the table that
-    /// gated this file's language* — equal to [`Self::limit`] at the
-    /// hard tier, the un-scaled ceiling at the soft tier, and `None`
-    /// for a metric that has a `[thresholds.soft]` limit but no hard
-    /// one (there is no ceiling to breach).
+    /// Whether [`Self::value`] also breaches the hard-tier ceiling for
+    /// this metric *under the table that gated this file's language*:
+    /// always at the hard tier, where that ceiling is
+    /// [`Self::threshold`] itself; at the soft tier, when the value is
+    /// past the un-scaled ceiling as well as the band; and never for a
+    /// metric that has a `[thresholds.soft]` limit but no hard one
+    /// (there is no ceiling to breach).
     ///
-    /// Stamped here rather than looked up afterwards because the
-    /// ceiling is per-language once `[thresholds.lang.<slug>]`
-    /// overrides exist (#1141), and by classification time the
-    /// offender is all that is left of the file that produced it.
-    /// Drives the [`CheckOutcome::HardBreach`] escalation in
-    /// `classify_check_outcome`.
+    /// Decided by the walk, which holds the ceiling, rather than
+    /// carried as a second `Threshold` for the classifier to compare
+    /// against: the ceiling is per-language once `[thresholds.lang.<slug>]`
+    /// overrides exist (#1141), by classification time the offender is
+    /// all that is left of the file that produced it, and a second
+    /// limit beside [`Self::threshold`] was a second metric identity a
+    /// fixture could mislabel (#1643). Drives the
+    /// [`CheckOutcome::HardBreach`] escalation in `classify_check_outcome`.
     ///
     /// [`CheckOutcome::HardBreach`]: crate::CheckOutcome::HardBreach
-    pub(crate) hard_limit: Option<Threshold>,
+    pub(crate) hard_breach: bool,
     /// Normalized hash of the function body, populated only when
     /// `--baseline-fuzzy-match` is active (see [`crate::baseline`]).
     /// `None` otherwise. Used as the last-resort baseline matcher when
@@ -637,11 +640,16 @@ impl Violation {
         format!(
             "{}: {} = {}{} (limit {})",
             self.function,
-            self.metric,
+            self.metric(),
             MetricScalar(self.value),
             split,
             MetricScalar(self.limit()),
         )
+    }
+
+    /// The metric that breached its threshold.
+    pub(crate) fn metric(&self) -> &'static str {
+        self.threshold.id()
     }
 
     /// The configured limit for the tier the gate ran at.
@@ -680,7 +688,7 @@ impl Violation {
     pub(crate) fn pick_worst<'a>(vs: &[&'a Self]) -> Option<&'a Self> {
         vs.iter()
             .copied()
-            .max_by(|a, b| a.cmp_severity(b).then_with(|| b.metric.cmp(a.metric)))
+            .max_by(|a, b| a.cmp_severity(b).then_with(|| b.metric().cmp(a.metric())))
     }
 
     pub(crate) fn group_pairs_by_path(
@@ -793,8 +801,9 @@ struct ResolvedThreshold {
     threshold: Threshold,
     /// The hard-tier ceiling for this metric, carried alongside the
     /// tier-resolved `threshold` so each emitted [`Violation`] can be
-    /// stamped with the ceiling that applies to *its* language (#1141).
-    /// `None` when the metric has a soft limit but no hard one.
+    /// stamped with whether it breaches the ceiling that applies to
+    /// *its* language (#1141). `None` when the metric has a soft limit
+    /// but no hard one.
     hard_limit: Option<Threshold>,
 }
 
@@ -886,11 +895,12 @@ impl ResolvedThreshold {
             start_line: space.start_line,
             end_line: space.end_line,
             function: qualified.to_owned(),
-            metric: self.extractor.name,
             value,
             threshold: self.threshold,
             nargs_split,
-            hard_limit: self.hard_limit,
+            // In the metric's own direction (#837): an `mi.*` value
+            // breaches its hard floor by falling below it.
+            hard_breach: self.hard_limit.is_some_and(|hard| hard.breaches(value)),
             body_hash: None,
             suppressed,
         })

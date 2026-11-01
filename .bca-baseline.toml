@@ -407,7 +407,7 @@ value = 96116.62210735636
 path = "big-code-analysis-cli/src/check_format.rs"
 qualified = "write_github_annotations"
 metric = "halstead.effort"
-value = 48005.61993457766
+value = 48348.517219824644
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -713,7 +713,7 @@ value = 7.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 557.0
+value = 558.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"

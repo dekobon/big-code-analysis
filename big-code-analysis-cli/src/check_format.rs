@@ -196,7 +196,8 @@ where
         let Some(path_str) = v.path.to_str() else {
             continue;
         };
-        let n = counts.entry(v.metric).or_insert(0);
+        let metric = v.metric();
+        let n = counts.entry(metric).or_insert(0);
         *n += 1;
         if *n <= cap {
             writeln!(
@@ -205,11 +206,11 @@ where
                 path = escape_gha(path_str, GhaSlot::Property),
                 start = v.start_line,
                 end = v.end_line,
-                title = escape_gha(v.metric, GhaSlot::Property),
+                title = escape_gha(metric, GhaSlot::Property),
                 msg = escape_gha(&v.summary_tail(), GhaSlot::Message),
             )?;
         } else {
-            *overflow.entry(v.metric).or_insert(0) += 1;
+            *overflow.entry(metric).or_insert(0) += 1;
         }
     }
     // Roll the per-metric overflow into a *single* `::notice::` line
@@ -470,7 +471,7 @@ fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>
             "| {} | {} | {} | {} | {} |",
             escape_gfm_cell(&display),
             count,
-            worst.metric,
+            worst.metric(),
             MetricScalar(worst.value),
             MetricScalar(worst.limit()),
         );
@@ -486,7 +487,7 @@ fn write_metric_breakdown(out: &mut String, pairs: &[(Violation, Option<Coverage
     out.push_str("|--------|-----------:|\n");
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     for (v, _) in pairs {
-        *counts.entry(v.metric).or_insert(0) += 1;
+        *counts.entry(v.metric()).or_insert(0) += 1;
     }
     let mut rows: Vec<(&&'static str, &usize)> = counts.iter().collect();
     rows.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
@@ -514,7 +515,7 @@ fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)]
         b.cmp_severity(a)
             .then_with(|| a.path.cmp(&b.path))
             .then_with(|| a.start_line.cmp(&b.start_line))
-            .then_with(|| a.metric.cmp(b.metric))
+            .then_with(|| a.metric().cmp(b.metric()))
     });
     for v in sorted.iter().take(top_n) {
         let _ = writeln!(
@@ -523,7 +524,7 @@ fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)]
             escape_gfm_cell(&v.path.display().to_string()),
             v.start_line,
             escape_gfm_cell(&v.function),
-            v.metric,
+            v.metric(),
             MetricScalar(v.value),
             MetricScalar(v.limit()),
         );
@@ -563,14 +564,13 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         function,
         start_line,
         end_line,
-        metric,
         value,
         threshold,
-        // The hard-tier ceiling exists to drive the soft-tier
-        // hard-breach escalation in `classify_check_outcome`, which runs
-        // before this conversion; the serialized offender record reports
-        // the limit that was actually gated against.
-        hard_limit: _,
+        // The hard-breach flag exists to drive the soft-tier escalation
+        // in `classify_check_outcome`, which runs before this conversion;
+        // the serialized offender record reports the limit that was
+        // actually gated against.
+        hard_breach: _,
         // A presentation detail of the human row (`summary_tail`), not
         // part of the machine record — the serialized offender already
         // carries the value, and consumers that want the split can read
@@ -590,7 +590,7 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         start_line: u32::try_from(start_line).unwrap_or(u32::MAX),
         end_line: u32::try_from(end_line).unwrap_or(u32::MAX),
         start_col: None,
-        metric: metric.to_string(),
+        metric: threshold.id().to_string(),
         value,
         // Metric direction and scale are re-derived from the catalog by
         // the offender formatters (`OffenderRecord::default_message`,
@@ -611,10 +611,9 @@ mod tests {
             start_line: 1,
             end_line: 2,
             function: function.to_string(),
-            metric: "cyclomatic",
             value: 5.0,
             threshold: test_threshold("cyclomatic", 1.0),
-            hard_limit: Some(test_threshold("cyclomatic", 1.0)),
+            hard_breach: true,
             body_hash: None,
             suppressed: false,
             nargs_split: None,
@@ -664,16 +663,15 @@ mod tests {
 
     // --- GitHub Actions annotation tests ---
 
-    fn violation_for(path: &str, function: &str, metric: &'static str) -> Violation {
+    fn violation_for(path: &str, function: &str, metric: &str) -> Violation {
         Violation {
             path: std::path::PathBuf::from(path),
             start_line: 10,
             end_line: 42,
             function: function.to_string(),
-            metric,
             value: 17.0,
             threshold: test_threshold(metric, 5.0),
-            hard_limit: Some(test_threshold(metric, 5.0)),
+            hard_breach: true,
             body_hash: None,
             suppressed: false,
             nargs_split: None,
@@ -995,10 +993,8 @@ mod tests {
         // top-offender row must both name the deeper breach, `mi.sei`,
         // which the path/line/metric tie-breaks would list second.
         let mi = |metric, value| Violation {
-            metric,
             value,
             threshold: test_threshold(metric, 20.0),
-            hard_limit: Some(test_threshold(metric, 20.0)),
             ..violation("big")
         };
         let pairs = vec![

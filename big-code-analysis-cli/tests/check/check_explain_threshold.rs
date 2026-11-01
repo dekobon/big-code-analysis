@@ -540,7 +540,7 @@ fn soft_limit_is_derived_by_metric_direction() {
 /// Both metrics are explained in one run, and both carry a *non-empty*
 /// population — which is the second thing this pins. Every other
 /// multi-metric test here pairs a real population with an empty one, so
-/// `explain`'s per-metric filter (`v.metric == outcome.metric`) could be
+/// `explain`'s per-metric filter (`v.metric() == outcome.metric`) could be
 /// deleted outright without failing any of the suite's 5054 tests. With
 /// two live populations each metric would then tally the union — 12 hard
 /// and 38 soft for both — against the counts below.
