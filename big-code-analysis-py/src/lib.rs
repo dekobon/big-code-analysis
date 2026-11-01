@@ -56,7 +56,7 @@ use pyo3::wrap_pyfunction;
 
 use big_code_analysis::{Metric, MetricSet};
 
-use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
+use crate::analysis::{AnalysisError, AnalyzeOptions, Outcome, PACKAGE_VERSION};
 use crate::batch::{PyAnalysisError, analyze_batch, analyze_paths};
 use crate::sarif::to_sarif;
 
@@ -342,8 +342,8 @@ fn analyze(
     // splitting the injector so the blame runs off-GIL and only the JSON
     // attach re-acquires is tracked separately.
     match result {
-        None => Ok(None),
-        Some(mut json) => {
+        Outcome::SkippedGenerated | Outcome::Declined => Ok(None),
+        Outcome::Analyzed(mut json) => {
             if vcs {
                 let root = crate::vcs::repo_root_for(&path);
                 if let Some(index) = py.detach(|| crate::vcs::build_index_for(root))

@@ -237,10 +237,11 @@ class Ast:
         normalization and metric values match), but is *no-magic*: it does
         not skip generated files and does not run the C/C++ preprocessor.
         Unlike :func:`analyze` it never silently returns nothing — it raises
-        :class:`OSError` (the file could not be read),
+        :class:`OSError` (the file could not be read, a directory included),
         :class:`UnsupportedLanguageError` (no language registered for the
-        path), or :class:`ValueError` (a non-UTF-8 path, or an empty /
-        binary / non-UTF-8 file that cannot be parsed as text).
+        path), or :class:`ValueError` (a non-UTF-8 path, or a file the text
+        reader declines — empty, three bytes or fewer, a UTF-16 BOM, a
+        non-UTF-8 leading window — with the message naming which).
         """
 
     @property

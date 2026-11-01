@@ -49,7 +49,7 @@ use pyo3::types::{PyTuple, PyType};
 
 use big_code_analysis::vcs::{BlameSession, HistoryIndex};
 
-use crate::analysis::{self, AnalysisError, AnalyzeOptions};
+use crate::analysis::{self, AnalysisError, AnalyzeOptions, Outcome};
 use crate::conversion;
 use crate::vcs as vcs_bridge;
 use crate::walk::{WalkFilters, walk_paths};
@@ -441,7 +441,7 @@ fn push_one_result(
     // the GIL is re-acquired before `json_string_to_py` builds the dict.
     let outcome = py.detach(|| analysis::analyze_path(path, opts));
     match outcome {
-        Ok(Some(json)) => {
+        Ok(Outcome::Analyzed(json)) => {
             // Attach VCS blocks (file-level and/or per-function) using the
             // shared per-repo index / blame engine. A VCS failure (history
             // walk, blame open, or injection reserialize) leaves the AST
@@ -464,18 +464,25 @@ fn push_one_result(
                 }
             }
         }
-        // `Ok(None)` means `analyze_path` emitted no record, and it has
-        // two sources: the `skip_generated` filter, and the
-        // unconditional `read_file_with_eol` gate (three bytes or fewer,
-        // a UTF-16 BOM, a non-UTF-8 leading window). Under the #542
-        // default the slot is dropped for either, matching `analyze`.
-        // With `skip_generated=false` the filter is off, so the gate is
-        // the only source left — and the caller has asked for one slot
-        // per input, so emit `None` (what `analyze` returns for the same
-        // file) rather than shrinking the list and silently mis-pairing
-        // every later `zip` entry (#1238).
-        Ok(None) if !opts.skip_generated => results.push(py.None()),
-        Ok(None) => {}
+        // With `skip_generated=false` the caller has asked for one slot
+        // per input, so a file that emits no record holds its slot as
+        // `None` (what `analyze` returns for the same file) rather than
+        // shrinking the list and silently mis-pairing every later `zip`
+        // entry (#1238). Today only the unconditional read gate (three
+        // bytes or fewer, a UTF-16 BOM, a non-UTF-8 leading window) can
+        // reach this arm — a generated file is only skipped while the
+        // filter is on — but the rule is "every input holds a slot", so
+        // it is written over both silent outcomes rather than over the
+        // one that happens to occur.
+        Ok(Outcome::SkippedGenerated | Outcome::Declined) if !opts.skip_generated => {
+            results.push(py.None());
+        }
+        // Under the #542 default every skipped file drops its slot,
+        // matching `analyze`. `Outcome` names the two apart so nothing
+        // here infers which fired from the flags (#1348): a new silent
+        // outcome is a compile error in this match, not a mislabelled
+        // slot.
+        Ok(Outcome::SkippedGenerated | Outcome::Declined) => {}
         Err(err) => {
             let py_err = PyAnalysisError::from_internal(err, path);
             results.push(Py::new(py, py_err)?.into_any());
@@ -1001,9 +1008,8 @@ mod tests {
         Analysed,
     }
 
-    /// Three bytes, so `read_file_with_eol` treats the file as empty
-    /// and `analyze_path` returns `Ok(None)` before any language
-    /// inference runs.
+    /// Three bytes, so the reader declines the file and `analyze_path`
+    /// is `Outcome::Declined` before any language inference runs.
     const TINY_SOURCE: &[u8] = b"ab\n";
     /// A UTF-16 BOM. `probe_decodable_prefix` returns on the BOM before
     /// it validates anything, so this is its own branch — not the
@@ -1014,12 +1020,13 @@ mod tests {
     /// exercises the `str::from_utf8` arm.
     const BINARY_SOURCE: &[u8] = b"\x80\x81\x82\x83\n";
     /// Carries the CLI walker's `is_generated` markers, so it is the
-    /// `skip_generated`-gated `Ok(None)` source.
+    /// `skip_generated`-gated `Outcome::SkippedGenerated` source.
     const GENERATED_SOURCE: &[u8] = b"// @generated DO NOT EDIT\npub fn x() {}\n";
     /// An ordinary parseable file, present so neither test asserts a
     /// length against an all-skipped input.
     const GOOD_SOURCE: &[u8] = b"fn main() {}\n";
-    /// One input per `Ok(None)` source plus a parseable control, with
+    /// One input per read-gate skip class, one generated file and a
+    /// parseable control, with
     /// each row carrying its own expectation so the tests below derive
     /// every position and count from the table instead of hardcoding
     /// indices that a new row would silently shift.
@@ -1110,7 +1117,7 @@ mod tests {
 
     #[test]
     fn every_skip_class_drops_its_slot_under_the_default() {
-        // The default is unchanged by #1238: both `Ok(None)` sources
+        // The default is unchanged by #1238: both silent outcomes
         // still omit the slot entirely, so the list is shorter than the
         // input. `good.rs` is present so the length assertion is `1`
         // rather than the `0` an all-skipped fixture would produce

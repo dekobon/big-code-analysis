@@ -39,9 +39,10 @@ fn metrics_error_to_py(err: MetricsError) -> PyErr {
 ///
 /// I/O faults, non-UTF-8 paths, unknown languages, and disabled-language
 /// builds reuse the shared `analyze` taxonomy so the exception types match
-/// the rest of the bindings. `Unreadable` (empty / binary / non-UTF-8 file)
-/// has no `analyze` analogue — `analyze` silently skips those — so it raises
-/// a `ValueError` explaining that the no-magic `from_path` cannot parse it.
+/// the rest of the bindings. `Skipped` (an empty, tiny, UTF-16 or non-UTF-8
+/// file) has no `analyze` analogue — `analyze` silently skips those — so it
+/// raises a `ValueError` naming the reader's reason and explaining that the
+/// no-magic `from_path` cannot parse it.
 fn from_path_error_to_py(err: FromPathError, path: &Path) -> PyErr {
     match err {
         FromPathError::Io(source) => analysis_error_to_py(AnalysisError::Io {
@@ -54,13 +55,14 @@ fn from_path_error_to_py(err: FromPathError, path: &Path) -> PyErr {
             path.display()
         )),
         FromPathError::Parse(e) => metrics_error_to_py(e),
-        FromPathError::Unreadable => PyValueError::new_err(format!(
-            "{} is empty, binary, or not valid UTF-8 source text; from_path cannot \
-             parse it (analyze() would skip such a file)",
+        FromPathError::Skipped(reason) => PyValueError::new_err(format!(
+            "{}: {reason}; from_path cannot parse it (analyze() would skip such a file)",
             path.display()
         )),
-        // `FromPathError` is `#[non_exhaustive]`; a future variant lands here
-        // as a generic `ValueError` until this match learns a richer mapping.
+        // `FromPathError` is `#[non_exhaustive]`; a future variant — and the
+        // deprecated `Unreadable`, which `from_path` no longer produces —
+        // lands here as a generic `ValueError` until this match learns a
+        // richer mapping.
         other => PyValueError::new_err(format!("could not parse {}: {other}", path.display())),
     }
 }
