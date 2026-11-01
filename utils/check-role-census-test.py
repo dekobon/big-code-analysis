@@ -415,10 +415,10 @@ class CensusTests(unittest.TestCase):
     def test_an_empty_pays_list_is_the_split_mode_not_the_owner_paying_one(self) -> None:
         # `pays []` is a split row with no declared payers — the shape
         # R07's `ElseIf` rows take, where only a `pays_itself` owner pays
-        # at the leaf (#1697). The canonical dump prints `payers=[]
-        # pays_never=false` for this and for a plain `owns [..]` row
-        # alike; its `mode=` field is what tells them apart (#1745), and
-        # check-role-coverage-test.py pins that on the dump.
+        # at the leaf (#1697). The canonical dump prints `payers=[]` for
+        # this and for a plain `owns [..]` row alike; its `mode=` field is
+        # what tells them apart (#1745), and check-role-coverage-test.py
+        # pins that on the dump.
         self.t.write(
             "java",
             "    lang: Java;\n"

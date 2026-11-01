@@ -12,7 +12,8 @@ must not require a Rust build. That makes it a second implementation of
 the DSL's meaning, which is kept honest two ways — ``--dump`` renders a
 table in a canonical text form that a Rust test in ``roles/mod.rs``
 compares against the compiled ``OWNERS`` / ``PAYERS`` / ``WRAPS`` /
-``EXCLUDED`` / ``ABSENT`` / ``PENDING`` constants, and the reader fails
+``EXCLUDED`` / ``ABSENT`` / ``PENDING`` constants and the row's paying
+mode (``owners`` / ``split`` / ``never``, #1745), and the reader fails
 closed: any row shape it does not recognise is an error, never a row it
 silently reads as empty.
 
@@ -787,9 +788,17 @@ def parse_enum(path: pathlib.Path) -> tuple[str, list[Kind], int]:
 
 
 def dump_table(table: Table, enum_path: pathlib.Path) -> str:
-    """One line per declared row, in declaration order, kinds rendered
-    as ids so the Rust side can compare against its ``u16`` constants
-    without naming variants."""
+    """One line per declared row, in declaration order::
+
+        <Role> rows owners=[ids] payers=[ids] wraps=[ids] excluded=[id=why;...] mode=<owners|split|never>
+        <Role> absent <reason>
+        <Role> pending <package>
+
+    Kinds are rendered as ids so the Rust side can compare against its
+    ``u16`` constants without naming variants. The mode is the last
+    field and the one encoding of how the row pays (#1745); the Rust
+    ``canonical()`` emits the same line, and the differential test in
+    ``roles/mod.rs`` compares the two byte for byte."""
     _, kinds, _ = parse_enum(enum_path)
     by_variant = {k.variant: k.id for k in kinds}
     lines = [f"lang {table.lang}"]
@@ -805,10 +814,9 @@ def dump_table(table: Table, enum_path: pathlib.Path) -> str:
             payers = ids([p.kind for p in row.payers])
             wraps = ids(row.wraps)
             excluded = ";".join(f"{by_variant[k]}={r}" for k, r in row.excludes)
-            never = "true" if row.pays_mode == "never" else "false"
             lines.append(
                 f"{role} rows owners=[{owners}] payers=[{payers}] wraps=[{wraps}] "
-                f"excluded=[{excluded}] pays_never={never} mode={row.pays_mode}"
+                f"excluded=[{excluded}] mode={row.pays_mode}"
             )
     return "\n".join(lines) + "\n"
 
