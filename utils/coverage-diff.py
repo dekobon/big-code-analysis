@@ -3,7 +3,8 @@
 (#1697 plan §6.7, landed by #1744).
 
 usage: coverage-diff.py --base-json B --head-json H --base-rev R0 --head-rev R1
-                        --repo DIR --codecov codecov.yml --out DIR
+                        --repo DIR [--base-repo DIR] --codecov codecov.yml
+                        --out DIR
 
 `utils/patch-coverage.py` is the quick single-report approximation;
 this one takes two reports and compares per-file covered counts rather
@@ -14,12 +15,19 @@ unrelated to the change).
 Inputs are two `cargo llvm-cov report --workspace --json` exports — the
 LLVM coverage export format (`data[0].files[*].segments`, `.summary`) —
 produced on the base and head revisions with the same commands CI runs.
-The script:
+Each export names files by absolute path; `--repo` is the root the head
+export was produced under and `--base-repo` (default `--repo`) the
+base's, since a base built in another worktree carries that worktree's
+prefix. An export in which no file starts with its root is refused: it
+would otherwise read as entirely unmapped and the anchored ignore globs
+would stop matching on that side. The script:
 
 1. Parses the full local zero-context diff `git diff -U0 R0 R1` under
    `--repo` (never a hosting API's truncated diff), keeping each head
    file's set of added / modified lines. Renames are followed; a deleted
-   file contributes no head lines.
+   file contributes no head lines. The `+++ b/` prefix the parser keys
+   on is pinned by `-c diff.noprefix=false` and explicit prefixes, as
+   `patch-coverage.py` does.
 2. Applies the `ignore:` globs from `codecov.yml` to both the project and
    the patch denominators, with Codecov's glob semantics (`**` spans
    directories, `*` does not).
@@ -35,10 +43,18 @@ The script:
    covered in the percent, as Codecov's `coverage` figure does; a second
    conservative percent counts them as missed), patch coverage
    (numerator / denominator over changed executable lines in head),
-   per-file rows, and every changed file that is unmapped (in the diff,
-   not ignored, not in the head report — an omission to explain, not a
-   zero) or non-executable (changed lines hold no region).
-5. Verdict: `patch_pct >= max(base_project_pct, head_project_pct)` under
+   per-file patch rows, and every changed file that is unmapped (in the
+   diff, not ignored, not in the head report — an omission to explain,
+   not a zero) or non-executable (changed lines hold no region).
+5. The per-file covered-count comparison (`files`): for every
+   non-ignored file in either report, the base and head covered counts
+   and their delta, so a file whose covered lines fell is visible even
+   when the project percentage rose. A file in one report only is a
+   row with the other side at zero and `only_in` naming the side.
+   `covered_count_regressions` lists the files whose covered count
+   fell, and the verdict below is independent of it: a fall can be a
+   deletion, so the list is for reading, not gating.
+6. Verdict: `patch_pct >= max(base_project_pct, head_project_pct)` under
    the Codecov reading; the conservative reading is printed beside it.
 
 Region counts per changed file (`regions_covered` / `regions_total` from
@@ -117,8 +133,30 @@ def ignored(rel: str, patterns: list[re.Pattern[str]]) -> bool:
 def changed_lines(repo: pathlib.Path, base: str, head: str) -> dict[str, set[int]]:
     """Head-side line numbers added or modified per head path, from the
     full zero-context diff. Deleted files are absent."""
+    # `-c diff.noprefix=false` and `--src-prefix` / `--dst-prefix` pin
+    # the `+++ b/` header the parser keys on regardless of the user's
+    # git config; `-c core.quotePath=false` keeps non-ASCII names
+    # unquoted; `--no-ext-diff` / `--no-textconv` keep the output git's.
     out = subprocess.run(
-        ["git", "-C", str(repo), "diff", "-U0", "-M", "--no-color", base, head],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "-U0",
+            "-M",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            base,
+            head,
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -206,17 +244,31 @@ def line_counts(segments: list[list]) -> FileCov:
 
 
 def load_export(path: pathlib.Path, repo: pathlib.Path) -> dict[str, FileCov]:
+    """The export keyed by repo-relative path. Refuses an export in
+    which no file starts with `repo`: every file would read as unmapped
+    and the anchored ignore globs would stop matching, so the project
+    figure would be computed over a different denominator."""
     data = json.loads(path.read_text())
     files: dict[str, FileCov] = {}
     root = str(repo.resolve()) + "/"
+    stripped = 0
     for f in data["data"][0]["files"]:
         name = f["filename"]
-        rel = name[len(root):] if name.startswith(root) else name
+        if name.startswith(root):
+            rel = name[len(root):]
+            stripped += 1
+        else:
+            rel = name
         cov = line_counts(f.get("segments", []))
         summ = f.get("summary", {}).get("regions", {})
         cov.regions_total = int(summ.get("count", 0))
         cov.regions_covered = int(summ.get("covered", 0))
         files[rel] = cov
+    if files and stripped == 0:
+        raise SystemExit(
+            f"{path}: no file is under {root}; pass the root the export was produced under "
+            "(--repo for the head export, --base-repo for the base)"
+        )
     return files
 
 
@@ -317,6 +369,39 @@ def patch_tally(
     return total, rows, unmapped, non_exec, skipped
 
 
+def file_comparison(
+    base: dict[str, FileCov],
+    head: dict[str, FileCov],
+    patterns: list[re.Pattern[str]],
+) -> list[dict]:
+    """Base / head covered counts and their delta for every non-ignored
+    file in either report, sorted by path. This is the comparison the
+    module docstring promises: a per-file count, not a percentage."""
+    rows: list[dict] = []
+    for rel in sorted(base.keys() | head.keys()):
+        if ignored(rel, patterns):
+            continue
+        b, h = base.get(rel), head.get(rel)
+        bt, ht = Tally(), Tally()
+        for cov, t in ((b, bt), (h, ht)):
+            if cov is not None:
+                for ln, count in cov.counts.items():
+                    t.add(count, ln in cov.partial_lines)
+        rows.append(
+            {
+                "file": rel,
+                "only_in": "head" if b is None else "base" if h is None else None,
+                "base_executable": bt.executable,
+                "base_covered": bt.covered,
+                "head_executable": ht.executable,
+                "head_covered": ht.covered,
+                "delta_covered": ht.covered - bt.covered,
+                "delta_executable": ht.executable - bt.executable,
+            }
+        )
+    return rows
+
+
 def fmt_pct(v: float | None) -> str:
     return "n/a" if v is None else f"{v:.2f}%"
 
@@ -367,6 +452,25 @@ def render_markdown(result: dict) -> str:
         out += ["", "## Missed changed lines", ""]
         for f, lines in missed:
             out.append(f"- `{f}`: {', '.join(map(str, lines))}")
+    moved = [r for r in result["files"] if r["delta_covered"] or r["delta_executable"] or r["only_in"]]
+    out += [
+        "",
+        "## Covered count per file (base → head, files that moved)",
+        "",
+        "| file | base exec | base covered | head exec | head covered | Δ covered |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for r in moved:
+        tag = f" ({r['only_in']} only)" if r["only_in"] else ""
+        out.append(
+            f"| `{r['file']}`{tag} | {r['base_executable']} | {r['base_covered']} | "
+            f"{r['head_executable']} | {r['head_covered']} | {r['delta_covered']:+d} |"
+        )
+    if not moved:
+        out.append("| (none) | | | | | |")
+    regressions = result["covered_count_regressions"]
+    out += ["", f"Files whose covered count fell: {len(regressions)}"]
+    out += [f"- `{x}`" for x in regressions]
     return "\n".join(out) + "\n"
 
 
@@ -393,6 +497,7 @@ def compute(
     base_t = project_tally(base_files, patterns)
     head_t = project_tally(head_files, patterns)
     patch_t, rows, unmapped, non_exec, skipped = patch_tally(changed, head_files, patterns)
+    files = file_comparison(base_files, head_files, patterns)
     floor_candidates = [v for v in (base_t.pct(), head_t.pct()) if v is not None]
     floor = max(floor_candidates) if floor_candidates else None
     floor_c = max(v for v in (base_t.pct(False), head_t.pct(False)) if v is not None) if floor_candidates else None
@@ -412,6 +517,8 @@ def compute(
             "non_executable": non_exec,
             "skipped": skipped,
         },
+        "files": files,
+        "covered_count_regressions": [r["file"] for r in files if r["delta_covered"] < 0],
         "floor": floor,
         "floor_conservative": floor_c,
         "verdict": verdict,
@@ -428,12 +535,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--head-json", type=pathlib.Path, required=True)
     ap.add_argument("--base-rev", required=True)
     ap.add_argument("--head-rev", required=True)
-    ap.add_argument("--repo", type=pathlib.Path, required=True)
+    ap.add_argument("--repo", type=pathlib.Path, required=True, help="the checkout the head export and the diff come from")
+    ap.add_argument(
+        "--base-repo",
+        type=pathlib.Path,
+        help="the checkout the base export was produced under, when it is another worktree (default: --repo)",
+    )
     ap.add_argument("--codecov", type=pathlib.Path, required=True)
     ap.add_argument("--out", type=pathlib.Path, required=True)
     args = ap.parse_args(argv)
     globs = codecov_ignores(args.codecov)
-    base_files = load_export(args.base_json, args.repo)
+    base_files = load_export(args.base_json, args.base_repo or args.repo)
     head_files = load_export(args.head_json, args.repo)
     changed = changed_lines(args.repo, args.base_rev, args.head_rev)
     result = compute(base_files, head_files, changed, globs, args.base_rev, args.head_rev)

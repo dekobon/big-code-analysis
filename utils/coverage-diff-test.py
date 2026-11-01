@@ -140,6 +140,53 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(r["project"]["head"]["covered"], 3)
         self.assertGreater(r["project"]["base"]["pct"], r["project"]["head"]["pct"])
         self.assertEqual(r["patch"]["files"][0]["missed_lines"], [4, 5])
+        self.assertEqual(r["files"], [{
+            "file": "src/a.rs", "only_in": None,
+            "base_executable": 2, "base_covered": 2,
+            "head_executable": 5, "head_covered": 3,
+            "delta_covered": 1, "delta_executable": 3,
+        }])
+
+    def test_per_file_counts_are_compared_so_a_swap_between_files_is_visible(self) -> None:
+        # Two files trade two covered lines: the project totals and the
+        # patch are identical either way, and only a per-file comparison
+        # can tell the swapped base from the unswapped one (C1 on #1744).
+        base = {
+            "src/a.rs": cd.FileCov(counts={1: 1, 2: 1, 3: 1}),
+            "src/b.rs": cd.FileCov(counts={1: 1, 2: 0, 3: 0}),
+            "tests/t.rs": cd.FileCov(counts={1: 1}),
+        }
+        swapped = {"src/a.rs": base["src/b.rs"], "src/b.rs": base["src/a.rs"], "tests/t.rs": base["tests/t.rs"]}
+        head = {
+            "src/a.rs": cd.FileCov(counts={1: 1, 2: 1, 3: 1}),
+            "src/b.rs": cd.FileCov(counts={1: 1, 2: 0, 3: 0}),
+            "src/new.rs": cd.FileCov(counts={1: 1, 2: 0}),
+        }
+        changed = {"src/a.rs": {1}, "src/new.rs": {1, 2}}
+        r = cd.compute(base, head, changed, ["**/tests/**"], "B", "H")
+        r_swapped = cd.compute(swapped, head, changed, ["**/tests/**"], "B", "H")
+        self.assertEqual(r["project"], r_swapped["project"])
+        self.assertEqual(r["patch"], r_swapped["patch"])
+        self.assertNotEqual(r["files"], r_swapped["files"])
+        by_file = {row["file"]: row for row in r["files"]}
+        self.assertEqual(sorted(by_file), ["src/a.rs", "src/b.rs", "src/new.rs"], "ignored files are out")
+        self.assertEqual((by_file["src/a.rs"]["base_covered"], by_file["src/a.rs"]["head_covered"], by_file["src/a.rs"]["delta_covered"]), (3, 3, 0))
+        self.assertEqual(by_file["src/new.rs"]["only_in"], "head")
+        self.assertEqual((by_file["src/new.rs"]["base_covered"], by_file["src/new.rs"]["head_covered"]), (0, 1))
+        self.assertEqual(r["covered_count_regressions"], [])
+        swapped_by_file = {row["file"]: row for row in r_swapped["files"]}
+        self.assertEqual(swapped_by_file["src/a.rs"]["delta_covered"], 2)
+        self.assertEqual(swapped_by_file["src/b.rs"]["delta_covered"], -2)
+        self.assertEqual(r_swapped["covered_count_regressions"], ["src/b.rs"])
+        md = cd.render_markdown(r_swapped)
+        self.assertIn("| `src/b.rs` | 3 | 3 | 3 | 1 | -2 |", md)
+        self.assertIn("| `src/new.rs` (head only) | 0 | 0 | 2 | 1 | +1 |", md)
+        self.assertIn("Files whose covered count fell: 1", md)
+        # A deleted file is a base-only row with the head side at zero.
+        gone = cd.compute(base, {"src/a.rs": head["src/a.rs"]}, {}, [], "B", "H")
+        gone_by_file = {row["file"]: row for row in gone["files"]}
+        self.assertEqual(gone_by_file["src/b.rs"]["only_in"], "base")
+        self.assertEqual(gone_by_file["src/b.rs"]["head_covered"], 0)
 
     def test_codecov_ignores_reads_the_block_without_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -175,10 +222,13 @@ class EndToEndTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _export(self, name: str, segments: list[list]) -> pathlib.Path:
+    def _export(self, name: str, segments: list[list], root: pathlib.Path | None = None) -> pathlib.Path:
         p = self.root / name
-        p.write_text(json.dumps({"data": [{"files": [{"filename": str(self.repo / "src" / "a.rs"), "segments": segments, "summary": {"regions": {"count": 2, "covered": 1}}}]}]}))
+        p.write_text(json.dumps({"data": [{"files": [{"filename": str((root or self.repo) / "src" / "a.rs"), "segments": segments, "summary": {"regions": {"count": 2, "covered": 1}}}]}]}))
         return p
+
+    def _argv(self, base: pathlib.Path, head: pathlib.Path, out: pathlib.Path, *extra: str) -> list[str]:
+        return ["--base-json", str(base), "--head-json", str(head), "--base-rev", self.base_rev, "--head-rev", self.head_rev, "--repo", str(self.repo), "--codecov", str(self.repo / "codecov.yml"), "--out", str(out), *extra]
 
     def test_main_reports_the_patch_against_the_project(self) -> None:
         base = self._export("base.json", [_seg(1, 1, 1), _seg(1, 10, 0, has=False)])
@@ -187,15 +237,52 @@ class EndToEndTests(unittest.TestCase):
         # the first two are missed and the closing brace is unmapped.
         head = self._export("head.json", [_seg(1, 1, 1), _seg(1, 10, 0, has=False), _seg(2, 1, 0), _seg(4, 2, 0, has=False)])
         out = self.root / "out"
-        argv = ["--base-json", str(base), "--head-json", str(head), "--base-rev", self.base_rev, "--head-rev", self.head_rev, "--repo", str(self.repo), "--codecov", str(self.repo / "codecov.yml"), "--out", str(out)]
         with contextlib.redirect_stdout(io.StringIO()):
-            rc = cd.main(argv)
+            rc = cd.main(self._argv(base, head, out))
         self.assertEqual(rc, 1, "a fully-missed patch does not meet the floor")
         result = json.loads((out / "coverage-diff.json").read_text())
         self.assertEqual(result["patch"]["files"][0]["file"], "src/a.rs")
         self.assertEqual(result["patch"]["files"][0]["missed_lines"], [2, 3])
         self.assertEqual(result["patch"]["files"][0]["regions_covered"], 1)
+        self.assertEqual([r["file"] for r in result["files"]], ["src/a.rs"])
         self.assertIn("NOT MET", (out / "coverage-diff.md").read_text())
+
+    def test_the_diff_is_parsed_whatever_the_users_git_config(self) -> None:
+        # The driver pins its git config as patch-coverage.py does (C3 on
+        # #1744). `core.quotePath` is the one a commit-vs-commit diff
+        # shows: at its default a non-ASCII path renders as
+        # `+++ "b/\303\274.rs"`, which would be keyed as a quoted octal
+        # string. `diff.noprefix` is tolerated by the parser either way
+        # and `diff.mnemonicPrefix` does not apply to a commit diff, so
+        # both are pinned for the record and invisible here.
+        (self.repo / "src" / "\u00fc.rs").write_text("fn u() {}\n")
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "unicode"], cwd=self.repo, check=True, env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
+        for key, value in (("core.quotePath", "true"), ("diff.noprefix", "true")):
+            subprocess.run(["git", "config", key, value], cwd=self.repo, check=True)
+            changed = cd.changed_lines(self.repo, self.base_rev, head)
+            self.assertEqual(changed, {"src/a.rs": {2, 3, 4}, "src/\u00fc.rs": {1}}, key)
+            subprocess.run(["git", "config", "--unset", key], cwd=self.repo, check=True)
+
+    def test_a_base_export_from_another_worktree_takes_base_repo(self) -> None:
+        other = self.root / "worktree-base"
+        base = self._export("base.json", [_seg(1, 1, 1)], root=other)
+        head = self._export("head.json", [_seg(1, 1, 1), _seg(2, 1, 0), _seg(4, 2, 0, has=False)])
+        out = self.root / "out"
+        # Without --base-repo no base file is under --repo: refused, not
+        # silently read as a different denominator (C2 on #1744).
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            cd.main(self._argv(base, head, out))
+        self.assertIn("no file is under", str(cm.exception))
+        self.assertIn("--base-repo", str(cm.exception))
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = cd.main(self._argv(base, head, out, "--base-repo", str(other)))
+        self.assertEqual(rc, 1)
+        result = json.loads((out / "coverage-diff.json").read_text())
+        self.assertEqual(result["project"]["base"]["executable"], 1)
+        self.assertEqual([(r["file"], r["only_in"]) for r in result["files"]], [("src/a.rs", None)])
 
 
 if __name__ == "__main__":
