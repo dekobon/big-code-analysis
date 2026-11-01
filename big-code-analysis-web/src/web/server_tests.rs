@@ -3073,11 +3073,18 @@ async fn vcs_error_kind_maps_each_client_variant_to_a_distinct_token() {
         let Some(expected) = expected_token(error) else {
             panic!(
                 "client-input variant {error:?} has no agreed error_kind token; \
-                    add one to `vcs_error_kind`, to `expected_token` above, and to \
-                    the vocabulary lists in STABILITY.md and the book (got `{token}`)"
+                    declare it inside `error_kind::tokens!`, map it in `vcs_error_kind`, \
+                    and add it to `expected_token` above and to STABILITY.md's token \
+                    list (got `{token}`)"
             );
         };
         assert_eq!(token, expected, "wrong token for {error:?}");
+        // This test calls `vcs_error_kind` directly, never `json_error`, so
+        // the membership `debug_assert!` there does not see these tokens.
+        assert!(
+            error_kind::ALL.contains(&token),
+            "token `{token}` for {error:?} is not declared in `error_kind::tokens!`",
+        );
         // Production can no longer reach this — the `assert_eq!` above
         // fires first. It guards the *expectation* table instead: it
         // stops a future maintainer from silencing the `else` panic by
@@ -3099,6 +3106,109 @@ async fn vcs_error_kind_maps_each_client_variant_to_a_distinct_token() {
     assert_eq!(
         vcs_error_kind(&VcsError::Walk("boom".to_owned())),
         error_kind::VCS_INTERNAL_ERROR,
+    );
+}
+
+/// `STABILITY.md` publishes the `error_kind` vocabulary as a closed
+/// contract ("The current tokens are: …"), and nothing else enumerates
+/// it, so hold that sentence to `error_kind::ALL` in both directions
+/// (#1302). It has drifted once already: `not_acceptable` and
+/// `serialize_failed` shipped undocumented through `2.0` and `2.1`
+/// (#657). A renamed or retired token would drift the other way, leaving
+/// an entry that advertises a token the server never sends.
+///
+/// This reads a published document, not the crate's own source, so it is
+/// not the restated-`matches!()` pattern `.claude/rules/testing.md`
+/// bans: the drift is between two artifacts, and neither can enumerate
+/// the other.
+///
+/// Only `STABILITY.md` is gated. The book's REST page names a few tokens
+/// as examples ("and so on") and defers the vocabulary to
+/// `STABILITY.md`, so it has no complete list to hold to `ALL`.
+#[actix_rt::test]
+async fn error_kind_vocabulary_matches_stability_md() {
+    use std::collections::BTreeSet;
+
+    const MARKER: &str = "The current tokens are:";
+
+    let path = format!("{}/../STABILITY.md", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{path} must be readable from the web crate dir: {e}"));
+
+    // Exactly one marker, so the list cannot be read from a stale copy of
+    // the sentence elsewhere in the document.
+    assert_eq!(
+        text.matches(MARKER).count(),
+        1,
+        "{path}: expected exactly one {MARKER:?} sentence",
+    );
+    let (_, after) = text.split_once(MARKER).expect("marker counted above");
+    // The list is one sentence and tokens are `snake_case`, so the first
+    // `.` ends it. Prose that adds a `.` mid-list ends the read early and
+    // fails as missing tokens rather than passing.
+    let (list, _) = after
+        .split_once('.')
+        .expect("the token sentence ends with a period");
+    assert_eq!(
+        list.matches('`').count() % 2,
+        0,
+        "{path}: unbalanced backticks in the token list"
+    );
+    let documented: Vec<&str> = list.split('`').skip(1).step_by(2).collect();
+    let documented_set: BTreeSet<&str> = documented.iter().copied().collect();
+    assert_eq!(
+        documented.len(),
+        documented_set.len(),
+        "{path}: a token is listed twice: {documented:?}",
+    );
+
+    let declared: BTreeSet<&str> = error_kind::ALL.iter().copied().collect();
+    let undocumented: Vec<_> = declared.difference(&documented_set).collect();
+    assert!(
+        undocumented.is_empty(),
+        "{path}: error_kind tokens missing from the {MARKER:?} list: {undocumented:?}",
+    );
+    let stale: Vec<_> = documented_set.difference(&declared).collect();
+    assert!(
+        stale.is_empty(),
+        "{path}: the {MARKER:?} list names tokens the server does not declare: {stale:?}",
+    );
+}
+
+/// `STABILITY.md` promises each `error_kind` is a stable `snake_case`
+/// token naming one distinct cause, so two constants sharing a value
+/// would make two causes indistinguishable to a client (#1302).
+#[actix_rt::test]
+async fn error_kind_tokens_are_distinct_snake_case() {
+    let distinct: std::collections::BTreeSet<&str> = error_kind::ALL.iter().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        error_kind::ALL.len(),
+        "two error_kind constants share a token: {:?}",
+        error_kind::ALL,
+    );
+    for token in error_kind::ALL {
+        assert!(
+            !token.is_empty()
+                && token
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+            "error_kind `{token}` is not a snake_case token",
+        );
+    }
+}
+
+/// Pins the `json_error` membership check, the half of #1302's guard
+/// that covers a token emitted from outside the `tokens!` list.
+#[actix_rt::test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "is not declared in the `error_kind::tokens!` list")]
+async fn json_error_rejects_an_undeclared_error_kind() {
+    let _ = json_error(
+        StatusCode::BAD_REQUEST,
+        "boom",
+        "not_a_declared_token",
+        String::new(),
     );
 }
 
