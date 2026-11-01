@@ -488,6 +488,12 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
+qualified = "compute_since_diff"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "scaffold_baseline"
 metric = "nargs"

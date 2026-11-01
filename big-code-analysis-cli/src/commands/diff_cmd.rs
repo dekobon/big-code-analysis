@@ -194,11 +194,26 @@ pub(crate) fn compute_since_diff(
         ));
     }
 
-    // TempDir auto-removes on drop — including every `?` below — so the
-    // "no leftover temp trees, even on error" acceptance holds without
-    // manual teardown.
-    let before_tree = tempfile::TempDir::new().map_err(io_to_diff_error)?;
-    diff::materialize_tree(since_ref, before_tree.path()).unwrap_or_else(|reason| die(reason));
+    // Each walk reads `--exclude-from` itself, and stdin can be read only
+    // once: the first walk would drain it and the second would apply no
+    // exclusions, so the sides would select different files.
+    if globals
+        .exclude_from
+        .as_deref()
+        .is_some_and(|p| p.as_os_str() == "-")
+    {
+        die(format_args!(
+            "diff --since: --exclude-from - is not supported, since both \
+             sides read the patterns; name a file or pass --exclude instead"
+        ));
+    }
+
+    // The tree is removed when it drops, on success and on every `?`
+    // below, and by `die` when a walk exits the process (a seed missing
+    // at `<ref>`, an unknown `--language`, an exclude file that will not
+    // read), which runs no destructors. Only a signal leaves it behind.
+    let before_tree = crate::TempTree::new().map_err(io_to_diff_error)?;
+    diff::materialize_tree(since_ref, before_tree.path()).map_err(since_error)?;
 
     let before = crate::walk_metric_set(
         before_tree.path(),
@@ -214,7 +229,7 @@ pub(crate) fn compute_since_diff(
     // into both sides by `side_globals` (#497), never an alternate root,
     // so a subtree positional (`bca diff --since HEAD src`) selects the
     // same files on each side instead of mis-rooting the after walk.
-    let after_root = diff::git_repo_root().unwrap_or_else(|reason| die(reason));
+    let after_root = diff::git_repo_root().map_err(since_error)?;
     let after = crate::walk_metric_set(&after_root, side_globals(globals, scope), DiffSide::After)?;
 
     Ok(crate::metric_diff::MetricDiff::from_sets(
@@ -268,6 +283,13 @@ pub(crate) fn side_globals(globals: &GlobalOpts, scope: Option<&Path>) -> Global
     // cannot resolve against both the <ref> tree and the working tree),
     // so it is already `None` here — selection is via `--paths`/globs.
     side
+}
+
+/// Carry a `diff` module failure message out of [`compute_since_diff`]
+/// as a `DiffError`, so the extracted tree is dropped before the caller
+/// reports it.
+fn since_error(reason: String) -> crate::metric_diff::DiffError {
+    crate::metric_diff::DiffError::Since { reason }
 }
 
 /// Adapt a `std::io::Error` raised while creating temp state for the

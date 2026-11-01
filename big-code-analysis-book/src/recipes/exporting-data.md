@@ -135,9 +135,15 @@ bca diff --since HEAD~1 src
 
 `--since` materializes the ref's tree into a temporary directory (via
 `git ls-tree` + `git cat-file`), runs the same metric walk against it,
-then diffs. The temp tree is removed automatically, including on
-error. The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
+then diffs. The temp tree is removed when the command finishes,
+whether it succeeds or exits with an error. Only a run killed by a
+signal (Ctrl-C included) leaves it behind in the temporary directory.
+The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
 selection applies to both sides so they analyze the same file set.
+Each side reads an `--exclude-from` file for itself, a relative one
+from its own root (the ref's copy for the before side), so
+`--exclude-from -` (stdin, readable only once) is rejected, as is
+`--paths-from`.
 Selection paths are **repo-root-relative** and must be relative: the
 working-tree side is anchored at the repository root (matching the
 whole-tree materialization of the ref), so `bca diff --since` produces
