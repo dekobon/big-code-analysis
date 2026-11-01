@@ -971,6 +971,12 @@ treating it as a regression.
   per-probe rationale.
 - `big-code-analysis-bench/src/scaling.rs`: the measurement and fit,
   with the reasoning behind interleaving and three-point fitting.
+- `big-code-analysis-bench/src/verbatim.rs`: not a benchmark — the
+  `verbatim-oracle` binary (`cargo build -p big-code-analysis-bench
+  --bin verbatim-oracle`) that `utils/drift-oracle.py` and
+  `utils/recovery-oracle.py` drive for the library-level zero-drift
+  view (#1744). It lives here because this is the one dev-only crate
+  that depends on the root with every grammar and never ships.
 
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
 [cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062

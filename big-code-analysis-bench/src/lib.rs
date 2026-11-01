@@ -13,6 +13,10 @@
 //! - [`vcs`] grows a ranked population instead of a tree, for the one
 //!   hot path that is not a walk: the change-history percentile pass
 //!   (#1267). It fits the same exponent and joins the same gate.
+//! - [`verbatim`] is not a benchmark at all: the `verbatim-oracle`
+//!   binary behind `utils/drift-oracle.py` (#1744), housed here because
+//!   this is the one dev-only crate that depends on the root with every
+//!   grammar and never ships.
 //!
 //! Two bench targets drive them: `benches/scaling.rs` (the
 //! complexity-class gate) and `benches/metric_walk.rs` (criterion
@@ -33,3 +37,4 @@ pub mod corpus;
 pub mod scaling;
 pub mod shapes;
 pub mod vcs;
+pub mod verbatim;

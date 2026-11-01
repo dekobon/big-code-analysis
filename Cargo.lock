@@ -511,6 +511,7 @@ dependencies = [
  "big-code-analysis",
  "big-code-analysis-ast",
  "criterion",
+ "serde_json",
  "tempfile",
 ]
 

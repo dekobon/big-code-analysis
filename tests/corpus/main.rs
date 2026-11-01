@@ -19,6 +19,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod control_flow_test;
 mod csharp_test;
 mod deepspeech_test;
 mod irules_test;
