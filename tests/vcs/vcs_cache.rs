@@ -343,7 +343,7 @@ fn a_semantically_empty_mailmap_edit_still_hits_the_cache() {
     // The digest covers gix's *parsed* snapshot, not the source bytes, so
     // an edit that changes no mapping must not cost a cold walk — the one
     // behavioural difference between this and a byte digest, and the
-    // claim `repo::mailmap_digest` documents.
+    // claim `WalkContext::mailmap_digest` documents.
     let repo = build_two_author_repo();
     let cache_dir = tempfile::tempdir().expect("tempdir");
     let cfg = config(cache_dir.path(), true, false);

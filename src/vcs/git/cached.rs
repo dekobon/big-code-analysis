@@ -20,10 +20,13 @@
 //! covered by the entry key or the fingerprint. The repository `.mailmap`
 //! is such an input and is neither: author identities are canonicalised
 //! through it at walk time and stored as digests, while an edit to it
-//! moves no `HEAD` (issue #1262). [`repo::mailmap_digest`] therefore
-//! enters [`cache::fingerprint`] here, which covers all three cache paths
-//! at once — the pure hit, `load_compatible`'s ancestor selection for the
-//! incremental splice, and the entry [`persist`] writes back.
+//! moves no `HEAD` (issue #1262). [`history::WalkContext::mailmap_digest`]
+//! therefore enters [`cache::fingerprint`] here, which covers all three
+//! cache paths at once — the pure hit, `load_compatible`'s ancestor
+//! selection for the incremental splice, and the entry [`persist`] writes
+//! back. A digest can only be taken from a context's snapshot, and this
+//! build opens exactly one context and walks through it, so an entry's
+//! stamp and its events share one read of the mailmap (issue #1409).
 //!
 //! The mailmap is not the last such input. The git diff configuration the
 //! walk's diff platform reads — `diff.algorithm` and the diff drivers —
@@ -41,7 +44,7 @@ use crate::diag::warn;
 use crate::vcs::HistoryIndex;
 use crate::vcs::cache::{self, CacheConfig, CommitEvent, HistoryCache};
 use crate::vcs::error::Error;
-use crate::vcs::options::{Options, window_boundary};
+use crate::vcs::options::Options;
 use crate::vcs::replay;
 use crate::vcs::score::RISK_SCORE_VERSION;
 use crate::vcs::stats::VCS_SCHEMA_VERSION;
@@ -112,14 +115,18 @@ pub(crate) fn build_cached(
 
     let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
 
+    // Opened before the `--no-cache` early return: the walk needs the
+    // snapshot either way; only the digest is skipped there.
+    let walk = history::WalkContext::open(&repo, options, now);
+
     // Caching disabled, or no cache location available: plain walk + replay.
     let Some(repo_dir) = repo_dir.filter(|_| config.enabled) else {
-        let (events, _) = history::collect_events(&repo, head_oid, options, now, &HashSet::new())?;
+        let (events, _) = history::collect_events(&walk, head_oid, &HashSet::new())?;
         return Ok(assemble(seed, &events, options, now, workdir, shallow));
     };
 
-    let fingerprint = cache::fingerprint(options, repo::mailmap_digest(&repo));
-    let long_boundary = window_boundary(now, options.long_window_secs);
+    let fingerprint = cache::fingerprint(options, walk.mailmap_digest());
+    let long_boundary = walk.long_boundary();
 
     // Pure hit: an exact, compatible entry that reaches back far enough.
     let exact_path = cache::entry_path(&repo_dir, &head_sha);
@@ -137,17 +144,8 @@ pub(crate) fn build_cached(
     }
 
     // Miss: walk only the new commits and splice them onto a cached tail.
-    let (events, superseded) = incremental_events(
-        &repo,
-        &repo_dir,
-        head_oid,
-        &head_sha,
-        fingerprint,
-        long_boundary,
-        options,
-        now,
-        shallow,
-    )?;
+    let (events, superseded) =
+        incremental_events(&walk, &repo_dir, head_oid, &head_sha, fingerprint, shallow)?;
 
     let index = assemble(seed, &events, options, now, workdir, shallow);
 
@@ -175,28 +173,25 @@ pub(crate) fn build_cached(
 /// A full-DAG splice is unsound — a merge can introduce side-branch commits
 /// absent from the cached first-parent tail — so `--full-history` collects
 /// no candidates and always re-walks the full window.
-#[allow(clippy::too_many_arguments)]
 fn incremental_events(
-    repo: &gix::Repository,
+    walk: &history::WalkContext<'_>,
     repo_dir: &Path,
     head_oid: gix::ObjectId,
     head_sha: &str,
     fingerprint: u64,
-    long_boundary: i64,
-    options: &Options,
-    now: i64,
     shallow: bool,
 ) -> Result<(Vec<CommitEvent>, Option<PathBuf>), Error> {
+    let long_boundary = walk.long_boundary();
     let candidates = load_candidates(
         repo_dir,
         fingerprint,
         long_boundary,
-        options.full_history,
+        walk.options.full_history,
         shallow,
     );
     let stop_oids: HashSet<gix::ObjectId> = candidates.keys().copied().collect();
 
-    let (new_events, stopped) = history::collect_events(repo, head_oid, options, now, &stop_oids)?;
+    let (new_events, stopped) = history::collect_events(walk, head_oid, &stop_oids)?;
 
     // Splice onto the cached tail when the walk reached a known ancestor.
     let spliced = stopped.and_then(|oid| candidates.get(&oid));
@@ -208,7 +203,7 @@ fn incremental_events(
     if let Some(candidate) = spliced {
         events.extend(candidate.cache.events.iter().cloned());
     }
-    Ok((prune_and_dedup(events, now, long_boundary), superseded))
+    Ok((prune_and_dedup(events, walk.now, long_boundary), superseded))
 }
 
 /// A loaded candidate entry plus the path it came from (for supersession).

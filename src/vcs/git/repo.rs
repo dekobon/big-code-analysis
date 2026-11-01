@@ -1,8 +1,6 @@
 //! Repository discovery and target-tree file enumeration.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
@@ -43,70 +41,6 @@ pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
         workdir,
         shallow,
     })
-}
-
-/// A stable 64-bit digest of the repository's **effective mailmap** — the
-/// merged snapshot [`gix::Repository::open_mailmap`] produces, which is
-/// exactly what the walk resolves author identities against
-/// ([`history::collect_events`](super::history::collect_events)).
-///
-/// Author identities are canonicalised at *walk* time and stored in the
-/// cache as digests, so a mailmap edit changes the recorded events without
-/// moving `HEAD` or any field of [`Options`](crate::vcs::Options). Feeding
-/// this value into [`cache::fingerprint`](crate::vcs::cache::fingerprint)
-/// is what stops a stale event log being replayed — or, worse, spliced
-/// into and re-persisted — under a mailmap it was not walked with
-/// (issue #1262).
-///
-/// # Why the parsed snapshot rather than the source bytes
-///
-/// `open_mailmap` merges up to four sources whose selection is
-/// conditional: the working-tree `.mailmap` (uncommitted edits included),
-/// `HEAD:.mailmap` for a bare repo *when `mailmap.blob` is unset*, the
-/// `mailmap.blob` object, and the `mailmap.file` path. Re-deriving that
-/// list here would be a coverage claim nothing checks — a source missed
-/// (or one added by a future gix release, the dependency being
-/// caret-ranged) silently reproduces this bug for that source. Digesting
-/// the merged snapshot instead delegates the source list to gix, so it
-/// cannot drift.
-///
-/// `Snapshot::iter` is documented as ordered by `(old_email, old_name)`,
-/// so the digest is deterministic across processes, and `DefaultHasher` is
-/// created with fixed keys for the same cross-process stability
-/// [`cache::fingerprint`](crate::vcs::cache::fingerprint) relies on. That
-/// documented order is why this hashes `entries()` rather than the
-/// `Snapshot` itself, which also derives `Hash`: the derive would rest on
-/// gix's private field layout, where `iter`'s ordering is part of its
-/// contract. The `Vec` is a mailmap's worth of borrowed slices.
-///
-/// Digesting the parsed entries also means a comment- or whitespace-only
-/// `.mailmap` edit does not cost a needless cold walk: the resolution it
-/// feeds is unchanged, so replaying is correct.
-///
-/// # Residual window
-///
-/// The walk re-opens the mailmap for itself, and nothing makes the two
-/// reads agree. An edit can land between them, and so can a transient
-/// that changes nothing on disk: `open_mailmap` turns a failed or
-/// mid-rewrite read into an empty or partial snapshot rather than an
-/// error — a truncate- or rename-then-write save of unchanged content,
-/// or a swallowed I/O error. The entry is then stamped with this call's
-/// view over events resolved under the walk's.
-///
-/// Which read saw the content that lasts decides whether it heals. When
-/// the walk did, the next run at the same `HEAD` fingerprints
-/// differently and overwrites the entry. When this call did — every
-/// transient, and an edit later reverted — later runs reproduce the
-/// stamp: the pure hit serves the entry, and the incremental splice
-/// carries its events forward until they leave the long window, a
-/// mailmap or option change moves the fingerprint, or `--clear-cache`
-/// runs. Closing the window means threading one snapshot through the
-/// walk — see issue #1409.
-#[must_use]
-pub(crate) fn mailmap_digest(repo: &gix::Repository) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    repo.open_mailmap().entries().hash(&mut hasher);
-    hasher.finish()
 }
 
 /// Discover the working-tree root of the repository containing `path`.

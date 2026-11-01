@@ -5,8 +5,10 @@ use std::path::PathBuf;
 /// A stand-in mailmap digest, deliberately not `0`, so an assertion here
 /// cannot pass because two default values coincide
 /// (`.claude/rules/testing.md`). No real digest is computed in this
-/// module — `repo::mailmap_digest` needs a repository, so it is covered by
-/// the `vcs_cache` integration tests.
+/// module — `WalkContext::mailmap_digest` lives in the git backend, whose
+/// `history_tests` pin that the walk resolves identities through the
+/// snapshot the digest is taken from (#1409) and whose `vcs_cache`
+/// integration tests cover invalidation.
 const SAMPLE_MAILMAP_DIGEST: u64 = 0xfeed_face_dead_beef;
 
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
