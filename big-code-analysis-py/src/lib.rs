@@ -354,57 +354,45 @@ fn analyze(
         metrics: metric_set,
         mi_charges_docs,
     };
-    // Release the GIL across the file read + tree-sitter parse so
-    // other Python threads (e.g. `concurrent.futures.ThreadPoolExecutor.map`
-    // around this function, the documented parallelism pattern) can
-    // actually run. `analyze_path` touches no Python objects, so the
-    // release is sound; the GIL is re-acquired before
-    // `json_string_to_py` materialises the Python `dict`. In PyO3
-    // 0.28 the spelling is `Python::detach` (renamed from
-    // `allow_threads`).
-    let result = py
-        .detach(|| analysis::analyze_path(&path, opts))
-        .map_err(analysis_error_to_py)?;
+    // Release the GIL across the file read, tree-sitter parse, VCS attach
+    // and serialization so other Python threads (e.g.
+    // `concurrent.futures.ThreadPoolExecutor.map` around this function,
+    // the documented parallelism pattern) can actually run. None of it
+    // touches a Python object, so the release is sound, and it is one
+    // release: the GIL is re-acquired only before `json_string_to_py`
+    // materialises the Python `dict`. In PyO3 0.28 the spelling is
+    // `Python::detach` (renamed from `allow_threads`).
+    //
     // `vcs=True` (#328) attaches a `vcs` block to the file's metrics from
     // a one-shot history walk of its repository; `vcs_per_function=True`
     // (#329 / #578) blames the file once and attaches a block to every
     // nested function space. The two are independent (file-level vs nested
-    // spaces), so both can be set. For `vcs=True` the expensive part is
-    // the history walk, which touches no Python objects and so runs
-    // off-GIL (#620), mirroring `vcs.rank()` and the batch path; the
-    // cheap JSON-injection step (which builds Python errors) stays under
-    // the re-acquired GIL. For whole-repo ranking prefer
-    // `vcs.rank()`, which walks history once.
+    // spaces), so both can be set. The history walk and the blame are the
+    // expensive parts, and both run off-GIL inside the same detach (#620).
+    // For whole-repo ranking prefer `vcs.rank()`, which walks history once.
     //
-    // `vcs_per_function=True` does **not** get that split: only the
-    // session open is detached below, and the blame itself runs inside
-    // `inject_vcs_per_function_with_blame` with the GIL held. #1117 made
-    // the open cheaper still (it now defers the handle, mailmap, and
-    // commit memo), which widens the gap rather than closing it —
-    // splitting the injector so the blame runs off-GIL and only the JSON
-    // attach re-acquires is tracked separately.
+    // Both blocks go on the `FuncSpace` before it is serialized, so the
+    // dict keeps the CLI's key order (see `crate::vcs::inject_vcs_with_index`).
+    let attach = |space: &mut big_code_analysis::FuncSpace| {
+        if vcs {
+            let root = crate::vcs::repo_root_for(&path);
+            if let Some(index) = crate::vcs::build_index_for(root) {
+                crate::vcs::inject_vcs_with_index(space, &path, &index);
+            }
+        }
+        if vcs_per_function {
+            let root = crate::vcs::repo_root_for(&path);
+            if let Some(mut blame) = crate::vcs::open_blame_for(root) {
+                crate::vcs::inject_vcs_per_function_with_blame(space, &path, &mut blame);
+            }
+        }
+    };
+    let result = py
+        .detach(|| analysis::analyze_path(&path, opts, attach))
+        .map_err(analysis_error_to_py)?;
     match result {
         Outcome::SkippedGenerated | Outcome::Declined => Ok(None),
-        Outcome::Analyzed(mut json) => {
-            if vcs {
-                let root = crate::vcs::repo_root_for(&path);
-                if let Some(index) = py.detach(|| crate::vcs::build_index_for(root))
-                    && let Some(injected) = crate::vcs::inject_vcs_with_index(&json, &path, &index)?
-                {
-                    json = injected;
-                }
-            }
-            if vcs_per_function {
-                let root = crate::vcs::repo_root_for(&path);
-                if let Some(mut blame) = py.detach(|| crate::vcs::open_blame_for(root))
-                    && let Some(injected) =
-                        crate::vcs::inject_vcs_per_function_with_blame(&json, &path, &mut blame)?
-                {
-                    json = injected;
-                }
-            }
-            conversion::json_string_to_py(py, &json).map(Some)
-        }
+        Outcome::Analyzed(json) => conversion::json_string_to_py(py, &json).map(Some),
     }
     // Keyword-only kwargs stay split at the PyO3 boundary (PyO3 has
     // no struct-literal binding for `#[pyo3(signature)]`); the

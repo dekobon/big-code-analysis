@@ -47,6 +47,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 
+use big_code_analysis::FuncSpace;
 use big_code_analysis::vcs::{BlameSession, HistoryIndex};
 
 use crate::analysis::{self, AnalysisError, AnalyzeOptions, Outcome};
@@ -435,20 +436,21 @@ fn push_one_result(
     vcs_repos: &mut VcsRepoCache,
     results: &mut Vec<Py<PyAny>>,
 ) -> PyResult<()> {
-    // Release the GIL across the file read and tree-sitter parse so
-    // other Python threads can run during the sequential sweep.
-    // `analyze_path` touches no Python objects, so `py.detach` is sound;
-    // the GIL is re-acquired before `json_string_to_py` builds the dict.
-    let outcome = py.detach(|| analysis::analyze_path(path, opts));
+    // Release the GIL across the file read, tree-sitter parse, VCS attach
+    // and serialization so other Python threads can run during the
+    // sequential sweep. None of it touches a Python object, so one
+    // `py.detach` covers the whole file; the GIL is re-acquired before
+    // `json_string_to_py` builds the dict.
+    //
+    // The VCS blocks (file-level and/or per-function) come from the
+    // shared per-repo index / blame engine. A VCS failure (history walk
+    // or blame open) leaves the AST metrics intact (graceful degradation)
+    // and never turns the result into an `AnalysisFailure` nor aborts the
+    // batch (#670, #851) — `attach` is infallible, degrading internally.
+    let outcome =
+        py.detach(|| analysis::analyze_path(path, opts, |space| vcs_repos.attach(space, path)));
     match outcome {
         Ok(Outcome::Analyzed(json)) => {
-            // Attach VCS blocks (file-level and/or per-function) using the
-            // shared per-repo index / blame engine. A VCS failure (history
-            // walk, blame open, or injection reserialize) leaves the AST
-            // metrics intact (graceful degradation) and never turns the
-            // result into an `AnalysisFailure` nor aborts the batch (#670,
-            // #851) — `attach` is infallible, degrading internally.
-            let json = vcs_repos.attach(py, json, path);
             match conversion::json_string_to_py(py, &json) {
                 Ok(dict) => results.push(dict.unbind()),
                 Err(err) => {
@@ -543,57 +545,50 @@ impl VcsRepoCache {
     /// directory shares a single discovery. Falls back to that parent
     /// directory when `path` is not inside a repository, preserving the
     /// graceful per-file degradation.
-    fn resolve_root(&mut self, py: Python<'_>, path: &Path) -> Arc<Path> {
+    fn resolve_root(&mut self, path: &Path) -> Arc<Path> {
         let parent = vcs_bridge::repo_root_for(path);
         if let Some(root) = self.roots.get(parent) {
             return Arc::clone(root);
         }
-        let resolved: Arc<Path> = py
-            .detach(|| vcs_bridge::workdir_root_for(path))
-            .map_or_else(|| parent.into(), Into::into);
+        let resolved: Arc<Path> =
+            vcs_bridge::workdir_root_for(path).map_or_else(|| parent.into(), Into::into);
         self.roots
             .insert(parent.to_path_buf(), Arc::clone(&resolved));
         resolved
     }
 
-    /// Attach the requested VCS blocks to `json` for `path`, building (and
-    /// caching) the per-repo index / blame engine on first use. Returns the
-    /// rewritten JSON. Infallible: a VCS failure — index build, blame open,
-    /// or an injection JSON parse / reserialize error — leaves the AST
-    /// metrics intact (the un-attached JSON), so one bad file degrades
-    /// gracefully instead of aborting the whole batch (#851).
-    fn attach(&mut self, py: Python<'_>, json: String, path: &Path) -> String {
+    /// Attach the requested VCS blocks to `space` for `path`, building (and
+    /// caching) the per-repo index / blame engine on first use. Infallible:
+    /// a VCS failure — index build or blame open — leaves the AST metrics
+    /// intact, so one bad file degrades gracefully instead of aborting the
+    /// whole batch (#851).
+    ///
+    /// Runs inside the caller's `py.detach`, so the history walk and the
+    /// blame are off-GIL (#620) with no release of their own.
+    fn attach(&mut self, space: &mut FuncSpace, path: &Path) {
         if !self.vcs && !self.vcs_per_function {
-            return json;
+            return;
         }
-        let root = self.resolve_root(py, path);
-        let mut json = json;
+        let root = self.resolve_root(path);
         if self.vcs {
-            // Build the index off-GIL (the history walk is the expensive
-            // part, #620); cache it under the repo root for reuse.
+            // The history walk is the expensive part; cache the index under
+            // the repo root for reuse.
             let entry = if let Some(slot) = self.indexes.get(&root) {
                 slot.as_ref()
             } else {
-                let built = py.detach(|| vcs_bridge::build_index_for(&root));
+                let built = vcs_bridge::build_index_for(&root);
                 self.indexes
                     .entry(Arc::clone(&root))
                     .or_insert(built)
                     .as_ref()
             };
             if let Some(index) = entry {
-                // Injection re-parses / reserialises the self-produced JSON;
-                // that is an internal-invariant step, not a per-file input
-                // failure. A failure here must leave the file's AST metrics
-                // intact (graceful degradation, #851) — degrade to the
-                // un-attached JSON rather than letting the `Err` propagate
-                // and abort the whole batch. `attach_or_keep` keeps the
-                // pre-injection JSON to fall back to.
-                json = attach_or_keep(json, |j| vcs_bridge::inject_vcs_with_index(j, path, index));
+                vcs_bridge::inject_vcs_with_index(space, path, index);
             }
         }
         if self.vcs_per_function {
             if !self.blames.contains_key(&root) {
-                let built = py.detach(|| vcs_bridge::open_blame_for(&root));
+                let built = vcs_bridge::open_blame_for(&root);
                 self.blames.insert(Arc::clone(&root), built);
             }
             // `contains_key` + `get_mut` rather than the index path's
@@ -603,34 +598,9 @@ impl VcsRepoCache {
             // repo (#1117), so each blame needs it by `&mut` — and this
             // shape keeps the hit path from cloning `root`.
             if let Some(Some(blame)) = self.blames.get_mut(&root) {
-                json = attach_or_keep(json, |j| {
-                    vcs_bridge::inject_vcs_per_function_with_blame(j, path, blame)
-                });
+                vcs_bridge::inject_vcs_per_function_with_blame(space, path, blame);
             }
         }
-        json
-    }
-}
-
-/// Run a VCS injector over the metrics JSON, keeping the un-injected input
-/// when the injector has nothing to attach or fails (#851).
-///
-/// The injectors (`inject_vcs_with_index` /
-/// `inject_vcs_per_function_with_blame`) only `Err` on a JSON parse /
-/// reserialize failure — an internal-invariant break, not a per-file input
-/// error. The batch contract is that a VCS failure leaves a file's AST
-/// metrics intact rather than aborting the batch or turning the file into an
-/// `AnalysisFailure`, so a failed injection degrades to the original JSON.
-///
-/// The injector borrows the JSON and returns `Ok(None)` for "unchanged" (an
-/// untracked file, no nested spaces), so neither the no-op nor the error
-/// path has to clone the whole document to have something to return; the
-/// input is only replaced when there is a rewrite to replace it with
-/// (#1349).
-fn attach_or_keep(json: String, inject: impl FnOnce(&str) -> PyResult<Option<String>>) -> String {
-    match inject(&json) {
-        Ok(Some(injected)) => injected,
-        Ok(None) | Err(_) => json,
     }
 }
 
@@ -894,54 +864,6 @@ mod tests {
     }
 
     #[test]
-    fn attach_or_keep_falls_back_to_input_on_injection_error() {
-        // #851: a VCS-injection failure must leave the file's AST metrics
-        // intact (degrade to the un-attached JSON) rather than propagate an
-        // `Err` that aborts the whole batch. Before this fix the injector's
-        // `Err` flowed through `attach`'s `?` and the `?` at the
-        // `push_one_result` call site, raising to Python and discarding
-        // every result computed so far.
-        let original = r#"{"metrics":{"cyclomatic":{"sum":3}}}"#.to_owned();
-        let kept = attach_or_keep(original.clone(), |_json| {
-            Err(PyErr::new::<PyValueError, _>(
-                "simulated injection reserialize failure",
-            ))
-        });
-        assert_eq!(
-            kept, original,
-            "a failed injection must return the un-attached JSON (AST metrics intact), \
-             not drop or mangle it",
-        );
-    }
-
-    #[test]
-    fn attach_or_keep_returns_transformed_json_on_success() {
-        // The success path must return the injector's output, not the
-        // input — guards against a regression that always kept the input
-        // (which would silently drop every VCS block).
-        let original = "before".to_owned();
-        let transformed = attach_or_keep(original, |json| Ok(Some(format!("{json}+vcs"))));
-        assert_eq!(transformed, "before+vcs");
-    }
-
-    #[test]
-    fn attach_or_keep_keeps_input_when_injector_has_nothing_to_attach() {
-        // #1349: an untracked file (no index entry) or a file with no
-        // nested spaces makes the injector a no-op, which it reports as
-        // `Ok(None)` instead of handing back a copy of its input. The
-        // input must come back intact, and the injector must have seen it
-        // — the borrow is what replaced the per-file full-JSON clone.
-        let original = r#"{"metrics":{"cyclomatic":{"sum":3}}}"#.to_owned();
-        let mut seen = None;
-        let kept = attach_or_keep(original.clone(), |json| {
-            seen = Some(json.to_owned());
-            Ok(None)
-        });
-        assert_eq!(kept, original, "a no-op injection must return its input");
-        assert_eq!(seen.as_deref(), Some(original.as_str()));
-    }
-
-    #[test]
     fn resolve_root_hands_out_one_shared_root_per_directory() {
         // #1349: a cache hit used to build an owned lookup key and clone
         // the cached `PathBuf` for every file. The root is now looked up
@@ -952,17 +874,15 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let first = dir.path().join("a.rs");
         let second = dir.path().join("b.rs");
-        Python::attach(|py| {
-            let mut cache = VcsRepoCache::new(true, false);
-            let miss = cache.resolve_root(py, &first);
-            let hit = cache.resolve_root(py, &second);
-            assert_eq!(&*miss, &*hit, "files in one directory share a root");
-            assert!(
-                Arc::ptr_eq(&miss, &hit),
-                "a cache hit must share the cached root, not copy it",
-            );
-            assert_eq!(cache.roots.len(), 1, "one discovery per directory");
-        });
+        let mut cache = VcsRepoCache::new(true, false);
+        let miss = cache.resolve_root(&first);
+        let hit = cache.resolve_root(&second);
+        assert_eq!(&*miss, &*hit, "files in one directory share a root");
+        assert!(
+            Arc::ptr_eq(&miss, &hit),
+            "a cache hit must share the cached root, not copy it",
+        );
+        assert_eq!(cache.roots.len(), 1, "one discovery per directory");
     }
 
     #[test]

@@ -1,8 +1,10 @@
 //! Bridge between the Python entry points and the upstream library.
 //!
 //! These functions own the I/O, language resolution, and tree-sitter
-//! parsing concerns; the result is always a JSON `String`
-//! representation of a [`big_code_analysis::FuncSpace`], produced by
+//! parsing concerns. [`analyze_path`] runs the caller's `attach` hook on
+//! the [`big_code_analysis::FuncSpace`] before serializing it, so a VCS
+//! block is part of the struct rather than spliced into its JSON; the
+//! result is a JSON `String` produced by [`to_json`] with
 //! `serde_json::to_string(&space)` — the exact same serializer the
 //! `bca` CLI uses for its `--output-format json` path. The caller in
 //! [`crate::lib`] hands the string to [`crate::conversion::json_string_to_py`]
@@ -34,8 +36,8 @@ use std::path::Path;
 
 use big_code_analysis::metric_catalog::{UnknownSelectorError, resolve_selector};
 use big_code_analysis::{
-    LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
-    normalize_eol, read_file_with_eol,
+    FuncSpace, LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language,
+    is_generated, normalize_eol, read_file_with_eol,
 };
 
 use crate::language::{parse_language_name, unknown_language_message};
@@ -103,7 +105,7 @@ pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, ParseMet
 /// owned by the bridge layer; the `PyO3` dispatcher in [`crate::lib`]
 /// builds it from the kwargs and hands the whole record across the
 /// crate boundary so call sites read as
-/// `analyze_path(&path, AnalyzeOptions::default())` for CLI-walker
+/// `analyze_path(&path, AnalyzeOptions::default(), attach)` for CLI-walker
 /// parity (the [`Default`] impl below sets `skip_generated=true`,
 /// matching the Python `analyze(skip_generated=True)` default) or as
 /// `AnalyzeOptions { skip_generated: false, ..Default::default() }`
@@ -283,7 +285,8 @@ impl From<serde_json::Error> for AnalysisError {
 /// of a mislabelled `None` slot (#1348).
 #[derive(Debug)]
 pub(crate) enum Outcome {
-    /// The file parsed; the serialised `FuncSpace` JSON.
+    /// The file parsed; the serialised `FuncSpace` JSON, with whatever
+    /// the `attach` hook of [`analyze_path`] added.
     Analyzed(String),
     /// `skip_generated` is on and the file carries a generated-code marker.
     SkippedGenerated,
@@ -299,8 +302,16 @@ pub(crate) enum Outcome {
 /// [`big_code_analysis::guess_language`] — the same helper the `bca`
 /// CLI uses, which inspects the path extension first and falls back
 /// to a `#!`-shebang line or an emacs `-*- mode: … -*-` declaration
-/// for extension-less scripts — parses, and returns the serialised
-/// `FuncSpace` as a JSON `String`.
+/// for extension-less scripts — parses, runs `attach` on the
+/// `FuncSpace`, and returns it serialised as a JSON `String`.
+///
+/// `attach` is where the VCS blocks go on (#1768): it edits the struct
+/// before [`to_json`] runs, so they serialize in the CLI's key order. It
+/// runs only for a file that parsed. Taking it here rather than handing
+/// the `FuncSpace` back keeps a file's read, parse, VCS attach and
+/// serialization in one call, which the entry points run inside a single
+/// `py.detach` instead of releasing and re-acquiring the GIL once per
+/// step.
 ///
 /// The file is read *before* language inference (CLI parity): a
 /// missing or unreadable file therefore raises an I/O error even
@@ -354,7 +365,11 @@ pub(crate) enum Outcome {
 /// and parsing: a file with a generated marker but an unknown
 /// extension still skips silently rather than raising
 /// `UnsupportedLanguage`, matching the CLI walker's ordering.
-pub(crate) fn analyze_path(path: &Path, opts: AnalyzeOptions) -> Result<Outcome, AnalysisError> {
+pub(crate) fn analyze_path(
+    path: &Path,
+    opts: AnalyzeOptions,
+    attach: impl FnOnce(&mut FuncSpace),
+) -> Result<Outcome, AnalysisError> {
     // Settle the `FuncSpace.name` policy *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
     // in the `AnalysisError::Io` arm — the `filename` field on the
@@ -416,7 +431,9 @@ pub(crate) fn analyze_path(path: &Path, opts: AnalyzeOptions) -> Result<Outcome,
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name.into_owned()), opts).map(Outcome::Analyzed)
+    let mut space = analyze_bytes(lang, &code, Some(name.into_owned()), opts)?;
+    attach(&mut space);
+    to_json(&space).map(Outcome::Analyzed)
 }
 
 /// The outcome for a path [`read_file_with_eol`] declined to read:
@@ -462,7 +479,13 @@ pub(crate) fn analyze_source(
     // unterminated or CRLF-bearing source reports different metrics than the
     // same content analysed from a file (issue #640).
     let code = normalize_eol(code.to_vec());
-    analyze_bytes(lang, &code, name, opts)
+    to_json(&analyze_bytes(lang, &code, name, opts)?)
+}
+
+/// Serialize a `FuncSpace` to the JSON the CLI's `--format json` emits
+/// for it, in `Serialize`-impl declaration order.
+pub(crate) fn to_json(space: &FuncSpace) -> Result<String, AnalysisError> {
+    Ok(serde_json::to_string(space)?)
 }
 
 fn analyze_bytes(
@@ -470,7 +493,7 @@ fn analyze_bytes(
     code: &[u8],
     name: Option<String>,
     opts: AnalyzeOptions,
-) -> Result<String, AnalysisError> {
+) -> Result<FuncSpace, AnalysisError> {
     let source = Source::new(lang, code).with_name(name);
     // Build `MetricsOptions` once from the bridge struct: `exclude_tests`
     // flows through unchanged, and the already-resolved `MetricSet` is
@@ -481,8 +504,7 @@ fn analyze_bytes(
         .with_exclude_tests(opts.exclude_tests)
         .with_metric_set(opts.metrics)
         .with_mi_charges_docs(opts.mi_charges_docs);
-    let space = analyze(source, options)?;
-    Ok(serde_json::to_string(&space)?)
+    Ok(analyze(source, options)?)
 }
 
 /// Convenience accessor used by the `__version__` module attribute.
@@ -697,7 +719,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path, AnalyzeOptions::default());
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -721,7 +743,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analysed_json(analyze_path(&path, AnalyzeOptions::default()));
+        let json = analysed_json(analyze_path(&path, AnalyzeOptions::default(), |_| {}));
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -774,7 +796,7 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let err = analyze_path(&path, AnalyzeOptions::default());
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "strict mode must reject non-UTF-8 path, got {err:?}",
@@ -796,7 +818,7 @@ mod tests {
         let path = dir
             .path()
             .join(OsStr::from_bytes(&[0xffu8, 0xff, b'.', b'r', b's']));
-        let err = analyze_path(&path, AnalyzeOptions::default());
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "the UTF-8 check must precede the read, got {err:?}",
@@ -815,7 +837,7 @@ mod tests {
         // `skip_unless_directory` test below is the
         // filesystem-independent guard.
         let dir = tempfile::tempdir().expect("tempdir");
-        match analyze_path(dir.path(), AnalyzeOptions::default()) {
+        match analyze_path(dir.path(), AnalyzeOptions::default(), |_| {}) {
             Err(AnalysisError::Io { source, path }) => {
                 assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
                 assert_eq!(path, dir.path());
@@ -866,8 +888,8 @@ mod tests {
         for (name, bytes) in declined {
             let path = dir.path().join(name);
             std::fs::write(&path, bytes).expect("write fixture");
-            let out =
-                analyze_path(&path, AnalyzeOptions::default()).expect("a skip is not an error");
+            let out = analyze_path(&path, AnalyzeOptions::default(), |_| {})
+                .expect("a skip is not an error");
             assert!(
                 matches!(out, Outcome::Declined),
                 "{name}: expected Declined, got {out:?}"
@@ -876,7 +898,7 @@ mod tests {
         let generated = dir.path().join("gen.rs");
         std::fs::write(&generated, b"// @generated DO NOT EDIT\npub fn x() {}\n")
             .expect("write fixture");
-        let out = analyze_path(&generated, AnalyzeOptions::default())
+        let out = analyze_path(&generated, AnalyzeOptions::default(), |_| {})
             .expect("a generated file is not an error");
         assert!(
             matches!(out, Outcome::SkippedGenerated),
@@ -903,6 +925,7 @@ mod tests {
                 allow_lossy_path: true,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         ));
         let value = parse_json(&json);
         let name = value
@@ -952,6 +975,7 @@ mod tests {
                 skip_generated: true,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         )
         .expect("generated file is not an error");
         assert!(
@@ -983,6 +1007,7 @@ mod tests {
                 skip_generated: false,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         ));
         let value = parse_json(&json);
         assert_eq!(
@@ -1019,6 +1044,7 @@ mod tests {
                 skip_generated: true,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         )
         .expect("skip must precede language inference");
         assert!(

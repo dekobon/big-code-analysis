@@ -451,6 +451,45 @@ def test_analyze_vcs_per_function_hotspot_matches_cli(tmp_path: Path, bca_binary
     assert py_hotspots == cli_hotspots
 
 
+def test_analyze_with_vcs_blocks_keeps_the_cli_key_order(tmp_path: Path, bca_binary: str) -> None:
+    """With VCS blocks attached, the dict serializes to the CLI's JSON.
+
+    The blocks used to be spliced into the serialized JSON through a
+    ``serde_json::Value``, whose map sorts keys, so every object in the
+    result came back alphabetised (``end_line`` first) while the CLI kept
+    declaration order. ``dict ==`` ignores order, so this compares the
+    serialized text. The CLI side goes through ``json.loads`` / ``dumps``
+    too, which normalises float spelling and nothing else.
+    """
+    repo = _build_nested_py_repo(tmp_path)
+    path = repo / "nested.py"
+    cli = subprocess.run(
+        [
+            bca_binary,
+            "metrics",
+            "--no-config",
+            "--vcs-per-function",
+            "--format",
+            "json",
+            "--paths",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    expected = json.dumps(json.loads(cli.stdout))
+    # The comparison is only about order if both sides carry blocks at
+    # both levels: the root and the four nested spaces.
+    assert expected.count('"vcs":') == 5, expected
+    assert expected.startswith('{"name":'), expected
+
+    single = bca.analyze(path, vcs=True, vcs_per_function=True)
+    (batched,) = bca.analyze_batch([path], vcs=True, vcs_per_function=True)
+    assert json.dumps(single) == expected
+    assert json.dumps(batched) == expected
+
+
 def test_analyze_without_vcs_per_function_has_no_nested_block(
     tmp_path: Path,
 ) -> None:
@@ -471,6 +510,29 @@ def test_analyze_vcs_per_function_outside_repo_degrades(tmp_path: Path) -> None:
     assert result is not None
     for space in _func_spaces(result):
         assert "vcs" not in space["metrics"]
+
+
+# One level past the serializer's `MAX_SPACE_SERIALIZE_DEPTH` (128) would
+# do; 200 leaves room should the bound grow a little.
+_PAST_SERIALIZE_DEPTH = 200
+
+
+def test_vcs_per_function_past_the_serialize_depth_raises(tmp_path: Path) -> None:
+    """Nesting past the serialization bound stays a catchable
+    ``ValueError`` with per-function blocks requested, and a batch slot an
+    ``AnalysisFailure``, now that the blocks are attached before the
+    serializer refuses the depth (#1768). Depth 200 on the main thread
+    cannot tell a recursive attach walk from an iterative one; that is
+    pinned by ``injector_walks_survive_nesting_past_the_serialize_bound``
+    in ``big-code-analysis-py/src/vcs.rs``."""
+    depth = _PAST_SERIALIZE_DEPTH
+    source = "".join(f"fn f{i}() {{\n" for i in range(depth)) + "}\n" * depth
+    repo = _commit_one_file(tmp_path, "deep.rs", source, "add deep nesting")
+    with pytest.raises(ValueError, match="deeper than the serialization limit"):
+        bca.analyze(repo / "deep.rs", vcs_per_function=True)
+    [failure] = bca.analyze_batch([repo / "deep.rs"], vcs_per_function=True)
+    assert isinstance(failure, bca.AnalysisFailure)
+    assert "deeper than the serialization limit" in failure.error
 
 
 def _build_staged_repo(root: Path) -> Path:

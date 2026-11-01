@@ -793,6 +793,18 @@ for historical reference.
   travels as `winerror`, which CPython maps to the matching errno, and
   `err.winerror` carries the Win32 code. Unix is unchanged (#1768).
 
+- Python bindings: with `vcs=True` or `vcs_per_function=True`, the
+  result dict now has the CLI's key order. The `vcs` blocks were
+  spliced into the serialized JSON through a `serde_json::Value`,
+  which sorts keys, so every object came back alphabetised and the
+  documented byte-for-byte parity with `bca metrics --format json`
+  held only without VCS. The blocks now go on the `FuncSpace` before
+  it is serialized, as the CLI does, which also drops a JSON parse and
+  re-serialization per requested block. Values are unchanged. Each
+  file's read, parse, VCS attach and serialization now run in one GIL
+  release, so the blame behind `analyze(..., vcs_per_function=True)`
+  no longer holds the GIL (#1768).
+
 ## [2.4.0] - 2026-10-21
 
 ### Added
