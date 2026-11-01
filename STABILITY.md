@@ -136,6 +136,23 @@ section.
     suggestion set are not SemVer-protected. The `#[doc(hidden)]`
     `format_suggestion` re-export that backs the suggestions exists for
     the CLI and is outside this contract.
+  - `metric_catalog::resolve_threshold_metric` and
+    `metric_catalog::ThresholdMetricError` (added #1618): the
+    threshold-name vocabulary `bca check --threshold` and the Python
+    `to_sarif(thresholds=)` share. `resolve_threshold_metric` maps a
+    `METRICS` id, or a `bca list-metrics` row name that abbreviates one
+    (`sloc` for `loc.sloc`), to its `&'static MetricInfo`. The error is
+    `#[non_exhaustive]`, as is each of its struct-like variants
+    (`Ambiguous { input, candidates }` for a family head with no scalar
+    of its own, `Unknown { input, suggestions }` for anything else), so
+    a variant or a field can be added in a minor release; match with a
+    wildcard arm and `..` in each variant pattern. Its `Display`
+    wording, the suggestion set and the candidate order are not
+    SemVer-protected. `metric_catalog::resolve_new_threshold_metric`
+    (added #1618) is the same resolution plus the duplicate guard a
+    spelling-keyed collection needs: given a predicate over the ids
+    already taken, it returns `Duplicate { input, id }` when the name
+    resolves to one of them.
   - The per-file function-listing, finding, counting, and
     comment-stripping operations are reached through the [`Ast`]
     seam (`Ast::functions`, `Ast::find`, `Ast::count`,
@@ -1280,7 +1297,14 @@ text is not. A limit that is accepted but can never fire, or fires on
 every value, emits a `UserWarning` rather than raising, so a caller
 that runs with warnings as errors sees it raised. Since 2.4.0 a
 negative `mi.original` / `mi.sei` floor is accepted where it used to
-raise.
+raise. Threshold *names* resolve through the library's
+`metric_catalog::resolve_threshold_metric`, the rule behind
+`bca check --threshold` (#1618): a bare `loc` sub-metric name (`sloc`)
+is accepted for its dotted id where it used to raise, a family head
+with no scalar of its own (`mi`, `halstead`, `loc`) raises `ValueError`
+naming the ids, and one id under both spellings raises `ValueError`, as
+the CLI's tables do. The exception class is the contract; the message
+text is not.
 
 ### Typing
 

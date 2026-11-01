@@ -193,6 +193,40 @@ fn build_rejects_unknown_metric() {
     assert!(err.contains("not_a_metric"), "{err}");
 }
 
+/// `build_tiered` renders an unknown name through the library's
+/// `ThresholdMetricError::Unknown` — `metric_alias::normalize_for_check`
+/// passes the name through so both typo classes stay on this surface
+/// (#1165) — and the Python bindings raise the same error, so the two
+/// front-ends print one wording (#1618). Pinned with and without a
+/// did-you-mean hint, so a second template cannot come back here.
+#[test]
+fn unknown_metric_message_matches_the_library_resolver() {
+    for name in ["cyclomatc", "made.up.metric"] {
+        let raw = BTreeMap::from([(name.to_string(), 1.0)]);
+        let ours = ThresholdSet::build(&raw).expect_err("unknown name");
+        let library = big_code_analysis::metric_catalog::resolve_threshold_metric(name)
+            .expect_err("unknown name")
+            .to_string();
+        assert_eq!(ours, library, "{name}");
+    }
+}
+
+/// A name the catalog resolves but `EXTRACTORS` does not key — an alias
+/// spelling handed to `build` without `insert_canonical_limit`'s folding —
+/// is still rejected, and the message says it may be an un-normalised
+/// alias and names the id it resolves to, so the reader looks for the
+/// missed fold rather than for a missing extractor.
+#[test]
+fn unfolded_alias_is_rejected_naming_its_catalog_id() {
+    let raw = BTreeMap::from([("sloc".to_string(), 1.0)]);
+    let err = ThresholdSet::build(&raw).expect_err("unfolded alias");
+    assert_eq!(
+        err,
+        "threshold metric \"sloc\" has no extractor or is an un-normalised alias \
+         (the catalog resolves it to \"loc.sloc\")"
+    );
+}
+
 #[test]
 fn build_accepts_zero_limit() {
     let mut raw = BTreeMap::new();

@@ -67,9 +67,24 @@ the same table the CLI's `--threshold` reads:
 * `mi.original`, `mi.sei`, `mi.visual_studio`
 * `abc`, `wmc`, `npm`, `npa`
 
-An unknown name raises `ValueError` listing the accepted set, so
-a typo fails fast instead of silently producing an empty SARIF
-run.
+Names resolve by the rule `bca check --threshold` applies, through
+the library's `metric_catalog::resolve_threshold_metric`, so a name
+copied from a CLI invocation works unchanged. A bare `loc` sub-metric
+name (`sloc`, `ploc`, `lloc`, `cloc`, `blank`, `dloc`, the spelling
+`bca diff --metric` buckets by) stands for its dotted id, so
+`{"sloc": 1200}` and `{"loc.sloc": 1200}` render the same document. A
+family head with no scalar of its own (`mi`, `halstead`, `loc`) raises
+`ValueError` naming the ids to choose from:
+
+```text
+ambiguous metric "mi": this family has no single threshold scalar; did you mean one of: mi.original, mi.sei, mi.visual_studio?
+```
+
+One id under both spellings (`{"sloc": 1200, "loc.sloc": 1500}`) is
+also a `ValueError`, as the same pair is in a `bca.toml` table: it is
+one metric, so set it once. Any other name raises `ValueError` listing the accepted set, with a
+"did you mean" hint when an id is close, so a typo fails fast instead
+of silently producing an empty SARIF run.
 
 Limits are validated by the same rules `bca check` applies, so a
 dict that the binding accepts is one the CLI accepts too. Most metrics
@@ -83,7 +98,8 @@ never do what you meant raises a `UserWarning` instead of a
 `ValueError`. `mi.visual_studio` is clamped to `[0, 100]`, so
 `{"mi.visual_studio": 0}` warns `limit mi.visual_studio=0 cannot fire:
 0 is the metric's floor; gate mi.original instead`. A NaN or infinite
-limit raises `ValueError`. The CLI side of these rules is described
+limit raises `ValueError`, and a `bool` limit raises `TypeError`
+rather than reading `False` as `0`. The CLI side of these rules is described
 under [`bca check`](../commands/check.md).
 
 `thresholds=None` (the default) and `thresholds={}` both produce

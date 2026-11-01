@@ -40,12 +40,11 @@ fn every_default_name_is_a_known_metric() {
 
 /// The names must also survive `ThresholdSet::build`, which is what
 /// `bca check` actually calls, and which additionally validates the
-/// limit itself.
-///
-/// This does not subsume `every_default_name_is_a_known_metric`:
-/// `build` runs `metric_alias::normalize_for_check` first, so it would
-/// happily accept a default spelled `sloc`. Rejecting alias spellings
-/// in the scaffold is what the other test uniquely covers.
+/// limit itself. `build` takes canonical keys as an invariant since
+/// #1165 and rejects an alias spelling such as `sloc` of its own
+/// accord, so a scaffold that spelled one would fail here too;
+/// `every_default_name_is_a_known_metric` is kept for its message,
+/// which names the offending default against the known set.
 #[test]
 fn default_table_builds_a_threshold_set() {
     let raw: BTreeMap<String, f64> = DEFAULT_THRESHOLDS

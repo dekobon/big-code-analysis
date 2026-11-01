@@ -504,7 +504,8 @@ fn check_rejects_one_metric_configured_under_two_spellings() {
         // distinguishable from a metric regression.
         .code(1)
         .stderr(predicate::str::contains(
-            "\"loc.sloc\" is already set in this table under its other spelling",
+            "[thresholds] \"sloc\": \"loc.sloc\" is already set; `sloc` and `loc.sloc` are \
+             one metric, so set it once",
         ));
 }
 

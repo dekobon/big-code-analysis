@@ -40,15 +40,15 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use big_code_analysis::metric_catalog::FAMILIES;
+use big_code_analysis::metric_catalog::{FAMILIES, MetricFamily};
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::format_util::{MetricScalar, strip_path_prefix};
-// Single source of truth for the one expanded family lives in
-// `metric_alias`; importing it keeps diff bucketing and `--metric`
-// aliasing from drifting apart.
-use crate::metric_alias::EXPANDED_FAMILY;
+// Which family expands into row-named buckets, and the bucket a leaf of
+// it lands in, are read from `metric_alias`, so diff bucketing and
+// `--metric` aliasing cannot drift apart.
+use crate::metric_alias::{diff_bucket, expanded_rows};
 
 // Reading a side off disk or out of a `--since` walk; this file
 // compares and renders what it loaded.
@@ -310,7 +310,7 @@ impl MetricDiff {
         // unchanged, so existing `--metric sloc` keeps working.
         let metric_filter: Vec<String> = metric_filter
             .iter()
-            .map(|m| crate::metric_alias::normalize_for_diff(m).into_owned())
+            .map(|m| crate::metric_alias::normalize_for_diff(m).to_string())
             .collect();
         let metric_filter = metric_filter.as_slice();
 
@@ -616,18 +616,15 @@ enum FamilyBucket<'a> {
     /// The whole family is one bucket of this name (every family except
     /// `loc`, plus any unknown key falling back to itself).
     Family(&'a str),
-    /// `loc` — bucket each leaf by its sub-metric name instead.
-    Expand,
+    /// A family whose `list-metrics` rows name its sub-measurements
+    /// (`loc`) — bucket each leaf by its row instead.
+    Expand(&'static MetricFamily),
 }
 
 /// Classify a top-level metric family key for bucketing.
 fn family_bucket(family_key: &str) -> FamilyBucket<'_> {
-    if family_key == EXPANDED_FAMILY {
-        // `loc` is the one family `list-metrics` expands into distinct
-        // sub-metric buckets; the caller buckets its leaves by name.
-        return FamilyBucket::Expand;
-    }
     match FAMILIES.iter().find(|f| f.name == family_key) {
+        Some(family) if expanded_rows(family).is_some() => FamilyBucket::Expand(family),
         Some(f) => FamilyBucket::Family(f.name),
         // A key with no catalog family (a future metric, or a non-metric
         // sibling the emitter adds) buckets under its own key rather than
@@ -636,23 +633,13 @@ fn family_bucket(family_key: &str) -> FamilyBucket<'_> {
     }
 }
 
-/// True when `field` (a dotted leaf path under the `loc` subtree) is a
-/// recognised sub-metric bucket name. The leaf path's first segment is
-/// the sub-metric (`sloc`, `ploc`, … — possibly with `_average` /
-/// `_min` / `_max` suffixes appended by the emitter), so the bucket is
-/// that first segment when it matches a `loc` row name.
-fn loc_bucket(field: &str) -> Option<&'static str> {
-    // The sub-metric is the segment before the first `_` suffix
-    // (`sloc`, `sloc_average`, …); `split_once` yields the whole field
-    // when there is no suffix.
-    let head = field.split_once('_').map_or(field, |(head, _)| head);
-    FAMILIES
-        .iter()
-        .find(|f| f.name == EXPANDED_FAMILY)?
-        .rows
-        .iter()
-        .find(|r| r.name == head)
-        .map(|r| r.name)
+/// The bucket for `field`, a dotted leaf path under an expanded family's
+/// subtree: the row it names (`sloc`, or `sloc_average` / `_min` /
+/// `_max` as the emitter suffixes it), or the family name for a leaf no
+/// row names. [`diff_bucket`] does the matching, so the leaves a delta
+/// carries and the names `--metric` validates go through one rule.
+fn row_bucket(family: &MetricFamily, field: &str) -> &'static str {
+    diff_bucket(family, field)
 }
 
 /// What the two documents hold at one scalar leaf. Built only when at
@@ -716,7 +703,7 @@ fn metric_leaves(old_metrics: &Value, new_metrics: &Value) -> Vec<MetricLeaf> {
                 // `loc` expands per sub-metric; a future loc field with
                 // no catalog row falls back to the `loc` family name so
                 // it is never silently dropped.
-                FamilyBucket::Expand => loc_bucket(&field).unwrap_or(EXPANDED_FAMILY).to_string(),
+                FamilyBucket::Expand(family) => row_bucket(family, &field).to_string(),
             };
             out.push(MetricLeaf {
                 bucket,

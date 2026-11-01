@@ -36,12 +36,19 @@
 //! the type `bca check` gates on: finite, non-negative for a count, any
 //! finite value for the `mi.*` floors (whose scale goes negative), with
 //! a `UserWarning` for a limit that can never fire or fires on every
-//! value. The accepted names are the ids of
-//! [`metric_catalog::METRICS`](big_code_analysis::metric_catalog::METRICS);
-//! the mapping table below pins which JSON field each is compared
-//! against, the binding's counterpart of the typed accessors in the
-//! CLI's `EXTRACTORS` table (`big-code-analysis-cli/src/thresholds.rs`),
-//! and both tables are tested against the catalog.
+//! value. Each name resolves through
+//! [`metric_catalog::resolve_threshold_metric`](big_code_analysis::metric_catalog::resolve_threshold_metric),
+//! the resolver behind `bca check --threshold`, so the two surfaces take
+//! one vocabulary (#1618): the ids of
+//! [`metric_catalog::METRICS`](big_code_analysis::metric_catalog::METRICS),
+//! plus a bare `loc` sub-metric name (`sloc`) for its dotted id, with an
+//! ambiguous family head (`mi`, `halstead`, `loc`) rejected naming the
+//! concrete ids and one id under two spellings rejected as the CLI's
+//! tables reject it (#1165). The mapping table below pins which JSON field each
+//! resolved id is compared against, the binding's counterpart of the
+//! typed accessors in the CLI's `EXTRACTORS` table
+//! (`big-code-analysis-cli/src/thresholds.rs`), and both tables are
+//! tested against the catalog.
 //!
 //! # Interior-space emission
 //!
@@ -135,12 +142,14 @@ use std::path::{Path, PathBuf};
 use pyo3::Bound;
 use pyo3::PyResult;
 use pyo3::Python;
-use pyo3::exceptions::{PyTypeError, PyUserWarning, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyUserWarning, PyValueError};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyBool, PyDict, PyDictMethods, PyMapping, PyString};
 
-use big_code_analysis::metric_catalog::Threshold;
+use big_code_analysis::metric_catalog::{
+    MetricInfo, Threshold, ThresholdMetricError, resolve_new_threshold_metric,
+};
 use big_code_analysis::{OffenderRecord, Severity, SpaceKind, write_sarif};
 
 use crate::batch::PyAnalysisError;
@@ -320,18 +329,51 @@ struct GatedField {
     path: &'static [&'static str],
 }
 
-/// Builds the "unknown threshold metric" error for `name`, listing the
-/// known metric names. The known-metrics list is joined lazily here so
-/// it is only allocated on the error path, never for valid lookups.
-fn unknown_threshold_metric_err(name: &str) -> PyErr {
-    let known = METRIC_FIELDS
+/// Resolve a threshold name to the catalog scalar it gates and the JSON
+/// path this binding reads that scalar from, rejecting a scalar that
+/// `gated` already carries under another spelling.
+///
+/// The resolver is the one behind `bca check --threshold` (#1618): a
+/// bare `sloc` lands on `loc.sloc`, `mi` is rejected naming its ids, and
+/// a second spelling of a gated id is refused by the library's own
+/// guard, so this dict and the CLI's `bca.toml` tables reject the pair
+/// with one rule and one wording. Dict keys are unique, so only that
+/// alias can name one id twice; left in, the pair would gate the id at
+/// both limits and emit each breach once per limit — the double gating
+/// #1165 removed from the CLI's tables.
+///
+/// `metric_fields_agree_with_shared_registry` pins that every catalog id
+/// has a row in [`METRIC_FIELDS`], so the `None` arm is unreachable in a
+/// built tree; it raises `RuntimeError`, not the `ValueError` a caller's
+/// typo raises, so a handler for the latter cannot swallow it.
+fn resolve_gated_metric(
+    name: &str,
+    gated: &[GatedField],
+) -> PyResult<(&'static MetricInfo, &'static [&'static str])> {
+    let info =
+        resolve_new_threshold_metric(name, |id| gated.iter().any(|g| g.threshold.id() == id))
+            .map_err(|e| {
+                // A duplicate names the dict it was found in, as the CLI's
+                // tables name theirs; the unknown and ambiguous wordings are
+                // the library's alone, byte for byte what `bca check
+                // --threshold` prints.
+                let message = match e {
+                    ThresholdMetricError::Duplicate { .. } => format!("thresholds {e}"),
+                    _ => e.to_string(),
+                };
+                PyValueError::new_err(message)
+            })?;
+    let path = METRIC_FIELDS
         .iter()
-        .map(|m| m.name)
-        .collect::<Vec<_>>()
-        .join(", ");
-    PyValueError::new_err(format!(
-        "unknown threshold metric {name:?}; known metrics: {known}"
-    ))
+        .find(|m| m.name == info.id)
+        .map(|m| m.path)
+        .ok_or_else(|| {
+            PyRuntimeError::new_err(format!(
+                "internal error: metric {:?} has no JSON path in this binding",
+                info.id
+            ))
+        })?;
+    Ok((info, path))
 }
 
 fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<GatedField>> {
@@ -351,22 +393,25 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Ga
                 "empty metric name in thresholds; metric names must be non-empty",
             ));
         }
-        let limit: f64 = value.extract().map_err(|_| {
-            PyTypeError::new_err(format!("threshold for {name:?} must be a number"))
-        })?;
-        let entry = METRIC_FIELDS
-            .iter()
-            .copied()
-            .find(|m| m.name == name)
-            .ok_or_else(|| unknown_threshold_metric_err(&name))?;
-        let checked = Threshold::check(entry.name, limit)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        // `bool` subclasses `int`, so `extract::<f64>()` would read
+        // `False` as a `0.0` ceiling that flags every function with one
+        // argument; the CLI refuses a boolean limit on the flag and in
+        // TOML, and `extract_metric` refuses one as a value.
+        let limit: f64 = if value.is_instance_of::<PyBool>() {
+            None
+        } else {
+            value.extract().ok()
+        }
+        .ok_or_else(|| PyTypeError::new_err(format!("threshold for {name:?} must be a number")))?;
+        let (info, path) = resolve_gated_metric(&name, &out)?;
+        let checked =
+            Threshold::check(info.id, limit).map_err(|e| PyValueError::new_err(e.to_string()))?;
         if let Some(warning) = checked.warning {
             warn_user(dict.py(), &warning.to_string())?;
         }
         out.push(GatedField {
             threshold: checked.threshold,
-            path: entry.path,
+            path,
         });
     }
     Ok(out)
@@ -704,7 +749,12 @@ fn collect_offenders(
 /// Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to drive
 /// finding emission. ``thresholds=None`` (the default) is equivalent
 /// to an empty dict and produces a well-formed SARIF run with no
-/// results, matching the CLI's no-threshold posture. Limits follow
+/// results, matching the CLI's no-threshold posture. Names are the ones
+/// ``bca check --threshold`` takes, resolved by the same rule (#1618):
+/// a catalog id, or a bare ``loc`` sub-metric name (``"sloc"``) for its
+/// dotted id; a family head with no single scalar (``"mi"``,
+/// ``"halstead"``, ``"loc"``) raises ``ValueError`` naming the ids, and
+/// so does one id given under both spellings. Limits follow
 /// ``bca check``'s rules (#1621): a count limit must be finite and
 /// non-negative, an ``mi.original`` / ``mi.sei`` floor may be negative,
 /// and a limit that cannot fire or fires on every value
@@ -892,6 +942,12 @@ mod tests {
     /// `value` field — so the binding emits at every space and the flag
     /// has no consumer in this front-end (it still documents the
     /// aggregate-field divergence in the registry).
+    ///
+    /// Since #1618 a name reaches the table through the catalog's
+    /// `resolve_threshold_metric`, so the second half pins that every
+    /// name the table lists resolves to exactly itself: no spelling
+    /// `to_sarif` accepted before the resolver can regress to an error
+    /// or land on another row.
     #[test]
     fn metric_fields_agree_with_shared_registry() {
         use big_code_analysis::metric_catalog::METRICS;
@@ -905,6 +961,12 @@ mod tests {
             "METRIC_FIELDS and library metric_catalog::METRICS disagree on \
              metric names; a metric was added to one front-end but not the other"
         );
+        for field in METRIC_FIELDS {
+            let (info, path) = resolve_gated_metric(field.name, &[])
+                .unwrap_or_else(|e| panic!("{} must resolve: {e}", field.name));
+            assert_eq!(info.id, field.name, "{} resolved to another id", field.name);
+            assert_eq!(path, field.path, "{} resolved to another path", field.name);
+        }
     }
 
     /// (iii) JSON-path drift guard (#442). The `path` column is unique to

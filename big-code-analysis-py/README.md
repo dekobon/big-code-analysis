@@ -241,9 +241,14 @@ table in `src/metric_catalog.rs`, the same source the CLI reads:
 `"loc.ploc"`, `"loc.lloc"`, `"loc.cloc"`, `"loc.blank"`,
 `"loc.dloc"`, `"nom"`,
 `"tokens"`, `"nexits"`, `"nargs"`, `"mi.original"`, `"mi.sei"`,
-`"mi.visual_studio"`, `"abc"`, `"wmc"`, `"npm"`, `"npa"`. An
-unknown name raises `ValueError` listing the accepted set, so a
-typo fails fast instead of silently producing an empty SARIF run.
+`"mi.visual_studio"`, `"abc"`, `"wmc"`, `"npm"`, `"npa"`. Names
+resolve by the rule `bca check --threshold` applies: a bare `loc`
+sub-metric name (`"sloc"`) stands for its dotted id, and a family head
+with no single scalar (`"mi"`, `"halstead"`, `"loc"`) raises
+`ValueError` naming the ids, as does one id given under both
+spellings. Any other unknown name raises `ValueError` listing the
+accepted set, so a typo fails fast instead of silently producing an
+empty SARIF run.
 
 `thresholds=None` (the default) and `thresholds={}` both produce
 a well-formed SARIF document with empty `results` and `rules`

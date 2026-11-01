@@ -427,12 +427,85 @@ def test_to_sarif_accepts_scalar_none() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
+#: The catalog ids, sorted: the vocabulary an unknown threshold name is
+#: checked against and listed with (the same list ``bca check`` prints).
+_THRESHOLD_METRIC_IDS = (
+    "abc, cognitive, cyclomatic, cyclomatic.modified, halstead.bugs, "
+    "halstead.difficulty, halstead.effort, halstead.time, halstead.volume, "
+    "loc.blank, loc.cloc, loc.dloc, loc.lloc, loc.ploc, loc.sloc, mi.original, "
+    "mi.sei, mi.visual_studio, nargs, nexits, nom, npa, npm, tokens, wmc"
+)
+
+
 def test_to_sarif_rejects_unknown_threshold_metric() -> None:
     """A typo must surface as ``ValueError`` listing the accepted set,
-    not silently as zero findings."""
+    not silently as zero findings. The wording is the library resolver's
+    (#1618), shared with ``bca check --threshold``: a close id is offered
+    as a hint, and the known list is the sorted catalog ids."""
     result = bca.analyze_source("def f(): pass\n", "python")
-    with pytest.raises(ValueError, match=r"unknown threshold metric"):
+    with pytest.raises(ValueError, match=r"unknown threshold metric") as unknown:
         bca.to_sarif(result, thresholds={"made.up.metric": 1.0})
+    assert str(unknown.value) == (
+        f'unknown threshold metric "made.up.metric"; known metrics: {_THRESHOLD_METRIC_IDS}'
+    )
+    with pytest.raises(ValueError, match=r"did you mean") as typo:
+        bca.to_sarif(result, thresholds={"cyclomatc": 1.0})
+    assert str(typo.value) == (
+        'unknown threshold metric "cyclomatc"; did you mean `cyclomatic`?; '
+        f"known metrics: {_THRESHOLD_METRIC_IDS}"
+    )
+
+
+def test_to_sarif_rejects_one_metric_under_two_spellings() -> None:
+    """``sloc`` and ``loc.sloc`` are one metric. Accepting both would gate
+    it at two limits and emit each breach once per limit, the double
+    gating the CLI's tables reject (#1165); the binding rejects the pair
+    the same way (#1618), naming the spelling it saw second."""
+    result = bca.analyze_source("def f(): pass\n", "python")
+    with pytest.raises(ValueError, match=r"are one metric, so set it once") as duplicate:
+        bca.to_sarif(result, thresholds={"sloc": 0, "loc.sloc": 5})
+    assert str(duplicate.value) == (
+        'thresholds "loc.sloc": "loc.sloc" is already set; `sloc` and `loc.sloc` are '
+        "one metric, so set it once"
+    )
+
+
+def test_to_sarif_accepts_bare_loc_submetric_name() -> None:
+    """A bare ``loc`` sub-metric name is the spelling ``bca diff --metric``
+    buckets by and ``bca check --threshold`` accepts, so ``to_sarif``
+    takes it too (#1618): ``sloc`` gates ``loc.sloc`` and renders the
+    same document, byte for byte, as the dotted id."""
+    result = bca.analyze_source("def f(): pass\n", "python")
+    bare = bca.to_sarif(result, thresholds={"sloc": 0})
+    dotted = bca.to_sarif(result, thresholds={"loc.sloc": 0})
+    rule_ids = [r["ruleId"] for r in _parse(bare)["runs"][0]["results"]]
+    # The equality below is only a claim if the bare name fired.
+    assert rule_ids == ["loc.sloc"]
+    assert bare == dotted
+
+
+@pytest.mark.parametrize(
+    ("head", "candidates"),
+    [
+        ("mi", "mi.original, mi.sei, mi.visual_studio"),
+        (
+            "halstead",
+            "halstead.volume, halstead.difficulty, halstead.effort, halstead.time, halstead.bugs",
+        ),
+        ("loc", "loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank, loc.dloc"),
+    ],
+)
+def test_to_sarif_rejects_ambiguous_family_head_with_candidates(head: str, candidates: str) -> None:
+    """A family head with no scalar of its own is rejected naming the
+    concrete ids, as ``bca check --threshold mi=…`` is (#1618), rather
+    than falling into the generic unknown-name error."""
+    result = bca.analyze_source("def f(): pass\n", "python")
+    with pytest.raises(ValueError, match=r"ambiguous metric") as ambiguous:
+        bca.to_sarif(result, thresholds={head: 1.0})
+    assert str(ambiguous.value) == (
+        f'ambiguous metric "{head}": this family has no single threshold scalar; '
+        f"did you mean one of: {candidates}?"
+    )
 
 
 def test_to_sarif_rejects_negative_threshold() -> None:
@@ -450,6 +523,21 @@ def test_to_sarif_rejects_nan_threshold(metric: str) -> None:
     result = bca.analyze_source("def f(): pass\n", "python")
     with pytest.raises(ValueError, match=r"must be a finite"):
         bca.to_sarif(result, thresholds={metric: float("nan")})
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_to_sarif_rejects_bool_threshold(flag: bool) -> None:
+    """``bool`` subclasses ``int``, so read as a number ``False`` is a
+    ``0`` ceiling that flags every function with an argument. ``bca
+    check`` refuses a boolean limit on the flag and in TOML; the binding
+    raises ``TypeError`` as for any other non-number, while the integer
+    ``0`` it would have stood for still gates."""
+    result = bca.analyze_source("def f(a): pass\n", "python")
+    with pytest.raises(TypeError) as rejected:
+        bca.to_sarif(result, thresholds={"nargs": flag})
+    assert str(rejected.value) == 'threshold for "nargs" must be a number'
+    at_zero = _parse(bca.to_sarif(result, thresholds={"nargs": 0}))
+    assert [r["ruleId"] for r in at_zero["runs"][0]["results"]] == ["nargs"]
 
 
 def _negative_mi_source(lines: int = 200) -> str:
