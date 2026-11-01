@@ -302,6 +302,26 @@ class CoverageTests(unittest.TestCase):
             code, out = self.t.run(*flags)
             self.assertEqual(code, 1, flags)
             self.assertIn("add a `[Tsx tree-sitter-typescript 0.23.2]` section", out)
+        # The remedy the message names must produce the entries: `--report`
+        # prints counts, not rows, and the per-entry errors need a section
+        # first (#1729). A scratch bootstrap writes every language's block.
+        self.assertIn("`--bootstrap --baseline <new-path>` — a path that does not exist yet", out)
+        scratch = self.t.dir / "scratch" / "baseline.txt"
+        scratch.parent.mkdir()
+        code, out = self.t.run("--bootstrap", "--baseline", str(scratch))
+        self.assertEqual(code, 0, out)
+        text = scratch.read_text()
+        start = text.index("[Tsx tree-sitter-typescript 0.23.2]")
+        # Tsx is not the last section in a sorted bootstrap today; the
+        # fallback keeps the slice honest if a language sorts after it.
+        end = text.find("\n[", start)
+        block = text[start : end if end != -1 else len(text)]
+        self.assertIn("\n1 named visible 'identifier'\n", block)
+        self.t.baseline.write_text(self.t.baseline.read_text() + "\n" + block)
+        code, out = self.t.run()
+        self.assertEqual(code, 1, "Typescript still has no section")
+        self.assertNotIn("Tsx: no baseline section", out)
+        self.assertNotIn("Tsx: kind", out)
 
     def test_extensions_come_from_the_one_reader_and_route_mozcpp(self) -> None:
         exts = cov.extensions_from_langs(self.t.langs)
@@ -427,6 +447,42 @@ class CoverageTests(unittest.TestCase):
             cov.CORPORA = saved
         self.assertEqual(code, 0, out)
         self.assertIn("not sampled by the corpus (1 languages): Java", out)
+
+    def _new_kind_label(self, observed: str) -> str:
+        """The corpus label a fresh residue entry gets under an `ok`
+        observation file reading ``observed`` (its Java section at the
+        pinned version, so only the sampling decides the label).
+
+        The file's `ok` status is proved by a `--require-observations`
+        run *before* the new kind exists: once a residue entry fails
+        the gate, `main` returns ahead of the `observation:` lines, so
+        a stale-guard on the labelled run could never fire."""
+        self.t.table(FULL)
+        self.t.run("--bootstrap")
+        saved = cov.CORPORA
+        try:
+            cov.CORPORA = ()
+            self.t.observed.write_text(observed)
+            code, out = self.t.run("--require-observations")
+            self.assertEqual(code, 0, out)
+            self.assertNotIn("observation stale", out)
+            (self.t.languages / "language_java.rs").write_text(enum_rs(KINDS + [("CoReturn", "co_return", False, True)]))
+            code, out = self.t.run()
+        finally:
+            cov.CORPORA = saved
+        self.assertEqual(code, 1)
+        line = next(ln for ln in out.splitlines() if "kind 7 `co_return`" in ln)
+        return line.split("corpus: ")[1].split(")")[0]
+
+    def test_a_sampled_language_labels_an_unseen_kind_unobserved(self) -> None:
+        label = self._new_kind_label("[Java tree-sitter-java 0.23.5 sampled attempted=1 parsed=1 failed=0]\n1\n")
+        self.assertEqual(label, "unobserved")
+
+    def test_an_unsampled_language_labels_a_new_kind_unknown(self) -> None:
+        # The corpus never looked, so it did not fail to see the kind:
+        # `unknown`, as the module docstring says, not `unobserved` (#1729).
+        label = self._new_kind_label("[Java tree-sitter-java 0.23.5 not-sampled attempted=0 parsed=0 failed=0]\n")
+        self.assertEqual(label, "unknown")
 
     def test_node_header_regex_reads_headers_only_and_punctuation_kinds(self) -> None:
         self.assertEqual(cov.NODE_HEADER_RE.match("╰─ {class_declaration:233} from (1, 1) to (1, 42) : class A { {x:9} }").group(1), "233")

@@ -415,6 +415,18 @@ def recorded_corpus_shas() -> dict[str, str]:
     return shas
 
 
+def corpus_label(obs: Observation | None, obs_status: str, lang: str, kid: int) -> str:
+    """What the corpus says about one residue kind: ``observed`` or
+    ``unobserved`` when a usable observation file sampled the language
+    — the corpus looked — and ``unknown`` when it is missing, stale, or
+    never looked because the corpus has no file in that language. The
+    one rule behind the per-entry error label and the summary's
+    observed count, so the two cannot drift (#1729)."""
+    if obs is None or obs_status != "ok" or not obs.sampled.get(lang, False):
+        return "unknown"
+    return "observed" if kid in obs.seen.get(lang, set()) else "unobserved"
+
+
 def observation_status(obs: Observation | None, reports: list[LangReport]) -> tuple[str, list[str]]:
     """``("ok" | "stale" | "missing", problems)``. Staleness is judged
     against the corpus commits the tree records; a populated submodule
@@ -528,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
         # pin transition
         section = pins.get(r.lang)
         if section is None:
-            print(f"error: {r.lang}: no baseline section — a new language's residue is recorded deliberately: add a `[{r.lang} {r.crate} {r.version}]` section listing every residue entry below (`--report` prints them), then run the gate")
+            print(f"error: {r.lang}: no baseline section — a new language's residue is recorded deliberately: add a `[{r.lang} {r.crate} {r.version}]` section listing every residue entry (`--bootstrap --baseline <new-path>` — a path that does not exist yet — writes every language's block; copy this one across), then run the gate")
             failed = True
             continue
         if section != (r.crate, r.version):
@@ -558,7 +570,7 @@ def main(argv: list[str] | None = None) -> int:
                 failed = True
         new = [e for e in r.residue if e.id not in recorded[r.lang]]
         for e in new:
-            label = "unknown" if obs is None or obs_status != "ok" else ("observed" if e.id in obs.seen.get(r.lang, set()) else "unobserved")
+            label = corpus_label(obs, obs_status, r.lang, e.id)
             print(f"error: {r.lang}: kind {e.id} `{e.kind}` ({'named' if e.named else 'anon'}, {'visible' if e.visible else 'hidden'}, corpus: {label}) is claimed by no role, excluded by none, and not baselined")
             failed = True
     if failed:
@@ -600,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
         # never `unreachable`. Adding a corpus is the only way to change it.
         print(f"observation: not sampled by the corpus ({len(unsampled)} languages): {', '.join(unsampled)}")
     residue = sum(len(r.residue) for r in reports)
-    observed = sum(1 for r in reports for e in r.residue if obs is not None and obs_status == "ok" and e.id in obs.seen.get(r.lang, set()))
+    observed = sum(1 for r in reports for e in r.residue if corpus_label(obs, obs_status, r.lang, e.id) == "observed")
     print(f"role-coverage: OK — {len(reports)} languages, {residue} baselined residue entries (observation {obs_status}: {observed} observed in the corpus)")
     return 0
 
