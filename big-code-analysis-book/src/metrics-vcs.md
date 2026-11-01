@@ -427,7 +427,10 @@ The **hotspot score** is the product of a file's complexity and its
 recent churn: `hotspot_score = cyclomatic_sum × churn_recent`. It is an
 `Option`, present only when an AST complexity figure is computed
 alongside the history (for example `bca metrics --metrics
-cyclomatic --vcs`), because it needs both halves.
+cyclomatic --vcs`), because it needs both halves. A
+[per-function block](./commands/vcs.md#per-function-attribution) uses
+the space's own cyclomatic instead of the subtree sum, so a nested
+function's complexity is not counted again in every enclosing space.
 
 The metric is the central idea of Adam Tornhill's 2015 book [*Your Code
 as a Crime

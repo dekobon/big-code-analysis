@@ -323,8 +323,9 @@ pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::BlameSession> {
 /// `vcs=True` path (#670): the caller builds the index off-GIL (#620) —
 /// one per containing repository for the batch path, reused across every
 /// file in that repo — and this attaches the matching block (and a
-/// hotspot score from the cyclomatic sum already present in the JSON). A
-/// file with no index entry (untracked / binary) is returned unchanged.
+/// hotspot score from the subtree cyclomatic sum already present in the
+/// JSON). A file with no index entry (untracked / binary) is returned
+/// unchanged.
 pub(crate) fn inject_vcs_with_index(
     funcspace_json: String,
     file_path: &Path,
@@ -340,29 +341,59 @@ pub(crate) fn inject_vcs_with_index(
     let mut doc: Value = serde_json::from_str(&funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
     let mut wire_vcs = wire::Vcs::from(stat);
-    attach_vcs_to_space(&mut doc, &mut wire_vcs)?;
+    attach_vcs_to_space(&mut doc, &mut wire_vcs, HotspotComplexity::SubtreeSum)?;
     serde_json::to_string(&doc)
         .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
 }
 
-/// Fill `wire_vcs.hotspot_score` from the space's own cyclomatic sum and
+/// Which serialized cyclomatic figure a space's `hotspot_score` is
+/// scored from. The choice follows the space's position in the tree, as
+/// the CLI's `vcs_command::inject` / `assign_child_stats` make it: the
+/// file (root) space uses the subtree rollup so the file-level score
+/// matches `bca vcs`, and every descendant — container or function — uses
+/// its own figure so nested complexity is not re-counted at each
+/// enclosing level (#709, #1624).
+#[derive(Clone, Copy, Debug)]
+enum HotspotComplexity {
+    /// `cyclomatic.sum`: the space plus everything nested in it.
+    SubtreeSum,
+    /// `cyclomatic.value`: the space's own complexity (serialized since
+    /// #958).
+    Own,
+}
+
+impl HotspotComplexity {
+    /// The key under the serialized `metrics.cyclomatic` object.
+    const fn json_key(self) -> &'static str {
+        match self {
+            Self::SubtreeSum => "sum",
+            Self::Own => "value",
+        }
+    }
+}
+
+/// Fill `wire_vcs.hotspot_score` from the space's `complexity` figure and
 /// insert the serialized block under the space's `metrics.vcs`. Shared by
 /// the file-level [`inject_vcs_with_index`] and the per-function
 /// [`attach_vcs_block`] so the two paths compute the hotspot and serialize
 /// the block identically and cannot drift (mirrors the CLI's
 /// `set_hotspot_score`).
 ///
-/// The hotspot needs the cyclomatic sum already in the serialized metrics
-/// (present when cyclomatic was computed); a space without it keeps
-/// `hotspot_score` unset, exactly like the CLI when the sum is zero.
-fn attach_vcs_to_space(space: &mut Value, wire_vcs: &mut wire::Vcs) -> Result<(), PyErr> {
-    if let Some(sum) = space
+/// The hotspot needs the cyclomatic figure already in the serialized
+/// metrics (present when cyclomatic was computed); a space without it
+/// keeps `hotspot_score` unset.
+fn attach_vcs_to_space(
+    space: &mut Value,
+    wire_vcs: &mut wire::Vcs,
+    complexity: HotspotComplexity,
+) -> Result<(), PyErr> {
+    if let Some(figure) = space
         .get("metrics")
         .and_then(|m| m.get("cyclomatic"))
-        .and_then(|c| c.get("sum"))
+        .and_then(|c| c.get(complexity.json_key()))
         .and_then(Value::as_f64)
     {
-        wire_vcs.hotspot_score = Some(hotspot::hotspot_score(sum, wire_vcs.churn_recent));
+        wire_vcs.hotspot_score = Some(hotspot::hotspot_score(figure, wire_vcs.churn_recent));
     }
     let vcs_value = serde_json::to_value(&*wire_vcs)
         .map_err(|e| PyValueError::new_err(format!("serializing vcs block: {e}")))?;
@@ -381,7 +412,7 @@ fn attach_vcs_to_space(space: &mut Value, wire_vcs: &mut wire::Vcs) -> Result<()
 /// engine off-GIL (#620) — one per containing repository for the batch
 /// path, reused across every file in that repo — and this blames the file
 /// **once** and attaches one block per descendant space (with a hotspot
-/// score from that space's own cyclomatic sum).
+/// score from that space's own cyclomatic, not its subtree sum).
 ///
 /// The file-level (root) space is left untouched here — it carries the
 /// whole-file block that [`inject_vcs_with_index`] attaches when
@@ -461,7 +492,7 @@ fn json_line(node: &Value, field: &str) -> u32 {
 
 /// Replay the [`collect_child_spans`] pre-order, attaching one blame
 /// `vcs::Stats` to each descendant space's `metrics.vcs` and filling its
-/// per-function `hotspot_score` from that space's own cyclomatic sum.
+/// per-function `hotspot_score` from that space's own cyclomatic.
 /// Mirrors the CLI's `vcs_command::assign_child_stats`.
 fn assign_child_stats(
     node: &mut Value,
@@ -480,12 +511,12 @@ fn assign_child_stats(
 }
 
 /// Serialize one `Stats` (with a hotspot score derived from the space's own
-/// cyclomatic sum) into the space's `metrics.vcs`. Mirrors
+/// cyclomatic) into a descendant space's `metrics.vcs`. Mirrors
 /// [`inject_vcs_with_index`]'s file-level attachment so the per-function
 /// block shape is byte-identical to the CLI's.
 fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
     let mut wire_vcs = wire::Vcs::from(stat);
-    attach_vcs_to_space(space, &mut wire_vcs)
+    attach_vcs_to_space(space, &mut wire_vcs, HotspotComplexity::Own)
 }
 
 /// Map a [`vcs::Error`] to the matching Python exception (#624).
@@ -519,5 +550,71 @@ fn vcs_error_to_py(error: vcs::Error) -> PyErr {
         // a caller that wants to distinguish them reads the message,
         // exactly as before this change.
         _ => crate::VcsError::new_err(message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn stats_with_churn(churn_recent: u64) -> vcs::Stats {
+        vcs::Stats {
+            churn_recent,
+            ..vcs::Stats::default()
+        }
+    }
+
+    fn hotspot_of(space: &Value) -> Option<f64> {
+        space["metrics"]["vcs"]["hotspot_score"].as_f64()
+    }
+
+    /// #1624: every descendant scores from its own `value` and
+    /// `SubtreeSum` reads `sum`, matching the CLI's `assign_child_stats` /
+    /// `inject`. The mid space's `sum` differs from its `value`, so a
+    /// descendant path scoring by `sum` moves its score. The root is
+    /// attached here directly, because `inject_vcs_with_index` needs a
+    /// history index; that call site's choice of `SubtreeSum` is pinned by
+    /// `test_analyze_vcs_per_function_hotspot_matches_cli` in
+    /// `tests/test_vcs.py`.
+    #[test]
+    fn descendants_score_their_own_value_and_subtree_sum_reads_sum() {
+        let leaf = json!({ "metrics": { "cyclomatic": { "sum": 2, "value": 2 } }, "spaces": [] });
+        let mid =
+            json!({ "metrics": { "cyclomatic": { "sum": 6, "value": 4 } }, "spaces": [leaf] });
+        let mut root =
+            json!({ "metrics": { "cyclomatic": { "sum": 7, "value": 1 } }, "spaces": [mid] });
+
+        let mut root_vcs = wire::Vcs::from(&stats_with_churn(10));
+        attach_vcs_to_space(&mut root, &mut root_vcs, HotspotComplexity::SubtreeSum)
+            .expect("root attach serializes");
+        let mut stats = [stats_with_churn(3), stats_with_churn(5)].into_iter();
+        assign_child_stats(&mut root, &mut stats).expect("descendant attach serializes");
+        assert!(stats.next().is_none(), "one stat per descendant");
+
+        assert_eq!(hotspot_of(&root), Some(70.0), "root: sum 7 x churn 10");
+        let mid = &root["spaces"][0];
+        assert_eq!(
+            hotspot_of(mid),
+            Some(12.0),
+            "mid: value 4 x churn 3, not sum 6"
+        );
+        assert_eq!(
+            hotspot_of(&mid["spaces"][0]),
+            Some(10.0),
+            "leaf: value 2 x churn 5"
+        );
+    }
+
+    /// A space whose serialized metrics carry no cyclomatic (excluded via
+    /// `metrics=`) still gets its block, with no hotspot.
+    #[test]
+    fn space_without_cyclomatic_gets_a_block_without_a_hotspot() {
+        let mut space = json!({ "metrics": {}, "spaces": [] });
+        let mut wire_vcs = wire::Vcs::from(&stats_with_churn(7));
+        attach_vcs_to_space(&mut space, &mut wire_vcs, HotspotComplexity::Own)
+            .expect("attach serializes");
+        assert_eq!(space["metrics"]["vcs"]["churn_recent"], json!(7));
+        assert_eq!(hotspot_of(&space), None);
     }
 }

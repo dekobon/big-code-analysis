@@ -10,10 +10,12 @@
 /// Compute the hotspot score from a complexity index and recent churn.
 ///
 /// `complexity_index` is supplied by the caller from whichever
-/// AST metric it treats as the complexity axis (the CLI uses the
-/// file-level cyclomatic sum, the conventional hotspot proxy). The
-/// product is ordinal, like the risk score: rank files by it, do not
-/// read absolute magnitudes.
+/// AST metric it treats as the complexity axis. The CLI and the Python
+/// bindings pass the file space's subtree cyclomatic sum, the
+/// conventional hotspot proxy, and each nested space's *own* cyclomatic
+/// for a per-function block, so nested complexity is not counted again
+/// at every enclosing level. The product is ordinal, like the risk
+/// score: rank files by it, do not read absolute magnitudes.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn hotspot_score(complexity_index: f64, churn_recent: u64) -> f64 {

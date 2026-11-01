@@ -7,6 +7,7 @@ default to wall-clock time), so per-window counts are deterministic.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -20,8 +21,8 @@ from big_code_analysis import FuncSpaceDict
 from big_code_analysis import vcs as bca_vcs
 
 
-def _build_repo(root: Path) -> Path:
-    """Init a repo under *root* with ``work.rs`` committed ~5 days ago."""
+def _commit_one_file(root: Path, name: str, text: str, message: str) -> Path:
+    """Init a repo under *root* with *name* committed by Ada ~5 days ago."""
     now = int(time.time())
     date = f"@{now - 5 * 86_400} +0000"
     env = {
@@ -39,10 +40,15 @@ def _build_repo(root: Path) -> Path:
 
     git("init", "-q", "-b", "main")
     git("config", "commit.gpgsign", "false")
-    (root / "work.rs").write_text("fn a() {}\n")
+    (root / name).write_text(text)
     git("add", ".")
-    git("commit", "-q", "-m", "fix bug in work")
+    git("commit", "-q", "-m", message)
     return root
+
+
+def _build_repo(root: Path) -> Path:
+    """Init a repo under *root* with ``work.rs`` committed ~5 days ago."""
+    return _commit_one_file(root, "work.rs", "fn a() {}\n", "fix bug in work")
 
 
 def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
@@ -226,26 +232,11 @@ def _build_multifn_repo(root: Path) -> Path:
     repetitive-content bug), so each function body carries different
     content.
     """
-    now = int(time.time())
-    date = f"@{now - 5 * 86_400} +0000"
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Ada",
-        "GIT_AUTHOR_EMAIL": "ada@example.com",
-        "GIT_AUTHOR_DATE": date,
-        "GIT_COMMITTER_NAME": "Ada",
-        "GIT_COMMITTER_EMAIL": "ada@example.com",
-        "GIT_COMMITTER_DATE": date,
-    }
-
-    def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=root, env=env, check=True)
-
-    git("init", "-q", "-b", "main")
-    git("config", "commit.gpgsign", "false")
-    # Two functions with branching so each space has a non-trivial
-    # cyclomatic sum (a positive hotspot_score). Every line is distinct.
-    (root / "work.rs").write_text(
+    # Two functions with branching so each space has a non-trivial own
+    # cyclomatic (a positive hotspot_score). Every line is distinct.
+    return _commit_one_file(
+        root,
+        "work.rs",
         "fn alpha(value: i32) -> i32 {\n"
         "    if value > 0 {\n"
         "        return value + 1;\n"
@@ -258,11 +249,9 @@ def _build_multifn_repo(root: Path) -> Path:
         "        true => 200,\n"
         "        false => 13,\n"
         "    }\n"
-        "}\n"
+        "}\n",
+        "add alpha and beta",
     )
-    git("add", ".")
-    git("commit", "-q", "-m", "add alpha and beta")
-    return root
 
 
 def _func_spaces(result: FuncSpaceDict) -> list[FuncSpaceDict]:
@@ -294,7 +283,7 @@ def test_analyze_vcs_per_function_attaches_block_to_each_space(
 
     # Prove genuine per-function attribution, not a broadcast of the
     # file-level stats onto every space. alpha and beta have distinct
-    # cyclomatic sums, so their hotspot scores (complexity x churn) must
+    # own cyclomatics, so their hotspot scores (complexity x churn) must
     # differ; if production were changed to copy the file-level block to
     # each space, every score would be identical and this would fail.
     hotspots = [space["metrics"]["vcs"]["hotspot_score"] for space in spaces]
@@ -360,6 +349,106 @@ def test_analyze_vcs_per_function_matches_file_level_block(tmp_path: Path) -> No
         # Value-level agreement on the fields that must match.
         for field in _SHARED_VCS_FIELDS:
             assert block[field] == file_block_map[field], field
+
+
+def _build_nested_py_repo(root: Path) -> Path:
+    """Init a repo whose ``nested.py`` nests spaces two ways.
+
+    ``outer`` holds a nested ``def inner`` and ``Holder`` holds a method,
+    so both enclosing spaces have a subtree cyclomatic ``sum`` larger than
+    their own ``value``. A ``lambda`` would not do: it opens no space in
+    Python, so its enclosing function's ``sum`` equals its ``value`` and
+    the two figures cannot be told apart. Every line is distinct (see
+    ``_build_multifn_repo`` on the gix-blame repetitive-content bug).
+    """
+    return _commit_one_file(
+        root,
+        "nested.py",
+        "def outer(flag):\n"
+        "    if flag:\n"
+        "        print('outer branch taken')\n"
+        "    def inner(value):\n"
+        "        if value > 3:\n"
+        "            return value + 11\n"
+        "        return value - 5\n"
+        "    return inner\n"
+        "\n"
+        "\n"
+        "class Holder:\n"
+        "    def drain(self, count):\n"
+        "        while count > 0:\n"
+        "            count -= 1\n"
+        "        return count\n",
+        "add nested spaces",
+    )
+
+
+def _hotspots_by_space(space: Any, out: dict[tuple[str, str, int], float]) -> None:
+    """Map every space's ``(kind, name, start_line)`` to its hotspot score."""
+    vcs = space["metrics"].get("vcs")
+    if vcs is not None:
+        out[(space["kind"], space["name"], space["start_line"])] = vcs["hotspot_score"]
+    for child in space.get("spaces", []):
+        _hotspots_by_space(child, out)
+
+
+def test_analyze_vcs_per_function_hotspot_matches_cli(tmp_path: Path, bca_binary: str) -> None:
+    """#1624: each nested space's ``hotspot_score`` is scored from its
+    *own* cyclomatic (``cyclomatic.value``), not the subtree ``sum``, and
+    equals what ``bca metrics --vcs-per-function`` reports for the same
+    file; the file-level block keeps the subtree ``sum``.
+    """
+    repo = _build_nested_py_repo(tmp_path)
+    path = repo / "nested.py"
+    result = bca.analyze(path, vcs=True, vcs_per_function=True)
+    assert result is not None
+
+    # The formula, asserted on the bindings alone. The fixture must make
+    # the two figures differ on the enclosing spaces, or the per-space
+    # check below cannot tell `value` from `sum`.
+    spaces = {space["name"]: space for space in _func_spaces(result)}
+    assert set(spaces) == {"outer", "inner", "Holder", "drain"}, set(spaces)
+    for enclosing in ("outer", "Holder"):
+        cyclomatic = spaces[enclosing]["metrics"]["cyclomatic"]
+        assert cyclomatic["sum"] > cyclomatic["value"], (enclosing, cyclomatic)
+    for name, space in spaces.items():
+        vcs = space["metrics"]["vcs"]
+        own = space["metrics"]["cyclomatic"]["value"]
+        assert vcs["churn_recent"] > 0, name
+        assert vcs["hotspot_score"] == own * vcs["churn_recent"], name
+    root_vcs = result["metrics"]["vcs"]
+    root_sum = result["metrics"]["cyclomatic"]["sum"]
+    # Root churn comes from the history index, not the blame checked above.
+    assert root_vcs["churn_recent"] > 0
+    assert root_vcs["hotspot_score"] == root_sum * root_vcs["churn_recent"]
+
+    # Parity with the CLI, root included, on the default metric selection
+    # only: with cyclomatic not computed the CLI still emits a score and
+    # the bindings omit it (#1742). `--no-config` pins both sides to the
+    # config-free defaults (see `test_smoke._cli_metrics`).
+    cli = subprocess.run(
+        [
+            bca_binary,
+            "metrics",
+            "--no-config",
+            "--vcs-per-function",
+            "--format",
+            "json",
+            "--paths",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    py_hotspots: dict[tuple[str, str, int], float] = {}
+    cli_hotspots: dict[tuple[str, str, int], float] = {}
+    _hotspots_by_space(result, py_hotspots)
+    _hotspots_by_space(json.loads(cli.stdout), cli_hotspots)
+    # Root plus the four nested spaces, so a CLI that attached nothing
+    # cannot make the comparison vacuous.
+    assert len(cli_hotspots) == 5, cli_hotspots
+    assert py_hotspots == cli_hotspots
 
 
 def test_analyze_without_vcs_per_function_has_no_nested_block(
