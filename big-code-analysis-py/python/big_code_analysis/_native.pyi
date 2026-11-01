@@ -660,9 +660,12 @@ def analyze(
     mirrors the CLI's ``bca metrics --vcs-per-function`` flag: every
     descendant space's ``metrics`` gains a ``"vcs"`` key whose shape is
     byte-identical to the file-level block, with a per-function
-    ``hotspot_score`` derived from that space's own cyclomatic sum. The
-    file is blamed exactly once and the result is shared across all of its
-    spans. ``vcs_per_function`` is independent of ``vcs``: set ``vcs=True``
+    ``hotspot_score`` derived from that space's own cyclomatic
+    (``cyclomatic["value"]``), not its subtree ``sum``, so nested
+    complexity is not counted again at every enclosing level; the
+    file-level block keeps the subtree ``sum``. The file is blamed
+    exactly once and the result is shared across all of its spans.
+    ``vcs_per_function`` is independent of ``vcs``: set ``vcs=True``
     for the file-level block, ``vcs_per_function=True`` for the
     per-function blocks, or both. Per-function blocks are omitted (the AST
     metrics still emit) when the file is outside any git working tree, is

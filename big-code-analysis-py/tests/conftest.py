@@ -2,11 +2,11 @@
 
 The ``bca_binary`` fixture is the single source of truth for the
 ``bca`` CLI binary used by ``test_smoke.py``, ``test_sarif.py``,
-and ``test_book_examples.py``. Previously each file kept its own
-copy; consolidating here means cargo build runs **once per pytest
-session** instead of once per parity-aware test file, AND a future
-tweak (sccache integration, release-profile fallback) lives in one
-place.
+``test_vcs.py`` and ``test_book_examples.py``. Previously each file
+kept its own copy; consolidating here means cargo build runs **once
+per pytest session** instead of once per parity-aware test file, AND a
+future tweak (sccache integration, release-profile fallback) lives in
+one place.
 """
 
 from __future__ import annotations

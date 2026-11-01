@@ -301,7 +301,7 @@ $ bca metrics --vcs --paths src/parser.rs --format json
 `bca metrics --vcs` uses the default windows and weighted formula; for
 window / formula tuning use `bca vcs`.
 
-### Per-function attribution
+### Per-function attribution {#per-function-attribution}
 
 `bca metrics --vcs-per-function` (which implies `--vcs`) additionally
 attaches a `vcs` block to every nested function, method, and class space.
@@ -327,6 +327,13 @@ added+deleted churn), and ownership is credited per touching commit. A
 function nobody has changed within the window reports zero counts. Lines
 whose last touch predates the long window contribute to the function's
 size but to none of the windowed counts.
+
+Each nested space's `hotspot_score` multiplies its *own* cyclomatic
+(`cyclomatic.value`) by its `churn_recent`, not its subtree
+`cyclomatic.sum`, so a nested function's complexity is not counted again
+at every enclosing level; the file-level block keeps the subtree sum.
+When cyclomatic is computed, the Python bindings' `vcs_per_function=True`
+reports the same scores.
 
 **Limitations.** Blame follows file renames (so edits under a former path
 still attribute), but attributes a line *moved between functions* to its
