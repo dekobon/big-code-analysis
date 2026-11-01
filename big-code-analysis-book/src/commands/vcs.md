@@ -249,12 +249,19 @@ score-formula version, the *walk-affecting* options, the repository's
 effective `.mailmap`, or the git diff configuration that decides how gix
 diffs (`diff.algorithm`, `core.bigFileThreshold`, and a `diff.<driver>`
 section's `algorithm`, `binary`, and whether it sets a `textconv`; a
-driver's `command` never runs here and does not count) differ; in
+driver's `command` never runs here and does not count), or the shallow
+boundary of a shallow clone (a `git fetch --deepen` or `--unshallow`
+leaves `HEAD` where it was but reaches commits the entry never saw)
+differ; in
 particular **changing a window forces a fresh walk**. One walk input is
 not covered: the `diff` attribute bindings (`.gitattributes`,
 `.git/info/attributes`, the global attributes file) that route a path to
 a diff driver or mark it `-diff`, so after changing those run once with
-`--clear-cache`. Finalization-only knobs such
+`--clear-cache`. A bca release that adds a term retires every existing
+entry, so the first `bca vcs` after such an upgrade re-walks the whole
+long window once. Nothing deletes an entry that no longer matches, since
+a run with other options may still use it; `--clear-cache` removes the
+repository's entries, retired ones included. Finalization-only knobs such
 as `--risk-formula`, `--emit-author-details`, `--author-hash-key`, and
 `--include-deleted` are applied on replay, so they reuse the same cached
 walk; a cached walk even re-finalizes under a *different* author-hash

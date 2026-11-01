@@ -17,22 +17,31 @@
 //! current `now` rather than freezing at cache-write time.
 //!
 //! That contract holds only while every input the walk *records* is
-//! covered by the entry key or the fingerprint. Two repository-side
-//! inputs are neither, and both enter [`cache::fingerprint`] here through
+//! covered by the entry key or the fingerprint. Three repository-side
+//! inputs are neither, and all enter [`cache::fingerprint`] here through
 //! [`history::WalkContext::input_digests`], which covers all three cache
 //! paths at once — the pure hit, `load_compatible`'s ancestor selection
 //! for the incremental splice, and the entry [`persist`] writes back. The
 //! `.mailmap` is one: author identities are canonicalised through it at
 //! walk time and stored as digests, while an edit to it moves no `HEAD`
-//! (issue #1262). The git diff configuration is the other: `diff.algorithm`,
+//! (issue #1262). The git diff configuration is another: `diff.algorithm`,
 //! `core.bigFileThreshold` and the `diff.<driver>` sections' `algorithm`,
 //! `binary` and `textconv` configure the
 //! blob-diff platform that produces the recorded churn, and a change to
 //! them was served stale — and spliced forward under each new head — until
-//! `--clear-cache` (issue #1425). A digest can only be taken from a
-//! context's snapshot and platform, and this build opens exactly one
-//! context and walks through it, so an entry's stamp and its events share
-//! one read of each (issue #1409).
+//! `--clear-cache` (issue #1425). The shallow boundary is the third: a
+//! still-shallow clone deepened in place (`git fetch --deepen`, a larger
+//! `--depth`, an earlier `--shallow-since`) moves neither `HEAD` nor the
+//! `is_shallow()` flag [`cache::HistoryCache::is_compatible`] checks, so
+//! only a full `--unshallow` (issue #810) retired the entry walked at the
+//! old depth; a deepen was a pure hit on it, and the splice re-persisted
+//! its truncated tail under each new head. A digest can only be taken
+//! from a context's snapshot, platform and shallow-file read, and this
+//! build opens exactly one context and walks through it, so an entry's
+//! stamp and its events share one read of the mailmap and of the diff
+//! configuration (issue #1409). gix's walk reads the shallow file again;
+//! [`history::WalkContext`] says why that second read can cost a cold walk
+//! but not a stale hit.
 //!
 //! Fingerprinting the diff configuration was chosen over pinning the
 //! algorithm in the walk. A pin would also make churn host-independent,
@@ -43,17 +52,11 @@
 //! cache fix. The fingerprint only invalidates, so a cached run keeps
 //! reporting what `git diff` on that host reports.
 //!
-//! Two walk inputs remain outside both the key and the fingerprint. The
-//! shallow boundary is one: a still-shallow clone deepened in place
-//! (`git fetch --deepen`, a larger `--depth`, an earlier
-//! `--shallow-since`) moves neither `HEAD` nor `is_shallow()`, so the
-//! entry walked at the old depth is a pure hit and the splice re-persists
-//! its truncated tail under each new head; only a full `--unshallow`
-//! flips the bool [`cache::HistoryCache::is_compatible`] checks (issue
-//! #810). The `diff` attribute bindings that route a path to a driver or
-//! mark it `-diff` are the other. gix resolves them for every commit from
-//! the *current* index and attribute files, so a binding change is served
-//! stale until `--clear-cache` whether or not it moves `HEAD`: a staged
+//! One walk input remains outside both the key and the fingerprint: the
+//! `diff` attribute bindings that route a path to a driver or mark it
+//! `-diff`. gix resolves them for every commit from the *current* index
+//! and attribute files, so a binding change is served stale until
+//! `--clear-cache` whether or not it moves `HEAD`: a staged
 //! `.gitattributes` or `info/attributes` edit hits the exact entry, and a
 //! committed `.gitattributes` edit splices onto the tail walked under the
 //! old bindings. [`history::WalkContext::diff_config_digest`] says why

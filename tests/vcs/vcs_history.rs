@@ -611,7 +611,6 @@ fn first_parent_merges_and_full_history_count_branch_work() {
 
 #[test]
 fn shallow_clone_degrades_gracefully() {
-    use std::process::Command;
     // Source repo with two commits so the shallow tip has a parent that
     // the depth-1 clone will not fetch (a grafted, absent boundary).
     let src = Repo::init();
@@ -620,17 +619,7 @@ fn shallow_clone_degrades_gracefully() {
     src.write("f.rs", "fn a() {}\nfn b() {}\n");
     src.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "second");
 
-    // `file://` forces the non-local transport so `--depth` actually
-    // produces a shallow clone (a bare path clone ignores `--depth`).
-    let dest = tempfile::tempdir().expect("tempdir");
-    let url = format!("file://{}", src.path().display());
-    let clone_ok = Command::new("git")
-        .args(["clone", "--quiet", "--depth", "1", &url])
-        .arg(dest.path())
-        .status()
-        .expect("spawn git clone")
-        .success();
-    assert!(clone_ok, "shallow clone failed");
+    let dest = src.shallow_clone(1);
 
     // Must NOT abort on the missing grafted parent: it is treated as a
     // boundary (diff against the empty tree) and the result is flagged
@@ -643,6 +632,50 @@ fn shallow_clone_degrades_gracefully() {
     assert!(
         stats.churn_long >= 1,
         "the tip's content counts as additions"
+    );
+}
+
+/// The fixture's own `git` must not read the host's configuration. A
+/// contributor's `~/.gitconfig` (or the system file) naming a
+/// `core.hooksPath` reaches `git init` and `git clone`, which both run
+/// before `configure` can pin the repository's empty hooks directory:
+/// `init` fires `reference-transaction`, and `clone` fires it and
+/// `post-checkout`. Every hook here fails, so either file leaking in
+/// panics the fixture.
+#[cfg(unix)]
+#[test]
+fn fixture_git_ignores_the_hosts_global_and_system_config() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let host = tempfile::tempdir().expect("tempdir");
+    let hooks = host.path().join("hooks");
+    std::fs::create_dir(&hooks).expect("mkdir hooks");
+    for hook in ["post-checkout", "reference-transaction"] {
+        let path = hooks.join(hook);
+        std::fs::write(&path, "#!/bin/sh\nexit 1\n").expect("write hook");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod hook");
+    }
+    let hostile = format!("[core]\n\thooksPath = {}\n", hooks.display());
+    std::fs::write(host.path().join(".gitconfig"), &hostile).expect("write global config");
+    let system = host.path().join("system.cfg");
+    std::fs::write(&system, &hostile).expect("write system config");
+
+    let home = host.path().to_str().expect("tempdir path is valid UTF-8");
+    let system = system.to_str().expect("tempdir path is valid UTF-8");
+    let env = [
+        ("HOME", home),
+        ("XDG_CONFIG_HOME", home),
+        ("GIT_CONFIG_SYSTEM", system),
+    ];
+
+    let src = Repo::init_with_env(&env);
+    src.write("f.rs", "fn a() {}\n");
+    src.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "first");
+    let clone = src.shallow_clone_with_env(1, &env);
+    assert!(
+        clone.path().join("f.rs").is_file(),
+        "the clone checked out the source's tree"
     );
 }
 
