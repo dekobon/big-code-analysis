@@ -226,11 +226,11 @@ impl PyAnalysisError {
             ),
             AnalysisError::UnsupportedLanguage(msg) => (msg, ErrorKind::UnsupportedLanguage),
             AnalysisError::Parse(e) => (e.to_string(), ErrorKind::ParseError),
-            // `Serialization` is reachable only if a future upstream
-            // `FuncSpace::Serialize` impl introduces a fallible path
-            // — see `crate::analysis::AnalysisError::Serialization`.
-            // Lump it into `ParseError` so the public taxonomy stays
-            // at three kinds; the message preserves the JSON detail.
+            // `Serialization` is reached when the space tree is nested
+            // deeper than `MAX_SPACE_SERIALIZE_DEPTH` (#1056) — see
+            // `crate::analysis::AnalysisError::Serialization`. Lump it
+            // into `ParseError` so the public taxonomy stays at three
+            // kinds; the message preserves the JSON detail.
             AnalysisError::Serialization(e) => (
                 // Mirror the prefix shape used by the synthetic
                 // error sites in `analyze_batch` (`"internal:

@@ -779,6 +779,18 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **`bca metrics --vcs-per-function` no longer aborts on input nested
+  deeper than the serialization bound** (#1770). The two walks that
+  attach a per-function `vcs` block recursed once per nesting level
+  and ran before the serializer, the only place the space depth is
+  bounded (`MAX_SPACE_SERIALIZE_DEPTH`, #1056), so a file nested
+  thousands of levels deep overflowed the worker's stack and killed
+  the process (exit 134). Both walk with an explicit stack now, as the
+  Python bindings' copies do since #1768, so the run reports the
+  serializer's error and exits 1 exactly as `--vcs` does. The bindings'
+  `AnalysisError::Serialization` docs, which called the variant
+  unreachable, now name that depth bound as its path.
+
 - **`read_file_with_eol` / `read_file_with_eol_classified` return the
   platform's directory error for a directory of any `st_size`**
   (#1762). The three-byte gate decided "too small" from `stat` alone

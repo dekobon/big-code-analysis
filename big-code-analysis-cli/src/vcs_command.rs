@@ -823,13 +823,26 @@ fn blame_with_thread_session(
 
 /// Collect the 1-based inclusive line span of every descendant space, in
 /// pre-order. Saturates a span line past `u32::MAX` (no real source file
-/// reaches that line count) rather than wrapping.
+/// reaches that line count) rather than wrapping. Mirrors the bindings'
+/// `vcs::collect_child_spans`; both copies move into the library under
+/// #1743, so keep them identical until then.
+///
+/// Walks with an explicit stack of child iterators rather than recursing:
+/// this runs before serialization, which is where the space depth is
+/// bounded (`MAX_SPACE_SERIALIZE_DEPTH`), so a recursive walk would
+/// overflow the thread stack — an abort, not a reportable error — on
+/// nesting the serializer would have refused with its error (#1770).
 fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
-    for child in &space.spaces {
+    let mut pending = vec![space.spaces.iter()];
+    while let Some(children) = pending.last_mut() {
+        let Some(child) = children.next() else {
+            pending.pop();
+            continue;
+        };
         let start = u32::try_from(child.start_line).unwrap_or(u32::MAX);
         let end = u32::try_from(child.end_line).unwrap_or(u32::MAX);
         out.push(vcs::LineSpan::new(start, end));
-        collect_child_spans(child, out);
+        pending.push(child.spaces.iter());
     }
 }
 
@@ -841,8 +854,16 @@ fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
 /// (subtree rollup): a function's hotspot should reflect its own logic
 /// complexity, otherwise a nested function's complexity is re-counted at
 /// every enclosing level and the outer scores are inflated (issue #709).
+///
+/// Mirrors the bindings' `vcs::assign_child_stats`, and walks
+/// iteratively for the reason [`collect_child_spans`] gives.
 fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
-    for child in &mut space.spaces {
+    let mut pending = vec![space.spaces.iter_mut()];
+    while let Some(children) = pending.last_mut() {
+        let Some(child) = children.next() else {
+            pending.pop();
+            continue;
+        };
         if let Some(mut stat) = stats.next() {
             hotspot_for(
                 &mut stat,
@@ -851,7 +872,7 @@ fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vc
             );
             child.metrics.vcs = Some(stat);
         }
-        assign_child_stats(child, stats);
+        pending.push(child.spaces.iter_mut());
     }
 }
 
@@ -1230,6 +1251,140 @@ def outer(x):
             (None, None),
             "assign_child_stats must not score from an uncomputed own \
              cyclomatic, nor keep the seeded scores"
+        );
+    }
+
+    /// Both injector walks run before serialization bounds the space depth
+    /// at `MAX_SPACE_SERIALIZE_DEPTH`, so nesting far past it must reach
+    /// the serializer's reportable error rather than abort on the stack
+    /// (#1770). The chain is built directly, as `src/wire.rs`'s
+    /// `space_chain` does, because analysing this depth in a debug build
+    /// is slow. Mirrors the bindings'
+    /// `injector_walks_survive_nesting_past_the_serialize_bound`.
+    ///
+    /// A regression fails this test as a stack-overflow abort of the test
+    /// binary, not a panic `join` could report: an overflow never
+    /// unwinds. The root is dropped on the same small-stack thread, so
+    /// `FuncSpace`'s iterative `Drop` (#1056) is exercised alongside.
+    #[test]
+    fn injector_walks_survive_nesting_past_the_serialize_bound() {
+        use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+        const DEPTH: usize = 10_000;
+        /// Far below a production thread's stack, so a walk that recurses
+        /// per level fails here rather than riding on the test runner's.
+        const TIGHT_STACK: usize = 128 * 1024;
+
+        let file = Ast::parse(Source::new(LANG::Python, b"def f():\n    pass\n"))
+            .expect("the fixture parses")
+            .metrics(MetricsOptions::default().with_only(&[Metric::Loc]))
+            .expect("metrics walk");
+        let leaf = file.spaces[0].clone();
+        let mut root = file;
+        let mut cursor = &mut root.spaces[0];
+        for _ in 1..DEPTH {
+            cursor.spaces.push(leaf.clone());
+            cursor = &mut cursor.spaces[0];
+        }
+
+        let (spans, attached) = std::thread::Builder::new()
+            .stack_size(TIGHT_STACK)
+            .spawn(move || {
+                let mut spans = Vec::new();
+                collect_child_spans(&root, &mut spans);
+                let mut stats = std::iter::repeat_with(vcs::Stats::default).take(spans.len());
+                assign_child_stats(&mut root, &mut stats);
+                let mut attached = 0;
+                let mut cursor = &root;
+                while let Some(child) = cursor.spaces.first() {
+                    attached += usize::from(child.metrics.vcs.is_some());
+                    cursor = child;
+                }
+                (spans.len(), attached)
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the walk thread must not panic");
+        assert_eq!((spans, attached), (DEPTH, DEPTH));
+    }
+
+    /// The two walks agree on one pre-order: a shallow sibling before *and*
+    /// after a deep subtree, so a post-order walk, a breadth-first one, or
+    /// one that visits siblings in the wrong order hands the deep spaces
+    /// each other's stats, and the trailing sibling makes the walk resume
+    /// an ancestor's iterator after unwinding several levels — the one
+    /// path the explicit stack has that recursion did not. Every stat
+    /// carries a distinct `churn_recent`, so each space is checked for the
+    /// one meant for its position, not merely for having a block.
+    #[test]
+    fn child_stats_follow_the_span_pre_order() {
+        use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+        // root → [a (leaf), b → [c → [d]], e (leaf)]
+        let code = b"\
+def a():
+    pass
+
+def b():
+    def c():
+        def d():
+            pass
+
+def e():
+    pass
+";
+        let mut root = Ast::parse(Source::new(LANG::Python, code))
+            .expect("parse python")
+            .metrics(MetricsOptions::default().with_only(&[Metric::Loc]))
+            .expect("metrics walk");
+        let name_of = |space: &FuncSpace| space.name.clone().unwrap_or_default();
+        assert_eq!(
+            root.spaces.iter().map(name_of).collect::<Vec<_>>(),
+            ["a", "b", "e"],
+            "the fixture's top-level spaces"
+        );
+
+        let mut spans = Vec::new();
+        collect_child_spans(&root, &mut spans);
+        assert_eq!(
+            spans,
+            [
+                vcs::LineSpan::new(1, 2),
+                vcs::LineSpan::new(4, 7),
+                vcs::LineSpan::new(5, 7),
+                vcs::LineSpan::new(6, 7),
+                vcs::LineSpan::new(9, 10),
+            ],
+            "spans are collected in pre-order: a, b, c, d, e"
+        );
+
+        // Churn 1 for `a`, 2 for `b`, 3 for `c`, 4 for `d`, 5 for `e`.
+        let mut stats = (1..=5).map(|churn_recent| vcs::Stats {
+            churn_recent,
+            ..Default::default()
+        });
+        assign_child_stats(&mut root, &mut stats);
+        assert!(stats.next().is_none(), "every span's stat was consumed");
+
+        let churn_of = |space: &FuncSpace| space.metrics.vcs.as_ref().map(|v| v.churn_recent);
+        let outer_b = &root.spaces[1];
+        let inner_c = &outer_b.spaces[0];
+        let pre_order = [
+            &root.spaces[0],
+            outer_b,
+            inner_c,
+            &inner_c.spaces[0],
+            &root.spaces[2],
+        ];
+        assert_eq!(
+            pre_order.map(name_of),
+            ["a", "b", "c", "d", "e"],
+            "the fixture nests c under b and d under c, then e follows b"
+        );
+        assert_eq!(
+            pre_order.map(churn_of),
+            [Some(1), Some(2), Some(3), Some(4), Some(5)],
+            "each space receives the stat collected for its pre-order position"
         );
     }
 

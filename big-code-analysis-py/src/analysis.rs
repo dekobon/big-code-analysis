@@ -193,17 +193,17 @@ pub(crate) enum AnalysisError {
     /// other `MetricsError` variant that does not map cleanly onto
     /// a more specific Python exception.
     Parse(big_code_analysis::MetricsError),
-    /// Result could not be serialised through `serde_json`. In
-    /// practice this is unreachable for `FuncSpace` round-trips
-    /// today — `serde_json::to_string`'s `serialize_f64` writes
-    /// `null` for non-finite floats rather than erroring, and no
-    /// other failure mode is reachable from our struct shape — but
-    /// the arm exists as a defensive boundary in case a future
-    /// upstream `Serialize` impl introduces a fallible path (e.g.
-    /// a metric that uses `serde_json::Number::from_f64` directly,
-    /// which DOES return `None` on non-finite). The
+    /// Result could not be serialised through `serde_json`. The one
+    /// reachable path is the space-depth bound (#1056): `FuncSpace`'s
+    /// `Serialize` impl refuses to descend past
+    /// `big_code_analysis::wire::MAX_SPACE_SERIALIZE_DEPTH`, so a
+    /// source file nested deeper than that lands here;
+    /// `test_vcs_per_function_past_the_serialize_depth_raises` in
+    /// `tests/test_vcs.py` triggers it. Non-finite floats are not a
+    /// path: `serde_json::to_string`'s `serialize_f64` writes `null`
+    /// for them rather than erroring, which the
     /// `non_finite_floats_round_trip_as_python_none` test in
-    /// `conversion.rs` pins the current round-trip contract.
+    /// `conversion.rs` pins.
     Serialization(serde_json::Error),
 }
 
