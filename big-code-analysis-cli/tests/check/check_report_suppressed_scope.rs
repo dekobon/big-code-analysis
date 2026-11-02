@@ -12,11 +12,11 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command as StdCommand;
 
 use assert_cmd::Command;
 
 use crate::common;
+use crate::common::git_fixture;
 
 fn cli() -> Command {
     common::bca_command()
@@ -24,16 +24,7 @@ fn cli() -> Command {
 
 /// Run `git <args>` in `dir`, asserting success.
 fn git(dir: &Path, args: &[&str]) {
-    let status = StdCommand::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@example.com")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@example.com")
-        .status()
-        .expect("spawn git");
-    assert!(status.success(), "git {args:?} failed");
+    git_fixture::run_git(dir, args, &git_fixture::IDENTITY);
 }
 
 /// cyclomatic 1 (no branching) — below a `cyclomatic=1` threshold.

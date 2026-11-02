@@ -7,7 +7,6 @@
 #![allow(clippy::doc_markdown)]
 
 use std::path::Path;
-use std::process::Command as StdCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::Command;
@@ -15,8 +14,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
-
-const DAY: i64 = 86_400;
+use crate::common::git_fixture::{DAY, git_at, git_at_with_env};
 
 fn cli() -> Command {
     common::bca_command()
@@ -36,45 +34,69 @@ fn now() -> i64 {
     .expect("now fits i64")
 }
 
-/// Run `git <args>` in `dir` at commit time `secs`, asserting success.
-fn git_at(dir: &Path, secs: i64, args: &[&str]) {
-    let date = format!("@{secs} +0000");
-    let status = StdCommand::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_AUTHOR_NAME", "Ada")
-        .env("GIT_AUTHOR_EMAIL", "ada@example.com")
-        .env("GIT_AUTHOR_DATE", &date)
-        .env("GIT_COMMITTER_NAME", "Ada")
-        .env("GIT_COMMITTER_EMAIL", "ada@example.com")
-        .env("GIT_COMMITTER_DATE", &date)
-        .status()
-        .expect("spawn git");
-    assert!(status.success(), "git {args:?} failed");
-}
-
 /// A repo with `src/work.rs` committed twice: once 200 days ago (long
 /// window only) and once 5 days ago (recent window).
 fn repo_two_commits() -> TempDir {
+    repo_two_commits_with_env(&[])
+}
+
+/// [`repo_two_commits`] with extra environment on every `git`, so a
+/// test can point the fixture at a hostile host configuration and check
+/// it is not read.
+fn repo_two_commits_with_env(env: &[(&str, &str)]) -> TempDir {
     let now = now();
     let dir = tempfile::tempdir().expect("tempdir");
-    git_at(dir.path(), now, &["init", "-q", "-b", "main"]);
-    git_at(dir.path(), now, &["config", "commit.gpgsign", "false"]);
+    let git = |secs: i64, args: &[&str]| git_at_with_env(dir.path(), secs, args, env);
+    git(now, &["init", "-q", "-b", "main"]);
+    git(now, &["config", "commit.gpgsign", "false"]);
     std::fs::create_dir(dir.path().join("src")).expect("mkdir");
     std::fs::write(dir.path().join("src/work.rs"), "fn a() {}\n").expect("write");
-    git_at(dir.path(), now - 200 * DAY, &["add", "."]);
-    git_at(
-        dir.path(),
-        now - 200 * DAY,
-        &["commit", "-q", "-m", "add work"],
-    );
+    git(now - 200 * DAY, &["add", "."]);
+    git(now - 200 * DAY, &["commit", "-q", "-m", "add work"]);
     std::fs::write(dir.path().join("src/work.rs"), "fn a() {}\nfn b() {}\n").expect("write");
-    git_at(
-        dir.path(),
-        now - 5 * DAY,
-        &["commit", "-aqm", "fix bug in work"],
-    );
+    git(now - 5 * DAY, &["commit", "-aqm", "fix bug in work"]);
     dir
+}
+
+/// The shared fixture `git` must not read the host's configuration,
+/// and must not let a caller's environment switch it back on (#1771).
+///
+/// Every `git` here is handed the hostile host through the helper's
+/// caller-environment parameter — `HOME`, `XDG_CONFIG_HOME` and a
+/// `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` pair naming its files.
+/// The helper's own assertions do the discriminating: read, the host's
+/// `XDG_CONFIG_HOME/git/ignore` makes `git add .` stage nothing so the
+/// first commit fails, and on unix its `core.hooksPath` aborts the
+/// commit besides. The `user.name` sentinel is what guards
+/// `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM` where there are no
+/// hooks: the pinned `core.excludesFile` overrides the host's, so
+/// `git config` is the one place host configuration would be visible
+/// without failing anything. A commit's author comes from
+/// `GIT_AUTHOR_NAME`, which every fixture sets, and `-b main` overrides
+/// `init.defaultBranch`, so the closing `%an %D` assertion only pins
+/// that the fixture produced its commits on `main`.
+#[test]
+fn fixture_git_ignores_the_hosts_global_and_system_config() {
+    use crate::common::git_fixture::{
+        HostileGitHost, IDENTITY, assert_no_user_name, git_output, run_git,
+    };
+
+    let host = HostileGitHost::new();
+    let env = host.env();
+    let repo = repo_two_commits_with_env(&env);
+    assert_no_user_name(repo.path(), &env);
+    std::fs::write(repo.path().join("src/more.rs"), "fn c() {}\n").expect("write");
+    run_git(repo.path(), &["add", "."], &env);
+    let commit_env: Vec<(&str, &str)> = env.iter().chain(&IDENTITY).copied().collect();
+    run_git(
+        repo.path(),
+        &["commit", "-q", "-m", "add more"],
+        &commit_env,
+    );
+    assert_eq!(
+        git_output(repo.path(), &["log", "-1", "--format=%an %D"], &env),
+        "Ada HEAD -> main"
+    );
 }
 
 #[test]

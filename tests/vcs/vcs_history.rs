@@ -635,43 +635,88 @@ fn shallow_clone_degrades_gracefully() {
     );
 }
 
-/// The fixture's own `git` must not read the host's configuration. A
-/// contributor's `~/.gitconfig` (or the system file) naming a
-/// `core.hooksPath` reaches `git init` and `git clone`, which both run
-/// before `configure` can pin the repository's empty hooks directory:
-/// `init` fires `reference-transaction`, and `clone` fires it and
-/// `post-checkout`. Every hook here fails, so either file leaking in
-/// panics the fixture.
+/// Write failing `post-checkout` and `reference-transaction` hooks into
+/// `hooks` and return the `core.hooksPath` line naming them. The hooks
+/// are POSIX shell scripts, so elsewhere the line is empty and the
+/// `git/ignore` and `[user]` sentinel alone discriminate.
 #[cfg(unix)]
-#[test]
-fn fixture_git_ignores_the_hosts_global_and_system_config() {
+fn install_hooks(hooks: &std::path::Path) -> String {
     use std::os::unix::fs::PermissionsExt;
 
-    let host = tempfile::tempdir().expect("tempdir");
-    let hooks = host.path().join("hooks");
-    std::fs::create_dir(&hooks).expect("mkdir hooks");
     for hook in ["post-checkout", "reference-transaction"] {
         let path = hooks.join(hook);
         std::fs::write(&path, "#!/bin/sh\nexit 1\n").expect("write hook");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
             .expect("chmod hook");
     }
-    let hostile = format!("[core]\n\thooksPath = {}\n", hooks.display());
-    std::fs::write(host.path().join(".gitconfig"), &hostile).expect("write global config");
+    // Forward slashes only: a backslash in a config value is an escape.
+    let hooks = hooks.to_str().expect("tempdir path is valid UTF-8");
+    format!("\thooksPath = {}\n", hooks.replace('\\', "/"))
+}
+
+#[cfg(not(unix))]
+fn install_hooks(_hooks: &std::path::Path) -> String {
+    String::new()
+}
+
+/// The fixture's own `git` must not read the host's configuration, and
+/// must not let a caller's environment switch it back on (#1771).
+///
+/// Each isolation variable has its own discriminator. The host's
+/// `XDG_CONFIG_HOME/git/ignore` — read without any configuration naming
+/// it — ignores every path, so a fixture that dropped the
+/// `core.excludesFile` pin would commit nothing (`--allow-empty`) and the
+/// clone would have no `f.rs` to check out. On unix the global and
+/// system files name a `core.hooksPath` whose hooks fail: it reaches
+/// `git clone`, which runs before `configure` can pin the repository's
+/// empty hooks directory and fires `reference-transaction` and
+/// `post-checkout` (`git init` fires the former too on 2.46 and later),
+/// so dropping `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_NOSYSTEM` panics the
+/// fixture. Where there are no hooks the `[user]` sentinel guards those
+/// two: `git config --get user.name` is the one place host
+/// configuration is visible without failing anything. The global file
+/// is reached only through `GIT_CONFIG_GLOBAL` (set, it makes git ignore
+/// `~/.gitconfig` and `XDG_CONFIG_HOME/git/config` alike), so handing
+/// it through the fixture's caller-environment parameter also pins that
+/// the isolation is applied after the caller's variables.
+#[test]
+fn fixture_git_ignores_the_hosts_global_and_system_config() {
+    use common::vcs_fixture::assert_no_user_name;
+
+    let host = tempfile::tempdir().expect("tempdir");
+    let hooks = host.path().join("hooks");
+    std::fs::create_dir(&hooks).expect("mkdir hooks");
+    let hooks_pin = install_hooks(&hooks);
+    let xdg_git = host.path().join("git");
+    std::fs::create_dir(&xdg_git).expect("mkdir xdg git");
+    std::fs::write(xdg_git.join("ignore"), "*\n").expect("write xdg ignore");
+    let hostile =
+        format!("[core]\n{hooks_pin}[user]\n\tname = HOSTILE\n\temail = hostile@example.invalid\n");
+    let global = host.path().join(".gitconfig");
+    std::fs::write(&global, &hostile).expect("write global config");
     let system = host.path().join("system.cfg");
     std::fs::write(&system, &hostile).expect("write system config");
 
     let home = host.path().to_str().expect("tempdir path is valid UTF-8");
+    let global = global.to_str().expect("tempdir path is valid UTF-8");
     let system = system.to_str().expect("tempdir path is valid UTF-8");
     let env = [
         ("HOME", home),
         ("XDG_CONFIG_HOME", home),
+        ("GIT_CONFIG_GLOBAL", global),
         ("GIT_CONFIG_SYSTEM", system),
     ];
 
     let src = Repo::init_with_env(&env);
+    assert_no_user_name(src.path(), &env);
     src.write("f.rs", "fn a() {}\n");
-    src.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "first");
+    src.commit_with_env(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 10 * DAY,
+        "first",
+        &env,
+    );
     let clone = src.shallow_clone_with_env(1, &env);
     assert!(
         clone.path().join("f.rs").is_file(),

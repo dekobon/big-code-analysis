@@ -67,6 +67,7 @@ mod unix {
     use tempfile::TempDir;
 
     use super::common;
+    use super::common::git_fixture;
 
     /// C source with one function. Chosen over Rust so `preproc` and
     /// `strip-comments` — which only walk C/C++ — share the fixture with
@@ -827,22 +828,13 @@ mod unix {
 
     /// Run `git <args>` in `dir` with fixed identities, reporting
     /// whether it succeeded. `git` may be absent or refuse to build a
-    /// repo (a sandbox with no writable config, a hostile `GIT_*`
-    /// environment), which is a skip rather than a failure — the same
-    /// probe-the-capability convention [`dev_full`] and
-    /// `unreadable_fixture` follow.
+    /// repo (a sandbox with no writable temp directory), which is a skip
+    /// rather than a failure — the same probe-the-capability convention
+    /// [`dev_full`] and `unreadable_fixture` follow. The host's global
+    /// and system git configuration are switched off by
+    /// `common::git_fixture`, so they are not among the reasons.
     fn git(dir: &TempDir, args: &[&str]) -> bool {
-        std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .env("GIT_AUTHOR_NAME", "Ada")
-            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
-            .env("GIT_COMMITTER_NAME", "Ada")
-            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+        git_fixture::try_git(dir.path(), args, &git_fixture::IDENTITY)
     }
 
     /// `git` that refuses to be skipped past.
@@ -854,19 +846,20 @@ mod unix {
     /// `None` there turned an unrelated host misconfiguration into four
     /// silently-passing tests.
     fn git_or_panic(dir: &TempDir, args: &[&str]) {
-        assert!(git(dir, args), "git {args:?} failed in the vcs fixture");
+        git_fixture::run_git(dir.path(), args, &git_fixture::IDENTITY);
     }
 
-    /// `git init` plus the host-config neutralisation every fixture in
-    /// this workspace needs, returning `None` only when git is absent.
+    /// `git init` plus the per-repository pins every fixture in this
+    /// workspace writes, returning `None` only when git is absent.
     ///
-    /// `commit.gpgsign` alone is not enough. A global `core.hooksPath`
-    /// with a failing `pre-commit` makes every `git commit` here fail,
+    /// `commit.gpgsign` alone was not enough. A global `core.hooksPath`
+    /// with a failing `pre-commit` made every `git commit` here fail,
     /// and because the old helper reported that as "no usable git", the
     /// entire `bca vcs` stdout contract — both the ENOSPC cases and the
-    /// `BrokenPipe` case — evaporated into skips on such a machine.
-    /// `blame_fixture` in `src/vcs_command.rs` already neutralises this
-    /// class (#941); these fixtures now do the same.
+    /// `BrokenPipe` case — evaporated into skips on such a machine
+    /// (#941). The host's global and system configuration are now
+    /// switched off for every `git` by `common::git_fixture` (#1771);
+    /// the pins below hold for a `git` that does not go through it.
     fn git_init_neutralized() -> Option<TempDir> {
         let dir = TempDir::new().expect("tempdir");
         if !git(&dir, &["init", "-q", "-b", "main"]) {

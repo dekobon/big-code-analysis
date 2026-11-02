@@ -27,6 +27,9 @@ use assert_cmd::Command;
 pub mod fixtures;
 
 #[allow(dead_code)]
+pub mod git_fixture;
+
+#[allow(dead_code)]
 pub mod validators;
 
 /// Workspace-relative root of the integration corpora. Every entry

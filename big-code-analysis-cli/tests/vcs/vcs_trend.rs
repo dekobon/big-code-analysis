@@ -7,18 +7,15 @@
 //! explicit commit dates, so the runs are deterministic.
 
 use std::path::Path;
-use std::process::Command as Git;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
-
-/// Reference "now" the trend's most-recent point is pinned to via
-/// `--as-of`, so the sampled grid is fully reproducible.
-const FIXED_NOW: i64 = 1_700_000_000;
-const DAY: i64 = 86_400;
+// The trend's most-recent point is pinned to `FIXED_NOW` via `--as-of`,
+// so the sampled grid is fully reproducible.
+use crate::common::git_fixture::{DAY, FIXED_NOW, git_at, run_git};
 
 /// Build a two-file, two-commit repo: `early.rs` at `now − 300d`, then
 /// `late.rs` added at `now − 100d`.
@@ -38,30 +35,15 @@ fn staged_repo() -> TempDir {
 }
 
 fn git(dir: &TempDir, args: &[&str]) {
-    let status = Git::new("git")
-        .args(args)
-        .current_dir(dir.path())
-        .status()
-        .expect("spawn git");
-    assert!(status.success(), "git {args:?} failed");
+    run_git(dir.path(), args, &[]);
 }
 
 fn commit(dir: &TempDir, secs: i64, message: &str) {
-    let date = format!("@{secs} +0000");
-    let status = Git::new("git")
-        .args(["commit", "-q", "--no-verify", "-m", message])
-        .current_dir(dir.path())
-        .envs([
-            ("GIT_AUTHOR_NAME", "Ada"),
-            ("GIT_AUTHOR_EMAIL", "ada@example.com"),
-            ("GIT_AUTHOR_DATE", date.as_str()),
-            ("GIT_COMMITTER_NAME", "Ada"),
-            ("GIT_COMMITTER_EMAIL", "ada@example.com"),
-            ("GIT_COMMITTER_DATE", date.as_str()),
-        ])
-        .status()
-        .expect("spawn git commit");
-    assert!(status.success(), "git commit failed");
+    git_at(
+        dir.path(),
+        secs,
+        &["commit", "-q", "--no-verify", "-m", message],
+    );
 }
 
 /// A `bca` command rooted at `dir`.

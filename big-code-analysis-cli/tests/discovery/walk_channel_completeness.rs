@@ -25,6 +25,7 @@ use assert_cmd::Command;
 use tempfile::TempDir;
 
 use crate::common;
+use crate::common::git_fixture::{DAY, git_at};
 
 fn cli(dir: &Path) -> Command {
     common::cli_in(dir)
@@ -261,9 +262,6 @@ fn exemptions_audit_is_identical_serially_and_in_parallel() {
 /// `corpus` above.
 #[test]
 fn report_vcs_hotspots_are_identical_serially_and_in_parallel() {
-    /// Seconds per day, for dating fixture commits.
-    const DAY: i64 = 86_400;
-
     let now = i64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -272,26 +270,10 @@ fn report_vcs_hotspots_are_identical_serially_and_in_parallel() {
     )
     .expect("now fits i64");
 
-    let git = |dir: &Path, secs: i64, args: &[&str]| {
-        let date = format!("@{secs} +0000");
-        let status = std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_AUTHOR_NAME", "Ada")
-            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
-            .env("GIT_AUTHOR_DATE", &date)
-            .env("GIT_COMMITTER_NAME", "Ada")
-            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
-            .env("GIT_COMMITTER_DATE", &date)
-            .status()
-            .expect("spawn git");
-        assert!(status.success(), "git {args:?} failed");
-    };
-
     let dir = TempDir::new().unwrap();
     let root = dir.path();
-    git(root, now, &["init", "-q", "-b", "main"]);
-    git(root, now, &["config", "commit.gpgsign", "false"]);
+    git_at(root, now, &["init", "-q", "-b", "main"]);
+    git_at(root, now, &["config", "commit.gpgsign", "false"]);
     // Enough distinct files that the pool interleaves, each branchy so
     // its cyclomatic sum — the value on the channel — is non-zero and
     // differs per file.
@@ -304,8 +286,8 @@ fn report_vcs_hotspots_are_identical_serially_and_in_parallel() {
         body.push_str("    0\n}\n");
         std::fs::write(root.join(format!("src/f{i}.rs")), body).expect("write fixture");
     }
-    git(root, now - 30 * DAY, &["add", "."]);
-    git(root, now - 30 * DAY, &["commit", "-q", "-m", "add sources"]);
+    git_at(root, now - 30 * DAY, &["add", "."]);
+    git_at(root, now - 30 * DAY, &["commit", "-q", "-m", "add sources"]);
 
     let run = |jobs: &str| -> String {
         let out = cli(root)

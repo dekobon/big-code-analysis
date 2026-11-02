@@ -2729,6 +2729,13 @@ async fn test_web_introspection_endpoints_reject_post_with_405() {
 /// (within both default windows). Commit dates are relative to wall
 /// clock because `/vcs` uses wall-clock `now` by default.
 fn build_temp_repo() -> tempfile::TempDir {
+    build_temp_repo_with_env(&[])
+}
+
+/// [`build_temp_repo`] with extra environment on every `git`, so a test
+/// can point the fixture at a hostile host configuration and check it
+/// is not read.
+fn build_temp_repo_with_env(env: &[(&str, &str)]) -> tempfile::TempDir {
     use std::process::Command as StdCommand;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2742,12 +2749,14 @@ fn build_temp_repo() -> tempfile::TempDir {
         let ok = StdCommand::new("git")
             .args(args)
             .current_dir(dir.path())
+            .envs(env.iter().copied())
             .env("GIT_AUTHOR_NAME", "Ada")
             .env("GIT_AUTHOR_EMAIL", "ada@example.com")
             .env("GIT_AUTHOR_DATE", &date)
             .env("GIT_COMMITTER_NAME", "Ada")
             .env("GIT_COMMITTER_EMAIL", "ada@example.com")
             .env("GIT_COMMITTER_DATE", &date)
+            .envs(isolated_git_env())
             .status()
             .expect("spawn git")
             .success();
@@ -2759,6 +2768,196 @@ fn build_temp_repo() -> tempfile::TempDir {
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "add work"]);
     dir
+}
+
+/// The environment that keeps the host's git configuration away from a
+/// fixture `git`, applied after the caller's so no caller can switch it
+/// back on: no global file (which also covers
+/// `$XDG_CONFIG_HOME/git/config`), no system file, and the two per-user
+/// files that are not configuration — `core.excludesFile` and
+/// `core.attributesFile` default to `$XDG_CONFIG_HOME/git/…` and are
+/// read whatever the first two say — pinned to `/dev/null`. The
+/// `gpgsign` pin each fixture writes cannot cover `git init` itself
+/// (#1771). Mirrors `big-code-analysis-cli/tests/common/git_fixture.rs`,
+/// which does not cross crates.
+fn isolated_git_env() -> [(&'static str, &'static str); 7] {
+    [
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_COUNT", "2"),
+        ("GIT_CONFIG_KEY_0", "core.excludesFile"),
+        ("GIT_CONFIG_VALUE_0", "/dev/null"),
+        ("GIT_CONFIG_KEY_1", "core.attributesFile"),
+        ("GIT_CONFIG_VALUE_1", "/dev/null"),
+    ]
+}
+
+/// A host whose git configuration breaks any fixture that reads it.
+/// Byte-identical to `HostileGitHost` in
+/// `big-code-analysis-cli/tests/common/git_fixture.rs`, whose doc
+/// comment explains each entry: the `XDG_CONFIG_HOME/git/ignore` guards
+/// the `GIT_CONFIG_COUNT` pin (read, `git add .` stages nothing and the
+/// first commit fails), the (unix-only) `core.hooksPath` hooks and the
+/// `[user]` sentinel — read back by `git config` — guard
+/// `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM`; the `[init]` section
+/// and the author are overridden by a fixture's own `-b main` and
+/// `GIT_AUTHOR_NAME`. Paths are written with forward slashes so the
+/// file parses on Windows.
+struct HostileGitHost {
+    dir: tempfile::TempDir,
+    global: String,
+    system: String,
+}
+
+impl HostileGitHost {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let hooks = dir.path().join("hooks");
+        std::fs::create_dir(&hooks).expect("mkdir hooks");
+        let hooks_pin = install_hooks(&hooks);
+        let excludes = dir.path().join("excludes");
+        std::fs::write(&excludes, "*\n").expect("write excludes");
+        let xdg_git = dir.path().join("git");
+        std::fs::create_dir(&xdg_git).expect("mkdir xdg git");
+        std::fs::write(xdg_git.join("ignore"), "*\n").expect("write xdg ignore");
+        let hostile = format!(
+            "[core]\n{hooks_pin}\texcludesFile = {}\n\
+             [init]\n\tdefaultBranch = hostile\n\
+             [user]\n\tname = HOSTILE\n\temail = hostile@example.invalid\n",
+            config_path(&excludes)
+        );
+        let global = dir.path().join(".gitconfig");
+        std::fs::write(&global, &hostile).expect("write global config");
+        let system = dir.path().join("system.cfg");
+        std::fs::write(&system, &hostile).expect("write system config");
+        let utf8 = |path: &std::path::Path| {
+            path.to_str()
+                .expect("tempdir path is valid UTF-8")
+                .to_owned()
+        };
+        let (global, system) = (utf8(&global), utf8(&system));
+        Self {
+            dir,
+            global,
+            system,
+        }
+    }
+
+    /// Environment under which a `git` that reads host configuration
+    /// reads this host's. Handing it to a fixture's caller-environment
+    /// parameter also pins that the isolation is applied after it.
+    fn env(&self) -> [(&str, &str); 4] {
+        let home = self
+            .dir
+            .path()
+            .to_str()
+            .expect("tempdir path is valid UTF-8");
+        [
+            ("HOME", home),
+            ("XDG_CONFIG_HOME", home),
+            ("GIT_CONFIG_GLOBAL", &self.global),
+            ("GIT_CONFIG_SYSTEM", &self.system),
+        ]
+    }
+}
+
+/// `path` as a git config value: forward slashes only, since a backslash
+/// in a value is an escape and git rejects an unknown one.
+fn config_path(path: &std::path::Path) -> String {
+    path.to_str()
+        .expect("tempdir path is valid UTF-8")
+        .replace('\\', "/")
+}
+
+/// Write the failing hooks into `hooks` and return the `core.hooksPath`
+/// line naming them; the hooks are POSIX shell scripts, so elsewhere the
+/// line is empty.
+#[cfg(unix)]
+fn install_hooks(hooks: &std::path::Path) -> String {
+    use std::os::unix::fs::PermissionsExt;
+
+    for hook in ["pre-commit", "post-commit", "reference-transaction"] {
+        let path = hooks.join(hook);
+        std::fs::write(&path, "#!/bin/sh\nexit 1\n").expect("write hook");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod hook");
+    }
+    format!("\thooksPath = {}\n", config_path(hooks))
+}
+
+#[cfg(not(unix))]
+fn install_hooks(_hooks: &std::path::Path) -> String {
+    String::new()
+}
+
+/// `git config --get user.name` in `repo` under `env` plus the fixtures'
+/// isolation must find nothing: exit status exactly 1, git's "key not
+/// set" — a config file git cannot parse exits 128, which a bare
+/// non-zero check would read as isolated — and empty stdout. This is
+/// what guards `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM` where there
+/// are no hooks, since the pinned `core.excludesFile` overrides the
+/// host's.
+fn assert_no_user_name(repo: &std::path::Path, env: &[(&str, &str)]) {
+    let out = std::process::Command::new("git")
+        .args(["config", "--get", "user.name"])
+        .current_dir(repo)
+        .envs(env.iter().copied())
+        .envs(isolated_git_env())
+        .output()
+        .expect("spawn git config");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "git config --get user.name: expected exit 1 (unset); stdout {:?}, stderr {:?}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "the fixture's git read the host's user.name: {:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// `git log -1 --format=<format>` in `repo` under `env` plus the same
+/// isolation the fixtures use, trimmed. A bare read-back would inherit
+/// the host's configuration, where a `log.decorate = full` changes `%D`.
+fn git_head(repo: &std::path::Path, format: &str, env: &[(&str, &str)]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", &format!("--format={format}")])
+        .current_dir(repo)
+        .envs(env.iter().copied())
+        .envs(isolated_git_env())
+        .output()
+        .expect("spawn git log");
+    assert!(
+        out.status.success(),
+        "git log failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// The `/vcs` fixture's `git` must not read the host's configuration,
+/// and must not let a caller's environment switch it back on (#1771).
+///
+/// The fixture's own assertions do the discriminating: read, the host's
+/// `XDG_CONFIG_HOME/git/ignore` makes `git add .` stage nothing so the
+/// commit fails, and on unix its `core.hooksPath` aborts the commit
+/// besides; [`assert_no_user_name`] covers the global and system
+/// variables where there are no hooks. The `%an %D` assertion cannot
+/// fail from host configuration being read — `GIT_AUTHOR_NAME` decides
+/// `%an` and `-b main` overrides `init.defaultBranch` — so it only pins
+/// that the fixture produced its commit on `main`.
+#[actix_rt::test]
+async fn build_temp_repo_ignores_the_hosts_global_and_system_config() {
+    let host = HostileGitHost::new();
+    let repo = build_temp_repo_with_env(&host.env());
+    assert_no_user_name(repo.path(), &host.env());
+    assert_eq!(
+        git_head(repo.path(), "%an %D", &host.env()),
+        "Ada HEAD -> main"
+    );
 }
 
 #[actix_rt::test]
@@ -3390,6 +3589,13 @@ async fn test_web_vcs_wrong_method_yields_405() {
 /// `early.rs` at `now − 300d`, `late.rs` added at `now − 100d`. Returns
 /// the tempdir (auto-removed on drop).
 fn build_trend_repo() -> tempfile::TempDir {
+    build_trend_repo_with_env(&[])
+}
+
+/// [`build_trend_repo`] with extra environment on every `git`, so a
+/// test can point the fixture at a hostile host configuration and check
+/// it is not read.
+fn build_trend_repo_with_env(env: &[(&str, &str)]) -> tempfile::TempDir {
     use std::process::Command;
     const FIXED_NOW: i64 = 1_700_000_000;
     const DAY: i64 = 86_400;
@@ -3398,6 +3604,8 @@ fn build_trend_repo() -> tempfile::TempDir {
     let run = |args: &[&str], date: Option<i64>| {
         let mut cmd = Command::new("git");
         cmd.args(args).current_dir(dir.path());
+        cmd.envs(env.iter().copied());
+        cmd.envs(isolated_git_env());
         if let Some(secs) = date {
             let d = format!("@{secs} +0000");
             cmd.envs([
@@ -3426,6 +3634,22 @@ fn build_trend_repo() -> tempfile::TempDir {
         Some(FIXED_NOW - 100 * DAY),
     );
     dir
+}
+
+/// The `/vcs/trend` fixture's `git` must not read the host's
+/// configuration, and must not let a caller's environment switch it
+/// back on (#1771). See
+/// [`build_temp_repo_ignores_the_hosts_global_and_system_config`] for
+/// what discriminates and what the closing assertion pins.
+#[actix_rt::test]
+async fn build_trend_repo_ignores_the_hosts_global_and_system_config() {
+    let host = HostileGitHost::new();
+    let repo = build_trend_repo_with_env(&host.env());
+    assert_no_user_name(repo.path(), &host.env());
+    assert_eq!(
+        git_head(repo.path(), "%an %D", &host.env()),
+        "Ada HEAD -> main"
+    );
 }
 
 #[actix_rt::test]

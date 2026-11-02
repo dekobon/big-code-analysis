@@ -91,7 +91,45 @@ impl Repo {
     /// Stage everything and commit as `(name, email)` at `secs`
     /// (UNIX seconds) with `message`.
     pub fn commit(&self, name: &str, email: &str, secs: i64, message: &str) {
-        self.commit_inner(name, email, secs, message);
+        self.commit_with_env(name, email, secs, message, &[]);
+    }
+
+    /// [`commit`](Self::commit) with extra environment on the `git add`
+    /// and `git commit`, so a test can hand them a hostile host
+    /// configuration and check neither reads it.
+    pub fn commit_with_env(
+        &self,
+        name: &str,
+        email: &str,
+        secs: i64,
+        message: &str,
+        env: &[(&str, &str)],
+    ) {
+        run_git(self.dir.path(), &["add", "-A"], env);
+        let date = format!("@{secs} +0000");
+        let dated = [
+            ("GIT_AUTHOR_NAME", name),
+            ("GIT_AUTHOR_EMAIL", email),
+            ("GIT_AUTHOR_DATE", date.as_str()),
+            ("GIT_COMMITTER_NAME", name),
+            ("GIT_COMMITTER_EMAIL", email),
+            ("GIT_COMMITTER_DATE", date.as_str()),
+        ];
+        let env: Vec<(&str, &str)> = env.iter().chain(&dated).copied().collect();
+        run_git(
+            self.dir.path(),
+            // `--no-verify` skips any commit/commit-msg hook a
+            // contributor's global `core.hooksPath` might install.
+            &[
+                "commit",
+                "-q",
+                "--no-verify",
+                "--allow-empty",
+                "-m",
+                message,
+            ],
+            &env,
+        );
     }
 
     /// Run an arbitrary `git` subcommand (e.g. `mv`) in the repo.
@@ -119,33 +157,6 @@ impl Repo {
     pub fn mailmap(&self, contents: &str) {
         self.write(".mailmap", contents);
     }
-
-    fn commit_inner(&self, name: &str, email: &str, secs: i64, message: &str) {
-        run_git(self.dir.path(), &["add", "-A"], &[]);
-        let date = format!("@{secs} +0000");
-        let env = [
-            ("GIT_AUTHOR_NAME", name),
-            ("GIT_AUTHOR_EMAIL", email),
-            ("GIT_AUTHOR_DATE", date.as_str()),
-            ("GIT_COMMITTER_NAME", name),
-            ("GIT_COMMITTER_EMAIL", email),
-            ("GIT_COMMITTER_DATE", date.as_str()),
-        ];
-        run_git(
-            self.dir.path(),
-            // `--no-verify` skips any commit/commit-msg hook a
-            // contributor's global `core.hooksPath` might install.
-            &[
-                "commit",
-                "-q",
-                "--no-verify",
-                "--allow-empty",
-                "-m",
-                message,
-            ],
-            &env,
-        );
-    }
 }
 
 /// Pin the repository at `dir` to a hermetic configuration.
@@ -158,7 +169,7 @@ fn configure(dir: &Path) {
     // Disable hooks for *every* commit-producing command, not just
     // the ones that remember `--no-verify`. `git_at` forwards a
     // verbatim arg array (`merge --no-ff`, `commit --amend`), so it
-    // cannot inject `--no-verify` per call the way `commit_inner`
+    // cannot inject `--no-verify` per call the way `commit_with_env`
     // does; pointing `core.hooksPath` at an empty dir inside the
     // temp repo neutralises any hook a contributor's global
     // `core.hooksPath` would otherwise fire (#941). The per-call
@@ -179,18 +190,60 @@ fn configure(dir: &Path) {
 /// The host's global and system configuration are switched off for every
 /// call, and after `env` so no caller can switch them back on. The
 /// per-repository pins in [`configure`] cannot cover the commands that
-/// create the repository: `git init` fires a `reference-transaction` hook
-/// and `git clone` that and `post-checkout`, both before there is a
-/// repository to pin, so a contributor's global `core.hooksPath` used to
-/// reach them. Git for Windows maps `/dev/null` to `NUL`.
+/// create the repository: `git clone` fires `reference-transaction` and
+/// `post-checkout` before there is a repository to pin, and `git init`
+/// fires `reference-transaction` too on a git whose `init` writes `HEAD`
+/// through a ref transaction (2.46 and later), so a contributor's global
+/// `core.hooksPath` used to reach them. `core.excludesFile` and
+/// `core.attributesFile` are pinned as well: their defaults
+/// (`$XDG_CONFIG_HOME/git/ignore` and `…/attributes`) are not
+/// configuration files, so the first two variables leave them live, and
+/// an `ignore` of `*` makes `git add -A` stage nothing (#1771). Git for
+/// Windows maps `/dev/null` to `NUL`.
 fn run_git(dir: &Path, args: &[&str], env: &[(&str, &str)]) {
+    let status = command(dir, args, env).status().expect("spawn git");
+    assert!(status.success(), "git {args:?} failed");
+}
+
+/// Assert that `git config --get user.name`, run in `dir` under `env`
+/// through the same isolation every fixture `git` gets, finds no value.
+///
+/// The one probe that sees host configuration without anything failing:
+/// a hostile host writes a `[user]` sentinel, and a fixture whose
+/// isolation dropped `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_NOSYSTEM` would
+/// read it back. The status is pinned to exactly 1 — git's "key not
+/// set" — because a config file git cannot parse exits 128, and a bare
+/// "non-zero" would let a malformed hostile config read as isolated.
+pub fn assert_no_user_name(dir: &Path, env: &[(&str, &str)]) {
+    let out = command(dir, &["config", "--get", "user.name"], env)
+        .output()
+        .expect("spawn git config");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "git config --get user.name: expected exit 1 (unset); stdout {:?}, stderr {:?}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "the fixture's git read the host's user.name: {:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+fn command(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(dir);
     for (k, v) in env {
         cmd.env(k, v);
     }
     cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1");
-    let status = cmd.status().expect("spawn git");
-    assert!(status.success(), "git {args:?} failed");
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "core.excludesFile")
+        .env("GIT_CONFIG_VALUE_0", "/dev/null")
+        .env("GIT_CONFIG_KEY_1", "core.attributesFile")
+        .env("GIT_CONFIG_VALUE_1", "/dev/null");
+    cmd
 }

@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -20,20 +21,56 @@ import pytest
 from big_code_analysis import FuncSpaceDict
 from big_code_analysis import vcs as bca_vcs
 
+# The host's git configuration is switched off for every fixture ``git``,
+# applied *after* the caller's environment so no caller can switch it
+# back on: no global file (which also covers ``$XDG_CONFIG_HOME/git/
+# config``), no system file, and the two per-user files that are *not*
+# configuration — ``core.excludesFile`` and ``core.attributesFile``
+# default to ``$XDG_CONFIG_HOME/git/ignore`` and ``…/attributes`` and are
+# read whatever the first two say — pinned to the null device. A
+# contributor's ``core.hooksPath`` or an ``ignore`` of ``*`` otherwise
+# reaches ``git init`` and ``git add`` before the fixture's own ``config``
+# pins exist (#1771). ``os.devnull`` is ``NUL`` on Windows, which git for
+# Windows accepts. Mirrors ``big-code-analysis-cli/tests/common/
+# git_fixture.rs``.
+_ISOLATED_GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "core.excludesFile",
+    "GIT_CONFIG_VALUE_0": os.devnull,
+    "GIT_CONFIG_KEY_1": "core.attributesFile",
+    "GIT_CONFIG_VALUE_1": os.devnull,
+}
 
-def _commit_one_file(root: Path, name: str, text: str, message: str) -> Path:
-    """Init a repo under *root* with *name* committed by Ada ~5 days ago."""
-    now = int(time.time())
-    date = f"@{now - 5 * 86_400} +0000"
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Ada",
-        "GIT_AUTHOR_EMAIL": "ada@example.com",
-        "GIT_AUTHOR_DATE": date,
-        "GIT_COMMITTER_NAME": "Ada",
-        "GIT_COMMITTER_EMAIL": "ada@example.com",
-        "GIT_COMMITTER_DATE": date,
-    }
+# The author and committer every fixture commit carries.
+_ADA = {
+    "GIT_AUTHOR_NAME": "Ada",
+    "GIT_AUTHOR_EMAIL": "ada@example.com",
+    "GIT_COMMITTER_NAME": "Ada",
+    "GIT_COMMITTER_EMAIL": "ada@example.com",
+}
+
+
+def _git_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """``os.environ`` plus *extra*, then the host-config isolation."""
+    return {**os.environ, **(extra or {}), **_ISOLATED_GIT_ENV}
+
+
+def _dated(secs: int) -> dict[str, str]:
+    """:data:`_ADA` with both author and committer dates pinned at *secs*."""
+    date = f"@{secs} +0000"
+    return {**_ADA, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+
+
+def _commit_one_file(
+    root: Path, name: str, text: str, message: str, extra_env: dict[str, str] | None = None
+) -> Path:
+    """Init a repo under *root* with *name* committed by Ada ~5 days ago.
+
+    *extra_env* rides on every ``git``, so a test can point the fixture at
+    a hostile host configuration and check it is not read."""
+    env = _git_env({**(extra_env or {}), **_dated(int(time.time()) - 5 * 86_400)})
 
     def git(*args: str) -> None:
         subprocess.run(["git", *args], cwd=root, env=env, check=True)
@@ -46,9 +83,9 @@ def _commit_one_file(root: Path, name: str, text: str, message: str) -> Path:
     return root
 
 
-def _build_repo(root: Path) -> Path:
+def _build_repo(root: Path, extra_env: dict[str, str] | None = None) -> Path:
     """Init a repo under *root* with ``work.rs`` committed ~5 days ago."""
-    return _commit_one_file(root, "work.rs", "fn a() {}\n", "fix bug in work")
+    return _commit_one_file(root, "work.rs", "fn a() {}\n", "fix bug in work", extra_env)
 
 
 def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
@@ -79,18 +116,12 @@ def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
 def test_vcs_metrics_top_limits_results(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     (repo / "other.rs").write_text("fn z() {}\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, env={**os.environ})
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, env=_git_env())
     subprocess.run(
         ["git", "commit", "-q", "-m", "add other"],
         cwd=repo,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Ada",
-            "GIT_AUTHOR_EMAIL": "ada@example.com",
-            "GIT_COMMITTER_NAME": "Ada",
-            "GIT_COMMITTER_EMAIL": "ada@example.com",
-        },
+        env=_git_env(_ADA),
     )
     report = bca_vcs.rank(repo, top=1)
     assert len(report["files"]) == 1
@@ -535,23 +566,17 @@ def test_vcs_per_function_past_the_serialize_depth_raises(tmp_path: Path) -> Non
     assert "deeper than the serialization limit" in failure.error
 
 
-def _build_staged_repo(root: Path) -> Path:
+def _build_staged_repo(root: Path, extra_env: dict[str, str] | None = None) -> Path:
     """Init a repo with ``early.rs`` at now-300d and ``late.rs`` at now-100d,
-    pinned to a fixed clock so a 3-point / 300d trend is reproducible."""
+    pinned to a fixed clock so a 3-point / 300d trend is reproducible.
+
+    *extra_env* rides on every ``git``, as for :func:`_commit_one_file`."""
     fixed_now = 1_700_000_000
     day = 86_400
+    extra_env = extra_env or {}
 
     def commit(secs: int, message: str) -> None:
-        date = f"@{secs} +0000"
-        env = {
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Ada",
-            "GIT_AUTHOR_EMAIL": "ada@example.com",
-            "GIT_AUTHOR_DATE": date,
-            "GIT_COMMITTER_NAME": "Ada",
-            "GIT_COMMITTER_EMAIL": "ada@example.com",
-            "GIT_COMMITTER_DATE": date,
-        }
+        env = _git_env({**extra_env, **_dated(secs)})
         subprocess.run(["git", "add", "."], cwd=root, check=True, env=env)
         subprocess.run(
             ["git", "commit", "-q", "--no-verify", "-m", message],
@@ -560,8 +585,9 @@ def _build_staged_repo(root: Path) -> Path:
             env=env,
         )
 
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
-    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=root, check=True)
+    env = _git_env(extra_env)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=root, check=True, env=env)
     (root / "early.rs").write_text("fn a() {}\n")
     commit(fixed_now - 300 * day, "init early")
     (root / "late.rs").write_text("fn b() {}\n")
@@ -806,18 +832,12 @@ def test_vcs_metrics_file_types_sequence_matches_comma_string(tmp_path: Path) ->
     """``file_types=["rs", "py"]`` ranks the same files as ``"rs,py"``."""
     repo = _build_repo(tmp_path)
     (repo / "note.py").write_text("def a():\n    pass\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, env={**os.environ})
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, env=_git_env())
     subprocess.run(
         ["git", "commit", "-q", "-m", "add py"],
         cwd=repo,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Ada",
-            "GIT_AUTHOR_EMAIL": "ada@example.com",
-            "GIT_COMMITTER_NAME": "Ada",
-            "GIT_COMMITTER_EMAIL": "ada@example.com",
-        },
+        env=_git_env(_ADA),
     )
     from_seq = bca_vcs.rank(repo, options=bca_vcs.Options(file_types=["rs", "py"]))
     from_str = bca_vcs.rank(repo, options=bca_vcs.Options(file_types="rs,py"))
@@ -1010,22 +1030,14 @@ def test_analyze_batch_vcs_file_outside_repo_degrades(tmp_path: Path) -> None:
     assert "vcs" not in result["metrics"]
 
 
-def _build_subdir_repo(root: Path) -> Path:
+def _build_subdir_repo(root: Path, extra_env: dict[str, str] | None = None) -> Path:
     """Init a repo with files in two *different* subdirectories
     (``src/`` and ``tests/``) so the batch VCS cache is exercised across
     directory boundaries — the regression case the parent-dir keying bug
-    masked (every prior test put files at the repo root)."""
-    now = int(time.time())
-    date = f"@{now - 5 * 86_400} +0000"
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Ada",
-        "GIT_AUTHOR_EMAIL": "ada@example.com",
-        "GIT_AUTHOR_DATE": date,
-        "GIT_COMMITTER_NAME": "Ada",
-        "GIT_COMMITTER_EMAIL": "ada@example.com",
-        "GIT_COMMITTER_DATE": date,
-    }
+    masked (every prior test put files at the repo root).
+
+    *extra_env* rides on every ``git``, as for :func:`_commit_one_file`."""
+    env = _git_env({**(extra_env or {}), **_dated(int(time.time()) - 5 * 86_400)})
 
     def git(*args: str) -> None:
         subprocess.run(["git", *args], cwd=root, env=env, check=True)
@@ -1098,3 +1110,126 @@ def test_analyze_batch_vcs_distinguishes_separate_repos(tmp_path: Path) -> None:
         vcs = result["metrics"]["vcs"]
         assert vcs["commits_long"] == 1
         assert vcs["bug_fix_commits"] == 1
+
+
+def _config_path(path: Path) -> str:
+    """*path* as a git config value: forward slashes only, since a backslash
+    in a value is an escape and git rejects an unknown one."""
+    return str(path).replace("\\", "/")
+
+
+def _install_hooks(hooks: Path) -> str:
+    """Write the failing hooks into *hooks* and return the ``core.hooksPath``
+    line naming them; the hooks are POSIX shell scripts, so on Windows the
+    line is empty and the ``git/ignore`` and ``[user]`` sentinel alone
+    discriminate."""
+    if os.name == "nt":
+        return ""
+    for hook in ("pre-commit", "post-commit", "reference-transaction"):
+        path = hooks / hook
+        path.write_text("#!/bin/sh\nexit 1\n")
+        path.chmod(0o755)
+    return f"\thooksPath = {_config_path(hooks)}\n"
+
+
+def _hostile_git_host(root: Path) -> dict[str, str]:
+    """Write a host git configuration under *root* that breaks any fixture
+    reading it, and return the environment pointing a ``git`` at it.
+
+    Byte-identical to ``HostileGitHost`` in ``big-code-analysis-cli/tests/
+    common/git_fixture.rs``, whose doc comment explains each entry. Each
+    isolation variable has its own discriminator: the ``XDG_CONFIG_HOME/
+    git/ignore`` (ignores every path, read without any configuration
+    naming it — which is what ``HOME`` and ``XDG_CONFIG_HOME`` are in the
+    environment for) guards the ``GIT_CONFIG_COUNT`` pin, since read it
+    leaves ``git add`` staging nothing and the first commit fails; off
+    Windows the ``core.hooksPath`` hooks guard ``GIT_CONFIG_GLOBAL`` and
+    ``GIT_CONFIG_NOSYSTEM``; and everywhere the ``[user]`` sentinel does,
+    read back by :func:`_assert_no_user_name` — the ``core.excludesFile``
+    guards nothing on its own, as the pin's command-scope value overrides
+    it. The ``[init]`` section and the author are overridden by a
+    fixture's own ``-b main`` and ``GIT_AUTHOR_NAME``. The global file is
+    reached only through ``GIT_CONFIG_GLOBAL`` (set, it makes git ignore
+    both ``~/.gitconfig`` and ``XDG_CONFIG_HOME/git/config``); the system
+    file through ``GIT_CONFIG_SYSTEM``. Paths are written with forward
+    slashes so the file parses on Windows. Handing the result to a
+    fixture's *extra_env* also pins that the isolation is applied after
+    the caller's environment (#1771)."""
+    hooks = root / "hooks"
+    hooks.mkdir()
+    hooks_pin = _install_hooks(hooks)
+    excludes = root / "excludes"
+    excludes.write_text("*\n")
+    xdg_git = root / "git"
+    xdg_git.mkdir()
+    (xdg_git / "ignore").write_text("*\n")
+    hostile = (
+        f"[core]\n{hooks_pin}\texcludesFile = {_config_path(excludes)}\n"
+        "[init]\n\tdefaultBranch = hostile\n"
+        "[user]\n\tname = HOSTILE\n\temail = hostile@example.invalid\n"
+    )
+    (root / ".gitconfig").write_text(hostile)
+    system = root / "system.cfg"
+    system.write_text(hostile)
+    return {
+        "HOME": str(root),
+        "XDG_CONFIG_HOME": str(root),
+        "GIT_CONFIG_GLOBAL": str(root / ".gitconfig"),
+        "GIT_CONFIG_SYSTEM": str(system),
+    }
+
+
+def _assert_no_user_name(repo: Path, env: dict[str, str]) -> None:
+    """``git config --get user.name`` in *repo* under *env* plus the
+    fixtures' isolation must find nothing: return code exactly 1, git's
+    "key not set" — a config file git cannot parse exits 128, which a bare
+    non-zero check would read as isolated — and empty stdout."""
+    probe = subprocess.run(
+        ["git", "config", "--get", "user.name"],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_git_env(env),
+    )
+    assert probe.returncode == 1, (
+        f"git config --get user.name: expected exit 1 (unset), got "
+        f"{probe.returncode}; stdout {probe.stdout!r}, stderr {probe.stderr!r}"
+    )
+    assert probe.stdout == "", f"the fixture's git read the host's user.name: {probe.stdout!r}"
+
+
+@pytest.mark.parametrize("build", [_build_repo, _build_staged_repo, _build_subdir_repo])
+def test_fixture_git_ignores_the_hosts_global_and_system_config(
+    tmp_path: Path, build: Callable[[Path, dict[str, str]], Path]
+) -> None:
+    """Every fixture's ``git`` must not read the host's configuration, and
+    must not let a caller's environment switch it back on (#1771).
+
+    The fixture's own ``check=True`` does the discriminating: read, the
+    host's ``XDG_CONFIG_HOME/git/ignore`` makes ``git add`` stage nothing
+    so the first commit fails, and off Windows its ``core.hooksPath``
+    aborts the commit besides; :func:`_assert_no_user_name` covers the
+    global and system variables where there are no hooks, since the
+    pinned ``core.excludesFile`` overrides the host's. The closing
+    assertion cannot fail from host configuration being read —
+    ``GIT_AUTHOR_NAME`` decides ``%an`` and ``-b main`` overrides
+    ``init.defaultBranch`` — so it only pins that the fixture produced its
+    commit on ``main``, read back through the same isolation (a host
+    ``log.decorate = full`` would otherwise change ``%D``)."""
+    host = tmp_path / "host"
+    host.mkdir()
+    env = _hostile_git_host(host)
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    repo = build(repo_root, env)
+    _assert_no_user_name(repo, env)
+    head = subprocess.run(
+        ["git", "log", "-1", "--format=%an %D"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(env),
+    )
+    assert head.stdout.strip() == "Ada HEAD -> main"

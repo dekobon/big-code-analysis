@@ -20,13 +20,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::Command as Git;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
+use crate::common::git_fixture::{FIXED_NOW, git_at, run_git};
 
 /// Build a one-commit git repo under a fresh tempdir and return it.
 fn one_commit_repo(message: &str) -> TempDir {
@@ -40,29 +40,15 @@ fn one_commit_repo(message: &str) -> TempDir {
 }
 
 fn git(dir: &TempDir, args: &[&str]) {
-    let status = Git::new("git")
-        .args(args)
-        .current_dir(dir.path())
-        .status()
-        .expect("spawn git");
-    assert!(status.success(), "git {args:?} failed");
+    run_git(dir.path(), args, &[]);
 }
 
 fn commit(dir: &TempDir, message: &str) {
-    let status = Git::new("git")
-        .args(["commit", "-q", "--no-verify", "-m", message])
-        .current_dir(dir.path())
-        .envs([
-            ("GIT_AUTHOR_NAME", "Ada"),
-            ("GIT_AUTHOR_EMAIL", "ada@example.com"),
-            ("GIT_AUTHOR_DATE", "@1700000000 +0000"),
-            ("GIT_COMMITTER_NAME", "Ada"),
-            ("GIT_COMMITTER_EMAIL", "ada@example.com"),
-            ("GIT_COMMITTER_DATE", "@1700000000 +0000"),
-        ])
-        .status()
-        .expect("spawn git commit");
-    assert!(status.success(), "git commit failed");
+    git_at(
+        dir.path(),
+        FIXED_NOW,
+        &["commit", "-q", "--no-verify", "-m", message],
+    );
 }
 
 /// A `bca` command rooted at `dir`.
