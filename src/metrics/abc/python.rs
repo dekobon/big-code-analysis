@@ -188,7 +188,6 @@ impl Abc for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the Python grammar can hand us, not
         // branching a reader must hold. The `NotOperator` guard (#1526)

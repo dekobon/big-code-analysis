@@ -25,7 +25,7 @@ impl Loc for PythonCode {
         stats: &mut Stats,
         is_func_space: bool,
     ) {
-        // bca: suppress(cyclomatic, halstead) — per-kind LOC dispatch for Python, one arm per node kind
+        // Per-kind LOC dispatch for Python, one arm per node kind.
         use Python::*;
 
         let start = init(node, stats, is_func_space);

@@ -122,7 +122,7 @@ mutant at ~28 seconds and an ast-crate one, which rebuilds both
 crates, at ~39, with a missed mutant about twice either since both
 suites then run to completion. The current sixteen rests on those
 per-crate rates and the census after #1728 widened the selection:
-`cargo mutants --list` (27.1.0, at 8222deba) reports 5048
+`cargo mutants --list` (27.1.0, at 7008fdb3) reports 5048
 mutants, up from 3673, and the ast share rose from 5 % to 31 % since
 every added mutant is in that crate. Sixteen shards hold about 316
 each, roughly 165 minutes at the slow-runner rates; fourteen would

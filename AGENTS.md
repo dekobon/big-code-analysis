@@ -869,7 +869,15 @@ Three things to know before quoting a number at anyone:
   `exclude_tests = true` and a comment-dense house style. `cognitive`,
   `nargs`, and `abc` have since converged onto the shipped defaults
   (#1143, #1183); `loc.ploc` and `loc.sloc` still differ. Do not "fix"
-  one file to match the other; they answer different questions.
+  one file to match the other; they answer different questions. One
+  `[[thresholds.path]]` entry there gates
+  `src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs` at `cyclomatic 40`
+  / `halstead.effort 150000` (#1738): a per-language dispatcher in
+  those files needs no `suppress` marker, and a reader who finds one at
+  cyclomatic 19 with no marker is looking at a function gated at 40,
+  not an oversight — if it trips, the table has outgrown its
+  population. The entry's comment in `bca.toml` carries the trade-off:
+  every helper in those files shares the raised limit.
 
 ## Responding to bca metric feedback
 

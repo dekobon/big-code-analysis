@@ -16,8 +16,9 @@ impl Cyclomatic for TclCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead) — one row read per construct; the effort
-        // is the rows' vocabulary, not work a reader must hold
+        // One row read per construct; the effort is the rows' vocabulary,
+        // not work a reader must hold — gated by the `[[thresholds.path]]`
+        // entry in `bca.toml` (#1747).
         use crate::roles::tcl::{
             branch, case_arm, catch, else_if, r#loop, short_circuit, switch, ternary,
         };

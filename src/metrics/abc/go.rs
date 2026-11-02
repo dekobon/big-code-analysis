@@ -227,8 +227,9 @@ impl Abc for GoCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead, cyclomatic) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `CppCode::compute`: the
+        // Exhaustive kind dispatch table, gated by the `[[thresholds.path]]`
+        // entry in `bca.toml` (#1747). One arm per grammar kind, like
+        // `CppCode::compute`: the
         // cyclomatic count is the number of node kinds the Go grammar can
         // hand us, and `halstead.effort` counts the distinct enum operands
         // those arms name, neither being reasoning a reader must do.

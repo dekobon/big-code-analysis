@@ -280,8 +280,9 @@ number tells a reader anything a split would improve, and the project limit misr
 in the directory the same way.
 
 The per-function answer is a suppression marker on each one, and it does not scale. This
-repository accumulated 34 copies of `bca: suppress(cyclomatic, halstead)` across its per-language
-dispatchers, in seven wordings, with nothing stating that the directory was exempt as a policy. A
+repository accumulated 38 `bca: suppress` markers naming cyclomatic and Halstead across its
+per-language dispatchers, in several wordings and two operand orders, with nothing stating that
+the directory was exempt as a policy. A
 `[[thresholds.path]]` entry states the policy once:
 
 ```toml

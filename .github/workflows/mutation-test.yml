@@ -41,7 +41,7 @@ jobs:
   # rebuilds both crates — at ~39 s, and a missed mutant at about
   # twice either. Widening the selection to the per-language checker/,
   # getter/ and roles/ modules (#1728) took the census from 3673 to
-  # 5048 mutants (`cargo mutants --list`, 27.1.0, at 8222deba)
+  # 5048 mutants (`cargo mutants --list`, 27.1.0, at 7008fdb3)
   # and the ast share from 5 % to 31 %. Sixteen gives ~316 per shard,
   # about 165 min at those slow-runner rates; the margin to 270 is for
   # the runner variance that made identical shards differ 1.6x.

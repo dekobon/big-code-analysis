@@ -32,7 +32,6 @@ impl Abc for CCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic, halstead)
         // Exhaustive one-arm-per-grammar-kind dispatch table; see the
         // rationale on `CppCode::compute`, of which this is the
         // C-grammar sibling. The effort is the table's vocabulary.

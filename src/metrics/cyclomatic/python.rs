@@ -15,7 +15,6 @@ impl Cyclomatic for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive grammar dispatch
         // One arm per construct the grammar can hand us, each a row read
         // or a kind the rows do not own: the count is the construct list,
         // not branching a reader must hold, and the effort is the table's

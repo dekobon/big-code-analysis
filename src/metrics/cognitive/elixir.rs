@@ -133,7 +133,7 @@ impl Cognitive for ElixirCode {
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
-        // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
+        // Kind dispatch table; each gated arm is one rule.
         use crate::roles::elixir::{catch, closure, short_circuit};
         use Elixir as E;
 

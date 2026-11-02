@@ -295,7 +295,6 @@ fn java_walk_for_conditions<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
     // One arm per grammar kind that carries a condition slot, like
     // `PerlCode::compute`'s: the count is the number of slot-bearing
     // kinds, not branching a reader must hold, and the row read (#1697)

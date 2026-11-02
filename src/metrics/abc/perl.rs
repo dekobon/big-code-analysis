@@ -540,10 +540,11 @@ impl Abc for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead, cyclomatic, abc)
+        // bca: suppress(abc) — the table's `abc` is its own slot count
         // Exhaustive one-arm-per-grammar-kind dispatch table, like
-        // `CppCode::compute`, which breaches only the cyclomatic limit
-        // and so carries only that marker. Perl's arm list is the
+        // `CppCode::compute`; its cyclomatic and effort are gated by the
+        // `[[thresholds.path]]` entry in `bca.toml` (#1747), and only the
+        // ABC score needs a per-function waiver. Perl's arm list is the
         // longest of the family — tree-sitter-perl tokenises all
         // nineteen assignment operators and all six call-expression
         // wrappers separately — so

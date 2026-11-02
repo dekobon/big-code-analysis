@@ -1016,18 +1016,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/metrics/abc/rust.rs"
-qualified = "RustCode::compute"
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "src/metrics/abc/rust.rs"
-qualified = "RustCode::compute"
-metric = "halstead.effort"
-value = 50701.989459245684
-
-[[entry]]
 path = "src/metrics/cognitive/bash.rs"
 qualified = "BashCode::compute"
 metric = "nargs"
@@ -1248,12 +1236,6 @@ path = "src/metrics/loc/objc.rs"
 qualified = "ObjcCode::compute"
 metric = "nargs"
 value = 5.0
-
-[[entry]]
-path = "src/metrics/loc/perl.rs"
-qualified = "PerlCode::compute"
-metric = "halstead.effort"
-value = 62449.60005820913
 
 [[entry]]
 path = "src/metrics/loc/perl.rs"

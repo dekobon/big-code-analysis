@@ -308,8 +308,9 @@ impl Abc for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead, cyclomatic) — exhaustive kind dispatch table
-        // One arm per grammar kind, like `GoCode::compute`: the count is
+        // Exhaustive kind dispatch table, gated by the `[[thresholds.path]]`
+        // entry in `bca.toml` (#1747). One arm per grammar kind, like
+        // `GoCode::compute`: the count is
         // the number of node kinds the Elixir grammar can hand us, and
         // `halstead.effort` counts the distinct enum operands those arms
         // name, neither being reasoning a reader must do. The `cond`

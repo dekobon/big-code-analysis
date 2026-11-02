@@ -226,7 +226,6 @@ impl Abc for RubyCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic, halstead) — exhaustive kind dispatch table
         // One arm per grammar kind, like `CppCode::compute`: the count is
         // the number of node kinds the Ruby grammar can hand us, not
         // branching a reader must hold, and the effort is the table's

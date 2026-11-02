@@ -35,7 +35,7 @@ impl Cyclomatic for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
+        // Kind dispatch table; each gated arm is one rule.
         use crate::roles::elixir::{case_arm, guard, short_circuit};
         use Elixir as E;
 

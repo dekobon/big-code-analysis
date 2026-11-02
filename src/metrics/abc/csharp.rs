@@ -548,8 +548,8 @@ fn csharp_walk_for_conditions<'a>(
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    // bca: suppress(cyclomatic, halstead) — slot dispatch table: one arm
-    // per grammar kind holding a boolean slot, each an independent routing
+    // Slot dispatch table: one arm per grammar kind holding a boolean
+    // slot, each an independent routing
     // rule; the row reads (#1695, #1697) are arms like the kind arms they
     // replaced, and the effort is the table's vocabulary.
     use Csharp::*;

@@ -241,7 +241,6 @@ macro_rules! cpp_family_abc {
                 ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
-                // bca: suppress(cyclomatic, halstead)
                 // Exhaustive one-arm-per-grammar-kind dispatch table: the
                 // cyclomatic count here is the number of node kinds the C++
                 // grammar can hand us, not branching a reader must hold in

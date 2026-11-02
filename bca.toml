@@ -205,3 +205,46 @@ nargs = 5
 nexits = 5
 abc = 40
 wmc = 60
+
+# The per-language dispatchers under src/metrics are exhaustive kind /
+# row tables: their cyclomatic is the construct list and their Halstead
+# effort is the table's vocabulary, neither of which a split improves.
+# This entry replaced 38 per-function `bca: suppress(cyclomatic,
+# halstead)` markers in their several spellings (#1738, #1747). It is a
+# limit, not a waiver: every function in the glob stays gated at both
+# tiers, so a table that grows past today's largest (`abc/kotlin.rs`
+# at cyclomatic 30, `abc/perl.rs` at 136k effort) still trips. Priced
+# at both tiers under this config with `--no-suppress` (#1747): 0 hard
+# / 0 soft new offenders, and every function over the old limits was a
+# dispatcher (`<Lang>Code::compute`, the two `*_walk_for_conditions`
+# walkers).
+#
+# The trade-off, stated rather than denied: a path limit is per file,
+# and the dispatchers share their files with the slot, wrapper and
+# condition helpers that serve them, so every one of those helpers is
+# now gated at 40 / 150k too. The nearest today sit well under —
+# `abc/perl.rs`'s `perl_pattern_is_bound_or_delimiter` at 46k effort,
+# three `*_ternary_slots` / `cpp_wrapper_operand` at cyclomatic 10 —
+# which means a helper in these files that grows past the old 15 /
+# 50k is a review finding, not a gate finding. The glob cannot be
+# narrowed below the file: the helpers live beside the tables, and a
+# per-function waiver is what the marker is for. Two gaps to know: the
+# Cpp / Mozcpp dispatchers are `macro_rules!` bodies bca attributes to
+# no function, so they were never gated and are not now; and `npm/` /
+# `npa/` hold the same table shape (`npa/php.rs` at 68k effort) but
+# sit outside this glob and stay baselined — widening is a decision,
+# recorded on #1738, not an omission.
+[[thresholds.path]]
+glob = "src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs"
+cyclomatic = 40
+"halstead.effort" = 150000
+
+# Three files the glob above reaches are data structures, not tables:
+# `LineSet`, the DLOC binding walker and the shared LOC helpers. The
+# last matching entry wins per metric, so this one hands them back
+# the project limits. (`abc/js_family.rs` is the JS-family dispatch
+# macro and stays a table.)
+[[thresholds.path]]
+glob = "src/metrics/loc/{dloc,line_set,shared}.rs"
+cyclomatic = 15
+"halstead.effort" = 50000
