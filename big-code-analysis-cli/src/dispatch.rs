@@ -615,7 +615,11 @@ fn dispatch_report(
         // `bca metrics --vcs`. Stream the file-level cyclomatic sum keyed
         // by the absolute walk path so the downstream join canonicalizes
         // and matches against the index work-tree exactly like
-        // `vcs_command::inject` (issue #615).
+        // `vcs_command::inject` (issue #615). The sum is a *computed*
+        // figure only because `report` has no `--metrics` flag
+        // (`ReportArgs`); a future `report --metrics` must gate on the
+        // selection as `vcs_command::hotspot_for` does (#1742), with the
+        // library helper #1743 adds.
         if let Some(ref hotspot_tx) = cfg.report_hotspot_tx {
             #[allow(clippy::cast_precision_loss)]
             let cyclomatic_sum = space.metrics.cyclomatic.cyclomatic_sum() as f64;

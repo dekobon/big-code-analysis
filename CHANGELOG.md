@@ -779,6 +779,13 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **`bca metrics --vcs` / `--vcs-per-function` no longer emit a
+  `hotspot_score` when cyclomatic was not computed** (#1742). With
+  `--metrics nargs` the file block scored churn × a subtree sum of 0
+  and every nested block churn × the default own value of 1, neither a
+  complexity. Both now leave the key out, as the book and the Python
+  bindings already did; the CLI–bindings parity test covers a
+  restricted selection.
 - **The agent hooks run the analyzer whose build inputs match the
   tree** (#1776). Since #1773 nothing in the ordinary workflow builds
   release, so the `target/release/bca` the Claude Code hook and the

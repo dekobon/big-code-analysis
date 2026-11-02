@@ -4000,8 +4000,8 @@ had fixed the CLI side only.
 `test_analyze_vcs_per_function_hotspot_matches_cli` now runs both on a
 fixture where `sum != value` — which a Python lambda cannot supply,
 since it opens no space — and holds for the default metric selection
-only: the CLI still scores a space whose cyclomatic was never computed
-(#1742).
+and, since #1742, a selection without cyclomatic, where both sides
+elide the score.
 
 ---
 

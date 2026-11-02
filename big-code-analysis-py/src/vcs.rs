@@ -376,20 +376,26 @@ impl HotspotComplexity {
 /// it as the space's `metrics.vcs`. Shared by the file-level
 /// [`inject_vcs_with_index`] and the per-function [`assign_child_stats`]
 /// so the two paths compute the hotspot identically and cannot drift
-/// (mirrors the CLI's `set_hotspot_score`).
+/// (mirrors the CLI's `hotspot_for`).
 ///
-/// One deliberate difference from the CLI: a space whose cyclomatic was
-/// not computed (excluded via `metrics=`) keeps `hotspot_score` unset
-/// rather than scoring from the zeroed figure. `selected` is the set the
+/// A space whose cyclomatic was not computed (excluded via `metrics=`)
+/// gets `hotspot_score` cleared rather than scored from the zeroed
+/// figure, as the CLI does since #1742. `selected` is the set the
 /// serializer consults to elide a metric, so this is exactly "the
-/// serialized metrics carry no `cyclomatic`".
+/// serialized metrics carry no `cyclomatic`". The unselected arm assigns
+/// `None` rather than skipping, so a stat that arrives already scored
+/// cannot leak the stale value.
 fn attach_vcs_to_space(space: &mut FuncSpace, mut stat: vcs::Stats, complexity: HotspotComplexity) {
-    if space.metrics.selected.contains(Metric::Cyclomatic) {
-        // Cyclomatic counts stay far below 2^53, so the cast is exact.
-        #[allow(clippy::cast_precision_loss)]
-        let figure = complexity.of(space) as f64;
-        stat.hotspot_score = Some(hotspot::hotspot_score(figure, stat.churn_recent));
-    }
+    stat.hotspot_score = space
+        .metrics
+        .selected
+        .contains(Metric::Cyclomatic)
+        .then(|| {
+            // Cyclomatic counts stay far below 2^53, so the cast is exact.
+            #[allow(clippy::cast_precision_loss)]
+            let figure = complexity.of(space) as f64;
+            hotspot::hotspot_score(figure, stat.churn_recent)
+        });
     space.metrics.vcs = Some(stat);
 }
 
@@ -596,16 +602,19 @@ mod tests {
     }
 
     /// A space whose cyclomatic was not computed (excluded via `metrics=`)
-    /// still gets its block, with no hotspot (#1742 tracks the CLI, which
-    /// scores the zeroed figure instead).
+    /// still gets its block, with no hotspot, as the CLI does since #1742.
+    /// The input stat is seeded with a score so the test fails against an
+    /// arm that skips the assignment instead of clearing it.
     #[test]
     fn space_without_cyclomatic_gets_a_block_without_a_hotspot() {
         let mut space = nested_space(MetricsOptions::default().with_only(&[Metric::Loc]));
         assert!(!space.metrics.selected.contains(Metric::Cyclomatic));
-        attach_vcs_to_space(&mut space, stats_with_churn(7), HotspotComplexity::Own);
+        let mut stat = stats_with_churn(7);
+        stat.hotspot_score = Some(9.0);
+        attach_vcs_to_space(&mut space, stat, HotspotComplexity::Own);
         let vcs = space.metrics.vcs.as_ref().expect("the block is attached");
         assert_eq!(vcs.churn_recent, 7);
-        assert_eq!(hotspot_of(&space), None);
+        assert_eq!(hotspot_of(&space), None, "the seeded score is cleared");
     }
 
     /// The spans the single blame is asked for are every descendant's, in

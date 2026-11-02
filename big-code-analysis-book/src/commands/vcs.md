@@ -104,7 +104,7 @@ standalone page, pass [`bca report --vcs`](report.md), which appends a
 | `change_entropy_long` / `change_entropy_recent` | f64 | Change entropy in bits per window (see below) |
 | `cochange_entropy_long` / `cochange_entropy_recent` | f64 | Co-change graph entropy in bits per window (see below) |
 | `risk_score` | f64 | Composite, formula-versioned (see below); **ordinal, not cardinal** |
-| `hotspot_score` | f64? | `complexity × churn_recent`; present only when AST metrics are computed alongside |
+| `hotspot_score` | f64? | `complexity × churn_recent`; present only when `cyclomatic` is among the computed metrics |
 | `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps. Carried **once on the report envelope**, alongside `long_window_days` / `recent_window_days`, not repeated inside each per-file `vcs` block (issue #635) |
 
 Author identities are canonicalised through the repository
@@ -344,8 +344,7 @@ Each nested space's `hotspot_score` multiplies its *own* cyclomatic
 (`cyclomatic.value`) by its `churn_recent`, not its subtree
 `cyclomatic.sum`, so a nested function's complexity is not counted again
 at every enclosing level; the file-level block keeps the subtree sum.
-When cyclomatic is computed, the Python bindings' `vcs_per_function=True`
-reports the same scores.
+The Python bindings' `vcs_per_function=True` reports the same scores.
 
 **Limitations.** Blame follows file renames (so edits under a former path
 still attribute), but attributes a line *moved between functions* to its

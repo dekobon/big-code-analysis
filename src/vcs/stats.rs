@@ -78,8 +78,8 @@ pub struct Stats {
     pub cochange_entropy_recent: f64,
     /// Composite risk score (weighted or percentile, per options).
     pub risk_score: f64,
-    /// Complexity × recent-churn hotspot score; `Some` only when AST
-    /// metrics were computed alongside the history.
+    /// Complexity × recent-churn hotspot score; `Some` only when
+    /// `cyclomatic` is among the metrics computed alongside the history.
     pub hotspot_score: Option<f64>,
     /// SHA-256-hashed canonical author identities, sorted; `Some` only
     /// under `--emit-author-details`.

@@ -18,13 +18,13 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use big_code_analysis::FuncSpace;
 use big_code_analysis::defang_formula;
 use big_code_analysis::vcs::{
     self, AuthorHashKey, CacheConfig, Options, build_history_index_cached, hotspot,
     parse_timestamp, parse_window, score, stats,
 };
 use big_code_analysis::wire;
+use big_code_analysis::{FuncSpace, Metric, MetricSet};
 
 use crate::formats::{
     VcsFormat, write_buffered, write_cbor, write_json, write_text, write_toml, write_yaml,
@@ -173,7 +173,7 @@ pub(crate) struct DefaultReport {
 impl DefaultReport {
     /// Join the per-file hotspot scores from the AST walk onto the
     /// change-history rows, computing each file's `complexity × recent
-    /// churn` exactly as `bca metrics --vcs` does ([`set_hotspot_score`]).
+    /// churn` exactly as `bca metrics --vcs` does ([`hotspot_for`]).
     ///
     /// `cyclomatic_sums` is the stream the report walk emits: `(absolute
     /// file path, file-level cyclomatic sum)`. Each absolute path is
@@ -670,8 +670,9 @@ fn resolve_root(globals: &GlobalOpts) -> PathBuf {
 
 /// Attach the file's change-history block to its file-level metrics,
 /// filling in the hotspot score from the cyclomatic sum already on the
-/// space. A file with no index entry (untracked / binary) is left
-/// untouched, so its `vcs` field stays `None`.
+/// space when cyclomatic was computed (see [`hotspot_for`]). A file with
+/// no index entry (untracked / binary) is left untouched, so its `vcs`
+/// field stays `None`.
 pub(crate) fn inject(space: &mut FuncSpace, path: &Path, index: &vcs::HistoryIndex) {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let Some(stat) = index.get_for_path(&canonical) else {
@@ -680,20 +681,36 @@ pub(crate) fn inject(space: &mut FuncSpace, path: &Path, index: &vcs::HistoryInd
     let mut stat = stat.clone();
     // The file-level hotspot uses the whole-file cyclomatic *sum* so the
     // `bca vcs` column matches the file-level `bca metrics --vcs` value.
-    set_hotspot_score(&mut stat, space.metrics.cyclomatic.cyclomatic_sum());
+    hotspot_for(
+        &mut stat,
+        space.metrics.selected,
+        space.metrics.cyclomatic.cyclomatic_sum(),
+    );
     space.metrics.vcs = Some(stat);
 }
 
-/// Fill a `vcs` block's `hotspot_score` from a `complexity` value
-/// (complexity × recent churn). The caller chooses which cyclomatic
-/// figure to pass: file-level [`inject`] passes the subtree `*_sum`,
-/// while the per-function [`assign_child_stats`] passes each function's
-/// *own* cyclomatic so nested complexity is not re-counted at every
-/// enclosing level (issue #709).
-fn set_hotspot_score(stat: &mut vcs::Stats, cyclomatic: u64) {
-    #[allow(clippy::cast_precision_loss)]
-    let complexity = cyclomatic as f64;
-    stat.hotspot_score = Some(hotspot::hotspot_score(complexity, stat.churn_recent));
+/// Fill a `vcs` block's `hotspot_score` from a `cyclomatic` figure
+/// (complexity × recent churn) when the space computed cyclomatic, and
+/// clear it otherwise. The caller chooses which cyclomatic figure to
+/// pass: file-level [`inject`] passes the subtree `*_sum`, while the
+/// per-function [`assign_child_stats`] passes each function's *own*
+/// cyclomatic so nested complexity is not re-counted at every enclosing
+/// level (issue #709).
+///
+/// `selected` is the set the wire serializer consults to elide a metric,
+/// so the gate is exactly "the serialized metrics carry no `cyclomatic`":
+/// a `--metrics nargs` run reads a sum of 0 at the file level and the
+/// default own value of 1 on every nested space, neither of which is a
+/// complexity (#1742). The `None` arm is an assignment, not a skip, so a
+/// stat that already carries a score cannot leak one through.
+fn hotspot_for(stat: &mut vcs::Stats, selected: MetricSet, cyclomatic: u64) {
+    stat.hotspot_score = if selected.contains(Metric::Cyclomatic) {
+        #[allow(clippy::cast_precision_loss)]
+        let complexity = cyclomatic as f64;
+        Some(hotspot::hotspot_score(complexity, stat.churn_recent))
+    } else {
+        None
+    };
 }
 
 /// Build a per-function blame engine with **default** windows for
@@ -827,7 +844,11 @@ fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
 fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
     for child in &mut space.spaces {
         if let Some(mut stat) = stats.next() {
-            set_hotspot_score(&mut stat, child.metrics.cyclomatic.cyclomatic());
+            hotspot_for(
+                &mut stat,
+                child.metrics.selected,
+                child.metrics.cyclomatic.cyclomatic(),
+            );
             child.metrics.vcs = Some(stat);
         }
         assign_child_stats(child, stats);
@@ -1012,7 +1033,7 @@ mod tests {
         use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
 
         // Recent churn shared by both probes so the only varying factor is
-        // the cyclomatic figure fed to `set_hotspot_score`.
+        // the cyclomatic figure fed to `hotspot_for`.
         const CHURN: u64 = 12;
 
         // Regression test for issue #709. A nested function inflates the
@@ -1044,9 +1065,9 @@ fn outer(x: i32) -> i32 {
             "the nested function must make subtree ({subtree}) exceed own ({own})"
         );
 
-        // `set_hotspot_score` consumes whichever figure the caller passes,
-        // and the two figures yield different scores for the same churn —
-        // so the inject (sum) and per-function (own) paths are distinct.
+        // `hotspot_for` consumes whichever figure the caller passes, and
+        // the two figures yield different scores for the same churn — so
+        // the inject (sum) and per-function (own) paths are distinct.
         let mut own_stat = vcs::Stats {
             churn_recent: CHURN,
             ..Default::default()
@@ -1055,8 +1076,8 @@ fn outer(x: i32) -> i32 {
             churn_recent: CHURN,
             ..Default::default()
         };
-        set_hotspot_score(&mut own_stat, own);
-        set_hotspot_score(&mut sum_stat, subtree);
+        hotspot_for(&mut own_stat, outer.metrics.selected, own);
+        hotspot_for(&mut sum_stat, outer.metrics.selected, subtree);
         assert!(
             own_stat.hotspot_score.is_some_and(|score| score > 0.0),
             "own-cyclomatic path yields a positive hotspot score"
@@ -1067,7 +1088,7 @@ fn outer(x: i32) -> i32 {
         );
 
         // Drive the real `assign_child_stats` call site (not just
-        // `set_hotspot_score` in isolation): a regression that reverts the
+        // `hotspot_for` in isolation): a regression that reverts the
         // outer-space scoring to `cyclomatic_sum()` is invisible to the
         // isolated probes above, since they pass `own`/`subtree`
         // themselves. Feed one stat with the shared churn and assert the
@@ -1092,6 +1113,147 @@ fn outer(x: i32) -> i32 {
         assert_ne!(
             attached, sum_stat.hotspot_score,
             "assign_child_stats must not score by the subtree cyclomatic_sum"
+        );
+    }
+
+    /// The issue's fixture: a nested function so that `inject` (file
+    /// level) and `assign_child_stats` (per function) each attach a block,
+    /// analysed with only `nargs` selected so no space computed cyclomatic.
+    fn nargs_only_space() -> FuncSpace {
+        use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+        let code = br"
+def outer(x):
+    if x:
+        pass
+    def inner(y):
+        if y:
+            return 1
+        return 2
+    return inner
+";
+        let ast = Ast::parse(Source::new(LANG::Python, code)).expect("parse python");
+        ast.metrics(MetricsOptions::default().with_only(&[Metric::Nargs]))
+            .expect("metrics walk")
+    }
+
+    #[test]
+    fn hotspot_is_absent_when_cyclomatic_was_not_computed() {
+        // Regression test for issue #1742. With `--metrics nargs` the file
+        // space's `cyclomatic_sum()` reads 0 and every nested space's own
+        // `cyclomatic()` reads its default 1, so an unconditional score
+        // multiplies churn by a figure nobody computed (0.0 / 8.0 / 4.0 in
+        // the issue). Both call sites must leave `hotspot_score` `None`,
+        // which the wire form then elides — the contract
+        // `vcs::Stats::hotspot_score` documents and the bindings follow.
+        // Every stat fed in already carries a score, so the two real call
+        // sites are shown to *reset* the field rather than merely leave an
+        // unset one alone — a `HistoryIndex::new` caller may seed it.
+        const SEEDED: Option<f64> = Some(9.0);
+
+        let mut space = nargs_only_space();
+        assert!(
+            !space.metrics.selected.contains(Metric::Cyclomatic),
+            "the fixture must not have cyclomatic selected"
+        );
+        let inner = space.spaces[0]
+            .spaces
+            .first()
+            .expect("nested inner function");
+        assert_eq!(
+            inner.metrics.cyclomatic.cyclomatic(),
+            1,
+            "an uncomputed per-space cyclomatic reads its default 1 — the \
+             figure the unconditional score multiplied by"
+        );
+        assert_eq!(
+            space.metrics.cyclomatic.cyclomatic_sum(),
+            0,
+            "an uncomputed file-level cyclomatic sum reads 0 — the other \
+             figure the unconditional score multiplied by"
+        );
+
+        // `inject` keys the index by the canonical repo-relative path, so a
+        // real file under a canonical workdir is needed (see
+        // `join_hotspot_scores_fills_matching_rows_and_skips_others`).
+        let workdir = tempfile::tempdir().expect("tempdir");
+        let workdir_root = workdir.path().canonicalize().expect("canonicalize workdir");
+        let file = workdir.path().join("nested.py");
+        std::fs::write(&file, b"").expect("write nested.py");
+        let files = std::iter::once((
+            PathBuf::from("nested.py"),
+            vcs::Stats {
+                churn_recent: 8,
+                hotspot_score: SEEDED,
+                ..Default::default()
+            },
+        ))
+        .collect();
+        let index = vcs::HistoryIndex::new(files, Some(workdir_root), false);
+        inject(&mut space, &file, &index);
+        let file_vcs = space
+            .metrics
+            .vcs
+            .as_ref()
+            .expect("file space received a vcs block");
+        assert_eq!(
+            file_vcs.churn_recent, 8,
+            "the file block is the index entry"
+        );
+        assert_eq!(
+            file_vcs.hotspot_score, None,
+            "inject must not score from an uncomputed cyclomatic_sum, nor \
+             keep the seeded score"
+        );
+
+        // `outer` then `inner`, in the pre-order `collect_child_spans` walks.
+        let mut stats = [8, 4].into_iter().map(|churn_recent| vcs::Stats {
+            churn_recent,
+            hotspot_score: SEEDED,
+            ..Default::default()
+        });
+        assign_child_stats(&mut space, &mut stats);
+        assert!(stats.next().is_none(), "both nested spaces consumed a stat");
+        let outer_vcs = space.spaces[0]
+            .metrics
+            .vcs
+            .as_ref()
+            .expect("outer received a vcs block");
+        let inner_vcs = space.spaces[0].spaces[0]
+            .metrics
+            .vcs
+            .as_ref()
+            .expect("inner received a vcs block");
+        assert_eq!((outer_vcs.churn_recent, inner_vcs.churn_recent), (8, 4));
+        assert_eq!(
+            (outer_vcs.hotspot_score, inner_vcs.hotspot_score),
+            (None, None),
+            "assign_child_stats must not score from an uncomputed own \
+             cyclomatic, nor keep the seeded scores"
+        );
+    }
+
+    #[test]
+    fn hotspot_for_clears_a_seeded_score_when_unselected_and_scores_when_selected() {
+        // A `Stats` reaching the CLI through the public `HistoryIndex::new`
+        // may already carry a score; the gate must assign `None`, not skip
+        // the assignment and let the stale value leak into the output.
+        let mut stat = vcs::Stats {
+            churn_recent: 8,
+            hotspot_score: Some(9.0),
+            ..Default::default()
+        };
+        hotspot_for(&mut stat, MetricSet::empty().with(Metric::Nargs), 5);
+        assert_eq!(
+            stat.hotspot_score, None,
+            "cyclomatic unselected clears the score"
+        );
+
+        hotspot_for(&mut stat, MetricSet::empty().with(Metric::Cyclomatic), 5);
+        assert_eq!(
+            stat.hotspot_score,
+            Some(hotspot::hotspot_score(5.0, 8)),
+            "cyclomatic selected scores complexity × recent churn"
         );
     }
 

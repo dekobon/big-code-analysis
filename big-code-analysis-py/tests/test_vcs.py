@@ -414,11 +414,14 @@ def _build_nested_py_repo(root: Path) -> Path:
     )
 
 
-def _hotspots_by_space(space: Any, out: dict[tuple[str, str, int], float]) -> None:
-    """Map every space's ``(kind, name, start_line)`` to its hotspot score."""
+def _hotspots_by_space(space: Any, out: dict[tuple[str, str, int], float | None]) -> None:
+    """Map every space carrying a ``vcs`` block, keyed by ``(kind, name,
+    start_line)``, to its hotspot score — ``None`` when the block elides
+    the key, so a block *without* a score is still an entry and a side
+    that attached nothing cannot read as agreement."""
     vcs = space["metrics"].get("vcs")
     if vcs is not None:
-        out[(space["kind"], space["name"], space["start_line"])] = vcs["hotspot_score"]
+        out[(space["kind"], space["name"], space["start_line"])] = vcs.get("hotspot_score")
     for child in space.get("spaces", []):
         _hotspots_by_space(child, out)
 
@@ -453,33 +456,51 @@ def test_analyze_vcs_per_function_hotspot_matches_cli(tmp_path: Path, bca_binary
     assert root_vcs["churn_recent"] > 0
     assert root_vcs["hotspot_score"] == root_sum * root_vcs["churn_recent"]
 
-    # Parity with the CLI, root included, on the default metric selection
-    # only: with cyclomatic not computed the CLI still emits a score and
-    # the bindings omit it (#1742). `--no-config` pins both sides to the
-    # config-free defaults (see `test_smoke._cli_metrics`).
-    cli = subprocess.run(
-        [
-            bca_binary,
-            "metrics",
-            "--no-config",
-            "--vcs-per-function",
-            "--format",
-            "json",
-            "--paths",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    py_hotspots: dict[tuple[str, str, int], float] = {}
-    cli_hotspots: dict[tuple[str, str, int], float] = {}
-    _hotspots_by_space(result, py_hotspots)
-    _hotspots_by_space(json.loads(cli.stdout), cli_hotspots)
-    # Root plus the four nested spaces, so a CLI that attached nothing
-    # cannot make the comparison vacuous.
-    assert len(cli_hotspots) == 5, cli_hotspots
-    assert py_hotspots == cli_hotspots
+    # Parity with the CLI, root included, under the default selection and
+    # under one that leaves cyclomatic uncomputed: there both sides elide
+    # `hotspot_score` on every block rather than scoring from the zeroed
+    # figure (#1742). `--no-config` pins both sides to the config-free
+    # defaults (see `test_smoke._cli_metrics`).
+    restricted = bca.analyze(path, metrics=["nargs"], vcs=True, vcs_per_function=True)
+    assert restricted is not None
+    for metrics, selected, cli_flags, scored in (
+        (None, result, [], 5),
+        (["nargs"], restricted, ["--metrics", "nargs"], 0),
+    ):
+        cli = subprocess.run(
+            [
+                bca_binary,
+                "metrics",
+                "--no-config",
+                *cli_flags,
+                "--vcs-per-function",
+                "--format",
+                "json",
+                "--paths",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        py_hotspots: dict[tuple[str, str, int], float | None] = {}
+        cli_hotspots: dict[tuple[str, str, int], float | None] = {}
+        _hotspots_by_space(selected, py_hotspots)
+        _hotspots_by_space(json.loads(cli.stdout), cli_hotspots)
+        # Root plus the four nested spaces carry a block on both sides, so
+        # a side that attached nothing cannot make the comparison vacuous;
+        # and exactly `scored` of them carry a score, so the restricted row
+        # cannot pass as an empty map equalling an empty map.
+        assert len(cli_hotspots) == 5, (metrics, cli_hotspots)
+        assert len(py_hotspots) == 5, (metrics, py_hotspots)
+        assert sum(score is not None for score in cli_hotspots.values()) == scored, cli_hotspots
+        assert sum(score is not None for score in py_hotspots.values()) == scored, py_hotspots
+        assert py_hotspots == cli_hotspots, metrics
+        if scored == 0:
+            # `_hotspots_by_space` reads an elided key and an explicit
+            # `null` alike; the contract is that the key is absent.
+            assert "hotspot_score" not in selected["metrics"]["vcs"], metrics
+            assert "hotspot_score" not in json.loads(cli.stdout)["metrics"]["vcs"], metrics
 
 
 def test_analyze_with_vcs_blocks_keeps_the_cli_key_order(tmp_path: Path, bca_binary: str) -> None:

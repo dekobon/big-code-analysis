@@ -67,8 +67,8 @@ pub struct Vcs {
     /// Ordinal composite risk score.
     #[serde(default = "nan_default", with = "non_finite")]
     pub risk_score: f64,
-    /// Complexity × recent-churn hotspot score, when AST metrics were
-    /// computed alongside the history.
+    /// Complexity × recent-churn hotspot score, when `cyclomatic` is
+    /// among the metrics computed alongside the history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotspot_score: Option<f64>,
     /// SHA-256-hashed canonical author identities, under
