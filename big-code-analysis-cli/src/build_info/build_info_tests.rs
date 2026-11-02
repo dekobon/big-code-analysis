@@ -145,6 +145,40 @@ fn walk_refuses_a_partial_tree_rather_than_hashing_it() {
     );
 }
 
+/// Only an absent root is the registry layout; a root whose lookup
+/// fails any other way is a defect in a real checkout and must say so,
+/// or `build.rs` reports `unavailable` without the warning it owes.
+/// Permissions do not reach `symlink_metadata` on the entry itself —
+/// they gate reading the parent, which is the workspace here — so the
+/// failure that can is a symlink loop: `ELOOP`, not `NotFound`.
+#[cfg(unix)]
+#[test]
+fn a_root_whose_lookup_fails_is_an_io_error_not_a_missing_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    shared_fixture(dir.path());
+    let root = dir.path().join("tree-sitter-tcl");
+    std::fs::remove_dir_all(&root).expect("rm");
+    std::os::unix::fs::symlink("tree-sitter-tcl", &root).expect("self-referential symlink");
+    // `symlink_metadata` reads the link itself, so a loop is only hit
+    // one level down; make the parent the loop instead.
+    std::fs::remove_file(&root).expect("rm link");
+    let hidden = dir.path().join("loop");
+    std::os::unix::fs::symlink("loop", &hidden).expect("symlink loop");
+    let result = input_files_under_root(dir.path(), "loop/tree-sitter-tcl");
+    assert!(
+        matches!(result, Err(DigestError::Io(_, ref msg)) if !msg.is_empty()),
+        "{result:?}"
+    );
+}
+
+/// `input_files`' root lookup, pointed at an arbitrary relative root
+/// so a test can hand it a path whose `symlink_metadata` fails with
+/// something other than `NotFound`.
+#[cfg(unix)]
+fn input_files_under_root(workspace: &Path, root: &str) -> Result<(), DigestError> {
+    super::digest::lookup_root(workspace, root).map(|_| ())
+}
+
 #[cfg(unix)]
 #[test]
 fn walk_refuses_a_symlinked_input() {

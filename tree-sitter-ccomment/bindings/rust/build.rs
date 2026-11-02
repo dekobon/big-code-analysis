@@ -10,9 +10,15 @@ fn main() {
     // the two translation units below left a header-only edit with a stale
     // object while the CLI's build-inputs digest (#1773) moved on — a
     // binary advertising a tree it did not compile.
-    if let Ok(entries) = std::fs::read_dir(src_dir.join("tree_sitter")) {
+    let headers = src_dir.join("tree_sitter");
+    if let Ok(entries) = std::fs::read_dir(&headers) {
         for entry in entries.flatten() {
-            println!("cargo:rerun-if-changed={}", entry.path().display());
+            match entry.path().to_str() {
+                Some(path) => println!("cargo:rerun-if-changed={path}"),
+                // A name cargo cannot be told exactly: watch the directory
+                // instead, which changes whenever that file is replaced.
+                None => println!("cargo:rerun-if-changed={}", headers.display()),
+            }
         }
     }
 

@@ -124,12 +124,7 @@ impl std::fmt::Display for DigestError {
 pub(crate) fn input_files(workspace: &Path) -> Result<Vec<String>, DigestError> {
     let mut files = Vec::new();
     for root in INPUT_ROOTS {
-        let path = workspace.join(root);
-        let meta = std::fs::symlink_metadata(&path)
-            .map_err(|_| DigestError::MissingRoot(PathBuf::from(root)))?;
-        if meta.is_symlink() {
-            return Err(DigestError::Symlink(PathBuf::from(root)));
-        }
+        let (path, meta) = lookup_root(workspace, root)?;
         if meta.is_file() {
             files.push((*root).to_owned());
         } else {
@@ -141,6 +136,29 @@ pub(crate) fn input_files(workspace: &Path) -> Result<Vec<String>, DigestError> 
     }
     files.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     Ok(files)
+}
+
+/// Resolve one root under `workspace`. Absent is the registry layout
+/// and reads as [`DigestError::MissingRoot`]; any other lookup failure
+/// — a symlink loop, an unsearchable parent — is a defect in a real
+/// checkout and keeps its own message, so `build.rs` can warn about it
+/// rather than file it under "not a workspace".
+pub(crate) fn lookup_root(
+    workspace: &Path,
+    root: &str,
+) -> Result<(PathBuf, std::fs::Metadata), DigestError> {
+    let path = workspace.join(root);
+    let meta = std::fs::symlink_metadata(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            DigestError::MissingRoot(PathBuf::from(root))
+        } else {
+            DigestError::Io(path.clone(), e.to_string())
+        }
+    })?;
+    if meta.is_symlink() {
+        return Err(DigestError::Symlink(PathBuf::from(root)));
+    }
+    Ok((path, meta))
 }
 
 /// What the walk does with one directory entry.

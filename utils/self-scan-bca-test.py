@@ -207,7 +207,8 @@ class ResolverTests(ResolverHarness):
         self.assertEqual(self.chosen(result), [*self.CARGO_RELEASE, "check"])
         bad = self.run_wrapper("check", env={"BCA_SELF_SCAN_PROFILE": "relese"})
         self.assertNotEqual(bad.returncode, 0)
-        self.assertIn("BCA_SELF_SCAN_PROFILE", bad.stderr)
+        self.assertIn("error: BCA_SELF_SCAN_PROFILE", bad.stderr)
+        self.assertNotIn("Traceback", bad.stderr)
         # An empty value reads as unset, not as a bad profile.
         empty = self.run_wrapper("check", env={"BCA_SELF_SCAN_PROFILE": ""})
         self.assertEqual(self.chosen(empty), [*self.CARGO_DEV, "check"])
@@ -286,6 +287,19 @@ class ResolverTests(ResolverHarness):
             result = self.run_wrapper("check", env=env, dry_run=False)
             self.assertEqual(result.returncode, 7, result.stderr)
             self.assertEqual(self.record.read_text().splitlines()[1:], ["check"])
+
+    def test_an_explicit_binary_that_cannot_run_is_one_error_line(self) -> None:
+        # Launched for real: the exec is what fails. A missing path and a
+        # present but non-executable file both end in `error:`, not a
+        # Python traceback, and with a non-zero status.
+        unrunnable = self.root / "not-executable"
+        unrunnable.write_text("#!/bin/sh\nexit 0\n")
+        unrunnable.chmod(0o644)
+        for path in (str(self.root / "no-such-bca"), str(unrunnable)):
+            result = self.run_wrapper("check", env={"BCA_SELF_SCAN_BINARY": path}, dry_run=False)
+            self.assertNotEqual(result.returncode, 0, path)
+            self.assertIn(f"error: cannot run {path}", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_a_lockfile_only_change_rejects_the_installed_binary(self) -> None:
         # The resolver compares digests instead of letting cargo
