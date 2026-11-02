@@ -1,6 +1,19 @@
 fn main() {
     let src_dir = std::path::Path::new("src");
 
+    // The parser and scanner include the headers under `src/tree_sitter/`
+    // (`parser.h`, and `alloc.h` / `array.h` where present). Watching only
+    // the two translation units below left a header-only edit with a stale
+    // object while the CLI's build-inputs digest (#1773) moved on — a
+    // binary advertising a tree it did not compile.
+    if let Ok(entries) = std::fs::read_dir(src_dir.join("tree_sitter")) {
+        for entry in entries.flatten() {
+            if let Some(path) = entry.path().to_str() {
+                println!("cargo:rerun-if-changed={path}");
+            }
+        }
+    }
+
     let mut c_config = cc::Build::new();
     c_config.std("c11").include(src_dir);
 

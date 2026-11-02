@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: role-census role-census-test role-coverage role-coverage-test role-coverage-observe role-bypass role-bypass-test mutation-report-test mutation-workflow-test drift-common-test drift-oracle-test drift-compare-test recovery-oracle-test perturb-test coverage-diff-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: role-census role-census-test role-coverage role-coverage-test role-coverage-observe role-bypass role-bypass-test mutation-report-test mutation-workflow-test drift-common-test drift-oracle-test drift-compare-test recovery-oracle-test perturb-test coverage-diff-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom self-scan-baseline-fresh self-scan-profile-parity vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 .PHONY: plugin-test _pc-plugin-test _ci-plugin-test
 
@@ -181,6 +181,8 @@ help:
 	@echo "  self-scan-headroom                   bca threshold gate (soft: BCA_HEADROOM, default 0.95)"
 	@echo "  self-scan-write-baseline             Refresh .bca-baseline.toml at the hard thresholds"
 	@echo "  self-scan-write-baseline-headroom    Refresh .bca-baseline.toml at the soft thresholds"
+	@echo "  self-scan-baseline-fresh             Does .bca-baseline.toml still describe the tree? (diff-baseline, exit 2 if not)"
+	@echo "  self-scan-profile-parity             dev and release builds write a byte-identical baseline (~100 s)"
 	@echo "  vcs                                  Change-history (VCS) risk report for this repo"
 	@echo "  bench                                bench-scaling + bench-walk (out-of-band; never in ci)"
 	@echo "  bench-scaling                        Complexity-class gate for the metric walk"
@@ -886,8 +888,32 @@ enums-check:
 # Mirrors the `Threshold gate (baseline-ratcheted)` step in
 # .github/workflows/pages.yml. We build from source on purpose:
 # any in-progress change to metric computation is reflected in the
-# values we gate on. When pages.yml bumps the pinned release
-# binary, the two invocations re-sync.
+# values we gate on.
+#
+# Which binary runs is decided by two knobs (#1773):
+#
+#   BCA_SELF_SCAN_BINARY   An explicit, trusted `bca` executable. Set,
+#                          nothing is built: CI sets it to the release
+#                          binary it has just `cargo install`ed from
+#                          HEAD, so the gate and the published reports
+#                          come from one build. Locally it is sound only
+#                          when no commit in the work at hand touches
+#                          `src/`, `big-code-analysis-ast/`,
+#                          `big-code-analysis-cli/`, `tree-sitter-*/`,
+#                          `Cargo.toml` or `Cargo.lock` — the inputs
+#                          compiled into the binary; everything else
+#                          (`bca.toml`, `.bcaignore`, the baseline) is
+#                          read at run time, so a prebuilt binary sees
+#                          the live copy.
+#   BCA_SELF_SCAN_PROFILE  `dev` (default) or `release`. The profile
+#                          `cargo run` builds under when no binary is
+#                          given. `release` is what CI installs, but its
+#                          `lto = true` / `codegen-units = 1` relink
+#                          costs ~100 s after any `src/` edit; the dev
+#                          profile is ~5 s for the same edit and 0.1 s
+#                          when nothing changed, and both profiles write
+#                          a byte-identical baseline — which
+#                          `self-scan-profile-parity` below keeps true.
 #
 # Path selection (`paths = ["."]`), the ignore file
 # (`exclude_from = ".bcaignore"`), the baseline
@@ -915,8 +941,35 @@ enums-check:
 # raising a limit):
 #
 #   self-scan-write-baseline   refreshes .bca-baseline.toml in place.
+#
+# Two checks on the baseline itself, neither in `make pre-commit`:
+#
+#   self-scan-baseline-fresh   regenerates to a temp file and runs
+#                              `bca diff-baseline` against the committed
+#                              one — the quarterly baseline-freshness
+#                              job's check, runnable locally. Exits 0
+#                              when the file still describes the tree,
+#                              2 when it does not.
+#   self-scan-profile-parity   regenerates under the dev and release
+#                              profiles and `cmp`s the two files. The
+#                              guard behind the dev-profile default
+#                              above; ~100 s because of the release
+#                              build. pages.yml runs it per PR.
 # ---------------------------------------------------------------------------
-SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
+# Default to empty so `$(if …)` below does not trip
+# `--warn-undefined-variables`; `?=` lets the environment override.
+BCA_SELF_SCAN_BINARY ?=
+BCA_SELF_SCAN_PROFILE ?= dev
+ifneq ($(filter-out dev release,$(BCA_SELF_SCAN_PROFILE)),)
+$(error BCA_SELF_SCAN_PROFILE must be `dev` or `release`, not `$(BCA_SELF_SCAN_PROFILE)`)
+endif
+SELF_SCAN_PROFILE_FLAG := $(if $(filter release,$(BCA_SELF_SCAN_PROFILE)),--release ,)
+# Quoted so a binary path with spaces survives the recipe shell; the
+# `cargo run` form is deliberately unquoted so bash splits it into words.
+SELF_SCAN_BCA := $(if $(BCA_SELF_SCAN_BINARY),"$(BCA_SELF_SCAN_BINARY)",cargo run --quiet $(SELF_SCAN_PROFILE_FLAG)-p big-code-analysis-cli --)
+# One line on stderr per recipe naming the binary, so a captured gate
+# log says what measured the tree.
+SELF_SCAN_NOTE := $(if $(BCA_SELF_SCAN_BINARY),bca self-scan via $(BCA_SELF_SCAN_BINARY),bca self-scan via cargo run ($(BCA_SELF_SCAN_PROFILE) profile))
 # `--jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
@@ -954,15 +1007,18 @@ SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
+	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS)
 
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS) \
 	  --tier=soft=$${BCA_HEADROOM:-0.95}
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
+	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check --write-baseline
 
 # Refresh `.bca-baseline.toml` against the SOFT thresholds
@@ -973,9 +1029,43 @@ self-scan-write-baseline:
 # the new headroom band rather than firing on every commit.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check \
 	  --tier=soft=$${BCA_HEADROOM:-0.95} \
 	  --write-baseline
+
+# The temp baselines below are written as *siblings* of
+# `.bca-baseline.toml`, and the recipes `cd` to the repo root first.
+# Both matter for the comparison: an entry's path key is the walked
+# path joined to the baseline file's directory and then stripped of
+# it again (`baseline::normalize_path`), so a file written elsewhere,
+# or from another working directory, keys the same functions
+# differently and every entry reads as removed-and-added. The walker
+# never analyses the temp file itself — `.toml` is no language it
+# knows — and `trap` removes it on every exit, so nothing is left for
+# `git status` to show. One `&&`-joined command because recipes run
+# one line per shell here (no `.ONESHELL`).
+self-scan-baseline-fresh:
+	@echo "bca self-scan baseline freshness (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@echo "$(SELF_SCAN_NOTE)" >&2
+	@cd "$(BASE_DIR)" && t=$$(mktemp ".bca-baseline.XXXXXX.toml") && trap 'rm -f "$$t"' EXIT \
+	  && $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$t" \
+	  && $(SELF_SCAN_BCA) diff-baseline .bca-baseline.toml "$$t" --exit-code
+
+# Byte-for-byte parity of the baseline the two build profiles write.
+# The dev-profile default rests on it: `debug-assertions` and
+# `overflow-checks` are the only semantic differences between the
+# profiles, and either firing would be a bug the release gate hides.
+# On a mismatch both files are kept and named so they can be diffed.
+# `BCA_SELF_SCAN_BINARY` is ignored here on purpose — the point is to
+# compare two from-source builds, not whatever is installed.
+self-scan-profile-parity:
+	@echo "bca self-scan profile parity (dev vs release, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@cd "$(BASE_DIR)" && d=$$(mktemp ".bca-baseline.dev.XXXXXX.toml") && r=$$(mktemp ".bca-baseline.release.XXXXXX.toml") \
+	  && cargo run --quiet -p big-code-analysis-cli -- check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$d" \
+	  && cargo run --quiet --release -p big-code-analysis-cli -- check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$r" \
+	  && if cmp -s "$$d" "$$r"; then rm -f "$$d" "$$r"; echo "profile parity: dev and release baselines are byte-identical"; \
+	     else echo "profile parity: dev and release baselines differ; kept $$d and $$r" >&2; exit 1; fi
 
 # ---------------------------------------------------------------------------
 # Change-history (VCS) risk report (issue #328). Dogfoods `bca vcs` on
@@ -1815,12 +1905,19 @@ _ci-all:
 #    ├── _pc-py-fmt
 #    └── _pc-py-typecheck
 #
-# _pc-self-scan and _pc-self-scan-headroom both invoke
-# `cargo run --release -p big-code-analysis-cli`, which holds the
-# workspace `target/` lock for the release-profile build, so they
-# serialize into the cargo chain after _pc-manpages rather than
-# fanning out in parallel. The hard tier runs first so a regression
-# is named before the soft tier reports near-limit headroom.
+# _pc-self-scan and _pc-self-scan-headroom both run `$(SELF_SCAN_BCA)`,
+# which is `cargo run -p big-code-analysis-cli` unless
+# BCA_SELF_SCAN_BINARY names a prebuilt binary (#1773). Make cannot
+# know at parse time which it will be, and the `cargo run` form holds
+# the workspace `target/` lock, so they serialize into the cargo chain
+# after _pc-manpages rather than fanning out in parallel. That order
+# is also what keeps the build cheap: `cargo xtask` compiles the
+# library with exactly the CLI's feature set (xtask depends on the CLI
+# as a library), so after it only the `bca` bin itself is left to
+# link — whereas `cargo build --workspace --all-targets` unifies the
+# dev-dependency features and warms a *different* library build. The
+# hard tier runs first so a regression is named before the soft tier
+# reports near-limit headroom.
 #
 # _pc-enums-check runs cargo on `enums/Cargo.toml`, which has its own
 # `target/` (the crate is workspace-excluded), so it does NOT share the
@@ -2030,11 +2127,12 @@ _pc-enums-codegen-drift-test: _pc-enums-codegen-drift
 _pc-manpages: _pc-udeps
 	$(MAKE) manpages-check
 
-# bca self-scan tiers. Both build with `cargo run --release` against
-# the workspace target/, so they chain after _pc-manpages (the
-# tail of the workspace cargo chain) rather than fanning out in
-# parallel. The hard gate runs before the soft gate so a regression
-# beyond the configured limit surfaces first.
+# bca self-scan tiers. Both may build with `cargo run` against the
+# workspace target/ (see the DAG comment above for the profile and
+# the binary override), so they chain after _pc-manpages (the tail
+# of the workspace cargo chain) rather than fanning out in parallel.
+# The hard gate runs before the soft gate so a regression beyond the
+# configured limit surfaces first.
 _pc-self-scan: _pc-manpages
 	$(MAKE) self-scan
 
@@ -2279,9 +2377,10 @@ _ci-manpages:
 
 # bca self-scan tiers under `make ci`. Same shape as the _pc-
 # counterparts; chained into _ci-cargo-pipeline (not parallelised)
-# because both run `cargo run --release` against the shared
-# workspace target/. Mirrors `.github/workflows/pages.yml`'s
-# `Threshold gate` step.
+# because both may run `cargo run` against the shared workspace
+# target/ (the profile and binary override are the `self-scan`
+# recipes' own). Mirrors `.github/workflows/pages.yml`'s `Threshold
+# gate` step.
 _ci-self-scan:
 	$(MAKE) self-scan
 

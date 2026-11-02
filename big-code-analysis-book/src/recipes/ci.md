@@ -651,8 +651,17 @@ is a bare check with no path, threshold, or baseline flags, because
 the manifest supplies them:
 
 ```bash
-cargo run --quiet --release -p big-code-analysis-cli -- check
+cargo run --quiet -p big-code-analysis-cli -- check
 ```
+
+That is the dev profile. The release relink costs ~100 s after any
+edit under `src/`, so the recipes build dev by default and leave the
+profile to `BCA_SELF_SCAN_PROFILE=release` when CI's exact binary is
+wanted; `make self-scan-profile-parity` checks per PR that the two
+profiles write a byte-identical baseline. `BCA_SELF_SCAN_BINARY=<path>`
+runs a prebuilt binary instead of building at all — what CI does with
+the release binary it installs from the checkout — and is sound only
+when nothing compiled into that binary has changed since.
 
 Both tiers consume the same `bca.toml` thresholds and the same
 `.bca-baseline.toml`; the soft tier runs the hard recipe with every

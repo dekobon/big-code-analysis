@@ -157,6 +157,26 @@ for historical reference.
 
 ### Changed
 
+- **The self-scan recipes build `bca` under the dev profile** (#1773).
+  `make self-scan`, `self-scan-headroom`, both `write-baseline`
+  recipes and `vcs` used to `cargo run --release`, whose `lto = true`
+  / `codegen-units = 1` relink is ~100 s after any `src/` edit — once
+  per conflicting commit in a rebase, per AGENTS.md's refresh
+  discipline. The scan itself is ~0.2 s, so the release build was the
+  whole cost; the dev build is ~5 s for an edit and 0.1 s when nothing
+  changed, and writes a byte-identical baseline. Two knobs:
+  `BCA_SELF_SCAN_PROFILE=release` restores the release build, and
+  `BCA_SELF_SCAN_BINARY=<path>` runs a prebuilt binary without
+  building — which `pages.yml` and `baseline-freshness.yml` now set to
+  the release binary they install from the checkout, so CI's gate is
+  measured by the same binary as its reports. Two new targets check
+  the baseline file: `self-scan-baseline-fresh` (regenerate to a
+  temporary sibling and `diff-baseline` against the committed file;
+  the quarterly job's question, locally) and `self-scan-profile-parity`
+  (dev and release regenerations `cmp` equal; `pages.yml` runs it per
+  PR, which is what makes the dev default safe). `.bcaignore` joins
+  `pages.yml`'s path filters, so an edit to the walk deny-set re-runs
+  the gate. Repository tooling only; no published API moves.
 - **The `loc` declaration gates, the JS-family binding gate and the
   Python cognitive boolean-operator questions no longer climb to the
   root from every node** (#1767). Each asks a node's ancestors a

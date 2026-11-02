@@ -518,6 +518,28 @@ that edits the baseline itself then stops the rebase with a conflict,
 because the file is `-merge`: regenerate, stage, and `git rebase
 --continue`, as for a merge.
 
+**What a refresh costs, and why.** The scan itself is ~0.2 s for the
+whole tree; what you wait for is the build. The self-scan recipes
+build `bca` under the **dev** profile (#1773): ~5 s for a step that
+touched Rust under `src/`, `big-code-analysis-ast/`,
+`big-code-analysis-cli/` or a grammar crate, and ~0.1 s for one that
+did not, because cargo finds every artifact fresh. They used to build
+release, whose `lto = true` / `codegen-units = 1` relink is ~100 s
+after *any* such edit — which made the nine-conflict rebase that
+motivated #1773 a ten-minute job. `BCA_SELF_SCAN_PROFILE=release`
+restores that build when you need CI's exact profile; `make
+self-scan-profile-parity` is the per-PR check that the two profiles
+write a byte-identical baseline, and the reason the default is safe.
+`BCA_SELF_SCAN_BINARY=<path>` skips the build and runs a prebuilt
+binary, trusted as given: sound for a batch no commit of which touches
+those compiled-in roots or `Cargo.toml` / `Cargo.lock` (the manifest,
+`.bcaignore` and the baseline are read at run time, so any binary sees
+the live copies), and wrong without a warning otherwise. CI sets it to
+the release binary it has just installed from HEAD. `make
+self-scan-baseline-fresh` answers the question the quarterly job asks
+— does the committed file still describe the tree — in a few seconds
+locally.
+
 **Price a candidate limit at both tiers before calling it free.**
 Converging a limit onto a cluster of existing values is never free while
 a proportional soft tier is active — the soft tier measures *distance to

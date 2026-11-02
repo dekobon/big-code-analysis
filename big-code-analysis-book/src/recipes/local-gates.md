@@ -64,6 +64,16 @@ recipes for refreshing the baseline at each tier.
 | `self-scan-write-baseline`            | hard | 100% of config          | (write)           | Absorb today's hard-tier offenders.                 |
 | `self-scan-write-baseline-headroom`   | soft | tightened by `HEADROOM` | (write)           | Absorb soft-tier offenders when launching or widening the band. |
 
+This repository's own Makefile adds two checks on the baseline file
+rather than on the code: `self-scan-baseline-fresh` regenerates to a
+temporary file and runs `bca diff-baseline` against the committed one
+(exit 2 when the file no longer describes the tree — the quarterly
+freshness job's question, answerable locally), and
+`self-scan-profile-parity` regenerates under both cargo profiles and
+`cmp`s the results, which is what lets the repo build its gate binary
+under the fast dev profile. Neither belongs in a generic adopter
+skeleton; an installed `bca` has no profile to vary.
+
 The hard tier and the soft tier consume the **same**
 `[thresholds]` table and the **same** `.bca-baseline.toml`. The
 only difference between them is the `HEADROOM` ratio applied to

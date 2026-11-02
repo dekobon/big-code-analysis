@@ -63,6 +63,18 @@ jobs:
         with:
           shared-key: pages-scan-release
 
+      # Same install as pages.yml, for the same reason (#1773): the
+      # `make` recipe below would otherwise `cargo run` under the dev
+      # profile — a cold build on this release-only cache — and the
+      # `diff-baseline` call would build release separately. One
+      # release install, handed to the recipe through
+      # `BCA_SELF_SCAN_BINARY` and used directly for the diff.
+      - name: Install bca from current checkout
+        run: cargo install --path big-code-analysis-cli --locked --bin bca
+
+      - name: Point the self-scan recipes at the installed binary
+        run: echo "BCA_SELF_SCAN_BINARY=$(command -v bca)" >> "$GITHUB_ENV"
+
       # `bca diff-baseline` rather than `git diff --exit-code`: a v6
       # baseline records `start_line` for the identity triples two
       # spaces share, and for those a `git diff` reports code moving
@@ -82,8 +94,7 @@ jobs:
           # than let `set -e` end the step: the two mean different things
           # and only one of them is a finding.
           status=0
-          cargo run --quiet --release -p big-code-analysis-cli -- \
-            diff-baseline "${RUNNER_TEMP}/old.toml" "${RUNNER_TEMP}/new.toml" \
+          bca diff-baseline "${RUNNER_TEMP}/old.toml" "${RUNNER_TEMP}/new.toml" \
             --format markdown --exit-code > "${RUNNER_TEMP}/diff.md" || status=$?
           cat "${RUNNER_TEMP}/diff.md"
           if [ "$status" = "0" ]; then

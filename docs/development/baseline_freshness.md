@@ -85,18 +85,33 @@ On a green `main` only the first two can appear.
 
 ## Running it by hand {#running-it-by-hand}
 
-The job is three commands, and they are the same ones locally:
+The job's question is one `make` target locally (#1773):
 
 ```bash
-old=$(mktemp "${TMPDIR:-/tmp}/bca-old-baseline.XXXXXX.toml")
-cp .bca-baseline.toml "$old"
-make self-scan-write-baseline-headroom
-cargo run --quiet --release -p big-code-analysis-cli -- \
-  diff-baseline "$old" .bca-baseline.toml --format markdown
+make self-scan-baseline-fresh
 ```
 
-Drop `--exit-code`; as above it is informational. With the flag a
-non-empty diff exits 2 and a tool error exits 1.
+It regenerates into a temporary sibling of `.bca-baseline.toml` —
+a sibling because an entry's path key is relative to the baseline
+file's own directory — runs `bca diff-baseline --exit-code` against
+the committed file, and removes the temporary file on every exit.
+Exit 0 means the committed file still describes the tree, 2 that it
+does not, 1 a tool error. The committed file is never written; to
+see the diff in the job's Markdown form rather than the terminal
+table, the recipe's two commands are simple to run by hand:
+
+```bash
+t=$(mktemp .bca-baseline.XXXXXX.toml)
+cargo run --quiet -p big-code-analysis-cli -- \
+  check --tier=soft=0.95 --write-baseline "$t"
+cargo run --quiet -p big-code-analysis-cli -- \
+  diff-baseline .bca-baseline.toml "$t" --format markdown
+rm -f "$t"
+```
+
+Both build the dev-profile binary, a few seconds warm; the job itself
+installs a release binary and hands it to the recipe through
+`BCA_SELF_SCAN_BINARY`, which the target honours too.
 
 Always the `-headroom` target, never the bare
 `self-scan-write-baseline`. The committed file carries

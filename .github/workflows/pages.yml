@@ -34,6 +34,9 @@ on:
       - 'tree-sitter-tcl/**'
       - 'bca.toml'
       - '.bca-baseline.toml'
+      # The walk deny-set. An edit here changes which files the gate
+      # measures, so it must re-run the gate (#1773).
+      - '.bcaignore'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
@@ -53,6 +56,7 @@ on:
       - 'tree-sitter-tcl/**'
       - 'bca.toml'
       - '.bca-baseline.toml'
+      - '.bcaignore'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -302,6 +306,17 @@ jobs:
       - name: bca version
         run: bca --version
 
+      # Hand the installed binary to the `make self-scan` recipes below
+      # (#1773). Without this they would `cargo run` under the dev
+      # profile — the local default, chosen because the release relink
+      # costs ~100 s per edit — which here means a cold dev build on a
+      # release-only cache and a gate measured by a different binary
+      # from the one the report steps above use. The absolute path is
+      # what `cargo install` printed; `~/.cargo/bin` is on PATH, but a
+      # path is unambiguous in the gate log.
+      - name: Point the self-scan recipes at the installed binary
+        run: echo "BCA_SELF_SCAN_BINARY=$(command -v bca)" >> "$GITHUB_ENV"
+
       # The deny-set (`exclude_from = ".bcaignore"`) is auto-discovered
       # from the repo-root `bca.toml` manifest, so the report
       # invocations no longer pass `--exclude-from` — workflow, recipe,
@@ -398,6 +413,17 @@ jobs:
         run: make self-scan
         env:
           BCA_SINCE: origin/${{ github.base_ref || 'main' }}
+
+      # The dev-profile default behind `make self-scan` locally (#1773)
+      # rests on both profiles writing the same baseline. This builds
+      # the dev binary too — several minutes cold, since the cache above
+      # is release-only — and `cmp`s the two regenerations. Per PR
+      # rather than quarterly so a divergence is attributed to the
+      # change that caused it. Not `BCA_SELF_SCAN_BINARY`-driven: the
+      # recipe builds both sides from source on purpose.
+      - name: Profile parity (dev vs release baseline)
+        if: ${{ !cancelled() }}
+        run: make self-scan-profile-parity
 
       # Dogfood bca's own SARIF writer: re-run the gate as a pure
       # emitter (`--no-fail` keeps exit 0 regardless of offenders) so
