@@ -274,7 +274,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           env-vars: PYO3_PYTHON
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
       # nextest runs the lib / bins / integration tests and writes the JUnit
@@ -399,7 +399,7 @@ jobs:
         with:
           key: coverage-1.99.1-llvm-cov-0.9.1
           env-vars: PYO3_PYTHON
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
       - name: Record coverage provenance
@@ -602,7 +602,7 @@ jobs:
       # combinations. Since #1472 they also *run* the suite, in the step
       # below.
       - run: cargo clippy --all-targets ${{ matrix.flags }} --locked -- -D warnings
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
       # The one thing a partial feature set breaks that the clippy run
@@ -668,7 +668,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-about@0.8.4
       # Fails if any dep in either binary crate's transitive closure
@@ -740,7 +740,7 @@ jobs:
           tar -xzf /tmp/rumdl.tgz -C /tmp rumdl
           install -m 0755 /tmp/rumdl /usr/local/bin/rumdl
           rumdl --version
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
       # actionlint 1.7.12's prebuilt binary is not yet in
