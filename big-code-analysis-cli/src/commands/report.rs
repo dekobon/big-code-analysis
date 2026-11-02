@@ -29,7 +29,7 @@ pub(crate) fn run_command_report(
         .flatten();
     let (tx, rx) = crossbeam::channel::unbounded();
     // When the change-history section is present, also collect each file's
-    // cyclomatic sum so its hotspot score can be joined after the walk
+    // complexity figure so its hotspot score can be joined after the walk
     // (issue #615). Only wired for `report --vcs`; a plain `report` leaves
     // the sender `None` and the hotspot column omitted downstream.
     let (hotspot_rx, report_hotspot_tx) = if vcs.is_some() {
@@ -53,8 +53,8 @@ pub(crate) fn run_command_report(
     // rendering, so `report --vcs` fills the Hotspot column from the AST
     // metrics computed in this same run (issue #615).
     if let (Some(default), Some(hotspot_rx)) = (vcs.as_mut(), hotspot_rx) {
-        let cyclomatic_sums: Vec<(PathBuf, f64)> = hotspot_rx.into_iter().collect();
-        default.join_hotspot_scores(&cyclomatic_sums);
+        let complexities: Vec<_> = hotspot_rx.into_iter().collect();
+        default.join_hotspot_scores(&complexities);
     }
     let vcs = vcs.map(|d| d.report);
     let top = args.top;

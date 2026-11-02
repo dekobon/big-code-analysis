@@ -9,12 +9,10 @@
 
 /// Compute the hotspot score from a complexity index and recent churn.
 ///
-/// `complexity_index` is supplied by the caller from whichever
-/// AST metric it treats as the complexity axis. The CLI and the Python
-/// bindings pass the file space's subtree cyclomatic sum, the
-/// conventional hotspot proxy, and each nested space's *own* cyclomatic
-/// for a per-function block, so nested complexity is not counted again
-/// at every enclosing level. The product is ordinal, like the risk
+/// `complexity_index` is supplied by the caller from whichever AST
+/// metric it treats as the complexity axis; which cyclomatic figure a
+/// space is scored from, and when no score is given at all, is owned by
+/// [`crate::vcs::attach`] (#1743). The product is ordinal, like the risk
 /// score: rank files by it, do not read absolute magnitudes.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]

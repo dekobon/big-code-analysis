@@ -127,6 +127,19 @@ for historical reference.
   contract. The `Ast` methods are additive and recorded in
   `STABILITY.md` under `Ast`. (#1684)
 
+- `vcs::attach::{file_complexity, attach_file_history,
+  attach_per_function_history}` (behind `vcs-git`): the library now
+  owns which cyclomatic figure a `hotspot_score` is scored from — the
+  file space's subtree sum, each descendant's own figure, and no score
+  when cyclomatic was not computed — and attaches change-history
+  `Stats` to a `FuncSpace` tree accordingly. The four sites that score
+  a hotspot — `bca metrics --vcs`, `bca metrics --vcs-per-function`,
+  `bca report --vcs` and the Python `analyze(vcs=True)` /
+  `vcs_per_function=True` path — all call it, so the rule has one owner
+  instead of the four copies that drifted in #709, #1624 and #1742. No
+  output changes. Recorded in `STABILITY.md` under the `vcs` surface.
+  (#1743)
+
 - `big-code-analysis-ast` gains a `roles` module: the `role_table!`
   macro, the fixed set of twenty-nine roles a classifier or metric
   dispatcher can ask of a node, and one table each for Java, Python and

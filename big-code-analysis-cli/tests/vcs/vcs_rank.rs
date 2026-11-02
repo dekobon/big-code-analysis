@@ -493,6 +493,57 @@ fn metrics_vcs_per_function_attaches_nested_blocks() {
     }
 }
 
+/// One unblameable file must not abort the walk: `inject_per_function`
+/// warns with the `--vcs-per-function: skipping <path>` line and leaves
+/// the nested blocks unset, while the file's AST metrics still emit.
+/// The fixture is an *untracked* file with two functions: it is inside
+/// the work tree, so the engine opens and the file-level `inject` finds
+/// no index row, and the blame fails because the file does not exist at
+/// `HEAD`. Pins the `Err` arm of `inject_per_function`: a version that
+/// dropped the warning passes the JSON assertions and fails the stderr
+/// one; one that propagated the error fails `success()`.
+#[test]
+fn metrics_vcs_per_function_warns_and_skips_an_unblameable_file() {
+    let repo = repo_two_commits();
+    std::fs::write(
+        repo.path().join("src/untracked.rs"),
+        "fn c() {}\nfn d() {}\n",
+    )
+    .expect("write untracked file");
+    let assert = cli()
+        .current_dir(repo.path())
+        .args([
+            "metrics",
+            "--vcs-per-function",
+            "--paths",
+            "src/untracked.rs",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning: --vcs-per-function: skipping")
+                .and(predicate::str::contains("untracked.rs")),
+        );
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json still emitted");
+    assert!(
+        doc["metrics"].get("vcs").is_none(),
+        "an untracked file has no file-level block either"
+    );
+    let spaces = doc["spaces"].as_array().expect("nested spaces array");
+    assert_eq!(
+        spaces.len(),
+        2,
+        "both functions still emit their AST metrics"
+    );
+    assert!(
+        spaces.iter().all(|s| s["metrics"].get("vcs").is_none()),
+        "the per-function blocks are left unset after the blame fails"
+    );
+}
+
 #[test]
 fn metrics_without_vcs_flag_has_no_block() {
     let repo = repo_two_commits();

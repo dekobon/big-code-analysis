@@ -365,7 +365,10 @@ default for the library; on by default for the `bca` / `bca-web` /
 Python builds). When enabled, the following join the shape contract:
 the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
 `Stats`, `HistoryIndex`, `RiskFormula`, `FileTypeScope`, `parse_window`,
-`parse_timestamp`, `workdir_root`), `wire::Vcs`, `CodeMetrics::vcs`,
+`parse_timestamp`, `workdir_root`, and `vcs::attach` — `file_complexity`,
+`attach_file_history`, `attach_per_function_history` — the one owner of
+which cyclomatic figure a `hotspot_score` is scored from, #1743),
+`wire::Vcs`, `CodeMetrics::vcs`,
 the `bca vcs` subcommand (including its `--file-types
 {metrics|all|EXT,…}` scope flag and the matching `bca.toml` `[vcs]
 file_types` key) and `bca metrics --vcs` flag, the `POST /vcs` REST

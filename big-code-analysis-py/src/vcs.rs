@@ -20,12 +20,12 @@ use std::path::{Path, PathBuf};
 use pyo3::PyErr;
 use pyo3::exceptions::PyValueError;
 
+use big_code_analysis::FuncSpace;
 use big_code_analysis::vcs::{
-    self, AuthorHashKey, CacheConfig, Options, build_history_index_cached, build_trend, hotspot,
+    self, AuthorHashKey, CacheConfig, Options, attach, build_history_index_cached, build_trend,
     parse_timestamp, parse_window, score_commit, score_diff, workdir_root,
 };
 use big_code_analysis::wire::{self, VcsReport, VcsReportFile};
-use big_code_analysis::{FuncSpace, Metric};
 
 /// Knobs accepted from Python, all optional (Python defaults map here).
 // The booleans mirror independent `bca vcs` CLI toggles; a flags
@@ -324,9 +324,11 @@ pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::BlameSession> {
 /// Backs both `analyze(..., vcs=True)` (single file) and the batch
 /// `vcs=True` path (#670): the caller builds the index off-GIL (#620) —
 /// one per containing repository for the batch path, reused across every
-/// file in that repo — and this attaches the matching block, with a
-/// hotspot score from the subtree cyclomatic sum. A file with no index
-/// entry (untracked / binary) is left untouched.
+/// file in that repo — and this attaches the matching block through the
+/// library's [`attach::attach_file_history`], which owns the hotspot rule
+/// (the subtree cyclomatic sum, or no score when cyclomatic was not
+/// computed; #1743) and the path canonicalization (#1764). A file with no
+/// index entry (untracked / binary) is left untouched.
 ///
 /// The block goes on the [`FuncSpace`] before it is serialized, as the
 /// CLI's `vcs_command::inject` does, not into its JSON afterwards. A
@@ -340,68 +342,7 @@ pub(crate) fn inject_vcs_with_index(
     file_path: &Path,
     index: &vcs::HistoryIndex,
 ) {
-    // The canonicalize stays unconditional. `get_for_path` is a lexical
-    // strip against the canonical workdir, and a tracked path may itself
-    // be a symlink to another tracked file whose history differs — a
-    // lexical-first lookup attached the link's own history to bytes that
-    // came from the target (#1764). Measured at < 1 % of a `vcs=True` wall.
-    let canonical = file_path
-        .canonicalize()
-        .unwrap_or_else(|_| file_path.to_path_buf());
-    if let Some(stat) = index.get_for_path(&canonical) {
-        attach_vcs_to_space(space, stat.clone(), HotspotComplexity::SubtreeSum);
-    }
-}
-
-/// Which cyclomatic figure a space's `hotspot_score` is scored from. The
-/// choice follows the space's position in the tree, as the CLI's
-/// `vcs_command::inject` / `assign_child_stats` make it: the file (root)
-/// space uses the subtree rollup so the file-level score matches `bca
-/// vcs`, and every descendant — container or function — uses its own
-/// figure so nested complexity is not re-counted at each enclosing level
-/// (#709, #1624).
-#[derive(Clone, Copy, Debug)]
-enum HotspotComplexity {
-    /// `cyclomatic.sum`: the space plus everything nested in it.
-    SubtreeSum,
-    /// `cyclomatic.value`: the space's own complexity.
-    Own,
-}
-
-impl HotspotComplexity {
-    fn of(self, space: &FuncSpace) -> u64 {
-        match self {
-            Self::SubtreeSum => space.metrics.cyclomatic.cyclomatic_sum(),
-            Self::Own => space.metrics.cyclomatic.cyclomatic(),
-        }
-    }
-}
-
-/// Fill `stat.hotspot_score` from the space's `complexity` figure and set
-/// it as the space's `metrics.vcs`. Shared by the file-level
-/// [`inject_vcs_with_index`] and the per-function [`assign_child_stats`]
-/// so the two paths compute the hotspot identically and cannot drift
-/// (mirrors the CLI's `hotspot_for`).
-///
-/// A space whose cyclomatic was not computed (excluded via `metrics=`)
-/// gets `hotspot_score` cleared rather than scored from the zeroed
-/// figure, as the CLI does since #1742. `selected` is the set the
-/// serializer consults to elide a metric, so this is exactly "the
-/// serialized metrics carry no `cyclomatic`". The unselected arm assigns
-/// `None` rather than skipping, so a stat that arrives already scored
-/// cannot leak the stale value.
-fn attach_vcs_to_space(space: &mut FuncSpace, mut stat: vcs::Stats, complexity: HotspotComplexity) {
-    stat.hotspot_score = space
-        .metrics
-        .selected
-        .contains(Metric::Cyclomatic)
-        .then(|| {
-            // Cyclomatic counts stay far below 2^53, so the cast is exact.
-            #[allow(clippy::cast_precision_loss)]
-            let figure = complexity.of(space) as f64;
-            hotspot::hotspot_score(figure, stat.churn_recent)
-        });
-    space.metrics.vcs = Some(stat);
+    attach::attach_file_history(space, file_path, index);
 }
 
 /// Attach per-function `vcs` blocks to every nested function / method /
@@ -411,96 +352,24 @@ fn attach_vcs_to_space(space: &mut FuncSpace, mut stat: vcs::Stats, complexity: 
 /// Backs both `analyze(..., vcs_per_function=True)` (single file) and the
 /// batch `vcs_per_function=True` path (#670): the caller opens the blame
 /// engine off-GIL (#620) — one per containing repository for the batch
-/// path, reused across every file in that repo — and this blames the file
-/// **once** and attaches one block per descendant space (with a hotspot
-/// score from that space's own cyclomatic, not its subtree sum).
+/// path, reused across every file in that repo — and the library's
+/// [`attach::attach_per_function_history`] blames the file **once** and
+/// attaches one block per descendant space, scored from that space's own
+/// cyclomatic (#709, #1743).
 ///
 /// The file-level (root) space is left untouched here — it carries the
 /// whole-file block that [`inject_vcs_with_index`] attaches when
 /// `vcs=True` is also set. A file with no nested spaces, or an unblameable
 /// file (untracked, outside the work tree, deleted at the target ref), is
-/// left unchanged, mirroring the CLI's graceful degradation (`bca metrics
-/// --vcs-per-function` never aborts the walk on one bad file).
+/// left unchanged: the blame error is dropped here, so one bad file is
+/// silent rather than fatal, mirroring the CLI's per-file skip (which
+/// warns instead — each front end decides).
 pub(crate) fn inject_vcs_per_function_with_blame(
     space: &mut FuncSpace,
     file_path: &Path,
     blame: &mut vcs::BlameSession,
 ) {
-    // Pre-order over descendants (the root is the file space). The same
-    // traversal collects the spans and, after the single blame, replays in
-    // lockstep to attach each returned `Stats`, so spans and stats line up
-    // one-to-one (mirrors the CLI's `collect_child_spans` /
-    // `assign_child_stats`).
-    let mut spans = Vec::new();
-    collect_child_spans(space, &mut spans);
-    if spans.is_empty() {
-        return;
-    }
-
-    // Blame the file exactly once and reuse the result across every span —
-    // re-blaming per function would be an O(n) perf bug. A blame failure
-    // leaves the per-function blocks unset (the file still emits its AST
-    // metrics), so one unblameable file is silent rather than fatal —
-    // matching the CLI's per-file skip.
-    let Ok(stats) = blame.per_function(file_path, &spans) else {
-        return;
-    };
-
-    // `per_function` returns exactly one `Stats` per span, and
-    // `assign_child_stats` replays the identical pre-order, so the iterator
-    // must drain fully; a length mismatch or leftover means the two
-    // traversals drifted out of lockstep (mirrors the CLI's debug_asserts in
-    // `vcs_command::inject_per_function`).
-    debug_assert_eq!(stats.len(), spans.len());
-    let mut stats = stats.into_iter();
-    assign_child_stats(space, &mut stats);
-    debug_assert!(
-        stats.next().is_none(),
-        "per-function VCS stats outnumbered the spaces they attach to"
-    );
-}
-
-/// Collect the 1-based inclusive line span of every descendant space, in
-/// pre-order. Saturates a span line past `u32::MAX` (no real source file
-/// reaches that line count) rather than wrapping. Mirrors the CLI's
-/// `vcs_command::collect_child_spans`.
-///
-/// Walks with an explicit stack of child iterators rather than recursing:
-/// this runs before serialization, which is where the space depth is
-/// bounded (`MAX_SPACE_SERIALIZE_DEPTH`), so a recursive walk would
-/// overflow the thread stack — an abort, not a catchable error — on
-/// nesting the serializer would have refused with a `ValueError`.
-fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
-    let mut pending = vec![space.spaces.iter()];
-    while let Some(children) = pending.last_mut() {
-        let Some(child) = children.next() else {
-            pending.pop();
-            continue;
-        };
-        let start = u32::try_from(child.start_line).unwrap_or(u32::MAX);
-        let end = u32::try_from(child.end_line).unwrap_or(u32::MAX);
-        out.push(vcs::LineSpan::new(start, end));
-        pending.push(child.spaces.iter());
-    }
-}
-
-/// Replay the [`collect_child_spans`] pre-order, attaching one blame
-/// `vcs::Stats` to each descendant space and filling its per-function
-/// `hotspot_score` from that space's own cyclomatic. Mirrors the CLI's
-/// `vcs_command::assign_child_stats`, and walks iteratively for the
-/// reason [`collect_child_spans`] gives.
-fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
-    let mut pending = vec![space.spaces.iter_mut()];
-    while let Some(children) = pending.last_mut() {
-        let Some(child) = children.next() else {
-            pending.pop();
-            continue;
-        };
-        if let Some(stat) = stats.next() {
-            attach_vcs_to_space(child, stat, HotspotComplexity::Own);
-        }
-        pending.push(child.spaces.iter_mut());
-    }
+    let _ = attach::attach_per_function_history(space, file_path, blame);
 }
 
 /// Map a [`vcs::Error`] to the matching Python exception (#624).
@@ -540,108 +409,33 @@ fn vcs_error_to_py(error: vcs::Error) -> PyErr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+    use big_code_analysis::vcs::hotspot;
+    use big_code_analysis::{LANG, Metric, MetricsOptions, Source, analyze};
 
     /// `outer` own 2 (one `if`), `inner` own 3 (two `if`s), so `outer`'s
-    /// subtree sum is 5 and the file's is 1 + 2 + 3 = 6. Hand-derived;
-    /// the setup asserts below hold the analysis to it.
+    /// subtree sum is 5 and the file's is 1 + 2 + 3 = 6. The rule that
+    /// scores a hotspot from those figures is pinned in the library's
+    /// `vcs::attach` tests (#1743); the two tests here pin only that the
+    /// bindings' wrappers reach it.
     const NESTED: &[u8] = b"def outer(x):\n    if x:\n        pass\n    def inner(y):\n        if y:\n            pass\n        if y > 1:\n            pass\n";
 
     fn nested_space(options: MetricsOptions) -> FuncSpace {
         analyze(Source::new(LANG::Python, NESTED), options).expect("the fixture parses")
     }
 
-    fn stats_with_churn(churn_recent: u64) -> vcs::Stats {
-        vcs::Stats {
-            churn_recent,
-            ..vcs::Stats::default()
-        }
-    }
-
     fn hotspot_of(space: &FuncSpace) -> Option<f64> {
         space.metrics.vcs.as_ref().and_then(|vcs| vcs.hotspot_score)
     }
 
-    /// #1624: every descendant scores from its own cyclomatic and
-    /// `SubtreeSum` reads the subtree sum, matching the CLI's
-    /// `assign_child_stats` / `inject`. `outer`'s sum differs from its own
-    /// figure, so a descendant path scoring by sum moves its score. The
-    /// root is attached here directly, because `inject_vcs_with_index`
-    /// needs a history index; that call site's choice of `SubtreeSum` is
-    /// pinned by `test_analyze_vcs_per_function_hotspot_matches_cli` in
-    /// `tests/test_vcs.py`.
-    #[test]
-    fn descendants_score_their_own_value_and_subtree_sum_reads_sum() {
-        let mut root = nested_space(MetricsOptions::default());
-        let outer = &root.spaces[0];
-        assert_eq!(
-            (
-                outer.metrics.cyclomatic.cyclomatic(),
-                outer.metrics.cyclomatic.cyclomatic_sum()
-            ),
-            (2, 5)
-        );
-        assert_eq!(root.metrics.cyclomatic.cyclomatic_sum(), 6);
-
-        attach_vcs_to_space(
-            &mut root,
-            stats_with_churn(10),
-            HotspotComplexity::SubtreeSum,
-        );
-        let mut stats = [stats_with_churn(3), stats_with_churn(5)].into_iter();
-        assign_child_stats(&mut root, &mut stats);
-        assert!(stats.next().is_none(), "one stat per descendant");
-
-        assert_eq!(hotspot_of(&root), Some(60.0), "root: sum 6 x churn 10");
-        let outer = &root.spaces[0];
-        assert_eq!(
-            hotspot_of(outer),
-            Some(6.0),
-            "outer: own 2 x churn 3, not sum 5"
-        );
-        assert_eq!(
-            hotspot_of(&outer.spaces[0]),
-            Some(15.0),
-            "inner: own 3 x churn 5"
-        );
-    }
-
-    /// A space whose cyclomatic was not computed (excluded via `metrics=`)
-    /// still gets its block, with no hotspot, as the CLI does since #1742.
-    /// The input stat is seeded with a score so the test fails against an
-    /// arm that skips the assignment instead of clearing it.
-    #[test]
-    fn space_without_cyclomatic_gets_a_block_without_a_hotspot() {
-        let mut space = nested_space(MetricsOptions::default().with_only(&[Metric::Loc]));
-        assert!(!space.metrics.selected.contains(Metric::Cyclomatic));
-        let mut stat = stats_with_churn(7);
-        stat.hotspot_score = Some(9.0);
-        attach_vcs_to_space(&mut space, stat, HotspotComplexity::Own);
-        let vcs = space.metrics.vcs.as_ref().expect("the block is attached");
-        assert_eq!(vcs.churn_recent, 7);
-        assert_eq!(hotspot_of(&space), None, "the seeded score is cleared");
-    }
-
-    /// The spans the single blame is asked for are every descendant's, in
-    /// the pre-order `assign_child_stats` replays.
-    #[test]
-    fn child_spans_are_every_descendant_in_pre_order() {
-        let space = nested_space(MetricsOptions::default());
-        let mut spans = Vec::new();
-        collect_child_spans(&space, &mut spans);
-        assert_eq!(spans, [vcs::LineSpan::new(1, 8), vcs::LineSpan::new(4, 8)]);
-    }
-
-    /// Run `git <args>` in `dir`, isolated from the host's configuration,
-    /// applied after the caller's so no caller can switch it back on: no
-    /// global file (which also covers `$XDG_CONFIG_HOME/git/config`), no
-    /// system file, and the two per-user files that are not configuration
-    /// — `core.excludesFile` and `core.attributesFile` default to
-    /// `$XDG_CONFIG_HOME/git/…` and are read whatever the first two say —
-    /// pinned to `/dev/null` (#1771). Mirrors the CLI's `isolated_git_env`
-    /// and the root crate's `tests/common/vcs_fixture.rs`, neither of
-    /// which a unit test here can reach.
-    #[cfg(unix)]
+    /// Run `git <args>` in `dir`, isolated from the host's configuration:
+    /// no global file (which also covers `$XDG_CONFIG_HOME/git/config`),
+    /// no system file, and the two per-user files that are not
+    /// configuration — `core.excludesFile` and `core.attributesFile`
+    /// default to `$XDG_CONFIG_HOME/git/…` and are read whatever the
+    /// first two say — pinned to `/dev/null` (#1771). Mirrors the CLI's
+    /// `isolated_git_env` and the root crate's
+    /// `tests/common/vcs_fixture.rs`, neither of which a unit test here
+    /// can reach.
     fn git(dir: &Path, args: &[&str]) {
         let status = std::process::Command::new("git")
             .args(args)
@@ -662,39 +456,27 @@ mod tests {
         assert!(status.success(), "git {args:?} failed");
     }
 
-    /// `HistoryIndex::get_for_path` strips the index's *canonical* work
-    /// tree lexically, so the injector canonicalizes every path before
-    /// the lookup, unconditionally. This pins what that buys: a tracked
-    /// file attaches through a symlinked directory and a `..`-laden
-    /// relative spelling, an untracked one stays bare — and, the row a
-    /// lexical-first lookup cannot pass, a tracked path that is *itself*
-    /// a symlink to another tracked file attaches the target's history,
-    /// since the target's bytes are what was analysed (#1764). `a.py` has
-    /// one commit and `b.py` two; once `a.py` is a link to `b.py`, the
-    /// block at `a.py`'s path must read 2, not the 1 its own key carries.
-    #[cfg(unix)]
-    #[test]
-    fn file_level_block_follows_the_path_the_bytes_came_from() {
+    /// A throwaway repository holding `work.py` (the [`NESTED`] fixture)
+    /// in one commit, at its canonical path: `tempdir` itself may sit
+    /// under a symlink (macOS `/var` → `/private/var`), and the index
+    /// keys on the canonical work tree.
+    fn one_commit_repo() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
-        // `tempdir` itself may sit under a symlink (macOS `/var` →
-        // `/private/var`), so the repository lives at its canonical path
-        // and the links below are the test's own, known-non-canonical ones.
         let repo = dir.path().canonicalize().expect("canonical tempdir");
         std::fs::write(repo.join("work.py"), NESTED).expect("write work.py");
-        std::fs::write(repo.join("a.py"), NESTED).expect("write a.py");
-        std::fs::write(repo.join("b.py"), NESTED).expect("write b.py");
         git(&repo, &["init", "-q", "-b", "main"]);
         git(&repo, &["config", "commit.gpgsign", "false"]);
-        git(&repo, &["add", "work.py", "a.py", "b.py"]);
-        git(&repo, &["commit", "-q", "-m", "add all"]);
-        std::fs::write(repo.join("b.py"), [NESTED, b"# touched\n"].concat()).expect("rewrite b.py");
-        git(&repo, &["add", "b.py"]);
-        git(&repo, &["commit", "-q", "-m", "touch b"]);
-        let link = repo.join("link");
-        std::os::unix::fs::symlink(&repo, &link).expect("symlink the repo dir");
-        std::fs::remove_file(repo.join("a.py")).expect("remove a.py");
-        std::os::unix::fs::symlink(repo.join("b.py"), repo.join("a.py"))
-            .expect("symlink a.py to b.py");
+        git(&repo, &["add", "work.py"]);
+        git(&repo, &["commit", "-q", "-m", "add work.py"]);
+        (dir, repo)
+    }
+
+    /// `inject_vcs_with_index` drives `attach::attach_file_history`: the
+    /// tracked file's block arrives scored from the file's subtree sum
+    /// (6 × churn), and an untracked file stays bare.
+    #[test]
+    fn file_level_wrapper_attaches_through_the_library() {
+        let (_dir, repo) = one_commit_repo();
         // The persistent cache is off so a unit test writes nothing under
         // the user's cache directory; the index is otherwise the one
         // `build_index_for` builds.
@@ -703,91 +485,70 @@ mod tests {
         let index = build_history_index_cached(&repo, &Options::default(), &no_cache)
             .expect("the scratch repository indexes");
 
-        let cwd = std::env::current_dir().expect("cwd");
-        let ascent: PathBuf = cwd.components().skip(1).map(|_| "..").collect();
-        let relative = ascent.join(repo.strip_prefix("/").expect("canonical paths are rooted"));
-        assert!(relative.is_relative());
+        let mut space = nested_space(MetricsOptions::default());
+        assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 6);
+        inject_vcs_with_index(&mut space, &repo.join("work.py"), &index);
+        let vcs = space
+            .metrics
+            .vcs
+            .as_ref()
+            .expect("the tracked file attaches");
+        assert_eq!(vcs.commits_long, 1);
+        assert_eq!(
+            hotspot_of(&space),
+            Some(hotspot::hotspot_score(6.0, vcs.churn_recent)),
+            "scored from the file's subtree sum"
+        );
 
-        let attaches = |path: PathBuf| {
-            let mut space = nested_space(MetricsOptions::default());
-            inject_vcs_with_index(&mut space, &path, &index);
-            space.metrics.vcs.as_ref().map(|vcs| vcs.commits_long)
-        };
-        assert_eq!(attaches(repo.join("work.py")), Some(1), "canonical path");
-        assert_eq!(
-            attaches(link.join("work.py")),
-            Some(1),
-            "through the symlink"
-        );
-        assert_eq!(
-            attaches(relative.join("work.py")),
-            Some(1),
-            "relative, `..`-laden"
-        );
-        assert_eq!(attaches(repo.join("b.py")), Some(2), "the link's target");
-        assert_eq!(
-            attaches(repo.join("a.py")),
-            Some(2),
-            "a tracked path that is a symlink to another tracked file \
-             carries the target's history"
-        );
+        let mut untracked = nested_space(MetricsOptions::default());
         std::fs::write(repo.join("untracked.py"), NESTED).expect("write untracked.py");
-        assert_eq!(
-            attaches(repo.join("untracked.py")),
-            None,
-            "untracked stays bare"
-        );
-        assert_eq!(
-            attaches(link.join("untracked.py")),
-            None,
-            "untracked via the link"
-        );
+        inject_vcs_with_index(&mut untracked, &repo.join("untracked.py"), &index);
+        assert!(untracked.metrics.vcs.is_none(), "untracked stays bare");
     }
 
-    /// Both injector walks run before serialization bounds the space depth
-    /// at `MAX_SPACE_SERIALIZE_DEPTH`, so nesting far past it must reach
-    /// the serializer's catchable error rather than abort on the stack
-    /// (#1768). The chain is built directly, as `src/wire.rs`'s
-    /// `space_chain` does, because analysing this depth in a debug build
-    /// is slow.
+    /// `inject_vcs_per_function_with_blame` drives
+    /// `attach::attach_per_function_history`: both descendants receive a
+    /// block scored from their *own* cyclomatic (2 and 3, not `outer`'s
+    /// subtree 5), the root is left to the file-level wrapper, and a
+    /// space whose cyclomatic was not computed gets a block with no
+    /// score. An unblameable file is skipped silently.
     #[test]
-    fn injector_walks_survive_nesting_past_the_serialize_bound() {
-        const DEPTH: usize = 10_000;
-        /// Far below a production thread's stack, so a walk that recurses
-        /// per level fails here rather than riding on the test runner's.
-        const TIGHT_STACK: usize = 128 * 1024;
+    fn per_function_wrapper_attaches_through_the_library() {
+        let (_dir, repo) = one_commit_repo();
+        let file = repo.join("work.py");
+        let mut blame = open_blame_for(&repo).expect("the scratch repository opens");
 
-        let file = analyze(
-            Source::new(LANG::Python, b"def f():\n    pass\n"),
-            MetricsOptions::default().with_only(&[Metric::Loc]),
-        )
-        .expect("the fixture parses");
-        let leaf = file.spaces[0].clone();
-        let mut root = file;
-        let mut cursor = &mut root.spaces[0];
-        for _ in 1..DEPTH {
-            cursor.spaces.push(leaf.clone());
-            cursor = &mut cursor.spaces[0];
-        }
+        let mut space = nested_space(MetricsOptions::default());
+        inject_vcs_per_function_with_blame(&mut space, &file, &mut blame);
+        assert!(space.metrics.vcs.is_none(), "the root is the file block's");
+        let outer = &space.spaces[0];
+        let inner = &outer.spaces[0];
+        let churn = |space: &FuncSpace| space.metrics.vcs.as_ref().map(|v| v.churn_recent);
+        assert_eq!(
+            (hotspot_of(outer), hotspot_of(inner)),
+            (
+                churn(outer).map(|c| hotspot::hotspot_score(2.0, c)),
+                churn(inner).map(|c| hotspot::hotspot_score(3.0, c)),
+            ),
+            "each descendant is scored from its own cyclomatic"
+        );
+        assert!(
+            churn(outer).is_some() && churn(inner).is_some(),
+            "both descendants received a block"
+        );
 
-        let (spans, attached) = std::thread::Builder::new()
-            .stack_size(TIGHT_STACK)
-            .spawn(move || {
-                let mut spans = Vec::new();
-                collect_child_spans(&root, &mut spans);
-                let mut stats = std::iter::repeat_with(vcs::Stats::default).take(spans.len());
-                assign_child_stats(&mut root, &mut stats);
-                let mut attached = 0;
-                let mut cursor = &root;
-                while let Some(child) = cursor.spaces.first() {
-                    attached += usize::from(child.metrics.vcs.is_some());
-                    cursor = child;
-                }
-                (spans.len(), attached)
-            })
-            .expect("spawn bounded-stack thread")
-            .join()
-            .expect("the injector walks must not overflow the stack");
-        assert_eq!((spans, attached), (DEPTH, DEPTH));
+        let mut unscored = nested_space(MetricsOptions::default().with_only(&[Metric::Loc]));
+        inject_vcs_per_function_with_blame(&mut unscored, &file, &mut blame);
+        let outer = &unscored.spaces[0];
+        assert!(outer.metrics.vcs.is_some(), "the block is attached");
+        assert_eq!(hotspot_of(outer), None, "no cyclomatic, no score");
+
+        let mut untracked = nested_space(MetricsOptions::default());
+        std::fs::write(repo.join("untracked.py"), NESTED).expect("write untracked.py");
+        inject_vcs_per_function_with_blame(&mut untracked, &repo.join("untracked.py"), &mut blame);
+        assert!(
+            untracked.spaces[0].metrics.vcs.is_none(),
+            "an unblameable file is skipped silently"
+        );
     }
 }

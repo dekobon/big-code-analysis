@@ -612,18 +612,17 @@ fn dispatch_report(
         }
         // `report --vcs` joins the file's hotspot score (complexity ×
         // recent churn) onto the change-history section, mirroring
-        // `bca metrics --vcs`. Stream the file-level cyclomatic sum keyed
+        // `bca metrics --vcs`. Stream the file's complexity figure keyed
         // by the absolute walk path so the downstream join canonicalizes
         // and matches against the index work-tree exactly like
-        // `vcs_command::inject` (issue #615). The sum is a *computed*
-        // figure only because `report` has no `--metrics` flag
-        // (`ReportArgs`); a future `report --metrics` must gate on the
-        // selection as `vcs_command::hotspot_for` does (#1742), with the
-        // library helper #1743 adds.
+        // `vcs_command::inject` (issue #615). `file_complexity` owns
+        // which figure that is and is `None` when cyclomatic was not
+        // computed (#1742, #1743) — always `Some` today, since `report`
+        // has no `--metrics` flag (`ReportArgs`), but a future one needs
+        // no change here.
         if let Some(ref hotspot_tx) = cfg.report_hotspot_tx {
-            #[allow(clippy::cast_precision_loss)]
-            let cyclomatic_sum = space.metrics.cyclomatic.cyclomatic_sum() as f64;
-            let _ = hotspot_tx.send((path, cyclomatic_sum));
+            let complexity = big_code_analysis::vcs::attach::file_complexity(&space.metrics);
+            let _ = hotspot_tx.send((path, complexity));
         }
     }
     Ok(())

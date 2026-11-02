@@ -509,7 +509,7 @@ value = 39.93745109543172
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 metric = "halstead.effort"
-value = 64495.18935578189
+value = 61036.002338464554
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -762,12 +762,6 @@ path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "split_thresholds_table"
 metric = "nexits"
 value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 551.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"

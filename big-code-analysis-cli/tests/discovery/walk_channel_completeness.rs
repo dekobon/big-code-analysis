@@ -252,11 +252,12 @@ fn exemptions_audit_is_identical_serially_and_in_parallel() {
 /// (`hotspot_sender.send((path.clone(), …))` became
 /// `hotspot_tx.send((path, …))`).
 ///
-/// It carries each file's `(absolute path, cyclomatic sum)` so
-/// `report --vcs` can join a hotspot score onto the change-history
-/// section. A lost record does not fail anything — it silently blanks a
-/// Hotspot cell — so serial-vs-parallel equality is the only thing that
-/// would catch it.
+/// It carries each file's `(absolute path, Option<f64>)` — the
+/// `vcs::attach::file_complexity` figure, `None` when cyclomatic was not
+/// computed — so `report --vcs` can join a hotspot score onto the
+/// change-history section. A lost record does not fail anything — it
+/// silently blanks a Hotspot cell — so serial-vs-parallel equality is
+/// the only thing that would catch it.
 ///
 /// Needs a real git repo, hence the local fixture rather than the shared
 /// `corpus` above.

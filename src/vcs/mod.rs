@@ -14,7 +14,10 @@
 //! `classify`, `score`, `hotspot`, `jit`, and `build_history_index`)
 //! carries no backend reference, so a future backend (Mercurial,
 //! Jujutsu, …; issue #335) reuses it unchanged. Backend-specific code
-//! lives under the `git` module behind the `vcs-git` Cargo feature.
+//! lives under the `git` module behind the `vcs-git` Cargo feature, and
+//! `attach` — behind the same feature, since its per-function half
+//! blames through the backend — is where a front end hands a `Stats`
+//! to a `FuncSpace` and gets its hotspot scored.
 //!
 //! Two scoring granularities are offered: `build_history_index` ranks
 //! *files* at a ref (issue #328), while `score_commit` scores a single
@@ -42,6 +45,9 @@ pub(crate) mod replay;
 
 #[cfg(feature = "vcs-git")]
 pub mod git;
+
+#[cfg(feature = "vcs-git")]
+pub mod attach;
 
 pub use bus_factor::{
     BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor, VcsAggregate,

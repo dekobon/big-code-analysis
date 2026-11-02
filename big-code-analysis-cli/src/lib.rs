@@ -177,15 +177,17 @@ struct Config {
     count_lock: Option<CountCollector>,
     /// Sender for streaming `FunctionSummary` records when running `report`.
     markdown_tx: Option<crossbeam::channel::Sender<FunctionSummary>>,
-    /// Sender for streaming each file's `(absolute path, cyclomatic sum)`
-    /// when running `report --vcs`, so the change-history section can join
-    /// the same hotspot score (`complexity × recent churn`) that
-    /// `bca metrics --vcs` attaches per file (issue #615). The absolute
-    /// path is canonicalized against the index work-tree downstream — the
-    /// identical match `vcs_command::inject` uses — so the join is correct
-    /// regardless of `--strip-prefix` or the walk-root spelling. `None`
-    /// for every flow other than `report --vcs`.
-    report_hotspot_tx: Option<crossbeam::channel::Sender<(PathBuf, f64)>>,
+    /// Sender for streaming each file's `(absolute path, complexity)` —
+    /// the `vcs::attach::file_complexity` figure, `None` when cyclomatic
+    /// was not computed — when running `report --vcs`, so the
+    /// change-history section can join the same hotspot score
+    /// (`complexity × recent churn`) that `bca metrics --vcs` attaches
+    /// per file (issue #615). The absolute path is canonicalized against
+    /// the index work-tree downstream — the identical match
+    /// `vcs_command::inject` uses — so the join is correct regardless of
+    /// `--strip-prefix` or the walk-root spelling. `None` for every flow
+    /// other than `report --vcs`.
+    report_hotspot_tx: Option<crossbeam::channel::Sender<(PathBuf, Option<f64>)>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
     /// Pre-resolved thresholds for `Action::Check`: the global set, one

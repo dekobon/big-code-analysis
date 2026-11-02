@@ -14,6 +14,8 @@
 mod common;
 
 #[cfg(feature = "vcs-git")]
+mod vcs_attach;
+#[cfg(feature = "vcs-git")]
 mod vcs_bus_factor;
 #[cfg(feature = "vcs-git")]
 mod vcs_cache;
