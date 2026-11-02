@@ -162,7 +162,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// fixes its own ancestry, so a stored state whose id matches the
     /// chain is exact; a slot left by a node the walk has moved past holds
     /// another id and is refolded. `step` must answer the same for every
-    /// call on one `lane` within a walk, and must not fold itself. The
+    /// call on one `lane` within a walk. It may fold on another lane,
+    /// memoised; a fold on its own lane is answered unmemoised. The
     /// state at `node` (`skip == 0`) depends on `node`, so it is folded
     /// fresh. Without a known chain the ancestry is climbed with
     /// [`Node::parent`] first, which is `O(depth²)` per query; only tests
@@ -179,14 +180,16 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             return fold_climbed(node, skip, init, step);
         };
         let end = chain.len().saturating_sub(skip);
-        // `folds: None`, unlike `AncestorIter`: `FoldCache::fold` holds
-        // the lanes' `borrow_mut` while it calls `step`, so a step that
-        // folded again through the same cache would panic.
+        // The cache travels into `outer`, as it does through
+        // `AncestorIter`, so a step that folds on another lane is
+        // memoised too. Each lane is its own cell, so that fold borrows
+        // nothing this one holds; a step folding on *this* lane finds it
+        // borrowed and runs unmemoised instead (`FoldCache::fold`).
         let step_at = |state: u8, depth: usize| {
             let outer = Ancestors {
                 chain: Some(&chain[..depth]),
                 siblings: self.siblings,
-                folds: None,
+                folds: self.folds,
             };
             step(
                 state,
@@ -765,11 +768,13 @@ const _: () = assert!(MemoQuestion::KeywordsLeadTheirList as usize + 1 == MemoQu
 /// One slot per depth and lane, keyed by the id of the ancestor at that
 /// depth: the state folded over every ancestor above it. Interior
 /// mutability, because [`Ancestors`] lends it shared, as it lends a
-/// [`SiblingCache`]; a fold never re-enters itself, so the borrow is
-/// never contended.
+/// [`SiblingCache`]. One cell per lane, because a fold's step may ask a
+/// question another lane memoises — the JS family's doc-in-body fold
+/// asks whether each ancestor is a function — and that fold must not
+/// find its lane borrowed by the one in progress.
 #[derive(Debug, Default)]
 pub struct FoldCache {
-    lanes: RefCell<[Vec<(usize, u8)>; FoldLane::COUNT]>,
+    lanes: [RefCell<Vec<(usize, u8)>>; FoldLane::COUNT],
     nodes: [NodeMemo; MemoQuestion::COUNT],
     words: [Cell<(usize, u8)>; WordSlot::COUNT],
 }
@@ -831,6 +836,11 @@ impl NodeMemo {
 impl FoldCache {
     // The state after folding `step(state, depth)` over `chain[..end]`,
     // reusing and storing the per-depth states on `lane`.
+    //
+    // The lane stays borrowed while `step` runs. A step that folds on the
+    // same lane would otherwise panic on the second borrow; it folds
+    // unmemoised instead, which answers the same, only without the memo.
+    // No step does today.
     fn fold(
         &self,
         lane: FoldLane,
@@ -839,8 +849,9 @@ impl FoldCache {
         init: u8,
         step: impl Fn(u8, usize) -> u8,
     ) -> u8 {
-        let mut lanes = self.lanes.borrow_mut();
-        let slots = &mut lanes[lane as usize];
+        let Ok(mut slots) = self.lanes[lane as usize].try_borrow_mut() else {
+            return (0..end).fold(init, step);
+        };
         // `slots[d]` is the state at `chain[d]`: folded over `chain[..d]`.
         // Depth 0 is `init`; the state at `node` itself is never stored.
         let memo_end = end.min(chain.len().saturating_sub(1));
@@ -849,7 +860,7 @@ impl FoldCache {
             // address, never 0.
             slots.resize(memo_end + 1, (0, 0));
         }
-        let mut depth = deepest_stored(slots, chain, memo_end);
+        let mut depth = deepest_stored(&slots, chain, memo_end);
         let mut state = if depth == 0 { init } else { slots[depth].1 };
         while depth < memo_end {
             state = step(state, depth);
@@ -1003,6 +1014,82 @@ mod tests {
         assert!(
             queried > 100,
             "the fixture must exercise a real walk: {queried}"
+        );
+    }
+
+    /// A fold's step may fold on another lane, and that inner fold is
+    /// memoised through the same cache: each lane is its own cell, so the
+    /// outer fold's borrow does not block it. A step that folds on its
+    /// *own* lane finds that lane borrowed and runs unmemoised, answering
+    /// what the plain fold does rather than panicking on a second borrow.
+    ///
+    /// The inner fold counts its own steps, so memoisation is observed
+    /// rather than inferred: walked in order, each inner fold costs one
+    /// step per new depth, so the total stays near the node count, where
+    /// an unmemoised inner fold costs the whole depth every time.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_step_folds_another_lane_memoised_and_its_own_lane_unmemoised() {
+        use crate::test_support::for_each_node_with_chain;
+        use std::cell::Cell;
+        // Every level opens a block, so depth grows with the fixture and
+        // an unmemoised inner fold is visibly quadratic in step count.
+        let source = format!("fn f() {{ {} }}\n", "{ ".repeat(60) + &"} ".repeat(60));
+        let inner_steps = Cell::new(0_usize);
+        let inner = |state: u8, ancestor: &Node, _: Ancestors, _: &Node| {
+            inner_steps.set(inner_steps.get() + 1);
+            state
+                .wrapping_mul(7)
+                .wrapping_add(ancestor.kind_id().to_le_bytes()[0])
+        };
+        let outer_on = |lane: FoldLane| {
+            move |state: u8, ancestor: &Node, outer: Ancestors, _: &Node| {
+                state.wrapping_add(outer.fold_down(ancestor, 0, lane, 3, inner))
+            }
+        };
+        let fold = |chain: &[Node], node: &Node, cache: Option<&FoldCache>, lane, inner_lane| {
+            let ancestors = Ancestors::known(chain);
+            let ancestors = cache.map_or(ancestors, |cache| ancestors.with_folds(cache));
+            ancestors.fold_down(node, 0, lane, 0, outer_on(inner_lane))
+        };
+
+        let cache = FoldCache::default();
+        let nodes =
+            for_each_node_with_chain::<crate::langs::RustCode>(source.as_bytes(), |node, chain| {
+                let (other, own) = (FoldLane::DocInBody, FoldLane::BareStringClimb);
+                assert_eq!(
+                    fold(chain, node, Some(&cache), other, FoldLane::DocScope),
+                    fold(chain, node, None, other, FoldLane::DocScope),
+                    "another lane must answer what the plain fold does"
+                );
+                assert_eq!(
+                    fold(chain, node, Some(&cache), own, own),
+                    fold(chain, node, None, own, own),
+                    "its own lane must answer what the plain fold does"
+                );
+            });
+        assert!(nodes > 200, "the fixture must nest deeply: {nodes}");
+
+        // The other-lane fold alone on a fresh cache, counting only its
+        // inner steps.
+        let cache = FoldCache::default();
+        inner_steps.set(0);
+        for_each_node_with_chain::<crate::langs::RustCode>(source.as_bytes(), |node, chain| {
+            fold(
+                chain,
+                node,
+                Some(&cache),
+                FoldLane::DocInBody,
+                FoldLane::DocScope,
+            );
+        });
+        // Memoised, the inner folds cost a small constant per node;
+        // unmemoised, each outer step's inner fold runs the whole prefix,
+        // `Σ depth` along the spine — quadratic in it, far past this
+        // bound.
+        assert!(
+            inner_steps.get() <= 4 * nodes,
+            "the other lane is not memoised"
         );
     }
 
