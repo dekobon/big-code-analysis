@@ -38,6 +38,7 @@
 //! coverage tags that are correct for both tiers.
 
 use super::*;
+use crate::threshold_path::PathOverride;
 use big_code_analysis::metric_catalog::{Scale, Threshold};
 
 /// Minimum number of soft-band offenders before a shared value is called
@@ -158,6 +159,11 @@ impl CandidateGate<'_> {
             soft_derivation: self.soft_derivation(metric, candidate, global_soft),
             band_values: Vec::new(),
             language_overrides: self.language_overrides(metric, candidate, global_soft),
+            path_overrides: self
+                .resolved
+                .path_layer()
+                .map(|layer| layer.overrides_of(metric))
+                .unwrap_or_default(),
         };
         // `v.suppressed` is only ever set under `--report-suppressed`,
         // which keeps marker-silenced offenders in the stream for the
@@ -293,6 +299,11 @@ struct CandidateOutcome {
     /// limits for this metric. Their files are counted against those
     /// numbers, not the candidate.
     language_overrides: Vec<LanguageOverride>,
+    /// `[[thresholds.path]]` entries that declare this metric. A file
+    /// one matches is counted against the last matching entry's value,
+    /// not the candidate; the report lists each declaration rather than
+    /// resolving the overlap, which only the walk's match sets can.
+    path_overrides: Vec<PathOverride>,
 }
 
 impl CandidateOutcome {
@@ -490,6 +501,19 @@ fn write_outcome(out: &mut impl Write, outcome: &CandidateOutcome) -> std::io::R
             over.slug,
             MetricScalar(over.hard),
             MetricScalar(over.soft),
+        )?;
+    }
+    for over in &outcome.path_overrides {
+        // A declaration, not the limit its files are gated at: entries
+        // overlap, and the file's limit is whichever matching entry
+        // declared the metric last. Stating a per-entry "soft" would
+        // claim a resolution the overlap can contradict.
+        writeln!(
+            out,
+            "  note: {} declares {metric} = {}; a file it matches is gated at the last \
+             matching entry's value, not the candidate",
+            over.context,
+            MetricScalar(over.hard),
         )?;
     }
     match outcome.cluster() {

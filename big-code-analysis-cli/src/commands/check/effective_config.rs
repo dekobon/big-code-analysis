@@ -117,26 +117,63 @@ pub(crate) struct EffectiveConfig {
     pub(crate) check: EffectiveCheck,
 }
 
-/// The resolved `[thresholds]` view: the global limits, plus one
-/// *fully resolved* sub-table per language carrying a
-/// `[thresholds.lang.<slug>]` override (#1141).
+/// The resolved `[thresholds]` view: the global limits, one *fully
+/// resolved* sub-table per language carrying a
+/// `[thresholds.lang.<slug>]` override (#1141), and the
+/// `[[thresholds.path]]` entries in effect.
 ///
 /// Each language table lists every limit that will apply to that
 /// language, inherited entries included — not a diff against the global
 /// table. Someone auditing a gate wants the number that fires, not a
 /// delta to compute; and the printed form stays directly consumable by
 /// `--config`, which reads the same nesting.
+///
+/// A path entry is printed with its glob and the metrics it declares,
+/// each at its *hard-tier* limit — `--threshold` applied last, the tier
+/// not applied — where the global and language rows above it print
+/// tier-resolved. Printing the declared values instead reversed the
+/// run's precedence on the way back in: the global row already carried
+/// the `--threshold` value, so a `--config` reading the printout laid
+/// the entry's declared limit over it. Printing the *band* instead
+/// could not replay a soft run at all: the band is a property of the
+/// file's match set, and a printed band is scaled again on the way
+/// back in. The hard limit is what the band derives from, so the
+/// printout loaded under the same `--tier` re-derives it (#1746; see
+/// `PathLayer::resolved_rows`).
 pub(crate) struct EffectiveThresholds {
     pub(crate) global: BTreeMap<String, f64>,
     pub(crate) lang: BTreeMap<&'static str, BTreeMap<String, f64>>,
+    pub(crate) path: Vec<EffectivePathEntry>,
+}
+
+/// One `[[thresholds.path]]` entry as `--print-effective-config` prints
+/// it: the glob first, then its limits, in the shape `--config` reads
+/// back.
+pub(crate) struct EffectivePathEntry {
+    pub(crate) glob: String,
+    pub(crate) limits: BTreeMap<String, f64>,
+}
+
+impl serde::Serialize for EffectivePathEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+
+        let mut map = serializer.serialize_map(Some(self.limits.len() + 1))?;
+        map.serialize_entry(crate::threshold_path::GLOB_KEY, &self.glob)?;
+        for (name, limit) in &self.limits {
+            map.serialize_entry(name, limit)?;
+        }
+        map.end()
+    }
 }
 
 impl serde::Serialize for EffectiveThresholds {
-    /// Hand-written because this one TOML table holds two value shapes —
-    /// scalar limits and a nested table of tables — which a single
-    /// `BTreeMap` cannot express without an enum wrapper around every
-    /// limit. Serializing from the two typed fields keeps the shape
-    /// explicit and puts the language tables last in both TOML and JSON.
+    /// Hand-written because this one TOML table holds three value shapes
+    /// — scalar limits, a nested table of tables, and an array of tables
+    /// — which a single `BTreeMap` cannot express without an enum wrapper
+    /// around every limit. Serializing from the typed fields keeps the
+    /// shape explicit and puts the language tables and path entries last
+    /// in both TOML and JSON.
     ///
     /// The `toml` serializer additionally reorders values ahead of
     /// tables on its own, so the emitted order here is for readability
@@ -146,12 +183,18 @@ impl serde::Serialize for EffectiveThresholds {
         use serde::ser::SerializeMap;
 
         let has_lang = !self.lang.is_empty();
-        let mut map = serializer.serialize_map(Some(self.global.len() + usize::from(has_lang)))?;
+        let has_path = !self.path.is_empty();
+        let mut map = serializer.serialize_map(Some(
+            self.global.len() + usize::from(has_lang) + usize::from(has_path),
+        ))?;
         for (name, limit) in &self.global {
             map.serialize_entry(name, limit)?;
         }
         if has_lang {
             map.serialize_entry(crate::threshold_lang::LANG_SUBTABLE_KEY, &self.lang)?;
+        }
+        if has_path {
+            map.serialize_entry(crate::threshold_path::PATH_SUBTABLE_KEY, &self.path)?;
         }
         map.end()
     }
@@ -356,6 +399,15 @@ impl EffectiveConfig {
             lang: resolved
                 .languages()
                 .map(|(slug, set)| (slug, resolved_limits(set)))
+                .collect(),
+            path: resolved
+                .path_layer()
+                .into_iter()
+                .flat_map(PathLayer::resolved_rows)
+                .map(|(glob, limits)| EffectivePathEntry {
+                    glob: glob.to_owned(),
+                    limits,
+                })
                 .collect(),
         };
         let check = EffectiveCheck::from_resolved(globals, args, manifest, tier, tiered_exit_codes);

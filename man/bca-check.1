@@ -126,7 +126,7 @@ Which threshold tier to gate against. Accepts `hard`, `soft`, or `soft=<RATIO>`:
 
 `RATIO` scales the band, not the number: at the default 0.95 a ceiling comes down (`cognitive = 15` warns at 14.25), while a lower\-is\-worse `mi.*` floor goes up by `1 \- RATIO` of one maintainability band — 17.1 points for `mi.original` / `mi.sei`, 10 for `mi.visual_studio` — so `mi.original = 20` warns at 20.855.
 
-Resolution order: `[thresholds]` (manifest + `\-\-config`) → `[thresholds.soft]` or the soft ratio → absolute `\-\-threshold name=value` overrides (applied last, never scaled). Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
+The tier is derived per table, after the per\-language and per\-path layers have composed and before the absolute `\-\-threshold name=value` overrides, which are applied last and never scaled. The full layering order is stated once, in the book\*(Aqs `Choosing thresholds` recipe under "How the layers compose". Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
 .TP
 \fB\-\-exit\-codes\fR[=\fI<default|tiered>\fR]
 Exit\-code style: `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr …]` row tags:

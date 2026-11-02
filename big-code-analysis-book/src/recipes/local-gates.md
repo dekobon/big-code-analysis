@@ -90,18 +90,19 @@ to update both.
 ## Two-tier thresholds {#two-tier-thresholds}
 
 `bca check --tier <hard|soft|soft=RATIO>` selects which tier to gate
-against. `hard` (the default) compares against `[thresholds]` verbatim.
-`soft` is the early-warning tier, resolved in this order:
-
-1. Start from `[thresholds]` (manifest, merged with `--config`).
-2. If a `[thresholds.soft]` table exists, merge its overrides on top.
-   Metrics absent from the soft table inherit their hard limit (no
-   soft band). When a soft table is present, the blanket `RATIO` does
-   not apply; explicit per-metric limits win over the scalar.
-3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
-   for a bare `soft`, so `--tier=soft` is never a silent no-op;
-   `soft=1.0` disables scaling).
-4. Repeated `--threshold name=value` flags apply last, absolutely.
+against. `hard` (the default) compares against the configured limits
+verbatim. `soft` is the early-warning tier, derived from the limits
+the file's tables resolved to — the project table, its language
+table and any matching path entry, in the order
+[How the layers compose](thresholds.md#layering) states once. If a
+`[thresholds.soft]` table exists its overrides are merged on top, and
+metrics absent from it inherit their hard limit (no soft band); when a
+soft table is present the blanket `RATIO` does not apply, because
+explicit per-metric limits win over the scalar. Otherwise every limit
+is tightened by the soft `RATIO` (default `0.95` for a bare `soft`,
+so `--tier=soft` is never a silent no-op; `soft=1.0` disables
+scaling). Repeated `--threshold name=value` flags apply last,
+absolutely.
 
 A bare `--tier=soft` (ratio `0.95`) is the zero-config entry point.
 Use `[thresholds.soft]` when metrics need different warning bands. The
@@ -211,9 +212,9 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `one.rs`). `--config <file>` *merges* on top of the manifest
   `[thresholds]` table (config keys win on collision), and repeated
   `--threshold name=value` flags apply last as absolute limits. The
-  full resolution order is `[thresholds]`, then `--config`, then tier
-  resolution (`[thresholds.soft]` or the soft `RATIO` scaling, only
-  under `--tier=soft`), then `--threshold` overrides. It is shared
+  full order, including the per-language and per-path layers, is
+  stated once in
+  [How the layers compose](./thresholds.md#layering); it is shared
   across `--config`, `--tier`, and the manifest.
 - **Negative filter keys: CLI unions with the manifest.** The
   *exclude* list keys (top-level `exclude`, `[check] exclude`) are

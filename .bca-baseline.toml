@@ -437,7 +437,7 @@ value = 54557.29125972433
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 523.0
+value = 528.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
@@ -488,9 +488,9 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/commands/check/thresholds.rs"
-qualified = "SharedLayers<'a>::new"
-metric = "nargs"
+path = "big-code-analysis-cli/src/commands/check/explain.rs"
+qualified = "write_outcome"
+metric = "nexits"
 value = 5.0
 
 [[entry]]
@@ -734,10 +734,16 @@ metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/threshold_path.rs"
+qualified = "PathLayer"
+metric = "nom"
+value = 30.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 552.0
+value = 563.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -748,6 +754,12 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "parse_cli_threshold"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
+qualified = "split_thresholds_table"
 metric = "nexits"
 value = 5.0
 
@@ -795,7 +807,7 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/walk_seed.rs"
-qualified = "relative_tail_with"
+qualified = "relative_tail_via"
 metric = "nexits"
 value = 5.0
 

@@ -63,11 +63,19 @@ fn root_relative_match_path_anchors_both_spellings_from_a_subdirectory() {
 
     // Spelled relative to the CWD, and spelled absolutely: one answer.
     assert_eq!(
-        super::root_relative_match_path(anchor(Some(root), &cwd), Path::new("src/lib.rs")),
+        super::root_relative_match_path(
+            anchor(Some(root), &cwd),
+            Path::new("src/lib.rs"),
+            super::canonicalize
+        ),
         Some(expected.clone())
     );
     assert_eq!(
-        super::root_relative_match_path(anchor(Some(root), &cwd), &cwd.join("src").join("lib.rs")),
+        super::root_relative_match_path(
+            anchor(Some(root), &cwd),
+            &cwd.join("src").join("lib.rs"),
+            super::canonicalize
+        ),
         Some(expected)
     );
 }
@@ -86,7 +94,11 @@ fn root_relative_match_path_folds_parent_components_before_comparing() {
     // `src/lib.rs`, not the crate's, and must not read as living under
     // the crate directory.
     assert_eq!(
-        super::root_relative_match_path(anchor(Some(root), &cwd), Path::new("../src/lib.rs")),
+        super::root_relative_match_path(
+            anchor(Some(root), &cwd),
+            Path::new("../src/lib.rs"),
+            super::canonicalize
+        ),
         Some(PathBuf::from("src/lib.rs"))
     );
 }

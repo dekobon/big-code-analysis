@@ -174,7 +174,7 @@ fn unoverridden_languages_fall_back_to_the_global_set() {
         .expect("global set builds");
     let c = ThresholdSet::build(&BTreeMap::from([("cognitive".to_owned(), 25.0)]))
         .expect("C set builds");
-    let resolved = LanguageThresholds::new(global, BTreeMap::from([(LANG::C.name(), c)]));
+    let resolved = LanguageThresholds::new(global, BTreeMap::from([(LANG::C.name(), c)]), None);
 
     let limit_for = |lang| {
         resolved
@@ -201,7 +201,11 @@ fn selected_metrics_unions_every_language() {
         ("nom".to_owned(), 100.0),
     ]))
     .expect("Elixir set builds");
-    let resolved = LanguageThresholds::new(global, BTreeMap::from([(LANG::Elixir.name(), elixir)]));
+    let resolved = LanguageThresholds::new(
+        global,
+        BTreeMap::from([(LANG::Elixir.name(), elixir)]),
+        None,
+    );
 
     let selected = resolved.selected_metrics();
     assert!(

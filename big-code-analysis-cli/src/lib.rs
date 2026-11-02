@@ -64,6 +64,7 @@ mod path_io;
 mod provenance;
 mod qualified_name;
 mod threshold_lang;
+mod threshold_path;
 mod threshold_soft;
 mod threshold_suggestion;
 mod thresholds;
@@ -186,11 +187,20 @@ struct Config {
     report_hotspot_tx: Option<crossbeam::channel::Sender<(PathBuf, f64)>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
-    /// Pre-resolved thresholds for `Action::Check`: the global set plus
-    /// one fully resolved set per language carrying a
-    /// `[thresholds.lang.<slug>]` override (#1141). `None` for every
-    /// other action.
+    /// Pre-resolved thresholds for `Action::Check`: the global set, one
+    /// fully resolved set per language carrying a
+    /// `[thresholds.lang.<slug>]` override (#1141), and the
+    /// `[[thresholds.path]]` layer that folds matching entries onto
+    /// whichever of those gates a file (#1746). `None` for every other
+    /// action.
     thresholds: Option<Arc<LanguageThresholds>>,
+    /// The seed list the check walk anchors against, already
+    /// [`walk_seed::reanchor_seed`]-normalised — the same list
+    /// `apply_check_exclude` matches `[check] exclude` globs with. The
+    /// `[[thresholds.path]]` lookup derives each file's match form from
+    /// it so one glob describes the same files on both surfaces. Empty
+    /// for every other action.
+    check_seeds: Arc<Vec<PathBuf>>,
     /// Sender for streaming [`Violation`] records when running `check`.
     check_tx: Option<crossbeam::channel::Sender<Violation>>,
     /// Sender for streaming per-file suppression-marker batches when
@@ -357,6 +367,7 @@ impl Config {
             report_hotspot_tx: None,
             strip_prefix: String::new(),
             thresholds: None,
+            check_seeds: Arc::new(Vec::new()),
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,

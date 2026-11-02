@@ -7,12 +7,16 @@
 //!
 //! # Resolution order
 //!
-//! Per the documented order shared across #373/#374/#375/#380:
+//! Per the documented order shared across #373/#374/#375/#380, and
+//! stated in full — per-language and per-path layers included — in the
+//! book's `recipes/thresholds.md` under "How the layers compose":
 //!
 //! 1. Manifest `[thresholds]` is the base layer.
 //! 2. `--config <file>` merges on top (config keys win on collision).
-//! 3. `--tier=soft=<ratio>` scales the merged config-derived limits.
-//! 4. Repeated `--threshold name=value` CLI flags apply last, absolutely.
+//! 3. `[thresholds.lang.<slug>]` and then `[[thresholds.path]]` compose
+//!    per metric for the file being gated.
+//! 4. `--tier=soft=<ratio>` scales each resolved table's limits.
+//! 5. Repeated `--threshold name=value` CLI flags apply last, absolutely.
 //!
 //! For list-valued options the merge splits by *list meaning* (#539):
 //! positive scope keys (`paths`, `include`) are REPLACED by any explicit
@@ -786,8 +790,8 @@ impl Manifest {
     /// vanish from the gate. Shares [`split_thresholds_table`] with the
     /// `--config` path so both surfaces parse identically.
     pub(crate) fn thresholds(&self) -> ParsedThresholds {
-        split_thresholds_table(&self.raw.thresholds)
-            .unwrap_or_else(|e| die(format_args!("bca.toml: {e}")))
+        split_thresholds_table(&self.raw.thresholds, &self.dir, MANIFEST_FILE)
+            .unwrap_or_else(|e| die(format_args!("{MANIFEST_FILE}: {e}")))
     }
 
     /// Convert the `num_jobs` value (string `"auto"` or an integer) to

@@ -400,7 +400,7 @@ pub(crate) struct ThresholdConfig {
     pub(crate) thresholds: BTreeMap<String, toml::Value>,
 }
 
-/// The hard, soft, and per-language layers extracted from one
+/// The hard, soft, per-language, and per-path layers extracted from one
 /// `[thresholds]` table.
 #[derive(Debug, Default)]
 pub(crate) struct ParsedThresholds {
@@ -416,18 +416,31 @@ pub(crate) struct ParsedThresholds {
     /// inherited from [`Self::hard`] at resolution time. See
     /// [`crate::threshold_lang`].
     pub(crate) lang: BTreeMap<&'static str, BTreeMap<String, f64>>,
+    /// `[[thresholds.path]]` entries in declaration order, each carrying
+    /// the directory of the config that declared it. Later entries win
+    /// per metric where globs overlap. See [`crate::threshold_path`].
+    pub(crate) path: Vec<crate::threshold_path::PathThreshold>,
 }
 
 /// Split a raw `[thresholds]` table into its hard scalar limits, the
-/// nested `[thresholds.soft]` overrides, and the per-language
-/// `[thresholds.lang.<slug>]` tables. Hard values must be numbers; the
-/// `soft` key must be a sub-table whose values are numbers or
-/// `"<ratio>x"` scale strings; the `lang` key must be a sub-table of
-/// per-language sub-tables of numbers. Any other shape is a config
-/// error — callers `die` on `Err` so a malformed table never silently
-/// degrades into a missing limit.
+/// nested `[thresholds.soft]` overrides, the per-language
+/// `[thresholds.lang.<slug>]` tables, and the `[[thresholds.path]]`
+/// entries. Hard values must be numbers; the `soft` key must be a
+/// sub-table whose values are numbers or `"<ratio>x"` scale strings;
+/// the `lang` key must be a sub-table of per-language sub-tables of
+/// numbers; the `path` key must be an array of tables each carrying a
+/// `glob`. Any other shape is a config error — callers `die` on `Err`
+/// so a malformed table never silently degrades into a missing limit.
+///
+/// `origin` is the directory of the file the table came from: a path
+/// entry's glob is matched relative to it, so the two entry points
+/// (`bca.toml` discovery and `--config`) each pass their own. `source`
+/// is how a diagnostic names that file, stamped on each path entry so
+/// a `--config` entry is never reported under the manifest's name.
 pub(crate) fn split_thresholds_table(
     raw: &BTreeMap<String, toml::Value>,
+    origin: &Path,
+    source: &str,
 ) -> Result<ParsedThresholds, String> {
     let mut out = ParsedThresholds::default();
     for (key, value) in raw {
@@ -435,6 +448,9 @@ pub(crate) fn split_thresholds_table(
             SOFT_SUBTABLE_KEY => out.soft = parse_soft_table(value)?,
             crate::threshold_lang::LANG_SUBTABLE_KEY => {
                 out.lang = crate::threshold_lang::parse_language_tables(value)?;
+            }
+            crate::threshold_path::PATH_SUBTABLE_KEY => {
+                out.path = crate::threshold_path::parse_path_entries(value, origin, source)?;
             }
             _ => {
                 let limit = threshold_scalar("[thresholds]", key, value)?;
@@ -964,6 +980,13 @@ impl ThresholdSet {
     /// A metric absent from `hard` — a `[thresholds.soft]` absolute
     /// limit with no hard counterpart — gets no ceiling, so breaching it
     /// stays a soft-band encroachment rather than escalating to exit 5.
+    ///
+    /// Every check here is per metric against one hard value.
+    /// `PathLayer::new`'s single-entry validation relies on that: it
+    /// resolves each `[[thresholds.path]]` entry alone over each base
+    /// and takes a clean pass as proof that every match-set fold is
+    /// clean too, which holds only while no check reads two metrics at
+    /// once. A cross-metric check added here must be mirrored there.
     pub(crate) fn build_tiered(
         raw: &BTreeMap<String, f64>,
         hard: &BTreeMap<String, f64>,
@@ -1091,6 +1114,19 @@ impl ThresholdSet {
         self.entries
             .iter()
             .map(|entry| (entry.extractor.name, entry.threshold.limit()))
+    }
+
+    /// The hard-tier `(name, limit)` pairs: `--threshold` applied, the
+    /// tier not — the ceiling a soft-tier offender escalates against,
+    /// and the number a soft band is derived from. A metric with no hard
+    /// limit (an absolute `[thresholds.soft]` entry on its own) is
+    /// skipped. `PathLayer::resolved_rows` prints these so the printed
+    /// entry is the limit the band derives from rather than the band
+    /// itself, which a second `--tier` would scale again (#1746).
+    pub(crate) fn hard_limits(&self) -> impl Iterator<Item = (&'static str, f64)> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|entry| Some((entry.extractor.name, entry.hard_limit?.limit())))
     }
 
     /// The limits this set flags offenders against: each entry's

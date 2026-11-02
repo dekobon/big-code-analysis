@@ -115,6 +115,11 @@ pub(crate) fn resolve_check_output_format(args: &mut CheckArgs) {
 /// nested one level deeper, so a `--config` override of one metric for
 /// one language leaves that language's other limits alone.
 ///
+/// The `[[thresholds.path]]` entries are *appended* rather than merged:
+/// each keeps the directory of the file that declared it as its glob
+/// anchor, and the resolver's last-match rule gives the `--config` file's
+/// entries precedence by placing them after the manifest's.
+///
 /// Split out of [`validate_and_build_thresholds`] so the
 /// `--explain-threshold` preview (`super::explain`) starts from exactly
 /// the same merged tables the gate does rather than re-deriving them: a
@@ -128,6 +133,7 @@ pub(crate) fn merge_threshold_layers(
         mut hard,
         mut soft,
         mut lang,
+        mut path,
     } = base_thresholds;
     if let Some(config) = args.config.as_deref() {
         let cfg = load_threshold_config(config);
@@ -136,8 +142,14 @@ pub(crate) fn merge_threshold_layers(
         for (slug, overrides) in cfg.lang {
             lang.entry(slug).or_default().extend(overrides);
         }
+        path.extend(cfg.path);
     }
-    ParsedThresholds { hard, soft, lang }
+    ParsedThresholds {
+        hard,
+        soft,
+        lang,
+        path,
+    }
 }
 
 /// Validate `--output` / `--output-format` pairing, then resolve the
@@ -159,20 +171,17 @@ pub(crate) fn validate_and_build_thresholds(
     // misconfigured invocation fails fast instead of after a full parse.
     resolve_check_output_format(args);
 
-    let ParsedThresholds { hard, soft, lang } = merged;
-
     // The soft ratio (the `RATIO` in `--tier=soft=RATIO`) was already
     // validated to `(0, 1]` by `TierSpec::from_str` at parse time, so a
     // typo is a clap usage error before we ever reach here.
 
     // Capture whether a soft table is configured before the resolver
-    // borrows `soft`, so provenance resolution (#486) matches the same
+    // takes `soft`, so provenance resolution (#486) matches the same
     // branch the tier resolver takes.
-    let soft_table_present = !soft.is_empty();
+    let soft_table_present = !merged.soft.is_empty();
 
     let cli = canonical_cli_thresholds("--threshold", &args.thresholds);
-    let layers = SharedLayers::new(&cli, tier, &soft, &lang, &hard);
-    let thresholds = layers.resolve_all(&hard, &lang);
+    let thresholds = SharedLayers::new(cli, tier, &merged).resolve_all(&merged);
     warn_limit_advisories(&thresholds, Ceilings::Exclude);
     if thresholds.is_empty() {
         die(
@@ -180,14 +189,17 @@ pub(crate) fn validate_and_build_thresholds(
         );
     }
     // Legal, but worth saying out loud: with no global `[thresholds]`,
-    // every language outside the listed set is walked and gated against
-    // nothing, and reports a clean exit 0 (#1141).
-    if let Some(gated) = thresholds.languages_gated_without_a_global_table() {
+    // every language and path outside the listed set is walked and gated
+    // against nothing, and reports a clean exit 0 (#1141).
+    if let Some(gated) = thresholds.gated_without_a_global_table() {
+        // One slug is singular; the path item is "the files …", plural
+        // on its own.
+        let singular = gated.len() == 1 && gated[0] != crate::threshold_lang::PATH_GATED_ITEM;
         note(format!(
-            "no global [thresholds] table: only {} {} gated; every other language \
+            "no global [thresholds] table: only {} {} gated; every other file \
              passes unconditionally",
             gated.join(", "),
-            if gated.len() == 1 { "is" } else { "are" },
+            if singular { "is" } else { "are" },
         ));
     }
     ResolvedThresholds {
@@ -250,8 +262,8 @@ pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec
 /// Each distinct `(metric, limit)` warns once.
 pub(crate) fn warn_limit_advisories(gate: &LanguageThresholds, ceilings: Ceilings) {
     let mut seen: BTreeSet<(&str, u64)> = BTreeSet::new();
-    let sets = std::iter::once(gate.global()).chain(gate.languages().map(|(_, set)| set));
-    for threshold in sets.flat_map(|set| set.gated_thresholds(ceilings)) {
+    let sets = gate.all_sets();
+    for threshold in sets.iter().flat_map(|set| set.gated_thresholds(ceilings)) {
         if seen.insert((threshold.id(), threshold.limit().to_bits()))
             && let Some(advisory) = threshold.warning()
         {
@@ -259,9 +271,6 @@ pub(crate) fn warn_limit_advisories(gate: &LanguageThresholds, ceilings: Ceiling
         }
     }
 }
-
-/// The per-metric override tables, keyed by canonical language slug.
-type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 
 /// Resolve the gate a `--explain-threshold` preview walks with, plus
 /// whether the predicted run's *global* table resolves its soft tier in
@@ -296,7 +305,8 @@ type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 /// change what a language that overrode the metric gates at, and each
 /// language's soft band is derived from its own limit by
 /// [`SharedLayers::resolve_one`]. That is what keeps the counts exact on
-/// the trees #1141 exists for.
+/// the trees #1141 exists for. `[[thresholds.path]]` entries are kept
+/// the same way, for the same reason.
 pub(crate) fn build_candidate_gate(
     layers: &ParsedThresholds,
     candidates: &BTreeMap<String, f64>,
@@ -308,20 +318,21 @@ pub(crate) fn build_candidate_gate(
             .iter()
             .map(|(name, limit)| (name.clone(), *limit)),
     );
+    let predicted = ParsedThresholds {
+        hard,
+        soft: layers.soft.clone(),
+        lang: layers.lang.clone(),
+        path: layers.path.clone(),
+    };
     // No `--threshold` layer: an absolute CLI override is never scaled,
     // so letting one through would hand the preview a metric with no soft
     // tier to report. `run_explain_thresholds` rejects the overlap up
     // front instead.
-    let shared = SharedLayers::new(
-        &[],
-        TierSpec::Soft(ratio),
-        &layers.soft,
-        &layers.lang,
-        &hard,
-    );
-    let resolved = shared.resolve_all(&hard, &layers.lang);
+    let shared = SharedLayers::new(Vec::new(), TierSpec::Soft(ratio), &predicted);
+    let merge_mode = shared.merge_mode(&predicted.hard);
+    let resolved = shared.resolve_all(&predicted);
     let keep: BTreeSet<&str> = candidates.keys().map(String::as_str).collect();
-    (resolved.narrowed_to(&keep), shared.merge_mode(&hard))
+    (resolved.narrowed_to(&keep), merge_mode)
 }
 
 /// The threshold layers every table in one run shares, separated from
@@ -330,63 +341,82 @@ pub(crate) fn build_candidate_gate(
 /// Grouping them is not just parameter hygiene: it is what makes "the
 /// soft tier is derived per language" checkable at a glance. The soft
 /// overrides and the CLI layer are the *same* for every table; only
-/// `hard` differs, and that is precisely why each language's soft band
-/// comes out scaled from its own limit.
-struct SharedLayers<'a> {
+/// `hard` differs, and that is precisely why each language's — and each
+/// path entry's — soft band comes out scaled from its own limit.
+///
+/// Owned rather than borrowed, because the path layer resolves lazily
+/// from inside the walk and keeps this as its resolver.
+struct SharedLayers {
     /// Absolute `--threshold` overrides, applied last to every table.
-    cli: &'a [(String, f64)],
+    cli: Vec<(String, f64)>,
     tier: TierSpec,
     /// The global `[thresholds.soft]` overrides, resolved afresh against
     /// whichever hard table is being built.
-    soft: &'a BTreeMap<String, SoftLimit>,
+    soft: BTreeMap<String, SoftLimit>,
     /// Metrics that *some* table gives a hard limit. A scale-relative
     /// soft entry needs a base to scale, and since #1141 that base may
-    /// live only in a `[thresholds.lang.*]` table — so a table without
-    /// one skips the entry rather than failing the whole run.
-    hard_somewhere: BTreeSet<&'a str>,
+    /// live only in a `[thresholds.lang.*]` table — or, now, in a
+    /// `[[thresholds.path]]` entry — so a table without one skips the
+    /// entry rather than failing the whole run.
+    hard_somewhere: BTreeSet<String>,
 }
 
-impl<'a> SharedLayers<'a> {
-    fn new(
-        cli: &'a [(String, f64)],
-        tier: TierSpec,
-        soft: &'a BTreeMap<String, SoftLimit>,
-        lang: &'a LanguageOverrides,
-        hard: &'a BTreeMap<String, f64>,
-    ) -> Self {
-        let mut hard_somewhere: BTreeSet<&str> = hard.keys().map(String::as_str).collect();
-        for overrides in lang.values() {
-            hard_somewhere.extend(overrides.keys().map(String::as_str));
+impl SharedLayers {
+    fn new(cli: Vec<(String, f64)>, tier: TierSpec, layers: &ParsedThresholds) -> Self {
+        let mut hard_somewhere: BTreeSet<String> = layers.hard.keys().cloned().collect();
+        for overrides in layers.lang.values() {
+            hard_somewhere.extend(overrides.keys().cloned());
+        }
+        for entry in &layers.path {
+            hard_somewhere.extend(entry.limits.keys().cloned());
         }
         Self {
             cli,
             tier,
-            soft,
+            soft: layers.soft.clone(),
             hard_somewhere,
         }
     }
 
     /// Resolve the global table plus one fully resolved table per
-    /// language carrying an override (#1141).
-    fn resolve_all(
-        &self,
-        hard: &BTreeMap<String, f64>,
-        lang: &LanguageOverrides,
-    ) -> LanguageThresholds {
-        let per_language = lang
+    /// language carrying an override (#1141), then hand the same base
+    /// maps to the path layer so a matching `[[thresholds.path]]` entry
+    /// folds onto whichever of them gates the file.
+    fn resolve_all(self, layers: &ParsedThresholds) -> LanguageThresholds {
+        let mut bases = BTreeMap::new();
+        let per_language = layers
+            .lang
             .iter()
             .map(|(slug, overrides)| {
                 // Per-metric override with inheritance, not wholesale
                 // replacement: start from the global hard table so a
                 // language that raises `cognitive` still gates everything
                 // else at the project limit.
-                let mut lang_hard = hard.clone();
+                let mut lang_hard = layers.hard.clone();
                 lang_hard.extend(overrides.iter().map(|(k, v)| (k.clone(), *v)));
                 let context = format!("[thresholds.lang.{slug}]");
-                (*slug, self.resolve_one(lang_hard, Some(&context)))
+                let set = self.resolve_one(lang_hard.clone(), Some(&context));
+                bases.insert(
+                    Some(*slug),
+                    BaseTable {
+                        hard: lang_hard,
+                        context: Some(context),
+                    },
+                );
+                (*slug, set)
             })
             .collect();
-        LanguageThresholds::new(self.resolve_one(hard.clone(), None), per_language)
+        let global = self.resolve_one(layers.hard.clone(), None);
+        bases.insert(
+            None,
+            BaseTable {
+                hard: layers.hard.clone(),
+                context: None,
+            },
+        );
+        let path =
+            (!layers.path.is_empty()).then(|| PathLayer::new(&layers.path, bases, Arc::new(self)));
+        LanguageThresholds::new(global, per_language, path)
     }
 
     /// Resolve one hard table — the global one, or a language's —
@@ -429,6 +459,12 @@ impl<'a> SharedLayers<'a> {
             || !self.hard_somewhere.contains(name)
     }
 
+    /// The `(name, limit)` view of the soft table, as `resolve_one` and
+    /// `merge_mode` both read it.
+    fn soft_entries(&self) -> impl Iterator<Item = (&str, &SoftLimit)> {
+        self.soft.iter().map(|(name, limit)| (name.as_str(), limit))
+    }
+
     /// Whether [`Self::resolve_one`] would hand `resolve_tier` a
     /// non-empty soft table for a table with these hard limits — merge
     /// mode, where a metric the table does not name inherits its hard
@@ -436,20 +472,18 @@ impl<'a> SharedLayers<'a> {
     /// `--explain-threshold` report asks this about the predicted global
     /// table so its derivation label matches the resolution.
     fn merge_mode(&self, hard: &BTreeMap<String, f64>) -> bool {
-        self.soft
-            .iter()
+        self.soft_entries()
             .any(|(name, limit)| self.soft_entry_survives(name, limit, hard))
     }
 
     fn resolve_one(&self, mut hard: BTreeMap<String, f64>, context: Option<&str>) -> ThresholdSet {
         let soft: BTreeMap<String, SoftLimit> = self
-            .soft
-            .iter()
+            .soft_entries()
             .filter(|(name, limit)| self.soft_entry_survives(name, limit, &hard))
-            .map(|(name, limit)| (name.clone(), *limit))
+            .map(|(name, limit)| (name.to_owned(), *limit))
             .collect();
         let mut merged = resolve_tier(self.tier, hard.clone(), &soft);
-        for (name, limit) in self.cli {
+        for (name, limit) in &self.cli {
             merged.insert(name.clone(), *limit);
             hard.insert(name.clone(), *limit);
         }
@@ -457,6 +491,15 @@ impl<'a> SharedLayers<'a> {
             Some(table) => die(format_args!("{table}: {e}")),
             None => die(e),
         })
+    }
+}
+
+impl HardResolver for SharedLayers {
+    /// The path layer's entry point into the one layering routine: a
+    /// folded hard map goes through exactly the tier and `--threshold`
+    /// steps every other table does.
+    fn resolve(&self, hard: BTreeMap<String, f64>, context: &str) -> ThresholdSet {
+        self.resolve_one(hard, Some(context))
     }
 }
 

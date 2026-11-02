@@ -202,7 +202,7 @@ fn collect_check_violations(
     // ignore-dropped still says what happened above the exit-1 error.
     report_unchecked_files(&walk, globals_kept.report_skipped);
     enforce_usable_input(&walk);
-    let violations = apply_check_exclude(walk.violations, args, walk.seeds);
+    let violations = apply_check_exclude(walk.violations, args, &walk.seeds);
     CollectedViolations {
         violations,
         scope,
@@ -250,14 +250,15 @@ fn classify_check_violations(
 pub(crate) struct CheckWalk {
     violations: Vec<Violation>,
     /// The seed list the walk anchored against: `--paths` with any
-    /// `--paths-from` entries already materialized in.
+    /// `--paths-from` entries already materialized in, each
+    /// [`crate::walk_seed::reanchor_seed`]-normalised.
     ///
     /// Carried out of the walk rather than re-derived, because
     /// `--paths-from -` reads stdin and stdin can only be read once
     /// (#1306): a second read yields an empty list, and every violation
     /// then anchors against `--paths` alone — silently defeating a
     /// `[check.exclude]` glob.
-    seeds: Vec<PathBuf>,
+    seeds: Arc<Vec<PathBuf>>,
     /// Files whose contents were read and handed to the pre-dispatch
     /// filters. Zero means nothing survived `--paths` expansion plus
     /// `--include` / `--exclude` filtering.
@@ -330,7 +331,19 @@ fn run_check_walk(
     // glob-set build and the `--check-exclude-from` read, and
     // `CheckExcludes::resolve` still short-circuits before both on the
     // common no-exclude run.
-    let seeds = globals.paths.clone();
+    //
+    // Reanchored here, once, exactly as `expand_seed_paths` does to the
+    // walk's own copy: both the in-walk `[[thresholds.path]]` lookup and
+    // the post-walk `[check] exclude` match derive a file's match form
+    // from this list, and they must derive the same one.
+    let seeds: Arc<Vec<PathBuf>> = Arc::new(
+        globals
+            .paths
+            .iter()
+            .cloned()
+            .map(crate::walk_seed::reanchor_seed)
+            .collect(),
+    );
     let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
     let generated_skipped = Arc::new(AtomicUsize::new(0));
@@ -345,6 +358,7 @@ fn run_check_walk(
     let selected_metrics = Some(thresholds.selected_metrics());
     let mut cfg = Config {
         thresholds: Some(thresholds),
+        check_seeds: Arc::clone(&seeds),
         selected_metrics,
         check_tx: Some(tx),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
@@ -498,17 +512,31 @@ impl<'a> CheckExcludes<'a> {
     }
 }
 
+/// The working-directory-anchored form a gate-side glob is matched
+/// against for the file at `path`: anchored to the `./`-relative
+/// walk-root form against the reanchored `seeds`, then stripped of the
+/// leading `./` so bare-relative patterns match it just like
+/// `./`-prefixed ones (#726).
+///
+/// One function for both gate-side glob surfaces — `[check] exclude`
+/// after the walk and `[[thresholds.path]]` inside it — so a glob that
+/// exempts a file on one is the glob that re-limits it on the other.
+pub(crate) fn check_match_form(seeds: &[PathBuf], path: &Path) -> PathBuf {
+    let anchored = crate::walk_seed::anchor_against_seeds(seeds, path);
+    crate::walk_seed::strip_cur_dir(&anchored).to_path_buf()
+}
+
 /// Drop every violation a `[check.exclude]` / `--check-exclude` glob
 /// exempts, matching each against the walk-root-anchored form of its
 /// path.
 ///
 /// `seeds` must be the full seed list the walk anchored against —
-/// `--paths` *with* any `--paths-from` entries materialized in, which
-/// is what [`CheckWalk::seeds`] carries.
+/// `--paths` *with* any `--paths-from` entries materialized in and
+/// reanchored, which is what [`CheckWalk::seeds`] carries.
 pub(crate) fn apply_check_exclude(
     violations: Vec<Violation>,
     args: &CheckArgs,
-    seeds: Vec<PathBuf>,
+    seeds: &[PathBuf],
 ) -> Vec<Violation> {
     // Nothing configured is the common case, and it skips the glob-set
     // build and the `--check-exclude-from` read entirely.
@@ -529,25 +557,15 @@ pub(crate) fn apply_check_exclude(
     // exempt it (#497). The list now arrives materialized from the walk
     // (`CheckWalk::seeds`) rather than being rebuilt by a second
     // `--paths-from` read, which returned nothing for `--paths-from -`
-    // because the walk had already consumed stdin (#1306). It is the
-    // walk's *input* list, so it still needs the same `reanchor_seed`
-    // pass `expand_seed_paths` applies.
-    let seeds: Vec<PathBuf> = seeds
-        .into_iter()
-        .map(crate::walk_seed::reanchor_seed)
-        .collect();
+    // because the walk had already consumed stdin (#1306), and already
+    // reanchored, because the in-walk `[[thresholds.path]]` lookup
+    // derives the same match form from the same list.
     let before = violations.len();
     let kept: Vec<Violation> = violations
         .into_iter()
         .filter(|v| {
-            // Anchor to the `./`-relative walk-root form, then strip the
-            // leading `./` so bare-relative `[check.exclude]` patterns match
-            // it just like `./`-prefixed ones (#726).
-            let anchored = crate::walk_seed::anchor_against_seeds(&seeds, &v.path);
-            !excludes.exempts(
-                &v.path,
-                crate::walk_seed::CwdForm(crate::walk_seed::strip_cur_dir(&anchored)),
-            )
+            let form = check_match_form(seeds, &v.path);
+            !excludes.exempts(&v.path, crate::walk_seed::CwdForm(&form))
         })
         .collect();
     let skipped = before - kept.len();

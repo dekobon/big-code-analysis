@@ -30,6 +30,7 @@ use big_code_analysis::{
 use crate::exemptions::FileMarkers;
 use crate::formats::{Document, MetricsDispatch, MetricsFormat, emit_csv};
 use crate::markdown_report::extract_summaries;
+use crate::threshold_path::Admission;
 use crate::{Action, Config, note, warn};
 
 /// Analyze one already-read file via the explicit-name [`Source`] seam.
@@ -643,10 +644,24 @@ fn dispatch_check_file(
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
         // Select this file's gate: the `[thresholds.lang.<slug>]` set
-        // when one exists, the global set otherwise (#1141). The
-        // fallback is inside `for_language`, so a language nobody
-        // overrode takes the same code path as one that was.
-        let set = thresholds.for_language(language);
+        // when one exists, the global set otherwise (#1141), with every
+        // `[[thresholds.path]]` entry matching the file folded on. The
+        // fallbacks are inside `for_file`, so a file nobody overrode
+        // takes the same code path as one that was. The match form is
+        // the one `[check] exclude` uses, so one glob names the same
+        // files on both surfaces — and it is derived only once a path
+        // entry exists to read it, so the common run pays nothing.
+        let admission = if cfg.explicit_seeds.contains(&path) {
+            Admission::Explicit
+        } else {
+            Admission::Walked
+        };
+        let set = thresholds.for_file(
+            language,
+            &path,
+            |path| crate::commands::check_match_form(&cfg.check_seeds, path),
+            admission,
+        );
         // Pass the path through as `&Path` so non-UTF-8 bytes are
         // preserved on each emitted `Violation`. Display / offender
         // serialization decide their own lossy strategy at the output
@@ -816,6 +831,7 @@ mod tests {
             report_hotspot_tx: None,
             strip_prefix: String::new(),
             thresholds: None,
+            check_seeds: Arc::new(Vec::new()),
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,

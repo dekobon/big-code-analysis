@@ -83,6 +83,32 @@ fn thresholds_lang_subtable_is_split_out_and_draws_no_warning() {
     );
 }
 
+/// `[[thresholds.path]]` reaches [`Manifest::thresholds`] the same way,
+/// and each entry is stamped with the manifest's directory as the root
+/// its glob is matched relative to — the one fact only this entry point
+/// knows, and the one that makes a manifest above the working directory
+/// keep matching.
+#[test]
+fn thresholds_path_entries_carry_the_manifest_directory_as_their_origin() {
+    let text = "[thresholds]\n\
+                cognitive = 15\n\
+                [[thresholds.path]]\n\
+                glob = \"src/gen/**\"\n\
+                cognitive = 40\n";
+    let raw: RawManifest = toml::from_str(text).expect("parse");
+    let parsed = manifest(raw).thresholds();
+
+    assert_eq!(parsed.hard.len(), 1, "the array is not a scalar limit");
+    assert_eq!(parsed.path.len(), 1);
+    assert_eq!(parsed.path[0].glob, "src/gen/**");
+    assert_eq!(parsed.path[0].origin, PathBuf::from("/repo"));
+    assert_eq!(parsed.path[0].limits.get("cognitive"), Some(&40.0));
+    assert!(
+        unknown_sub_table_keys(text).is_empty(),
+        "`[thresholds]` keys are validated by split_thresholds_table, not the allowlist"
+    );
+}
+
 #[test]
 fn num_jobs_accepts_string_and_integer() {
     let auto = manifest(RawManifest {

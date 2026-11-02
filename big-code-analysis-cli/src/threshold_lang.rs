@@ -22,11 +22,14 @@
 //! the gate sees it.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use big_code_analysis::{LANG, Metric};
 
+use crate::threshold_path::{Admission, PathLayer};
 use crate::thresholds::{ThresholdSet, insert_canonical_limit, threshold_scalar};
+use crate::walk_seed::CwdForm;
 
 /// Reserved key inside `[thresholds]` that introduces the per-language
 /// override sub-tables (`[thresholds.lang.<slug>]`). The nesting under a
@@ -34,6 +37,12 @@ use crate::thresholds::{ThresholdSet, insert_canonical_limit, threshold_scalar};
 /// keeps every future reserved key (`soft` and its successors) out of
 /// the language namespace, where a collision would be silent.
 pub(crate) const LANG_SUBTABLE_KEY: &str = "lang";
+
+/// The item [`LanguageThresholds::gated_without_a_global_table`] lists
+/// for the path layer. Plural — several files — where every other item
+/// is one language slug, so the note's verb cannot be chosen from the
+/// item count alone.
+pub(crate) const PATH_GATED_ITEM: &str = "the files matching a [[thresholds.path]] glob";
 
 /// Canonical language slugs accepted as `[thresholds.lang.<slug>]` keys,
 /// sorted for the did-you-mean hint and the error listing.
@@ -128,13 +137,17 @@ fn parse_slug(slug: &str) -> Result<LANG, String> {
     Ok(lang)
 }
 
-/// The resolved gate: one global [`ThresholdSet`] plus one *fully
-/// resolved* set per language carrying an override.
+/// The resolved gate: one global [`ThresholdSet`], one *fully resolved*
+/// set per language carrying an override, and the path layer that
+/// folds a matching `[[thresholds.path]]` entry onto whichever of those
+/// gates a file.
 ///
 /// Per-language sets are complete, not deltas — each is the global table
 /// with that language's overrides applied per metric — so selecting one
 /// is a lookup, never a merge, and `--print-effective-config` can print
-/// the number that will actually apply.
+/// the number that will actually apply. The path layer's sets are
+/// complete too, resolved on first use per `(language, matched entries)`
+/// and memoised.
 #[derive(Debug)]
 pub(crate) struct LanguageThresholds {
     global: Arc<ThresholdSet>,
@@ -143,12 +156,16 @@ pub(crate) struct LanguageThresholds {
     /// `--print-effective-config` a deterministic slug-sorted order for
     /// free.
     per_language: BTreeMap<&'static str, Arc<ThresholdSet>>,
+    /// `None` when no `[[thresholds.path]]` entry was configured, so the
+    /// per-file lookup costs nothing on the common run.
+    path: Option<PathLayer>,
 }
 
 impl LanguageThresholds {
     pub(crate) fn new(
         global: ThresholdSet,
         per_language: BTreeMap<&'static str, ThresholdSet>,
+        path: Option<PathLayer>,
     ) -> Self {
         Self {
             global: Arc::new(global),
@@ -156,21 +173,60 @@ impl LanguageThresholds {
                 .into_iter()
                 .map(|(slug, set)| (slug, Arc::new(set)))
                 .collect(),
+            path,
         }
     }
 
-    /// The set that gates `lang`. Falls back to the global set for every
-    /// language without an override — including any a future grammar
-    /// adds — so there is exactly one selection path and no language can
-    /// end up ungated by omission.
+    /// The set that gates `lang` before any path entry is consulted.
+    /// Falls back to the global set for every language without an
+    /// override — including any a future grammar adds — so there is
+    /// exactly one selection path and no language can end up ungated by
+    /// omission.
+    #[cfg(test)]
     pub(crate) fn for_language(&self, lang: LANG) -> &ThresholdSet {
         self.per_language.get(lang.name()).unwrap_or(&self.global)
+    }
+
+    /// The set that gates the file at `path`, written in `lang`: the
+    /// language's set with every matching `[[thresholds.path]]` entry
+    /// folded on, or the language's set itself when none matches. The
+    /// language fallback is the one `for_language` applies — the global
+    /// set for a language with no table — so a file nobody overrode
+    /// takes the same path as one that was.
+    ///
+    /// `cwd_form` derives the file's walk-root-anchored spelling, the
+    /// form `[check] exclude` matches, so one glob describes the same
+    /// files on both surfaces. A closure rather than the form itself
+    /// because deriving it allocates and may read the working directory,
+    /// and without a path entry nothing reads it (#1746). `admission`
+    /// is whether the caller named the file or a walk found it, which
+    /// decides whether it can be a symlink the layer must resolve.
+    pub(crate) fn for_file(
+        &self,
+        lang: LANG,
+        path: &std::path::Path,
+        cwd_form: impl FnOnce(&std::path::Path) -> PathBuf,
+        admission: Admission,
+    ) -> Arc<ThresholdSet> {
+        let base = self.per_language.get_key_value(lang.name());
+        self.path
+            .as_ref()
+            .and_then(|layer| {
+                let form = cwd_form(path);
+                layer.for_file(base.map(|(slug, _)| *slug), path, CwdForm(&form), admission)
+            })
+            .unwrap_or_else(|| Arc::clone(base.map_or(&self.global, |(_, set)| set)))
     }
 
     /// The global set, for surfaces that gate nothing language-specific
     /// (`--print-effective-config`'s `[thresholds]` table).
     pub(crate) fn global(&self) -> &ThresholdSet {
         &self.global
+    }
+
+    /// The path layer, when any `[[thresholds.path]]` entry is configured.
+    pub(crate) fn path_layer(&self) -> Option<&PathLayer> {
+        self.path.as_ref()
     }
 
     /// A copy with every table narrowed to the named metrics. Preview
@@ -186,6 +242,7 @@ impl LanguageThresholds {
                 .iter()
                 .map(|(slug, set)| (*slug, Arc::new(set.narrowed_to(keep))))
                 .collect(),
+            path: self.path.as_ref().map(|layer| layer.narrowed_to(keep)),
         }
     }
 
@@ -196,17 +253,34 @@ impl LanguageThresholds {
             .map(|(slug, set)| (*slug, set.as_ref()))
     }
 
-    /// True when no tier of this gate configures a single threshold. A
-    /// per-language set inherits the global table, so it can only be
-    /// empty when the global one is — but check every set anyway, since
-    /// a future layering could break that and a silently empty gate
-    /// green-lights CI.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.global.is_empty() && self.per_language.values().all(|set| set.is_empty())
+    /// Every resolved set: the global one, each language's, and every
+    /// path-layer set resolved so far — which after construction includes
+    /// one per `(base, entry)` pair, so a limit only a path entry sets is
+    /// never missing from the union.
+    pub(crate) fn all_sets(&self) -> Vec<Arc<ThresholdSet>> {
+        let mut sets = vec![Arc::clone(&self.global)];
+        sets.extend(self.per_language.values().cloned());
+        if let Some(layer) = &self.path {
+            sets.extend(layer.resolved_sets());
+        }
+        sets
     }
 
-    /// The slugs gated by an override when the global table configures
-    /// nothing — i.e. the *only* languages this run gates.
+    /// True when no tier of this gate configures a single threshold. A
+    /// per-language or path set inherits the global table, so it can
+    /// only be empty when the global one is — but check every set
+    /// anyway, since a future layering could break that and a silently
+    /// empty gate green-lights CI.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.all_sets().iter().all(|set| set.is_empty())
+    }
+
+    /// What is gated by an override when the global table configures
+    /// nothing — the slugs with a table, and "files matching a
+    /// `[[thresholds.path]]` glob" when any entry exists — i.e. the
+    /// *only* things this run gates. The path item is a plural noun
+    /// phrase; the caller's `is` / `are` must account for that, not
+    /// only for the item count.
     ///
     /// A manifest with `[thresholds.lang.c]` and no `[thresholds]` is
     /// legal and does exactly what it says, but every other language in
@@ -214,27 +288,31 @@ impl LanguageThresholds {
     /// offenders, exit 0, no signal. Before per-language tables an empty
     /// gate always died, so the caller warns rather than let that
     /// difference pass unremarked.
-    pub(crate) fn languages_gated_without_a_global_table(&self) -> Option<Vec<&'static str>> {
+    pub(crate) fn gated_without_a_global_table(&self) -> Option<Vec<String>> {
         if !self.global.is_empty() {
             return None;
         }
-        let gated: Vec<&'static str> = self
+        let mut gated: Vec<String> = self
             .per_language
             .iter()
             .filter(|(_, set)| !set.is_empty())
-            .map(|(slug, _)| *slug)
+            .map(|(slug, _)| (*slug).to_owned())
             .collect();
+        if self.path.as_ref().is_some_and(|layer| !layer.is_empty()) {
+            gated.push(PATH_GATED_ITEM.to_owned());
+        }
         (!gated.is_empty()).then_some(gated)
     }
 
     /// The union of every set's metric families, for the `--metrics`-style
     /// narrowing the check walk applies (#1113). Must be the union, not
     /// the global set's families: a metric that only a
-    /// `[thresholds.lang.<slug>]` table gates would otherwise be left at
-    /// its zero default and silently disarm that language's gate.
+    /// `[thresholds.lang.<slug>]` table or a `[[thresholds.path]]` entry
+    /// gates would otherwise be left at its zero default and silently
+    /// disarm that gate.
     pub(crate) fn selected_metrics(&self) -> Vec<Metric> {
-        let mut selected = self.global.selected_metrics();
-        for set in self.per_language.values() {
+        let mut selected = Vec::new();
+        for set in self.all_sets() {
             for metric in set.selected_metrics() {
                 if !selected.contains(&metric) {
                     selected.push(metric);

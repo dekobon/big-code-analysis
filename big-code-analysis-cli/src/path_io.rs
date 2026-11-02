@@ -453,11 +453,28 @@ pub(crate) fn read_utf8_file(path: &Path, label: &str) -> String {
 /// limits and optional `[thresholds.soft]` overrides. On any I/O,
 /// parse, or schema error the process dies with exit code 1, keeping
 /// exit 2 reserved for the "thresholds exceeded" case.
+///
+/// A `[[thresholds.path]]` glob in the file is matched relative to the
+/// file's own directory, completed against the working directory when
+/// `path` is relative — the same anchor a `bca.toml` gives its globs.
+/// Each entry is named by the file as `--config` was given it, so a
+/// diagnostic about one reads as the user spelled the flag; a schema
+/// error carries that name as a prefix, as the manifest's carry
+/// `bca.toml:`, so the parse-time and build-time surfaces both say
+/// which file (#1746).
 pub(crate) fn load_threshold_config(path: &Path) -> ParsedThresholds {
     let text = read_utf8_file(path, "threshold config");
     let cfg: ThresholdConfig =
         toml::from_str(&text).unwrap_or_else(|e| die_io("parse threshold config", path, e));
-    split_thresholds_table(&cfg.thresholds).unwrap_or_else(|e| die(e))
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let origin = if dir.is_absolute() {
+        dir.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(dir)
+    };
+    let source = path.display().to_string();
+    split_thresholds_table(&cfg.thresholds, &origin, &source)
+        .unwrap_or_else(|e| die(format_args!("{source}: {e}")))
 }
 
 /// Load a baseline file. Same error contract as `load_threshold_config`:

@@ -239,7 +239,7 @@ fn build_accepts_zero_limit() {
 /// boundary rather than a hand-built map.
 fn split(toml_src: &str) -> Result<ParsedThresholds, String> {
     let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses as TOML");
-    split_thresholds_table(&cfg.thresholds)
+    split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml")
 }
 
 /// Issue #514: the bare `bca diff --metric` spelling of a `loc`
@@ -354,7 +354,8 @@ fn known_metric_names_contains_core_set() {
 fn config_parses_thresholds_table() {
     let toml_src = "[thresholds]\ncyclomatic = 15\n\"loc.lloc\" = 200\n";
     let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses");
-    let parsed = split_thresholds_table(&cfg.thresholds).expect("split");
+    let parsed =
+        split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml").expect("split");
     assert_eq!(parsed.hard.get("cyclomatic"), Some(&15.0));
     assert_eq!(parsed.hard.get("loc.lloc"), Some(&200.0));
     assert!(parsed.soft.is_empty(), "no soft table configured");
@@ -370,7 +371,8 @@ fn split_separates_soft_subtable_from_hard_limits() {
                     cognitive = 18\n\
                     cyclomatic = \"0.9x\"\n";
     let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses");
-    let parsed = split_thresholds_table(&cfg.thresholds).expect("split");
+    let parsed =
+        split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml").expect("split");
 
     // Hard layer keeps every scalar; `soft` is not mistaken for one.
     assert_eq!(parsed.hard.get("cognitive"), Some(&25.0));
@@ -415,17 +417,17 @@ fn soft_scale_string_must_end_in_x_and_be_in_range() {
     // Missing `x` suffix.
     let cfg: ThresholdConfig =
         toml::from_str("[thresholds.soft]\ncyclomatic = \"0.9\"\n").expect("parses");
-    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+    assert!(split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml").is_err());
 
     // Out-of-range factor (> 1) — a soft tier looser than hard is rejected.
     let cfg: ThresholdConfig =
         toml::from_str("[thresholds.soft]\ncyclomatic = \"1.5x\"\n").expect("parses");
-    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+    assert!(split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml").is_err());
 
     // Non-numeric, non-string value.
     let cfg: ThresholdConfig =
         toml::from_str("[thresholds.soft]\ncyclomatic = true\n").expect("parses");
-    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+    assert!(split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml").is_err());
 }
 
 #[test]
@@ -455,7 +457,8 @@ fn is_valid_scale_ratio_rejects_boundary_and_nan() {
 fn hard_limit_must_be_numeric() {
     let cfg: ThresholdConfig =
         toml::from_str("[thresholds]\ncyclomatic = \"15\"\n").expect("parses");
-    let err = split_thresholds_table(&cfg.thresholds).expect_err("string hard limit must error");
+    let err = split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml")
+        .expect_err("string hard limit must error");
     assert!(
         err.contains("cyclomatic") && err.contains("number"),
         "{err}"

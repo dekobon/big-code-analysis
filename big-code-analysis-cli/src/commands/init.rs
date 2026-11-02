@@ -57,6 +57,20 @@ exclude_from = \".bcaignore\"
 baseline = \".bca-baseline.toml\"
 
 {thresholds}
+# Path-scoped overrides. Each `[[thresholds.path]]` entry re-limits the
+# files its `glob` matches (relative to this file's directory, the same
+# anchor `[check] exclude` uses) for the metrics it names, inheriting
+# every other limit from `[thresholds]` and any `[thresholds.lang.*]`
+# table. Where globs overlap the last entry wins, per metric. Unlike a
+# suppression marker the files stay gated — at a limit chosen for that
+# population — and the soft tier scales it like any other. Uncomment and
+# tailor for a directory of hand-rolled dispatch tables, generated
+# bindings, or similar code whose shape the project limit misreads.
+# [[thresholds.path]]
+# glob = \"src/dispatch/**/*.rs\"
+# cyclomatic = 40
+# \"halstead.effort\" = 150000
+
 # Aggregated-report options for `bca report markdown|html` (#501). By
 # default the report honours in-source suppression markers
 # (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) and omits a

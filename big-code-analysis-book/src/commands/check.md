@@ -813,6 +813,60 @@ cognitive = 30.0
 cyclomatic = 15.0
 ```
 
+## Per-path limits (`[[thresholds.path]]`) {#per-path-limits}
+
+A `[[thresholds.path]]` entry re-limits the files its `glob` matches
+for the metrics it names, and inherits everything else. It is for a
+population of files whose shape the project limit misreads — a
+directory of dispatch tables, a generated layer — and it keeps those
+files gated, at a limit chosen for them, where a suppression marker
+would remove them:
+
+```toml
+[[thresholds.path]]
+glob = "src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs"
+cyclomatic = 40
+"halstead.effort" = 150000
+```
+
+The glob is matched relative to the directory of the config that
+declared it — the `bca.toml`, or the `--config` file — with the engine
+and anchor
+[`[check] exclude`](#exempting-whole-file-categories-checkexclude)
+uses. Where several entries match one file the last wins, per metric.
+An unknown metric, a missing or empty `glob`, and `tokens` are each a
+tool error naming the entry. The soft tier derives from the overridden
+limit, and `--threshold` still outranks it; the full order is stated
+once in
+[How the layers compose](../recipes/thresholds.md#layering), and when
+to reach for an entry rather than a marker is in
+[Per-path overrides](../recipes/thresholds.md#per-path).
+
+`--print-effective-config` prints each entry after the per-language
+tables, with the metrics it declares at their hard-tier limit —
+`--threshold` applied last, the tier not applied — so the printed file
+replays the gate **at the hard tier** through `--config`. That is the
+whole guarantee. The resolved view carries no `[thresholds.soft]` table
+and does not record which limits came from `--threshold`, so a soft-tier
+run is not replayed by the printout alone: loading it with the same
+`--tier` re-derives a band from the printed hard limits, which matches
+the original only when the original's soft configuration is still in
+scope (the manifest is still discovered, not `--no-config`) and it used
+no `--threshold` (a CLI limit is absolute and unscaled on the original
+run; reloaded, it is a hard limit the band scales). The reason the
+printed path limits are hard, not banded, is in
+[Per-path overrides](../recipes/thresholds.md#per-path):
+
+```toml
+[thresholds]
+cyclomatic = 15.0
+
+[[thresholds.path]]
+glob = "src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs"
+cyclomatic = 40.0
+"halstead.effort" = 150000.0
+```
+
 ## Two-tier thresholds (`--tier`) {#two-tier-thresholds---tier}
 
 `--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
@@ -869,18 +923,18 @@ cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
 bca check --paths src/ --tier=soft
 ```
 
-The soft tier resolves in a fixed order:
+The soft tier is one step of the layering order stated in
+[How the layers compose](../recipes/thresholds.md#layering). Within
+that step: if a `[thresholds.soft]` table exists, its overrides merge
+onto the resolved hard limits and metrics absent from it inherit their
+hard limit — the blanket `RATIO` does not apply, since explicit
+per-metric limits win; otherwise every limit is tightened by the soft
+`RATIO` (default `0.95` for a bare `soft`; `soft=1.0` disables
+scaling). Repeated `--threshold name=value` flags still apply after it,
+absolutely.
 
-1. Start from `[thresholds]` (a `bca.toml` manifest, merged with
-   `--config`).
-2. If a `[thresholds.soft]` table exists, merge its overrides on top;
-   metrics absent from it inherit their hard limit. The blanket `RATIO`
-   does not apply (explicit per-metric limits win).
-3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
-   for a bare `soft`; `soft=1.0` disables scaling).
-4. Repeated `--threshold name=value` flags apply last, absolutely.
-
-Steps 1 to 3 run **once per language**, against that language's own
+The step runs **once per table** — the project's, each language's, and
+each `[[thresholds.path]]` combination's — against that table's own
 resolved hard limits. There is no `[thresholds.lang.<slug>].soft` table
 and none is needed. With `[thresholds] cognitive = 15`,
 `[thresholds.lang.c] cognitive = 30`, and `--tier=soft=0.9`, C's soft

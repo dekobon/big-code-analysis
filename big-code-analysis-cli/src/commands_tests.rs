@@ -4,7 +4,7 @@
 // Matched by the `./**/*_tests.rs` rule in `.bcaignore`.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::diff::{DiffScope, DiffSource};
@@ -1064,6 +1064,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
         thresholds: EffectiveThresholds {
             global: thresholds.clone(),
             lang: BTreeMap::new(),
+            path: Vec::new(),
         },
         check: EffectiveCheck {
             paths: vec!["src/".to_owned()],
@@ -1105,9 +1106,13 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
     // `ThresholdConfig.thresholds` holds raw TOML values (so a nested
     // `[thresholds.soft]` coexists with the scalars); split it back into
     // the hard layer to compare against the f64 limits we serialized.
-    let reparsed_hard = crate::thresholds::split_thresholds_table(&reparsed.thresholds)
-        .expect("split reparsed thresholds")
-        .hard;
+    let reparsed_hard = crate::thresholds::split_thresholds_table(
+        &reparsed.thresholds,
+        Path::new("/cfg"),
+        "cfg.toml",
+    )
+    .expect("split reparsed thresholds")
+    .hard;
     assert_eq!(
         reparsed_hard, thresholds,
         "roundtripped thresholds must match input"
@@ -1125,6 +1130,7 @@ fn effective_config_json_serializes_threshold_overrides() {
         thresholds: EffectiveThresholds {
             global: thresholds,
             lang: BTreeMap::new(),
+            path: Vec::new(),
         },
         check: EffectiveCheck {
             paths: Vec::new(),
@@ -1196,7 +1202,7 @@ fn effective_config_reflects_resolved_threshold_set() {
     };
     let args = check_args_for_remediation(None, None, false);
 
-    let resolved = LanguageThresholds::new(set, BTreeMap::new());
+    let resolved = LanguageThresholds::new(set, BTreeMap::new(), None);
     let effective = EffectiveConfig::from_resolved(
         &globals,
         &args,
@@ -1267,7 +1273,7 @@ fn apply_check_exclude_drops_matching_paths_only() {
         violation("src/metrics/cognitive.rs", "compute", 20.0, 10.0),
     ];
     let args = check_args_excluding(&["src/languages/language_*.rs", "tests/**"], None);
-    let kept = apply_check_exclude(violations, &args, Vec::new());
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     // The two structural-exemption files are dropped; the genuine
     // offender in `src/metrics` survives.
@@ -1284,7 +1290,7 @@ fn apply_check_exclude_no_patterns_is_identity() {
         violation("b.rs", "g", 30.0, 10.0),
     ];
     let args = check_args_excluding(&[], None);
-    let kept = apply_check_exclude(violations, &args, Vec::new());
+    let kept = apply_check_exclude(violations, &args, &[]);
     assert_eq!(kept.len(), 2);
     assert_eq!(kept[0].path, PathBuf::from("a.rs"));
     assert_eq!(kept[1].path, PathBuf::from("b.rs"));
@@ -1302,7 +1308,7 @@ fn apply_check_exclude_reads_patterns_from_file() {
         violation("src/lib.rs", "f", 20.0, 10.0),
     ];
     let args = check_args_excluding(&[], ignore.to_str());
-    let kept = apply_check_exclude(violations, &args, Vec::new());
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
@@ -1322,7 +1328,7 @@ fn apply_check_exclude_unions_flag_and_file() {
     // Flag contributes `xtask/**`; the file contributes `tests/**`; the
     // two deny-sets union, so only `src/lib.rs` survives.
     let args = check_args_excluding(&["xtask/**"], ignore.to_str());
-    let kept = apply_check_exclude(violations, &args, Vec::new());
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
@@ -1472,6 +1478,40 @@ fn init_template_thresholds_match_the_default_table() {
         "the `bca init` scaffold's [thresholds] drifted from \
          default_thresholds::DEFAULT_THRESHOLDS, which is the single source \
          of truth for the shipped limits"
+    );
+}
+
+/// The scaffold's commented-out `[[thresholds.path]]` example must be a
+/// valid entry once the comment markers come off: a template an adopter
+/// uncomments into a parse error is worse than no template. The entry
+/// is parsed through the manifest's own path so the glob, the metric
+/// names, and the `tokens` rule are all checked, not merely the TOML.
+#[test]
+fn init_template_path_example_parses_once_uncommented() {
+    let template = init_manifest_template();
+    // The example block: from the `# [[thresholds.path]]` line to the
+    // next blank line, each line with its `# ` marker removed.
+    let start = template
+        .find("# [[thresholds.path]]")
+        .expect("the scaffold carries a [[thresholds.path]] example");
+    let block = &template[start..];
+    let block = &block[..block.find("\n\n").unwrap_or(block.len())];
+    let uncommented: Vec<&str> = block
+        .lines()
+        .map(|line| line.trim_start_matches("# "))
+        .collect();
+    let uncommented = uncommented.join("\n");
+    let cfg: crate::thresholds::ThresholdConfig =
+        toml::from_str(&format!("[thresholds]\ncyclomatic = 15\n{uncommented}"))
+            .expect("the uncommented example is valid TOML");
+    let parsed =
+        crate::thresholds::split_thresholds_table(&cfg.thresholds, Path::new("/cfg"), "cfg.toml")
+            .expect("the uncommented example is a valid entry");
+    assert_eq!(parsed.path.len(), 1);
+    assert_eq!(parsed.path[0].glob, "src/dispatch/**/*.rs");
+    assert_eq!(
+        parsed.path[0].limits.keys().collect::<Vec<_>>(),
+        ["cyclomatic", "halstead.effort"]
     );
 }
 

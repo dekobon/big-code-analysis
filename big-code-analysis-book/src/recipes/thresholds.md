@@ -269,6 +269,93 @@ The alternative is still available and still worse: keep one table sized for the
 and let per-file baselines carry the rest. It is simpler to maintain and weaker, because the
 stricter languages stop being gated at all.
 
+## Per-path overrides {#per-path}
+
+A language table tunes a limit for everything written in that language. Some populations of files
+are a different shape from the rest of their language, and the shape is a property of the
+*directory*, not the grammar: a tree of hand-rolled dispatch tables, a generated binding layer, a
+parser whose state machine is one function per state. The cyclomatic count of a dispatch table is
+the length of its construct list, and its Halstead effort is the size of its vocabulary; neither
+number tells a reader anything a split would improve, and the project limit misreads every function
+in the directory the same way.
+
+The per-function answer is a suppression marker on each one, and it does not scale. This
+repository accumulated 34 copies of `bca: suppress(cyclomatic, halstead)` across its per-language
+dispatchers, in seven wordings, with nothing stating that the directory was exempt as a policy. A
+`[[thresholds.path]]` entry states the policy once:
+
+```toml
+[thresholds]
+cyclomatic = 15
+"halstead.effort" = 50000
+
+# The per-language dispatchers are exhaustive kind tables: their
+# cyclomatic is the construct list and their effort is the vocabulary.
+[[thresholds.path]]
+glob = "src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs"
+cyclomatic = 40
+"halstead.effort" = 150000
+```
+
+An entry is an array element, so a manifest can carry several with different globs. Each names a
+`glob` and the metrics it re-limits, and inherits every limit it does not restate. The glob is
+matched against the file's path relative to the directory of the config that declared it (the
+`bca.toml`, or the `--config` file), with the same engine and the same anchor that
+[`[check] exclude`](../commands/check.md#exempting-whole-file-categories-checkexclude) uses, so
+one spelling describes the same
+files on both surfaces. A file outside that directory is matched by its seed-relative form, exactly
+as a `[check] exclude` glob matches it: the path under the `--paths` seed that produced it, so
+with `bca check -p src` an entry declared outside the tree sees `src/gen/a.c` as `gen/a.c`, and
+its `src/**` does not reach it. Where several entries match one file, the **last** entry wins, per
+metric, in declaration order — the manifest's entries first, then the `--config` file's — the rule
+`.gitignore` readers already know.
+
+An override is not a suppression. The function stays in `bca check`'s output and in the baseline
+with its real value, and the soft tier scales the overridden limit the way it scales any other: at
+`--tier=soft=0.9` the entry above warns at `cyclomatic = 36`, and the ceiling an offender is
+measured against for exit `5` is `40`, not the project's `15`. The marker takes a function out of
+the gate; the entry keeps it in, at a limit chosen for its population. That is the whole
+difference, and it is why `--explain-threshold` can still price a candidate limit over those files:
+it lists each entry that declares the metric, with the number it declares, so the count is read
+against the right denominator. It reports the declaration rather than a per-entry limit because
+entries overlap — where two match one file, the later one's number is the limit — and the
+offender counts it prints are already taken against each file's own resolved limit.
+
+Three things the parser refuses, each naming the entry by its position in its own file and its
+glob: a metric name `[thresholds]` does not know, an entry with no `glob` or an empty one (`""`
+and `./` would match nothing), and `tokens`, which is a cap on what the walk will parse rather
+than a maintainability limit and is not overridable by any layer. `--print-effective-config`
+prints every entry under `[[thresholds.path]]` with the metrics it declares at their hard-tier
+limit — `--threshold` applied last, the tier not applied — so the printed file replays the gate
+at the hard tier through `--config`. Under `--tier soft` the printed path limits are the hard
+limits the soft band is derived from, not the band: the band belongs to a file's whole match set
+(a second entry naming only another metric changes the first's), so no per-entry row can carry
+it, and a printed band would be scaled a second time on the way back in. A soft-tier run is
+therefore not replayed by the printout alone — the view echoes no `[thresholds.soft]` table and
+cannot mark a `--threshold` limit as absolute — so the hard tier is the replay contract; see
+[Per-path limits](../commands/check.md#per-path-limits) for what a same-`--tier`
+reload does and does not reproduce.
+
+### How the layers compose {#layering}
+
+This is the one statement of the order; `bca check --help` and the
+[`bca check`](../commands/check.md#per-path-limits) reference cite it rather than restating it.
+
+1. `[thresholds]` — the project table, from `bca.toml` with `--config` merged on top.
+2. `[thresholds.lang.<slug>]` — the file's language, per metric.
+3. `[[thresholds.path]]` — every entry whose glob matches the file, in declaration order, per
+   metric; the last match wins.
+4. The tier — `[thresholds.soft]` or the soft ratio — derived from the limits the three layers
+   above resolved to, so each table's soft band and hard ceiling come from its own numbers. An
+   absolute `[thresholds.soft]` limit applies as written to every table, path entries included,
+   so it must sit under each one's hard limit — an entry that lowers a metric below the soft
+   limit is rejected before the walk, naming the entry.
+5. `--threshold name=value` — applied last and absolutely, to every table, never scaled.
+
+A limit a `--threshold` flag names is therefore the limit that runs, for every file, whatever the
+tables say; and a limit only a path entry names is still computed for every file that entry
+matches, so the gate it adds can fire.
+
 ## Per-use-case profiles {#profiles}
 
 The same codebase wants different limits depending on what the gate is for.

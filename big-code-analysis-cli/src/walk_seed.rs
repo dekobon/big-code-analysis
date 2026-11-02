@@ -176,6 +176,24 @@ fn relative_tail_with(
     root: &std::path::Path,
     canonical_root: Option<&std::path::Path>,
 ) -> Option<PathBuf> {
+    relative_tail_via(path, root, canonical_root, canonicalize)
+}
+
+/// [`relative_tail_with`], with the caller supplying the canonical form
+/// of `path` on demand.
+///
+/// `canonical_path` is called only when both lexical strips fail — for
+/// a file outside `root`, every file of a run whose `--config` lives
+/// outside the walked tree. The plain form pays a `canonicalize`
+/// syscall there per call, which `PathLayer::for_file` turned into one
+/// per walked file per entry (#1746); the layer memoises the answer per
+/// parent directory instead and passes it here.
+fn relative_tail_via(
+    path: &std::path::Path,
+    root: &std::path::Path,
+    canonical_root: Option<&std::path::Path>,
+    canonical_path: impl FnOnce(&std::path::Path) -> Option<PathBuf>,
+) -> Option<PathBuf> {
     if let Ok(rel) = path.strip_prefix(root) {
         return Some(rel.to_path_buf());
     }
@@ -184,7 +202,7 @@ fn relative_tail_with(
     {
         return Some(rel.to_path_buf());
     }
-    let canonical = path.canonicalize().ok()?;
+    let canonical = canonical_path(path)?;
     if let Ok(rel) = canonical.strip_prefix(root) {
         return Some(rel.to_path_buf());
     }
@@ -226,16 +244,25 @@ fn relative_tail_with(
 /// lexical rather than `canonicalize`: it needs no filesystem access,
 /// it cannot fail on a path that no longer exists, and it agrees with
 /// how the baseline keys the very same file.
-fn root_relative_match_path(anchor: ManifestAnchor<'_>, path: &std::path::Path) -> Option<PathBuf> {
+///
+/// `canonical_path` supplies the canonical form of a path that fails
+/// both lexical strips — see [`relative_tail_via`]; the exclude callers
+/// pass [`canonicalize`].
+fn root_relative_match_path(
+    anchor: ManifestAnchor<'_>,
+    path: &std::path::Path,
+    canonical_path: impl FnOnce(&std::path::Path) -> Option<PathBuf>,
+) -> Option<PathBuf> {
     let absolute = if path.is_relative() {
         anchor.cwd.join(path)
     } else {
         path.to_path_buf()
     };
-    relative_tail_with(
+    relative_tail_via(
         &crate::baseline::lexical_normalize(&absolute),
         anchor.root?,
         anchor.canonical_root,
+        canonical_path,
     )
     .filter(|rel| !rel.as_os_str().is_empty())
 }
@@ -316,10 +343,35 @@ pub(crate) fn manifest_match_path<'a>(
     path: &std::path::Path,
     cwd_form: CwdForm<'a>,
 ) -> std::borrow::Cow<'a, std::path::Path> {
-    root_relative_match_path(anchor, path).map_or(
+    manifest_match_path_via(anchor, path, cwd_form, canonicalize)
+}
+
+/// [`manifest_match_path`] with the caller supplying the canonical form
+/// of a path that lies lexically outside `root`.
+///
+/// The `[[thresholds.path]]` lookup runs this once per walked file per
+/// declaring config, and a config outside the walked tree puts *every*
+/// file on the canonicalising branch; it hands in a per-directory memo
+/// so the syscall is paid once per directory rather than once per file
+/// (#1746). The exclude paths keep the plain form: they run per
+/// violation, not per file.
+pub(crate) fn manifest_match_path_via<'a>(
+    anchor: ManifestAnchor<'_>,
+    path: &std::path::Path,
+    cwd_form: CwdForm<'a>,
+    canonical_path: impl FnOnce(&std::path::Path) -> Option<PathBuf>,
+) -> std::borrow::Cow<'a, std::path::Path> {
+    root_relative_match_path(anchor, path, canonical_path).map_or(
         std::borrow::Cow::Borrowed(cwd_form.0),
         std::borrow::Cow::Owned,
     )
+}
+
+/// The default canonicaliser: one `canonicalize` syscall chain per
+/// call. Named so the memoising caller and the plain one read as the
+/// same seam with a different supplier.
+fn canonicalize(path: &std::path::Path) -> Option<PathBuf> {
+    path.canonicalize().ok()
 }
 
 /// The two exclude sets a run carries, each matched at its own root.

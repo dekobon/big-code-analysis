@@ -292,11 +292,14 @@ CLI `--threshold` flags override values read from this file."
     /// maintainability band — 17.1 points for `mi.original` / `mi.sei`,
     /// 10 for `mi.visual_studio` — so `mi.original = 20` warns at 20.855.
     ///
-    /// Resolution order: `[thresholds]` (manifest + `--config`) →
-    /// `[thresholds.soft]` or the soft ratio → absolute
-    /// `--threshold name=value` overrides (applied last, never scaled).
-    /// Both tiers ratchet through the same `--baseline`. `RATIO` must
-    /// lie in `(0, 1]`; an out-of-range value is a usage error.
+    /// The tier is derived per table, after the per-language and
+    /// per-path layers have composed and before the absolute
+    /// `--threshold name=value` overrides, which are applied last and
+    /// never scaled. The full layering order is stated once, in the
+    /// book's `Choosing thresholds` recipe under "How the layers
+    /// compose". Both tiers ratchet through the same `--baseline`.
+    /// `RATIO` must lie in `(0, 1]`; an out-of-range value is a usage
+    /// error.
     #[clap(
         long = "tier",
         value_name = "hard|soft|soft=RATIO",
