@@ -1094,6 +1094,15 @@ pre-commit` run names its project root well over a hundred times, so
 `grep -c "$PROJECT_ROOT" "$log"` returning 0 means you are reading
 someone else's run.
 
+**Run the gate in the foreground and do not return until it prints a
+verdict.** A gate launched in the background is killed when you return,
+and "waiting on the gate" is not a Phase 7 report. On the 2026-11-01
+batch four of seven agents returned early that way with complete,
+correct trees and no `BCA_GATE:` line; each cost the orchestrator a
+verification round and a resumed session to reach the commit the work
+already deserved. If the gate is slow because the host is busy, it is
+still your gate to wait on.
+
 If any check fails on code you changed, fix and retry (one attempt).
 If it fails again or fails on code you did not change, report as FAILED.
 

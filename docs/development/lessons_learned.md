@@ -152,6 +152,9 @@ number and the higher number stays as a redirect.
 | [106](#106-an-equivalent-rewrite-is-bit-exact-only-when-it-preserves-the-originals-rounding) | An equivalent rewrite is bit-exact only when it preserves the original's rounding |
 | [107](#107-an-alias-resolver-gives-a-unique-keyed-collection-collisions-its-keys-cannot-see) | An alias resolver gives a unique-keyed collection collisions its keys cannot see |
 | [108](#108-a-two-sided-comparison-that-drops-what-one-side-lacks-reports-absence-as-agreement-or-as-a-default) | A two-sided comparison that drops what one side lacks reports absence as agreement, or as a default |
+| [109](#109-a-resolved-view-printed-at-two-layers-re-layers-itself-when-read-back) | A resolved view printed at two layers re-layers itself when read back |
+| [110](#110-a-fallback-priced-at-one-call-frequency-is-a-syscall-per-node-at-another) | A fallback priced at one call frequency is a syscall per node at another |
+| [111](#111-a-tool-that-walks-source-items-does-not-see-what-a-macro-emits) | A tool that walks source items does not see what a macro emits |
 
 ---
 
@@ -3468,6 +3471,15 @@ NTFS all are 0. `tempfile::tempdir()` lands on whatever `/tmp` is, and
 `analyze_path_raises_is_a_directory_for_an_empty_directory` fails there
 with `None` once the guard goes. It stayed, on the decline path.
 
+**A signature constraint that only the callee honours** (#1748). A
+doc said a future grandparent read "would have to change that core's
+signature, which both public forms call, so neither can grow it
+alone"; either form could call `parent.parent()` before calling the
+core. A signature bounds what the callee reads, not what callers read
+on the way in. Reworded once and still wrong, it fell on the second
+review pass — by reasoning, since no test can see a read that changes
+no answer.
+
 ---
 
 ## 85. Coverage measures execution, not discrimination
@@ -3689,6 +3701,14 @@ bug it names. The donor's suite had recorded that trap — "Three
 lifetimes, not two, and a real char literal after the call" — and the
 copy dropped it. When you lift a scanner, lift its fixtures' arithmetic,
 not just its assertions.
+
+**An `rg` for one operand order inventories one operand order**
+(#1747). `rg 'suppress\(cyclomatic, halstead\)'` counted 34 markers
+and the fix removed 34; four spelled `(halstead, cyclomatic)`,
+`(halstead)` and `(halstead, cyclomatic, abc)` survived as a second
+encoding of the policy the new path entry replaced. Grep the metric
+name (`suppress\([^)]*\bcyclomatic`), not the canonical spelling; the
+same batch's `§B2` relabel would have missed two bare `B2` (#1730).
 
 ---
 
@@ -4036,6 +4056,18 @@ the fix was written with three; the review's one-line dump of `fn f(_:
 impl for<'a> Fn(&'a u8))` showed the fourth, `abstract_type`, which no
 fixture of the issue's had been written to produce.
 
+**"No helper was over the raised limit" measured who offends, not who
+is no longer guarded** (#1747). A path-scoped `cyclomatic = 40` over
+`src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs` was priced with
+`--explain-threshold` at both tiers: 0 new offenders, so "the glob was
+not narrowed". The review read the ratchet instead: every helper
+sharing those files had been gated at 15 / 50k and was now gated at
+40 / 150k, with the nearest at 46.5k effort free to triple before
+anything fires. The predicate *offenders at the new limit* cannot
+express *headroom surrendered*; the pricing that answers the second
+question is the offender set at the **old** limits with the raised
+population released, which is what the comment now reports.
+
 ---
 
 ## 95. Error recovery inserts tokens that `is_missing()` does not flag
@@ -4291,6 +4323,20 @@ positional form `run(() => 1, …)` the scan exists for took 3.4 s at
 the code under test, and confirm by reinstating the defect that the
 probe moves.
 
+**And the construct the workload renders must reach the arm**
+(#1748). #1603 named `halstead/perl-dash-keys` as the guard for the
+`-and` / `-not` sign test, and its exponent would have stayed near
+1.0 with the quadratic fix in place: its `-foo` lexes as the file-test
+operator `-f` on `oo`, no `DASH` token is emitted, and the arm under
+measurement never ran. An `eprintln!` in the helper and one in the
+arm showed zero hits per `bca metrics` run; the width probe that does
+reach the peel is `abc/perl-bareword-keys`, and the depth probe that
+prices the climb (`abc/perl-nested-signed-keys`) was written after.
+Before trusting a
+probe's exponent, confirm by a hit count that its shape reaches the
+code path — the axis can be right and the spelling wrong (#1696 above)
+or the spelling can be right for a different arm entirely.
+
 ---
 
 ## 100. A float tolerance is measured in the value's own ulps, and a rounded limit is held on the hard limit's side
@@ -4398,6 +4444,19 @@ Java where `Ancestors::known` had seeked quietly, caught by the review
 of the review. So "forward the cache" is not "forward every cache": a
 memo keyed by node id survives any derivation, and one keyed by
 *walk position* is valid only on the chain the walk built.
+
+**The inverse hole: a public representation is a constructor**
+(#1737). Keying the word slot on the walk's visited node needed one
+place to record the visit, so `with_folds` became test-only and
+`for_walk` the sole lender. `AncestorIter` was a `pub enum` whose
+`Chain` variant carried `Option<&FoldCache>`; a non-test caller could
+build one, call `next()`, and hold a chain lending the cache with no
+visit recorded — proved by compiling exactly that against the non-test
+crate. Making the constructor private did not make the invariant hold
+while the type's shape could be spelled from outside. It is a struct
+over a private enum now, and the same probe fails with E0599. When a
+cache may only be attached one way, audit every `pub` field, variant
+and tuple that can name it, not only the functions.
 
 ---
 
@@ -4737,5 +4796,116 @@ vanished; the per-issue reviewers, not the author's tests, found both.
 over `union_keys` before descending, `presence_rows` renders the
 one-sided ones, and `non_object_side_makes_every_leaf_one_sided` pins
 the scalar case.
+
+---
+
+## 109. A resolved view printed at two layers re-layers itself when read back
+
+**Lesson:** When a tool prints its "effective" configuration for a
+user to load back, every table in the printout must sit at the *same*
+resolution level, and the reader must not re-apply a layer the writer
+already applied. Decide which level that is — the fully resolved
+numbers, or the declarations — and say which in the output and the
+docs. A printout that resolves some layers (the CLI override folded
+into the global table) and prints others as declared (a path entry's
+raw limits) is not a fixpoint: loading it applies the declared layer
+*after* the already-resolved one, and the precedence the user ran with
+is reversed by the file that claims to record it.
+
+The failure is invisible in the normal case. Fixtures print and reload
+a config with no CLI override and no soft tier, where declared and
+resolved coincide, and the round-trip test passes. It shows only when
+two layers disagree: a `--threshold` the global table absorbed and a
+path entry that still says its original number; a soft-tier band that
+belongs to a file's whole match set and so cannot be a per-entry row.
+Each gap reads as a different bug, and each fix can introduce the next
+unless the level is chosen once.
+
+**`--print-effective-config` reversed `--threshold` on reload**
+(#1746, #1738). Global `cyclomatic = 2`, a path entry at `10`,
+`--threshold cyclomatic=3`: the run exited 2; the printout showed
+`3.0` in the global table and `10.0` in the path row, and loading it
+with `--no-config --config` exited 0. Printing path rows at the
+resolved limit fixed that shape and created the next: under
+`--tier soft` the rows carried a single-entry soft band, so a soft run
+reloaded to exit 5, and an overlapping entry that flipped the table's
+soft mode printed a band the combined set did not have. The level is
+now the hard tier — `--threshold` applied, the tier not — and the book
+says that is the whole replay contract; a soft run is reproduced only
+when the manifest's soft table is still discovered and no CLI limit
+was used, because the view echoes neither.
+
+---
+
+## 110. A fallback priced at one call frequency is a syscall per node at another
+
+**Lesson:** Before reusing a helper on a hotter path than the one it
+was written for, read its *fallback* arms, not its fast path, and ask
+what each costs when the fast path misses on every call. A helper
+whose slow arm is a filesystem syscall is fine at one call per
+violation after the walk and is `O(files × entries × depth)` syscalls
+at one call per file per entry inside it — and the miss is the normal
+case for the new caller, not the corner it was for the old one. Hoist
+the per-file work out of the per-entry loop, answer lexically where
+the input is already absolute, and measure with `strace -c` on a tree
+where the slow arm is taken, not one where it is not.
+
+`[check] exclude` and `[[thresholds.path]]` match files through the
+same anchor so one glob names the same files on both surfaces — the
+right design — but the exclude filter runs once per violation after
+the walk, over a handful of rows, while the path layer runs once per
+file per entry inside the parallel walk. `relative_tail_with` strips
+lexically and, when both strips fail, calls `path.canonicalize()`; a
+file is never lexically under a `--config` that lives outside the
+walked tree, so every file took the syscall for every entry.
+
+**120 thousand `readlinkat` at ten entries, 600 thousand at fifty**
+(#1746). On a 2000-file tree with the config one directory outside it,
+the same helper reached from `[check] exclude` on the same tree made
+zero. The reviewer who found it counted syscalls with `strace -c` as
+well as timing, which is what made the shape unmistakable: at `-j 8`
+the syscalls parallelise and the wall clock alone reads as a modest
+multiple that a benchmark would have passed. The match path is now
+derived once per distinct origin per file, the parent directory's
+canonical form is memoised, the whole path is canonicalised only for
+an explicitly seeded symlink, and the count is single digits.
+
+---
+
+## 111. A tool that walks source items does not see what a macro emits
+
+**Lesson:** When a coverage, mutation or metric tool walks `fn` items
+in source, anything a `macro_rules!` invocation produces is a token
+tree it never visits — the membership lists inside a `role_table!`,
+*and* every gate function the macro expands to, *and* a dispatcher
+whose body is the macro's. A claim that such code is "covered" must
+be made by the tool's own listing (`cargo mutants --list -f <file>`,
+`bca check --no-suppress -p <file>`) and not by reading the file; the
+tool reads a different file. Say in the doc what the listing showed
+and give the command, so the next widening of the selection checks
+the same way.
+
+Two tools in one batch, two directions. A `--list` that returns zero
+for a file full of gates reads as "nothing to mutate here", and a
+self-scan that reports no offender in a 500-line dispatcher reads as
+"within limits" — each is the tool declining to look, and neither
+says so.
+
+**cargo-mutants listed zero mutants in `roles/control_flow.rs`**
+(#1728). The doc for the widened selection said the per-language
+`roles/*.rs` contributed its gate functions, naming
+`else_if_*_gate!` expansions among them; the thirteen invocations
+produce nothing, nor do the gates the `js_family` / `c_family` /
+`tcl_family` fragments expand to (the plain `fn`s written beside those
+fragments do list). Only a gate written directly in a language module is
+mutated, and the doc now says so with the command that proves it.
+
+**bca attributed the Cpp and Mozcpp dispatchers to no function**
+(#1747). `cpp_family_abc!` and `cpp_family_cognitive!` bodies carried
+`bca: suppress` markers that went inert the day the bodies were folded
+into macros (#1695), a week before #1747 deleted them; deleting them
+changed nothing, because the self-scan never scored a function there
+to gate. The `bca.toml` entry that replaced the markers says every
+function in the glob stays gated and, further down, names this gap.
 
 ---
