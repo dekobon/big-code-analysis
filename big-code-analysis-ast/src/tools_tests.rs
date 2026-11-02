@@ -48,6 +48,84 @@ fn test_read() {
     }
 }
 
+/// The error kind the platform gives for reading a directory: Unix opens it
+/// and fails the first `read` with EISDIR, Windows refuses the open with an
+/// access error.
+#[cfg(unix)]
+const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::IsADirectory;
+#[cfg(windows)]
+const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::PermissionDenied;
+
+#[test]
+fn read_file_with_eol_errors_on_a_directory_of_any_st_size() {
+    // A directory's `st_size` is filesystem-defined: 4096 on ext4, where the
+    // reader opens it and the first read fails on its own, but 0 on NTFS
+    // and, on btrfs, twice the summed entry-name lengths — the three
+    // directories below span the three-byte gate from both sides, and
+    // which of them fall under it varies by host (16 / 2 / 6 on one btrfs
+    // host, since a tempdir's own name counts). The tiny branch used to
+    // decide "empty" from `stat`
+    // alone there and never open a non-regular file, so a directory was
+    // declined as `Empty` or `TooSmall` (#1762). Every directory must be the
+    // platform's real error, and never a skip, whatever the host's
+    // filesystem reports.
+    let dir = tempfile::tempdir().unwrap();
+    let one = dir.path().join("one");
+    std::fs::create_dir(&one).unwrap();
+    std::fs::write(one.join("a"), b"").unwrap();
+    let three = dir.path().join("three");
+    std::fs::create_dir(&three).unwrap();
+    std::fs::write(three.join("bcd"), b"").unwrap();
+    for path in [dir.path(), &one, &three] {
+        let err = read_file_with_eol_classified(path)
+            .err()
+            .unwrap_or_else(|| panic!("{} must be an I/O error, not a skip", path.display()));
+        assert_eq!(err.kind(), DIRECTORY_READ_KIND, "{}", path.display());
+        assert_eq!(
+            read_file_with_eol(path).err().map(|e| e.kind()),
+            Some(DIRECTORY_READ_KIND),
+            "{}",
+            path.display()
+        );
+    }
+    // The gate it sits beside is untouched: a tiny regular file is still a
+    // named skip, not an error.
+    let tiny = dir.path().join("tiny.rs");
+    std::fs::write(&tiny, b"ab").unwrap();
+    assert_eq!(
+        read_file_with_eol_classified(&tiny).unwrap(),
+        Err(SkipReason::TooSmall)
+    );
+}
+
+/// The readability probe is gated to regular files and directories
+/// (`m.is_file() || m.is_dir()`, #1762): a tiny non-regular file — a
+/// Unix socket here, whose `st_size` is 0 on btrfs (measured) and on
+/// ext4 (a socket inode carries no data), so this row reaches the
+/// gate's second operand on ext4 too, where a
+/// directory's 4096 never does — is still skipped *unopened*, as it was
+/// before the directory arm widened the gate. Pins the `is_dir()`
+/// operand: a gate widened to every non-FIFO (`!m.is_symlink()`, or
+/// dropped altogether) opens the socket, which fails with `ENXIO`, and
+/// the skip becomes an error.
+#[cfg(unix)]
+#[test]
+fn read_eol_skips_a_tiny_socket_without_opening_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tiny.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let meta = std::fs::metadata(&path).unwrap();
+    assert!(
+        !meta.is_file() && !meta.is_dir() && meta.len() <= 3,
+        "the socket must be a tiny non-regular file for the gate to decide it"
+    );
+    assert_eq!(
+        read_file_with_eol_classified(&path).unwrap(),
+        Err(SkipReason::Empty)
+    );
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
 #[cfg(unix)]
 #[test]
 fn test_get_language_for_file_non_utf8() {

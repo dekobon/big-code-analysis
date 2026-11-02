@@ -345,12 +345,13 @@ def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
     """A path that exists but is a directory must *raise*, not be silently
     skipped (#706).
 
-    ``read_file_with_eol`` masks this case wherever a directory's
+    ``read_file_with_eol`` used to mask this case wherever a directory's
     ``st_size`` is three or less (every directory on NTFS, an empty one
-    on btrfs or ZFS): it reads as an empty file and is skipped without
-    being opened. ``analyze_path`` re-issues a plain read for a declined
-    path that is a directory, so the OS error surfaces as a hard
-    exception. On ext4 and APFS the read itself fails with ``EISDIR``.
+    on btrfs or ZFS): it read as an empty file and was skipped without
+    being opened. Since #1762 the reader's tiny-file branch opens and
+    reads a directory too, so the OS error surfaces from the reader
+    itself on every filesystem; on ext4 and APFS the first read failed
+    with ``EISDIR`` all along.
 
     The exact ``OSError`` subclass is platform-specific: Linux/macOS yield
     ``IsADirectoryError`` (``EISDIR``) while Windows reports
@@ -359,8 +360,9 @@ def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
     subclass satisfies the contract that a directory must not be silently
     skipped.
 
-    Test-via-revert (Windows, or a btrfs / ZFS ``tmp_path``): deleting the
-    ``if path.is_dir()`` guard in ``analysis::skip_unless_directory``
+    Test-via-revert (Windows, or a btrfs / ZFS ``tmp_path``): dropping the
+    ``m.is_dir()`` alternative from the readability probe in the reader's
+    tiny-file branch (``big-code-analysis-ast/src/tools.rs::read_gated``)
     makes ``analyze`` on a directory return ``None``, so the ``else``
     branch fails.
     """

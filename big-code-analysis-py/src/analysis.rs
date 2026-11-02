@@ -398,19 +398,20 @@ pub(crate) fn analyze_path(
     // to LF with a guaranteed trailing newline. A skip is
     // `Outcome::Declined` — no record, as when the CLI walker discards a
     // file. The reader's reason is not fetched: nothing in this crate may
-    // surface it (Python sees `None`), and the directory probe below
-    // needs none. A plain read diverged here: the bindings parsed tiny /
-    // binary / BOM-prefixed files the CLI silently skips, and computed
-    // metrics on un-normalised bytes.
+    // surface it (Python sees `None`). A plain read diverged here: the
+    // bindings parsed tiny / binary / BOM-prefixed files the CLI silently
+    // skips, and computed metrics on un-normalised bytes.
     //
     // I/O failures still surface as `AnalysisError::Io` carrying the path
     // so the Python `OSError` can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError via `errno` / `filename` — the
     // `File::open` and reads inside `read_file_with_eol` are where those
-    // errors originate, exactly as the prior `std::fs::read` was.
+    // errors originate, exactly as the prior `std::fs::read` was. That
+    // includes a directory of any `st_size`: the reader probes one
+    // itself since #1762, so no second `stat` is needed here.
     let Some(code) = read_file_with_eol(path).map_err(|source| AnalysisError::io(source, path))?
     else {
-        return skip_unless_directory(path);
+        return Ok(Outcome::Declined);
     };
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
@@ -434,36 +435,6 @@ pub(crate) fn analyze_path(
     let mut space = analyze_bytes(lang, &code, Some(name.into_owned()), opts)?;
     attach(&mut space);
     to_json(&space).map(Outcome::Analyzed)
-}
-
-/// The outcome for a path [`read_file_with_eol`] declined to read:
-/// [`Outcome::Declined`], unless the path is a directory.
-///
-/// The reader decides "three bytes or fewer" from `st_size` alone and only
-/// opens a *regular* file to check readability, so a directory whose
-/// `st_size` is three or less is declined as an empty file without being
-/// opened: every directory on NTFS (length 0), and every empty one — or a
-/// nearly empty one — on btrfs (twice the summed entry-name lengths) and
-/// ZFS (the entry count plus 2 for `.` and `..`). Re-issue the plain read
-/// here so a directory named directly stays a hard `OSError`
-/// (`IsADirectoryError` on unix) carrying the platform's real errno. A
-/// larger directory, such as any on ext4 (4096) or APFS, never gets here:
-/// the reader opens it, the first read fails with EISDIR, and that
-/// propagates as an `Err`.
-///
-/// The probe sits on the decline path rather than ahead of the read so a
-/// file that parses pays one `stat`, not two (#1349); only a declined file
-/// pays the second. `Ast::from_path` carries the same probe
-/// (`spaces::ast::skipped_or_directory`); the reader-level fix that
-/// retires both is #1762.
-fn skip_unless_directory(path: &Path) -> Result<Outcome, AnalysisError> {
-    if path.is_dir() {
-        let err = std::fs::read(path)
-            .err()
-            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
-        return Err(AnalysisError::io(err, path));
-    }
-    Ok(Outcome::Declined)
 }
 
 pub(crate) fn analyze_source(
@@ -828,14 +799,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn analyze_path_raises_is_a_directory_for_an_empty_directory() {
-        // An empty directory is the case the reader cannot see on btrfs
-        // (`st_size` 0) and ZFS (2), both under the three-byte cutoff, so
-        // `read_file_with_eol` declines it as an empty file without
-        // opening it. Only the decline-path probe turns that back into
-        // EISDIR. On ext4 (4096) and APFS the read itself fails with
-        // EISDIR and this passes without the probe, so the direct
-        // `skip_unless_directory` test below is the
-        // filesystem-independent guard.
+        // An empty directory's `st_size` is 0 on btrfs and 2 on ZFS, both
+        // under the reader's three-byte cutoff, so until #1762
+        // `read_file_with_eol` declined it as an empty file without
+        // opening it and only a probe here turned that back into EISDIR.
+        // The reader now opens and reads a directory itself, so the error
+        // arrives from it on every filesystem.
         let dir = tempfile::tempdir().expect("tempdir");
         match analyze_path(dir.path(), AnalyzeOptions::default(), |_| {}) {
             Err(AnalysisError::Io { source, path }) => {
@@ -846,23 +815,35 @@ mod tests {
         }
     }
 
+    /// The error kind the platform gives for reading a directory: EISDIR
+    /// from the first read on Unix, an access error from the open on
+    /// Windows.
+    #[cfg(unix)]
+    const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::IsADirectory;
+    #[cfg(windows)]
+    const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::PermissionDenied;
+
     #[test]
-    fn skip_unless_directory_raises_for_a_directory_and_skips_a_file() {
-        // Called directly so the directory arm is exercised whatever
-        // `st_size` the host filesystem gives an empty directory; the
-        // file arm pins that a declined regular file stays a silent skip.
+    fn analyze_path_raises_for_a_directory_and_declines_a_tiny_file() {
+        // The directory arm runs whatever `st_size` the host filesystem
+        // gives an empty directory (0 on NTFS, where CI's Windows leg
+        // enters the reader's tiny branch); the file arm pins that a
+        // declined regular file stays a silent skip, never an error.
         let dir = tempfile::tempdir().expect("tempdir");
-        // The errno is platform-specific (EISDIR on unix, an access error
-        // on Windows), so pin the variant and the path it names rather
-        // than the kind.
-        match skip_unless_directory(dir.path()) {
-            Err(AnalysisError::Io { path, .. }) => assert_eq!(path, dir.path()),
-            other => panic!("a declined directory must raise, not {other:?}"),
+        match analyze_path(dir.path(), AnalyzeOptions::default(), |_| {}) {
+            Err(AnalysisError::Io { source, path }) => {
+                assert_eq!(source.kind(), DIRECTORY_READ_KIND);
+                assert_eq!(path, dir.path());
+            }
+            other => panic!("a directory must raise, not {other:?}"),
         }
         let tiny = dir.path().join("tiny.rs");
         std::fs::write(&tiny, b"ab\n").expect("write fixture");
         assert!(
-            matches!(skip_unless_directory(&tiny), Ok(Outcome::Declined)),
+            matches!(
+                analyze_path(&tiny, AnalyzeOptions::default(), |_| {}),
+                Ok(Outcome::Declined)
+            ),
             "a declined regular file is a skip",
         );
     }

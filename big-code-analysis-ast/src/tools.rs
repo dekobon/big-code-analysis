@@ -190,13 +190,17 @@ impl std::fmt::Display for SkipReason {
 /// # Errors
 ///
 /// Returns any [`std::io::Error`] surfaced by [`File::open`] (the
-/// path is missing, lacks read permission, is a directory, …) or by
-/// the subsequent reads from the open file handle. A clean short read
-/// during the probe (`UnexpectedEof`) yields `Ok(None)`; any other
-/// `read_exact` error kind propagates as `Err`. A non-UTF-8 head, a
-/// too-small file, or a UTF-16 BE/LE BOM is reported via `Ok(None)`,
-/// not an error — but "too small" is decided only for a file that can
-/// be opened, so an unreadable one errors instead (#1060).
+/// path is missing, lacks read permission, …) or by the subsequent
+/// reads from the open file handle. A directory is always an error, on
+/// every filesystem: Windows refuses the open, Unix the first read
+/// (`IsADirectory`). A clean short read during the probe
+/// (`UnexpectedEof`) yields `Ok(None)`; any other `read_exact` error
+/// kind propagates as `Err`. A non-UTF-8 head, a too-small file, or a
+/// UTF-16 BE/LE BOM is reported via `Ok(None)`, not an error — but
+/// a tiny regular file is probed for readability first, so an
+/// unreadable one errors instead (#1060), and a small-`st_size`
+/// directory is probed the same way so it errors too (#1762). A tiny
+/// FIFO, socket or device is still skipped unopened.
 ///
 /// # Examples
 ///
@@ -224,8 +228,10 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 /// # Errors
 ///
 /// Identical to [`read_file_with_eol`]: any [`std::io::Error`] from
-/// [`File::open`] or the subsequent reads propagates. Skips are *not* errors —
-/// they arrive as `Ok(Err(reason))`.
+/// [`File::open`] or the subsequent reads propagates, and a directory is
+/// always one of those (the open fails on Windows, the first read on Unix).
+/// Skips are *not* errors — they arrive as `Ok(Err(reason))`; a tiny regular
+/// file is probed for readability before it is skipped.
 ///
 /// # Examples
 ///
@@ -286,10 +292,15 @@ fn read_gated(path: &Path) -> Result<Vec<u8>, ReadStop> {
         // decide it: `stat` succeeds on a file the process cannot open,
         // so an unreadable tiny file read as empty and `bca check`
         // exited 0 on a tree it never read (#1060). `meta` is
-        // necessarily `Ok` here; the open is a discarded readability
-        // probe, skipped for non-regular files because a FIFO blocks.
-        if meta.is_ok_and(|m| m.is_file()) {
-            File::open(path)?;
+        // necessarily `Ok` here; the open-and-read is a discarded
+        // readability probe, skipped for a FIFO, socket or device, where
+        // the open or the read can block or fail spuriously. A
+        // directory takes the probe too: its `st_size` is under the
+        // gate on btrfs, ZFS and NTFS, and only the probe turns that
+        // into the platform's directory error — Windows refuses the
+        // open, Unix the first read (#1762).
+        if meta.is_ok_and(|m| m.is_file() || m.is_dir()) {
+            File::open(path).and_then(|mut file| file.read(&mut [0]))?;
         }
         return Err(SkipReason::for_size(file_size).into());
     }

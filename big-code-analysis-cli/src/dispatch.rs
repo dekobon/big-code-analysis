@@ -958,6 +958,32 @@ mod tests {
         assert_eq!(counters.failures(), 0);
     }
 
+    // The walker never hands a directory to the reader, so this pins
+    // the tally for the one way one could still arrive (a path replaced
+    // between the walk and the read): it is a read failure, never a
+    // dispatched "empty file". Before #1762 the reader declined a
+    // directory whose `st_size` is three or less — every one on NTFS,
+    // an empty one on btrfs — as `Empty`, and this counted it as
+    // dispatched.
+    #[test]
+    fn directory_counts_as_read_failure_not_dispatched() {
+        #[cfg(unix)]
+        const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::IsADirectory;
+        #[cfg(windows)]
+        const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::PermissionDenied;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let counters = Counters::new();
+        let cfg = counters.config();
+
+        let err = validate_and_resolve_file(dir.path().to_path_buf(), &cfg)
+            .expect_err("a directory must surface the platform's read error");
+
+        assert_eq!(err.kind(), DIRECTORY_READ_KIND);
+        assert_eq!(counters.dispatched(), 0);
+        assert_eq!(counters.failures(), 1);
+    }
+
     // Regression test for issue #425: a poisoned `preproc_lock` must
     // degrade like the sibling worker dispatchers (warn + `Ok(())`)
     // rather than panic and cascade across the pool. Verified by

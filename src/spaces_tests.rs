@@ -2318,35 +2318,27 @@ mod from_path_tests {
         }
     }
 
+    /// The error kind the platform gives for reading a directory: EISDIR
+    /// from the first read on Unix, an access error from the open on
+    /// Windows.
+    #[cfg(unix)]
+    const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::IsADirectory;
+    #[cfg(windows)]
+    const DIRECTORY_READ_KIND: std::io::ErrorKind = std::io::ErrorKind::PermissionDenied;
+
     #[test]
     fn from_path_directory_is_an_io_error_never_a_skip() {
         // A directory is not a file `analyze` would skip; it is an I/O
-        // fault. Where the reader opens it (ext4, APFS) the read fails
-        // with EISDIR on its own; where `st_size` is three or less
-        // (btrfs, ZFS, NTFS) only the decline-path probe turns the
-        // reader's `Empty` or `TooSmall` back into `Io`. The helper is
-        // therefore also called directly, with each reason the reader
-        // could have given, so the probe is pinned whatever filesystem
-        // runs the test and does not branch on the reason.
+        // fault carrying the platform's real error. An empty directory's
+        // `st_size` is 0 on btrfs and NTFS and 2 on ZFS — under the
+        // reader's three-byte gate — so until #1762 the reader declined
+        // it as `Empty` there and this crate re-read the path to recover
+        // the error; the reader now probes a directory itself.
         let dir = tempfile::tempdir().expect("tempdir");
-        assert!(matches!(
-            Ast::from_path(dir.path()),
-            Err(FromPathError::Io(_))
-        ));
-        for reason in [SkipReason::Empty, SkipReason::TooSmall] {
-            assert!(
-                matches!(
-                    crate::spaces::ast::skipped_or_directory(dir.path(), reason),
-                    FromPathError::Io(_)
-                ),
-                "{reason:?}"
-            );
+        match Ast::from_path(dir.path()) {
+            Err(FromPathError::Io(err)) => assert_eq!(err.kind(), DIRECTORY_READ_KIND),
+            other => panic!("a directory must be an I/O error, not {other:?}"),
         }
-        let tiny = write_file(dir.path(), "tiny.rs", b"ab");
-        assert!(matches!(
-            crate::spaces::ast::skipped_or_directory(&tiny, SkipReason::TooSmall),
-            FromPathError::Skipped(SkipReason::TooSmall)
-        ));
     }
 
     #[cfg(unix)]

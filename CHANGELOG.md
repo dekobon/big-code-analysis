@@ -779,6 +779,21 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **`read_file_with_eol` / `read_file_with_eol_classified` return the
+  platform's directory error for a directory of any `st_size`**
+  (#1762). The three-byte gate decided "too small" from `stat` alone
+  and opened only a regular file to check readability, so a directory
+  whose `st_size` is three or less — every one on NTFS, an empty or
+  nearly empty one on btrfs and ZFS — was declined as `Empty` or
+  `TooSmall` without being opened; only on ext4 and APFS, where a
+  directory is 4096 or 64 bytes, did the read fail with EISDIR as the
+  docs promised. The tiny branch now opens and reads a directory too
+  (a FIFO is still left unopened), so the error is the real one on
+  every filesystem: `IsADirectory` from the first read on Unix, the
+  access error from the open on Windows. `Ast::from_path` and the
+  Python bindings' `analyze_path` drop the second `stat` each carried
+  to recover the error on the decline path (#1349).
+
 - **`bca metrics --vcs` / `--vcs-per-function` no longer emit a
   `hotspot_score` when cyclomatic was not computed** (#1742). With
   `--metrics nargs` the file block scored churn × a subtree sum of 0

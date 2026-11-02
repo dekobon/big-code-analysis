@@ -16,7 +16,7 @@ happens:
 | Function | Behaviour |
 |----------|-----------|
 | `read_file(path)` | Reads the whole file. Normalises CRLF and lone CR to LF in place. Buffer ends with exactly one trailing `\n`. |
-| `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes and for files with a UTF-16 BOM (#803); strips a leading UTF-8 BOM; byte-validates the first ~64 bytes with `std::str::from_utf8` and returns `None` on invalid UTF-8 (#746, #758; a lossy U+FFFD check was rejected because U+FFFD can legitimately appear in source). |
+| `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes and for files with a UTF-16 BOM (#803); strips a leading UTF-8 BOM; byte-validates the first ~64 bytes with `std::str::from_utf8` and returns `None` on invalid UTF-8 (#746, #758; a lossy U+FFFD check was rejected because U+FFFD can legitimately appear in source). A tiny regular file is probed for readability before it is skipped, so an unreadable one (#1060) and a directory of any `st_size` (#1762) are `Err`. |
 | `read_file_with_eol_classified(path)` | The same read, with the skip *named*: `Ok(Err(SkipReason))` in place of `Ok(None)`. `read_file_with_eol` is this function's `.map(Result::ok)`. |
 
 `SkipReason` is `#[non_exhaustive]` with one variant per gate above
