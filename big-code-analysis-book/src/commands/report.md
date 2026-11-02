@@ -195,8 +195,11 @@ same shared column specs the tooltips use, so the two formats cannot
 drift.
 
 Both formats close with a **provenance footer** stating the `bca`
-version, generation date, the seed paths scanned, the per-table `--top`
-value, and whether suppression markers were honored, so a detached
+version — followed, for a `bca` built from a source checkout, by the
+first twelve digits of its build-inputs digest in parentheses, the
+same digest `bca --version` prints in full — the generation date, the
+seed paths scanned, the per-table `--top` value, and whether
+suppression markers were honored, so a detached
 artifact (a PR comment, a Pages deployment, a file on a ticket) records
 what it was generated from. The date honors
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)

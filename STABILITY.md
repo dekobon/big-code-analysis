@@ -691,17 +691,24 @@ compiled into the binary, or `unavailable` for a build from the
 crates.io tarball, where the workspace is not beside the crate),
 `git:`, `built:` (RFC 3339 UTC, `SOURCE_DATE_EPOCH` when it was set
 at build time, with the profile, `rustc` version, target and
-debug-assertions state) and `binary id:` (the linker's GNU build-id
+debug-assertions state) and `build id:` (the linker's GNU build-id
 note on Linux; `unavailable` elsewhere). The first line is the stable
-contract; the fields after it are informational, their wording may
-change in a minor release, and a consumer that needs the version alone
-should read `-V` or the first line. The same digest is stamped into a
-`bca check` SARIF document under `tool.driver.properties` as
-`bca.buildInputs` / `bca.buildGit`, and abbreviated in the `bca report`
-provenance footer. The library's own `write_sarif` and
-`write_sarif_with_suppressed` are unchanged; `write_sarif_with_provenance`
-and `SarifProvenance` are the additive surface a host uses to stamp its
-own build.
+contract, and so is one thing about the second: a line beginning
+`build inputs:` followed by a space and either 64 lowercase hex digits
+or the word `unavailable`, which is what `utils/self-scan-bca.py` —
+and any CI that wants the same trick — keys on. The remaining fields are
+informational, their wording may change in a minor release, and a
+consumer that needs the version alone should read `-V` or the first
+line. The same digest is stamped into a `bca check` SARIF document
+under `tool.driver.properties` as `bca.buildInputs` / `bca.buildGit`
+(each *omitted*, not spelled `unavailable`, when unknown), and
+abbreviated in the `bca report` provenance footer. The library's own
+`write_sarif` and `write_sarif_with_suppressed` are unchanged;
+`write_sarif_with_provenance` and `SarifProvenance` are the additive
+surface a host uses to stamp its own build. `SarifProvenance` follows
+`MetricsOptions`'s shape — `#[non_exhaustive]`, private fields,
+`Default` plus `with_*` setters — and is the extension point for any
+run-level metadata added later; the writer's parameter list is not.
 
 The next major re-baseline at `3.0` (whenever it happens) is the
 point at which the value drifts accumulated across `2.x` will be
@@ -924,6 +931,7 @@ at the crate root from `src/output/`:
 | `write_csv_aggregate` | `(spaces: impl IntoIterator<Item = (&FuncSpace, &Path)>, writer: W) -> io::Result<()>`; one shared header, then every tree's rows |
 | `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_sarif_with_suppressed` | `(active, in_source, baseline: &[OffenderRecord], writer: W) -> io::Result<()>`. The two suppressed slices stay separate because they render different `suppressions[].kind` values: `in_source` gives `"inSource"`, `baseline` gives `"external"` |
+| `write_sarif_with_provenance` | `(active, in_source, baseline: &[OffenderRecord], provenance: &SarifProvenance, writer: W) -> io::Result<()>`. The suppressed writer with a `tool.driver.properties` stamp; an empty `SarifProvenance::default()` yields `write_sarif_with_suppressed`'s bytes exactly (#1773) |
 | `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_clang_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_msvc_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |

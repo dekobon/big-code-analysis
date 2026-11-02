@@ -529,9 +529,18 @@ because the file is `-merge`: regenerate, stage, and `git rebase
 **What a refresh costs, and why.** The scan itself is ~0.2 s for the
 whole tree; what you wait for is the build. The self-scan recipes
 build `bca` under the **dev** profile (#1773): ~5 s for a step that
-touched Rust under `src/`, `big-code-analysis-ast/`,
-`big-code-analysis-cli/` or a grammar crate, and ~0.1 s for one that
-did not, because cargo finds every artifact fresh. They used to build
+touched something compiled into it — Rust under `src/`,
+`big-code-analysis-ast/src/`, `big-code-analysis-cli/src/`, a grammar
+crate's sources, a manifest or `Cargo.lock` — and ~0.1 s for one that
+did not, because cargo finds every artifact fresh. A commit that
+touches nothing compiled is in the second class even though it moves
+`HEAD`: the `git:` field of `bca --version` is deliberately *not*
+refreshed on a bare commit, because refreshing it would cost the
+rebuild on every step of the rebase loop this paragraph is about (it
+is exact as of the last build whose inputs changed; the `build
+inputs:` digest, the field the resolver decides on, is exact always).
+Integration tests under a crate's `tests/`, `.snap` files and grammar
+`node-types.json` are not inputs either. They used to build
 release, whose `lto = true` / `codegen-units = 1` relink is ~100 s
 after *any* such edit — which made the nine-conflict rebase that
 motivated #1773 a ten-minute job. `BCA_SELF_SCAN_PROFILE=release`

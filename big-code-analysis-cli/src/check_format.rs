@@ -136,13 +136,18 @@ pub(crate) fn dump_sarif_with_suppressed(
 /// What this binary stamps into `tool.driver.properties` (#1773): the
 /// digest of everything compiled into it and the revision it was built
 /// from, so a SARIF upload traces to a build rather than to a version
-/// that 92 unreleased commits can share. A registry build carries
-/// `unavailable` for both, which is itself the information.
+/// that 92 unreleased commits can share. A registry build knows
+/// neither and stamps nothing — an absent property, not a sentinel a
+/// consumer comparing digests would read as a value.
 fn sarif_provenance() -> SarifProvenance {
-    SarifProvenance::new(
-        Some(crate::build_info::BUILD_INPUTS.to_owned()),
-        Some(crate::build_info::BUILD_GIT.to_owned()),
-    )
+    let mut provenance = SarifProvenance::default();
+    if let Some(digest) = crate::build_info::build_inputs() {
+        provenance = provenance.with_build_inputs(digest);
+    }
+    if let Some(revision) = crate::build_info::build_git() {
+        provenance = provenance.with_build_git(revision);
+    }
+    provenance
 }
 
 /// Default annotation cap per metric. GitHub Actions surfaces at most

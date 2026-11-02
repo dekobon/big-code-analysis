@@ -43,13 +43,15 @@ use sha2::{Digest, Sha256};
 ///
 /// Whole crate directories rather than their `src/`, so each crate's
 /// `Cargo.toml` and build script are in; the root `Cargo.toml` for the
-/// workspace pins and profiles. `Cargo.lock` is not listed — cargo
-/// already treats it as a fingerprint input, and a lockfile that moves
-/// without any source moving changes no metric. Runtime inputs
-/// (`bca.toml`, `.bcaignore`, the baseline) are not here either: a
+/// workspace pins and profiles; `Cargo.lock` because the resolver
+/// compares digests *instead of* letting cargo fingerprint, and the
+/// manifests carry ranged dependencies (`ignore`, `globset`, `regex`)
+/// whose resolved version decides which files a walk sees. Runtime
+/// inputs (`bca.toml`, `.bcaignore`, the baseline) are not here: a
 /// prebuilt binary reads the live copy of each.
 pub(crate) const INPUT_ROOTS: &[&str] = &[
     "Cargo.toml",
+    "Cargo.lock",
     "src",
     "big-code-analysis-ast",
     "big-code-analysis-cli",
@@ -63,14 +65,29 @@ pub(crate) const INPUT_ROOTS: &[&str] = &[
 /// Extensions that are compile-time inputs. `src/` carries over a
 /// thousand tracked `.snap` files, and an `insta` accept would
 /// otherwise read as a code change; `.snap.new` is untracked but not
-/// ignored, so a forced corpus run would too.
-pub(crate) const INPUT_EXTENSIONS: &[&str] = &["rs", "c", "cc", "h", "toml", "json"];
+/// ignored, so a forced corpus run would too. A grammar's
+/// `node-types.json` is `include_str!`ed into a constant nothing in
+/// `bca` reaches — the `enums/` generator reads it, and the generated
+/// enum under `src/` is what the metrics compile against — so `.json`
+/// is out as well: its bytes cannot move a metric.
+pub(crate) const INPUT_EXTENSIONS: &[&str] = &["rs", "c", "cc", "h", "toml"];
 
-/// Build output a vendored grammar crate accumulates beside its
-/// sources. Matched only as a *direct* child of a `tree-sitter-*` root,
-/// never as a path component anywhere, so a tracked
-/// `src/build/generated.rs` under any other root is hashed.
-pub(crate) const SKIPPED_TOP_LEVEL: &[&str] = &["target", "build", "node_modules"];
+/// Directories under a crate root that hold nothing the library or
+/// the `bca` binary compiles: cargo's integration-test, benchmark and
+/// example targets, and the build output a vendored grammar
+/// accumulates beside its sources. Matched only as a *direct* child of
+/// a root, never as a path component anywhere, so a tracked
+/// `src/build/generated.rs` is hashed. Inline `#[cfg(test)]` modules
+/// stay in — telling one apart needs the attribute, and they live
+/// under `src/` beside the code they test.
+pub(crate) const SKIPPED_TOP_LEVEL: &[&str] = &[
+    "tests",
+    "benches",
+    "examples",
+    "target",
+    "build",
+    "node_modules",
+];
 
 /// Why a digest could not be taken. Every variant is a reason to report
 /// the inputs as unavailable rather than to certify a partial tree.
@@ -116,8 +133,10 @@ pub(crate) fn input_files(workspace: &Path) -> Result<Vec<String>, DigestError> 
         if meta.is_file() {
             files.push((*root).to_owned());
         } else {
-            let grammar = root.starts_with("tree-sitter-");
-            collect_dir(workspace, &path, grammar, &mut files)?;
+            // `src/` is the workspace root crate's source directory, not a
+            // crate root: a `src/tests/` there would be a module.
+            let crate_root = root != &"src";
+            collect_dir(workspace, &path, crate_root, &mut files)?;
         }
     }
     files.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -134,7 +153,7 @@ enum Entry {
 fn collect_dir(
     workspace: &Path,
     dir: &Path,
-    grammar_top: bool,
+    crate_root: bool,
     out: &mut Vec<String>,
 ) -> Result<(), DigestError> {
     let io = |e: std::io::Error| DigestError::Io(dir.to_path_buf(), e.to_string());
@@ -146,7 +165,7 @@ fn collect_dir(
     // the first error a deterministic one when two entries are bad.
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
-        match classify(workspace, &entry.path(), grammar_top)? {
+        match classify(workspace, &entry, crate_root)? {
             Entry::Descend(path) => collect_dir(workspace, &path, false, out)?,
             Entry::Input(rel) => out.push(rel),
             Entry::Ignore => {}
@@ -155,22 +174,29 @@ fn collect_dir(
     Ok(())
 }
 
-fn classify(workspace: &Path, path: &Path, grammar_top: bool) -> Result<Entry, DigestError> {
-    let meta = std::fs::symlink_metadata(path)
-        .map_err(|e| DigestError::Io(path.to_path_buf(), e.to_string()))?;
-    if meta.is_symlink() {
+/// `DirEntry::file_type` is the type `read_dir` already learned from
+/// the directory itself — `d_type`, no second `stat` — and it never
+/// follows a symlink, which is exactly the question asked here.
+fn classify(
+    workspace: &Path,
+    entry: &std::fs::DirEntry,
+    crate_root: bool,
+) -> Result<Entry, DigestError> {
+    let path = entry.path();
+    let kind = entry
+        .file_type()
+        .map_err(|e| DigestError::Io(path.clone(), e.to_string()))?;
+    if kind.is_symlink() {
         return Err(DigestError::Symlink(PathBuf::from(relative_posix(
-            workspace, path,
+            workspace, &path,
         )?)));
     }
-    let skipped_artifact_dir = grammar_top
-        && path
-            .file_name()
-            .is_some_and(|n| SKIPPED_TOP_LEVEL.iter().any(|s| n == *s));
-    Ok(if meta.is_dir() && !skipped_artifact_dir {
-        Entry::Descend(path.to_path_buf())
-    } else if meta.is_file() && has_input_extension(path) {
-        Entry::Input(relative_posix(workspace, path)?)
+    let skipped_artifact_dir =
+        crate_root && SKIPPED_TOP_LEVEL.iter().any(|s| entry.file_name() == *s);
+    Ok(if kind.is_dir() && !skipped_artifact_dir {
+        Entry::Descend(path)
+    } else if kind.is_file() && has_input_extension(&path) {
+        Entry::Input(relative_posix(workspace, &path)?)
     } else {
         Entry::Ignore
     })
@@ -200,9 +226,15 @@ fn relative_posix(workspace: &Path, path: &Path) -> Result<String, DigestError> 
 
 /// The build-inputs digest of `workspace` as 64 lowercase hex digits.
 pub(crate) fn digest(workspace: &Path) -> Result<String, DigestError> {
+    digest_of(workspace, &input_files(workspace)?)
+}
+
+/// [`digest`] over an already-walked file list, for a caller that has
+/// just registered that list with cargo and need not walk it twice.
+pub(crate) fn digest_of(workspace: &Path, files: &[String]) -> Result<String, DigestError> {
     let mut hasher = Sha256::new();
-    for rel in input_files(workspace)? {
-        let path = workspace.join(&rel);
+    for rel in files {
+        let path = workspace.join(rel);
         let content =
             std::fs::read(&path).map_err(|e| DigestError::Io(path.clone(), e.to_string()))?;
         hasher.update(rel.as_bytes());

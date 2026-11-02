@@ -27,11 +27,17 @@ this process (`os.execvp`), so signals, exit status and stdin — for a
 `--paths-from -` — are the child's own; on Windows it runs as a child
 and its status is relayed, a signal death mapped to `128 + N`.
 
-What this does not do: hash the executable, or verify its self-report.
-A binary that prints a digest it was not built from is trusted exactly
-as the `cargo install`ed one in CI is. And a disagreement between the
-two digest implementations only ever costs the fast path — the resolver
-falls back to building — never a wrong binary.
+The digest is recomputed here, in Python, rather than asked of a `bca`:
+the verifier has to be independent of the thing verified. A candidate
+with a walker bug — a root it is blind to — would bake and recompute
+the same wrong answer and certify itself after an edit it cannot see;
+cargo's own fingerprint is out of reach by construction, since
+bypassing `cargo run` is the point. What this does not do: hash the
+executable, or verify its self-report. A binary that prints a digest
+it was not built from is trusted exactly as the `cargo install`ed one
+in CI is. And a disagreement between the two digest implementations
+only ever costs the fast path — the resolver falls back to building —
+never a wrong binary.
 """
 
 from __future__ import annotations
@@ -89,13 +95,24 @@ def cargo_command(profile: str) -> list[str]:
     return [*CARGO_RUN, *flag, "-p", "big-code-analysis-cli", "--"]
 
 
+def anchor_to_caller(explicit: str) -> str:
+    """An explicit binary as `exec` must see it after `main`'s `chdir`.
+
+    A value spelling a directory — `./bca`, `bin/bca`, `../x/bca` — is
+    anchored to the invoking directory now, so it means what the
+    caller's shell meant; a bare name is left for PATH lookup. Detected
+    on the separator, not on `Path.parent`, which reads `./bca` as bare.
+    """
+    if os.sep in explicit or (os.altsep is not None and os.altsep in explicit):
+        return str(Path(explicit).resolve())
+    return explicit
+
+
 def resolve(workspace: Path) -> tuple[list[str], str]:
     """The command to run — without the user's arguments — and the reason."""
     profile = env("BCA_SELF_SCAN_PROFILE") or "dev"
     if profile not in PROFILES:
-        raise SystemExit(
-            f"bca: self-scan: BCA_SELF_SCAN_PROFILE must be one of {PROFILES}, not {profile!r}"
-        )
+        raise SystemExit(f"error: BCA_SELF_SCAN_PROFILE must be one of {PROFILES}, not {profile!r}")
 
     if truthy("BCA_SELF_SCAN_FROM_SOURCE"):
         return cargo_command(
@@ -104,25 +121,21 @@ def resolve(workspace: Path) -> tuple[list[str], str]:
 
     explicit = env("BCA_SELF_SCAN_BINARY")
     if explicit is not None:
-        # A relative path with a directory part is anchored to the
-        # invoking directory now, before `main` changes to the repo root,
-        # so it means what the caller's shell meant; a bare name is left
-        # for PATH lookup.
-        path = Path(explicit)
-        resolved = (
-            str(path.resolve()) if path.parent != Path() and not path.is_absolute() else explicit
-        )
+        resolved = anchor_to_caller(explicit)
         return [resolved], f"via {resolved}: BCA_SELF_SCAN_BINARY is set"
 
     on_path = shutil.which("bca")
     if on_path is not None:
+        # `which` returns a relative path for a relative PATH entry, and
+        # `main` changes directory before the exec.
+        on_path = str(Path(on_path).resolve())
         reported = build_inputs_of(on_path)
         if reported is None:
             reason = f"{on_path} reports no build-inputs digest"
         else:
             try:
                 live = self_scan_digest.digest(workspace)
-            except self_scan_digest.DigestError as e:
+            except (self_scan_digest.DigestError, OSError) as e:
                 live, reason = None, f"the tree cannot be digested ({e})"
             else:
                 reason = f"{on_path} was built from other inputs ({reported[:12]} vs {live[:12]})"
@@ -144,9 +157,12 @@ def main(argv: list[str]) -> int:
         print("\n".join(full))
         return 0
     os.chdir(workspace)
-    if os.name == "posix":
-        os.execvp(full[0], full)
-    completed = subprocess.run(full, check=False)
+    try:
+        if os.name == "posix":
+            os.execvp(full[0], full)
+        completed = subprocess.run(full, check=False)
+    except OSError as e:
+        raise SystemExit(f"error: cannot run {full[0]}: {e}") from e
     code = completed.returncode
     return 128 - code if code < 0 else code
 

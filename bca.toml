@@ -10,11 +10,9 @@
 # We build the bca binary from source on purpose so any in-progress
 # change to metric computation is reflected in the values we gate on —
 # under the dev profile by default, since the release relink costs
-# ~100 s per edit and both profiles write the same baseline (#1773);
-# CI hands the recipes its freshly installed release binary instead.
-# A `bca` on PATH is used instead when its `--version` reports a
-# build-inputs digest equal to this checkout's. The knobs are documented
-# at `SELF_SCAN_BCA` in the Makefile and in `utils/self-scan-bca.py`.
+# ~100 s per edit and both profiles write the same baseline (#1773).
+# Which binary actually runs is `utils/self-scan-bca.py`'s decision;
+# see `SELF_SCAN_BCA` in the Makefile.
 
 # Scan the whole repo, honouring the ignore file. The walker re-anchors
 # the resolved seed to the `./`-prefixed form (#488), so the

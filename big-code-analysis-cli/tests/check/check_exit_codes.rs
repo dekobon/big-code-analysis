@@ -569,7 +569,7 @@ fn version_exits_zero() {
 /// opens with that same line and then the provenance block (#1773).
 #[test]
 fn short_version_is_one_line_and_long_version_starts_with_it() {
-    let (dir, mut short) = common::cli_hermetic();
+    let (_dir, mut short) = common::cli_hermetic();
     let short_out = short
         .arg("-V")
         .assert()
@@ -585,7 +585,6 @@ fn short_version_is_one_line_and_long_version_starts_with_it() {
     );
 
     let (_dir2, mut long) = common::cli_hermetic();
-    let _ = &dir;
     let long_out = long
         .arg("--version")
         .assert()
@@ -604,7 +603,7 @@ fn short_version_is_one_line_and_long_version_starts_with_it() {
     for (line, prefix) in
         lines[1..]
             .iter()
-            .zip(["build inputs: ", "git: ", "built: ", "binary id: "])
+            .zip(["build inputs: ", "git: ", "built: ", "build id: "])
     {
         assert!(
             line.starts_with(prefix),

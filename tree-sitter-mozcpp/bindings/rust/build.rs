@@ -8,9 +8,7 @@ fn main() {
     // binary advertising a tree it did not compile.
     if let Ok(entries) = std::fs::read_dir(src_dir.join("tree_sitter")) {
         for entry in entries.flatten() {
-            if let Some(path) = entry.path().to_str() {
-                println!("cargo:rerun-if-changed={path}");
-            }
+            println!("cargo:rerun-if-changed={}", entry.path().display());
         }
     }
 

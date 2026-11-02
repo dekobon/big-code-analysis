@@ -13,28 +13,48 @@
 pub(crate) mod elf;
 
 #[cfg(test)]
-#[path = "digest.rs"]
 pub(crate) mod digest;
 
 #[cfg(test)]
 #[path = "build_info_tests.rs"]
 mod tests;
 
+/// What `build.rs` writes for a field it could not determine. The
+/// `--version` text prints the word; every machine-readable consumer
+/// reads the field through [`build_inputs`] / [`build_git`], which map
+/// it to `None` once, so a crates.io `bca` stamps no digest into SARIF
+/// and prints no `(build …)` in a footer rather than the literal word.
+const UNAVAILABLE: &str = "unavailable";
+
 /// The content digest of everything compiled into this binary, or
-/// `unavailable` for a build from a registry tarball, where the
-/// workspace roots do not exist beside the crate.
+/// [`UNAVAILABLE`] for a build from a registry tarball, where the
+/// workspace roots do not exist beside the crate. The `--version`
+/// spelling; see [`build_inputs`] for the value.
 pub(crate) const BUILD_INPUTS: &str = env!("BCA_BUILD_INPUTS");
 
 /// `<sha>` or `<sha>-dirty` for the checkout the binary was built from,
-/// or `unavailable`.
-pub(crate) const BUILD_GIT: &str = env!("BCA_BUILD_GIT");
+/// or [`UNAVAILABLE`]. The `--version` spelling; see [`build_git`].
+const BUILD_GIT: &str = env!("BCA_BUILD_GIT");
 
-/// RFC 3339 UTC; `SOURCE_DATE_EPOCH` when it was set at build time.
-pub(crate) const BUILD_TIME: &str = env!("BCA_BUILD_TIME");
-
+const BUILD_TIME: &str = env!("BCA_BUILD_TIME");
 const BUILD_RUSTC: &str = env!("BCA_BUILD_RUSTC");
 const BUILD_TARGET: &str = env!("BCA_BUILD_TARGET");
 const BUILD_PROFILE: &str = env!("BCA_BUILD_PROFILE");
+
+fn known(field: &'static str) -> Option<&'static str> {
+    (field != UNAVAILABLE).then_some(field)
+}
+
+/// The build-inputs digest, or `None` when the binary was not built
+/// from a workspace checkout.
+pub(crate) fn build_inputs() -> Option<&'static str> {
+    known(BUILD_INPUTS)
+}
+
+/// The build revision, or `None` outside a git checkout.
+pub(crate) fn build_git() -> Option<&'static str> {
+    known(BUILD_GIT)
+}
 
 /// The lines clap prints after `bca <version>` for `--version`. The
 /// first line stays clap's own, so `-V` and the first line of
@@ -49,7 +69,7 @@ pub(crate) fn long_version() -> String {
     format!(
         "{}\nbuild inputs: {BUILD_INPUTS}\ngit: {BUILD_GIT}\nbuilt: {BUILD_TIME} \
          (profile {BUILD_PROFILE}, {BUILD_RUSTC}, {BUILD_TARGET}, debug-assertions \
-         {assertions})\nbinary id: {binary_id}",
+         {assertions})\nbuild id: {binary_id}",
         env!("CARGO_PKG_VERSION"),
     )
 }

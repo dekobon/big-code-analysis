@@ -31,10 +31,12 @@ for historical reference.
   `build inputs:` (a SHA-256 content digest of every source compiled
   into the binary — the workspace's Rust, manifests and the five
   vendored grammars — or `unavailable` for a crates.io build),
-  `git:` (`<sha>`, `-dirty` when those inputs had uncommitted edits),
+  `git:` (`<sha>`, `-dirty` when those inputs had uncommitted edits;
+  exact as of the last build whose inputs changed, since refreshing it
+  on a bare commit would cost the rebuild #1773 removes),
   `built:` (RFC 3339 UTC, honouring `SOURCE_DATE_EPOCH`, with the
   profile, `rustc`, target and debug-assertions state) and
-  `binary id:` (the linker's GNU build-id on Linux). Two builds of one
+  `build id:` (the linker's GNU build-id on Linux). Two builds of one
   tree share a digest whatever their mtimes or branch, and two
   binaries that both print `2.4.0` from different commits do not —
   which is the question "is this installed `bca` the one this checkout

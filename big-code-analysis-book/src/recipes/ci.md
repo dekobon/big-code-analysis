@@ -654,18 +654,13 @@ the manifest supplies them:
 cargo run --quiet -p big-code-analysis-cli -- check
 ```
 
-That is the dev profile. The release relink costs ~100 s after any
-edit under `src/`, so the recipes build dev by default and leave the
-profile to `BCA_SELF_SCAN_PROFILE=release` when CI's exact binary is
-wanted; `make self-scan-profile-parity` checks per PR that the two
-profiles write a byte-identical baseline. `BCA_SELF_SCAN_BINARY=<path>`
-runs a prebuilt binary instead of building at all — what CI does with
-the release binary it installs from the checkout — and is sound only
-when nothing compiled into that binary has changed since. A `bca` on
-PATH is used without being told to, but only after the recipe's
-wrapper (`utils/self-scan-bca.py`) has compared the `build inputs:`
-digest its `--version` reports with a fresh digest of the checkout's
-compiled-in sources: equal means it was built from these bytes.
+That is the dev profile: the release relink costs ~100 s after any
+edit under `src/`, and both profiles write a byte-identical baseline,
+which `make self-scan-profile-parity` checks per PR. The recipes go
+through a small wrapper that can also run an already-installed `bca`
+when it proves it was built from the checkout; that mechanism and its
+knobs are repository tooling, documented in the Makefile, not part of
+the gate an adopter copies.
 
 Both tiers consume the same `bca.toml` thresholds and the same
 `.bca-baseline.toml`; the soft tier runs the hard recipe with every

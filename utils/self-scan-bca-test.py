@@ -24,6 +24,7 @@ one that drops the user's arguments fails eight of eleven.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -42,6 +43,7 @@ WRAPPER = UTILS_DIR / "self-scan-bca.py"
 # and the hex it pins as `SHARED_FIXTURE_DIGEST`.
 SHARED_FIXTURE = {
     "Cargo.toml": b"[workspace]\n",
+    "Cargo.lock": b"version = 4\n",
     "src/lib.rs": b"fn a() {}\n",
     "src/nested/b.rs": b"fn b() {\0}\n",
     "src/empty.rs": b"",
@@ -50,28 +52,34 @@ SHARED_FIXTURE = {
     "big-code-analysis-ast/Cargo.toml": b"[package]\n",
     "big-code-analysis-cli/Cargo.toml": b"[package]\n",
     "big-code-analysis-cli/build.rs": b"fn main() {}\n",
+    "big-code-analysis-cli/tests/smoke.rs": b"// integration test, not compiled in\n",
+    "big-code-analysis-cli/pyproject.toml": b"[tool]\n",
+    "src/tests/mod.rs": b"// a module named tests under src/ is source\n",
+    "src/.rs": b"// a pure dotfile has no extension\n",
     "tree-sitter-ccomment/src/parser.c": b"int p;\n",
     "tree-sitter-ccomment/target/junk.rs": b"skipped\n",
     "tree-sitter-mozcpp/src/tree_sitter/parser.h": b"#define X\n",
     "tree-sitter-mozjs/src/scanner.c": b"int s;\n",
     "tree-sitter-preproc/src/node-types.json": b"[]\n",
     "tree-sitter-tcl/src/grammar.json": b"{}\n",
+    "tree-sitter-tcl/examples/x.c": b"int e;\n",
 }
-SHARED_FIXTURE_DIGEST = "564b792dc7b3e4fca571038d165a8d89ca9069bccc956ea4af0413c572345299"
+SHARED_FIXTURE_DIGEST = "2d6dfcc20156bfc6bcd2bc38ab2cdff68cc864b1a4b6951b891cffc40508a17e"
 SHARED_FIXTURE_FILES = [
+    "Cargo.lock",
     "Cargo.toml",
     "big-code-analysis-ast/Cargo.toml",
     "big-code-analysis-cli/Cargo.toml",
     "big-code-analysis-cli/build.rs",
+    "big-code-analysis-cli/pyproject.toml",
     "src/build/generated.rs",
     "src/empty.rs",
     "src/lib.rs",
     "src/nested/b.rs",
+    "src/tests/mod.rs",
     "tree-sitter-ccomment/src/parser.c",
     "tree-sitter-mozcpp/src/tree_sitter/parser.h",
     "tree-sitter-mozjs/src/scanner.c",
-    "tree-sitter-preproc/src/node-types.json",
-    "tree-sitter-tcl/src/grammar.json",
 ]
 
 
@@ -103,6 +111,13 @@ class DigestTests(unittest.TestCase):
         self.assertNotEqual(with_extra("src/lib2.rs", b"fn a() {}\n"), SHARED_FIXTURE_DIGEST)
         self.assertEqual(with_extra("src/snapshots/y.snap", b"more"), SHARED_FIXTURE_DIGEST)
         self.assertEqual(with_extra("tree-sitter-tcl/target/out.rs", b"x"), SHARED_FIXTURE_DIGEST)
+        self.assertEqual(
+            with_extra("big-code-analysis-cli/tests/o.rs", b"x"), SHARED_FIXTURE_DIGEST
+        )
+        self.assertEqual(
+            with_extra("tree-sitter-tcl/src/node-types.json", b"1"), SHARED_FIXTURE_DIGEST
+        )
+        self.assertNotEqual(with_extra("src/tests/other.rs", b"x"), SHARED_FIXTURE_DIGEST)
 
     def test_a_missing_root_or_a_symlink_refuses_the_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,6 +245,13 @@ class ResolverTests(ResolverHarness):
         self.assertEqual(self.chosen(result), [str(other), "check"])
         relative = self.run_wrapper("check", env={"BCA_SELF_SCAN_BINARY": "bin/other-bca"})
         self.assertEqual(self.chosen(relative), [str(other.resolve()), "check"])
+        # `./x` has a separator but `Path("./x").parent == Path()`; the
+        # anchoring keys on the separator, so this resolves too. The
+        # fake sits in the invoking directory for exactly this case.
+        here = self.fake_bca("0" * 64, name="here-bca")
+        here = here.rename(self.root / "here-bca")
+        dot = self.run_wrapper("check", env={"BCA_SELF_SCAN_BINARY": "./here-bca"})
+        self.assertEqual(self.chosen(dot), [str(here.resolve()), "check"])
         bare = self.run_wrapper("check", env={"BCA_SELF_SCAN_BINARY": "other-bca"})
         self.assertEqual(self.chosen(bare), ["other-bca", "check"])
         empty = self.run_wrapper("check", env={"BCA_SELF_SCAN_BINARY": ""})
@@ -247,6 +269,45 @@ class ResolverTests(ResolverHarness):
         self.fake_bca(SHARED_FIXTURE_DIGEST)
         (self.workspace / "src/link.rs").symlink_to("lib.rs")
         result = self.run_wrapper("check")
+        self.assertEqual(self.chosen(result), [*self.CARGO_DEV, "check"])
+        self.assertIn("cannot be digested", result.stderr)
+
+    def test_relative_paths_still_resolve_after_the_wrapper_changes_directory(self) -> None:
+        # Both `which` on a relative PATH entry and an explicit `./bca`
+        # name the binary relative to the *invoking* directory, and
+        # `main` chdirs to the workspace before exec. Launched for real:
+        # a dry run cannot see the chdir.
+        self.fake_bca(SHARED_FIXTURE_DIGEST, exit_code=7)
+        shutil.copy(self.bin / "bca", self.root / "bca")
+        for env in (
+            {"PATH": "bin"},
+            {"PATH": str(self.bin), "BCA_SELF_SCAN_BINARY": "./bca"},
+        ):
+            result = self.run_wrapper("check", env=env, dry_run=False)
+            self.assertEqual(result.returncode, 7, result.stderr)
+            self.assertEqual(self.record.read_text().splitlines()[1:], ["check"])
+
+    def test_a_lockfile_only_change_rejects_the_installed_binary(self) -> None:
+        # The resolver compares digests instead of letting cargo
+        # fingerprint, so a dependency bump with no source edit must
+        # still move the digest: ranged dependencies decide which files
+        # a walk sees.
+        self.fake_bca(SHARED_FIXTURE_DIGEST)
+        self.assertEqual(self.chosen(self.run_wrapper("check"))[0], str(self.bin / "bca"))
+        (self.workspace / "Cargo.lock").write_bytes(b"version = 4\n[[package]]\n")
+        result = self.run_wrapper("check")
+        self.assertEqual(self.chosen(result), [*self.CARGO_DEV, "check"])
+        self.assertIn("built from other inputs", result.stderr)
+
+    @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "root reads unreadable files")
+    def test_an_unreadable_input_falls_back_instead_of_crashing(self) -> None:
+        self.fake_bca(SHARED_FIXTURE_DIGEST)
+        locked = self.workspace / "src/lib.rs"
+        locked.chmod(0o000)
+        try:
+            result = self.run_wrapper("check")
+        finally:
+            locked.chmod(0o644)
         self.assertEqual(self.chosen(result), [*self.CARGO_DEV, "check"])
         self.assertIn("cannot be digested", result.stderr)
 

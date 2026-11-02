@@ -9,7 +9,7 @@ use super::elf::{build_id, hex_lower};
 /// file, a `.snap` that must be ignored, a top-level `target/` that
 /// must be skipped, and a nested `build/` that must *not* be.
 const SHARED_FIXTURE_DIGEST: &str =
-    "564b792dc7b3e4fca571038d165a8d89ca9069bccc956ea4af0413c572345299";
+    "2d6dfcc20156bfc6bcd2bc38ab2cdff68cc864b1a4b6951b891cffc40508a17e";
 
 fn shared_fixture(dir: &Path) {
     let write = |rel: &str, bytes: &[u8]| {
@@ -18,6 +18,7 @@ fn shared_fixture(dir: &Path) {
         std::fs::write(p, bytes).expect("write");
     };
     write("Cargo.toml", b"[workspace]\n");
+    write("Cargo.lock", b"version = 4\n");
     write("src/lib.rs", b"fn a() {}\n");
     write("src/nested/b.rs", b"fn b() {\0}\n");
     write("src/empty.rs", b"");
@@ -26,6 +27,16 @@ fn shared_fixture(dir: &Path) {
     write("big-code-analysis-ast/Cargo.toml", b"[package]\n");
     write("big-code-analysis-cli/Cargo.toml", b"[package]\n");
     write("big-code-analysis-cli/build.rs", b"fn main() {}\n");
+    write(
+        "big-code-analysis-cli/tests/smoke.rs",
+        b"// integration test, not compiled in\n",
+    );
+    write("big-code-analysis-cli/pyproject.toml", b"[tool]\n");
+    write(
+        "src/tests/mod.rs",
+        b"// a module named tests under src/ is source\n",
+    );
+    write("src/.rs", b"// a pure dotfile has no extension\n");
     write("tree-sitter-ccomment/src/parser.c", b"int p;\n");
     write("tree-sitter-ccomment/target/junk.rs", b"skipped\n");
     write(
@@ -35,6 +46,7 @@ fn shared_fixture(dir: &Path) {
     write("tree-sitter-mozjs/src/scanner.c", b"int s;\n");
     write("tree-sitter-preproc/src/node-types.json", b"[]\n");
     write("tree-sitter-tcl/src/grammar.json", b"{}\n");
+    write("tree-sitter-tcl/examples/x.c", b"int e;\n");
 }
 
 #[test]
@@ -44,19 +56,20 @@ fn shared_fixture_hashes_to_the_pinned_digest() {
     assert_eq!(
         input_files(dir.path()).expect("walk"),
         [
+            "Cargo.lock",
             "Cargo.toml",
             "big-code-analysis-ast/Cargo.toml",
             "big-code-analysis-cli/Cargo.toml",
             "big-code-analysis-cli/build.rs",
+            "big-code-analysis-cli/pyproject.toml",
             "src/build/generated.rs",
             "src/empty.rs",
             "src/lib.rs",
             "src/nested/b.rs",
+            "src/tests/mod.rs",
             "tree-sitter-ccomment/src/parser.c",
             "tree-sitter-mozcpp/src/tree_sitter/parser.h",
             "tree-sitter-mozjs/src/scanner.c",
-            "tree-sitter-preproc/src/node-types.json",
-            "tree-sitter-tcl/src/grammar.json",
         ]
     );
     assert_eq!(digest(dir.path()).expect("digest"), SHARED_FIXTURE_DIGEST);
@@ -104,6 +117,21 @@ fn digest_is_independent_of_creation_order_and_moves_on_every_input_kind() {
         base,
         "a grammar's top-level target/ is not an input"
     );
+    assert_eq!(
+        perturb("big-code-analysis-cli/tests/other.rs", b"x"),
+        base,
+        "a crate's integration tests are not compiled into bca"
+    );
+    assert_eq!(
+        perturb("tree-sitter-tcl/src/node-types.json", b"[1]"),
+        base,
+        "grammar metadata is not compiled; the generated enum under src/ is"
+    );
+    assert_ne!(
+        perturb("src/tests/other.rs", b"x"),
+        base,
+        "src/tests/ is a module of the root crate, not a test target"
+    );
 }
 
 #[test]
@@ -131,10 +159,11 @@ fn walk_refuses_a_symlinked_input() {
 
 #[test]
 fn input_roots_name_what_the_build_script_and_the_resolver_agree_on() {
-    // `Cargo.lock` is deliberately absent (cargo fingerprints it) and so
-    // is every runtime input; the resolver's copy of this list is
-    // checked against the same fixture, so this pins the Rust side.
-    assert!(!INPUT_ROOTS.contains(&"Cargo.lock"));
+    // The lockfile is in — the resolver bypasses cargo's fingerprint, so
+    // a dependency bump must move the digest — and every runtime input
+    // is out; the resolver's copy of this list is checked against the
+    // same fixture, so this pins the Rust side.
+    assert!(INPUT_ROOTS.contains(&"Cargo.lock"));
     assert!(!INPUT_ROOTS.contains(&"bca.toml"));
     assert!(INPUT_ROOTS.contains(&"big-code-analysis-cli"));
 }
@@ -153,6 +182,39 @@ fn baked_digest_matches_a_fresh_walk_of_the_checkout() {
         Err(DigestError::MissingRoot(_)) => assert_eq!(super::BUILD_INPUTS, "unavailable"),
         Err(e) => panic!("walk failed: {e}"),
     }
+}
+
+/// The shared fixture pins the two walkers to the rules it exercises;
+/// this pins them to the rules the live tree exercises — a dotfile, an
+/// extension neither fixture thought of, whatever lands next. A
+/// disagreement is silent in production (the resolver just stops
+/// taking the fast path), so it has to be loud here. Same shape as
+/// `python_reader_agrees_with_the_compiled_tables` in the ast crate:
+/// a missing `python3` is a failure, not a skip.
+#[cfg(not(windows))]
+#[test]
+fn python_digest_agrees_with_the_rust_digest_over_this_checkout() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the CLI crate sits one below the workspace root");
+    let rust = match digest(workspace) {
+        Ok(digest) => digest,
+        Err(DigestError::MissingRoot(_)) => return,
+        Err(e) => panic!("walk failed: {e}"),
+    };
+    let out = std::process::Command::new("python3")
+        .args(["-B", "utils/self_scan_digest.py"])
+        .arg(workspace)
+        .current_dir(workspace)
+        .output()
+        .expect("python3 is on PATH: the self-scan resolver needs it, so this test does too");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let python = String::from_utf8(out.stdout).expect("digest is UTF-8");
+    assert_eq!(python.trim(), rust);
 }
 
 #[test]
@@ -174,7 +236,7 @@ fn long_version_starts_with_the_bare_version_and_carries_every_field() {
             && rest[2].ends_with(&format!("debug-assertions {expected})")),
         "{text}"
     );
-    assert!(rest[3].starts_with("binary id: "), "{text}");
+    assert!(rest[3].starts_with("build id: "), "{text}");
     // The exact baked value, not a shape: the render could print any
     // 64-hex string and a shape check would never know.
     assert_eq!(rest[0], format!("build inputs: {}", super::BUILD_INPUTS));

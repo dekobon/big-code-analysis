@@ -515,7 +515,7 @@ value = 39.93745109543172
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 metric = "halstead.effort"
-value = 65001.24036761245
+value = 64495.18935578189
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"

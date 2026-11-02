@@ -365,6 +365,9 @@ class Observation:
     seen: dict[str, set[int]]
 
 
+OBSERVER_LINE_RE = re.compile(r"bca \S+")
+
+
 def observer_line(version_stdout: str) -> str:
     """The one-line `bca X.Y.Z` for the `observer` header, from `bca -V` output.
 
@@ -378,9 +381,6 @@ def observer_line(version_stdout: str) -> str:
     if not OBSERVER_LINE_RE.fullmatch(first):
         raise rt.RoleTableError(f"expected `bca <version>` from `bca -V`, got `{first}`")
     return first
-
-
-OBSERVER_LINE_RE = re.compile(r"bca \S+")
 
 
 def load_observed(path: pathlib.Path) -> Observation:

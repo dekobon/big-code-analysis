@@ -66,6 +66,12 @@ serde-saphyr = { version = "^2.0", default-features = false, features = [
   "serialize",
   "deserialize",
 ] }
+# Exact-pinned: the Code Climate writer's per-violation fingerprints and
+# the CLI's build-inputs digest (#1773) are both frozen contracts over
+# this hash, so the implementation only ever moves deliberately. Here
+# rather than in the root `[dependencies]` because the CLI needs the
+# same pin twice over (its build script and its tests).
+sha2 = "=0.11.1"
 tree-sitter = "=0.26.13"
 tree-sitter-bash = "=0.25.1"
 tree-sitter-c-sharp = "=0.23.5"
@@ -233,9 +239,9 @@ serde.workspace = true
 # which is deterministic and gives the uniform field set #674 requires.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Used by the GitLab Code Climate writer to compute stable
-# per-violation fingerprints. Exact-pinned so the hash implementation
-# behind a frozen output contract only ever moves deliberately.
-sha2 = "=0.11.1"
+# per-violation fingerprints; the pin and its rationale are the
+# workspace's.
+sha2.workspace = true
 # HMAC-SHA256 for the opt-in keyed author-identity hashing
 # (`--author-hash-key`, #956). Kept in lockstep with `sha2`: both sit on
 # the RustCrypto `digest` 0.11 trait family, which `actix-http` already

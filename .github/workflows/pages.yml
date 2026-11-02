@@ -37,6 +37,13 @@ on:
       # The walk deny-set. An edit here changes which files the gate
       # measures, so it must re-run the gate (#1773).
       - '.bcaignore'
+      # The gate's own runner. `make self-scan` is the Makefile recipe
+      # plus the wrapper it execs, and CI's route through the wrapper
+      # (an explicit `BCA_SELF_SCAN_BINARY`) is one the self-test only
+      # dry-runs.
+      - 'Makefile'
+      - 'utils/self-scan-bca.py'
+      - 'utils/self_scan_digest.py'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
@@ -57,6 +64,13 @@ on:
       - 'bca.toml'
       - '.bca-baseline.toml'
       - '.bcaignore'
+      # The gate's own runner. `make self-scan` is the Makefile recipe
+      # plus the wrapper it execs, and CI's route through the wrapper
+      # (an explicit `BCA_SELF_SCAN_BINARY`) is one the self-test only
+      # dry-runs.
+      - 'Makefile'
+      - 'utils/self-scan-bca.py'
+      - 'utils/self_scan_digest.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -236,8 +250,11 @@ jobs:
     # bca workspace (many tree-sitter grammar C crates plus the Rust
     # workspace itself). Warm-cache runs finish in 3-5 min; the
     # ceiling absorbs the worst-case "Cargo.lock churned + Swatinem
-    # cache evicted" combo without killing useful runs.
-    timeout-minutes: 30
+    # cache evicted" combo without killing useful runs. Raised from 30
+    # for the profile-parity step (#1773), which on that same cold
+    # cache adds a full dev build and a release relink after the
+    # install.
+    timeout-minutes: 45
     # security-events:write lets the upload-sarif step publish bca's own
     # self-scan offenders to GitHub code scanning (Security tab + PR
     # annotations) — dogfooding the SARIF path we document for adopters
@@ -416,13 +433,23 @@ jobs:
 
       # The dev-profile default behind `make self-scan` locally (#1773)
       # rests on both profiles writing the same baseline. This builds
-      # the dev binary too — several minutes cold, since the cache above
-      # is release-only — and `cmp`s the two regenerations. Per PR
-      # rather than quarterly so a divergence is attributed to the
-      # change that caused it. Not `BCA_SELF_SCAN_BINARY`-driven: the
-      # recipe builds both sides from source on purpose.
+      # the dev binary — several minutes cold, since the cache above is
+      # release-only — and the release one again, since `cargo install`
+      # builds in its own temporary target directory and leaves nothing
+      # for `cargo run --release` to reuse, then `cmp`s the two
+      # regenerations. Per PR rather than quarterly so a divergence is
+      # attributed to the change that caused it. Not
+      # `BCA_SELF_SCAN_BINARY`-driven: the recipe builds both sides from
+      # source on purpose. The release leg is the ~100 s LTO link, warm
+      # only through the restored cache; the dev artifacts left behind
+      # grow the `pages-scan-release` entry; split the key if it starts
+      # evicting, and raise the job timeout if a cold run nears it.
+      # `success()` rather than the gate's `!cancelled()`: a red gate or
+      # a failed report step already has the job's answer, and this step
+      # is the costliest in the job on a cold cache, so it is not spent
+      # on a run that has already failed.
       - name: Profile parity (dev vs release baseline)
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: make self-scan-profile-parity
 
       # Dogfood bca's own SARIF writer: re-run the gate as a pure

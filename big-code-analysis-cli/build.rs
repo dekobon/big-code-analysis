@@ -71,19 +71,38 @@ fn env_or_empty(key: &str) -> String {
 /// `None` when the layout is not a workspace checkout; nothing is
 /// registered then except `build.rs` itself.
 fn emit_inputs_digest(workspace: &Path) -> Option<String> {
-    let files = digest::input_files(workspace).ok()?;
-    for rel in &files {
-        println!("cargo:rerun-if-changed={}", workspace.join(rel).display());
+    let walked = digest::input_files(workspace).and_then(|files| {
+        for rel in &files {
+            println!("cargo:rerun-if-changed={}", workspace.join(rel).display());
+        }
+        digest::digest_of(workspace, &files)
+    });
+    match walked {
+        Ok(digest) => Some(digest),
+        // The one silent case: no workspace beside the crate, which is
+        // what a crates.io build looks like and not a defect.
+        Err(digest::DigestError::MissingRoot(_)) => None,
+        // Anything else is a real checkout the digest cannot describe —
+        // a symlink, a non-UTF-8 name, an unreadable file. The binary
+        // still builds, reporting `unavailable`, but the cause is said
+        // at the build that produced it rather than at the next test.
+        Err(e) => {
+            println!("cargo:warning=build-inputs digest unavailable: {e}");
+            None
+        }
     }
-    digest::digest(workspace).ok()
 }
 
 /// Run `git` with the repository-selecting variables scrubbed and
-/// discovery fenced at `workspace`, so a packaged copy under
-/// `target/package/` on a developer host cannot stamp the parent
-/// checkout's revision, and a `pre-commit` hook's temporary
-/// `GIT_INDEX_FILE` cannot leak in. `None` on any failure.
+/// discovery fenced so that only a `.git` *in* `workspace` is found:
+/// a packaged copy under `target/package/`, or a tree exported into
+/// another checkout, then reports `unavailable` rather than stamping
+/// the enclosing repository's revision, and a `pre-commit` hook's
+/// temporary `GIT_INDEX_FILE` cannot leak in. The ceiling is the
+/// workspace's *parent* — git never excludes the directory it starts
+/// in, only the ones it would climb into. `None` on any failure.
 fn git(workspace: &Path, args: &[&str]) -> Option<String> {
+    let ceiling = workspace.parent().unwrap_or(workspace);
     let out = Command::new("git")
         .args(args)
         .current_dir(workspace)
@@ -91,7 +110,7 @@ fn git(workspace: &Path, args: &[&str]) -> Option<String> {
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE")
         .env_remove("GIT_COMMON_DIR")
-        .env("GIT_CEILING_DIRECTORIES", workspace)
+        .env("GIT_CEILING_DIRECTORIES", ceiling)
         .output()
         .ok()?;
     out.status
@@ -101,7 +120,18 @@ fn git(workspace: &Path, args: &[&str]) -> Option<String> {
 
 /// `<sha>` or `<sha>-dirty` for the checkout `workspace` lies in, or
 /// `None` outside one. The dirtiness pathspec is the digest's own
-/// roots, so the two fields cannot disagree about what "dirty" means.
+/// roots — not its extension filter, so an untracked `.snap.new` reads
+/// `-dirty` while the digest stands; the field is informational and
+/// that over-approximation is the cheaper side to err on.
+///
+/// Nothing under `.git/` is watched, on purpose. `BCA_BUILD_GIT` is an
+/// `env!` the library reads, so a changed value invalidates the
+/// library's fingerprint and costs a recompile plus the `bca` relink —
+/// ~4 s dev, ~100 s release. Watching `HEAD` would charge that on
+/// every commit, and on every step of the `git rebase --exec` loop
+/// #1773 was opened to make cheap, for a step that compiled nothing.
+/// So the field is exact as of the last build whose *inputs* changed;
+/// `build inputs`, the one field anything decides on, is exact always.
 fn git_revision(workspace: &Path) -> Option<String> {
     let sha = git(workspace, &["rev-parse", "HEAD"])?;
     let mut status = vec![
@@ -113,40 +143,7 @@ fn git_revision(workspace: &Path) -> Option<String> {
     ];
     status.extend(digest::INPUT_ROOTS);
     let dirty = git(workspace, &status).is_some_and(|s| !s.is_empty());
-    for watched in git_state_files(workspace) {
-        println!("cargo:rerun-if-changed={}", watched.display());
-    }
     Some(if dirty { format!("{sha}-dirty") } else { sha })
-}
-
-/// The files whose change means `HEAD` may have moved: `HEAD` itself,
-/// the ref it names when symbolic, and `packed-refs`. A worktree's
-/// `.git` is a file naming its private directory, which `rev-parse
-/// --git-dir` and `--git-common-dir` resolve.
-///
-/// The index is deliberately not watched. It would keep the `-dirty`
-/// suffix exact across a bare `git add`, but git rewrites it on every
-/// `status` and on the refresh any hook performs, and each rewrite
-/// would cost a rebuild of this crate — the relink #1773 exists to
-/// avoid. `-dirty` therefore describes the tree as of the last build
-/// that saw a source or ref change; the digest, which is what decides
-/// anything, is exact regardless.
-fn git_state_files(workspace: &Path) -> Vec<PathBuf> {
-    let resolve = |flag: &str| {
-        git(workspace, &["rev-parse", "--path-format=absolute", flag]).map(PathBuf::from)
-    };
-    let mut files = Vec::new();
-    if let Some(git_dir) = resolve("--git-dir") {
-        files.push(git_dir.join("HEAD"));
-        if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD"))
-            && let Some(reference) = head.trim().strip_prefix("ref: ")
-        {
-            let common = resolve("--git-common-dir").unwrap_or(git_dir);
-            files.push(common.join(reference));
-            files.push(common.join("packed-refs"));
-        }
-    }
-    files.into_iter().filter(|p| p.exists()).collect()
 }
 
 /// RFC 3339 UTC, from `SOURCE_DATE_EPOCH` when set (the

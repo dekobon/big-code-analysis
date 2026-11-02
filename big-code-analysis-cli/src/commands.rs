@@ -237,8 +237,13 @@ fn parse_cli_with_legacy_hint() -> (Cli, bool) {
     // `Command` that actually parses, and not in the derive: `xtask`
     // renders man pages from a bare `Cli::command()`, and a derive-level
     // `long_version` would stamp this build's digest into `man/bca.1`
-    // (#1773). `-V` keeps clap's one-line `version`.
-    let command = Cli::command().long_version(crate::build_info::long_version());
+    // (#1773). `-V` keeps clap's one-line `version`. Rendering reads the
+    // executable's own header for the build-id, so it is done only when
+    // `--version` is on the command line rather than on every run.
+    let mut command = Cli::command();
+    if std::env::args_os().any(|arg| arg == "--version") {
+        command = command.long_version(crate::build_info::long_version());
+    }
     let matches = match command.try_get_matches() {
         Ok(matches) => matches,
         Err(err) => {

@@ -53,15 +53,14 @@ workspace = true
 
 # `build.rs` hashes every compiled-in source into the `--version`
 # provenance block (#1773). `src/build_info/digest.rs` is shared with
-# the crate's tests by `#[path]`, so the pin appears under both tables;
-# it is the root crate's exact pin repeated, since `sha2` is a package
-# dependency there rather than a `[workspace.dependencies]` entry.
+# the crate's tests by `#[path]`, so the workspace pin appears under
+# both tables.
 [build-dependencies]
-sha2 = "=0.11.1"
+sha2.workspace = true
 
 [dev-dependencies]
 assert_cmd = "^2.0"
-sha2 = "=0.11.1"
+sha2.workspace = true
 csv.workspace = true
 insta = "1.49.0"
 jsonschema = "^0.59"

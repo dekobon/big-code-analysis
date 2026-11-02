@@ -190,25 +190,37 @@ pub fn write_sarif_with_suppressed<W: Write>(
 /// content digest of everything compiled into it and `build_git` to the
 /// checkout revision (#1773). `Default` carries nothing, and a default
 /// provenance leaves the document byte-identical to [`write_sarif`]'s.
+///
+/// The shape is `MetricsOptions`'s: `#[non_exhaustive]`, private fields,
+/// `Default` plus `with_*` setters, so a later field is additive. These
+/// are facts about the *tool's* build, not about the scanned repository
+/// — which is why they sit here and not in SARIF's
+/// `run.versionControlProvenance`, even though in a self-scan the two
+/// revisions coincide. Run-level metadata a host wants to add later
+/// (invocation, timestamps) belongs on this struct, never as a further
+/// writer parameter.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SarifProvenance {
-    /// A content digest of the inputs compiled into the reporting
-    /// binary; rendered as the `bca.buildInputs` property.
-    pub build_inputs: Option<String>,
-    /// The revision the reporting binary was built from; rendered as
-    /// the `bca.buildGit` property.
-    pub build_git: Option<String>,
+    build_inputs: Option<String>,
+    build_git: Option<String>,
 }
 
 impl SarifProvenance {
-    /// Provenance carrying the two fields `bca` stamps.
+    /// Record a content digest of the inputs compiled into the reporting
+    /// binary; rendered as the `bca.buildInputs` property.
     #[must_use]
-    pub fn new(build_inputs: Option<String>, build_git: Option<String>) -> Self {
-        Self {
-            build_inputs,
-            build_git,
-        }
+    pub fn with_build_inputs(mut self, digest: impl Into<String>) -> Self {
+        self.build_inputs = Some(digest.into());
+        self
+    }
+
+    /// Record the revision the reporting binary was built from; rendered
+    /// as the `bca.buildGit` property.
+    #[must_use]
+    pub fn with_build_git(mut self, revision: impl Into<String>) -> Self {
+        self.build_git = Some(revision.into());
+        self
     }
 
     fn is_empty(&self) -> bool {
@@ -560,7 +572,9 @@ mod tests {
     #[test]
     fn provenance_lands_under_driver_properties_and_an_empty_one_adds_no_key() {
         let offenders = vec![rec("src/foo.rs", "cyclomatic", 17.0, 15.0)];
-        let stamped = SarifProvenance::new(Some("ab".repeat(32)), Some("deadbeef-dirty".into()));
+        let stamped = SarifProvenance::default()
+            .with_build_inputs("ab".repeat(32))
+            .with_build_git("deadbeef-dirty");
         let mut buf = Vec::new();
         write_sarif_with_provenance(&offenders, &[], &[], &stamped, &mut buf)
             .expect("writing to Vec is infallible");
@@ -596,7 +610,7 @@ mod tests {
 
         // Half-populated: only the present field is written.
         let mut half = Vec::new();
-        let git_only = SarifProvenance::new(None, Some("deadbeef".into()));
+        let git_only = SarifProvenance::default().with_build_git("deadbeef");
         write_sarif_with_provenance(&offenders, &[], &[], &git_only, &mut half)
             .expect("writing to Vec is infallible");
         let v: serde_json::Value = serde_json::from_slice(&half).expect("valid JSON");

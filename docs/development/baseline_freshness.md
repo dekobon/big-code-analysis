@@ -102,16 +102,18 @@ table, the recipe's two commands are simple to run by hand:
 
 ```bash
 t=$(mktemp .bca-baseline.XXXXXX.toml)
+trap 'rm -f "$t"' EXIT
 cargo run --quiet -p big-code-analysis-cli -- \
   check --tier=soft=0.95 --write-baseline "$t"
 cargo run --quiet -p big-code-analysis-cli -- \
   diff-baseline .bca-baseline.toml "$t" --format markdown
-rm -f "$t"
 ```
 
-Both build the dev-profile binary, a few seconds warm; the job itself
-installs a release binary and hands it to the recipe through
-`BCA_SELF_SCAN_BINARY`, which the target honours too.
+Those two bare `cargo run` lines always build the dev-profile binary,
+a few seconds warm. The `make` target goes through the self-scan
+wrapper instead, so it honours `BCA_SELF_SCAN_BINARY` — which is how
+the job itself runs it, against the release binary it has just
+installed.
 
 Always the `-headroom` target, never the bare
 `self-scan-write-baseline`. The committed file carries

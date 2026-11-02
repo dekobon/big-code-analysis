@@ -174,9 +174,20 @@ fn cli_check_sarif_output_validates_against_schema() {
             .unwrap_or_else(|| panic!("{prefix} missing from --version:\n{version}"))
             .to_owned()
     };
+    // `--version` spells an unknown field `unavailable`; the property
+    // bag omits it instead, so a consumer never reads the word as a
+    // digest. An integration test runs from a checkout, so both are
+    // present here, and the branch below is the registry build's.
     let props = &doc["runs"][0]["tool"]["driver"]["properties"];
-    assert_eq!(props["bca.buildInputs"], field("build inputs: "));
-    assert_eq!(props["bca.buildGit"], field("git: "));
+    for (key, line) in [
+        ("bca.buildInputs", "build inputs: "),
+        ("bca.buildGit", "git: "),
+    ] {
+        match field(line).as_str() {
+            "unavailable" => assert!(props.get(key).is_none(), "{out}"),
+            value => assert_eq!(props[key], value, "{out}"),
+        }
+    }
 }
 
 #[test]

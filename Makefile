@@ -895,28 +895,19 @@ enums-check:
 # any in-progress change to metric computation is reflected in the
 # values we gate on.
 #
-# Which binary runs is `utils/self-scan-bca.py`'s decision (#1773). In
-# order: `BCA_SELF_SCAN_FROM_SOURCE=1` builds from the tree whatever
-# else is set; `BCA_SELF_SCAN_BINARY=<path>` runs that executable,
-# trusted as given (CI sets it to the release binary it has just
-# `cargo install`ed from HEAD, so the gate and the published reports
-# come from one build); a `bca` on PATH is used when the `build inputs:`
-# digest its `--version` reports equals the digest of this checkout's
-# compiled-in sources, recomputed by the wrapper — equal means it was
-# built from these exact bytes, whatever its mtime or branch; otherwise
-# `cargo run` under `BCA_SELF_SCAN_PROFILE` (`dev` by default, or
-# `release`). `release` is what CI installs, but its `lto = true` /
-# `codegen-units = 1` relink costs ~100 s after any `src/` edit; the
-# dev profile is ~5 s for the same edit and 0.1 s when nothing changed,
-# and both profiles write a byte-identical baseline — which
-# `self-scan-profile-parity` below keeps true.
-#
-# A trusted `BCA_SELF_SCAN_BINARY` is sound only when nothing compiled
-# into it has changed: `src/`, `big-code-analysis-ast/`,
-# `big-code-analysis-cli/`, `tree-sitter-*/`, `Cargo.toml`. Everything
-# else (`bca.toml`, `.bcaignore`, the baseline) is read at run time, so
-# any binary sees the live copy. The PATH route needs no such care; it
-# proves the match before it uses the binary.
+# Which binary runs is `utils/self-scan-bca.py`'s decision (#1773);
+# its docstring is the one full statement of the order and the
+# `BCA_SELF_SCAN_*` knobs, and its self-test exercises every branch.
+# In short: a forced from-source build, else an explicit binary, else
+# a `bca` on PATH whose `--version` digest proves it was built from
+# this checkout's compiled-in sources, else `cargo run` under
+# `BCA_SELF_SCAN_PROFILE` — `dev` by default, since the release
+# profile's `lto = true` / `codegen-units = 1` relink costs ~100 s
+# after any `src/` edit against ~5 s for dev, and both profiles write a
+# byte-identical baseline, which `self-scan-profile-parity` below keeps
+# true. CI sets `BCA_SELF_SCAN_BINARY` to the release binary it has
+# just `cargo install`ed from HEAD, so the gate and the published
+# reports come from one build.
 #
 # Path selection (`paths = ["."]`), the ignore file
 # (`exclude_from = ".bcaignore"`), the baseline
@@ -1032,12 +1023,14 @@ self-scan-write-baseline-headroom:
 # or from another working directory, keys the same functions
 # differently and every entry reads as removed-and-added. The walker
 # never analyses the temp file itself — `.toml` is no language it
-# knows — and `trap` removes it on every exit, so nothing is left for
-# `git status` to show. One `&&`-joined command because recipes run
-# one line per shell here (no `.ONESHELL`).
+# knows — and `trap` removes it on exit and on a signal. A Ctrl-C that
+# kills `make` before the shell runs its trap can still leave one;
+# `.gitignore` carries `.bca-baseline.*.toml` so a leak cannot be
+# staged. One `&&`-joined command because recipes run one line per
+# shell here (no `.ONESHELL`).
 self-scan-baseline-fresh:
 	@echo "bca self-scan baseline freshness (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@cd "$(BASE_DIR)" && t=$$(mktemp ".bca-baseline.XXXXXX.toml") && trap 'rm -f "$$t"' EXIT \
+	@cd "$(BASE_DIR)" && t=$$(mktemp ".bca-baseline.XXXXXX.toml") && trap 'rm -f "$$t"' EXIT INT TERM \
 	  && $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$t" \
 	  && $(SELF_SCAN_BCA) diff-baseline .bca-baseline.toml "$$t" --exit-code
 
@@ -1045,18 +1038,20 @@ self-scan-baseline-fresh:
 # The dev-profile default rests on it: `debug-assertions` and
 # `overflow-checks` are the only semantic differences between the
 # profiles, and either firing would be a bug the release gate hides.
-# On a mismatch both files are kept and named so they can be diffed.
-# Both legs force a from-source build through the wrapper
+# On a mismatch — and only then — both files are kept and named so
+# they can be diffed; every other exit, a failed build included,
+# removes them. Both legs force a from-source build through the wrapper
 # (`BCA_SELF_SCAN_FROM_SOURCE=1` outranks every other knob), so an
 # inherited `BCA_SELF_SCAN_BINARY` or a matching PATH `bca` cannot turn
 # this into a comparison of one binary with itself.
 self-scan-profile-parity:
 	@echo "bca self-scan profile parity (dev vs release, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
 	@cd "$(BASE_DIR)" && d=$$(mktemp ".bca-baseline.dev.XXXXXX.toml") && r=$$(mktemp ".bca-baseline.release.XXXXXX.toml") \
+	  && trap 'rm -f "$$d" "$$r"' EXIT INT TERM \
 	  && BCA_SELF_SCAN_FROM_SOURCE=1 BCA_SELF_SCAN_PROFILE=dev $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$d" \
 	  && BCA_SELF_SCAN_FROM_SOURCE=1 BCA_SELF_SCAN_PROFILE=release $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$r" \
-	  && if cmp -s "$$d" "$$r"; then rm -f "$$d" "$$r"; echo "profile parity: dev and release baselines are byte-identical"; \
-	     else echo "profile parity: dev and release baselines differ; kept $$d and $$r" >&2; exit 1; fi
+	  && if cmp -s "$$d" "$$r"; then echo "profile parity: dev and release baselines are byte-identical"; \
+	     else trap - EXIT INT TERM; echo "profile parity: dev and release baselines differ; kept $$d and $$r" >&2; exit 1; fi
 
 # ---------------------------------------------------------------------------
 # Change-history (VCS) risk report (issue #328). Dogfoods `bca vcs` on

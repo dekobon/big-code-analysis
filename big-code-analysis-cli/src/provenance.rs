@@ -40,8 +40,8 @@ pub(crate) struct Provenance<'a> {
     /// `bca` package version (`CARGO_PKG_VERSION`).
     pub(crate) version: &'a str,
     /// The build-inputs digest of the `bca` that wrote the report
-    /// (`build_info::BUILD_INPUTS`, #1773), or `None` to omit it. Hex or
-    /// the word `unavailable`, so it needs no per-format escaping.
+    /// (`build_info::build_inputs`, #1773), or `None` to omit it — which
+    /// a crates.io build does. Hex, so it needs no per-format escaping.
     pub(crate) build: Option<&'a str>,
     /// `YYYY-MM-DD` generation date (UTC), already resolved (see
     /// [`resolved_date`]).
@@ -208,11 +208,11 @@ mod tests {
         push_markdown_footer(
             &mut short,
             &Provenance {
-                build: Some("unavailable"),
+                build: Some("abc"),
                 ..prov(20, SuppressionPolicy::Honor)
             },
         );
-        assert!(short.contains("(build unavailable)"), "{short}");
+        assert!(short.contains("(build abc)"), "{short}");
     }
 
     #[test]

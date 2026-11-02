@@ -38,3 +38,7 @@ big-code-analysis-cli/dist/
 big-code-analysis-cli/LICENSE
 big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
 big-code-analysis-cli/man/
+# Temporary siblings `make self-scan-baseline-fresh` / `-profile-parity`
+# write beside the committed baseline (#1773); removed on exit, but a
+# Ctrl-C that kills make first can leave one.
+.bca-baseline.*.toml

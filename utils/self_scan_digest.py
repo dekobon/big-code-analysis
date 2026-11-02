@@ -23,6 +23,7 @@ from pathlib import Path
 # `digest.rs`; the shared fixture test fails if either side moves alone.
 INPUT_ROOTS = (
     "Cargo.toml",
+    "Cargo.lock",
     "src",
     "big-code-analysis-ast",
     "big-code-analysis-cli",
@@ -32,8 +33,8 @@ INPUT_ROOTS = (
     "tree-sitter-preproc",
     "tree-sitter-tcl",
 )
-INPUT_EXTENSIONS = frozenset({"rs", "c", "cc", "h", "toml", "json"})
-SKIPPED_TOP_LEVEL = frozenset({"target", "build", "node_modules"})
+INPUT_EXTENSIONS = frozenset({"rs", "c", "cc", "h", "toml"})
+SKIPPED_TOP_LEVEL = frozenset({"tests", "benches", "examples", "target", "build", "node_modules"})
 
 
 class DigestError(Exception):
@@ -50,7 +51,8 @@ def input_files(workspace: Path) -> list[str]:
         if path.is_file():
             files.append(root)
         elif path.is_dir():
-            _collect_dir(workspace, path, root.startswith("tree-sitter-"), files)
+            # `src/` is the root crate's source directory, not a crate root.
+            _collect_dir(workspace, path, root != "src", files)
         else:
             raise DigestError(f"input root is absent: {root}")
     # Bytes rather than code points to match the Rust side literally;
@@ -61,14 +63,16 @@ def input_files(workspace: Path) -> list[str]:
     return files
 
 
-def _collect_dir(workspace: Path, directory: Path, grammar_top: bool, out: list[str]) -> None:
-    for entry in sorted(os.scandir(directory), key=lambda e: e.name):
+def _collect_dir(workspace: Path, directory: Path, crate_root: bool, out: list[str]) -> None:
+    with os.scandir(directory) as it:
+        entries = sorted(it, key=lambda e: e.name)
+    for entry in entries:
         path = Path(entry.path)
         rel = _relative_posix(workspace, path)
         if entry.is_symlink():
             raise DigestError(f"symlink under an input root: {rel}")
         if entry.is_dir(follow_symlinks=False):
-            if grammar_top and entry.name in SKIPPED_TOP_LEVEL:
+            if crate_root and entry.name in SKIPPED_TOP_LEVEL:
                 continue
             _collect_dir(workspace, path, False, out)
         elif entry.is_file(follow_symlinks=False) and _has_input_extension(entry.name):
@@ -76,8 +80,10 @@ def _collect_dir(workspace: Path, directory: Path, grammar_top: bool, out: list[
 
 
 def _has_input_extension(name: str) -> bool:
-    _, dot, ext = name.rpartition(".")
-    return bool(dot) and ext in INPUT_EXTENSIONS
+    # A pure dotfile (`.toml`) has no extension to Rust's `Path::extension`;
+    # the empty stem check keeps this side from hashing what that side skips.
+    stem, dot, ext = name.rpartition(".")
+    return bool(dot) and bool(stem) and ext in INPUT_EXTENSIONS
 
 
 def _relative_posix(workspace: Path, path: Path) -> str:
@@ -98,3 +104,16 @@ def digest(workspace: Path) -> str:
         h.update(len(content).to_bytes(8, "little"))
         h.update(content)
     return h.hexdigest()
+
+
+if __name__ == "__main__":
+    # `python3 utils/self_scan_digest.py <workspace>` prints the digest;
+    # the Rust test `python_digest_agrees_with_the_rust_digest_over_this_checkout`
+    # compares it with its own walk of the live tree.
+    import sys
+
+    try:
+        print(digest(Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()))
+    except (DigestError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
