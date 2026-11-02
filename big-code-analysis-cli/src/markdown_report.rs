@@ -1891,6 +1891,7 @@ mod tests {
         ];
         let prov = crate::provenance::Provenance {
             version: "9.9.9",
+            build: None,
             date: "2026-06-11",
             paths: "src/",
             top: 10,

@@ -316,8 +316,7 @@ def observe(
         print("error: the observer did not build")
         return 2
     bca = REPO_ROOT / "target" / "release" / "bca"
-    # `bca --version` prints `bca X.Y.Z`; keep the whole line.
-    version = subprocess.run([str(bca), "--version"], check=True, **RUN).stdout.strip()
+    version = observer_line(subprocess.run([str(bca), "-V"], check=True, **RUN).stdout)
     pins = rt.grammar_pins(cargo_toml)
     exts = extensions_from_langs(langs_rs)
     # Provenance is the inputs — observer version, corpus commits, pins —
@@ -364,6 +363,24 @@ class Observation:
     sampled: dict[str, bool]
     counts: dict[str, tuple[int, int, int]]  # attempted, parsed, failed
     seen: dict[str, set[int]]
+
+
+def observer_line(version_stdout: str) -> str:
+    """The one-line `bca X.Y.Z` for the `observer` header, from `bca -V` output.
+
+    `-V` rather than `--version`: since #1773 the long form is a multi-line
+    provenance block, and `load_observed` reads any line after the first as
+    an observation and rejects it. Only the first line is kept, and it must
+    have the short shape, so a build that changes `-V` fails here rather
+    than writing a file its own reader refuses.
+    """
+    first = version_stdout.strip().splitlines()[0] if version_stdout.strip() else ""
+    if not OBSERVER_LINE_RE.fullmatch(first):
+        raise rt.RoleTableError(f"expected `bca <version>` from `bca -V`, got `{first}`")
+    return first
+
+
+OBSERVER_LINE_RE = re.compile(r"bca \S+")
 
 
 def load_observed(path: pathlib.Path) -> Observation:

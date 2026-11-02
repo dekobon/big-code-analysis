@@ -14,7 +14,10 @@ name = "bca"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "^4.0", features = ["derive"] }
+# `string` lets the `--version` provenance block (#1773) be attached as
+# an owned `String` at run time; one of its fields is read from the
+# linked binary and cannot be a `'static` literal.
+clap = { version = "^4.0", features = ["derive", "string"] }
 globset = "^0.4"
 ignore = "^0.4"
 # The CLI exposes every language `bca` advertises, so it pins the
@@ -48,8 +51,17 @@ toml = "^1.1"
 [lints]
 workspace = true
 
+# `build.rs` hashes every compiled-in source into the `--version`
+# provenance block (#1773). `src/build_info/digest.rs` is shared with
+# the crate's tests by `#[path]`, so the pin appears under both tables;
+# it is the root crate's exact pin repeated, since `sha2` is a package
+# dependency there rather than a `[workspace.dependencies]` entry.
+[build-dependencies]
+sha2 = "=0.11.1"
+
 [dev-dependencies]
 assert_cmd = "^2.0"
+sha2 = "=0.11.1"
 csv.workspace = true
 insta = "1.49.0"
 jsonschema = "^0.59"

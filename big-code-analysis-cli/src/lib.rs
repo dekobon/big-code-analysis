@@ -41,6 +41,7 @@
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 mod baseline;
 mod baseline_diff;
+mod build_info;
 mod check_flags;
 mod check_format;
 mod cli_args;

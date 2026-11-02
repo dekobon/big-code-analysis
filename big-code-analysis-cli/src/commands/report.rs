@@ -66,6 +66,7 @@ pub(crate) fn run_command_report(
     let date = crate::provenance::resolved_date();
     let prov = crate::provenance::Provenance {
         version: env!("CARGO_PKG_VERSION"),
+        build: Some(crate::build_info::BUILD_INPUTS),
         date: &date,
         paths: &prov_paths,
         top,

@@ -157,6 +157,21 @@ fn cli_check_sarif_output_validates_against_schema() {
         !results.is_empty(),
         "expected at least one SARIF result for branchy fixture; doc was:\n{out}",
     );
+    // The CLI stamps its build provenance into the driver's property
+    // bag (#1773) — the only place `toolComponent` admits a producer
+    // key, which the schema validation above has just confirmed. The
+    // digest is 64 hex digits from a checkout build and the literal
+    // `unavailable` from a registry build; nothing else is valid.
+    let props = &doc["runs"][0]["tool"]["driver"]["properties"];
+    let inputs = props["bca.buildInputs"]
+        .as_str()
+        .expect("bca.buildInputs is a string");
+    assert!(
+        inputs == "unavailable"
+            || (inputs.len() == 64 && inputs.bytes().all(|b| b.is_ascii_hexdigit())),
+        "{inputs}"
+    );
+    assert!(props["bca.buildGit"].is_string(), "{out}");
 }
 
 #[test]

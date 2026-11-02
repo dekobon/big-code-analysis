@@ -233,7 +233,13 @@ fn load_preproc(globals: &GlobalOpts) -> Option<Arc<PreprocResults>> {
 /// inferred from the parsed value alone — the manifest merge needs the
 /// `ArgMatches` value source to know whether to override it.
 fn parse_cli_with_legacy_hint() -> (Cli, bool) {
-    let matches = match Cli::command().try_get_matches() {
+    // The provenance block behind `--version` is attached here, to the
+    // `Command` that actually parses, and not in the derive: `xtask`
+    // renders man pages from a bare `Cli::command()`, and a derive-level
+    // `long_version` would stamp this build's digest into `man/bca.1`
+    // (#1773). `-V` keeps clap's one-line `version`.
+    let command = Cli::command().long_version(crate::build_info::long_version());
+    let matches = match command.try_get_matches() {
         Ok(matches) => matches,
         Err(err) => {
             if matches!(

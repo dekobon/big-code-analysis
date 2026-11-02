@@ -564,6 +564,61 @@ fn version_exits_zero() {
         .stdout(predicate::str::contains("bca "));
 }
 
+/// `-V` stays the one-line `bca <version>` every release script, the
+/// Homebrew formula and the role-coverage observer parse; `--version`
+/// opens with that same line and then the provenance block (#1773).
+#[test]
+fn short_version_is_one_line_and_long_version_starts_with_it() {
+    let (dir, mut short) = common::cli_hermetic();
+    let short_out = short
+        .arg("-V")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let short_text = String::from_utf8(short_out).expect("utf-8");
+    assert_eq!(short_text.lines().count(), 1, "{short_text}");
+    assert_eq!(
+        short_text.trim_end(),
+        format!("bca {}", env!("CARGO_PKG_VERSION"))
+    );
+
+    let (_dir2, mut long) = common::cli_hermetic();
+    let _ = &dir;
+    let long_out = long
+        .arg("--version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let long_text = String::from_utf8(long_out).expect("utf-8");
+    let lines: Vec<&str> = long_text.lines().collect();
+    assert_eq!(
+        lines.first().copied(),
+        Some(short_text.trim_end()),
+        "{long_text}"
+    );
+    assert_eq!(lines.len(), 5, "{long_text}");
+    for (line, prefix) in
+        lines[1..]
+            .iter()
+            .zip(["build inputs: ", "git: ", "built: ", "binary id: "])
+    {
+        assert!(
+            line.starts_with(prefix),
+            "{line:?} should start with {prefix:?}"
+        );
+    }
+    let inputs = lines[1].trim_start_matches("build inputs: ");
+    assert!(
+        inputs == "unavailable"
+            || (inputs.len() == 64 && inputs.bytes().all(|b| b.is_ascii_hexdigit())),
+        "{inputs}"
+    );
+}
+
 // -- Manifest opt-in ------------------------------------------------------
 
 /// Create a fixture repo with a `.git` marker so manifest discovery

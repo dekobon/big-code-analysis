@@ -28,8 +28,8 @@ use std::path::Path;
 use clap::ValueEnum;
 
 use big_code_analysis::{
-    OffenderRecord, write_checkstyle, write_clang_warning, write_code_climate, write_msvc_warning,
-    write_sarif, write_sarif_with_suppressed,
+    OffenderRecord, SarifProvenance, write_checkstyle, write_clang_warning, write_code_climate,
+    write_msvc_warning, write_sarif_with_provenance,
 };
 
 use crate::baseline::Coverage;
@@ -93,7 +93,9 @@ impl AggregatedFormat {
     ) -> std::io::Result<()> {
         match self {
             Self::Checkstyle => write_buffered(output_path, |w| write_checkstyle(offenders, w)),
-            Self::Sarif => write_buffered(output_path, |w| write_sarif(offenders, w)),
+            Self::Sarif => write_buffered(output_path, |w| {
+                write_sarif_with_provenance(offenders, &[], &[], &sarif_provenance(), w)
+            }),
             Self::ClangWarning => {
                 write_buffered(output_path, |w| write_clang_warning(offenders, w))
             }
@@ -127,8 +129,20 @@ pub(crate) fn dump_sarif_with_suppressed(
         }
     }
     write_buffered(output_path, |w| {
-        write_sarif_with_suppressed(active, &in_source, &baseline, w)
+        write_sarif_with_provenance(active, &in_source, &baseline, &sarif_provenance(), w)
     })
+}
+
+/// What this binary stamps into `tool.driver.properties` (#1773): the
+/// digest of everything compiled into it and the revision it was built
+/// from, so a SARIF upload traces to a build rather than to a version
+/// that 92 unreleased commits can share. A registry build carries
+/// `unavailable` for both, which is itself the information.
+fn sarif_provenance() -> SarifProvenance {
+    SarifProvenance::new(
+        Some(crate::build_info::BUILD_INPUTS.to_owned()),
+        Some(crate::build_info::BUILD_GIT.to_owned()),
+    )
 }
 
 /// Default annotation cap per metric. GitHub Actions surfaces at most

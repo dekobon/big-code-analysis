@@ -169,6 +169,67 @@ pub fn write_sarif_with_suppressed<W: Write>(
     active: &[OffenderRecord],
     in_source: &[OffenderRecord],
     baseline: &[OffenderRecord],
+    writer: W,
+) -> io::Result<()> {
+    write_sarif_with_provenance(
+        active,
+        in_source,
+        baseline,
+        &SarifProvenance::default(),
+        writer,
+    )
+}
+
+/// Build provenance a caller can stamp into the SARIF `tool.driver`
+/// block, under `properties` (the SARIF 2.1.0 extension point —
+/// `toolComponent` admits no other unknown key).
+///
+/// The library itself knows only its own package version. A binary that
+/// embeds it, such as `bca`, can record what *it* was built from so a
+/// detached report traces to a build: `bca` sets `build_inputs` to the
+/// content digest of everything compiled into it and `build_git` to the
+/// checkout revision (#1773). `Default` carries nothing, and a default
+/// provenance leaves the document byte-identical to [`write_sarif`]'s.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SarifProvenance {
+    /// A content digest of the inputs compiled into the reporting
+    /// binary; rendered as the `bca.buildInputs` property.
+    pub build_inputs: Option<String>,
+    /// The revision the reporting binary was built from; rendered as
+    /// the `bca.buildGit` property.
+    pub build_git: Option<String>,
+}
+
+impl SarifProvenance {
+    /// Provenance carrying the two fields `bca` stamps.
+    #[must_use]
+    pub fn new(build_inputs: Option<String>, build_git: Option<String>) -> Self {
+        Self {
+            build_inputs,
+            build_git,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.build_inputs.is_none() && self.build_git.is_none()
+    }
+}
+
+/// [`write_sarif_with_suppressed`] with a [`SarifProvenance`] stamped
+/// into `tool.driver.properties`. An empty provenance emits no
+/// `properties` key at all, so the two older writers forward here with
+/// their output unchanged.
+///
+/// # Errors
+///
+/// Same contract as [`write_sarif`]: any [`io::Error`] from `writer`, or a
+/// serialisation failure mapped to `io::Error`.
+pub fn write_sarif_with_provenance<W: Write>(
+    active: &[OffenderRecord],
+    in_source: &[OffenderRecord],
+    baseline: &[OffenderRecord],
+    provenance: &SarifProvenance,
     mut writer: W,
 ) -> io::Result<()> {
     let mut results: Vec<SarifResult<'_>> =
@@ -203,6 +264,10 @@ pub fn write_sarif_with_suppressed<W: Write>(
                     name: TOOL_ID,
                     version: env!("CARGO_PKG_VERSION"),
                     rules,
+                    properties: (!provenance.is_empty()).then_some(DriverProperties {
+                        build_inputs: provenance.build_inputs.as_deref(),
+                        build_git: provenance.build_git.as_deref(),
+                    }),
                 },
             },
             results,
@@ -327,6 +392,20 @@ struct Driver<'a> {
     name: &'a str,
     version: &'a str,
     rules: Vec<Rule<'a>>,
+    /// Present only when a [`SarifProvenance`] carried something, so the
+    /// provenance-free writers' output never gains a key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    properties: Option<DriverProperties<'a>>,
+}
+
+/// The `tool.driver.properties` bag. Keys are namespaced with `bca.` as
+/// SARIF recommends for producer-specific properties.
+#[derive(Serialize)]
+struct DriverProperties<'a> {
+    #[serde(rename = "bca.buildInputs", skip_serializing_if = "Option::is_none")]
+    build_inputs: Option<&'a str>,
+    #[serde(rename = "bca.buildGit", skip_serializing_if = "Option::is_none")]
+    build_git: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -476,6 +555,54 @@ mod tests {
         let rule = &v["runs"][0]["tool"]["driver"]["rules"][0];
         assert_eq!(rule["id"], "cyclomatic");
         assert!(rule["shortDescription"]["text"].is_string());
+    }
+
+    #[test]
+    fn provenance_lands_under_driver_properties_and_an_empty_one_adds_no_key() {
+        let offenders = vec![rec("src/foo.rs", "cyclomatic", 17.0, 15.0)];
+        let stamped = SarifProvenance::new(Some("ab".repeat(32)), Some("deadbeef-dirty".into()));
+        let mut buf = Vec::new();
+        write_sarif_with_provenance(&offenders, &[], &[], &stamped, &mut buf)
+            .expect("writing to Vec is infallible");
+        let v: serde_json::Value = serde_json::from_slice(&buf).expect("valid JSON");
+        let props = &v["runs"][0]["tool"]["driver"]["properties"];
+        assert_eq!(props["bca.buildInputs"], "ab".repeat(32));
+        assert_eq!(props["bca.buildGit"], "deadbeef-dirty");
+        // `toolComponent` admits no unknown direct keys, so the digest
+        // must live in the bag and nowhere else.
+        assert!(
+            v["runs"][0]["tool"]["driver"]
+                .get("bca.buildInputs")
+                .is_none()
+        );
+
+        // Every older writer forwards with an empty provenance, so its
+        // document gains no `properties` key — byte-identical output.
+        let mut plain = Vec::new();
+        write_sarif_with_provenance(
+            &offenders,
+            &[],
+            &[],
+            &SarifProvenance::default(),
+            &mut plain,
+        )
+        .expect("writing to Vec is infallible");
+        assert_eq!(plain, render(&offenders).into_bytes());
+        assert!(
+            !String::from_utf8(plain)
+                .expect("utf-8")
+                .contains("properties")
+        );
+
+        // Half-populated: only the present field is written.
+        let mut half = Vec::new();
+        let git_only = SarifProvenance::new(None, Some("deadbeef".into()));
+        write_sarif_with_provenance(&offenders, &[], &[], &git_only, &mut half)
+            .expect("writing to Vec is infallible");
+        let v: serde_json::Value = serde_json::from_slice(&half).expect("valid JSON");
+        let props = &v["runs"][0]["tool"]["driver"]["properties"];
+        assert_eq!(props["bca.buildGit"], "deadbeef");
+        assert!(props.get("bca.buildInputs").is_none());
     }
 
     #[test]

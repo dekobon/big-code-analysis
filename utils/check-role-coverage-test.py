@@ -174,6 +174,33 @@ class CoverageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.t = Tree()
 
+    def test_observer_header_keeps_one_line_and_round_trips_through_the_reader(self) -> None:
+        # Since #1773 `bca --version` is a multi-line provenance block; the
+        # writer reads `-V` and keeps its one line, so the file it writes is
+        # one its own reader accepts. Verified by perturbation: the old
+        # `.strip()` of the whole block makes `load_observed` raise on the
+        # `build inputs:` line.
+        self.assertEqual(cov.observer_line("bca 2.4.0\n"), "bca 2.4.0")
+        self.assertEqual(
+            cov.observer_line("bca 2.4.0\nbuild inputs: abc\ngit: def\n"), "bca 2.4.0"
+        )
+        with self.assertRaises(rt.RoleTableError):
+            cov.observer_line("build inputs: abc\n")
+        with self.assertRaises(rt.RoleTableError):
+            cov.observer_line("")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp, "observed.txt")
+            path.write_text(
+                f"{cov.OBS_HEADER}observer {cov.observer_line('bca 2.4.0\nbuild inputs: abc\n')}\n",
+                encoding="utf-8",
+            )
+            cov.load_observed(path)
+            path.write_text(
+                f"{cov.OBS_HEADER}observer bca 2.4.0\nbuild inputs: abc\n", encoding="utf-8"
+            )
+            with self.assertRaises(rt.RoleTableError):
+                cov.load_observed(path)
+
     def test_claimed_kinds_leave_the_residue_and_end_is_synthetic(self) -> None:
         self.t.table(FULL)
         code, out = self.t.run("--bootstrap")

@@ -292,10 +292,11 @@ pub use crate::slash_path::slash_path;
 /// re-exported at the crate root.
 pub mod output;
 pub use crate::output::{
-    CSV_EXTENSION, CSV_HEADER, ColorMode, OffenderRecord, Severity, TOOL_ID, defang_formula,
-    dump_node, dump_node_with_color, dump_ops, dump_ops_with_color, dump_root,
+    CSV_EXTENSION, CSV_HEADER, ColorMode, OffenderRecord, SarifProvenance, Severity, TOOL_ID,
+    defang_formula, dump_node, dump_node_with_color, dump_ops, dump_ops_with_color, dump_root,
     dump_root_with_color, write_checkstyle, write_clang_warning, write_code_climate, write_csv,
-    write_csv_aggregate, write_msvc_warning, write_sarif, write_sarif_with_suppressed,
+    write_csv_aggregate, write_msvc_warning, write_sarif, write_sarif_with_provenance,
+    write_sarif_with_suppressed,
 };
 
 // --- AST plumbing (Node) ---

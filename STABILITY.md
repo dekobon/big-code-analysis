@@ -680,10 +680,28 @@ may differ by up to 1 ULP. Per the value-stability carve-out above, do
 not treat float magnitudes as a stable cross-version identity; compare
 them with a tolerance.
 
-`bca --version` prints the CLI binary's own version, not the library
-version. To record the library version from a CLI run, capture it
-from `Cargo.lock` or the resolved `cargo metadata` output for the
-`big-code-analysis` package.
+`bca -V` prints one line, `bca <version>` — the CLI binary's own
+version, not the library version. To record the library version from
+a CLI run, capture it from `Cargo.lock` or the resolved `cargo
+metadata` output for the `big-code-analysis` package.
+
+`bca --version` prints that same line first and then a build
+provenance block (#1773): `build inputs:` (a SHA-256 over every source
+compiled into the binary, or `unavailable` for a build from the
+crates.io tarball, where the workspace is not beside the crate),
+`git:`, `built:` (RFC 3339 UTC, `SOURCE_DATE_EPOCH` when it was set
+at build time, with the profile, `rustc` version, target and
+debug-assertions state) and `binary id:` (the linker's GNU build-id
+note on Linux; `unavailable` elsewhere). The first line is the stable
+contract; the fields after it are informational, their wording may
+change in a minor release, and a consumer that needs the version alone
+should read `-V` or the first line. The same digest is stamped into a
+`bca check` SARIF document under `tool.driver.properties` as
+`bca.buildInputs` / `bca.buildGit`, and abbreviated in the `bca report`
+provenance footer. The library's own `write_sarif` and
+`write_sarif_with_suppressed` are unchanged; `write_sarif_with_provenance`
+and `SarifProvenance` are the additive surface a host uses to stamp its
+own build.
 
 The next major re-baseline at `3.0` (whenever it happens) is the
 point at which the value drifts accumulated across `2.x` will be

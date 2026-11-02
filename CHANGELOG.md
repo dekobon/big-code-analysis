@@ -26,6 +26,28 @@ for historical reference.
 
 ### Added
 
+- **`bca --version` records build provenance** (#1773). `-V` is the
+  unchanged one-line `bca <version>`; `--version` follows it with
+  `build inputs:` (a SHA-256 content digest of every source compiled
+  into the binary — the workspace's Rust, manifests and the five
+  vendored grammars — or `unavailable` for a crates.io build),
+  `git:` (`<sha>`, `-dirty` when those inputs had uncommitted edits),
+  `built:` (RFC 3339 UTC, honouring `SOURCE_DATE_EPOCH`, with the
+  profile, `rustc`, target and debug-assertions state) and
+  `binary id:` (the linker's GNU build-id on Linux). Two builds of one
+  tree share a digest whatever their mtimes or branch, and two
+  binaries that both print `2.4.0` from different commits do not —
+  which is the question "is this installed `bca` the one this checkout
+  would build" needs answered. The digest is stamped into `bca check`'s
+  SARIF under `tool.driver.properties` (`bca.buildInputs`,
+  `bca.buildGit`) and abbreviated in the `bca report` footer. Library:
+  `SarifProvenance` and `write_sarif_with_provenance` are additive; the
+  two existing SARIF writers emit byte-identical documents.
+  `utils/self_scan_digest.py` reproduces the digest in Python, pinned to
+  the Rust implementation by one shared fixture; the vendored grammar
+  build scripts now watch their `src/tree_sitter/` headers, so a
+  header-only edit recompiles the parser instead of leaving a stale
+  object behind a fresh digest.
 - `[[thresholds.path]]` in `bca.toml` and `--config`: path-scoped
   threshold overrides, layered `[thresholds]` → `[thresholds.lang.<slug>]`
   → `[[thresholds.path]]` → tier → `--threshold`. Each entry's glob is

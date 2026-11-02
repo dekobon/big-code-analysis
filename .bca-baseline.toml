@@ -509,13 +509,13 @@ value = 6.0
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 metric = "abc"
-value = 39.06404996924922
+value = 39.93745109543172
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 metric = "halstead.effort"
-value = 63991.55666020266
+value = 65001.24036761245
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -1392,6 +1392,12 @@ path = "src/output/funcspace_row.rs"
 qualified = "metric_values"
 metric = "halstead.effort"
 value = 89579.4980762016
+
+[[entry]]
+path = "src/output/sarif.rs"
+qualified = "write_sarif_with_provenance"
+metric = "nargs"
+value = 5.0
 
 [[entry]]
 path = "src/spaces.rs"
