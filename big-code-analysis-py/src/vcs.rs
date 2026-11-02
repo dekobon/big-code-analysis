@@ -340,6 +340,11 @@ pub(crate) fn inject_vcs_with_index(
     file_path: &Path,
     index: &vcs::HistoryIndex,
 ) {
+    // The canonicalize stays unconditional. `get_for_path` is a lexical
+    // strip against the canonical workdir, and a tracked path may itself
+    // be a symlink to another tracked file whose history differs — a
+    // lexical-first lookup attached the link's own history to bytes that
+    // came from the target (#1764). Measured at < 1 % of a `vcs=True` wall.
     let canonical = file_path
         .canonicalize()
         .unwrap_or_else(|_| file_path.to_path_buf());
@@ -625,6 +630,118 @@ mod tests {
         let mut spans = Vec::new();
         collect_child_spans(&space, &mut spans);
         assert_eq!(spans, [vcs::LineSpan::new(1, 8), vcs::LineSpan::new(4, 8)]);
+    }
+
+    /// Run `git <args>` in `dir`, isolated from the host's configuration,
+    /// applied after the caller's so no caller can switch it back on: no
+    /// global file (which also covers `$XDG_CONFIG_HOME/git/config`), no
+    /// system file, and the two per-user files that are not configuration
+    /// — `core.excludesFile` and `core.attributesFile` default to
+    /// `$XDG_CONFIG_HOME/git/…` and are read whatever the first two say —
+    /// pinned to `/dev/null` (#1771). Mirrors the CLI's `isolated_git_env`
+    /// and the root crate's `tests/common/vcs_fixture.rs`, neither of
+    /// which a unit test here can reach.
+    #[cfg(unix)]
+    fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_COUNT", "2")
+            .env("GIT_CONFIG_KEY_0", "core.excludesFile")
+            .env("GIT_CONFIG_VALUE_0", "/dev/null")
+            .env("GIT_CONFIG_KEY_1", "core.attributesFile")
+            .env("GIT_CONFIG_VALUE_1", "/dev/null")
+            .status()
+            .expect("spawn git");
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    /// `HistoryIndex::get_for_path` strips the index's *canonical* work
+    /// tree lexically, so the injector canonicalizes every path before
+    /// the lookup, unconditionally. This pins what that buys: a tracked
+    /// file attaches through a symlinked directory and a `..`-laden
+    /// relative spelling, an untracked one stays bare — and, the row a
+    /// lexical-first lookup cannot pass, a tracked path that is *itself*
+    /// a symlink to another tracked file attaches the target's history,
+    /// since the target's bytes are what was analysed (#1764). `a.py` has
+    /// one commit and `b.py` two; once `a.py` is a link to `b.py`, the
+    /// block at `a.py`'s path must read 2, not the 1 its own key carries.
+    #[cfg(unix)]
+    #[test]
+    fn file_level_block_follows_the_path_the_bytes_came_from() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `tempdir` itself may sit under a symlink (macOS `/var` →
+        // `/private/var`), so the repository lives at its canonical path
+        // and the links below are the test's own, known-non-canonical ones.
+        let repo = dir.path().canonicalize().expect("canonical tempdir");
+        std::fs::write(repo.join("work.py"), NESTED).expect("write work.py");
+        std::fs::write(repo.join("a.py"), NESTED).expect("write a.py");
+        std::fs::write(repo.join("b.py"), NESTED).expect("write b.py");
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "commit.gpgsign", "false"]);
+        git(&repo, &["add", "work.py", "a.py", "b.py"]);
+        git(&repo, &["commit", "-q", "-m", "add all"]);
+        std::fs::write(repo.join("b.py"), [NESTED, b"# touched\n"].concat()).expect("rewrite b.py");
+        git(&repo, &["add", "b.py"]);
+        git(&repo, &["commit", "-q", "-m", "touch b"]);
+        let link = repo.join("link");
+        std::os::unix::fs::symlink(&repo, &link).expect("symlink the repo dir");
+        std::fs::remove_file(repo.join("a.py")).expect("remove a.py");
+        std::os::unix::fs::symlink(repo.join("b.py"), repo.join("a.py"))
+            .expect("symlink a.py to b.py");
+        // The persistent cache is off so a unit test writes nothing under
+        // the user's cache directory; the index is otherwise the one
+        // `build_index_for` builds.
+        let mut no_cache = CacheConfig::default();
+        no_cache.enabled = false;
+        let index = build_history_index_cached(&repo, &Options::default(), &no_cache)
+            .expect("the scratch repository indexes");
+
+        let cwd = std::env::current_dir().expect("cwd");
+        let ascent: PathBuf = cwd.components().skip(1).map(|_| "..").collect();
+        let relative = ascent.join(repo.strip_prefix("/").expect("canonical paths are rooted"));
+        assert!(relative.is_relative());
+
+        let attaches = |path: PathBuf| {
+            let mut space = nested_space(MetricsOptions::default());
+            inject_vcs_with_index(&mut space, &path, &index);
+            space.metrics.vcs.as_ref().map(|vcs| vcs.commits_long)
+        };
+        assert_eq!(attaches(repo.join("work.py")), Some(1), "canonical path");
+        assert_eq!(
+            attaches(link.join("work.py")),
+            Some(1),
+            "through the symlink"
+        );
+        assert_eq!(
+            attaches(relative.join("work.py")),
+            Some(1),
+            "relative, `..`-laden"
+        );
+        assert_eq!(attaches(repo.join("b.py")), Some(2), "the link's target");
+        assert_eq!(
+            attaches(repo.join("a.py")),
+            Some(2),
+            "a tracked path that is a symlink to another tracked file \
+             carries the target's history"
+        );
+        std::fs::write(repo.join("untracked.py"), NESTED).expect("write untracked.py");
+        assert_eq!(
+            attaches(repo.join("untracked.py")),
+            None,
+            "untracked stays bare"
+        );
+        assert_eq!(
+            attaches(link.join("untracked.py")),
+            None,
+            "untracked via the link"
+        );
     }
 
     /// Both injector walks run before serialization bounds the space depth

@@ -572,32 +572,30 @@ impl VcsRepoCache {
         let root = self.resolve_root(path);
         if self.vcs {
             // The history walk is the expensive part; cache the index under
-            // the repo root for reuse.
-            let entry = if let Some(slot) = self.indexes.get(&root) {
-                slot.as_ref()
-            } else {
-                let built = vcs_bridge::build_index_for(&root);
-                self.indexes
-                    .entry(Arc::clone(&root))
-                    .or_insert(built)
-                    .as_ref()
-            };
-            if let Some(index) = entry {
+            // the repo root for reuse. Both maps share this one-hash
+            // `entry().or_insert_with()` shape (#1764): the blame path
+            // below used to pay `contains_key` + `get_mut` on a hit. `root`
+            // is an `Arc<Path>`, so the key clone is a refcount bump.
+            if let Some(index) = self
+                .indexes
+                .entry(Arc::clone(&root))
+                .or_insert_with(|| vcs_bridge::build_index_for(&root))
+                .as_ref()
+            {
                 vcs_bridge::inject_vcs_with_index(space, path, index);
             }
         }
         if self.vcs_per_function {
-            if !self.blames.contains_key(&root) {
-                let built = vcs_bridge::open_blame_for(&root);
-                self.blames.insert(Arc::clone(&root), built);
-            }
-            // `contains_key` + `get_mut` rather than the index path's
-            // `get` + `entry().or_insert()`: the cached value is now a
-            // blame *session*, which accumulates the repository handle,
-            // mailmap, and resolved-commit memo across every file in this
-            // repo (#1117), so each blame needs it by `&mut` — and this
-            // shape keeps the hit path from cloning `root`.
-            if let Some(Some(blame)) = self.blames.get_mut(&root) {
+            // The cached value is a blame *session*, which accumulates the
+            // repository handle, mailmap, and resolved-commit memo across
+            // every file in this repo (#1117), so each blame needs it by
+            // `&mut`.
+            if let Some(blame) = self
+                .blames
+                .entry(Arc::clone(&root))
+                .or_insert_with(|| vcs_bridge::open_blame_for(&root))
+                .as_mut()
+            {
                 vcs_bridge::inject_vcs_per_function_with_blame(space, path, blame);
             }
         }
