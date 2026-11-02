@@ -67,7 +67,12 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// configuration it was built from decides the churn the walk records, so
 /// [`diff_config_digest`](Self::diff_config_digest) stamps an entry with
 /// it, and the walk takes its line counts through a clone of this one
-/// platform rather than a second one it configures for itself.
+/// platform rather than a second one it configures for itself. Since
+/// #1761 it is the *only* platform a build constructs: the walk's rename
+/// tracking, the seed enumeration and the walk's line counts each diff
+/// through a clone of it, where gix's `for_each_to_obtain_tree` used to
+/// build one more per call — loading or `stat`ing the index and probing
+/// the global attribute files for every walked commit.
 ///
 /// The shallow boundary is the third input read here, for
 /// [`shallow_boundary_digest`](Self::shallow_boundary_digest), so that
@@ -98,11 +103,22 @@ pub(super) struct WalkContext<'a> {
     /// [`gix::Repository::open_mailmap`] merged it when this context was
     /// opened.
     mailmap: gix::mailmap::Snapshot,
-    /// The blob-diff platform gix configured from the repository's diff
+    /// The index the diff platform's attribute stack reads its
+    /// `.gitattributes` blobs through: `.git/index` when there is one,
+    /// else (a bare repository) one built from `HEAD`'s tree. Loaded once
+    /// here and kept so #1760 can digest the `diff` attribute bindings
+    /// from the same index the platform resolves them through, rather
+    /// than a second load that could see a different `.git/index`.
+    // `expect` rather than `allow` so the carve-out fails to compile the
+    // moment #1760's digest reads the field; that wave widens the
+    // visibility when it needs to.
+    #[expect(dead_code, reason = "read by the #1760 attribute digest")]
+    index: gix::worktree::IndexPersistedOrInMemory,
+    /// The blob-diff platform configured from the repository's diff
     /// settings — `diff.algorithm`, the `diff.<driver>.*` sections,
     /// `core.bigFileThreshold` — and the attribute stack it resolves
-    /// `diff=` bindings through. Its resource cache is empty: the walk
-    /// clones it and fills the clone.
+    /// `diff=` bindings through. Its resource cache is empty: every
+    /// consumer clones it and fills the clone.
     diff: gix::diff::blob::Platform,
     /// The shallow boundary (`.git/shallow`) as gix read it when this
     /// context was opened; `None` for a clone with full history.
@@ -140,16 +156,26 @@ impl<'a> WalkContext<'a> {
         options: &'a Options,
         now: i64,
     ) -> Result<Self, Error> {
+        let index = repo.index_or_load_from_head_or_empty().map_err(diff_err)?;
+        let diff = tree_diff_platform(repo, &index).map_err(diff_err)?;
         Ok(Self {
             repo,
             options,
             mailmap: repo.open_mailmap(),
-            diff: repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?,
+            index,
+            diff,
             shallow: repo
                 .shallow_commits()
                 .map_err(|e| Error::OpenRepository(e.to_string()))?,
             now,
         })
+    }
+
+    /// The context's diff platform, for a consumer that diffs outside the
+    /// walk — the seed enumeration — to clone and fill.
+    #[must_use]
+    pub(super) fn diff_platform(&self) -> &gix::diff::blob::Platform {
+        &self.diff
     }
 
     /// The digests of the walk inputs the repository supplies outside
@@ -314,40 +340,46 @@ impl<'a> WalkContext<'a> {
     /// `--clear-cache`, as the `git::cached` module docs record.
     #[must_use]
     pub(super) fn diff_config_digest(&self) -> u64 {
-        // Exhaustive destructures, for the reason `algorithm_tag` matches
-        // exhaustively: a field a gix bump adds fails here rather than
-        // staying out of a persisted digest. The ignored fields are the
-        // ones the list above leaves out.
-        let gix::diff::blob::platform::Options {
-            algorithm: platform_algorithm,
-            skip_internal_diff_if_external_is_configured: _,
-        } = self.diff.options;
-        let gix::diff::blob::pipeline::Options {
-            large_file_threshold_bytes,
-            fs: _,
-        } = self.diff.filter.options;
-        let mut hasher = DefaultHasher::new();
-        algorithm_tag(platform_algorithm).hash(&mut hasher);
-        large_file_threshold_bytes.hash(&mut hasher);
-        for driver in self.diff.filter.drivers() {
-            let gix::diff::blob::Driver {
-                name,
-                command: _,
-                algorithm,
-                binary_to_text_command,
-                is_binary,
-            } = driver;
-            let has_textconv = binary_to_text_command.is_some();
-            if algorithm.is_none() && is_binary.is_none() && !has_textconv {
-                continue;
-            }
-            name.hash(&mut hasher);
-            algorithm_tag(*algorithm).hash(&mut hasher);
-            binary_tag(*is_binary).hash(&mut hasher);
-            has_textconv.hash(&mut hasher);
-        }
-        hasher.finish()
+        diff_config_digest(&self.diff)
     }
+}
+
+/// The digest [`WalkContext::diff_config_digest`] documents, over any
+/// platform: the walk's, or one built another way for comparison.
+fn diff_config_digest(platform: &gix::diff::blob::Platform) -> u64 {
+    // Exhaustive destructures, for the reason `algorithm_tag` matches
+    // exhaustively: a field a gix bump adds fails here rather than
+    // staying out of a persisted digest. The ignored fields are the
+    // ones the list above leaves out.
+    let gix::diff::blob::platform::Options {
+        algorithm: platform_algorithm,
+        skip_internal_diff_if_external_is_configured: _,
+    } = platform.options;
+    let gix::diff::blob::pipeline::Options {
+        large_file_threshold_bytes,
+        fs: _,
+    } = platform.filter.options;
+    let mut hasher = DefaultHasher::new();
+    algorithm_tag(platform_algorithm).hash(&mut hasher);
+    large_file_threshold_bytes.hash(&mut hasher);
+    for driver in platform.filter.drivers() {
+        let gix::diff::blob::Driver {
+            name,
+            command: _,
+            algorithm,
+            binary_to_text_command,
+            is_binary,
+        } = driver;
+        let has_textconv = binary_to_text_command.is_some();
+        if algorithm.is_none() && is_binary.is_none() && !has_textconv {
+            continue;
+        }
+        name.hash(&mut hasher);
+        algorithm_tag(*algorithm).hash(&mut hasher);
+        binary_tag(*is_binary).hash(&mut hasher);
+        has_textconv.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Project an optional diff algorithm onto a small integer for the
@@ -383,6 +415,64 @@ fn binary_tag(is_binary: Option<bool>) -> u8 {
     }
 }
 
+/// Build the tree-to-tree blob-diff platform from an already loaded
+/// `index`: what [`gix::Repository::diff_resource_cache_for_tree_diff`]
+/// builds, minus the index load it performs for itself. Spelled out so
+/// [`WalkContext::open`] can load the index once and keep it (#1760 reads
+/// it again); `the_hand_built_platform_matches_gix_s` pins that the two
+/// constructions diff under the same configuration.
+///
+/// The attribute source is `IdMapping`: without worktree roots gix reads
+/// `.gitattributes` from the index's blobs, never from the working tree,
+/// which is what `diff_resource_cache` selects for an unset
+/// [`WorktreeRoots`](gix::diff::blob::pipeline::WorktreeRoots).
+fn tree_diff_platform(
+    repo: &gix::Repository,
+    index: &gix::index::State,
+) -> gix::Result<gix::diff::blob::Platform> {
+    let stack = repo
+        .attributes_only(
+            index,
+            gix::worktree::stack::state::attributes::Source::IdMapping,
+        )?
+        .detach();
+    gix::diff::resource_cache(
+        repo,
+        gix::diff::blob::pipeline::Mode::ToGit,
+        stack,
+        gix::diff::blob::pipeline::WorktreeRoots::default(),
+    )
+}
+
+/// The two platforms one commit's tree diff fills: gix's rewrite tracker
+/// borrows one for the whole `for_each_to_obtain_tree_with_cache` call,
+/// and the visitor diffs each change through the other for its line
+/// counts. They cannot be one object — the visitor runs inside the call
+/// that holds the first — so the walk clones the context's template
+/// twice (drivers, attribute stack, an empty cache) once per build.
+struct DiffPlatforms {
+    /// Filled by the visitor's `change.diff` for line counts.
+    lines: gix::diff::blob::Platform,
+    /// Filled by gix's rename tracking, when `track_rewrites` is set.
+    rewrites: gix::diff::blob::Platform,
+}
+
+impl DiffPlatforms {
+    /// Two empty-cache clones of `template`.
+    fn from_template(template: &gix::diff::blob::Platform) -> Self {
+        Self {
+            lines: template.clone(),
+            rewrites: template.clone(),
+        }
+    }
+
+    /// Drop every cached blob from both platforms, buffers included.
+    fn clear(&mut self) {
+        self.lines.clear_resource_cache();
+        self.rewrites.clear_resource_cache();
+    }
+}
+
 /// Walk history from `tip`, emitting one [`CommitEvent`] per in-window,
 /// non-merge, non-bot-only commit, newest-first.
 ///
@@ -414,16 +504,16 @@ pub(crate) fn collect_events(
     let resolver = ParticipantResolver::new(&walk.mailmap, bots.as_ref());
 
     let rewrites = options.follow_renames.then(Rewrites::default);
-    // Take line counts through the context's platform so the churn
+    // Take every diff through the context's platform so the churn
     // recorded here was produced under the configuration
     // `diff_config_digest` stamps the entry with. The walk fills and
-    // clears a resource cache per commit, so it takes a clone — the
-    // drivers, the attribute stack and an empty cache, once per build —
-    // rather than a mutable borrow of the context. (`for_each_to_obtain_tree`
-    // builds a second platform per commit, whether or not rename tracking
-    // uses it, from the same configuration, so the digest covers it too;
-    // retiring that rebuild is #1761.)
-    let mut cache = walk.diff.clone();
+    // clears the resource caches per commit, so it takes clones — the
+    // drivers, the attribute stack and an empty cache, twice per build —
+    // rather than a mutable borrow of the context. Handing gix the
+    // rewrite platform is what stops `for_each_to_obtain_tree` building
+    // one per commit, with the index load and attribute-file probes that
+    // costs (#1761).
+    let mut platforms = DiffPlatforms::from_template(&walk.diff);
 
     let mut events = Vec::new();
 
@@ -462,18 +552,24 @@ pub(crate) fn collect_events(
         }
 
         if let Some(event) = process_commit(
-            walk, &commit, info.id, raw_time, &resolver, rewrites, &mut cache,
+            walk,
+            &commit,
+            info.id,
+            raw_time,
+            &resolver,
+            rewrites,
+            &mut platforms,
         )? {
             events.push(event);
         }
 
-        // The resource cache only grows; clear it each commit to keep
+        // The resource caches only grow; clear both each commit to keep
         // memory bounded across a long history (gix docs guidance). Unlike
         // `enumerate_target_files`, the walk frees the buffers too: kept,
         // each grows to the largest blob it has held, and over this
         // repository's history that raised peak RSS by 7-13 MB for a
         // 1-2% shorter walk.
-        cache.clear_resource_cache();
+        platforms.clear();
     }
 
     Ok((events, None))
@@ -490,7 +586,7 @@ fn process_commit(
     raw_time: i64,
     resolver: &ParticipantResolver<'_>,
     rewrites: Option<Rewrites>,
-    cache: &mut gix::diff::blob::Platform,
+    platforms: &mut DiffPlatforms,
 ) -> Result<Option<CommitEvent>, Error> {
     let WalkContext { repo, options, .. } = *walk;
     // Only the first parent (for the diff base) and whether more than
@@ -531,7 +627,7 @@ fn process_commit(
         None => repo.empty_tree(),
     };
 
-    let (renames, touched) = diff_collect(&parent_tree, &commit_tree, cache, rewrites)?;
+    let (renames, touched) = diff_collect(&parent_tree, &commit_tree, platforms, rewrites)?;
 
     Ok(Some(CommitEvent {
         oid: oid.to_string(),
@@ -558,11 +654,15 @@ fn process_commit(
 fn diff_collect(
     parent_tree: &gix::Tree<'_>,
     commit_tree: &gix::Tree<'_>,
-    cache: &mut gix::diff::blob::Platform,
+    platforms: &mut DiffPlatforms,
     rewrites: Option<Rewrites>,
 ) -> Result<(RenameEdges, TouchedFiles), Error> {
     use gix::object::tree::diff::Change;
 
+    let DiffPlatforms {
+        lines: cache,
+        rewrites: rewrite_cache,
+    } = platforms;
     let mut renames: RenameEdges = Vec::new();
     let mut touched: TouchedFiles = Vec::new();
     parent_tree
@@ -572,8 +672,9 @@ fn diff_collect(
             opts.track_path();
             opts.track_rewrites(rewrites);
         })
-        .for_each_to_obtain_tree(
+        .for_each_to_obtain_tree_with_cache(
             commit_tree,
+            rewrite_cache,
             diff_visitor(|change| {
                 // Only regular file blobs carry line churn. Skipping every
                 // non-blob mode drops directories, symlinks (per spec), and

@@ -74,12 +74,17 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     };
     let target_tree = commit.tree().map_err(walk_err)?;
 
-    // Seed file set (path → SLOC) at the target ref, scoped to the
-    // requested file types (issue #576).
-    let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
-
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
     let walk = history::WalkContext::open(&repo, options, now)?;
+    // Seed file set (path → SLOC) at the target ref, scoped to the
+    // requested file types (issue #576), diffed through the walk's
+    // platform.
+    let seed = repo::enumerate_target_files(
+        &repo,
+        &target_tree,
+        &options.file_types,
+        walk.diff_platform(),
+    )?;
     // Uncached: walk the whole long window (no splice points) and replay
     // the resulting event log — the same fold a cache hit takes, so the
     // two cannot diverge.

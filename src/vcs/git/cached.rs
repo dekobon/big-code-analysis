@@ -139,12 +139,17 @@ pub(crate) fn build_cached(
         cache::clear_repo(dir)?;
     }
 
-    let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
-
     // Opened before the `--no-cache` early return: the walk needs the
     // snapshot and the diff platform either way; only the digests are
-    // skipped there.
+    // skipped there. And before the seed, which diffs through the same
+    // platform.
     let walk = history::WalkContext::open(&repo, options, now)?;
+    let seed = repo::enumerate_target_files(
+        &repo,
+        &target_tree,
+        &options.file_types,
+        walk.diff_platform(),
+    )?;
 
     // Caching disabled, or no cache location available: plain walk + replay.
     let Some(repo_dir) = repo_dir.filter(|_| config.enabled) else {

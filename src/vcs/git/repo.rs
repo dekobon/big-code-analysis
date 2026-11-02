@@ -128,6 +128,14 @@ fn map_discover_error(root: &Path, error: &gix::Error) -> Error {
 /// tree: every in-scope file then appears as an `Addition` whose "added"
 /// line count is the file's total line count.
 ///
+/// `platform` is the walk context's empty-cache template: the line
+/// counts come through a clone of it, so the seed is measured under the
+/// same diff configuration as the churn, and no second platform — with
+/// its index load and attribute-file probes — is built for the seed
+/// (#1761). gix's `for_each_to_obtain_tree` would build a third one for
+/// the rewrite tracker it never uses here; the `_with_cache` form takes
+/// the same clone instead.
+///
 /// # Errors
 ///
 /// Returns [`Error::Diff`] if the diff machinery fails, or if a path is
@@ -136,9 +144,14 @@ pub(crate) fn enumerate_target_files(
     repo: &gix::Repository,
     target_tree: &gix::Tree<'_>,
     scope: &FileTypeScope,
+    platform: &gix::diff::blob::Platform,
 ) -> Result<HashMap<PathBuf, u64>, Error> {
     let empty = repo.empty_tree();
-    let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
+    let mut cache = platform.clone();
+    // Never filled: rewrite tracking is off below. gix still takes a
+    // platform by `&mut` for the whole call, and the visitor holds the
+    // other, so this is the cheapest value that satisfies the signature.
+    let mut rewrite_cache = platform.clone();
     let mut files = HashMap::new();
 
     empty
@@ -150,8 +163,9 @@ pub(crate) fn enumerate_target_files(
             // addition relative to the empty tree.
             opts.track_rewrites(None);
         })
-        .for_each_to_obtain_tree(
+        .for_each_to_obtain_tree_with_cache(
             target_tree,
+            &mut rewrite_cache,
             diff_visitor(|change| {
                 let entry_mode = change.entry_mode();
                 if entry_mode.is_blob() && !entry_mode.is_link() {

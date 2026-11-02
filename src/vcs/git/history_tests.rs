@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::vcs::git::tests::{commit_tree_as, tree_with};
@@ -63,13 +63,14 @@ fn the_walk_resolves_identities_through_the_captured_snapshot() {
     // work-tree file written above: the view a second read would see.
     let repo = repo::open(dir.path()).expect("open").repo;
     let options = Options::default();
+    let index = repo.index_or_load_from_head_or_empty().expect("index");
+    let diff = tree_diff_platform(&repo, &index).expect("diff platform");
     let walk = WalkContext {
         repo: &repo,
         options: &options,
         mailmap: captured,
-        diff: repo
-            .diff_resource_cache_for_tree_diff()
-            .expect("diff platform"),
+        index,
+        diff,
         shallow: None,
         now,
     };
@@ -94,6 +95,186 @@ fn the_walk_resolves_identities_through_the_captured_snapshot() {
              Grace's digest means the walk re-read the on-disk mailmap"
         );
     }
+}
+
+/// A tree of `files` as `(name, contents)`, every one a regular blob.
+fn tree_of(repo: &gix::Repository, files: &[(&str, &[u8])]) -> gix::ObjectId {
+    let mut entries: Vec<gix::objs::tree::Entry> = files
+        .iter()
+        .map(|(name, contents)| gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: (*name).into(),
+            oid: repo.write_blob(contents).expect("write blob").detach(),
+        })
+        .collect();
+    entries.sort();
+    repo.write_object(&gix::objs::Tree { entries })
+        .expect("write tree")
+        .detach()
+}
+
+/// Regression for the per-commit clears in `collect_events` (#1761).
+///
+/// Without worktree roots gix keys its resource cache by blob id alone
+/// (`CacheKey::use_id`), not by path, so a conversion cached for a blob
+/// at one path is served for the same blob at any other — including a
+/// path whose `diff` attribute binding differs. The walk fills two
+/// platforms per commit and clears both before the next, so a stale
+/// conversion can only cross commits if a clear is dropped; this fixture
+/// makes each drop observable on its own.
+///
+/// The tip adds `x.bin`, bound `-diff` by the committed `.gitattributes`
+/// (the platform reads it from the index gix builds from `HEAD`'s tree),
+/// and deletes `old.rs`, so rename tracking runs a similarity check that
+/// caches `x.bin`'s blob as *binary* in the rewrite platform; the line
+/// counts cache the same verdict in the other. The parent then renames
+/// `b.rs` to `a.rs` with that same blob as the new content. Walked
+/// newest-first with both clears, `a.rs` is text there: the rename is
+/// found and its churn recorded. Verified by revert, one clear at a
+/// time: without the rewrite clear the similarity check reads the stale
+/// binary verdict and the rename is lost (`renames` empty, `b.rs` a
+/// deletion); without the line-count clear the rename survives but
+/// `a.rs` is skipped as binary and drops out of `touched`.
+#[test]
+fn the_per_commit_clears_keep_a_blob_s_attribute_binding_from_crossing_commits() {
+    const ATTRIBUTES: &[u8] = b"*.bin -diff\n";
+    const BEFORE: &[u8] = b"fn a() {}\nfn b() {}\nfn c() {}\n";
+    const AFTER: &[u8] = b"fn a() {}\nfn b() {}\nfn c() {}\nfn d() {}\n";
+    const OTHER: &[u8] = b"fn old() {}\n";
+    let dir = tempfile::tempdir().expect("temp dir");
+    let scratch = gix::init(dir.path()).expect("init repository");
+    let now = current_unix_seconds();
+    let ada = ("Ada", "ada@example.com");
+    let root = commit_tree_as(
+        &scratch,
+        ada,
+        now - 3 * DAY,
+        tree_of(
+            &scratch,
+            &[
+                (".gitattributes", ATTRIBUTES),
+                ("b.rs", BEFORE),
+                ("old.rs", OTHER),
+            ],
+        ),
+        &[],
+    );
+    let renamed = commit_tree_as(
+        &scratch,
+        ada,
+        now - 2 * DAY,
+        tree_of(
+            &scratch,
+            &[
+                (".gitattributes", ATTRIBUTES),
+                ("a.rs", AFTER),
+                ("old.rs", OTHER),
+            ],
+        ),
+        &[root],
+    );
+    let tip = commit_tree_as(
+        &scratch,
+        ada,
+        now - DAY,
+        tree_of(
+            &scratch,
+            &[
+                (".gitattributes", ATTRIBUTES),
+                ("a.rs", AFTER),
+                ("x.bin", AFTER),
+            ],
+        ),
+        &[renamed],
+    );
+
+    // Isolated from the host's global attributes file, which could bind
+    // `*.rs` or `*.bin` itself.
+    let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).expect("open");
+    let options = Options::default();
+    assert!(
+        options.follow_renames,
+        "the fixture is about rename tracking"
+    );
+    let walk = WalkContext::open(&repo, &options, now).expect("open context");
+    let (events, _) = collect_events(&walk, tip, &HashSet::new()).expect("walk");
+    assert_eq!(events.len(), 3, "every commit is inside the long window");
+
+    let at_tip = &events[0];
+    assert_eq!(at_tip.oid, tip.to_string());
+    assert_eq!(
+        at_tip.touched,
+        [(PathBuf::from("old.rs"), 1)],
+        "`x.bin` is bound `-diff` and so records no churn; only the deletion does"
+    );
+
+    let at_rename = &events[1];
+    assert_eq!(at_rename.oid, renamed.to_string());
+    assert_eq!(
+        at_rename.renames,
+        [(PathBuf::from("b.rs"), PathBuf::from("a.rs"))],
+        "the similarity check must read `a.rs`'s blob as text, not the binary \
+         verdict the tip cached for the same blob at `x.bin`"
+    );
+    assert_eq!(
+        at_rename.touched,
+        [(PathBuf::from("a.rs"), 1)],
+        "one inserted line: the line counts must read the blob as text too"
+    );
+}
+
+/// `WalkContext::open` builds its platform from an index it loads once
+/// (#1761 keeps the index for #1760), where gix's
+/// `diff_resource_cache_for_tree_diff` loads one of its own. The two must
+/// diff under the same configuration: same mode, and the same algorithm,
+/// drivers and threshold the cache digest projects. A sanity check on an
+/// equivalence rather than a discriminating test — swapping one
+/// construction for the other passes it by definition — so the config
+/// sets every field the digest reads away from its default, which is
+/// what makes a construction that read none of them fail here.
+#[test]
+fn the_hand_built_platform_matches_gix_s() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    gix::init(dir.path()).expect("init repository");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(dir.path().join(".git").join("config"))
+        .expect("open config")
+        .write_all(
+            b"[diff]\n\talgorithm = histogram\n\
+              [diff \"rs\"]\n\talgorithm = minimal\n\tbinary = false\n\ttextconv = cat\n\
+              [core]\n\tbigFileThreshold = 1024\n",
+        )
+        .expect("append config");
+    let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).expect("open");
+
+    let index = repo.index_or_load_from_head_or_empty().expect("index");
+    let by_hand = tree_diff_platform(&repo, &index).expect("hand-built platform");
+    let by_gix = repo
+        .diff_resource_cache_for_tree_diff()
+        .expect("gix platform");
+
+    assert_eq!(by_hand.filter_mode, gix::diff::blob::pipeline::Mode::ToGit);
+    assert_eq!(by_hand.filter_mode, by_gix.filter_mode);
+    assert_eq!(
+        diff_config_digest(&by_hand),
+        diff_config_digest(&by_gix),
+        "the hand-built platform must carry gix's algorithm, drivers and threshold"
+    );
+    let unconfigured = tempfile::tempdir().expect("temp dir");
+    gix::init(unconfigured.path()).expect("init repository");
+    let default_repo =
+        gix::open_opts(unconfigured.path(), gix::open::Options::isolated()).expect("open");
+    assert_ne!(
+        diff_config_digest(&by_hand),
+        diff_config_digest(
+            &default_repo
+                .diff_resource_cache_for_tree_diff()
+                .expect("default platform")
+        ),
+        "the config written above must move the digest, or the equality \
+         holds for a platform that read no configuration at all"
+    );
 }
 
 /// Append `section` to the repository's own config file and re-open, so

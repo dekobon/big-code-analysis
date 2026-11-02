@@ -214,7 +214,13 @@ fn collect_touched(
     use gix::object::tree::diff::Change;
 
     let rewrites = options.follow_renames.then(Rewrites::default);
+    // One platform built from the repository, and a clone of it for gix's
+    // rewrite tracker: without the `_with_cache` form gix builds that
+    // second one itself, loading the index and probing the attribute
+    // files again (#1761). The clone copies drivers, attribute stack and
+    // an empty resource cache.
     let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
+    let mut rewrite_cache = cache.clone();
     let mut touched = Vec::new();
 
     parent_tree
@@ -224,8 +230,9 @@ fn collect_touched(
             opts.track_path();
             opts.track_rewrites(rewrites);
         })
-        .for_each_to_obtain_tree(
+        .for_each_to_obtain_tree_with_cache(
             commit_tree,
+            &mut rewrite_cache,
             diff_visitor(|change| {
                 let mode = change.entry_mode();
                 if !mode.is_blob() || mode.is_link() {

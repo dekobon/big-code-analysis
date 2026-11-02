@@ -111,6 +111,47 @@ fn a_missing_blob_at_the_target_fails_enumeration_with_a_diff_error() {
     assert!(matches!(err, Error::Diff(_)), "got {err:?}");
 }
 
+/// The cached build takes the same seed enumeration through its own
+/// `?` (`build_cached`, after the context opens): with the cache on,
+/// a missing target blob must fail the build as `Error::Diff` before
+/// anything is persisted — a seed error that was swallowed, or turned
+/// into an empty index, would be stamped into the cache and served as
+/// a hit on every later run. The one commit is dated two years back,
+/// outside the default long window, so the walk never diffs it and the
+/// seed is the only reader of the blob: a `?` the walk also takes would
+/// otherwise mask the seed's (seen by perturbation — with the commit
+/// inside the window, `unwrap_or_default()` on the seed still failed
+/// the build, from the walk). The cache root is a scratch directory,
+/// so no entry can pre-exist, and after the failure it holds none.
+#[test]
+fn a_missing_blob_at_the_target_fails_the_cached_build_with_a_diff_error() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    commit_tree_as(
+        &repo,
+        ("Ada", "ada@example.com"),
+        current_unix_seconds() - 2 * 365 * 86_400,
+        tree_with(&repo, dangling_blob()),
+        &[],
+    );
+    let cache_root = tempfile::tempdir().expect("cache dir");
+    let config = crate::vcs::CacheConfig {
+        dir: Some(cache_root.path().to_path_buf()),
+        ..Default::default()
+    };
+
+    let err = build_cached(dir.path(), &Options::default(), &config)
+        .expect_err("the target blob is missing");
+    assert!(matches!(err, Error::Diff(_)), "got {err:?}");
+    assert!(
+        std::fs::read_dir(cache_root.path())
+            .expect("list cache root")
+            .next()
+            .is_none(),
+        "a failed seed persists nothing"
+    );
+}
+
 #[test]
 fn a_missing_blob_in_history_fails_the_walk_with_a_diff_error() {
     let dir = tempfile::tempdir().expect("temp dir");

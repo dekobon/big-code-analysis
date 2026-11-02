@@ -1517,7 +1517,7 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 78478.58535363215
+value = 79571.65362415284
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
@@ -1553,7 +1553,7 @@ value = 74116.87497554444
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "halstead.effort"
-value = 50009.85179765145
+value = 50110.02743044424
 
 [[entry]]
 path = "src/vcs/git/history.rs"
@@ -1569,7 +1569,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L577>"
+qualified = "diff_collect::<anon@L678>"
 metric = "nexits"
 value = 6.0
 
@@ -1588,12 +1588,18 @@ value = 9.0
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "collect_touched"
+metric = "halstead.effort"
+value = 47721.9472077602
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "collect_touched"
 metric = "nexits"
 value = 10.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
-qualified = "collect_touched::<anon@L229>"
+qualified = "collect_touched::<anon@L236>"
 metric = "nexits"
 value = 7.0
 
@@ -1661,7 +1667,7 @@ value = 5.0
 path = "src/vcs/git/repo.rs"
 qualified = "enumerate_target_files"
 metric = "nexits"
-value = 7.0
+value = 6.0
 
 [[entry]]
 path = "src/vcs/git/trend.rs"

@@ -219,6 +219,31 @@ for historical reference.
 
 ### Changed
 
+- **The history walk no longer rebuilds gix's blob-diff platform for
+  every commit it visits** (#1761). `for_each_to_obtain_tree` builds a
+  platform per call for its rename tracker, whether or not rename
+  tracking is on, and each build `stat`s or loads the index, scans it
+  for `.gitattributes` and probes the global attribute files — in a
+  bare repository, it rebuilds an index from `HEAD`'s tree every time.
+  The walk now clones the context's platform twice per build, one for
+  the line counts as before and one handed to
+  `for_each_to_obtain_tree_with_cache` for rename tracking, and clears
+  both per commit; the seed enumeration takes a clone of the same
+  platform instead of building its own, and `bca vcs commit`'s single
+  diff reuses its one platform the same way. Over this repository's
+  2 348 diffed commits, `bca vcs --no-cache` went from 2 348 index
+  accesses and 2 346 probes of each global attribute file to 3 and 1.
+  Against a build of the same tree with only the `_with_cache` call
+  reverted, a bare clone went from 3.97 s ± 0.14 to 3.43 s ± 0.19, and
+  a non-bare one did not move (3.44 s ± 0.06 to 3.52 s ± 0.24, within
+  noise): the bare rebuild constructs an index from `HEAD`'s tree each
+  time, the non-bare one only `stat`s `.git/index`. Peak RSS moved by
+  under 1%.
+  Output is unchanged — the cache-parity suites pin a hit against a
+  fresh walk — and a new fixture pins the per-commit clears, since
+  gix keys the resource cache by blob id alone: a blob reused at a path
+  bound `-diff` would otherwise serve its binary verdict to the next
+  commit's rename check.
 - **The self-scan recipes build `bca` under the dev profile** (#1773).
   `make self-scan`, `self-scan-headroom`, both `write-baseline`
   recipes and `vcs` used to `cargo run --release`, whose `lto = true`
