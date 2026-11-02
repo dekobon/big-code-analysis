@@ -724,7 +724,14 @@ for historical reference.
   `field`. "Present" means numeric: a leaf that is `null` on one side —
   how a non-finite derived value such as a `vcs` ratio is written — reads
   as absent there, so two captures by one bca version can list a field
-  that became applicable between them.
+  that became applicable between them. In the text and Markdown forms
+  a family wholly missing on one side is rolled up to one row per file
+  and metric counting its leaves (`src/a.rs  mi  (all 3 field(s))`)
+  rather than listed leaf by leaf, which for two captures with
+  different `--metrics` sets ran to 110 rows per file; the per-leaf
+  rows are kept where the family exists on both sides and only some of
+  its leaves differ. The JSON rows, the summary counts and
+  `--exit-code` are per leaf either way (#1766).
 
 - `bca diff --format markdown` writes the `Added files` / `Removed
   files` lists as fenced `text` blocks, like its other sections, where

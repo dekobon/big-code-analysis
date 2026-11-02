@@ -97,12 +97,23 @@ fn added_and_removed_files_are_set_level() {
     assert_eq!(diff.removed_files, vec!["gone"]);
 }
 
-/// Build the one-sided-field row the tests below expect.
+/// Build the one-sided-field row the tests below expect for a leaf whose
+/// family exists on both sides.
 fn presence(file: &str, metric: &str, field: &str) -> FieldPresence {
     FieldPresence {
         file: file.to_owned(),
         metric: metric.to_owned(),
         field: field.to_owned(),
+        family_absent: false,
+    }
+}
+
+/// The same row for a leaf whose whole family key is missing on the side
+/// that lacks the number (#1766).
+fn absent_family(file: &str, metric: &str, field: &str) -> FieldPresence {
+    FieldPresence {
+        family_absent: true,
+        ..presence(file, metric, field)
     }
 }
 
@@ -142,7 +153,9 @@ fn field_present_on_one_side_is_listed_not_diffed() {
 /// different `--metrics` sets. Every leaf of a family the old capture
 /// never computed is listed under its own bucket name — `loc` leaves
 /// under the expanded sub-metric, as the buckets would file them — and
-/// the rows come out sorted by (file, metric, field).
+/// the rows come out sorted by (file, metric, field). The `mi` leaves
+/// carry `family_absent` because the key is missing on the old side;
+/// the `loc` leaf does not, since `loc` exists on both (#1766).
 #[test]
 fn differing_metrics_sets_list_whole_families_by_bucket() {
     let old = set(
@@ -162,12 +175,276 @@ fn differing_metrics_sets_list_whole_families_by_bucket() {
     assert_eq!(
         diff.added_fields,
         vec![
-            presence("a", "mi", "original"),
-            presence("a", "mi", "sei"),
+            absent_family("a", "mi", "original"),
+            absent_family("a", "mi", "sei"),
             presence("a", "sloc", "sloc_average"),
         ]
     );
     assert_eq!(diff.removed_fields, [] as [FieldPresence; 0]);
+}
+
+/// #1766: the human renderers roll a wholly absent family up to one row
+/// per `(file, bucket)` naming the leaf count, in both directions and
+/// in both renderers. The rows stay per leaf on the struct, so the
+/// summary line still counts leaves. `nom` has three leaves on `a.rs`,
+/// `nargs` one — a one-leaf absent family still reads `(all 1 field(s))`,
+/// since the row says the family was missing, not just the leaf. The
+/// same `nom` family is absent on `b.rs` too, with two leaves, and its
+/// rows sort directly after `a.rs`'s `nom` rows: the roll-up is per
+/// file, so they are two rows with two counts, not one row of five.
+#[test]
+fn wholly_absent_family_collapses_to_one_row_per_bucket() {
+    let mut old = set("src/a.rs", json!({ "cyclomatic": { "sum": 3.0 } }));
+    old.insert(
+        "src/b.rs".to_string(),
+        json!({ "cyclomatic": { "sum": 1.0 } }),
+    );
+    let mut new = set(
+        "src/a.rs",
+        json!({
+            "cyclomatic": { "sum": 3.0 },
+            "nom": { "functions": 2.0, "closures": 0.0, "total": 2.0 },
+            "nargs": { "total_functions": 4.0 }
+        }),
+    );
+    new.insert(
+        "src/b.rs".to_string(),
+        json!({
+            "cyclomatic": { "sum": 1.0 },
+            "nom": { "functions": 1.0, "total": 1.0 }
+        }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    assert_eq!(
+        diff.added_fields,
+        vec![
+            absent_family("src/a.rs", "nargs", "total_functions"),
+            absent_family("src/a.rs", "nom", "closures"),
+            absent_family("src/a.rs", "nom", "functions"),
+            absent_family("src/a.rs", "nom", "total"),
+            absent_family("src/b.rs", "nom", "functions"),
+            absent_family("src/b.rs", "nom", "total"),
+        ]
+    );
+    assert_eq!(
+        diff.render_tty("src/"),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         6 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \x20 a.rs  nargs  (all 1 field(s))\n\
+         \x20 a.rs  nom    (all 3 field(s))\n\
+         \x20 b.rs  nom    (all 2 field(s))\n"
+    );
+    assert_eq!(
+        diff.render_markdown("src/"),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         6 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \n\
+         ```text\n\
+         a.rs  nargs  (all 1 field(s))\n\
+         a.rs  nom    (all 3 field(s))\n\
+         b.rs  nom    (all 2 field(s))\n\
+         ```\n"
+    );
+
+    let diff = MetricDiff::from_sets(&new, &old, 0.0, &[]);
+    assert_eq!(diff.removed_fields.len(), 6);
+    assert!(diff.removed_fields.iter().all(|p| p.family_absent));
+    assert_eq!(
+        diff.render_tty("src/"),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         0 added field(s), 6 removed field(s)\n\
+         \n\
+         ## Removed fields\n\
+         \x20 a.rs  nargs  (all 1 field(s))\n\
+         \x20 a.rs  nom    (all 3 field(s))\n\
+         \x20 b.rs  nom    (all 2 field(s))\n"
+    );
+}
+
+/// A family present on both sides whose leaves only partly differ is
+/// not "wholly absent": its one-sided leaves stay per leaf, in the
+/// rows and in the renderers, because *which* leaves differ is the
+/// information. The flag is set from the family key alone, so an empty
+/// object facing a full one — every leaf one-sided, the key on both
+/// sides — is still per leaf (#1766).
+#[test]
+fn partial_family_keeps_per_leaf_rows() {
+    let old = set("src/a.rs", json!({ "halstead": { "n1": 1.0 }, "nom": {} }));
+    let new = set(
+        "src/a.rs",
+        json!({
+            "halstead": { "n1": 1.0, "n2": 2.0, "volume": 3.5 },
+            "nom": { "functions": 1.0, "total": 1.0 }
+        }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    assert_eq!(
+        diff.added_fields,
+        vec![
+            presence("src/a.rs", "halstead", "n2"),
+            presence("src/a.rs", "halstead", "volume"),
+            presence("src/a.rs", "nom", "functions"),
+            presence("src/a.rs", "nom", "total"),
+        ]
+    );
+    assert!(diff.added_fields.iter().all(|p| !p.family_absent));
+    assert_eq!(
+        diff.render_tty("src/"),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         4 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \x20 a.rs  halstead  n2\n\
+         \x20 a.rs  halstead  volume\n\
+         \x20 a.rs  nom       functions\n\
+         \x20 a.rs  nom       total\n"
+    );
+    assert_eq!(
+        diff.render_markdown("src/"),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         4 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \n\
+         ```text\n\
+         a.rs  halstead  n2\n\
+         a.rs  halstead  volume\n\
+         a.rs  nom       functions\n\
+         a.rs  nom       total\n\
+         ```\n"
+    );
+}
+
+/// A `loc` family absent on one side fans into its six `list-metrics`
+/// buckets, and each bucket rolls up separately — six rows, each
+/// counting that row's own leaves (#1766).
+#[test]
+fn absent_loc_family_collapses_per_expanded_bucket() {
+    let old = set("a", json!({ "cyclomatic": { "sum": 3.0 } }));
+    let new = set(
+        "a",
+        json!({
+            "cyclomatic": { "sum": 3.0 },
+            "loc": {
+                "blank": 1.0, "blank_average": 0.5,
+                "cloc": 2.0, "cloc_average": 1.0, "cloc_min": 0.0,
+                "dloc": 0.0,
+                "lloc": 4.0, "lloc_max": 4.0,
+                "ploc": 5.0,
+                "sloc": 6.0, "sloc_average": 3.0, "sloc_min": 1.0, "sloc_max": 5.0
+            }
+        }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    assert_eq!(diff.added_fields.len(), 13);
+    assert!(diff.added_fields.iter().all(|p| p.family_absent));
+    assert_eq!(
+        diff.render_tty(""),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         13 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \x20 a  blank  (all 2 field(s))\n\
+         \x20 a  cloc   (all 3 field(s))\n\
+         \x20 a  dloc   (all 1 field(s))\n\
+         \x20 a  lloc   (all 2 field(s))\n\
+         \x20 a  ploc   (all 1 field(s))\n\
+         \x20 a  sloc   (all 4 field(s))\n"
+    );
+}
+
+/// The JSON form is untouched by the roll-up: the same input renders
+/// the same per-leaf `added_fields` rows and the same `summary` counts
+/// whether or not the family was wholly absent, and no row carries a
+/// `family_absent` key (#1766).
+#[test]
+fn json_rows_stay_per_leaf_for_an_absent_family() {
+    let old = set("src/a.rs", json!({ "cyclomatic": { "sum": 3.0 } }));
+    let new = set(
+        "src/a.rs",
+        json!({
+            "cyclomatic": { "sum": 3.0 },
+            "mi": { "original": 100.5, "sei": 90.0 }
+        }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+    assert!(diff.added_fields.iter().all(|p| p.family_absent));
+    let rendered = diff.render_json().expect("serialize diff JSON");
+    assert_eq!(
+        rendered,
+        "{\n\
+         \x20 \"summary\": {\n\
+         \x20   \"metrics_changed\": 0,\n\
+         \x20   \"total_changes\": 0,\n\
+         \x20   \"added_files\": 0,\n\
+         \x20   \"removed_files\": 0,\n\
+         \x20   \"added_fields\": 2,\n\
+         \x20   \"removed_fields\": 0\n\
+         \x20 },\n\
+         \x20 \"buckets\": {},\n\
+         \x20 \"added_files\": [],\n\
+         \x20 \"removed_files\": [],\n\
+         \x20 \"added_fields\": [\n\
+         \x20   {\n\
+         \x20     \"file\": \"src/a.rs\",\n\
+         \x20     \"metric\": \"mi\",\n\
+         \x20     \"field\": \"original\"\n\
+         \x20   },\n\
+         \x20   {\n\
+         \x20     \"file\": \"src/a.rs\",\n\
+         \x20     \"metric\": \"mi\",\n\
+         \x20     \"field\": \"sei\"\n\
+         \x20   }\n\
+         \x20 ],\n\
+         \x20 \"removed_fields\": []\n\
+         }\n"
+    );
+}
+
+/// The flag is set by `metric_leaves` alone, from the family key being
+/// on one side only, and lives in the one-sided `LeafValues` variants: a
+/// leaf of a family present on both sides never carries it, however the
+/// leaf itself is one-sided — missing, `null`, or facing an object — in
+/// either direction. A `Both` leaf has no slot for it, so the type
+/// itself keeps the flag away from a delta (#1766).
+#[test]
+fn family_absent_is_set_only_from_the_family_key() {
+    let old = json!({
+        "cyclomatic": { "sum": 3.0 },
+        "halstead": { "n1": 1.0, "difficulty": null },
+        "nexits": 3.0,
+        "nom": { "total": 2.0 }
+    });
+    let new = json!({
+        "cyclomatic": { "sum": 4.0, "max": 2.0 },
+        "halstead": { "n1": 1.0, "difficulty": 2.0 },
+        "nexits": { "sum": 3.0 },
+        "mi": { "original": 100.0 }
+    });
+    let leaves = metric_leaves(&old, &new);
+    let leaves: Vec<(&str, &str, LeafValues)> = leaves
+        .iter()
+        .map(|l| (l.bucket.as_str(), l.field.as_str(), l.values))
+        .collect();
+    let present = |family_absent| LeafValues::NewOnly { family_absent };
+    let gone = |family_absent| LeafValues::OldOnly { family_absent };
+    assert_eq!(
+        leaves,
+        vec![
+            ("cyclomatic", "max", present(false)),
+            ("cyclomatic", "sum", LeafValues::Both { old: 3.0, new: 4.0 }),
+            ("halstead", "difficulty", present(false)),
+            ("halstead", "n1", LeafValues::Both { old: 1.0, new: 1.0 }),
+            ("mi", "original", present(true)),
+            ("nexits", "sum", present(false)),
+            ("nexits", "", gone(false)),
+            ("nom", "total", gone(true)),
+        ]
+    );
 }
 
 /// A real `0` is a value, not an absence: a field at `0.0` on both sides
@@ -187,14 +464,18 @@ fn zero_is_a_present_value_not_a_missing_one() {
     assert_eq!(bucket.changed[0].new, 2.0);
 
     assert_eq!(
-        LeafValues::classify(Some(0.0), None),
-        Some(LeafValues::OldOnly)
+        LeafValues::classify(Some(0.0), None, false),
+        Some(LeafValues::OldOnly {
+            family_absent: false
+        })
     );
     assert_eq!(
-        LeafValues::classify(None, Some(0.0)),
-        Some(LeafValues::NewOnly)
+        LeafValues::classify(None, Some(0.0), false),
+        Some(LeafValues::NewOnly {
+            family_absent: false
+        })
     );
-    assert_eq!(LeafValues::classify(None, None), None);
+    assert_eq!(LeafValues::classify(None, None, false), None);
 }
 
 /// A one-sided leaf belongs to a metric, so `--metric` selects or drops
@@ -214,7 +495,10 @@ fn one_sided_fields_honour_metric_filter_but_not_min_change() {
     );
     let diff = MetricDiff::from_sets(&old, &new, 1_000.0, &["mi.original".to_string()]);
     assert!(diff.buckets.is_empty());
-    assert_eq!(diff.added_fields, vec![presence("a", "mi", "original")]);
+    assert_eq!(
+        diff.added_fields,
+        vec![absent_family("a", "mi", "original")]
+    );
 
     let diff = MetricDiff::from_sets(&old, &new, 0.0, &["cyclomatic".to_string()]);
     assert!(
@@ -227,6 +511,8 @@ fn one_sided_fields_honour_metric_filter_but_not_min_change() {
 /// `serde_json` writes a non-finite float as `null`, so a key can exist
 /// with no number behind it. That side reads as absent — there is
 /// nothing to compare — and two `null`s are not a metric scalar at all.
+/// The family is on both sides, so the row is not rolled up (#1766):
+/// the leaf's name is what a `null` transition is about.
 #[test]
 fn null_leaf_reads_as_absent_on_that_side() {
     let null = set("a", json!({ "halstead": { "difficulty": null } }));
@@ -241,6 +527,14 @@ fn null_leaf_reads_as_absent_on_that_side() {
         diff.added_fields,
         vec![presence("a", "halstead", "difficulty")]
     );
+    assert_eq!(
+        diff.render_tty(""),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         1 added field(s), 0 removed field(s)\n\
+         \n\
+         ## Added fields\n\
+         \x20 a  halstead  difficulty\n"
+    );
     assert!(MetricDiff::from_sets(&null, &null, 0.0, &[]).is_empty());
 }
 
@@ -248,12 +542,20 @@ fn null_leaf_reads_as_absent_on_that_side() {
 /// section kind: the field sections sit between the file sections and
 /// the buckets, each row is `<file>  <metric>  <field>` with the first
 /// two columns padded to the section's widest entry (`longer.rs` and
-/// `sloc` set them), and `--strip-prefix` trims the file column.
+/// `sloc` set them), and `--strip-prefix` trims the file column. A
+/// wholly absent family (`mi` on both files, `nom` on `a.rs`) is one
+/// row per bucket counting its leaves; the `loc` leaf, whose family is
+/// on both sides, keeps its own row (#1766), and the summary line
+/// counts leaves either way.
 #[test]
 fn tty_and_markdown_list_one_sided_fields() {
     let mut old = set(
         "src/a.rs",
-        json!({ "cyclomatic": { "sum": 3.0 }, "nom": { "total": 1.0 } }),
+        json!({
+            "cyclomatic": { "sum": 3.0 },
+            "nom": { "total": 1.0 },
+            "loc": { "sloc": 10.0 }
+        }),
     );
     old.insert(
         "src/longer.rs".to_string(),
@@ -263,8 +565,8 @@ fn tty_and_markdown_list_one_sided_fields() {
         "src/a.rs",
         json!({
             "cyclomatic": { "sum": 4.0 },
-            "mi": { "original": 100.0 },
-            "loc": { "sloc_average": 2.0 }
+            "mi": { "original": 100.0, "sei": 90.0 },
+            "loc": { "sloc": 10.0, "sloc_average": 2.0 }
         }),
     );
     new.insert(
@@ -275,15 +577,15 @@ fn tty_and_markdown_list_one_sided_fields() {
     assert_eq!(
         diff.render_tty("src/"),
         "1 metric(s) changed, 0 added file(s), 0 removed file(s), \
-         3 added field(s), 1 removed field(s)\n\
+         4 added field(s), 1 removed field(s)\n\
          \n\
          ## Added fields\n\
-         \x20 a.rs       mi    original\n\
+         \x20 a.rs       mi    (all 2 field(s))\n\
          \x20 a.rs       sloc  sloc_average\n\
-         \x20 longer.rs  mi    sei\n\
+         \x20 longer.rs  mi    (all 1 field(s))\n\
          \n\
          ## Removed fields\n\
-         \x20 a.rs  nom  total\n\
+         \x20 a.rs  nom  (all 1 field(s))\n\
          \n\
          ## cyclomatic (1 change(s))\n\
          \x20 a.rs.sum  3 \u{2192} 4\n"
@@ -291,20 +593,20 @@ fn tty_and_markdown_list_one_sided_fields() {
     assert_eq!(
         diff.render_markdown("src/"),
         "1 metric(s) changed, 0 added file(s), 0 removed file(s), \
-         3 added field(s), 1 removed field(s)\n\
+         4 added field(s), 1 removed field(s)\n\
          \n\
          ## Added fields\n\
          \n\
          ```text\n\
-         a.rs       mi    original\n\
+         a.rs       mi    (all 2 field(s))\n\
          a.rs       sloc  sloc_average\n\
-         longer.rs  mi    sei\n\
+         longer.rs  mi    (all 1 field(s))\n\
          ```\n\
          \n\
          ## Removed fields\n\
          \n\
          ```text\n\
-         a.rs  nom  total\n\
+         a.rs  nom  (all 1 field(s))\n\
          ```\n\
          \n\
          ## cyclomatic (1 change(s))\n\
@@ -322,7 +624,9 @@ fn tty_and_markdown_list_one_sided_fields() {
 /// `field`) and must not vanish under the walk into the object. The
 /// family case is reachable from disk; the `null` tree is not, since the
 /// loader refuses that document (`json_without_a_metrics_object_is_not_a_document`),
-/// and is exercised here through `from_sets` directly.
+/// and is exercised here through `from_sets` directly. A `null` tree
+/// holds no family key, so each family is wholly absent and rolls up;
+/// the number-facing-object family is on both sides and does not (#1766).
 #[test]
 fn non_object_side_makes_every_leaf_one_sided() {
     let old = set("a", json!({ "cyclomatic": { "sum": 3.0 }, "nexits": 3.0 }));
@@ -331,11 +635,20 @@ fn non_object_side_makes_every_leaf_one_sided() {
     assert_eq!(
         diff.removed_fields,
         vec![
-            presence("a", "cyclomatic", "sum"),
-            presence("a", "nexits", "")
+            absent_family("a", "cyclomatic", "sum"),
+            absent_family("a", "nexits", "")
         ]
     );
     assert!(!diff.is_empty(), "the whole tree vanished");
+    assert_eq!(
+        diff.render_tty(""),
+        "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
+         0 added field(s), 2 removed field(s)\n\
+         \n\
+         ## Removed fields\n\
+         \x20 a  cyclomatic  (all 1 field(s))\n\
+         \x20 a  nexits      (all 1 field(s))\n"
+    );
 
     let new = set(
         "a",

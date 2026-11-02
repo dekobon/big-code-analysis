@@ -39,6 +39,7 @@
 //! has no delta to bucket: it is listed as an added or removed field
 //! beside the added and removed files instead (#1623).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -270,12 +271,22 @@ pub(crate) struct FieldDelta {
 /// `--metric` filter matches, and `field` is the dotted path within
 /// that metric's subtree, exactly as in [`FieldDelta`] — empty when the
 /// family key itself held the number. The field order is the sort order
-/// of every list the rows appear in.
+/// of every list the rows appear in; `(file, metric, field)` is unique
+/// per row, so `family_absent` never decides it.
+///
+/// `family_absent` records that the leaf's whole family key was missing
+/// on the side that lacks the number — the different-`--metrics` case —
+/// rather than the family being present with this leaf missing, `null`,
+/// or shaped differently. The human renderers roll such rows up to one
+/// per `(file, bucket)` (#1766); the JSON row and the summary counts
+/// stay per leaf, so the flag is not serialized.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub(crate) struct FieldPresence {
     pub(crate) file: String,
     pub(crate) metric: String,
     pub(crate) field: String,
+    #[serde(skip)]
+    pub(crate) family_absent: bool,
 }
 
 /// All deltas for one metric bucket. Files that appeared or vanished
@@ -434,15 +445,17 @@ impl MetricDiff {
                         new,
                     });
             }
-            LeafValues::NewOnly => self.added_fields.push(FieldPresence {
+            LeafValues::NewOnly { family_absent } => self.added_fields.push(FieldPresence {
                 file: file.to_owned(),
                 metric: bucket,
                 field,
+                family_absent,
             }),
-            LeafValues::OldOnly => self.removed_fields.push(FieldPresence {
+            LeafValues::OldOnly { family_absent } => self.removed_fields.push(FieldPresence {
                 file: file.to_owned(),
                 metric: bucket,
                 field,
+                family_absent,
             }),
         }
     }
@@ -643,26 +656,55 @@ fn key_prefix(prefix: &str) -> String {
 /// Column-aligned `<file>  <metric>  <field>` rows for a one-sided-field
 /// section, each file trimmed by `strip_prefix` for display. Shared by
 /// the TTY and Markdown renderers so the two cannot drift.
+///
+/// The leaves of a family wholly absent on one side are rolled up to
+/// one row per `(file, bucket)` reading `(all N field(s))` (#1766): two
+/// captures with different `--metrics` sets otherwise list every leaf
+/// of every missing family, zeros included — 110 rows per file — and
+/// the Markdown form outgrows a PR comment at about thirteen files. A
+/// family present on both sides keeps its per-leaf rows, since which
+/// leaves differ is then the information. A one-leaf bucket of an
+/// absent family still reads `(all 1 field(s))`: the row says the
+/// family itself was missing, which its leaf's name alone would not.
+/// `N` is the bucket's rows, which are its numeric leaves on the
+/// present side — a `null` leaf is not one (#1623) — so the counts
+/// across a section sum to the summary line's. `rows` is the list
+/// [`MetricDiff::from_sets`] `sort_unstable`d by `(file, metric,
+/// field)`, so a bucket's leaves are adjacent and one pass groups them;
+/// an unsorted list would split a bucket across rows.
 fn presence_rows<'a>(
     rows: &'a [FieldPresence],
     strip_prefix: &str,
 ) -> impl Iterator<Item = String> + 'a {
-    let files: Vec<&str> = rows
-        .iter()
-        .map(|p| strip_path_prefix(&p.file, strip_prefix))
+    debug_assert!(rows.is_sorted(), "presence rows are grouped by adjacency");
+    let display: Vec<(&str, &str, Cow<'_, str>)> = rows
+        .chunk_by(|a, b| {
+            a.family_absent && b.family_absent && a.file == b.file && a.metric == b.metric
+        })
+        .map(|group| {
+            let first = &group[0];
+            let file = strip_path_prefix(&first.file, strip_prefix);
+            let field = if first.family_absent {
+                Cow::Owned(format!("(all {} field(s))", group.len()))
+            } else {
+                Cow::Borrowed(field_label(&first.field))
+            };
+            (file, first.metric.as_str(), field)
+        })
         .collect();
-    let file_width = files.iter().map(|f| f.chars().count()).max().unwrap_or(0);
-    let metric_width = rows
+    let file_width = display
         .iter()
-        .map(|p| p.metric.chars().count())
+        .map(|(f, ..)| f.chars().count())
         .max()
         .unwrap_or(0);
-    rows.iter()
-        .zip(files)
-        .map(move |(FieldPresence { metric, field, .. }, file)| {
-            let field = field_label(field);
-            format!("{file:<file_width$}  {metric:<metric_width$}  {field}")
-        })
+    let metric_width = display
+        .iter()
+        .map(|(_, m, _)| m.chars().count())
+        .max()
+        .unwrap_or(0);
+    display.into_iter().map(move |(file, metric, field)| {
+        format!("{file:<file_width$}  {metric:<metric_width$}  {field}")
+    })
 }
 
 /// What a row calls a leaf with no field path: a family whose value is
@@ -725,14 +767,19 @@ fn row_bucket(family: &MetricFamily, field: &str) -> &'static str {
 /// What the two documents hold at one scalar leaf. Built only when at
 /// least one side is numeric, so the "neither" state is unrepresentable
 /// and no caller has to invent a value for a missing side (#1623).
+///
+/// Only the one-sided variants carry `family_absent` — whether the
+/// leaf's whole family key was missing on the side that lacks the
+/// number (#1766). A `Both` leaf's family is on both sides, so the
+/// question does not arise and the variant has no slot for it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum LeafValues {
     /// Numeric on both sides: a comparable pair.
     Both { old: f64, new: f64 },
     /// Numeric on the new side only.
-    NewOnly,
+    NewOnly { family_absent: bool },
     /// Numeric on the old side only.
-    OldOnly,
+    OldOnly { family_absent: bool },
 }
 
 impl LeafValues {
@@ -740,12 +787,14 @@ impl LeafValues {
     /// numeric: a key whose value is not a number (`serde_json` writes a
     /// non-finite float as `null`) carries nothing to compare on that
     /// side, so it reads as absent there. A leaf numeric on neither side
-    /// is not a metric scalar at all, hence `None`.
-    fn classify(old: Option<f64>, new: Option<f64>) -> Option<Self> {
+    /// is not a metric scalar at all, hence `None`. `family_absent` is
+    /// [`metric_leaves`]'s verdict on the leaf's family key and is kept
+    /// only by a one-sided result.
+    fn classify(old: Option<f64>, new: Option<f64>, family_absent: bool) -> Option<Self> {
         match (old, new) {
             (Some(old), Some(new)) => Some(Self::Both { old, new }),
-            (None, Some(_)) => Some(Self::NewOnly),
-            (Some(_), None) => Some(Self::OldOnly),
+            (None, Some(_)) => Some(Self::NewOnly { family_absent }),
+            (Some(_), None) => Some(Self::OldOnly { family_absent }),
             (None, None) => None,
         }
     }
@@ -777,9 +826,14 @@ fn metric_leaves(old_metrics: &Value, new_metrics: &Value) -> Vec<MetricLeaf> {
     for family_key in union_keys(old_obj, new_obj) {
         let old_sub = old_obj.and_then(|m| m.get(family_key));
         let new_sub = new_obj.and_then(|m| m.get(family_key));
+        // The key is on one side only, so every leaf under it is
+        // one-sided for the same reason; the renderers roll those up.
+        // A key present on both sides, whatever it holds, is not that
+        // case — its leaves answer which of them differ.
+        let family_absent = old_sub.is_none() != new_sub.is_none();
         let family_bucket = family_bucket(family_key);
         let mut leaves = Vec::new();
-        collect_leaves(old_sub, new_sub, String::new(), &mut leaves);
+        collect_leaves(old_sub, new_sub, String::new(), family_absent, &mut leaves);
         for (field, values) in leaves {
             let bucket = match family_bucket {
                 FamilyBucket::Family(name) => name.to_string(),
@@ -819,12 +873,17 @@ fn collect_leaves(
     old: Option<&Value>,
     new: Option<&Value>,
     prefix: String,
+    family_absent: bool,
     out: &mut Vec<(String, LeafValues)>,
 ) {
     // A number on either side is a leaf at this path whatever the other
     // side holds — including an object, which the recursion below walks
     // without ever seeing the number facing it.
-    let values = LeafValues::classify(old.and_then(Value::as_f64), new.and_then(Value::as_f64));
+    let values = LeafValues::classify(
+        old.and_then(Value::as_f64),
+        new.and_then(Value::as_f64),
+        family_absent,
+    );
     let old_obj = old.and_then(Value::as_object);
     let new_obj = new.and_then(Value::as_object);
     // Recurse over the union of keys so an added/removed nested field is
@@ -839,6 +898,7 @@ fn collect_leaves(
             old_obj.and_then(|m| m.get(k)),
             new_obj.and_then(|m| m.get(k)),
             child_prefix,
+            family_absent,
             out,
         );
     }

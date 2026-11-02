@@ -89,10 +89,25 @@ A leaf that carries a number on one side only (a family the other
 capture never computed because the two runs used different `--metrics`
 sets, or a field a newer bca started emitting) has nothing to diff
 against, so it is never compared with zero. It is listed under
-`## Added fields` / `## Removed fields` (and as `added_fields` /
-`removed_fields` rows of `{file, metric, field}` in the JSON form), is
-counted in the summary line, and counts as a difference for
-`--exit-code`. `--metric` filters these rows as it filters buckets;
+`## Added fields` / `## Removed fields` as a `<file>  <metric>  <field>`
+row, is counted in the summary line, and counts as a difference for
+`--exit-code`. When the whole family is missing on one side — the
+different-`--metrics` case, where every leaf is one-sided for the same
+reason — the text and Markdown forms roll its leaves up to one row per
+file and metric that counts them, `src/lib.rs  mi  (all 3 field(s))`;
+the per-leaf rows are kept where the family exists on both sides and
+only some of its leaves differ. The roll-up is still per file: a
+default-metrics capture diffed against a `--metrics cyclomatic` one
+renders 17 rows and about 1.2 KiB of Markdown per file (down from 110
+rows and about 7 KiB on the same pair), so GitHub's 65 536-character
+comment limit is reached at roughly 53 files rather than under ten. A
+form that is independent of tree size — one row per `(metric, field)`
+with a file count — is not implemented. The JSON form is per leaf
+either way: `added_fields` /
+`removed_fields` are arrays of `{file, metric, field}` rows, and the
+`summary` counts are leaf counts, so the rolled-up row and the summary
+line's `N added field(s)` can disagree in number by design.
+`--metric` filters these rows as it filters buckets;
 `--min-change` does not apply to them, since there is no delta to
 measure. "Present" means numeric: a leaf written as `null` on one side
 (how a non-finite derived value, such as a `vcs` ratio with nothing to

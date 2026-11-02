@@ -19,7 +19,9 @@ fn arg(path: &Path) -> &str {
 /// #1623: two captures of one file taken with different `--metrics`
 /// sets. The family the old capture never computed is listed as added
 /// fields, not diffed against an invented `0 → n`, in every renderer —
-/// and it still counts as a difference for `--exit-code`.
+/// and it still counts as a difference for `--exit-code`. The text form
+/// rolls the wholly absent `mi` family up to one row counting its
+/// leaves, while the JSON rows and the summary stay per leaf (#1766).
 #[test]
 fn one_sided_field_is_listed_and_counts_for_exit_code() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -32,7 +34,7 @@ fn one_sided_field_is_listed_and_counts_for_exit_code() {
     .expect("write old");
     std::fs::write(
         &new,
-        r#"{"name":"src/a.rs","metrics":{"cyclomatic":{"sum":3},"mi":{"original":100.5}}}"#,
+        r#"{"name":"src/a.rs","metrics":{"cyclomatic":{"sum":3},"mi":{"original":100.5,"sei":90}}}"#,
     )
     .expect("write new");
 
@@ -42,10 +44,10 @@ fn one_sided_field_is_listed_and_counts_for_exit_code() {
         .success()
         .stdout(
             "0 metric(s) changed, 0 added file(s), 0 removed file(s), \
-             1 added field(s), 0 removed field(s)\n\
+             2 added field(s), 0 removed field(s)\n\
              \n\
              ## Added fields\n\
-             \x20 src/a.rs  mi  original\n",
+             \x20 src/a.rs  mi  (all 2 field(s))\n",
         );
 
     let assert = cli()
@@ -55,11 +57,14 @@ fn one_sided_field_is_listed_and_counts_for_exit_code() {
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
     let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(doc["summary"]["total_changes"], 0);
-    assert_eq!(doc["summary"]["added_fields"], 1);
+    assert_eq!(doc["summary"]["added_fields"], 2);
     assert_eq!(doc["buckets"], serde_json::json!({}));
     assert_eq!(
         doc["added_fields"],
-        serde_json::json!([{ "file": "src/a.rs", "metric": "mi", "field": "original" }])
+        serde_json::json!([
+            { "file": "src/a.rs", "metric": "mi", "field": "original" },
+            { "file": "src/a.rs", "metric": "mi", "field": "sei" }
+        ])
     );
 
     cli()
