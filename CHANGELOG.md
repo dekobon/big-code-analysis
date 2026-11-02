@@ -26,6 +26,22 @@ for historical reference.
 
 ### Added
 
+- `[[thresholds.path]]` in `bca.toml` and `--config`: path-scoped
+  threshold overrides, layered `[thresholds]` → `[thresholds.lang.<slug>]`
+  → `[[thresholds.path]]` → tier → `--threshold`. Each entry's glob is
+  matched relative to the directory of the config that declared it,
+  through the same anchor `[check] exclude` uses, so one glob names the
+  same files on both surfaces; a file outside that directory is matched
+  by its seed-relative form. Overlapping entries compose per metric, the
+  last match winning. The matched limits are folded onto the language's
+  hard table before the existing resolver runs, so the soft tier and the
+  exit-5 ceiling derive from the overridden limit and `--threshold` still
+  wins. `--print-effective-config` prints every entry with its declared
+  metrics at their hard-tier limit (`--threshold` applied, the tier not),
+  so the printout replays the gate at the hard tier; `--explain-threshold`
+  names each entry's declaration; `bca init` scaffolds a commented-out
+  example. Book: *Per-path overrides* and *How the layers compose* in the
+  thresholds recipe, cited from `bca check --help` (#1746, refs #1738).
 - The role-series drift drivers from #1697 land in `utils/` with
   self-tests in `make pre-commit`: `drift-oracle.py` captures every
   CLI view — and, given the new `verbatim-oracle` binary from
@@ -172,6 +188,43 @@ for historical reference.
   fold's step can ask another lane's question memoised, and the new
   `GateLane` (`#[doc(hidden)]`) names the lanes the metric crate may
   ask on.
+- This repository's own `bca.toml` gates the per-language dispatchers
+  under `src/metrics/{abc,cognitive,cyclomatic,loc}/` through one
+  `[[thresholds.path]]` entry (`cyclomatic = 40`, `"halstead.effort" =
+  150000`) instead of 38 per-function `bca: suppress` markers in their
+  several spellings; a second, last-wins entry hands the three `loc/`
+  data-structure files the project limits back. The dispatchers stay
+  gated at both tiers at a limit priced for that population (0 hard /
+  0 soft new offenders under the repo config with `--no-suppress`);
+  `.bca-baseline.toml` loses the three entries for unmarked dispatchers
+  that no longer offend. The entry's comment states the trade-off:
+  every helper sharing those files is gated at the raised limit too
+  (#1747, #1738).
+- The text-classified word slot on the walk's `FoldCache` (Elixir `call`
+  targets, Tcl `command` words, #1697) is keyed on the node the walk is
+  visiting rather than the last node asked (#1737). Every walk that
+  lends the cache now constructs its chain through
+  `Ancestors::for_walk(chain, node, &folds)`, which records the visit;
+  `Ancestors::classified` serves and stores only the visited node's
+  answer and computes, without storing, for any other, so a consumer
+  reading an enclosing call or a module's statements can no longer
+  evict it. `Ancestors::with_folds` is test-only and `AncestorIter`'s
+  variants are private, so `for_walk` is the one way to lend a cache.
+  The AST crate is outside `STABILITY.md`'s shape contract. No metric
+  value or output changes; the per-walk read budgets stay at one read
+  per visited node plus one per ask about another.
+- The Perl ABC value peel asks the `-and` / `-not` sign test with the
+  `-`'s parent, which the peel holds, through one core shared with the
+  chain form, instead of a fabricated one-node `Ancestors::known`
+  chain; `abc/perl-nested-signed-keys` joins the scaling gate
+  (#1748, #1603). No metric values change.
+- The quarterly mutation-testing workflow also mutates the per-language
+  `big-code-analysis-ast/src/checker/`, `getter/` and `roles/` modules
+  — the last for the gate functions written directly in a language
+  module only, since cargo-mutants never visits a macro token tree —
+  taking the census from 3673 to 5048 mutants across sixteen shards
+  instead of ten, priced per crate from the first run's `outcomes.json`
+  (#1728).
 - The seven documentation roles — `Comment`, `DocComment`, `Docstring`,
   `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody` —
   are declared per language in `big-code-analysis-ast/src/roles/` and
@@ -622,6 +675,17 @@ for historical reference.
 
 ### Fixed
 
+- `utils/check-role-coverage.py`: the "no baseline section" error named
+  `--report` as the way to list a new language's residue entries, but
+  `--report` prints only per-language counts; it now names
+  `--bootstrap --baseline <new-path>`. The per-entry corpus label said
+  `unobserved` for a language the corpus has no file in; it now reads
+  `unknown` there, through one `corpus_label()` shared with the
+  summary's observed count (#1729).
+- The labelled-jump cognitive increments cite SonarSource appendix B1
+  ("Increments") rather than B2 ("Nesting level"), in the 29 comments
+  and the book sentence that had the section wrong; no metric moves
+  (#1730).
 - **`bca check --tier=soft` no longer passes a value just above
   `limit × ratio`** (#1648). A soft ceiling whose exact product falls
   between two points of the six-figure grid rounded to the nearer one,
