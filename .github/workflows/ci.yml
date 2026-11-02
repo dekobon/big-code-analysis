@@ -856,6 +856,8 @@ jobs:
         run: python3 -B -m unittest -q utils/perturb-test.py
       - name: coverage-diff self-tests (explicit)
         run: python3 -B -m unittest -q utils/coverage-diff-test.py
+      - name: self-scan-bca self-tests (explicit)
+        run: python3 -B -m unittest -q utils/self-scan-bca-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future

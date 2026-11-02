@@ -198,7 +198,15 @@ for historical reference.
   (dev and release regenerations `cmp` equal; `pages.yml` runs it per
   PR, which is what makes the dev default safe). `.bcaignore` joins
   `pages.yml`'s path filters, so an edit to the walk deny-set re-runs
-  the gate. Repository tooling only; no published API moves.
+  the gate. The recipes run `utils/self-scan-bca.py`, which also
+  picks up a `bca` on PATH on its own — but only after comparing the
+  `build inputs:` digest that binary's `--version` reports with a
+  fresh digest of the checkout, so a binary installed from another
+  commit can never measure this tree by mistake; a `bca` from before
+  the field existed, or from crates.io, simply falls through to the
+  build. `BCA_SELF_SCAN_FROM_SOURCE=1` forces the build whatever else
+  is set, which is how the parity target keeps its two legs honest.
+  Repository tooling only; no published API moves.
 - **The `loc` declaration gates, the JS-family binding gate and the
   Python cognitive boolean-operator questions no longer climb to the
   root from every node** (#1767). Each asks a node's ancestors a

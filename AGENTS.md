@@ -115,7 +115,15 @@ and `cargo run -p big-code-analysis-web --`.
   the enum owns. Each has a `*-test.py` in `make pre-commit` that
   stubs the binaries it drives (`coverage-diff-test.py` runs real
   `git` on a scratch repository), which is the only thing that lints
-  them (#1477).
+  them (#1477). `self-scan-bca.py` is what every `make self-scan*`
+  recipe runs instead of `cargo run`: it picks the `bca` to execute —
+  an explicit `BCA_SELF_SCAN_BINARY`, a PATH `bca` whose `--version`
+  reports a `build inputs:` digest equal to the one
+  `self_scan_digest.py` recomputes over the checkout, or a dev-profile
+  `cargo run` — and `exec`s it (#1773). The digest module mirrors
+  `big-code-analysis-cli/src/build_info/digest.rs`; one fixture and one
+  pinned hex in `self-scan-bca-test.py` and the Rust tests hold the two
+  together.
 - Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
   (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
@@ -532,13 +540,22 @@ self-scan-profile-parity` is the per-PR check that the two profiles
 write a byte-identical baseline, and the reason the default is safe.
 `BCA_SELF_SCAN_BINARY=<path>` skips the build and runs a prebuilt
 binary, trusted as given: sound for a batch no commit of which touches
-those compiled-in roots or `Cargo.toml` / `Cargo.lock` (the manifest,
-`.bcaignore` and the baseline are read at run time, so any binary sees
-the live copies), and wrong without a warning otherwise. CI sets it to
-the release binary it has just installed from HEAD. `make
-self-scan-baseline-fresh` answers the question the quarterly job asks
-— does the committed file still describe the tree — in a few seconds
-locally.
+those compiled-in roots or `Cargo.toml` (the manifest, `.bcaignore`
+and the baseline are read at run time, so any binary sees the live
+copies), and wrong without a warning otherwise. CI sets it to the
+release binary it has just installed from HEAD. A `bca` on PATH needs
+no such care: `utils/self-scan-bca.py` uses it only when the `build
+inputs:` digest its `--version` reports equals the digest of the
+checkout's compiled-in sources, recomputed each run — which is to say
+only when it was built from these exact bytes — and otherwise builds.
+That proof is what an mtime cannot give (a binary installed from a
+newer `main` reads as fresh in an older worktree), and it costs ~0.2 s.
+It also bounds what the route can save: a tree whose inputs match an
+installed binary is one cargo already finds fresh in ~0.1 s, so the
+PATH route matters for the forensic trail and for CI's one-build
+guarantee more than for the clock. `make self-scan-baseline-fresh`
+answers the question the quarterly job asks — does the committed file
+still describe the tree — in a few seconds locally.
 
 **Price a candidate limit at both tiers before calling it free.**
 Converging a limit onto a cluster of existing values is never free while

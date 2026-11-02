@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: role-census role-census-test role-coverage role-coverage-test role-coverage-observe role-bypass role-bypass-test mutation-report-test mutation-workflow-test drift-common-test drift-oracle-test drift-compare-test recovery-oracle-test perturb-test coverage-diff-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom self-scan-baseline-fresh self-scan-profile-parity vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: role-census role-census-test role-coverage role-coverage-test role-coverage-observe role-bypass role-bypass-test mutation-report-test mutation-workflow-test drift-common-test drift-oracle-test drift-compare-test recovery-oracle-test perturb-test coverage-diff-test self-scan-bca-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-feature-gates check-feature-gates-test check-test-lang-gates check-test-lang-gates-compare check-test-lang-gates-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom self-scan-baseline-fresh self-scan-profile-parity vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-self-scan-bca-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-self-scan-bca-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 .PHONY: plugin-test _pc-plugin-test _ci-plugin-test
 
@@ -144,6 +144,7 @@ help:
 	@echo "  recovery-oracle-test                 Self-tests for the recovery-tree drift sweep (utils/recovery-oracle.py)"
 	@echo "  perturb-test                         Self-tests for the perturbation sweep driver (utils/perturb.py)"
 	@echo "  coverage-diff-test                   Self-tests for the two-report patch-coverage driver (utils/coverage-diff.py)"
+	@echo "  self-scan-bca-test                   Self-tests for the self-scan binary resolver (utils/self-scan-bca.py)"
 	@echo "  role-coverage                        Every runtime kind id claimed, excluded or baselined (#1692)"
 	@echo "  role-coverage-test                   Self-tests for the role-coverage gate"
 	@echo "  role-coverage-observe                Record which kinds the integration corpus emits (slow; builds bca)"
@@ -551,6 +552,10 @@ coverage-diff-test:
 	@echo "Running coverage-diff self-tests..."
 	@(cd $(BASE_DIR) && python3 -B -m unittest -q utils/coverage-diff-test.py)
 
+self-scan-bca-test:
+	@echo "Running self-scan-bca self-tests..."
+	@(cd $(BASE_DIR) && python3 -B -m unittest -q utils/self-scan-bca-test.py)
+
 role-coverage:
 	@echo "Checking role kind coverage..."
 	@python3 $(BASE_DIR)utils/check-role-coverage.py --require-observations
@@ -890,30 +895,28 @@ enums-check:
 # any in-progress change to metric computation is reflected in the
 # values we gate on.
 #
-# Which binary runs is decided by two knobs (#1773):
+# Which binary runs is `utils/self-scan-bca.py`'s decision (#1773). In
+# order: `BCA_SELF_SCAN_FROM_SOURCE=1` builds from the tree whatever
+# else is set; `BCA_SELF_SCAN_BINARY=<path>` runs that executable,
+# trusted as given (CI sets it to the release binary it has just
+# `cargo install`ed from HEAD, so the gate and the published reports
+# come from one build); a `bca` on PATH is used when the `build inputs:`
+# digest its `--version` reports equals the digest of this checkout's
+# compiled-in sources, recomputed by the wrapper — equal means it was
+# built from these exact bytes, whatever its mtime or branch; otherwise
+# `cargo run` under `BCA_SELF_SCAN_PROFILE` (`dev` by default, or
+# `release`). `release` is what CI installs, but its `lto = true` /
+# `codegen-units = 1` relink costs ~100 s after any `src/` edit; the
+# dev profile is ~5 s for the same edit and 0.1 s when nothing changed,
+# and both profiles write a byte-identical baseline — which
+# `self-scan-profile-parity` below keeps true.
 #
-#   BCA_SELF_SCAN_BINARY   An explicit, trusted `bca` executable. Set,
-#                          nothing is built: CI sets it to the release
-#                          binary it has just `cargo install`ed from
-#                          HEAD, so the gate and the published reports
-#                          come from one build. Locally it is sound only
-#                          when no commit in the work at hand touches
-#                          `src/`, `big-code-analysis-ast/`,
-#                          `big-code-analysis-cli/`, `tree-sitter-*/`,
-#                          `Cargo.toml` or `Cargo.lock` — the inputs
-#                          compiled into the binary; everything else
-#                          (`bca.toml`, `.bcaignore`, the baseline) is
-#                          read at run time, so a prebuilt binary sees
-#                          the live copy.
-#   BCA_SELF_SCAN_PROFILE  `dev` (default) or `release`. The profile
-#                          `cargo run` builds under when no binary is
-#                          given. `release` is what CI installs, but its
-#                          `lto = true` / `codegen-units = 1` relink
-#                          costs ~100 s after any `src/` edit; the dev
-#                          profile is ~5 s for the same edit and 0.1 s
-#                          when nothing changed, and both profiles write
-#                          a byte-identical baseline — which
-#                          `self-scan-profile-parity` below keeps true.
+# A trusted `BCA_SELF_SCAN_BINARY` is sound only when nothing compiled
+# into it has changed: `src/`, `big-code-analysis-ast/`,
+# `big-code-analysis-cli/`, `tree-sitter-*/`, `Cargo.toml`. Everything
+# else (`bca.toml`, `.bcaignore`, the baseline) is read at run time, so
+# any binary sees the live copy. The PATH route needs no such care; it
+# proves the match before it uses the binary.
 #
 # Path selection (`paths = ["."]`), the ignore file
 # (`exclude_from = ".bcaignore"`), the baseline
@@ -956,20 +959,11 @@ enums-check:
 #                              above; ~100 s because of the release
 #                              build. pages.yml runs it per PR.
 # ---------------------------------------------------------------------------
-# Default to empty so `$(if …)` below does not trip
-# `--warn-undefined-variables`; `?=` lets the environment override.
-BCA_SELF_SCAN_BINARY ?=
-BCA_SELF_SCAN_PROFILE ?= dev
-ifneq ($(filter-out dev release,$(BCA_SELF_SCAN_PROFILE)),)
-$(error BCA_SELF_SCAN_PROFILE must be `dev` or `release`, not `$(BCA_SELF_SCAN_PROFILE)`)
-endif
-SELF_SCAN_PROFILE_FLAG := $(if $(filter release,$(BCA_SELF_SCAN_PROFILE)),--release ,)
-# Quoted so a binary path with spaces survives the recipe shell; the
-# `cargo run` form is deliberately unquoted so bash splits it into words.
-SELF_SCAN_BCA := $(if $(BCA_SELF_SCAN_BINARY),"$(BCA_SELF_SCAN_BINARY)",cargo run --quiet $(SELF_SCAN_PROFILE_FLAG)-p big-code-analysis-cli --)
-# One line on stderr per recipe naming the binary, so a captured gate
-# log says what measured the tree.
-SELF_SCAN_NOTE := $(if $(BCA_SELF_SCAN_BINARY),bca self-scan via $(BCA_SELF_SCAN_BINARY),bca self-scan via cargo run ($(BCA_SELF_SCAN_PROFILE) profile))
+# The wrapper reads the `BCA_SELF_SCAN_*` knobs from the environment
+# itself, prints one `bca: self-scan via …` line on stderr naming what
+# it chose and why — so a captured gate log says what measured the tree
+# — and `exec`s the choice, so a recipe's exit status is bca's own.
+SELF_SCAN_BCA := $(BASE_DIR)utils/self-scan-bca.py
 # `--jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
@@ -1007,18 +1001,15 @@ SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
-	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS)
 
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS) \
 	  --tier=soft=$${BCA_HEADROOM:-0.95}
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
-	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check --write-baseline
 
 # Refresh `.bca-baseline.toml` against the SOFT thresholds
@@ -1029,7 +1020,6 @@ self-scan-write-baseline:
 # the new headroom band rather than firing on every commit.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@echo "$(SELF_SCAN_NOTE)" >&2
 	@$(SELF_SCAN_BCA) check \
 	  --tier=soft=$${BCA_HEADROOM:-0.95} \
 	  --write-baseline
@@ -1047,7 +1037,6 @@ self-scan-write-baseline-headroom:
 # one line per shell here (no `.ONESHELL`).
 self-scan-baseline-fresh:
 	@echo "bca self-scan baseline freshness (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@echo "$(SELF_SCAN_NOTE)" >&2
 	@cd "$(BASE_DIR)" && t=$$(mktemp ".bca-baseline.XXXXXX.toml") && trap 'rm -f "$$t"' EXIT \
 	  && $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$t" \
 	  && $(SELF_SCAN_BCA) diff-baseline .bca-baseline.toml "$$t" --exit-code
@@ -1057,13 +1046,15 @@ self-scan-baseline-fresh:
 # `overflow-checks` are the only semantic differences between the
 # profiles, and either firing would be a bug the release gate hides.
 # On a mismatch both files are kept and named so they can be diffed.
-# `BCA_SELF_SCAN_BINARY` is ignored here on purpose — the point is to
-# compare two from-source builds, not whatever is installed.
+# Both legs force a from-source build through the wrapper
+# (`BCA_SELF_SCAN_FROM_SOURCE=1` outranks every other knob), so an
+# inherited `BCA_SELF_SCAN_BINARY` or a matching PATH `bca` cannot turn
+# this into a comparison of one binary with itself.
 self-scan-profile-parity:
 	@echo "bca self-scan profile parity (dev vs release, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
 	@cd "$(BASE_DIR)" && d=$$(mktemp ".bca-baseline.dev.XXXXXX.toml") && r=$$(mktemp ".bca-baseline.release.XXXXXX.toml") \
-	  && cargo run --quiet -p big-code-analysis-cli -- check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$d" \
-	  && cargo run --quiet --release -p big-code-analysis-cli -- check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$r" \
+	  && BCA_SELF_SCAN_FROM_SOURCE=1 BCA_SELF_SCAN_PROFILE=dev $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$d" \
+	  && BCA_SELF_SCAN_FROM_SOURCE=1 BCA_SELF_SCAN_PROFILE=release $(SELF_SCAN_BCA) check --tier=soft=$${BCA_HEADROOM:-0.95} --write-baseline "$$r" \
 	  && if cmp -s "$$d" "$$r"; then rm -f "$$d" "$$r"; echo "profile parity: dev and release baselines are byte-identical"; \
 	     else echo "profile parity: dev and release baselines differ; kept $$d and $$r" >&2; exit 1; fi
 
@@ -1642,7 +1633,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy _ci-plugin-test \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-self-scan-bca-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1829,7 +1820,7 @@ _pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test _pc-plugin-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-role-census _pc-role-census-test _pc-role-coverage _pc-role-coverage-test _pc-role-bypass _pc-role-bypass-test _pc-mutation-report-test _pc-mutation-workflow-test _pc-drift-common-test _pc-drift-oracle-test _pc-drift-compare-test _pc-recovery-oracle-test _pc-perturb-test _pc-coverage-diff-test _pc-self-scan-bca-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-feature-gates-test _pc-check-test-lang-gates _pc-check-test-lang-gates-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1839,7 +1830,7 @@ _ci-all:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline _ci-plugin-test \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-role-census _ci-role-census-test _ci-role-coverage _ci-role-coverage-test _ci-role-bypass _ci-role-bypass-test _ci-mutation-report-test _ci-mutation-workflow-test _ci-drift-common-test _ci-drift-oracle-test _ci-drift-compare-test _ci-recovery-oracle-test _ci-perturb-test _ci-coverage-diff-test _ci-self-scan-bca-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-feature-gates-test _ci-check-test-lang-gates _ci-check-test-lang-gates-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # ---------------------------------------------------------------------------
@@ -1881,6 +1872,7 @@ _ci-all:
 #    ├── _pc-recovery-oracle-test
 #    ├── _pc-perturb-test
 #    ├── _pc-coverage-diff-test
+#    ├── _pc-self-scan-bca-test
 #    ├── _pc-role-coverage
 #    ├── _pc-role-coverage-test
 #    ├── _pc-role-bypass
@@ -2014,6 +2006,9 @@ _pc-perturb-test: _pc-fmt
 
 _pc-coverage-diff-test: _pc-fmt
 	$(MAKE) coverage-diff-test
+
+_pc-self-scan-bca-test: _pc-fmt
+	$(MAKE) self-scan-bca-test
 
 _pc-role-coverage: _pc-fmt
 	$(MAKE) role-coverage
@@ -2273,6 +2268,9 @@ _ci-perturb-test:
 
 _ci-coverage-diff-test:
 	$(MAKE) coverage-diff-test
+
+_ci-self-scan-bca-test:
+	$(MAKE) self-scan-bca-test
 
 _ci-role-coverage:
 	$(MAKE) role-coverage

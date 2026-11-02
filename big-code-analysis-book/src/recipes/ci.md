@@ -661,7 +661,11 @@ wanted; `make self-scan-profile-parity` checks per PR that the two
 profiles write a byte-identical baseline. `BCA_SELF_SCAN_BINARY=<path>`
 runs a prebuilt binary instead of building at all — what CI does with
 the release binary it installs from the checkout — and is sound only
-when nothing compiled into that binary has changed since.
+when nothing compiled into that binary has changed since. A `bca` on
+PATH is used without being told to, but only after the recipe's
+wrapper (`utils/self-scan-bca.py`) has compared the `build inputs:`
+digest its `--version` reports with a fresh digest of the checkout's
+compiled-in sources: equal means it was built from these bytes.
 
 Both tiers consume the same `bca.toml` thresholds and the same
 `.bca-baseline.toml`; the soft tier runs the hard recipe with every

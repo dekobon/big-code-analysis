@@ -194,6 +194,12 @@ repos:
         files: '^utils/coverage-diff(-test)?\.py$'
         entry: python3 -B -m unittest -q utils/coverage-diff-test.py
         pass_filenames: false
+      - id: self-scan-bca-test
+        name: self-scan-bca-test
+        language: system
+        files: '^utils/(self-scan-bca(-test)?|self_scan_digest)\.py$'
+        entry: python3 -B -m unittest -q utils/self-scan-bca-test.py
+        pass_filenames: false
       - id: role-coverage
         name: role-coverage
         language: system
