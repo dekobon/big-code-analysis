@@ -78,31 +78,32 @@ fn emit_inputs_digest(workspace: &Path) -> Option<String> {
     digest::digest(workspace).ok()
 }
 
+/// Run `git` with the repository-selecting variables scrubbed and
+/// discovery fenced at `workspace`, so a packaged copy under
+/// `target/package/` on a developer host cannot stamp the parent
+/// checkout's revision, and a `pre-commit` hook's temporary
+/// `GIT_INDEX_FILE` cannot leak in. `None` on any failure.
+fn git(workspace: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(workspace)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_COMMON_DIR")
+        .env("GIT_CEILING_DIRECTORIES", workspace)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
 /// `<sha>` or `<sha>-dirty` for the checkout `workspace` lies in, or
 /// `None` outside one. The dirtiness pathspec is the digest's own
 /// roots, so the two fields cannot disagree about what "dirty" means.
-///
-/// Git's repository-selecting variables are scrubbed and discovery is
-/// fenced at the workspace, so a packaged copy under `target/package/`
-/// on a developer host cannot stamp the parent checkout's revision, and
-/// a `pre-commit` hook's temporary `GIT_INDEX_FILE` cannot leak in.
 fn git_revision(workspace: &Path) -> Option<String> {
-    let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(workspace)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .env_remove("GIT_COMMON_DIR")
-            .env("GIT_CEILING_DIRECTORIES", workspace)
-            .output()
-            .ok()?;
-        out.status
-            .success()
-            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
-    };
-    let sha = git(&["rev-parse", "HEAD"])?;
+    let sha = git(workspace, &["rev-parse", "HEAD"])?;
     let mut status = vec![
         "status",
         "--porcelain",
@@ -111,7 +112,7 @@ fn git_revision(workspace: &Path) -> Option<String> {
         "--",
     ];
     status.extend(digest::INPUT_ROOTS);
-    let dirty = git(&status).is_some_and(|s| !s.is_empty());
+    let dirty = git(workspace, &status).is_some_and(|s| !s.is_empty());
     for watched in git_state_files(workspace) {
         println!("cargo:rerun-if-changed={}", watched.display());
     }
@@ -119,24 +120,24 @@ fn git_revision(workspace: &Path) -> Option<String> {
 }
 
 /// The files whose change means `HEAD` may have moved: `HEAD` itself,
-/// the ref it names when symbolic, `packed-refs`, and the index. A
-/// worktree's `.git` is a file naming its private directory, which
-/// `rev-parse --git-dir` and `--git-common-dir` resolve.
+/// the ref it names when symbolic, and `packed-refs`. A worktree's
+/// `.git` is a file naming its private directory, which `rev-parse
+/// --git-dir` and `--git-common-dir` resolve.
+///
+/// The index is deliberately not watched. It would keep the `-dirty`
+/// suffix exact across a bare `git add`, but git rewrites it on every
+/// `status` and on the refresh any hook performs, and each rewrite
+/// would cost a rebuild of this crate — the relink #1773 exists to
+/// avoid. `-dirty` therefore describes the tree as of the last build
+/// that saw a source or ref change; the digest, which is what decides
+/// anything, is exact regardless.
 fn git_state_files(workspace: &Path) -> Vec<PathBuf> {
     let resolve = |flag: &str| {
-        Command::new("git")
-            .args(["rev-parse", "--path-format=absolute", flag])
-            .current_dir(workspace)
-            .env("GIT_CEILING_DIRECTORIES", workspace)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        git(workspace, &["rev-parse", "--path-format=absolute", flag]).map(PathBuf::from)
     };
     let mut files = Vec::new();
     if let Some(git_dir) = resolve("--git-dir") {
         files.push(git_dir.join("HEAD"));
-        files.push(git_dir.join("index"));
         if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD"))
             && let Some(reference) = head.trim().strip_prefix("ref: ")
         {

@@ -160,18 +160,23 @@ fn cli_check_sarif_output_validates_against_schema() {
     // The CLI stamps its build provenance into the driver's property
     // bag (#1773) — the only place `toolComponent` admits a producer
     // key, which the schema validation above has just confirmed. The
-    // digest is 64 hex digits from a checkout build and the literal
-    // `unavailable` from a registry build; nothing else is valid.
+    // values are the same two fields `--version` prints, so compare them
+    // against that output rather than against a shape.
+    let version = std::process::Command::new(env!("CARGO_BIN_EXE_bca"))
+        .arg("--version")
+        .output()
+        .expect("bca --version runs");
+    let version = String::from_utf8(version.stdout).expect("utf-8");
+    let field = |prefix: &str| {
+        version
+            .lines()
+            .find_map(|l| l.strip_prefix(prefix))
+            .unwrap_or_else(|| panic!("{prefix} missing from --version:\n{version}"))
+            .to_owned()
+    };
     let props = &doc["runs"][0]["tool"]["driver"]["properties"];
-    let inputs = props["bca.buildInputs"]
-        .as_str()
-        .expect("bca.buildInputs is a string");
-    assert!(
-        inputs == "unavailable"
-            || (inputs.len() == 64 && inputs.bytes().all(|b| b.is_ascii_hexdigit())),
-        "{inputs}"
-    );
-    assert!(props["bca.buildGit"].is_string(), "{out}");
+    assert_eq!(props["bca.buildInputs"], field("build inputs: "));
+    assert_eq!(props["bca.buildGit"], field("git: "));
 }
 
 #[test]

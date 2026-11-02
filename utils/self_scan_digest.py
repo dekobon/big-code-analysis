@@ -53,6 +53,10 @@ def input_files(workspace: Path) -> list[str]:
             _collect_dir(workspace, path, root.startswith("tree-sitter-"), files)
         else:
             raise DigestError(f"input root is absent: {root}")
+    # Bytes rather than code points to match the Rust side literally;
+    # UTF-8 preserves code-point order, so the two never differ for a
+    # name both sides accept — this spelling only makes the agreement
+    # visible.
     files.sort(key=lambda s: s.encode("utf-8"))
     return files
 

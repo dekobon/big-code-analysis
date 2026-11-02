@@ -142,6 +142,8 @@ fn collect_dir(
         .map_err(io)?
         .collect::<Result<_, _>>()
         .map_err(io)?;
+    // `input_files` re-sorts the whole list by bytes; this sort only makes
+    // the first error a deterministic one when two entries are bad.
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         match classify(workspace, &entry.path(), grammar_top)? {
@@ -156,9 +158,10 @@ fn collect_dir(
 fn classify(workspace: &Path, path: &Path, grammar_top: bool) -> Result<Entry, DigestError> {
     let meta = std::fs::symlink_metadata(path)
         .map_err(|e| DigestError::Io(path.to_path_buf(), e.to_string()))?;
-    let rel = relative_posix(workspace, path)?;
     if meta.is_symlink() {
-        return Err(DigestError::Symlink(PathBuf::from(rel)));
+        return Err(DigestError::Symlink(PathBuf::from(relative_posix(
+            workspace, path,
+        )?)));
     }
     let skipped_artifact_dir = grammar_top
         && path
@@ -167,7 +170,7 @@ fn classify(workspace: &Path, path: &Path, grammar_top: bool) -> Result<Entry, D
     Ok(if meta.is_dir() && !skipped_artifact_dir {
         Entry::Descend(path.to_path_buf())
     } else if meta.is_file() && has_input_extension(path) {
-        Entry::Input(rel)
+        Entry::Input(relative_posix(workspace, path)?)
     } else {
         Entry::Ignore
     })
@@ -211,8 +214,10 @@ pub(crate) fn digest(workspace: &Path) -> Result<String, DigestError> {
 }
 
 /// Lowercase hex, two digits per byte. The same shape as the Code
-/// Climate writer's `hex_lower_bytes`, repeated here because this file
-/// may import nothing from either crate.
+/// Climate writer's `hex_lower_bytes` and `elf::hex_lower`, repeated
+/// because this file is `#[path]`-included by `build.rs`, which can
+/// import nothing from the crate — and the crate includes this file
+/// only under `cfg(test)`, so `elf.rs` cannot borrow it back.
 pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);

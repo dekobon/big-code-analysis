@@ -164,17 +164,20 @@ fn long_version_starts_with_the_bare_version_and_carries_every_field() {
     assert_eq!(rest.len(), 4, "{text}");
     assert!(rest[0].starts_with("build inputs: "), "{text}");
     assert!(rest[1].starts_with("git: "), "{text}");
+    // The state is read from this crate's own `cfg`, so the test binary
+    // knows the right answer; `DEBUG`, the obvious build-script source,
+    // reports debug *info* and is `true` for the release profile here.
+    // A hardcoded `off` passed every other assertion in this module.
+    let expected = if cfg!(debug_assertions) { "on" } else { "off" };
     assert!(
-        rest[2].starts_with("built: ") && rest[2].contains("debug-assertions "),
+        rest[2].starts_with("built: ")
+            && rest[2].ends_with(&format!("debug-assertions {expected})")),
         "{text}"
     );
     assert!(rest[3].starts_with("binary id: "), "{text}");
-    let inputs = rest[0].trim_start_matches("build inputs: ");
-    assert!(
-        inputs == "unavailable"
-            || (inputs.len() == 64 && inputs.bytes().all(|b| b.is_ascii_hexdigit())),
-        "{inputs}"
-    );
+    // The exact baked value, not a shape: the render could print any
+    // 64-hex string and a shape check would never know.
+    assert_eq!(rest[0], format!("build inputs: {}", super::BUILD_INPUTS));
 }
 
 #[test]

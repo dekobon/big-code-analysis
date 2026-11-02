@@ -24,12 +24,28 @@ const PT_NOTE: u32 = 4;
 const NT_GNU_BUILD_ID: u32 = 3;
 const GNU_NOTE_NAME: &[u8] = b"GNU\0";
 
+/// How much of the executable to read looking for the note. The
+/// program headers and every `PT_NOTE` segment the linker emits sit in
+/// the first page or so of a GNU-linked image (`PT_PHDR`, `PT_INTERP`
+/// and the notes precede the first `PT_LOAD` of code); 64 KiB covers
+/// that with a wide margin and keeps this off the path of reading a
+/// 140 MB binary into memory to answer `--version`. A note past the
+/// bound reads as absent, the documented answer for every shape the
+/// reader does not handle.
+const HEAD_BYTES: u64 = 64 * 1024;
+
 /// Lowercase hex of the running executable's GNU build-id, or `None`.
 #[cfg(target_os = "linux")]
 pub(crate) fn current_build_id() -> Option<String> {
+    use std::io::Read as _;
     let exe = std::env::current_exe().ok()?;
-    let bytes = std::fs::read(exe).ok()?;
-    build_id(&bytes).map(hex_lower)
+    let mut head = Vec::new();
+    std::fs::File::open(exe)
+        .ok()?
+        .take(HEAD_BYTES)
+        .read_to_end(&mut head)
+        .ok()?;
+    build_id(&head).map(hex_lower)
 }
 
 /// Lowercase hex, two digits per byte.
@@ -126,26 +142,20 @@ fn align4(n: usize) -> Option<usize> {
     n.checked_add(3).map(|v| v & !3)
 }
 
+/// `N` little-endian bytes at `at`, or `None` past the end or on an
+/// overflowing offset. One reader for the three widths below.
+fn le_at<const N: usize>(bytes: &[u8], at: usize) -> Option<&[u8; N]> {
+    bytes.get(at..at.checked_add(N)?)?.as_array()
+}
+
 fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
-    bytes
-        .get(at..at.checked_add(2)?)?
-        .try_into()
-        .ok()
-        .map(u16::from_le_bytes)
+    le_at(bytes, at).copied().map(u16::from_le_bytes)
 }
 
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
-    bytes
-        .get(at..at.checked_add(4)?)?
-        .try_into()
-        .ok()
-        .map(u32::from_le_bytes)
+    le_at(bytes, at).copied().map(u32::from_le_bytes)
 }
 
 fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
-    bytes
-        .get(at..at.checked_add(8)?)?
-        .try_into()
-        .ok()
-        .map(u64::from_le_bytes)
+    le_at(bytes, at).copied().map(u64::from_le_bytes)
 }

@@ -611,12 +611,12 @@ fn short_version_is_one_line_and_long_version_starts_with_it() {
             "{line:?} should start with {prefix:?}"
         );
     }
+    // 64 hex digits from this checkout; `unavailable` only outside a
+    // workspace, where this integration test does not run (it needs the
+    // workspace's `tests/` beside the crate to exist at all).
     let inputs = lines[1].trim_start_matches("build inputs: ");
-    assert!(
-        inputs == "unavailable"
-            || (inputs.len() == 64 && inputs.bytes().all(|b| b.is_ascii_hexdigit())),
-        "{inputs}"
-    );
+    assert_eq!(inputs.len(), 64, "{inputs}");
+    assert!(inputs.bytes().all(|b| b.is_ascii_hexdigit()), "{inputs}");
 }
 
 // -- Manifest opt-in ------------------------------------------------------
