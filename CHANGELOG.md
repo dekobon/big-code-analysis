@@ -792,6 +792,19 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **The self-scan now measures two hand-written files it silently
+  skipped as generated** (#1763). The module docs of
+  `big-code-analysis-py/src/analysis.rs` and
+  `big-code-analysis-cli/src/default_thresholds.rs` quoted a
+  generated-file marker phrase inside the leading window
+  `is_generated` scans, so `make self-scan` and the edit hook never
+  gated either file and reported the skip only as a count. The
+  comments are rephrased, `.bca-baseline.toml` records the one
+  offender that surfaced (`analyze_path`, `nexits` 6), and a guard
+  test (`tests/api/self_scan_guard.rs`) walks the Rust and Python
+  files the self-scan gates so a hand-written one can only read as
+  generated through a code generator's own marker line.
+
 - **`bca metrics --vcs-per-function` no longer aborts on input nested
   deeper than the serialization bound** (#1770). The two walks that
   attach a per-function `vcs` block recursed once per nesting level

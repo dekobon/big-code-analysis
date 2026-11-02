@@ -812,6 +812,12 @@ metric = "cognitive"
 value = 15.0
 
 [[entry]]
+path = "big-code-analysis-py/src/analysis.rs"
+qualified = "analyze_path"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "PyAnalysisError::__repr__"
 metric = "nexits"

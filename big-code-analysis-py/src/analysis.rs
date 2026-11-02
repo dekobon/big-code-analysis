@@ -22,8 +22,11 @@
 //! The CLI's `is_generated` walker filter is now mirrored via the
 //! `skip_generated` kwarg on `analyze` (default `true`, matching the
 //! CLI walker); the bindings return `None` for files whose leading
-//! bytes carry an `@generated` / `DO NOT EDIT` / `GENERATED CODE`
-//! marker so callers can drop them without paying parse cost (#317).
+//! bytes carry one of the CLI's generated-file markers (spelled out
+//! on [`analyze_path`] — not here, where the module doc sits inside
+//! the window `is_generated` scans, so quoting them verbatim would
+//! make this hand-written file read as generated, #1763) so callers
+//! can drop them without paying parse cost (#317).
 //! The `--exclude-tests` flag is mirrored via the `exclude_tests`
 //! kwarg (#315). Shebang / emacs-mode language detection is also
 //! mirrored — both sides resolve language through

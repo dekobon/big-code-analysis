@@ -13,7 +13,7 @@
 //!
 //! Each limit is anchored to a published threshold wherever one exists,
 //! and checked against a measured corpus: 43 real-world repositories
-//! across 20 languages (tests, vendored trees, and generated code
+//! across 20 languages (tests, vendored trees, and generator output
 //! excluded), 254k function spaces, 40k container spaces, 27k files.
 //! `halstead.effort` alone was re-measured after the #1486-#1573
 //! vocabulary changes, on a rebuilt 41-repository corpus recorded in

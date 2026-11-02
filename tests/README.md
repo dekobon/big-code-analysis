@@ -34,7 +34,7 @@ tests/
 │       ├── csharp/                        hand-written synthetic .cs fixtures           (C# corpus)
 │       ├── php/                           hand-written synthetic .php fixtures          (PHP corpus)
 │       └── snapshots/                     accepted YAML snapshots for every corpus
-├── api/                                   public API: AST seam, parser reuse, derives, book examples, suppression
+├── api/                                   public API: AST seam, parser reuse, derives, book examples, suppression, self-scan generated-marker guard
 ├── corpus/                                corpus tests: serde, DeepSpeech, pdf.js, C#, PHP, iRules, orphan-snapshot guard
 ├── grammars/                              grammar-specific: C, mozcpp, alterator string flattening
 ├── output_formats/                        output-format tests: CSV, SARIF, Checkstyle

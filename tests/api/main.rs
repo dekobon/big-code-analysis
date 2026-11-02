@@ -48,4 +48,7 @@ mod derive_eq_hash_ord;
 //     to read; the grammar is named inside the file it points at
 #[cfg(feature = "rust")]
 mod parser_reuse;
+// Walks the self-scan roots with `is_generated` (#1763); names no
+// language, so it carries no gate.
+mod self_scan_guard;
 mod suppression_test;
