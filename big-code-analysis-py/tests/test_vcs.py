@@ -7,6 +7,7 @@ default to wall-clock time), so per-window counts are deterministic.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -20,8 +21,8 @@ from big_code_analysis import FuncSpaceDict
 from big_code_analysis import vcs as bca_vcs
 
 
-def _build_repo(root: Path) -> Path:
-    """Init a repo under *root* with ``work.rs`` committed ~5 days ago."""
+def _commit_one_file(root: Path, name: str, text: str, message: str) -> Path:
+    """Init a repo under *root* with *name* committed by Ada ~5 days ago."""
     now = int(time.time())
     date = f"@{now - 5 * 86_400} +0000"
     env = {
@@ -39,10 +40,15 @@ def _build_repo(root: Path) -> Path:
 
     git("init", "-q", "-b", "main")
     git("config", "commit.gpgsign", "false")
-    (root / "work.rs").write_text("fn a() {}\n")
+    (root / name).write_text(text)
     git("add", ".")
-    git("commit", "-q", "-m", "fix bug in work")
+    git("commit", "-q", "-m", message)
     return root
+
+
+def _build_repo(root: Path) -> Path:
+    """Init a repo under *root* with ``work.rs`` committed ~5 days ago."""
+    return _commit_one_file(root, "work.rs", "fn a() {}\n", "fix bug in work")
 
 
 def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
@@ -226,26 +232,11 @@ def _build_multifn_repo(root: Path) -> Path:
     repetitive-content bug), so each function body carries different
     content.
     """
-    now = int(time.time())
-    date = f"@{now - 5 * 86_400} +0000"
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Ada",
-        "GIT_AUTHOR_EMAIL": "ada@example.com",
-        "GIT_AUTHOR_DATE": date,
-        "GIT_COMMITTER_NAME": "Ada",
-        "GIT_COMMITTER_EMAIL": "ada@example.com",
-        "GIT_COMMITTER_DATE": date,
-    }
-
-    def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=root, env=env, check=True)
-
-    git("init", "-q", "-b", "main")
-    git("config", "commit.gpgsign", "false")
-    # Two functions with branching so each space has a non-trivial
-    # cyclomatic sum (a positive hotspot_score). Every line is distinct.
-    (root / "work.rs").write_text(
+    # Two functions with branching so each space has a non-trivial own
+    # cyclomatic (a positive hotspot_score). Every line is distinct.
+    return _commit_one_file(
+        root,
+        "work.rs",
         "fn alpha(value: i32) -> i32 {\n"
         "    if value > 0 {\n"
         "        return value + 1;\n"
@@ -258,11 +249,9 @@ def _build_multifn_repo(root: Path) -> Path:
         "        true => 200,\n"
         "        false => 13,\n"
         "    }\n"
-        "}\n"
+        "}\n",
+        "add alpha and beta",
     )
-    git("add", ".")
-    git("commit", "-q", "-m", "add alpha and beta")
-    return root
 
 
 def _func_spaces(result: FuncSpaceDict) -> list[FuncSpaceDict]:
@@ -294,7 +283,7 @@ def test_analyze_vcs_per_function_attaches_block_to_each_space(
 
     # Prove genuine per-function attribution, not a broadcast of the
     # file-level stats onto every space. alpha and beta have distinct
-    # cyclomatic sums, so their hotspot scores (complexity x churn) must
+    # own cyclomatics, so their hotspot scores (complexity x churn) must
     # differ; if production were changed to copy the file-level block to
     # each space, every score would be identical and this would fail.
     hotspots = [space["metrics"]["vcs"]["hotspot_score"] for space in spaces]
@@ -362,6 +351,145 @@ def test_analyze_vcs_per_function_matches_file_level_block(tmp_path: Path) -> No
             assert block[field] == file_block_map[field], field
 
 
+def _build_nested_py_repo(root: Path) -> Path:
+    """Init a repo whose ``nested.py`` nests spaces two ways.
+
+    ``outer`` holds a nested ``def inner`` and ``Holder`` holds a method,
+    so both enclosing spaces have a subtree cyclomatic ``sum`` larger than
+    their own ``value``. A ``lambda`` would not do: it opens no space in
+    Python, so its enclosing function's ``sum`` equals its ``value`` and
+    the two figures cannot be told apart. Every line is distinct (see
+    ``_build_multifn_repo`` on the gix-blame repetitive-content bug).
+    """
+    return _commit_one_file(
+        root,
+        "nested.py",
+        "def outer(flag):\n"
+        "    if flag:\n"
+        "        print('outer branch taken')\n"
+        "    def inner(value):\n"
+        "        if value > 3:\n"
+        "            return value + 11\n"
+        "        return value - 5\n"
+        "    return inner\n"
+        "\n"
+        "\n"
+        "class Holder:\n"
+        "    def drain(self, count):\n"
+        "        while count > 0:\n"
+        "            count -= 1\n"
+        "        return count\n",
+        "add nested spaces",
+    )
+
+
+def _hotspots_by_space(space: Any, out: dict[tuple[str, str, int], float]) -> None:
+    """Map every space's ``(kind, name, start_line)`` to its hotspot score."""
+    vcs = space["metrics"].get("vcs")
+    if vcs is not None:
+        out[(space["kind"], space["name"], space["start_line"])] = vcs["hotspot_score"]
+    for child in space.get("spaces", []):
+        _hotspots_by_space(child, out)
+
+
+def test_analyze_vcs_per_function_hotspot_matches_cli(tmp_path: Path, bca_binary: str) -> None:
+    """#1624: each nested space's ``hotspot_score`` is scored from its
+    *own* cyclomatic (``cyclomatic.value``), not the subtree ``sum``, and
+    equals what ``bca metrics --vcs-per-function`` reports for the same
+    file; the file-level block keeps the subtree ``sum``.
+    """
+    repo = _build_nested_py_repo(tmp_path)
+    path = repo / "nested.py"
+    result = bca.analyze(path, vcs=True, vcs_per_function=True)
+    assert result is not None
+
+    # The formula, asserted on the bindings alone. The fixture must make
+    # the two figures differ on the enclosing spaces, or the per-space
+    # check below cannot tell `value` from `sum`.
+    spaces = {space["name"]: space for space in _func_spaces(result)}
+    assert set(spaces) == {"outer", "inner", "Holder", "drain"}, set(spaces)
+    for enclosing in ("outer", "Holder"):
+        cyclomatic = spaces[enclosing]["metrics"]["cyclomatic"]
+        assert cyclomatic["sum"] > cyclomatic["value"], (enclosing, cyclomatic)
+    for name, space in spaces.items():
+        vcs = space["metrics"]["vcs"]
+        own = space["metrics"]["cyclomatic"]["value"]
+        assert vcs["churn_recent"] > 0, name
+        assert vcs["hotspot_score"] == own * vcs["churn_recent"], name
+    root_vcs = result["metrics"]["vcs"]
+    root_sum = result["metrics"]["cyclomatic"]["sum"]
+    # Root churn comes from the history index, not the blame checked above.
+    assert root_vcs["churn_recent"] > 0
+    assert root_vcs["hotspot_score"] == root_sum * root_vcs["churn_recent"]
+
+    # Parity with the CLI, root included, on the default metric selection
+    # only: with cyclomatic not computed the CLI still emits a score and
+    # the bindings omit it (#1742). `--no-config` pins both sides to the
+    # config-free defaults (see `test_smoke._cli_metrics`).
+    cli = subprocess.run(
+        [
+            bca_binary,
+            "metrics",
+            "--no-config",
+            "--vcs-per-function",
+            "--format",
+            "json",
+            "--paths",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    py_hotspots: dict[tuple[str, str, int], float] = {}
+    cli_hotspots: dict[tuple[str, str, int], float] = {}
+    _hotspots_by_space(result, py_hotspots)
+    _hotspots_by_space(json.loads(cli.stdout), cli_hotspots)
+    # Root plus the four nested spaces, so a CLI that attached nothing
+    # cannot make the comparison vacuous.
+    assert len(cli_hotspots) == 5, cli_hotspots
+    assert py_hotspots == cli_hotspots
+
+
+def test_analyze_with_vcs_blocks_keeps_the_cli_key_order(tmp_path: Path, bca_binary: str) -> None:
+    """With VCS blocks attached, the dict serializes to the CLI's JSON.
+
+    The blocks used to be spliced into the serialized JSON through a
+    ``serde_json::Value``, whose map sorts keys, so every object in the
+    result came back alphabetised (``end_line`` first) while the CLI kept
+    declaration order. ``dict ==`` ignores order, so this compares the
+    serialized text. The CLI side goes through ``json.loads`` / ``dumps``
+    too, which normalises float spelling and nothing else.
+    """
+    repo = _build_nested_py_repo(tmp_path)
+    path = repo / "nested.py"
+    cli = subprocess.run(
+        [
+            bca_binary,
+            "metrics",
+            "--no-config",
+            "--vcs-per-function",
+            "--format",
+            "json",
+            "--paths",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    expected = json.dumps(json.loads(cli.stdout))
+    # The comparison is only about order if both sides carry blocks at
+    # both levels: the root and the four nested spaces.
+    assert expected.count('"vcs":') == 5, expected
+    assert expected.startswith('{"name":'), expected
+
+    single = bca.analyze(path, vcs=True, vcs_per_function=True)
+    (batched,) = bca.analyze_batch([path], vcs=True, vcs_per_function=True)
+    assert json.dumps(single) == expected
+    assert json.dumps(batched) == expected
+
+
 def test_analyze_without_vcs_per_function_has_no_nested_block(
     tmp_path: Path,
 ) -> None:
@@ -382,6 +510,29 @@ def test_analyze_vcs_per_function_outside_repo_degrades(tmp_path: Path) -> None:
     assert result is not None
     for space in _func_spaces(result):
         assert "vcs" not in space["metrics"]
+
+
+# One level past the serializer's `MAX_SPACE_SERIALIZE_DEPTH` (128) would
+# do; 200 leaves room should the bound grow a little.
+_PAST_SERIALIZE_DEPTH = 200
+
+
+def test_vcs_per_function_past_the_serialize_depth_raises(tmp_path: Path) -> None:
+    """Nesting past the serialization bound stays a catchable
+    ``ValueError`` with per-function blocks requested, and a batch slot an
+    ``AnalysisFailure``, now that the blocks are attached before the
+    serializer refuses the depth (#1768). Depth 200 on the main thread
+    cannot tell a recursive attach walk from an iterative one; that is
+    pinned by ``injector_walks_survive_nesting_past_the_serialize_bound``
+    in ``big-code-analysis-py/src/vcs.rs``."""
+    depth = _PAST_SERIALIZE_DEPTH
+    source = "".join(f"fn f{i}() {{\n" for i in range(depth)) + "}\n" * depth
+    repo = _commit_one_file(tmp_path, "deep.rs", source, "add deep nesting")
+    with pytest.raises(ValueError, match="deeper than the serialization limit"):
+        bca.analyze(repo / "deep.rs", vcs_per_function=True)
+    [failure] = bca.analyze_batch([repo / "deep.rs"], vcs_per_function=True)
+    assert isinstance(failure, bca.AnalysisFailure)
+    assert "deeper than the serialization limit" in failure.error
 
 
 def _build_staged_repo(root: Path) -> Path:
@@ -434,7 +585,10 @@ def test_vcs_trend_shape(tmp_path: Path) -> None:
     # stamps ride the envelope once, never per point (#635).
     point = cast("dict[str, Any]", late[2])
     assert isinstance(point["vcs"], dict)
-    assert isinstance(point["vcs"]["risk_score"], (int, float))
+    # `float`, not `(int, float)`: `bool` subclasses `int`. The binding
+    # serializes `risk_score` as an `f64`, which `json.loads` always reads
+    # back as `float` (serde_json keeps the `.0` on a whole value).
+    assert isinstance(point["vcs"]["risk_score"], float)
     for constant in (
         "vcs_schema_version",
         "risk_score_version",
@@ -495,11 +649,32 @@ def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
     assert report["jit_score_version"] == 1
     # Commit-mode reports self-identify via ``source`` (issue #642).
     assert report["source"] == "commit"
-    assert isinstance(report["risk_score"], (int, float))
+    # `float`, not `(int, float)`: `bool` subclasses `int`, so the wider
+    # check accepts `True`. The one added line and the fix message both
+    # score positively and a root commit has no experience to subtract,
+    # so the score sits strictly above the formula's zero floor.
+    risk_score = report["risk_score"]
+    assert isinstance(risk_score, float)
+    assert risk_score > 0.0
     assert isinstance(report["commit"]["id"], str)
     assert len(report["commit"]["id"]) == 40
-    for group in ("size", "diffusion", "history", "experience"):
-        assert isinstance(report["features"][group], dict), group
+    # Pin each group's field set: an `isinstance(..., dict)` check is
+    # satisfied by an empty `{}`.
+    features = cast("dict[str, dict[str, Any]]", report["features"])
+    assert {group: set(fields) for group, fields in features.items()} == {
+        "size": {"lines_added", "lines_deleted", "files_touched", "hunks"},
+        "diffusion": {"subsystems", "directories", "entropy"},
+        "history": {
+            "prior_changes",
+            "prior_distinct_authors",
+            "prior_bug_fix_commits",
+            "prior_security_fix_commits",
+            "file_risk_max",
+            "file_risk_mean",
+            "new_files",
+        },
+        "experience": {"author_prior_commits", "author_recent_commits"},
+    }
     # A bug-fix message ("fix bug in work") is classified.
     assert report["commit"]["purpose"]["is_fix"] is True
 
@@ -528,13 +703,21 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
     cannot read a missing group as "low risk"."""
     report = bca_vcs.score_diff(_SAMPLE_DIFF)
     assert report["source"] == "diff"
-    assert isinstance(report["partial_risk_score"], (int, float))
+    # `float` rejects `True`, which `(int, float)` accepts; three added
+    # lines put the size term above zero.
+    partial_risk_score = report["partial_risk_score"]
+    assert isinstance(partial_risk_score, float)
+    assert partial_risk_score > 0.0
     assert report["size"]["files_touched"] == 2
     assert report["size"]["lines_added"] == 3
     assert report["diffusion"]["subsystems"] == 2  # src + docs
     # The whole point of #580: the unavailable groups have no key at all.
     for absent in ("history", "experience", "purpose", "commit", "risk_score"):
         assert absent not in report, absent
+    # The loop above sees only the top level; a zero-valued group would sit
+    # one level down, in `contributions`. Pin the key set so a group added
+    # to the diff path fails here (#1290).
+    assert set(report["contributions"]) == {"size", "diffusion"}
 
 
 def test_vcs_jit_malformed_diff_raises() -> None:

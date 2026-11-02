@@ -79,10 +79,11 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
 
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
+    let walk = history::WalkContext::open(&repo, options, now)?;
     // Uncached: walk the whole long window (no splice points) and replay
     // the resulting event log — the same fold a cache hit takes, so the
     // two cannot diverge.
-    let (events, _) = history::collect_events(&repo, commit.id, options, now, &HashSet::new())?;
+    let (events, _) = history::collect_events(&walk, commit.id, &HashSet::new())?;
     let out = replay::replay(seed, &events, options, now);
     Ok(HistoryIndex::new(out.files, workdir, shallow).with_bus_factor(out.bus_factor))
 }

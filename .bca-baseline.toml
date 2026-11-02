@@ -407,7 +407,7 @@ value = 96116.62210735636
 path = "big-code-analysis-cli/src/check_format.rs"
 qualified = "write_github_annotations"
 metric = "halstead.effort"
-value = 48005.61993457766
+value = 48348.517219824644
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -485,6 +485,12 @@ value = 5.0
 path = "big-code-analysis-cli/src/commands/check/thresholds.rs"
 qualified = "SharedLayers<'a>::new"
 metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
+qualified = "compute_since_diff"
+metric = "nexits"
 value = 5.0
 
 [[entry]]
@@ -710,10 +716,22 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/metric_diff.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 540.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/metric_diff.rs"
+qualified = "DiffError::fmt"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 557.0
+value = 552.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -731,7 +749,7 @@ value = 5.0
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 531.0
+value = 529.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -1445,7 +1463,7 @@ value = 6.0
 path = "src/vcs/bus_factor.rs"
 qualified = "compute"
 metric = "halstead.effort"
-value = 48322.36668354654
+value = 48479.25748446715
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
@@ -1493,19 +1511,19 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 78743.41070492903
+value = 78478.58535363215
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "nexits"
-value = 11.0
+value = 12.0
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
 qualified = "incremental_events"
 metric = "nargs"
-value = 9.0
+value = 6.0
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
@@ -1529,19 +1547,13 @@ value = 74116.87497554444
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "halstead.effort"
-value = 51486.680993977934
-
-[[entry]]
-path = "src/vcs/git/history.rs"
-qualified = "collect_events"
-metric = "nargs"
-value = 5.0
+value = 50009.85179765145
 
 [[entry]]
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "nexits"
-value = 8.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
@@ -1551,7 +1563,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L215>"
+qualified = "diff_collect::<anon@L577>"
 metric = "nexits"
 value = 6.0
 
@@ -1559,7 +1571,7 @@ value = 6.0
 path = "src/vcs/git/history.rs"
 qualified = "process_commit"
 metric = "nargs"
-value = 8.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
@@ -1631,7 +1643,7 @@ value = 6.0
 path = "src/vcs/git/mod.rs"
 qualified = "build"
 metric = "nexits"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/git/mod.rs"

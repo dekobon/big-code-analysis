@@ -22,7 +22,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use big_code_analysis::metric_catalog::{Change, Threshold};
+use big_code_analysis::metric_catalog::{
+    Change, Threshold, ThresholdMetricError, resolve_new_threshold_metric, resolve_threshold_metric,
+};
 use big_code_analysis::{
     CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, SuppressionScope,
     threshold_metric_for_name,
@@ -263,8 +265,11 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
 ];
 
-/// Names accepted by `--threshold` and the `[thresholds]` TOML table.
-/// Sorted, deduplicated. Used for error messages and tests.
+/// The canonical names `--threshold` and the `[thresholds]` TOML table
+/// gate: the `EXTRACTORS` ids, sorted. The unknown-name message lists
+/// the library's catalog ids instead (`extractor_ids_match_library_catalog`
+/// pins the two sets equal), so this is read by tests alone.
+#[cfg(test)]
 pub(crate) fn known_metric_names() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = EXTRACTORS.iter().map(|e| e.name).collect();
     names.sort_unstable();
@@ -357,16 +362,19 @@ pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let value: f64 = limit
         .parse()
         .map_err(|e| format!("invalid limit {limit:?} for {name:?}: {e}"))?;
-    match crate::metric_alias::normalize_for_check(name) {
-        Ok(canonical) if big_code_analysis::metric_catalog::lookup(&canonical).is_some() => {
-            checked_threshold(&canonical, value)?;
+    match resolve_threshold_metric(name) {
+        Ok(info) => {
+            checked_threshold(info.id, value)?;
         }
-        _ if !value.is_finite() => {
+        // An unknown or ambiguous name is reported one layer down, with
+        // its did-you-mean list; only the limit's own shape is checked
+        // here.
+        Err(_) if !value.is_finite() => {
             return Err(format!(
                 "limit for {name:?} must be a finite number; got {value}"
             ));
         }
-        _ => {}
+        Err(_) => {}
     }
     Ok((name.to_string(), value))
 }
@@ -476,27 +484,25 @@ fn parse_soft_table(value: &toml::Value) -> Result<BTreeMap<String, SoftLimit>, 
 /// An ambiguous family head (`halstead`, `mi`) has no single threshold
 /// scalar and is rejected here, as is a table naming one metric under two
 /// spellings: silently keeping whichever key sorts last is the same
-/// surprise this function exists to remove.
+/// surprise this function exists to remove. Both rejections are the
+/// library resolver's (`resolve_new_threshold_metric`), which the Python
+/// bindings' `to_sarif(thresholds=)` dict reads too, so the two
+/// front-ends refuse the pair with one rule and one wording (#1618).
 pub(crate) fn insert_canonical_limit<V>(
     into: &mut BTreeMap<String, V>,
     table: &str,
     name: &str,
     value: V,
 ) -> Result<(), String> {
-    let canonical = crate::metric_alias::normalize_for_check(name)
-        .map_err(|e| format!("{table} {e}"))?
-        .into_owned();
-    if into.contains_key(&canonical) {
-        // Names both spellings rather than quoting the earlier key,
-        // which would read as `"loc.ploc": "loc.ploc" is already set`
-        // whenever the dotted form is the one written second.
-        return Err(format!(
-            "{table} {name:?}: {canonical:?} is already set in this table under its other \
-             spelling; a bare `loc` sub-metric name and its dotted id (`ploc`, `loc.ploc`) \
-             are one metric, so set it once"
-        ));
-    }
-    into.insert(canonical, value);
+    let canonical = match resolve_new_threshold_metric(name, |id| into.contains_key(id)) {
+        Ok(info) => info.id,
+        // An unknown name keys the table as written: `ThresholdSet::build_tiered`
+        // reports it, with its did-you-mean list, on the surface the
+        // other typo classes use (#1165).
+        Err(ThresholdMetricError::Unknown { .. }) => name,
+        Err(err) => return Err(format!("{table} {err}")),
+    };
+    into.insert(canonical.to_owned(), value);
     Ok(())
 }
 
@@ -569,31 +575,34 @@ pub(crate) struct Violation {
     /// it. The field name stays `function` for source-compatibility with
     /// the many call sites built before the qualified form existed.
     pub(crate) function: String,
-    /// Metric that breached its threshold. Always `threshold.id()`;
-    /// kept as a field because every emitter reads it.
-    pub(crate) metric: &'static str,
     /// Observed metric value.
     pub(crate) value: f64,
     /// The validated limit for the tier the gate ran at. Carries the
-    /// metric's direction and scale, so every question about how badly
-    /// this violation breaches is answered by the catalog rather than
-    /// re-derived here (#1621).
+    /// metric's identity, direction and scale, so every question about
+    /// which metric breached and how badly is answered by the catalog
+    /// rather than re-derived here (#1621). [`Self::metric`] reads the
+    /// name from it: a separate name field could disagree with the
+    /// threshold it ranks by (#1643).
     pub(crate) threshold: Threshold,
-    /// The hard-tier ceiling for this metric *under the table that
-    /// gated this file's language* — equal to [`Self::limit`] at the
-    /// hard tier, the un-scaled ceiling at the soft tier, and `None`
-    /// for a metric that has a `[thresholds.soft]` limit but no hard
-    /// one (there is no ceiling to breach).
+    /// Whether [`Self::value`] also breaches the hard-tier ceiling for
+    /// this metric *under the table that gated this file's language*:
+    /// always at the hard tier, where that ceiling is
+    /// [`Self::threshold`] itself; at the soft tier, when the value is
+    /// past the un-scaled ceiling as well as the band; and never for a
+    /// metric that has a `[thresholds.soft]` limit but no hard one
+    /// (there is no ceiling to breach).
     ///
-    /// Stamped here rather than looked up afterwards because the
-    /// ceiling is per-language once `[thresholds.lang.<slug>]`
-    /// overrides exist (#1141), and by classification time the
-    /// offender is all that is left of the file that produced it.
-    /// Drives the [`CheckOutcome::HardBreach`] escalation in
-    /// `classify_check_outcome`.
+    /// Decided by the walk, which holds the ceiling, rather than
+    /// carried as a second `Threshold` for the classifier to compare
+    /// against: the ceiling is per-language once `[thresholds.lang.<slug>]`
+    /// overrides exist (#1141), by classification time the offender is
+    /// all that is left of the file that produced it, and a second
+    /// limit beside [`Self::threshold`] was a second metric identity a
+    /// fixture could mislabel (#1643). Drives the
+    /// [`CheckOutcome::HardBreach`] escalation in `classify_check_outcome`.
     ///
     /// [`CheckOutcome::HardBreach`]: crate::CheckOutcome::HardBreach
-    pub(crate) hard_limit: Option<Threshold>,
+    pub(crate) hard_breach: bool,
     /// Normalized hash of the function body, populated only when
     /// `--baseline-fuzzy-match` is active (see [`crate::baseline`]).
     /// `None` otherwise. Used as the last-resort baseline matcher when
@@ -637,11 +646,16 @@ impl Violation {
         format!(
             "{}: {} = {}{} (limit {})",
             self.function,
-            self.metric,
+            self.metric(),
             MetricScalar(self.value),
             split,
             MetricScalar(self.limit()),
         )
+    }
+
+    /// The metric that breached its threshold.
+    pub(crate) fn metric(&self) -> &'static str {
+        self.threshold.id()
     }
 
     /// The configured limit for the tier the gate ran at.
@@ -680,7 +694,7 @@ impl Violation {
     pub(crate) fn pick_worst<'a>(vs: &[&'a Self]) -> Option<&'a Self> {
         vs.iter()
             .copied()
-            .max_by(|a, b| a.cmp_severity(b).then_with(|| b.metric.cmp(a.metric)))
+            .max_by(|a, b| a.cmp_severity(b).then_with(|| b.metric().cmp(a.metric())))
     }
 
     pub(crate) fn group_pairs_by_path(
@@ -793,8 +807,9 @@ struct ResolvedThreshold {
     threshold: Threshold,
     /// The hard-tier ceiling for this metric, carried alongside the
     /// tier-resolved `threshold` so each emitted [`Violation`] can be
-    /// stamped with the ceiling that applies to *its* language (#1141).
-    /// `None` when the metric has a soft limit but no hard one.
+    /// stamped with whether it breaches the ceiling that applies to
+    /// *its* language (#1141). `None` when the metric has a soft limit
+    /// but no hard one.
     hard_limit: Option<Threshold>,
 }
 
@@ -886,11 +901,12 @@ impl ResolvedThreshold {
             start_line: space.start_line,
             end_line: space.end_line,
             function: qualified.to_owned(),
-            metric: self.extractor.name,
             value,
             threshold: self.threshold,
             nargs_split,
-            hard_limit: self.hard_limit,
+            // In the metric's own direction (#837): an `mi.*` value
+            // breaches its hard floor by falling below it.
+            hard_breach: self.hard_limit.is_some_and(|hard| hard.breaches(value)),
             body_hash: None,
             suppressed,
         })
@@ -962,13 +978,26 @@ impl ThresholdSet {
             // is what let a merge key two spellings of one metric and
             // gate it twice, so this layer now takes canonical keys as an
             // invariant rather than restoring it after the fact.
+            // The unknown-name message is the library resolver's, so the
+            // CLI and the Python bindings print one wording (#1618). The
+            // lookup stays by exact key: resolving through the catalog
+            // would re-admit the alias spellings `insert_canonical_limit`
+            // already folded, and `hard.get(name)` below would miss them.
             let extractor = lookup_extractor(name).ok_or_else(|| {
-                let known = known_metric_names();
-                format!(
-                    "unknown threshold metric {name:?}{}; known metrics: {}",
-                    crate::threshold_suggestion::format_suggestion(name, &known),
-                    known.join(", ")
-                )
+                match resolve_threshold_metric(name) {
+                    Err(unresolved) => unresolved.to_string(),
+                    // A catalog id with no extractor, or an alias spelling
+                    // handed in without `insert_canonical_limit`'s folding:
+                    // a table or caller drift that
+                    // `extractor_ids_match_library_catalog` in
+                    // `thresholds_tests.rs` pins against, reported rather
+                    // than gated silently.
+                    Ok(info) => format!(
+                        "threshold metric {name:?} has no extractor or is an un-normalised \
+                         alias (the catalog resolves it to {:?})",
+                        info.id
+                    ),
+                }
             })?;
             let threshold = checked_threshold(extractor.name, *limit)?;
             let hard_limit = hard

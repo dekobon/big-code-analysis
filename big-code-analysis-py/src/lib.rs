@@ -56,7 +56,7 @@ use pyo3::wrap_pyfunction;
 
 use big_code_analysis::{Metric, MetricSet};
 
-use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
+use crate::analysis::{AnalysisError, AnalyzeOptions, Outcome, PACKAGE_VERSION};
 use crate::batch::{PyAnalysisError, analyze_batch, analyze_paths};
 use crate::sarif::to_sarif;
 
@@ -165,6 +165,46 @@ fn strip_os_error_suffix(message: &str) -> &str {
     message
 }
 
+/// Which slot of `CPython`'s `OSError(errno, strerror, filename[,
+/// winerror])` constructor carries one `io::Error::raw_os_error()` code.
+#[derive(Debug, PartialEq, Eq)]
+enum OsErrorCode {
+    /// `OSError(errno, strerror, filename)`; `None` for an error with no
+    /// OS code behind it, such as a path holding a NUL byte.
+    Errno(Option<i32>),
+    /// `OSError(None, strerror, filename, winerror)`.
+    WinError(i32),
+}
+
+impl OsErrorCode {
+    /// Route `raw` to the slot `CPython` reads it from on this platform.
+    ///
+    /// On Windows `raw_os_error()` is a Win32 code, not an errno: passed
+    /// as `errno`, `ERROR_PATH_NOT_FOUND` (3) would read as `ESRCH` and
+    /// raise `ProcessLookupError`. Passed as `winerror`, `CPython` maps it
+    /// to the errno that picks the right subclass (`FileNotFoundError`
+    /// for 2 and 3, `PermissionError` for 5) and keeps the Win32 code on
+    /// `err.winerror`. Elsewhere `winerror` is ignored. With no code at
+    /// all the slot is left out even on Windows, where a `winerror` of
+    /// `None` would render as `[WinError None]` instead of the
+    /// `[Errno None]` every other platform shows. `on_windows` is a
+    /// parameter rather than a `cfg` so every arm is testable on any host.
+    const fn for_platform(raw: Option<i32>, on_windows: bool) -> Self {
+        match raw {
+            Some(code) if on_windows => Self::WinError(code),
+            _ => Self::Errno(raw),
+        }
+    }
+
+    /// The `OSError` carrying this code, `strerror` and `filename`.
+    fn into_py_err(self, strerror: String, filename: String) -> PyErr {
+        match self {
+            Self::Errno(errno) => PyOSError::new_err((errno, strerror, filename)),
+            Self::WinError(code) => PyOSError::new_err((None::<i32>, strerror, filename, code)),
+        }
+    }
+}
+
 /// Convert an internal `AnalysisError` to a concrete Python exception.
 ///
 /// Kept as a free function (rather than a `From<AnalysisError>` impl
@@ -178,19 +218,21 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
         // EACCES, etc.) and populates `err.errno` / `err.filename`
         // so idiomatic `except FileNotFoundError as e: e.filename`
         // works. Passing `e.to_string()` alone collapses every
-        // I/O failure to bare `OSError` with `errno is None`.
+        // I/O failure to bare `OSError` with `errno is None`. On
+        // Windows the code travels as `winerror` instead, which CPython
+        // maps to the errno that drives that dispatch.
         AnalysisError::Io { source, path } => {
-            let errno = source.raw_os_error();
+            let code = OsErrorCode::for_platform(source.raw_os_error(), cfg!(windows));
             // Rust's `io::Error` Display appends ` (os error N)` for
             // OS-backed errors, but CPython's `OSError(errno, …)`
-            // constructor already renders `[Errno N]` from the errno
-            // argument — passing the full Display doubles the errno
-            // text in the traceback. Strip Rust's suffix so the
+            // constructor already renders `[Errno N]` (`[WinError N]`
+            // on Windows) from the code — passing the full Display
+            // doubles the errno text in the traceback. Strip Rust's suffix so the
             // strerror carries only the human message; CPython owns
             // the errno rendering (#617).
             let msg = strip_os_error_suffix(&source.to_string()).to_owned();
-            // `analyze_path` resolves the `FuncSpace.name` *before*
-            // `std::fs::read`, so in strict mode (`allow_lossy_path
+            // `analyze_path` checks the path is UTF-8 *before* the
+            // file read, so in strict mode (`allow_lossy_path
             // = False`) any path reaching this arm is valid UTF-8
             // and `path.display()` is lossless. In opt-in lossy mode
             // (#316) the caller has explicitly accepted U+FFFD
@@ -200,7 +242,7 @@ pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
             // text, not identifiers, so `display()` is the right
             // call here — the caller has already certified that
             // lossy rendering is acceptable for this path.
-            PyOSError::new_err((errno, msg, path.display().to_string()))
+            code.into_py_err(msg, path.display().to_string())
         }
         AnalysisError::NonUtf8Path => PyValueError::new_err(
             "path is not valid UTF-8 and cannot be used as a FuncSpace name; \
@@ -312,52 +354,45 @@ fn analyze(
         metrics: metric_set,
         mi_charges_docs,
     };
-    // Release the GIL across the file read + tree-sitter parse so
-    // other Python threads (e.g. `concurrent.futures.ThreadPoolExecutor.map`
-    // around this function, the documented parallelism pattern) can
-    // actually run. `analyze_path` touches no Python objects, so the
-    // release is sound; the GIL is re-acquired before
-    // `json_string_to_py` materialises the Python `dict`. In PyO3
-    // 0.28 the spelling is `Python::detach` (renamed from
-    // `allow_threads`).
-    let result = py
-        .detach(|| analysis::analyze_path(&path, opts))
-        .map_err(analysis_error_to_py)?;
+    // Release the GIL across the file read, tree-sitter parse, VCS attach
+    // and serialization so other Python threads (e.g.
+    // `concurrent.futures.ThreadPoolExecutor.map` around this function,
+    // the documented parallelism pattern) can actually run. None of it
+    // touches a Python object, so the release is sound, and it is one
+    // release: the GIL is re-acquired only before `json_string_to_py`
+    // materialises the Python `dict`. In PyO3 0.28 the spelling is
+    // `Python::detach` (renamed from `allow_threads`).
+    //
     // `vcs=True` (#328) attaches a `vcs` block to the file's metrics from
     // a one-shot history walk of its repository; `vcs_per_function=True`
     // (#329 / #578) blames the file once and attaches a block to every
     // nested function space. The two are independent (file-level vs nested
-    // spaces), so both can be set. For `vcs=True` the expensive part is
-    // the history walk, which touches no Python objects and so runs
-    // off-GIL (#620), mirroring `vcs.rank()` and the batch path; the
-    // cheap JSON-injection step (which builds Python errors) stays under
-    // the re-acquired GIL. For whole-repo ranking prefer
-    // `vcs.rank()`, which walks history once.
+    // spaces), so both can be set. The history walk and the blame are the
+    // expensive parts, and both run off-GIL inside the same detach (#620).
+    // For whole-repo ranking prefer `vcs.rank()`, which walks history once.
     //
-    // `vcs_per_function=True` does **not** get that split: only the
-    // session open is detached below, and the blame itself runs inside
-    // `inject_vcs_per_function_with_blame` with the GIL held. #1117 made
-    // the open cheaper still (it now defers the handle, mailmap, and
-    // commit memo), which widens the gap rather than closing it —
-    // splitting the injector so the blame runs off-GIL and only the JSON
-    // attach re-acquires is tracked separately.
-    match result {
-        None => Ok(None),
-        Some(mut json) => {
-            if vcs {
-                let root = crate::vcs::repo_root_for(&path).to_path_buf();
-                if let Some(index) = py.detach(|| crate::vcs::build_index_for(&root)) {
-                    json = crate::vcs::inject_vcs_with_index(json, &path, &index)?;
-                }
+    // Both blocks go on the `FuncSpace` before it is serialized, so the
+    // dict keeps the CLI's key order (see `crate::vcs::inject_vcs_with_index`).
+    let attach = |space: &mut big_code_analysis::FuncSpace| {
+        if vcs {
+            let root = crate::vcs::repo_root_for(&path);
+            if let Some(index) = crate::vcs::build_index_for(root) {
+                crate::vcs::inject_vcs_with_index(space, &path, &index);
             }
-            if vcs_per_function {
-                let root = crate::vcs::repo_root_for(&path).to_path_buf();
-                if let Some(mut blame) = py.detach(|| crate::vcs::open_blame_for(&root)) {
-                    json = crate::vcs::inject_vcs_per_function_with_blame(json, &path, &mut blame)?;
-                }
-            }
-            conversion::json_string_to_py(py, &json).map(Some)
         }
+        if vcs_per_function {
+            let root = crate::vcs::repo_root_for(&path);
+            if let Some(mut blame) = crate::vcs::open_blame_for(root) {
+                crate::vcs::inject_vcs_per_function_with_blame(space, &path, &mut blame);
+            }
+        }
+    };
+    let result = py
+        .detach(|| analysis::analyze_path(&path, opts, attach))
+        .map_err(analysis_error_to_py)?;
+    match result {
+        Outcome::SkippedGenerated | Outcome::Declined => Ok(None),
+        Outcome::Analyzed(json) => conversion::json_string_to_py(py, &json).map(Some),
     }
     // Keyword-only kwargs stay split at the PyO3 boundary (PyO3 has
     // no struct-literal binding for `#[pyo3(signature)]`); the
@@ -934,7 +969,42 @@ fn register_vcs_submodule(parent: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_os_error_suffix;
+    use super::{OsErrorCode, strip_os_error_suffix};
+
+    /// Win32 `ERROR_PATH_NOT_FOUND`: read as an errno it is `ESRCH`, which
+    /// `CPython` dispatches to `ProcessLookupError`.
+    const ERROR_PATH_NOT_FOUND: i32 = 3;
+    /// POSIX "no such file or directory" on Linux and macOS.
+    const ENOENT: i32 = 2;
+
+    #[test]
+    fn windows_code_travels_as_winerror_not_errno() {
+        assert_eq!(
+            OsErrorCode::for_platform(Some(ERROR_PATH_NOT_FOUND), true),
+            OsErrorCode::WinError(ERROR_PATH_NOT_FOUND)
+        );
+    }
+
+    #[test]
+    fn non_windows_code_travels_as_errno() {
+        assert_eq!(
+            OsErrorCode::for_platform(Some(ENOENT), false),
+            OsErrorCode::Errno(Some(ENOENT))
+        );
+    }
+
+    /// A path with a NUL byte fails with no OS code. On Windows, passing
+    /// the `winerror` slot anyway rendered `[WinError None]` where every
+    /// other platform shows `[Errno None]`, so the slot is left out.
+    #[test]
+    fn a_non_os_error_passes_no_winerror_slot() {
+        for on_windows in [false, true] {
+            assert_eq!(
+                OsErrorCode::for_platform(None, on_windows),
+                OsErrorCode::Errno(None)
+            );
+        }
+    }
 
     #[test]
     fn strips_trailing_os_error_suffix() {

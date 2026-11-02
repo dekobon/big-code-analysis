@@ -7,8 +7,11 @@
 //!
 //! ## What is compared
 //!
-//! Each side is either a single per-file JSON document or a directory
-//! tree of them (the shape `bca metrics -O json --output <dir>` writes).
+//! Each side is a single per-file JSON document, the aggregate array of
+//! them `bca metrics -O json --output <file>` writes, or a directory tree
+//! of either (the shape `bca metrics -O json --output-dir <dir>` writes).
+//! Anything else is an error naming the input (see `load`), never a gap
+//! that would read as an added or removed file.
 //! Inputs are parsed as raw [`serde_json::Value`] rather than the
 //! library's [`big_code_analysis::FuncSpace`] type: `FuncSpace` /
 //! `CodeMetrics` derive only `Serialize` (with a *custom* `CodeMetrics`
@@ -30,30 +33,33 @@
 //! [`big_code_analysis::metric_catalog::FAMILIES`]. Every family yields
 //! one bucket named after the family, except `loc`, which expands to its
 //! sub-metric rows (`sloc`, `ploc`, `lloc`, `cloc`, `blank`, `dloc`) — matching
-//! `list-metrics` exactly. A file lands in a bucket when any scalar leaf
-//! under that metric's JSON subtree changed by at least the configured
-//! threshold.
+//! `list-metrics` exactly. A file lands in a bucket when a scalar leaf
+//! under that metric's JSON subtree is numeric on both sides and moved by
+//! at least the configured threshold. A leaf numeric on one side only
+//! has no delta to bucket: it is listed as an added or removed field
+//! beside the added and removed files instead (#1623).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use big_code_analysis::metric_catalog::FAMILIES;
+use big_code_analysis::metric_catalog::{FAMILIES, MetricFamily};
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::format_util::{MetricScalar, strip_path_prefix};
-// Single source of truth for the one expanded family lives in
-// `metric_alias`; importing it keeps diff bucketing and `--metric`
-// aliasing from drifting apart.
-use crate::metric_alias::EXPANDED_FAMILY;
+// Which family expands into row-named buckets, and the bucket a leaf of
+// it lands in, are read from `metric_alias`, so diff bucketing and
+// `--metric` aliasing cannot drift apart.
+use crate::metric_alias::{diff_bucket, expanded_rows};
 
-/// JSON key under which each per-file document nests its metric values.
-const METRICS_KEY: &str = "metrics";
+// Reading a side off disk or out of a `--since` walk; this file
+// compares and renders what it loaded.
+mod load;
 
-/// JSON key carrying a per-file document's display name (used as the
-/// pairing identity when a single file — not a directory — is diffed).
-const NAME_KEY: &str = "name";
+pub(crate) use load::DocumentOrigin;
+pub(crate) use load::set_from_spaces;
+use load::{load_set, path_to_key};
 
 /// Which of the two trees a `bca diff --since` walk was analysing.
 /// Named rather than a bare `&str` so a caller cannot label the
@@ -101,6 +107,24 @@ pub(crate) enum DiffError {
         path: PathBuf,
         source: serde_json::Error,
     },
+    /// An input held JSON that is not a per-file metrics document: not
+    /// an object, or one with no `metrics` object (an `ops` result, say).
+    NotADocument { origin: DocumentOrigin },
+    /// A document with no `name` was read where no path can stand in for
+    /// one: a single-file side, or an element of an aggregate array.
+    Nameless { origin: DocumentOrigin },
+    /// A directory side held no `*.json` file: a capture written in
+    /// another format, or a path that is not a capture at all. Loaded as
+    /// an empty set it would report every file of the other side removed
+    /// or added, or, against another such directory, no change.
+    NoDocuments { path: PathBuf },
+    /// Two documents on one side key on the same name, so the second
+    /// would silently replace the first.
+    DuplicateName {
+        name: String,
+        first: DocumentOrigin,
+        second: DocumentOrigin,
+    },
     /// A path component was not valid UTF-8, so it cannot serve as a
     /// stable pairing key. Identifier paths must round-trip losslessly
     /// (no `to_string_lossy`), so this is a hard error rather than a
@@ -133,6 +157,13 @@ pub(crate) enum DiffError {
     /// reloads, so that side's set is short the same way — and for the
     /// same reason it must not be reported as a code change.
     UnwritableOutputs { side: DiffSide, count: usize },
+    /// A `--since` step outside the metric walk failed once the extracted
+    /// `<ref>` tree existed: materializing the tree, or locating the
+    /// working tree's repository root. `reason` is the complete message
+    /// the `diff` module built. Returned rather than exited on, so the
+    /// partial extraction is removed by its `TempTree` dropping, as on
+    /// every other error path.
+    Since { reason: String },
 }
 
 impl std::fmt::Display for DiffError {
@@ -151,6 +182,36 @@ impl std::fmt::Display for DiffError {
                     path.display()
                 )
             }
+            Self::NotADocument { origin } => write!(
+                f,
+                "{origin} is not a `bca metrics -O json` document: it has no `metrics` object"
+            ),
+            // No fallback is suggested: bca's own nameless documents come
+            // from a non-UTF-8 source path, whose output-dir file path is
+            // not UTF-8 either, so moving one into a directory side fails
+            // on that path instead.
+            Self::Nameless { origin } => write!(
+                f,
+                "{origin} has no `name` to pair it on: set `name` to its source \
+                 path; `bca metrics` itself writes a null `name` only for a source \
+                 path that is not valid UTF-8, which `bca diff` cannot pair until \
+                 that file is renamed"
+            ),
+            Self::NoDocuments { path } => write!(
+                f,
+                "{} holds no `*.json` file; a directory side is read as the \
+                 tree `bca metrics -O json --output-dir` writes",
+                path.display()
+            ),
+            Self::DuplicateName {
+                name,
+                first,
+                second,
+            } => write!(
+                f,
+                "{first} and {second} are both named {name:?}; a side holds one \
+                 document per source file"
+            ),
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
             }
@@ -181,13 +242,17 @@ impl std::fmt::Display for DiffError {
                     crate::walk_failure_summary(*count)
                 )
             }
+            Self::Since { reason } => f.write_str(reason),
         }
     }
 }
 
 /// A single per-file, per-metric-field delta. `field` is the dotted
 /// path to the scalar within the metric subtree (e.g. `sum`,
-/// `modified.sum`) so a reviewer can see *which* component moved.
+/// `modified.sum`) so a reviewer can see *which* component moved. Both
+/// sides are always real numbers read from the documents: a leaf with
+/// a number on one side only is not a delta and never reaches here
+/// (see [`FieldPresence`]).
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct FieldDelta {
     pub(crate) file: String,
@@ -196,18 +261,37 @@ pub(crate) struct FieldDelta {
     pub(crate) new: f64,
 }
 
-/// All deltas for one metric bucket, plus the files that appeared or
-/// vanished between the two sets (a file is added/removed wholesale, not
-/// per metric, so those lists are deliberately shared across buckets via
-/// [`MetricDiff::added_files`] / [`removed_files`]).
+/// A scalar leaf that carries a number on exactly one side, so there is
+/// nothing to compare it against (#1623). Two captures taken with
+/// different `--metrics` sets, or by two bca versions whose emitters
+/// differ, produce whole families of these; diffing each against an
+/// invented `0.0` printed them as `0 → n` movements, which for `mi.*`
+/// read as a twenty-point improvement. `metric` is the bucket name the
+/// `--metric` filter matches, and `field` is the dotted path within
+/// that metric's subtree, exactly as in [`FieldDelta`] — empty when the
+/// family key itself held the number. The field order is the sort order
+/// of every list the rows appear in.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub(crate) struct FieldPresence {
+    pub(crate) file: String,
+    pub(crate) metric: String,
+    pub(crate) field: String,
+}
+
+/// All deltas for one metric bucket. Files that appeared or vanished
+/// between the two sets, and fields numeric on one side only, are
+/// set-level lists on [`MetricDiff`] rather than bucket members: a file
+/// is added or removed wholesale, not per metric, and a one-sided field
+/// has no delta to bucket.
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct Bucket {
     pub(crate) changed: Vec<FieldDelta>,
 }
 
 /// The complete per-metric diff: a bucket per metric name that has at
-/// least one change, plus the set-level added/removed file lists. Counts
-/// in the summary line always reflect every bucket.
+/// least one change, plus the set-level added/removed file and field
+/// lists. Counts in the summary line always reflect every bucket and
+/// every list.
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct MetricDiff {
     /// Buckets keyed by metric name, ordered for deterministic output.
@@ -216,10 +300,16 @@ pub(crate) struct MetricDiff {
     pub(crate) added_files: Vec<String>,
     /// Files present in the old set but absent from the new.
     pub(crate) removed_files: Vec<String>,
+    /// Scalar leaves numeric in the new document but not the old, for
+    /// files present on both sides. Subject to `--metric` but not to
+    /// `--min-change`, which measures a delta these do not have.
+    pub(crate) added_fields: Vec<FieldPresence>,
+    /// Scalar leaves numeric in the old document but not the new.
+    pub(crate) removed_fields: Vec<FieldPresence>,
 }
 
-/// A loaded metric-output set: a map from pairing key (relative path for
-/// a directory, the document `name` for a single file) to the parsed
+/// A loaded metric-output set: a map from pairing key (the document's
+/// `name`, or its path within the set when it has none) to the parsed
 /// top-level `metrics` object for that file.
 pub(crate) type MetricSet = BTreeMap<String, Value>;
 
@@ -280,40 +370,24 @@ impl MetricDiff {
         // unchanged, so existing `--metric sloc` keeps working.
         let metric_filter: Vec<String> = metric_filter
             .iter()
-            .map(|m| crate::metric_alias::normalize_for_diff(m).into_owned())
+            .map(|m| crate::metric_alias::normalize_for_diff(m).to_string())
             .collect();
         let metric_filter = metric_filter.as_slice();
 
         (diff.added_files, diff.removed_files) = file_set_deltas(old, new);
 
         // Files present on both sides: walk the metric tree and bucket
-        // each scalar leaf whose value moved past the threshold.
+        // each scalar leaf whose value moved past the threshold; a leaf
+        // numeric on one side only is listed, not diffed.
         for (key, old_metrics) in old {
             let Some(new_metrics) = new.get(key) else {
                 continue;
             };
-            for (bucket, field, old_v, new_v) in metric_scalar_pairs(old_metrics, new_metrics) {
-                if !metric_filter.is_empty() && !metric_filter.iter().any(|m| m == &bucket) {
+            for leaf in metric_leaves(old_metrics, new_metrics) {
+                if !metric_filter.is_empty() && !metric_filter.contains(&leaf.bucket) {
                     continue;
                 }
-                // A field that did not move is never interesting (even
-                // at the `min_change == 0` default, which means "any
-                // change", not "every field"). A positive `min_change`
-                // additionally suppresses sub-threshold movement.
-                let delta = (new_v - old_v).abs();
-                if delta == 0.0 || delta < min_change {
-                    continue;
-                }
-                diff.buckets
-                    .entry(bucket)
-                    .or_default()
-                    .changed
-                    .push(FieldDelta {
-                        file: key.clone(),
-                        field,
-                        old: old_v,
-                        new: new_v,
-                    });
+                diff.record_leaf(key, leaf, min_change);
             }
         }
 
@@ -322,7 +396,55 @@ impl MetricDiff {
                 .changed
                 .sort_by(|a, b| (&a.file, &a.field).cmp(&(&b.file, &b.field)));
         }
+        // `(file, metric, field)` is unique per row, so the order is
+        // total and a stable sort buys nothing.
+        diff.added_fields.sort_unstable();
+        diff.removed_fields.sort_unstable();
         diff
+    }
+
+    /// File `file` carries one scalar leaf: a pair that moved by at
+    /// least `min_change` joins its metric bucket; a leaf numeric on one
+    /// side only has no delta to measure and is listed as added or
+    /// removed instead (#1623).
+    fn record_leaf(&mut self, file: &str, leaf: MetricLeaf, min_change: f64) {
+        let MetricLeaf {
+            bucket,
+            field,
+            values,
+        } = leaf;
+        match values {
+            LeafValues::Both { old, new } => {
+                // A field that did not move is never interesting (even
+                // at the `min_change == 0` default, which means "any
+                // change", not "every field"). A positive `min_change`
+                // additionally suppresses sub-threshold movement.
+                let delta = (new - old).abs();
+                if delta == 0.0 || delta < min_change {
+                    return;
+                }
+                self.buckets
+                    .entry(bucket)
+                    .or_default()
+                    .changed
+                    .push(FieldDelta {
+                        file: file.to_owned(),
+                        field,
+                        old,
+                        new,
+                    });
+            }
+            LeafValues::NewOnly => self.added_fields.push(FieldPresence {
+                file: file.to_owned(),
+                metric: bucket,
+                field,
+            }),
+            LeafValues::OldOnly => self.removed_fields.push(FieldPresence {
+                file: file.to_owned(),
+                metric: bucket,
+                field,
+            }),
+        }
     }
 
     /// Total field-level changes across every bucket.
@@ -331,20 +453,60 @@ impl MetricDiff {
     }
 
     /// Whether the diff carries no surviving delta after the active
-    /// `--min-change` / `--metric` filtering: no per-metric field changes
-    /// and no added/removed files. Drives `bca diff --exit-code` (#692),
-    /// which exits with the metric-gate code when this is `false`.
+    /// `--min-change` / `--metric` filtering: no per-metric field
+    /// changes, no added/removed files and no added/removed fields.
+    /// Drives `bca diff --exit-code` (#692), which exits with the
+    /// metric-gate code when this is `false`.
     pub(crate) fn is_empty(&self) -> bool {
-        self.total_changes() == 0 && self.added_files.is_empty() && self.removed_files.is_empty()
+        self.total_changes() == 0
+            && self.added_files.is_empty()
+            && self.removed_files.is_empty()
+            && self.added_fields.is_empty()
+            && self.removed_fields.is_empty()
+    }
+
+    /// The non-empty set-level lists in print order (added and removed
+    /// files, then added and removed fields), each under the title both
+    /// human renderers give its section and rendered to its display rows,
+    /// paths trimmed by `strip_prefix`. One iterator feeds both renderers,
+    /// so a list cannot be titled, ordered or fenced differently in one.
+    fn listed_sections<'a>(
+        &'a self,
+        strip_prefix: &'a str,
+    ) -> impl Iterator<Item = (&'static str, Vec<String>)> + 'a {
+        let files = [
+            ("Added files", &self.added_files),
+            ("Removed files", &self.removed_files),
+        ]
+        .into_iter()
+        .filter(|(_, files)| !files.is_empty())
+        .map(move |(title, files)| {
+            let rows = files
+                .iter()
+                .map(|f| strip_path_prefix(f, strip_prefix).to_owned())
+                .collect();
+            (title, rows)
+        });
+        let fields = [
+            ("Added fields", &self.added_fields),
+            ("Removed fields", &self.removed_fields),
+        ]
+        .into_iter()
+        .filter(|(_, rows)| !rows.is_empty())
+        .map(move |(title, rows)| (title, presence_rows(rows, strip_prefix).collect()));
+        files.chain(fields)
     }
 
     /// One-line headline reported by every renderer.
     fn summary_line(&self) -> String {
         format!(
-            "{} metric(s) changed, {} added file(s), {} removed file(s)",
+            "{} metric(s) changed, {} added file(s), {} removed file(s), \
+             {} added field(s), {} removed field(s)",
             self.buckets.len(),
             self.added_files.len(),
             self.removed_files.len(),
+            self.added_fields.len(),
+            self.removed_fields.len(),
         )
     }
 
@@ -352,24 +514,24 @@ impl MetricDiff {
     /// sections are omitted; an all-empty diff renders just the summary
     /// line.
     pub(crate) fn render_tty(&self, strip_prefix: &str) -> String {
+        let strip_prefix = &key_prefix(strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
-        Self::write_file_section(&mut out, "Added files", &self.added_files, strip_prefix);
-        Self::write_file_section(&mut out, "Removed files", &self.removed_files, strip_prefix);
+        for (title, rows) in self.listed_sections(strip_prefix) {
+            let _ = write!(out, "\n## {title}\n");
+            for row in rows {
+                let _ = writeln!(out, "  {row}");
+            }
+        }
         for (metric, bucket) in &self.buckets {
             let _ = write!(out, "\n## {metric} ({} change(s))\n", bucket.changed.len());
-            let width = bucket
+            let ids: Vec<String> = bucket
                 .changed
                 .iter()
-                .map(|d| {
-                    strip_path_prefix(&d.file, strip_prefix).chars().count()
-                        + d.field.chars().count()
-                        + 1
-                })
-                .max()
-                .unwrap_or(0);
-            for d in &bucket.changed {
-                let id = format!("{}.{}", strip_path_prefix(&d.file, strip_prefix), d.field);
+                .map(|d| delta_row_id(strip_path_prefix(&d.file, strip_prefix), &d.field))
+                .collect();
+            let width = ids.iter().map(|id| id.chars().count()).max().unwrap_or(0);
+            for (id, d) in ids.iter().zip(&bucket.changed) {
                 let _ = writeln!(
                     out,
                     "  {id:<width$}  {} \u{2192} {}",
@@ -382,23 +544,20 @@ impl MetricDiff {
     }
 
     /// Markdown form for a sticky PR comment: the summary line, then a
-    /// `## Section` header per non-empty bucket with its rows in a fenced
-    /// `text` block so column alignment survives Markdown's whitespace
-    /// collapsing.
+    /// `## Section` header per non-empty list and bucket with its rows in
+    /// a fenced `text` block, so column alignment survives Markdown's
+    /// whitespace collapsing and a path is never read as inline markup
+    /// (`pkg/__init__.py` as a bulleted item renders `init` in bold).
     pub(crate) fn render_markdown(&self, strip_prefix: &str) -> String {
+        let strip_prefix = &key_prefix(strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
-        if !self.added_files.is_empty() {
-            let _ = write!(out, "\n## Added files\n\n");
-            for f in &self.added_files {
-                let _ = writeln!(out, "- {}", strip_path_prefix(f, strip_prefix));
+        for (title, rows) in self.listed_sections(strip_prefix) {
+            let _ = write!(out, "\n## {title}\n\n```text\n");
+            for row in rows {
+                let _ = writeln!(out, "{row}");
             }
-        }
-        if !self.removed_files.is_empty() {
-            let _ = write!(out, "\n## Removed files\n\n");
-            for f in &self.removed_files {
-                let _ = writeln!(out, "- {}", strip_path_prefix(f, strip_prefix));
-            }
+            out.push_str("```\n");
         }
         for (metric, bucket) in &self.buckets {
             let _ = write!(
@@ -409,9 +568,8 @@ impl MetricDiff {
             for d in &bucket.changed {
                 let _ = writeln!(
                     out,
-                    "{}.{}  {} \u{2192} {}",
-                    strip_path_prefix(&d.file, strip_prefix),
-                    d.field,
+                    "{}  {} \u{2192} {}",
+                    delta_row_id(strip_path_prefix(&d.file, strip_prefix), &d.field),
                     MetricScalar(d.old),
                     MetricScalar(d.new),
                 );
@@ -422,9 +580,13 @@ impl MetricDiff {
     }
 
     /// Pretty-printed JSON of the complete diff. The `--metric` filter
-    /// still applies (it changes which buckets exist), but every
+    /// still applies (it changes which buckets exist and which
+    /// `added_fields` / `removed_fields` rows survive), but every
     /// surviving bucket is emitted in full — a machine consumer reads the
-    /// bucket it cares about from a stable schema.
+    /// bucket it cares about from a stable schema. `summary.total_changes`
+    /// and `metrics_changed` count numeric movement only; the one-sided
+    /// rows are counted by `summary.added_fields` / `removed_fields`, and
+    /// `--exit-code` fires on any of the four.
     pub(crate) fn render_json(&self) -> Result<String, serde_json::Error> {
         let mut s = serde_json::to_string_pretty(&JsonOut {
             summary: Summary {
@@ -432,23 +594,13 @@ impl MetricDiff {
                 total_changes: self.total_changes(),
                 added_files: self.added_files.len(),
                 removed_files: self.removed_files.len(),
+                added_fields: self.added_fields.len(),
+                removed_fields: self.removed_fields.len(),
             },
             diff: self,
         })?;
         s.push('\n');
         Ok(s)
-    }
-
-    /// Append a `## <title>` list of file paths to a TTY render, each
-    /// trimmed by `strip_prefix` for display.
-    fn write_file_section(out: &mut String, title: &str, files: &[String], strip_prefix: &str) {
-        if files.is_empty() {
-            return;
-        }
-        let _ = write!(out, "\n## {title}\n");
-        for f in files {
-            let _ = writeln!(out, "  {}", strip_path_prefix(f, strip_prefix));
-        }
     }
 }
 
@@ -466,6 +618,77 @@ struct Summary {
     total_changes: usize,
     added_files: usize,
     removed_files: usize,
+    added_fields: usize,
+    removed_fields: usize,
+}
+
+/// `--strip-prefix` spelled the way the file keys are: a key drops every
+/// `.` component (see [`path_to_key`]), so the `./src/` a user copies
+/// from a `-p ./src` walk must drop it too or it would match nothing. A
+/// trailing `/` survives, since `src/` and `src` strip different text,
+/// but is never doubled: the key of `/` is already `/`.
+fn key_prefix(prefix: &str) -> String {
+    if prefix.is_empty() {
+        return String::new();
+    }
+    let Ok(mut key) = path_to_key(Path::new(prefix)) else {
+        return prefix.to_owned();
+    };
+    if prefix.ends_with('/') && !key.is_empty() && !key.ends_with('/') {
+        key.push('/');
+    }
+    key
+}
+
+/// Column-aligned `<file>  <metric>  <field>` rows for a one-sided-field
+/// section, each file trimmed by `strip_prefix` for display. Shared by
+/// the TTY and Markdown renderers so the two cannot drift.
+fn presence_rows<'a>(
+    rows: &'a [FieldPresence],
+    strip_prefix: &str,
+) -> impl Iterator<Item = String> + 'a {
+    let files: Vec<&str> = rows
+        .iter()
+        .map(|p| strip_path_prefix(&p.file, strip_prefix))
+        .collect();
+    let file_width = files.iter().map(|f| f.chars().count()).max().unwrap_or(0);
+    let metric_width = rows
+        .iter()
+        .map(|p| p.metric.chars().count())
+        .max()
+        .unwrap_or(0);
+    rows.iter()
+        .zip(files)
+        .map(move |(FieldPresence { metric, field, .. }, file)| {
+            let field = field_label(field);
+            format!("{file:<file_width$}  {metric:<metric_width$}  {field}")
+        })
+}
+
+/// What a row calls a leaf with no field path: a family whose value is
+/// itself a bare number rather than an object. Only JSON bca did not
+/// write carries one, but a blank would end a one-sided row in the
+/// column padding's trailing spaces and a delta row in a dangling `.`.
+const SCALAR_FIELD_LABEL: &str = "(scalar)";
+
+/// The display form of a leaf's dotted field path, naming the empty one.
+fn field_label(field: &str) -> &str {
+    if field.is_empty() {
+        SCALAR_FIELD_LABEL
+    } else {
+        field
+    }
+}
+
+/// The `<file>.<field>` identity a delta row leads with, or
+/// `<file> (scalar)` for a family that is a bare number on both sides,
+/// matching how the one-sided sections name the same leaf.
+fn delta_row_id(file: &str, field: &str) -> String {
+    if field.is_empty() {
+        format!("{file} {SCALAR_FIELD_LABEL}")
+    } else {
+        format!("{file}.{field}")
+    }
 }
 
 /// How a top-level metric family key maps to bucket name(s).
@@ -473,18 +696,15 @@ enum FamilyBucket<'a> {
     /// The whole family is one bucket of this name (every family except
     /// `loc`, plus any unknown key falling back to itself).
     Family(&'a str),
-    /// `loc` — bucket each leaf by its sub-metric name instead.
-    Expand,
+    /// A family whose `list-metrics` rows name its sub-measurements
+    /// (`loc`) — bucket each leaf by its row instead.
+    Expand(&'static MetricFamily),
 }
 
 /// Classify a top-level metric family key for bucketing.
 fn family_bucket(family_key: &str) -> FamilyBucket<'_> {
-    if family_key == EXPANDED_FAMILY {
-        // `loc` is the one family `list-metrics` expands into distinct
-        // sub-metric buckets; the caller buckets its leaves by name.
-        return FamilyBucket::Expand;
-    }
     match FAMILIES.iter().find(|f| f.name == family_key) {
+        Some(family) if expanded_rows(family).is_some() => FamilyBucket::Expand(family),
         Some(f) => FamilyBucket::Family(f.name),
         // A key with no catalog family (a future metric, or a non-metric
         // sibling the emitter adds) buckets under its own key rather than
@@ -493,266 +713,138 @@ fn family_bucket(family_key: &str) -> FamilyBucket<'_> {
     }
 }
 
-/// True when `field` (a dotted leaf path under the `loc` subtree) is a
-/// recognised sub-metric bucket name. The leaf path's first segment is
-/// the sub-metric (`sloc`, `ploc`, … — possibly with `_average` /
-/// `_min` / `_max` suffixes appended by the emitter), so the bucket is
-/// that first segment when it matches a `loc` row name.
-fn loc_bucket(field: &str) -> Option<&'static str> {
-    // The sub-metric is the segment before the first `_` suffix
-    // (`sloc`, `sloc_average`, …); `split_once` yields the whole field
-    // when there is no suffix.
-    let head = field.split_once('_').map_or(field, |(head, _)| head);
-    FAMILIES
-        .iter()
-        .find(|f| f.name == EXPANDED_FAMILY)?
-        .rows
-        .iter()
-        .find(|r| r.name == head)
-        .map(|r| r.name)
+/// The bucket for `field`, a dotted leaf path under an expanded family's
+/// subtree: the row it names (`sloc`, or `sloc_average` / `_min` /
+/// `_max` as the emitter suffixes it), or the family name for a leaf no
+/// row names. [`diff_bucket`] does the matching, so the leaves a delta
+/// carries and the names `--metric` validates go through one rule.
+fn row_bucket(family: &MetricFamily, field: &str) -> &'static str {
+    diff_bucket(family, field)
 }
 
-/// Walk both `metrics` objects in lock-step and yield
-/// `(bucket, dotted-field, old, new)` for every scalar leaf present in
-/// either side. Leaves missing on one side are reported as a change from
-/// / to `0.0` (a metric field that appears or disappears between grammar
-/// versions is a genuine delta worth surfacing).
-fn metric_scalar_pairs(
-    old_metrics: &Value,
-    new_metrics: &Value,
-) -> Vec<(String, String, f64, f64)> {
-    let mut out = Vec::new();
-    let (Some(old_obj), Some(new_obj)) = (old_metrics.as_object(), new_metrics.as_object()) else {
-        return out;
-    };
-    let mut family_keys: Vec<&String> = old_obj.keys().chain(new_obj.keys()).collect();
-    family_keys.sort();
-    family_keys.dedup();
+/// What the two documents hold at one scalar leaf. Built only when at
+/// least one side is numeric, so the "neither" state is unrepresentable
+/// and no caller has to invent a value for a missing side (#1623).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LeafValues {
+    /// Numeric on both sides: a comparable pair.
+    Both { old: f64, new: f64 },
+    /// Numeric on the new side only.
+    NewOnly,
+    /// Numeric on the old side only.
+    OldOnly,
+}
 
-    for family_key in family_keys {
-        let old_sub = old_obj.get(family_key);
-        let new_sub = new_obj.get(family_key);
+impl LeafValues {
+    /// Classify a leaf from what each side holds. "Present" means
+    /// numeric: a key whose value is not a number (`serde_json` writes a
+    /// non-finite float as `null`) carries nothing to compare on that
+    /// side, so it reads as absent there. A leaf numeric on neither side
+    /// is not a metric scalar at all, hence `None`.
+    fn classify(old: Option<f64>, new: Option<f64>) -> Option<Self> {
+        match (old, new) {
+            (Some(old), Some(new)) => Some(Self::Both { old, new }),
+            (None, Some(_)) => Some(Self::NewOnly),
+            (Some(_), None) => Some(Self::OldOnly),
+            (None, None) => None,
+        }
+    }
+}
+
+/// One scalar leaf of a file's `metrics` object, resolved to the bucket
+/// its family maps to. `field` is the dotted path within the family
+/// subtree (`sum`, `modified.sum`).
+struct MetricLeaf {
+    bucket: String,
+    field: String,
+    values: LeafValues,
+}
+
+/// Walk both `metrics` objects in lock-step and yield every scalar leaf
+/// numeric on at least one side, with its bucket resolved. A leaf
+/// missing on one side is yielded as such rather than diffed against an
+/// invented `0.0`, which is indistinguishable from a real zero. A side
+/// whose `metrics` is not an object holds no families, so every family
+/// of the other side is one-sided; neither loader builds such a side (the
+/// on-disk one refuses it as [`DiffError::NotADocument`], and a `--since`
+/// side always serializes an object), so only a set handed straight to
+/// [`MetricDiff::from_sets`] reaches it.
+fn metric_leaves(old_metrics: &Value, new_metrics: &Value) -> Vec<MetricLeaf> {
+    let mut out = Vec::new();
+    let old_obj = old_metrics.as_object();
+    let new_obj = new_metrics.as_object();
+
+    for family_key in union_keys(old_obj, new_obj) {
+        let old_sub = old_obj.and_then(|m| m.get(family_key));
+        let new_sub = new_obj.and_then(|m| m.get(family_key));
         let family_bucket = family_bucket(family_key);
         let mut leaves = Vec::new();
         collect_leaves(old_sub, new_sub, String::new(), &mut leaves);
-        for (field, old_v, new_v) in leaves {
+        for (field, values) in leaves {
             let bucket = match family_bucket {
                 FamilyBucket::Family(name) => name.to_string(),
                 // `loc` expands per sub-metric; a future loc field with
                 // no catalog row falls back to the `loc` family name so
                 // it is never silently dropped.
-                FamilyBucket::Expand => loc_bucket(&field).unwrap_or(EXPANDED_FAMILY).to_string(),
+                FamilyBucket::Expand(family) => row_bucket(family, &field).to_string(),
             };
-            out.push((bucket, field, old_v, new_v));
+            out.push(MetricLeaf {
+                bucket,
+                field,
+                values,
+            });
         }
     }
     out
+}
+
+/// The keys of both sides' objects, sorted and deduplicated, so a
+/// lock-step walk visits a key present on either side once. A side that
+/// is not an object contributes nothing.
+fn union_keys<'a>(
+    old: Option<&'a serde_json::Map<String, Value>>,
+    new: Option<&'a serde_json::Map<String, Value>>,
+) -> Vec<&'a String> {
+    let mut keys: Vec<&String> = old
+        .into_iter()
+        .chain(new)
+        .flat_map(serde_json::Map::keys)
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 fn collect_leaves(
     old: Option<&Value>,
     new: Option<&Value>,
     prefix: String,
-    out: &mut Vec<(String, f64, f64)>,
+    out: &mut Vec<(String, LeafValues)>,
 ) {
+    // A number on either side is a leaf at this path whatever the other
+    // side holds — including an object, which the recursion below walks
+    // without ever seeing the number facing it.
+    let values = LeafValues::classify(old.and_then(Value::as_f64), new.and_then(Value::as_f64));
     let old_obj = old.and_then(Value::as_object);
     let new_obj = new.and_then(Value::as_object);
-    if old_obj.is_some() || new_obj.is_some() {
-        // At least one side is a JSON object: recurse over the union of
-        // keys so an added/removed nested field is still walked.
-        let mut keys: Vec<&String> = Vec::new();
-        if let Some(m) = old_obj {
-            keys.extend(m.keys());
-        }
-        if let Some(m) = new_obj {
-            keys.extend(m.keys());
-        }
-        keys.sort();
-        keys.dedup();
-        for k in keys {
-            let child_prefix = if prefix.is_empty() {
-                k.clone()
-            } else {
-                format!("{prefix}.{k}")
-            };
-            collect_leaves(
-                old_obj.and_then(|m| m.get(k)),
-                new_obj.and_then(|m| m.get(k)),
-                child_prefix,
-                out,
-            );
-        }
-        return;
-    }
-    // Neither side is an object: treat as a scalar leaf. Only emit a
-    // leaf that is numeric on at least one side; a field present on one
-    // side only diffs against 0.0.
-    let old_v = old.and_then(Value::as_f64);
-    let new_v = new.and_then(Value::as_f64);
-    if old_v.is_some() || new_v.is_some() {
-        out.push((prefix, old_v.unwrap_or(0.0), new_v.unwrap_or(0.0)));
-    }
-}
-
-/// Load a metric-output set from a file or directory. For a directory,
-/// every `*.json` under it is loaded and keyed by its path relative to
-/// the directory root, so the old/new sides pair on the same relative
-/// layout. For a single file, the document's `name` field is the key
-/// (falling back to the file's own name when absent).
-fn load_set(path: &Path) -> Result<MetricSet, DiffError> {
-    if path.is_dir() {
-        return load_dir_set(path);
-    }
-    let mut set = MetricSet::new();
-    let value = read_json(path)?;
-    let key = value
-        .get(NAME_KEY)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .map_or_else(|| path_to_key(path), Ok)?;
-    set.insert(key, extract_metrics(value));
-    Ok(set)
-}
-
-/// Load every per-file JSON document under `root` into a [`MetricSet`].
-/// Each entry is keyed by its document's own `name` field — the
-/// root-relative source path bca emits — so a directory set pairs with
-/// a single-file set (which keys the same way) and with the
-/// working-tree / `--since` sides regardless of the `.json` output-file
-/// suffix or output-dir layout. Falls back to the path relative to
-/// `root` when `name` is absent (`walk_json_files` only yields paths
-/// under `root`, so `strip_prefix` cannot fail in practice). Shared by
-/// [`load_set`]'s directory branch and the `--since` walk in `lib.rs`.
-pub(crate) fn load_dir_set(root: &Path) -> Result<MetricSet, DiffError> {
-    let mut set = MetricSet::new();
-    for entry in walk_json_files(root)? {
-        let value = read_json(&entry)?;
-        insert_document(&mut set, value, entry.strip_prefix(root).unwrap_or(&entry))?;
-    }
-    Ok(set)
-}
-
-/// Key one per-file document into `set` and store its `metrics` object.
-///
-/// Shared by [`load_dir_set`] and [`set_from_spaces`] so the two cannot
-/// drift on how a document becomes a pairing key (#1116). That agreement
-/// is load-bearing: `bca diff --since` builds one side in memory and
-/// `bca diff <old> <new>` reads the other off disk, and a key derived
-/// differently would pair nothing.
-///
-/// `fallback` supplies the key only for a document with no `name` field
-/// — the relative path within the set, so it stays comparable across
-/// sides.
-fn insert_document(set: &mut MetricSet, value: Value, fallback: &Path) -> Result<(), DiffError> {
-    let key = value
-        .get(NAME_KEY)
-        .and_then(Value::as_str)
-        .map_or_else(|| path_to_key(fallback), |name| Ok(name.to_owned()))?;
-    set.insert(key, extract_metrics(value));
-    Ok(())
-}
-
-/// Build a [`MetricSet`] from the `FuncSpace` trees a `--since` walk
-/// streamed back, without a filesystem round-trip (#1116).
-///
-/// The in-memory twin of [`load_dir_set`], and deliberately keyed the
-/// same way: `serde_json::to_value` runs the identical `Serialize` impl
-/// the per-file JSON writer used, so the document this sees is the one
-/// that used to be written out and parsed back. Keys still come from the
-/// document's `name` field, falling back to the emitted path — which is
-/// what `name` is set from anyway, so the fallback only matters for a
-/// space that somehow carries none.
-///
-/// The old route wrote one JSON document per source file (each behind a
-/// `create_dir_all`), then re-walked the temp tree and re-parsed every
-/// document into a `Value`. Both sides of every `bca diff --since` paid
-/// that twice over while the trees were already in memory.
-pub(crate) fn set_from_spaces(
-    items: impl IntoIterator<Item = crate::AggregateItem>,
-) -> Result<MetricSet, DiffError> {
-    let mut set = MetricSet::new();
-    for item in items {
-        // `ops` never shares a walk with `metrics` — separate
-        // subcommands — and `--since` only ever runs the metrics action,
-        // so the `Ops` arm cannot occur here. Rejected rather than
-        // skipped anyway: silently dropping an item would leave the file
-        // absent from this side's set, and an absent file reads as one
-        // the commit added or removed. That is the wrong-answer failure
-        // mode the surrounding `UnreadableInputs` guard exists to
-        // prevent (#1098), so it must not be reintroduced here by a
-        // `continue`.
-        let crate::AggregateItem::Metrics(space, path) = item else {
-            return Err(DiffError::UnexpectedAggregate);
+    // Recurse over the union of keys so an added/removed nested field is
+    // still walked.
+    for k in union_keys(old_obj, new_obj) {
+        let child_prefix = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
         };
-        let value = serde_json::to_value(&*space).map_err(|source| DiffError::Serialize {
-            path: path.clone(),
-            source,
-        })?;
-        insert_document(&mut set, value, &path)?;
+        collect_leaves(
+            old_obj.and_then(|m| m.get(k)),
+            new_obj.and_then(|m| m.get(k)),
+            child_prefix,
+            out,
+        );
     }
-    Ok(set)
-}
-
-/// Pull the top-level `metrics` object out of a per-file document,
-/// defaulting to an empty object.
-fn extract_metrics(value: Value) -> Value {
-    value
-        .get(METRICS_KEY)
-        .cloned()
-        .unwrap_or_else(|| Value::Object(serde_json::Map::new()))
-}
-
-fn read_json(path: &Path) -> Result<Value, DiffError> {
-    let bytes = std::fs::read(path).map_err(|source| DiffError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    serde_json::from_slice(&bytes).map_err(|source| DiffError::Parse {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-/// Convert a path into a stable string key, erroring on non-UTF-8 rather
-/// than lossily transcoding (identifier paths must round-trip).
-///
-/// The OS separator is normalized to `/` so a directory-set's relpath
-/// fallback key is platform-independent: a file at `nested/y.json` keys
-/// identically whether the walk ran on Unix or Windows (where
-/// `to_str()` would otherwise yield `nested\y.json`, breaking pairing
-/// against a `/`-keyed set and the documented `bca diff` contract).
-fn path_to_key(path: &Path) -> Result<String, DiffError> {
-    path.to_str()
-        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
-        .ok_or_else(|| DiffError::NonUtf8Path {
-            path: path.to_path_buf(),
-        })
-}
-
-/// Recursively collect `*.json` files under a directory. Uses the same
-/// `ignore` crate the walker uses elsewhere, but with ignore-file
-/// awareness disabled: a metric-output dir is a build artifact, not a
-/// source tree, so `.gitignore` rules must not hide its contents.
-fn walk_json_files(root: &Path) -> Result<Vec<PathBuf>, DiffError> {
-    let mut files = Vec::new();
-    let walker = ignore::WalkBuilder::new(root)
-        .standard_filters(false)
-        .build();
-    for result in walker {
-        let entry = result.map_err(|e| DiffError::Read {
-            path: root.to_path_buf(),
-            source: std::io::Error::other(e),
-        })?;
-        let p = entry.path();
-        if p.is_file()
-            && p.extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("json"))
-        {
-            files.push(p.to_path_buf());
-        }
+    if let Some(values) = values {
+        out.push((prefix, values));
     }
-    files.sort();
-    Ok(files)
 }
 
 #[cfg(test)]

@@ -504,7 +504,8 @@ fn check_rejects_one_metric_configured_under_two_spellings() {
         // distinguishable from a metric regression.
         .code(1)
         .stderr(predicate::str::contains(
-            "\"loc.sloc\" is already set in this table under its other spelling",
+            "[thresholds] \"sloc\": \"loc.sloc\" is already set; `sloc` and `loc.sloc` are \
+             one metric, so set it once",
         ));
 }
 
@@ -1631,8 +1632,8 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
 /// one-character change away from the other, so a single-direction test
 /// would let a future "simplify" invert both and stay green.
 ///
-/// All three entry points to the ratio share `scale_threshold` and are
-/// exercised here, because fixing only the blanket path would leave a
+/// All three entry points to the ratio share `Threshold::soft_limit_rounded`
+/// and are exercised here, because fixing only the blanket path would leave a
 /// `[thresholds.soft]` `"0.9x"` string inverted with nothing to catch it.
 #[test]
 fn check_soft_ratio_raises_an_mi_floor_and_lowers_a_cognitive_ceiling() {

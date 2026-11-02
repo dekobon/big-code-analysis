@@ -274,6 +274,13 @@ mod suggestion;
 #[doc(hidden)]
 pub use crate::suggestion::format_suggestion;
 
+// The one `/`-separated path projection behind every output identifier
+// a path becomes; the hidden re-export exists so the CLI's `bca vcs` and
+// `bca diff` identifiers share it with the bus-factor report's.
+mod slash_path;
+#[doc(hidden)]
+pub use crate::slash_path::slash_path;
+
 /// Output formatters: CSV, SARIF, Checkstyle, clang/MSVC warning
 /// lines, and AST/metric pretty-dumps used by `bca` and the offender
 /// reporters.
@@ -399,6 +406,7 @@ pub mod prelude {
         Metric,
         MetricsError,
         MetricsOptions,
+        SkipReason,
         Source,
         SpaceKind,
         // Core entry points

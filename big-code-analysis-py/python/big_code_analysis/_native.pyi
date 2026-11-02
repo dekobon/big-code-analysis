@@ -160,7 +160,9 @@ class AnalysisFailure:
     classification — single-file :func:`analyze` raises a typed
     :class:`OSError` subclass instead (e.g. ``FileNotFoundError``,
     ``PermissionError``), which is the recommended path when
-    structured error dispatch matters.
+    structured error dispatch matters. On Windows ``<N>`` is the Win32
+    error code, not an ``errno``: ``ERROR_PATH_NOT_FOUND`` is 3, which
+    is ``ESRCH`` as an ``errno``.
     """
 
     @property
@@ -237,10 +239,11 @@ class Ast:
         normalization and metric values match), but is *no-magic*: it does
         not skip generated files and does not run the C/C++ preprocessor.
         Unlike :func:`analyze` it never silently returns nothing — it raises
-        :class:`OSError` (the file could not be read),
+        :class:`OSError` (the file could not be read, a directory included),
         :class:`UnsupportedLanguageError` (no language registered for the
-        path), or :class:`ValueError` (a non-UTF-8 path, or an empty /
-        binary / non-UTF-8 file that cannot be parsed as text).
+        path), or :class:`ValueError` (a non-UTF-8 path, or a file the text
+        reader declines — empty, three bytes or fewer, a UTF-16 BOM, a
+        non-UTF-8 leading window — with the message naming which).
         """
 
     @property
@@ -643,7 +646,9 @@ def analyze(
         For any underlying I/O failure. Dispatches to the canonical
         subclass (``FileNotFoundError``, ``PermissionError``,
         ``IsADirectoryError``, …) based on ``errno``, with
-        ``err.errno`` and ``err.filename`` populated.
+        ``err.errno`` and ``err.filename`` populated. On Windows the
+        Win32 code is on ``err.winerror`` and ``err.errno`` is the
+        POSIX code CPython maps it to.
 
     Pass ``vcs=True`` to attach a ``"vcs"`` block (change-history
     metrics) to the file's ``metrics`` from a one-shot history walk of
@@ -660,9 +665,12 @@ def analyze(
     mirrors the CLI's ``bca metrics --vcs-per-function`` flag: every
     descendant space's ``metrics`` gains a ``"vcs"`` key whose shape is
     byte-identical to the file-level block, with a per-function
-    ``hotspot_score`` derived from that space's own cyclomatic sum. The
-    file is blamed exactly once and the result is shared across all of its
-    spans. ``vcs_per_function`` is independent of ``vcs``: set ``vcs=True``
+    ``hotspot_score`` derived from that space's own cyclomatic
+    (``cyclomatic["value"]``), not its subtree ``sum``, so nested
+    complexity is not counted again at every enclosing level; the
+    file-level block keeps the subtree ``sum``. The file is blamed
+    exactly once and the result is shared across all of its spans.
+    ``vcs_per_function`` is independent of ``vcs``: set ``vcs=True``
     for the file-level block, ``vcs_per_function=True`` for the
     per-function blocks, or both. Per-function blocks are omitted (the AST
     metrics still emit) when the file is outside any git working tree, is
@@ -927,8 +935,9 @@ def language_for_file(
         For any underlying I/O failure, **only when ``read=True``**.
         Dispatches to the canonical subclass (``FileNotFoundError``,
         ``PermissionError``, ``IsADirectoryError``, …) based on
-        ``errno``, with ``err.errno`` and ``err.filename`` populated —
-        same shape as :func:`analyze`. For the prior "extension only,
+        ``errno``, with ``err.errno`` and ``err.filename`` populated
+        (and ``err.winerror`` on Windows) — same shape as
+        :func:`analyze`. For the prior "extension only,
         never raises" semantics pass ``read=False`` (the #682 successor
         to wrapping the call in ``try / except OSError``).
     """
@@ -1010,9 +1019,14 @@ def to_sarif(
     ``"loc.dloc"``,
     ``"nom"``, ``"tokens"``, ``"nexits"``, ``"nargs"``,
     ``"mi.original"``, ``"mi.sei"``, ``"mi.visual_studio"``,
-    ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. An unknown name
-    raises :class:`ValueError` listing the accepted set, so a
-    typo fails fast instead of silently producing an empty run.
+    ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. Names resolve by the
+    rule ``bca check --threshold`` applies: a bare ``loc`` sub-metric
+    name (``"sloc"``) stands for its dotted id, and a family head with
+    no single scalar (``"mi"``, ``"halstead"``, ``"loc"``) raises
+    :class:`ValueError` naming the ids, and so does one id given under
+    both spellings. Any other unknown name raises
+    :class:`ValueError` listing the accepted set, so a typo fails fast
+    instead of silently producing an empty run.
 
     Limits follow ``bca check``'s rules. A count's limit is a ceiling
     and must be finite and non-negative. An ``mi.*`` limit is a floor
@@ -1071,8 +1085,8 @@ def to_sarif(
     ------
     TypeError
         If ``result`` is not a dict / iterable of dicts, or a
-        threshold value is not a number, or a threshold key is not
-        a string.
+        threshold value is not a number (a ``bool`` counts as not
+        one), or a threshold key is not a string.
     ValueError
         If a threshold limit is negative on a count metric (an ``mi.*``
         floor may be negative), is non-finite, or names a metric

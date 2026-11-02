@@ -2,12 +2,21 @@ use super::*;
 use crate::vcs::options::{Options, RiskFormula};
 use std::path::PathBuf;
 
-/// A stand-in mailmap digest, deliberately not `0`, so an assertion here
-/// cannot pass because two default values coincide
+/// Stand-in digests, deliberately neither `0` nor equal to each other, so
+/// an assertion here cannot pass because two default values coincide
 /// (`.claude/rules/testing.md`). No real digest is computed in this
-/// module — `repo::mailmap_digest` needs a repository, so it is covered by
-/// the `vcs_cache` integration tests.
-const SAMPLE_MAILMAP_DIGEST: u64 = 0xfeed_face_dead_beef;
+/// module — `WalkContext::mailmap_digest`, `diff_config_digest` and
+/// `shallow_boundary_digest` live in the git backend, whose
+/// `history_tests` pin that the walk resolves identities through the
+/// snapshot the digest is taken from (#1409), which diff settings the
+/// platform reads (#1425) and that the shallow digest tracks the
+/// boundary set, and whose `vcs_cache` integration tests cover
+/// invalidation.
+const SAMPLE_INPUTS: WalkInputDigests = WalkInputDigests {
+    mailmap: 0xfeed_face_dead_beef,
+    diff_config: 0x0ddb_a11c_0ffe_e000,
+    shallow_boundary: 0x5a11_0bad_c0de_ba5e,
+};
 
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
     CommitEvent {
@@ -67,8 +76,8 @@ fn fingerprint_ignores_finalization_only_knobs() {
     ];
     for case in cases {
         assert_eq!(
-            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
-            fingerprint(&case, SAMPLE_MAILMAP_DIGEST)
+            fingerprint(&base, SAMPLE_INPUTS),
+            fingerprint(&case, SAMPLE_INPUTS)
         );
     }
 }
@@ -82,10 +91,14 @@ fn fingerprint_changes_with_the_mailmap_digest() {
     // replayed — and re-persisted by the incremental splice — under a
     // mailmap it was not walked with (issue #1262).
     let options = Options::default();
-    let base = fingerprint(&options, SAMPLE_MAILMAP_DIGEST);
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let edited = WalkInputDigests {
+        mailmap: SAMPLE_INPUTS.mailmap ^ 1,
+        ..SAMPLE_INPUTS
+    };
     assert_ne!(
         base,
-        fingerprint(&options, SAMPLE_MAILMAP_DIGEST ^ 1),
+        fingerprint(&options, edited),
         "a mailmap change must change the fingerprint"
     );
     // Both operands differ from `0` and from each other, so the inequality
@@ -97,6 +110,64 @@ fn fingerprint_changes_with_the_mailmap_digest() {
     // actually depends on is cross-*process*, which this test cannot
     // observe; `vcs_cache_dir_persists_and_replays_identically` in the CLI
     // suite covers it by priming and reading in two separate processes.
+}
+
+#[test]
+fn fingerprint_changes_with_the_diff_config_digest() {
+    // The diff configuration is the other walk input outside `Options`:
+    // the blob-diff platform built from it decides the churn recorded per
+    // commit, and a `git config` edit moves neither `HEAD` nor any option.
+    // Without this term the old churn was replayed — and spliced forward
+    // under each new head — until `--clear-cache` (issue #1425).
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let edited = WalkInputDigests {
+        diff_config: SAMPLE_INPUTS.diff_config ^ 1,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, edited),
+        "a diff configuration change must change the fingerprint"
+    );
+    // The two digests enter the hash as two fields, not folded into one
+    // symmetric value (`mailmap ^ diff_config` would pass the two
+    // assertions above). A transposition at the one site that builds the
+    // pair is a different matter: it is unobservable, since either term
+    // still invalidates, so the named fields are the defence there, not
+    // this test.
+    let swapped = WalkInputDigests {
+        mailmap: SAMPLE_INPUTS.diff_config,
+        diff_config: SAMPLE_INPUTS.mailmap,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, swapped),
+        "the mailmap and diff-config terms are not interchangeable"
+    );
+}
+
+#[test]
+fn fingerprint_changes_with_the_shallow_boundary_digest() {
+    // The shallow boundary is the third walk input outside `Options`: the
+    // walk records nothing behind the commits `.git/shallow` lists, and a
+    // deepen that leaves the clone shallow moves neither `HEAD` nor the
+    // `truncated_shallow_clone` flag `is_compatible` checks (#810 covers
+    // only `--unshallow`). Without this term the entry walked at the old
+    // depth was a pure hit, and the splice re-persisted its truncated
+    // tail under each new head.
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let deepened = WalkInputDigests {
+        shallow_boundary: SAMPLE_INPUTS.shallow_boundary ^ 1,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, deepened),
+        "a shallow-boundary change must change the fingerprint"
+    );
 }
 
 #[test]
@@ -138,8 +209,8 @@ fn fingerprint_changes_with_walk_affecting_knobs() {
     ];
     for case in cases {
         assert_ne!(
-            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
-            fingerprint(&case, SAMPLE_MAILMAP_DIGEST),
+            fingerprint(&base, SAMPLE_INPUTS),
+            fingerprint(&case, SAMPLE_INPUTS),
             "a walk-affecting option must change the fingerprint"
         );
     }
@@ -260,6 +331,52 @@ fn write_load_roundtrip_then_clear() {
     clear_repo(&repo).expect("clear");
     clear_repo(&repo).expect("clear again is idempotent");
     assert!(load(&path).is_none());
+}
+
+#[test]
+fn load_compatible_parses_only_compatible_entries() {
+    // Three entries: one the run can use, two it cannot (another
+    // fingerprint, another shallow state). Only the first may be built in
+    // full; the others are rejected on their header. A compatible header
+    // over an event log that does not parse is still no candidate.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = repo_dir(dir.path(), Path::new("/some/repo"));
+    write_atomic(&entry_path(&repo, "aaaa"), &sample_cache(99)).expect("write");
+    write_atomic(&entry_path(&repo, "bbbb"), &sample_cache(100)).expect("write");
+    let shallow = HistoryCache {
+        truncated_shallow_clone: true,
+        ..sample_cache(99)
+    };
+    write_atomic(&entry_path(&repo, "cccc"), &shallow).expect("write");
+
+    let before = entries_parsed::observed();
+    let found = load_compatible(&repo, 99, false);
+    assert_eq!(
+        found
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>(),
+        [entry_path(&repo, "aaaa")],
+        "only the compatible entry is a candidate"
+    );
+    assert_eq!(
+        entries_parsed::observed() - before,
+        1,
+        "an incompatible entry must be rejected on its header, not parsed in full"
+    );
+
+    let mut corrupt = serde_json::to_value(sample_cache(99)).expect("to value");
+    corrupt["events"] = serde_json::json!("not an event log");
+    std::fs::write(
+        entry_path(&repo, "dddd"),
+        serde_json::to_vec(&corrupt).expect("serialize"),
+    )
+    .expect("write corrupt");
+    assert_eq!(
+        load_compatible(&repo, 99, false).len(),
+        1,
+        "a compatible header over a corrupt event log is ignored, not fatal"
+    );
 }
 
 #[test]

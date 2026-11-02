@@ -438,14 +438,12 @@ fn path_to_string(path: &Path) -> Option<String> {
     // so the JSON / CSV / table output is byte-identical across platforms.
     // The on-disk walk in `rank` yields OS-native separators on Windows
     // (`strip_prefix` of a canonicalized path → `src\work.rs`), so
-    // normalize at this single output chokepoint. Mirrors
-    // `metric_diff::path_to_key`.
-    path.to_str()
-        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
-        .or_else(|| {
-            warn(format_args!("skipping non-UTF-8 path {}", path.display()));
-            None
-        })
+    // normalize at this single output chokepoint, with the helper `bca
+    // diff` keys its sets by so the two cannot drift.
+    crate::format_util::slash_path(path).or_else(|| {
+        warn(format_args!("skipping non-UTF-8 path {}", path.display()));
+        None
+    })
 }
 
 /// Render the report in the requested format (or the default table). A

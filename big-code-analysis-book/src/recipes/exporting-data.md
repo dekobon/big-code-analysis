@@ -50,10 +50,10 @@ destination is given, which suits pipelines.
 
 `bca diff` compares two JSON metric runs and reports, per metric, which
 files changed (old → new), plus any files added or removed between the
-two sets. Each side is either a single per-file JSON document or a whole
-directory tree of them (what `metrics -O json --output-dir <dir>`
-writes), so the common workflow is two `bca metrics` runs into separate
-directories:
+two sets. Each side is a single per-file JSON document, the aggregate
+file `metrics -O json --output <file>` writes, or a whole directory tree
+of either (what `metrics -O json --output-dir <dir>` writes), so the
+common workflow is two `bca metrics` runs into separate directories:
 
 ```bash
 snap=$(mktemp -d "${TMPDIR:-/tmp}/bca-diff.XXXXXX")
@@ -72,18 +72,47 @@ The output buckets every per-file delta by metric name, using the same
 names `bca list-metrics` prints (`cyclomatic`, `cognitive`, `sloc`, …):
 
 ```text
-2 metric(s) changed, 1 added file(s), 0 removed file(s)
+2 metric(s) changed, 1 added file(s), 0 removed file(s), 0 added field(s), 0 removed field(s)
 
 ## Added files
-  src/new_module.rs.json
+  src/new_module.rs
 
 ## cyclomatic (2 change(s))
-  src/lib.rs.json.sum  12 → 14
-  src/lib.rs.json.max   4 → 6
+  src/lib.rs.max  4 → 6
+  src/lib.rs.sum  12 → 14
 
 ## halstead (1 change(s))
-  src/lib.rs.json.effort  5820.3 → 7104.9
+  src/lib.rs.effort  5820.3 → 7104.9
 ```
+
+A leaf that carries a number on one side only (a family the other
+capture never computed because the two runs used different `--metrics`
+sets, or a field a newer bca started emitting) has nothing to diff
+against, so it is never compared with zero. It is listed under
+`## Added fields` / `## Removed fields` (and as `added_fields` /
+`removed_fields` rows of `{file, metric, field}` in the JSON form), is
+counted in the summary line, and counts as a difference for
+`--exit-code`. `--metric` filters these rows as it filters buckets;
+`--min-change` does not apply to them, since there is no delta to
+measure. "Present" means numeric: a leaf written as `null` on one side
+(how a non-finite derived value, such as a `vcs` ratio with nothing to
+divide by, is serialized) reads as absent there, so two captures by the
+same bca version can list a field that became applicable between them.
+
+A document pairs with the other side's document of the same `name`,
+the source path bca recorded, compared in lexical form: `.` components
+are dropped, so captures taken with `-p ./src` and `-p src` pair, and a
+`..` is kept. A directory side reads every `*.json` file under it and
+passes over any other file, such as a README. Input `bca diff` cannot
+pair is an error (exit 1) naming it, never a file silently missing from
+one side: a directory with no `*.json` file (a capture written with
+`-O yaml`, say), JSON with no `metrics` object, two documents with one
+`name`, and a document with no `name` unless it is a whole file inside
+a directory side, where its relative path stands in. `bca metrics`
+writes no `name` for a source path that is not valid UTF-8, and no
+layout can diff such a file. A symlinked `*.json` file is read like the file it names, and one that
+dangles is an error. A symlinked directory inside a side is not entered,
+as the source walk enters none.
 
 Useful flags:
 
@@ -108,32 +137,39 @@ itself with one set of flags, so it cannot mix modes.
 To answer "what did my uncommitted change do to the metrics?",
 `--since <ref>` skips the two captures: it analyzes the tree **at a
 git ref** for the before side and diffs it against the current working
-tree (or an explicit after-side tree):
+tree, which is always the after side:
 
 ```bash
 # Before = the tree at HEAD~1; after = the current working tree.
 bca diff --since HEAD~1 -p src/
 
-# After = an explicit tree (say, a second checkout) instead of the
-# working tree. The single positional is the after side.
-bca diff --since main /path/to/other-checkout -p src/
+# The same diff, scoped by the optional positional instead of -p. It
+# selects the src/ subtree on both sides; it never names another tree.
+bca diff --since HEAD~1 src
 ```
 
 `--since` materializes the ref's tree into a temporary directory (via
 `git ls-tree` + `git cat-file`), runs the same metric walk against it,
-then diffs. The temp tree is removed automatically, including on
-error. The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
+then diffs. The temp tree is removed when the command finishes,
+whether it succeeds or exits with an error. Only a run killed by a
+signal (Ctrl-C included) leaves it behind in the temporary directory.
+The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
 selection applies to both sides so they analyze the same file set.
+Each side reads an `--exclude-from` file for itself, a relative one
+from its own root (the ref's copy for the before side), so
+`--exclude-from -` (stdin, readable only once) is rejected, as is
+`--paths-from`.
 Selection paths are **repo-root-relative** and must be relative: the
 working-tree side is anchored at the repository root (matching the
 whole-tree materialization of the ref), so `bca diff --since` produces
-the same result from any subdirectory. An absolute `--paths` is
-rejected (exit 1) because it cannot address the extracted ref tree.
+the same result from any subdirectory. An absolute `--paths` or
+positional is rejected (exit 1) because it cannot address the extracted
+ref tree.
 
 Unlike `bca check --since` (best-effort), `bca diff --since` is an
 explicit request: an unresolvable ref, a missing `git`, or a non-git
 working directory is a hard error (exit 1). `--since` takes at most one
-positional (the after side); passing two is an error.
+positional, the relative path scope above; passing two is an error.
 
 `bca diff` is informational, not a gate, and exits 0 on success. The
 opt-in `--exit-code` flag changes that: it exits 2 when the filtered

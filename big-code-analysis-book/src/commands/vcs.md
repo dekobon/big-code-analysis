@@ -245,11 +245,23 @@ The cache is a pure optimization: a hit is **bit-identical** to a fresh
 walk, and the time windows are recomputed against the *current* moment
 on every run rather than frozen when the entry was written. An entry is
 ignored, and the history recomputed, whenever the schema, the
-score-formula version, the *walk-affecting* options, or the repository's
-effective `.mailmap` differ; in particular **changing a window forces a
-fresh walk**. One walk input is not covered: the git diff configuration
-(`diff.algorithm`, diff drivers) decides the recorded churn, so after
-changing it run once with `--clear-cache`. Finalization-only knobs such
+score-formula version, the *walk-affecting* options, the repository's
+effective `.mailmap`, or the git diff configuration that decides how gix
+diffs (`diff.algorithm`, `core.bigFileThreshold`, and a `diff.<driver>`
+section's `algorithm`, `binary`, and whether it sets a `textconv`; a
+driver's `command` never runs here and does not count), or the shallow
+boundary of a shallow clone (a `git fetch --deepen` or `--unshallow`
+leaves `HEAD` where it was but reaches commits the entry never saw)
+differ; in
+particular **changing a window forces a fresh walk**. One walk input is
+not covered: the `diff` attribute bindings (`.gitattributes`,
+`.git/info/attributes`, the global attributes file) that route a path to
+a diff driver or mark it `-diff`, so after changing those run once with
+`--clear-cache`. A bca release that adds a term retires every existing
+entry, so the first `bca vcs` after such an upgrade re-walks the whole
+long window once. Nothing deletes an entry that no longer matches, since
+a run with other options may still use it; `--clear-cache` removes the
+repository's entries, retired ones included. Finalization-only knobs such
 as `--risk-formula`, `--emit-author-details`, `--author-hash-key`, and
 `--include-deleted` are applied on replay, so they reuse the same cached
 walk; a cached walk even re-finalizes under a *different* author-hash
@@ -301,7 +313,7 @@ $ bca metrics --vcs --paths src/parser.rs --format json
 `bca metrics --vcs` uses the default windows and weighted formula; for
 window / formula tuning use `bca vcs`.
 
-### Per-function attribution
+### Per-function attribution {#per-function-attribution}
 
 `bca metrics --vcs-per-function` (which implies `--vcs`) additionally
 attaches a `vcs` block to every nested function, method, and class space.
@@ -327,6 +339,13 @@ added+deleted churn), and ownership is credited per touching commit. A
 function nobody has changed within the window reports zero counts. Lines
 whose last touch predates the long window contribute to the function's
 size but to none of the windowed counts.
+
+Each nested space's `hotspot_score` multiplies its *own* cyclomatic
+(`cyclomatic.value`) by its `churn_recent`, not its subtree
+`cyclomatic.sum`, so a nested function's complexity is not counted again
+at every enclosing level; the file-level block keeps the subtree sum.
+When cyclomatic is computed, the Python bindings' `vcs_per_function=True`
+reports the same scores.
 
 **Limitations.** Blame follows file renames (so edits under a former path
 still attribute), but attributes a line *moved between functions* to its

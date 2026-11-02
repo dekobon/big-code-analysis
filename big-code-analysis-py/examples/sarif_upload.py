@@ -64,13 +64,17 @@ import big_code_analysis as bca
 # CLI README's quality-report recipes; they are deliberate
 # starting values, not project-of-record consensus. Override on
 # the command line via ``--threshold name=value`` (repeatable) to
-# track a stricter or looser policy per repo. The keys must match
-# the CLI's `EXTRACTORS` table; an unknown name raises
+# track a stricter or looser policy per repo. The keys are the
+# names ``bca check --threshold`` takes; an unknown name raises
 # ``ValueError`` from inside :func:`bca.to_sarif` once the batch
 # completes (the script does not pre-validate names against
 # ``METRIC_NAMES``, so the failure surfaces after the directory
 # walk — wrap in a dry-run check yourself if your runs are
-# expensive).
+# expensive). Spell a ``loc`` limit by its dotted id, as
+# ``loc.lloc`` below is: :func:`_merge_thresholds` merges by
+# spelling, so an override written ``lloc=100`` would sit beside
+# the default rather than replace it, and ``to_sarif`` rejects one
+# metric under two spellings.
 #
 # Values are float literals (``15.0`` not ``15``) so pyright sees
 # the dict as ``dict[str, float]`` end-to-end; an ``int`` literal
@@ -235,8 +239,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "Override a single threshold (repeatable). Falls back to "
             "DEFAULT_THRESHOLDS for any unset metric. Accepts every "
-            "name in the CLI's EXTRACTORS table — see bca.to_sarif's "
-            "docstring for the full set."
+            "name `bca check --threshold` takes — see bca.to_sarif's "
+            "docstring for the full set; spell a loc limit by its "
+            "dotted id (loc.lloc) so it replaces the default."
         ),
     )
     parser.add_argument(

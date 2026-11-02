@@ -1,8 +1,10 @@
 //! Bridge between the Python entry points and the upstream library.
 //!
 //! These functions own the I/O, language resolution, and tree-sitter
-//! parsing concerns; the result is always a JSON `String`
-//! representation of a [`big_code_analysis::FuncSpace`], produced by
+//! parsing concerns. [`analyze_path`] runs the caller's `attach` hook on
+//! the [`big_code_analysis::FuncSpace`] before serializing it, so a VCS
+//! block is part of the struct rather than spliced into its JSON; the
+//! result is a JSON `String` produced by [`to_json`] with
 //! `serde_json::to_string(&space)` — the exact same serializer the
 //! `bca` CLI uses for its `--output-format json` path. The caller in
 //! [`crate::lib`] hands the string to [`crate::conversion::json_string_to_py`]
@@ -28,13 +30,14 @@
 //! [`big_code_analysis::guess_language`]. See `_native.pyi`'s
 //! `analyze.__doc__` for the user-facing contract.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::path::Path;
 
 use big_code_analysis::metric_catalog::{UnknownSelectorError, resolve_selector};
 use big_code_analysis::{
-    LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
-    normalize_eol, read_file_with_eol,
+    FuncSpace, LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language,
+    is_generated, normalize_eol, read_file_with_eol,
 };
 
 use crate::language::{parse_language_name, unknown_language_message};
@@ -102,7 +105,7 @@ pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, ParseMet
 /// owned by the bridge layer; the `PyO3` dispatcher in [`crate::lib`]
 /// builds it from the kwargs and hands the whole record across the
 /// crate boundary so call sites read as
-/// `analyze_path(&path, AnalyzeOptions::default())` for CLI-walker
+/// `analyze_path(&path, AnalyzeOptions::default(), attach)` for CLI-walker
 /// parity (the [`Default`] impl below sets `skip_generated=true`,
 /// matching the Python `analyze(skip_generated=True)` default) or as
 /// `AnalyzeOptions { skip_generated: false, ..Default::default() }`
@@ -124,7 +127,7 @@ pub(crate) struct AnalyzeOptions {
     /// default keeps `FuncSpace.name` a round-trippable identifier
     /// (#316).
     pub allow_lossy_path: bool,
-    /// Skip the file (return `Ok(None)`) when its leading window
+    /// Skip the file ([`Outcome::SkippedGenerated`]) when its leading window
     /// matches [`big_code_analysis::is_generated`]'s `@generated` /
     /// `DO NOT EDIT` / `GENERATED CODE` predicate. Default `true`
     /// matches the CLI walker (#317).
@@ -272,14 +275,43 @@ impl From<serde_json::Error> for AnalysisError {
     }
 }
 
+/// What [`analyze_path`] did with one path.
+///
+/// Two of the three outcomes emit no record, and they used to share one
+/// `Ok(None)` that each caller told apart by inference — `push_one_result`
+/// read "the reader declined it" off `!skip_generated`, which held only
+/// while these were the only two silent outcomes (lesson 42, #1238).
+/// Naming them makes a new one a compile error at every consumer instead
+/// of a mislabelled `None` slot (#1348).
+#[derive(Debug)]
+pub(crate) enum Outcome {
+    /// The file parsed; the serialised `FuncSpace` JSON, with whatever
+    /// the `attach` hook of [`analyze_path`] added.
+    Analyzed(String),
+    /// `skip_generated` is on and the file carries a generated-code marker.
+    SkippedGenerated,
+    /// The text reader declined the file — empty, three bytes or fewer, a
+    /// UTF-16 BOM, or a non-UTF-8 leading window. The reason stops here:
+    /// Python sees a `None` for the file, as it always has.
+    Declined,
+}
+
 /// Analyse a single file on disk.
 ///
 /// Reads the file, resolves its language via
 /// [`big_code_analysis::guess_language`] — the same helper the `bca`
 /// CLI uses, which inspects the path extension first and falls back
 /// to a `#!`-shebang line or an emacs `-*- mode: … -*-` declaration
-/// for extension-less scripts — parses, and returns the serialised
-/// `FuncSpace` as a JSON `String`.
+/// for extension-less scripts — parses, runs `attach` on the
+/// `FuncSpace`, and returns it serialised as a JSON `String`.
+///
+/// `attach` is where the VCS blocks go on (#1768): it edits the struct
+/// before [`to_json`] runs, so they serialize in the CLI's key order. It
+/// runs only for a file that parsed. Taking it here rather than handing
+/// the `FuncSpace` back keeps a file's read, parse, VCS attach and
+/// serialization in one call, which the entry points run inside a single
+/// `py.detach` instead of releasing and re-acquiring the GIL once per
+/// step.
 ///
 /// The file is read *before* language inference (CLI parity): a
 /// missing or unreadable file therefore raises an I/O error even
@@ -292,11 +324,12 @@ impl From<serde_json::Error> for AnalysisError {
 /// binding applies the walker's pre-dispatch gating verbatim: files of
 /// three bytes or fewer are treated as empty, a UTF-8 BOM is stripped,
 /// a UTF-16 BOM or a non-UTF-8 leading window marks the file as binary, and
-/// CR/CRLF line endings are normalised to LF. Each of these cases
-/// returns `Ok(None)` — the same "no record emitted" signal the CLI
-/// walker uses when it skips a file (and the same the `skip_generated`
-/// filter below uses). A prior plain `std::fs::read` diverged here by
-/// parsing tiny / binary / BOM-prefixed files the CLI silently skips.
+/// CR/CRLF line endings are normalised to LF. Each of these cases is
+/// [`Outcome::Declined`] — no record, as when the CLI walker skips a file,
+/// but named apart from the `skip_generated` filter's
+/// [`Outcome::SkippedGenerated`] so no caller has to guess which fired
+/// (#1348). A prior plain `std::fs::read` diverged here by parsing tiny /
+/// binary / BOM-prefixed files the CLI silently skips.
 ///
 /// `exclude_tests` mirrors the CLI's `--exclude-tests` flag (#315):
 /// when `true`, the analysis runs under
@@ -322,9 +355,9 @@ impl From<serde_json::Error> for AnalysisError {
 ///
 /// * `true` (default) — files whose leading window matches
 ///   [`big_code_analysis::is_generated`] (`@generated` /
-///   `DO NOT EDIT` / `GENERATED CODE` markers) return `Ok(None)`
-///   without parsing, mirroring the CLI walker which emits no
-///   record for these files.
+///   `DO NOT EDIT` / `GENERATED CODE` markers) are
+///   [`Outcome::SkippedGenerated`] without parsing, mirroring the CLI
+///   walker which emits no record for these files.
 /// * `false` — the marker check is bypassed and every readable
 ///   file produces a populated `FuncSpace`.
 ///
@@ -335,8 +368,9 @@ impl From<serde_json::Error> for AnalysisError {
 pub(crate) fn analyze_path(
     path: &Path,
     opts: AnalyzeOptions,
-) -> Result<Option<String>, AnalysisError> {
-    // Resolve the `FuncSpace.name` *before* the file read so a
+    attach: impl FnOnce(&mut FuncSpace),
+) -> Result<Outcome, AnalysisError> {
+    // Settle the `FuncSpace.name` policy *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
     // in the `AnalysisError::Io` arm — the `filename` field on the
     // resulting Python `OSError` would otherwise carry U+FFFD
@@ -346,9 +380,13 @@ pub(crate) fn analyze_path(
     // accepted U+FFFD substitution for the `FuncSpace.name` field,
     // so `to_string_lossy` is the documented behaviour rather than
     // a silent identifier corruption.
+    //
+    // Only the *check* has to precede the read. The owned `String` is
+    // built after both skip gates below, so a file they decline costs no
+    // allocation (#1349); the borrowed form is free for a UTF-8 path.
     let name = match path.to_str() {
-        Some(s) => s.to_owned(),
-        None if opts.allow_lossy_path => path.to_string_lossy().into_owned(),
+        Some(s) => Cow::Borrowed(s),
+        None if opts.allow_lossy_path => path.to_string_lossy(),
         None => return Err(AnalysisError::NonUtf8Path),
     };
     // Read through the SAME helper the CLI walker uses
@@ -356,48 +394,33 @@ pub(crate) fn analyze_path(
     // binding inherits the walker's pre-dispatch file gating verbatim
     // (issue #706, #640): files of three bytes or fewer are treated as
     // empty, a UTF-8 BOM is stripped, a UTF-16 BOM or a non-UTF-8 leading
-    // window marks the file as binary, and CR/CRLF endings are normalised to LF
-    // with a guaranteed trailing newline. Each skip case returns
-    // `Ok(None)` — the same "no record emitted" signal the CLI walker
-    // uses when it discards a file, and the same signal `skip_generated`
-    // already uses below. A plain read diverged here: the bindings parsed
-    // tiny / binary / BOM-prefixed files the CLI silently skips, and
-    // computed metrics on un-normalised bytes.
+    // window marks the file as binary, and CR/CRLF endings are normalised
+    // to LF with a guaranteed trailing newline. A skip is
+    // `Outcome::Declined` — no record, as when the CLI walker discards a
+    // file. The reader's reason is not fetched: nothing in this crate may
+    // surface it (Python sees `None`), and the directory probe below
+    // needs none. A plain read diverged here: the bindings parsed tiny /
+    // binary / BOM-prefixed files the CLI silently skips, and computed
+    // metrics on un-normalised bytes.
     //
     // I/O failures still surface as `AnalysisError::Io` carrying the path
     // so the Python `OSError` can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError via `errno` / `filename` — the
-    // `File::open` inside `read_file_with_eol` is where those errors
-    // originate, exactly as the prior `std::fs::read` was.
-    //
-    // A directory is the one input where `read_file_with_eol` masks the
-    // error: on Linux `File::open` on a directory succeeds and the
-    // subsequent `read_exact` fails into a silent `Ok(None)` (a "skip"),
-    // not the EISDIR `Err` a plain `std::fs::read` produced. Re-issue the
-    // plain read for that case so a directory named directly stays a hard
-    // `IsADirectoryError` (with the platform's real errno) rather than
-    // being silently dropped — the walker never hands a directory to this
-    // single-file path, so this is purely a robustness guard for the
-    // direct `analyze` entry point.
-    if path.is_dir() {
-        let err = std::fs::read(path)
-            .err()
-            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
-        return Err(AnalysisError::io(err, path));
-    }
+    // `File::open` and reads inside `read_file_with_eol` are where those
+    // errors originate, exactly as the prior `std::fs::read` was.
     let Some(code) = read_file_with_eol(path).map_err(|source| AnalysisError::io(source, path))?
     else {
-        return Ok(None);
+        return skip_unless_directory(path);
     };
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
-    // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
-    // matches the CLI walker, which discards generated files without
-    // attempting to resolve their language. `read_file_with_eol` has
-    // already EOL-normalised `code`, matching the bytes the CLI walker
-    // feeds to `is_generated` / `guess_language`.
+    // skips rather than raising `UnsupportedLanguage` — matches the CLI
+    // walker, which discards generated files without attempting to
+    // resolve their language. The reader has already EOL-normalised
+    // `code`, matching the bytes the CLI walker feeds to `is_generated` /
+    // `guess_language`.
     if opts.skip_generated && is_generated(&code) {
-        return Ok(None);
+        return Ok(Outcome::SkippedGenerated);
     }
     // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
     // only care about the variant; the display name is recovered
@@ -408,7 +431,39 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name), opts).map(Some)
+    let mut space = analyze_bytes(lang, &code, Some(name.into_owned()), opts)?;
+    attach(&mut space);
+    to_json(&space).map(Outcome::Analyzed)
+}
+
+/// The outcome for a path [`read_file_with_eol`] declined to read:
+/// [`Outcome::Declined`], unless the path is a directory.
+///
+/// The reader decides "three bytes or fewer" from `st_size` alone and only
+/// opens a *regular* file to check readability, so a directory whose
+/// `st_size` is three or less is declined as an empty file without being
+/// opened: every directory on NTFS (length 0), and every empty one — or a
+/// nearly empty one — on btrfs (twice the summed entry-name lengths) and
+/// ZFS (the entry count plus 2 for `.` and `..`). Re-issue the plain read
+/// here so a directory named directly stays a hard `OSError`
+/// (`IsADirectoryError` on unix) carrying the platform's real errno. A
+/// larger directory, such as any on ext4 (4096) or APFS, never gets here:
+/// the reader opens it, the first read fails with EISDIR, and that
+/// propagates as an `Err`.
+///
+/// The probe sits on the decline path rather than ahead of the read so a
+/// file that parses pays one `stat`, not two (#1349); only a declined file
+/// pays the second. `Ast::from_path` carries the same probe
+/// (`spaces::ast::skipped_or_directory`); the reader-level fix that
+/// retires both is #1762.
+fn skip_unless_directory(path: &Path) -> Result<Outcome, AnalysisError> {
+    if path.is_dir() {
+        let err = std::fs::read(path)
+            .err()
+            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
+        return Err(AnalysisError::io(err, path));
+    }
+    Ok(Outcome::Declined)
 }
 
 pub(crate) fn analyze_source(
@@ -424,7 +479,13 @@ pub(crate) fn analyze_source(
     // unterminated or CRLF-bearing source reports different metrics than the
     // same content analysed from a file (issue #640).
     let code = normalize_eol(code.to_vec());
-    analyze_bytes(lang, &code, name, opts)
+    to_json(&analyze_bytes(lang, &code, name, opts)?)
+}
+
+/// Serialize a `FuncSpace` to the JSON the CLI's `--format json` emits
+/// for it, in `Serialize`-impl declaration order.
+pub(crate) fn to_json(space: &FuncSpace) -> Result<String, AnalysisError> {
+    Ok(serde_json::to_string(space)?)
 }
 
 fn analyze_bytes(
@@ -432,7 +493,7 @@ fn analyze_bytes(
     code: &[u8],
     name: Option<String>,
     opts: AnalyzeOptions,
-) -> Result<String, AnalysisError> {
+) -> Result<FuncSpace, AnalysisError> {
     let source = Source::new(lang, code).with_name(name);
     // Build `MetricsOptions` once from the bridge struct: `exclude_tests`
     // flows through unchanged, and the already-resolved `MetricSet` is
@@ -443,8 +504,7 @@ fn analyze_bytes(
         .with_exclude_tests(opts.exclude_tests)
         .with_metric_set(opts.metrics)
         .with_mi_charges_docs(opts.mi_charges_docs);
-    let space = analyze(source, options)?;
-    Ok(serde_json::to_string(&space)?)
+    Ok(analyze(source, options)?)
 }
 
 /// Convenience accessor used by the `__version__` module attribute.
@@ -456,6 +516,14 @@ pub(crate) const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The JSON of an [`Outcome::Analyzed`], failing on any other outcome.
+    fn analysed_json(outcome: Result<Outcome, AnalysisError>) -> String {
+        match outcome.expect("analysis succeeds") {
+            Outcome::Analyzed(json) => json,
+            other => panic!("expected an analysed file, got {other:?}"),
+        }
+    }
 
     fn parse_json(s: &str) -> serde_json::Value {
         serde_json::from_str(s).expect("analyze output is valid JSON")
@@ -651,7 +719,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path, AnalyzeOptions::default());
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -675,9 +743,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path, AnalyzeOptions::default())
-            .expect("shebang script analyses")
-            .expect("non-generated file yields a populated FuncSpace");
+        let json = analysed_json(analyze_path(&path, AnalyzeOptions::default(), |_| {}));
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -730,10 +796,113 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let err = analyze_path(&path, AnalyzeOptions::default());
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "strict mode must reject non-UTF-8 path, got {err:?}",
+        );
+    }
+
+    // `cfg(unix)` alone, unlike the two siblings: APFS refuses to *create*
+    // a non-UTF-8 name, but this test never creates the path.
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_rejects_non_utf8_path_before_reading_it() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        // The path does not exist, so a UTF-8 check that ran *after* the
+        // read would surface `Io` (whose `filename` would carry U+FFFD)
+        // instead. #1349 moved the name allocation behind the read gates;
+        // this pins that the check itself did not move with it.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join(OsStr::from_bytes(&[0xffu8, 0xff, b'.', b'r', b's']));
+        let err = analyze_path(&path, AnalyzeOptions::default(), |_| {});
+        assert!(
+            matches!(err, Err(AnalysisError::NonUtf8Path)),
+            "the UTF-8 check must precede the read, got {err:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_raises_is_a_directory_for_an_empty_directory() {
+        // An empty directory is the case the reader cannot see on btrfs
+        // (`st_size` 0) and ZFS (2), both under the three-byte cutoff, so
+        // `read_file_with_eol` declines it as an empty file without
+        // opening it. Only the decline-path probe turns that back into
+        // EISDIR. On ext4 (4096) and APFS the read itself fails with
+        // EISDIR and this passes without the probe, so the direct
+        // `skip_unless_directory` test below is the
+        // filesystem-independent guard.
+        let dir = tempfile::tempdir().expect("tempdir");
+        match analyze_path(dir.path(), AnalyzeOptions::default(), |_| {}) {
+            Err(AnalysisError::Io { source, path }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
+                assert_eq!(path, dir.path());
+            }
+            other => panic!("a directory must raise EISDIR, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skip_unless_directory_raises_for_a_directory_and_skips_a_file() {
+        // Called directly so the directory arm is exercised whatever
+        // `st_size` the host filesystem gives an empty directory; the
+        // file arm pins that a declined regular file stays a silent skip.
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The errno is platform-specific (EISDIR on unix, an access error
+        // on Windows), so pin the variant and the path it names rather
+        // than the kind.
+        match skip_unless_directory(dir.path()) {
+            Err(AnalysisError::Io { path, .. }) => assert_eq!(path, dir.path()),
+            other => panic!("a declined directory must raise, not {other:?}"),
+        }
+        let tiny = dir.path().join("tiny.rs");
+        std::fs::write(&tiny, b"ab\n").expect("write fixture");
+        assert!(
+            matches!(skip_unless_directory(&tiny), Ok(Outcome::Declined)),
+            "a declined regular file is a skip",
+        );
+    }
+
+    #[test]
+    fn analyze_path_names_a_read_gate_skip_apart_from_a_generated_one() {
+        // Every class the reader declines — empty, three bytes or fewer,
+        // a UTF-16 BOM, a non-UTF-8 leading window — is `Declined`, and
+        // a generated file is `SkippedGenerated`: the two silent outcomes
+        // `push_one_result` used to tell apart by inference (#1348). The
+        // `.rs` extension would parse if a gate let the bytes through, so
+        // a row that reaches the parser fails as `Analyzed`.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let declined: [(&str, &[u8]); 4] = [
+            ("empty.rs", b""),
+            ("tiny.rs", b"ab\n"),
+            (
+                "utf16.rs",
+                b"\xFF\xFEf\0n\0 \0m\0a\0i\0n\0(\0)\0 \0{\0}\0\n\0",
+            ),
+            ("binary.rs", b"\x80\x81\x82\x83 not text\n"),
+        ];
+        for (name, bytes) in declined {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).expect("write fixture");
+            let out = analyze_path(&path, AnalyzeOptions::default(), |_| {})
+                .expect("a skip is not an error");
+            assert!(
+                matches!(out, Outcome::Declined),
+                "{name}: expected Declined, got {out:?}"
+            );
+        }
+        let generated = dir.path().join("gen.rs");
+        std::fs::write(&generated, b"// @generated DO NOT EDIT\npub fn x() {}\n")
+            .expect("write fixture");
+        let out = analyze_path(&generated, AnalyzeOptions::default(), |_| {})
+            .expect("a generated file is not an error");
+        assert!(
+            matches!(out, Outcome::SkippedGenerated),
+            "gen.rs: expected SkippedGenerated, got {out:?}"
         );
     }
 
@@ -750,15 +919,14 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let json = analyze_path(
+        let json = analysed_json(analyze_path(
             &path,
             AnalyzeOptions {
                 allow_lossy_path: true,
                 ..AnalyzeOptions::default()
             },
-        )
-        .expect("lossy mode parses non-UTF-8 path")
-        .expect("non-generated file yields a populated FuncSpace");
+            |_| {},
+        ));
         let value = parse_json(&json);
         let name = value
             .get("name")
@@ -787,13 +955,13 @@ mod tests {
         // CLI parity (#317): a file whose leading window matches
         // `is_generated` must be skipped without parsing, just like
         // `bca metrics --output-format json` discards it from the
-        // walker. Returning `Ok(None)` is the Python-facing "no
-        // record emitted" signal.
+        // walker. `Outcome::SkippedGenerated` is the Python-facing "no
+        // record emitted" signal, named apart from a read-gate skip.
         //
         // Test-via-revert: removing the `if skip_generated &&
-        // is_generated(&code) { return Ok(None); }` branch makes
-        // this test fail because the file parses fine and the
-        // function returns `Ok(Some(_))`.
+        // is_generated(&code) { return Ok(Outcome::SkippedGenerated); }`
+        // branch makes this test fail because the file parses fine and
+        // the function returns `Outcome::Analyzed`.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("gen.rs");
         std::fs::write(
@@ -807,11 +975,12 @@ mod tests {
                 skip_generated: true,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         )
         .expect("generated file is not an error");
         assert!(
-            out.is_none(),
-            "skip_generated=true must elide the FuncSpace, got Some(_)",
+            matches!(out, Outcome::SkippedGenerated),
+            "skip_generated=true must elide the FuncSpace, got {out:?}",
         );
     }
 
@@ -832,15 +1001,14 @@ mod tests {
             b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
         )
         .expect("write fixture");
-        let json = analyze_path(
+        let json = analysed_json(analyze_path(
             &path,
             AnalyzeOptions {
                 skip_generated: false,
                 ..AnalyzeOptions::default()
             },
-        )
-        .expect("generated file parses with skip_generated=false")
-        .expect("skip_generated=false must yield Some(json)");
+            |_| {},
+        ));
         let value = parse_json(&json);
         assert_eq!(
             value.get("kind").and_then(serde_json::Value::as_str),
@@ -876,8 +1044,12 @@ mod tests {
                 skip_generated: true,
                 ..AnalyzeOptions::default()
             },
+            |_| {},
         )
         .expect("skip must precede language inference");
-        assert!(out.is_none(), "expected None, got {out:?}");
+        assert!(
+            matches!(out, Outcome::SkippedGenerated),
+            "expected SkippedGenerated, got {out:?}"
+        );
     }
 }

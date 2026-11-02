@@ -49,23 +49,24 @@ impl CheckOutcome {
 
 /// Categorise the kept violations for the exit-code contract (#385).
 ///
-/// Each violation carries `hard_limit`, the resolved hard-tier ceiling
-/// for its metric *under the table that gated its file* — which since
-/// #1141 may be a `[thresholds.lang.<slug>]` override rather than the
-/// project-wide one, and which is `None` for a metric with a soft limit
-/// but no hard one (nothing to breach). It is consulted only at the soft
-/// tier, where a violation whose value also exceeds that ceiling
-/// escalates to [`CheckOutcome::HardBreach`]. At the hard tier every
-/// violation already exceeds it, so the escalation is suppressed (it
+/// Each violation carries `hard_breach`: whether its value also exceeds
+/// the resolved hard-tier ceiling for its metric *under the table that
+/// gated its file* — which since #1141 may be a `[thresholds.lang.<slug>]`
+/// override rather than the project-wide one, and which a metric with a
+/// soft limit but no hard one does not have (nothing to breach). The
+/// walk decides it in the metric's own direction (#837). It is consulted
+/// only at the soft tier, where such a violation escalates to
+/// [`CheckOutcome::HardBreach`]. At the hard tier every violation
+/// already exceeds its ceiling, so the escalation is suppressed (it
 /// would otherwise swallow the new/regr split) and only baseline
 /// coverage drives the result.
 ///
-/// Reading the ceiling off the violation rather than a global map is
-/// what keeps a loosened language from reporting exit 5 for every
-/// function between the project limit and its own: a C function at
-/// cognitive 24 under `[thresholds.lang.c] cognitive = 25` is a
-/// soft-band encroachment, not a hard breach, even though the project
-/// table says 15.
+/// Reading the flag off the violation rather than comparing against a
+/// global map is what keeps a loosened language from reporting exit 5
+/// for every function between the project limit and its own: a C
+/// function at cognitive 24 under `[thresholds.lang.c] cognitive = 25`
+/// is a soft-band encroachment, not a hard breach, even though the
+/// project table says 15.
 pub(crate) fn classify_check_outcome(
     pairs: &[(Violation, Option<Coverage>)],
     tier: Tier,
@@ -77,18 +78,7 @@ pub(crate) fn classify_check_outcome(
     let mut has_regression = false;
     let mut has_hard_breach = false;
     for (v, coverage) in pairs {
-        // Direction-aware hard-breach escalation (#837): mirror the
-        // gate's breach test so the lower-is-worse `mi.*` family escalates
-        // on a value *below* the hard floor, not above it. A NaN value
-        // (degenerate Halstead on a trivial function) fails both
-        // comparisons in `Threshold::breaches`, so it never escalates to a hard
-        // breach; it falls to the new/regr split below, mirroring how
-        // `Baseline::classify` treats a NaN as `Regressed` rather than a
-        // magnitude. A NaN has no meaningful distance from the ceiling.
-        if tier == Tier::Soft
-            && let Some(hard) = v.hard_limit
-            && hard.breaches(v.value)
-        {
+        if tier == Tier::Soft && v.hard_breach {
             has_hard_breach = true;
         }
         match coverage {

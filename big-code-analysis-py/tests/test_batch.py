@@ -151,7 +151,9 @@ def test_unknown_extension_yields_unsupported_language(tmp_path: Path) -> None:
 def test_directory_path_yields_io_error(tmp_path: Path) -> None:
     """A path that exists but is a directory.
 
-    ``std::fs::read`` returns ``EISDIR`` here, which the bridge
+    Reading it fails with the platform's directory error — from the
+    reader itself, or from ``analyze_path``'s probe when the reader
+    declined it as an empty file — which the bridge
     maps to ``AnalysisFailure::Io``; in batch that flows through to
     ``error_kind="IoError"``. Pins the I/O arm against the
     directory case without needing to fabricate a permission

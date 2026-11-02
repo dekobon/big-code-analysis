@@ -92,6 +92,53 @@ for historical reference.
   `Clone`, `Copy`, `Debug`, `PartialEq` and `Eq`. Additive; the
   variants are unchanged. (#1693)
 
+- `metric_catalog::Threshold::soft_limit_rounded` and
+  `metric_catalog::Threshold::round_to_soft_grid` (#1648): the
+  soft-tier limit resolved onto the six-significant-figure grid `bca
+  check` gates on and held on the hard limit's side (`ratio == 1` is a
+  bitwise identity; a soft limit is never looser than its hard one),
+  and nearest rounding of a derived quantity onto that same grid. The
+  rounding, the grid snap and the clamp moved from the CLI into the
+  catalog so the metric's direction and scale have one owner. A soft
+  ceiling whose exact product does not fit the grid now rounds *down*
+  rather than to nearest, so it never resolves above the product:
+  `loc.sloc = 13801` under `--tier=soft` at a 0.95 ratio gates at
+  `13110.9` where it gated at `13111` and let a file of exactly 13111
+  lines through the soft tier. Every product the grid holds (a count of up to four digits
+  at a two-figure ratio, every `bca init` default) resolves as before,
+  as does every `mi.*` floor. Both methods are stable in signature per
+  `STABILITY.md`; the grid width and rounding direction are values.
+
+- `metric_catalog::resolve_threshold_metric` and
+  `metric_catalog::ThresholdMetricError` (#1618): the threshold-name
+  vocabulary `bca check --threshold` and the Python bindings'
+  `to_sarif(thresholds=)` now share. A `METRICS` id, or a `bca
+  list-metrics` row name that abbreviates one (`sloc` for `loc.sloc`),
+  resolves to its `&'static MetricInfo`; a family head with no scalar
+  of its own (`halstead`, `loc`, `mi`) is
+  `ThresholdMetricError::Ambiguous` with the concrete ids, and anything
+  else `Unknown` with a did-you-mean hint. `to_sarif(thresholds=)`
+  accepts a bare `loc` sub-metric name where it used to raise, reports
+  a family head as ambiguous naming its ids, and rejects one id given
+  under both spellings as a `bca.toml` table does (#1165). That last
+  rejection is `metric_catalog::resolve_new_threshold_metric`, the same
+  resolution plus the duplicate guard a spelling-keyed collection
+  cannot apply for itself, returning `ThresholdMetricError::Duplicate`;
+  the CLI's tables and the bindings' dict both read it, so the two print
+  one wording (``"sloc": "loc.sloc" is already set; `sloc` and
+  `loc.sloc` are one metric, so set it once``). The error is
+  `#[non_exhaustive]` on the enum and each variant; its `Display`
+  wording is not SemVer-protected.
+
+- `FromPathError::Skipped(SkipReason)` (#1348): `Ast::from_path` now
+  reports *which* gate declined a file `analyze` would skip — empty,
+  three bytes or fewer, a UTF-16 BOM, a non-UTF-8 leading window —
+  carrying the reader's `SkipReason`, which also joins the `prelude`.
+  A directory the reader declines unopened (btrfs / ZFS / NTFS,
+  `st_size` ≤ 3) is `Io` carrying the platform's directory error
+  (`EISDIR` on unix) rather than a skip. The Python
+  `Ast.from_path` `ValueError` names the reason.
+
 ### Changed
 
 - The seven documentation roles — `Comment`, `DocComment`, `Docstring`,
@@ -472,7 +519,85 @@ for historical reference.
   complexity-class gate (fitted 2.00 / 1.98 / 1.98 before, 1.14 /
   1.09 / 1.15 after).
 
+- `bca vcs` no longer holds every in-scope blob in memory while it
+  lists the files to rank. The enumeration diffs each file at the
+  target tree once through one resource cache that it never cleared, on
+  every build including a pure cache hit; it now drops each blob after
+  its diff. Peak RSS over this repository with one-day windows, where
+  the enumeration dominates, fell from 170 MB to 125-149 MB; the saving
+  grows with the size of the in-scope tree. The output is unchanged.
+  (#1768)
+
+- A `bca vcs` cache miss no longer parses every entry in the
+  repository's cache directory in full. Incompatible entries are kept,
+  since a run with other options may still use them, so they accumulate
+  with each option, mailmap, diff-config or shallow-boundary change;
+  each miss deserialized all of them, event logs included, before
+  checking compatibility. It now reads each entry's versions and
+  fingerprint first and parses only a compatible one in full: 201
+  entries took 0.27 s against 0.6 s. Results are unchanged. (#1768)
+
+- `bca diff` no longer compares a metric leaf present on one side only
+  against `0`. Two captures taken with different `--metrics` sets (or by
+  two bca versions whose emitters differ) listed every leaf of an absent
+  family as a `0 → n` movement, which for `mi.*` read as a twenty-point
+  improvement (#1623). Such leaves are now reported as added or removed
+  fields: new `## Added fields` / `## Removed fields` sections in the
+  text and Markdown forms, new top-level `added_fields` /
+  `removed_fields` arrays of `{file, metric, field}` rows in `--format
+  json`, and two new counts in both the summary line (`…, N added
+  field(s), N removed field(s)`) and `summary`. `--metric` filters these
+  rows as it filters buckets; `--min-change` does not apply to them;
+  `--exit-code` still fires on them. `summary.total_changes` and
+  `metrics_changed` now count numeric movement only, so a consumer
+  gating on `total_changes > 0` must also read `summary.added_fields` /
+  `removed_fields`. This supersedes the 2.4.0 wording that a
+  pre-upgrade capture "reports the new keys as changes wherever the
+  older side's absent field differs"; those keys now appear in
+  `added_fields` rather than in a bucket. A bare number facing an object
+  at the same path is likewise listed rather than dropped (a side whose
+  `metrics` is not a JSON object is refused; see below). A family that
+  is itself a bare number has no field path, so the text and Markdown
+  forms show
+  `(scalar)` in the field column and the JSON rows carry an empty
+  `field`. "Present" means numeric: a leaf that is `null` on one side —
+  how a non-finite derived value such as a `vcs` ratio is written — reads
+  as absent there, so two captures by one bca version can list a field
+  that became applicable between them.
+
+- `bca diff --format markdown` writes the `Added files` / `Removed
+  files` lists as fenced `text` blocks, like its other sections, where
+  they were `- path` bullets. A renderer read a path such as
+  `pkg/__init__.py` as Markdown and showed `init` in bold. A consumer
+  that parsed the bullet rows reads the lines inside the fence instead
+  (#1623).
+
+- Python bindings: the batch path (`analyze_batch` / `analyze_paths`)
+  no longer stats every file twice, no longer clones each file's
+  metrics JSON for every VCS injector, and no longer allocates on a
+  repository-root cache hit. Results are unchanged. (#1349)
+
+- `Ast::from_path` no longer produces `FromPathError::Unreadable`; an
+  existing arm on it compiles with a deprecation warning and never
+  fires, the same way `ConcurrentErrors::Producer` is no longer
+  constructed. Python's `analyze_batch` / `analyze_paths` results are
+  unchanged. (#1348)
+
+### Deprecated
+
+- `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;
+  match `Skipped(_)` instead. It keeps compiling through `2.x`;
+  removal is reserved for `3.0`. (#1348)
+
 ### Fixed
+
+- **`bca check --tier=soft` no longer passes a value just above
+  `limit × ratio`** (#1648). A soft ceiling whose exact product falls
+  between two points of the six-figure grid rounded to the nearer one,
+  so it could resolve above the product: `loc.sloc = 13801` at a 0.95
+  ratio gated at 13111 and passed a file of exactly 13111 lines. It now
+  rounds down (13110.9). Ceilings the grid holds exactly, every `bca
+  init` default among them, and every `mi.*` floor resolve as before.
 
 - **The quarterly mutation-testing gate can run, and finish** (#1710,
   #1726). Three defects, none of which ever produced a red job. The
@@ -671,6 +796,106 @@ for historical reference.
   operand (it is the node every spelling has; `__SUB__->(1)` emits it
   with no wrapper), and the terminator and the section after it bill
   nothing. `tokens` still counts the marker and the data leaf.
+
+- Python bindings: `to_sarif(thresholds=)` raises `TypeError` for a
+  `bool` limit, as for any other non-number. `bool` subclasses `int`,
+  so `{"nargs": False}` was read as a `0` ceiling that flagged every
+  function with an argument; `bca check` already refused a boolean
+  limit on `--threshold` and in `bca.toml`.
+
+- `bca vcs` read the repository mailmap twice per cached build — once
+  for the cache fingerprint and once inside the history walk — so an
+  edit, or a transient partial read during a non-atomic `.mailmap` save
+  (gix swallows read errors), could persist an entry stamped with one
+  mailmap's digest over events resolved under another, and the
+  transient case never self-healed. The walk and the digest now share a
+  single snapshot (#1409). The cache schema version is unchanged; the
+  diff-configuration fingerprint term added for #1425 in this release
+  retires every entry stamped before it, a mis-stamped one included, so
+  no `--clear-cache` is needed.
+
+- A `git config` change that alters how gix diffs — `diff.algorithm`,
+  `core.bigFileThreshold`, or a `diff.<driver>` section's `algorithm`,
+  `binary`, or whether it sets a `textconv` — now invalidates the
+  persistent VCS history cache. A driver's `command` and the text of its
+  `textconv` never run on this path and do not count, nor does a section
+  that sets none of those three. Previously the stale churn was served,
+  and re-persisted by the incremental splice under each new head, until
+  `--clear-cache` (#1425). The `diff` attribute bindings
+  (`.gitattributes`, `info/attributes`) remain uncovered and are
+  documented as such (#1760). No `CACHE_SCHEMA_VERSION` bump: the added
+  fingerprint term retires pre-fix entries on its own.
+
+- Deepening a shallow clone that stays shallow (`git fetch --deepen`, a
+  larger `--depth`, an earlier `--shallow-since`) now invalidates the
+  persistent VCS history cache. The clone's `HEAD` and shallow flag are
+  unchanged by such a fetch, so the entry walked at the old depth was a
+  pure hit, and a commit made afterwards spliced onto its truncated
+  tail and re-persisted it; only `git fetch --unshallow` (#810) retired
+  it. The commits `.git/shallow` lists are now a fingerprint term, so
+  the fix retires pre-fix entries on its own, as for #1425. A corrupt
+  `.git/shallow` now fails a cached run as it already failed an
+  uncached one, where 2.4.0 could still serve a pure cache hit (#1768).
+
+- Python bindings: with `vcs_per_function=True`, each nested space's
+  `hotspot_score` is now scored from that space's own cyclomatic
+  (`cyclomatic.value`) rather than its subtree `cyclomatic.sum`,
+  matching `bca metrics --vcs-per-function`. Enclosing functions and
+  classes no longer re-count nested complexity, so their scores drop;
+  the file-level score is unchanged (#1624).
+
+- Python bindings on Windows: an I/O failure now raises the `OSError`
+  subclass its Win32 code means. The code was passed to CPython as an
+  `errno`, so a path under a missing directory (`ERROR_PATH_NOT_FOUND`,
+  3) raised `ProcessLookupError` instead of `FileNotFoundError`, and a
+  directory (`ERROR_ACCESS_DENIED`, 5) raised a bare `OSError`. It now
+  travels as `winerror`, which CPython maps to the matching errno, and
+  `err.winerror` carries the Win32 code. Unix is unchanged (#1768).
+
+- Python bindings: with `vcs=True` or `vcs_per_function=True`, the
+  result dict now has the CLI's key order. The `vcs` blocks were
+  spliced into the serialized JSON through a `serde_json::Value`,
+  which sorts keys, so every object came back alphabetised and the
+  documented byte-for-byte parity with `bca metrics --format json`
+  held only without VCS. The blocks now go on the `FuncSpace` before
+  it is serialized, as the CLI does, which also drops a JSON parse and
+  re-serialization per requested block. Values are unchanged. Each
+  file's read, parse, VCS attach and serialization now run in one GIL
+  release, so the blame behind `analyze(..., vcs_per_function=True)`
+  no longer holds the GIL (#1768).
+
+- `bca diff` no longer drops or mis-keys an input it cannot pair, each
+  of which used to read as an added or removed file and exit 0. The
+  aggregate file `bca metrics -O json --output <file>` writes (a
+  top-level array) now loads element by element, so it diffs against
+  another aggregate or an `--output-dir` tree; it was read as one
+  nameless document, reported as one file removed and one added. JSON
+  with no `metrics` object, two documents sharing a `name` (the second
+  used to replace the first), a nameless document outside a directory,
+  and a `*.json` symlink that dangles or a `*.json` entry that cannot be
+  `stat`ed are now errors (exit 1) naming the input. So is a directory
+  side holding no `*.json` file: two `-O yaml --output-dir`
+  captures used to diff as no change, exit 0 under `--exit-code`. Other
+  files in a directory side are still passed over. A symlinked
+  directory inside a side is still not entered. Documents pair on the
+  lexical form of their `name`, with `.` components dropped, so
+  captures taken with `-p ./src` and `-p src` pair rather than listing
+  each file as removed and added; a `--since` diff of the whole tree
+  accordingly names `src/a.rs` where it named `./src/a.rs`, and
+  `--strip-prefix ./src/` still matches.
+
+- `bca diff --since` removes the extracted `<ref>` tree on every error,
+  as the book already promised; only a run killed by a signal leaves it
+  behind. A failure after the extraction began exited without dropping
+  the temporary directory, leaving the ref's files in `TMPDIR`: a path
+  the extraction refuses (one that is not UTF-8), a scope or `--paths`
+  entry absent at the ref, an unknown `-l`, an unreadable
+  `--exclude-from` file, or a glob that does not compile.
+
+- `bca diff --since --exclude-from -` is rejected, as `--paths-from`
+  already is. Both sides read the patterns, and the first drained
+  stdin, so the after side applied no exclusions and reported the files
+  they should have hidden as added.
 
 ## [2.4.0] - 2026-10-21
 

@@ -230,7 +230,7 @@ pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec
         .map(|(name, limit)| {
             let canonical = crate::metric_alias::normalize_for_check(name)
                 .unwrap_or_else(|e| die(format_args!("{flag}: {e}")));
-            (canonical.into_owned(), *limit)
+            (canonical.to_owned(), *limit)
         })
         .collect()
 }
@@ -285,11 +285,11 @@ type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 /// Resolved at the **soft** tier on purpose. The soft band is the more
 /// permissive of the two (it fires *before* the hard gate), so one walk
 /// against it collects a superset already containing every hard-tier
-/// offender, and each emitted [`Violation`] carries both numbers:
-/// `threshold` is that language's resolved soft limit and `hard_limit` its
-/// candidate ceiling. Counting the hard tier is then a `breaches`
-/// filter over the records in hand rather than a second parse of the
-/// tree.
+/// offender, and each emitted [`Violation`] carries that language's
+/// resolved soft limit as `threshold` and, as `hard_breach`, whether the
+/// value is past its candidate ceiling too. Counting the hard tier is
+/// then a filter on that flag over the records in hand rather than a
+/// second parse of the tree.
 ///
 /// Per-language `[thresholds.lang.<slug>]` overrides of an explained
 /// metric are kept as they are: a candidate *global* limit does not

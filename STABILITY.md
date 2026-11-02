@@ -135,7 +135,26 @@ section.
     `suggestions()`, `Display + Error`. Its `Display` wording and the
     suggestion set are not SemVer-protected. The `#[doc(hidden)]`
     `format_suggestion` re-export that backs the suggestions exists for
-    the CLI and is outside this contract.
+    the CLI and is outside this contract, as is the `#[doc(hidden)]`
+    `slash_path` re-export that the CLI's `bca vcs` path keys and `bca
+    diff` document keys share with the library.
+  - `metric_catalog::resolve_threshold_metric` and
+    `metric_catalog::ThresholdMetricError` (added #1618): the
+    threshold-name vocabulary `bca check --threshold` and the Python
+    `to_sarif(thresholds=)` share. `resolve_threshold_metric` maps a
+    `METRICS` id, or a `bca list-metrics` row name that abbreviates one
+    (`sloc` for `loc.sloc`), to its `&'static MetricInfo`. The error is
+    `#[non_exhaustive]`, as is each of its struct-like variants
+    (`Ambiguous { input, candidates }` for a family head with no scalar
+    of its own, `Unknown { input, suggestions }` for anything else), so
+    a variant or a field can be added in a minor release; match with a
+    wildcard arm and `..` in each variant pattern. Its `Display`
+    wording, the suggestion set and the candidate order are not
+    SemVer-protected. `metric_catalog::resolve_new_threshold_metric`
+    (added #1618) is the same resolution plus the duplicate guard a
+    spelling-keyed collection needs: given a predicate over the ids
+    already taken, it returns `Duplicate { input, id }` when the name
+    resolves to one of them.
   - The per-file function-listing, finding, counting, and
     comment-stripping operations are reached through the [`Ast`]
     seam (`Ast::functions`, `Ast::find`, `Ast::count`,
@@ -264,7 +283,13 @@ section.
     and `breaches`, `excess`, `severity`, `cmp_severity`, `cmp_breach`,
     `soft_limit`, `change` and `drift` are stable in signature. Their arithmetic is
     a value and may be corrected in a minor release, like any metric
-    number. `MetricInfo::cmp_worse` (added #1621) orders two values by
+    number. `soft_limit_rounded` and `round_to_soft_grid` (added #1648)
+    are stable in signature on the same terms: the first is `soft_limit`
+    resolved onto the six-significant-figure grid `bca check` gates on
+    and held on the hard limit's side, so a soft limit is never looser
+    than its hard one and `ratio == 1` is a bitwise identity; the grid's
+    width and the rounding's direction are values, not shape.
+    `MetricInfo::cmp_worse` (added #1621) orders two values by
     badness and sorts NaN as the worst value. `Checked`, `LimitError`,
     `LimitWarning`, `Change` and each struct-like variant are
     `#[non_exhaustive]`. The `Display` wording of `LimitError` and
@@ -319,8 +344,10 @@ section.
   below) is a wire-shape break reserved for `3.0`.
 - **Prelude**: `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
-  `MetricsOptions`, `MetricsError`, `FromPathError`, `LANG`,
-  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`). The `metrics_from_tree`
+  `MetricsOptions`, `MetricsError`, `FromPathError`, `SkipReason`,
+  `LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`;
+  `SkipReason`, the payload of `FromPathError::Skipped`, joined at
+  2.5.0). The `metrics_from_tree`
   entry was removed at `2.0` along with the free function it named;
   tree adoption now goes through `Ast::from_tree_sitter`. New
   items may be added; nothing in the set is removed before `3.0`.
@@ -747,8 +774,15 @@ reach the raw tree-sitter surface.
   `root_node`, `suppressions`, `language`, `source`, `name`) is
   shape-stable. `from_path` (#727) is the file-backed counterpart to
   `parse`; it returns the `#[non_exhaustive]` `FromPathError` (`Io`,
-  `NonUtf8Path`, `Unreadable`, `UnknownLanguage`, `Parse(MetricsError)`),
-  which the prelude also re-exports.
+  `NonUtf8Path`, `Skipped(SkipReason)`, `UnknownLanguage`,
+  `Parse(MetricsError)`), which the prelude also re-exports. `Skipped`
+  (added 2.5.0, #1348) carries the reader's `SkipReason` for a file
+  `analyze` would skip. It replaces `Unreadable`, which is
+  `#[deprecated]` since 2.5.0 and no longer produced: an existing arm
+  on it still compiles, with a deprecation warning, and never fires, so
+  match `Skipped(_)` instead. As with `ConcurrentErrors::Producer`
+  above, the variant stays through `2.x`; its removal is reserved for
+  3.0.
   `dump_cursor` and `dump_indexed` (#1684) name the two export
   strategies explicitly (one cursor walk, or `Node::child`-indexed
   enumeration), and both produce the same tree as `dump`, which runs
@@ -1274,7 +1308,14 @@ text is not. A limit that is accepted but can never fire, or fires on
 every value, emits a `UserWarning` rather than raising, so a caller
 that runs with warnings as errors sees it raised. Since 2.4.0 a
 negative `mi.original` / `mi.sei` floor is accepted where it used to
-raise.
+raise. Threshold *names* resolve through the library's
+`metric_catalog::resolve_threshold_metric`, the rule behind
+`bca check --threshold` (#1618): a bare `loc` sub-metric name (`sloc`)
+is accepted for its dotted id where it used to raise, a family head
+with no scalar of its own (`mi`, `halstead`, `loc`) raises `ValueError`
+naming the ids, and one id under both spellings raises `ValueError`, as
+the CLI's tables do. The exception class is the contract; the message
+text is not.
 
 ### Typing
 

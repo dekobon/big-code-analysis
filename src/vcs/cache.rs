@@ -45,17 +45,24 @@
 //!
 //! A cached entry is honoured only when its [`CACHE_SCHEMA_VERSION`],
 //! [`VCS_SCHEMA_VERSION`], [`RISK_SCORE_VERSION`], the `fingerprint` of
-//! the walk-affecting options *and the repository mailmap*, and the
-//! shallow state under which it was walked all match the current run;
-//! otherwise it is ignored and the history recomputed. Window changes
-//! alter the fingerprint, so they force a fresh walk, as the issue
-//! specifies. A `.mailmap` edit does too: it changes the author identities
-//! resolved into the event log while leaving `HEAD` — and every option —
-//! untouched (issue #1262). A shallow clone that is later deepened
-//! (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
-//! entry key is unchanged; the shallow-state match in
-//! `HistoryCache::is_compatible` is what forces a re-walk to replace the
-//! truncated counts (issue #810). A corrupt or unreadable entry is
+//! the walk-affecting options *and the repository's mailmap and diff
+//! configuration*, and the shallow state under which it was walked all
+//! match the current run; otherwise it is ignored and the history
+//! recomputed. Window changes alter the fingerprint, so they force a
+//! fresh walk, as the issue specifies. A `.mailmap` edit does too: it
+//! changes the author identities resolved into the event log while
+//! leaving `HEAD` — and every option — untouched (issue #1262). So does
+//! a change to the diff settings that decide how gix diffs —
+//! `diff.algorithm`, `core.bigFileThreshold`, or a `diff.<driver>`
+//! section's `algorithm`, `binary` or `textconv` presence — which rewrite
+//! the recorded churn the same way (issue #1425); a driver's `command`
+//! never runs on this path and does not count. A shallow clone that is
+//! later deepened leaves `HEAD` unmoved, so the entry key is unchanged;
+//! the shallow-state match in `HistoryCache::is_compatible` forces a
+//! re-walk once the boundary is gone (`git fetch --unshallow`, issue
+//! #810), and the shallow-boundary term of the fingerprint does the same
+//! while the clone is still shallow but deeper than the entry was walked
+//! at (`--deepen`, a larger `--depth`). A corrupt or unreadable entry is
 //! silently ignored, never fatal.
 
 use std::collections::hash_map::DefaultHasher;
@@ -192,9 +199,10 @@ pub(crate) struct HistoryCache {
     pub vcs_schema_version: u32,
     /// Composite-formula version the events were produced under.
     pub risk_score_version: u32,
-    /// [`fingerprint`] of the walk-affecting options and the repository
-    /// mailmap. The field name predates the mailmap term (#1262) and is
-    /// kept because renaming it would change the serialized shape.
+    /// [`fingerprint`] of the walk-affecting options and the repository's
+    /// [`WalkInputDigests`]. The field name predates the mailmap term
+    /// (#1262) and is kept because renaming it would change the
+    /// serialized shape.
     pub options_fingerprint: u64,
     /// The `HEAD` (or `--ref`) object id the walk reached, hex-encoded.
     pub head_sha: String,
@@ -223,8 +231,38 @@ impl HistoryCache {
     /// and prevents reporting a complete walk's counts under a now-shallow
     /// clone as un-truncated (issue #810). A shallow-state mismatch forces
     /// a fresh walk that produces the correct counts and truncation flag.
+    /// A deepen that leaves the clone shallow does not flip the flag; the
+    /// fingerprint's shallow-boundary term retires that entry instead.
     #[must_use]
     pub(crate) fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
+        EntryHeader {
+            cache_schema_version: self.cache_schema_version,
+            vcs_schema_version: self.vcs_schema_version,
+            risk_score_version: self.risk_score_version,
+            options_fingerprint: self.options_fingerprint,
+            truncated_shallow_clone: self.truncated_shallow_clone,
+        }
+        .is_compatible(options_fingerprint, current_shallow)
+    }
+}
+
+/// The fields of a [`HistoryCache`] that [`HistoryCache::is_compatible`]
+/// reads, deserialized from an entry without its event log. serde skips
+/// the unknown `events` and `head_sha` keys without allocating, so
+/// [`load_compatible`] can reject an entry for the price of a scan rather
+/// than of building every event in it.
+#[derive(Deserialize)]
+struct EntryHeader {
+    cache_schema_version: u32,
+    vcs_schema_version: u32,
+    risk_score_version: u32,
+    options_fingerprint: u64,
+    #[serde(default)]
+    truncated_shallow_clone: bool,
+}
+
+impl EntryHeader {
+    fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
         self.cache_schema_version == CACHE_SCHEMA_VERSION
             && self.vcs_schema_version == VCS_SCHEMA_VERSION
             && self.risk_score_version == RISK_SCORE_VERSION
@@ -233,27 +271,89 @@ impl HistoryCache {
     }
 }
 
+// Entries deserialized in full, event log included, on this thread.
+//
+// `load_compatible` returns the same entries whether it parses every file
+// in full or reads each header first, so no assertion on its result can
+// tell the two apart and a revert would be silent. This is the observable
+// `load_compatible_parses_only_compatible_entries` reads.
+crate::observation::counter!(entries_parsed);
+
+/// Deserialize a whole entry, `None` when it is not a valid one.
+fn parse_entry(bytes: &[u8]) -> Option<HistoryCache> {
+    entries_parsed::record();
+    serde_json::from_slice(bytes).ok()
+}
+
+/// Digests of the walk inputs the repository supplies outside [`Options`].
+///
+/// Each is input the way an option is — it decides what the walk records
+/// — while a change to it moves neither `HEAD` (the entry key) nor any
+/// option field, so each has to enter [`fingerprint`] on its own. The
+/// backend's `WalkContext` produces all three from the one mailmap
+/// snapshot, the one diff platform and the one shallow-file read its
+/// walk was opened with. The walk consumes the first two, so for them an
+/// entry's stamp and its events cannot come from two reads (issue #1409);
+/// gix's walk re-reads the shallow file, and `WalkContext` says why that
+/// pair heals on the next run. Named fields rather than `u64`
+/// parameters, so a call site cannot transpose them.
+#[derive(Clone, Copy, Debug, Hash)]
+pub(crate) struct WalkInputDigests {
+    /// The effective mailmap, as gix merged it (issue #1262).
+    pub mailmap: u64,
+    /// The effective diff configuration — `diff.algorithm`,
+    /// `core.bigFileThreshold`, and each `diff.<driver>` section's
+    /// `algorithm`, `binary` and `textconv` presence — as gix configured
+    /// the walk's diff platform from it (issue #1425).
+    pub diff_config: u64,
+    /// The shallow boundary, the set of commits `.git/shallow` lists, or
+    /// the digest of no boundary for a clone with full history.
+    pub shallow_boundary: u64,
+}
+
 /// A stable 64-bit fingerprint of everything that changes *which commits
 /// the walk visits or how they are recorded* — the window lengths,
 /// traversal mode, merge/rename/bot toggles, the bot pattern, and the
-/// `--as-of` reference time from [`Options`], plus `mailmap_digest`.
+/// `--as-of` reference time from [`Options`], plus the repository-side
+/// [`WalkInputDigests`].
 ///
 /// # Walk input that lives outside `Options`
 ///
-/// `mailmap_digest` (issue #1262) covers the repository `.mailmap`, which
-/// is walk input the way an option is: author identities are canonicalised
-/// through it *at walk time* and stored in the event log as digests, so a
-/// mailmap edit changes what a replay would produce while moving neither
-/// `HEAD` (the entry key) nor any field of `Options`. Left out, an edited
-/// mailmap served stale author counts indefinitely — the incremental
-/// splice re-persisted the pre-edit digests under each new head, so the
-/// divergence outlived `HEAD` moving. The backend's `repo::mailmap_digest`
-/// documents what the value covers and why it digests gix's merged
-/// snapshot rather than the raw source bytes.
+/// `inputs.mailmap` (issue #1262) covers the repository `.mailmap`: author
+/// identities are canonicalised through it *at walk time* and stored in
+/// the event log as digests, so a mailmap edit changes what a replay would
+/// produce. Left out, an edited mailmap served stale author counts
+/// indefinitely — the incremental splice re-persisted the pre-edit digests
+/// under each new head, so the divergence outlived `HEAD` moving. The
+/// backend's `WalkContext::mailmap_digest` documents what the value covers
+/// and why it digests gix's merged snapshot rather than the raw source
+/// bytes.
 ///
-/// It is not the only walk input outside `Options`: the git diff
-/// configuration (`diff.algorithm`, diff drivers) decides the recorded
-/// churn and is not fingerprinted yet — see the `git::cached` module docs.
+/// `inputs.diff_config` (issue #1425) covers the git diff configuration
+/// the walk's blob-diff platform is built from, which decides the line
+/// counts recorded per commit — Myers and histogram disagree on the same
+/// edit, and a blob over `core.bigFileThreshold` is not diffed at all —
+/// so a change served the old churn, and the splice carried it forward,
+/// exactly as the mailmap did. `WalkContext::diff_config_digest` owns the
+/// list of what it projects and names the one input still outside the
+/// fingerprint, the `diff` attribute bindings; the `git::cached` module
+/// docs record why the configuration is fingerprinted rather than the
+/// algorithm pinned in the walk.
+///
+/// `inputs.shallow_boundary` covers the commits `.git/shallow` lists,
+/// behind which the walk records nothing. The entry's shallow flag
+/// (`truncated_shallow_clone`) sees only the boundary appearing or
+/// vanishing (issue #810); a clone deepened in place by `git fetch
+/// --deepen`, a larger `--depth` or an earlier `--shallow-since` is still
+/// shallow and still at the same `HEAD`, so the entry walked at the old
+/// depth was a pure hit and its truncated tail was spliced forward under
+/// each new head. `WalkContext::shallow_boundary_digest` says what the
+/// value hashes.
+///
+/// Adding a term retires every entry stamped before it on its own — the
+/// value moves for an unchanged configuration — so neither #1262, #1425
+/// nor the shallow-boundary term bumped [`CACHE_SCHEMA_VERSION`]; that
+/// version is for a change in what a recorded event *means*.
 ///
 /// Note what this term does *not* generalise to. An input is fingerprinted
 /// only when it is hashed here, and what is hashed is the option's
@@ -286,9 +386,9 @@ impl HistoryCache {
 /// inputs, so the fingerprint need only be self-consistent within one
 /// format version.
 #[must_use]
-pub(crate) fn fingerprint(options: &Options, mailmap_digest: u64) -> u64 {
+pub(crate) fn fingerprint(options: &Options, inputs: WalkInputDigests) -> u64 {
     let mut hasher = DefaultHasher::new();
-    mailmap_digest.hash(&mut hasher);
+    inputs.hash(&mut hasher);
     options.long_window_secs.hash(&mut hasher);
     options.recent_window_secs.hash(&mut hasher);
     options.full_history.hash(&mut hasher);
@@ -344,14 +444,33 @@ pub(crate) fn entry_path(repo_dir: &Path, head_sha: &str) -> PathBuf {
 /// or corrupt file (all non-fatal — the history is simply recomputed).
 #[must_use]
 pub(crate) fn load(path: &Path) -> Option<HistoryCache> {
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    parse_entry(&std::fs::read(path).ok()?)
 }
 
 /// Load every entry in `repo_dir` whose versions, option fingerprint, and
 /// shallow state match the current run, paired with its file path. Used to
 /// find a prior entry whose `HEAD` is an ancestor of the current one for an
 /// incremental walk. A non-existent directory yields an empty list.
+///
+/// Each file's [`EntryHeader`] is read before its events. Nothing deletes
+/// an incompatible entry (another run with other options may still use
+/// it), so they accumulate with every option, mailmap, diff-config or
+/// shallow-boundary change, and a full parse of each would grow the cost
+/// of every cache miss with that history rather than with the entries
+/// that can serve it.
+///
+/// The price is a second scan of each compatible entry: the header pass
+/// skips its events and the full parse reads them again. On a 1.3 MB
+/// entry of 2,311 events, in an optimized build, a full parse took 2.1 ms,
+/// the header alone 0.5 ms and both 2.6 ms, so a compatible entry costs a
+/// quarter more than a full parse did and a stale one a quarter of it.
+/// Compatible entries are few, about one per cached branch head, since a
+/// splice deletes the ancestor entry it extended. One pass would need a
+/// hand-written visitor that checks each header field as it arrives and
+/// then reads or abandons the events (`Box<RawValue>` would not do it, as
+/// capturing the events scans them too); that saves the 0.5 ms per
+/// compatible entry, and most of a stale one's, for a second
+/// `HistoryCache` deserializer to keep in step with the derive.
 #[must_use]
 pub(crate) fn load_compatible(
     repo_dir: &Path,
@@ -365,8 +484,10 @@ pub(crate) fn load_compatible(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Some(cache) = load(&path)
-            && cache.is_compatible(options_fingerprint, current_shallow)
+            && let Ok(bytes) = std::fs::read(&path)
+            && serde_json::from_slice::<EntryHeader>(&bytes)
+                .is_ok_and(|header| header.is_compatible(options_fingerprint, current_shallow))
+            && let Some(cache) = parse_entry(&bytes)
         {
             out.push((path, cache));
         }

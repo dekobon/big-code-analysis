@@ -724,9 +724,7 @@ impl Baseline {
             .by_symbol
             .keys()
             .any(|key| key.metric == MODE_MOVED_METRIC)
-            && violations
-                .iter()
-                .any(|v| v.threshold.id() == MODE_MOVED_METRIC);
+            && violations.iter().any(|v| v.metric() == MODE_MOVED_METRIC);
         mi_mode_warning(current, self.provenance, compares_sei)
     }
 
@@ -793,7 +791,7 @@ impl Baseline {
         let key = SymbolKey {
             path,
             qualified,
-            metric: v.metric.to_string(),
+            metric: v.metric().to_string(),
         };
         let recorded = self
             .match_in_group(&key, v)
@@ -954,7 +952,7 @@ impl StaleTally {
                 drift,
                 format!(
                     "{id} {} {} \u{2192} {}",
-                    v.metric,
+                    v.metric(),
                     MetricScalar(recorded),
                     MetricScalar(v.value),
                 ),
@@ -1011,13 +1009,14 @@ pub(crate) fn from_violations(
     let mut entries: Vec<BaselineEntry> = violations
         .into_iter()
         .filter_map(|v| {
+            let metric = v.metric();
             let Some(value) = recordable(v.value) else {
                 crate::warn(format_args!(
                     "skipping non-finite value for {}:{}-{}: {} = {}",
                     v.path.display(),
                     v.start_line,
                     v.end_line,
-                    v.metric,
+                    metric,
                     v.value,
                 ));
                 return None;
@@ -1026,7 +1025,7 @@ pub(crate) fn from_violations(
                 path: normalize_path(&anchor, &v.path),
                 qualified: v.function,
                 start_line: Some(v.start_line),
-                metric: v.metric.to_string(),
+                metric: metric.to_string(),
                 value,
                 body_hash: v.body_hash.map(encode_body_hash),
             })

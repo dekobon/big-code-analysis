@@ -227,7 +227,9 @@ pub fn compute(
             // A directory used as an output identifier must be UTF-8 (the
             // path rules forbid lossy conversion); a non-UTF-8 directory is
             // dropped from `by_directory` but still counts toward `repo`.
-            let directory = path_to_forward_slash(&dir)?;
+            // Rendered through the projection the CLI keys `files[].path`
+            // by, so the two identifiers in one report agree.
+            let directory = crate::slash_path(&dir)?;
             let files: Vec<&[&AuthorId]> =
                 indices.iter().map(|&i| resolved[i].as_slice()).collect();
             let group = group_bus_factor(&files, coverage, emit_author_details, author_hash_key);
@@ -475,14 +477,6 @@ fn directory_keys(path: &Path) -> Vec<PathBuf> {
         keys.push(depth2);
     }
     keys
-}
-
-/// Render a repo-relative directory as a forward-slash string for output,
-/// returning `None` (so the caller drops it) for a non-UTF-8 path rather
-/// than mangling an identifier — mirrors the CLI's `path_to_string`.
-fn path_to_forward_slash(path: &Path) -> Option<String> {
-    path.to_str()
-        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
 /// Clamp a coverage threshold into the open interval `(0, 1)`. A degenerate

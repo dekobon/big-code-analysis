@@ -1,12 +1,13 @@
 //! JSON-string → Python object conversion.
 //!
 //! The Python bindings reuse the library's existing `Serialize`
-//! implementation on [`big_code_analysis::FuncSpace`]: each call to
-//! [`crate::analysis::analyze_path`] /
-//! [`crate::analysis::analyze_source`] runs
-//! `serde_json::to_string(&space)` and hands the resulting JSON
-//! `String` to [`json_string_to_py`], which parses it with `CPython`'s
-//! standard-library `json.loads`.
+//! implementation on [`big_code_analysis::FuncSpace`]:
+//! [`crate::analysis::analyze_path`] (after attaching any VCS blocks to
+//! the struct) and [`crate::analysis::analyze_source`] serialize the
+//! space with [`crate::analysis::to_json`], which is
+//! `serde_json::to_string(&space)`, and the caller hands the resulting
+//! JSON `String` to [`json_string_to_py`], which parses it with
+//! `CPython`'s standard-library `json.loads`.
 //!
 //! Routing through the same `serde_json::to_string` serializer the
 //! `bca` CLI uses — combined with `CPython` 3.7+ dict insertion-order

@@ -10,16 +10,15 @@ use crate::thresholds::test_threshold;
 use big_code_analysis::metric_catalog::Direction;
 use std::path::PathBuf;
 
-fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value: f64) -> Violation {
+fn v(path: &str, function: &str, start_line: usize, metric: &str, value: f64) -> Violation {
     Violation {
         path: PathBuf::from(path),
         start_line,
         end_line: start_line + 1,
         function: function.to_string(),
-        metric,
         value,
         threshold: test_threshold(metric, 1.0),
-        hard_limit: Some(test_threshold(metric, 1.0)),
+        hard_breach: true,
         body_hash: None,
         suppressed: false,
         nargs_split: None,
@@ -31,13 +30,7 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
 /// recorded baseline as the regression rather than as coverage. The
 /// direction comes from the catalog through the violation's threshold;
 /// the assertion keeps a call site from naming a metric that is not.
-fn v_low(
-    path: &str,
-    function: &str,
-    start_line: usize,
-    metric: &'static str,
-    value: f64,
-) -> Violation {
+fn v_low(path: &str, function: &str, start_line: usize, metric: &str, value: f64) -> Violation {
     let low = v(path, function, start_line, metric, value);
     assert_eq!(
         low.threshold.info().direction,
@@ -52,7 +45,7 @@ fn v_hashed(
     path: &str,
     function: &str,
     start_line: usize,
-    metric: &'static str,
+    metric: &str,
     value: f64,
     body_hash: u64,
 ) -> Violation {
@@ -889,11 +882,8 @@ fn classify_ambiguous_symbol_picks_closest_within_tolerance() {
 /// entry order. Both orders matter: `min_by` keeps the first of two
 /// equal elements, so with one order a tie-break that compared no values
 /// at all would still pass whenever the expected record came first.
-fn classify_equidistant_tie(
-    metric: &str,
-    (stricter, lenient): (f64, f64),
-    live: &Violation,
-) -> [Coverage; 2] {
+fn classify_equidistant_tie((stricter, lenient): (f64, f64), live: &Violation) -> [Coverage; 2] {
+    let metric = live.metric();
     [(stricter, lenient), (lenient, stricter)].map(|(first, second)| {
         baseline_with(vec![
             entry("a", "f", live.start_line - 1, metric, first),
@@ -911,7 +901,7 @@ fn classify_ambiguous_symbol_equidistant_tie_prefers_higher_value() {
     // spurious regression against the lower record (5.0).
     let live = v("a", "f", 15, "cyclomatic", 7.0);
     assert_eq!(
-        classify_equidistant_tie("cyclomatic", (5.0, 8.0), &live),
+        classify_equidistant_tie((5.0, 8.0), &live),
         [Coverage::Covered { recorded: 8.0 }; 2],
     );
 }
@@ -924,7 +914,7 @@ fn classify_ambiguous_symbol_equidistant_tie_prefers_lower_value_for_mi() {
     // whatever the direction, which printed `[regr …]` here.
     let live = v_low("a", "f", 2, "mi.original", 50.1);
     assert_eq!(
-        classify_equidistant_tie("mi.original", (60.0, 40.0), &live),
+        classify_equidistant_tie((60.0, 40.0), &live),
         [Coverage::Covered { recorded: 40.0 }; 2],
     );
 }
@@ -950,10 +940,10 @@ fn classify_equidistant_tie_on_one_side_reports_the_more_lenient_record() {
     ];
     for (live, records, expected) in cases {
         assert_eq!(
-            classify_equidistant_tie(live.metric, records, live),
+            classify_equidistant_tie(records, live),
             [expected; 2],
             "{} {records:?} against {}",
-            live.metric,
+            live.metric(),
             live.value,
         );
     }
