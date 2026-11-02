@@ -13,8 +13,9 @@ use crate::node::{AncestorIter, Ancestors, Cursor, FoldLane, Node};
 ///
 /// This is the single normalization chokepoint for the lambda-alias set
 /// — mirroring [`python_is_block`] for the block aliases (#419). It
-/// is reused by `PythonCode::is_closure` here and by the cognitive
-/// lambda-scope walks in `big-code-analysis`, so a future grammar bump
+/// is reused by `PythonCode::is_closure` here, by
+/// [`python_lambdas_below_statement_boundary`] and by the cognitive
+/// boolean-operator gate in `big-code-analysis`, so a future grammar bump
 /// that promotes `Lambda2` to a concrete node is handled in exactly one
 /// place rather than drifting across sites (#422). The
 /// `python_hidden_block_and_lambda_aliases_stay_unseen` drift guard in
@@ -23,6 +24,72 @@ use crate::node::{AncestorIter, Ancestors, Cursor, FoldLane, Node};
 #[must_use]
 pub fn python_is_lambda(node: &Node) -> bool {
     matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
+}
+
+/// How many `lambda`s enclose `node` below its nearest statement
+/// boundary — an `expression_list`, `if`, `for` or `while` — the count
+/// `node.count_specific_ancestors::<PythonCode>(ancestors,
+/// python_is_lambda, boundary)` takes.
+///
+/// That climb runs to the root where no boundary is near — a boolean
+/// operator in each level of a nested list — and was quadratic in depth
+/// asked of every such operator (#1767). Under a walk that lent a
+/// `FoldCache` the count is folded down the chain instead, each ancestor
+/// once per walk. The fold's state is a `u8`; past 254 lambdas it
+/// saturates and the exact climb answers, so the count is exact at every
+/// depth and only a lambda nest that deep pays the climb.
+#[must_use]
+pub fn python_lambdas_below_statement_boundary(
+    node: &Node<'_>,
+    ancestors: Ancestors<'_, '_>,
+) -> usize {
+    let climb = || {
+        node.count_specific_ancestors::<crate::langs::PythonCode>(
+            ancestors,
+            python_is_lambda,
+            is_statement_boundary,
+        )
+    };
+    if !ancestors.memoises_folds() {
+        return climb();
+    }
+    let folded = ancestors.fold_down(
+        node,
+        0,
+        FoldLane::LambdaDepth,
+        0,
+        |lambdas, ancestor, _, _| {
+            if is_statement_boundary(ancestor) {
+                0
+            } else if python_is_lambda(ancestor) {
+                lambdas.saturating_add(1)
+            } else {
+                lambdas
+            }
+        },
+    );
+    if folded == u8::MAX {
+        climb()
+    } else {
+        usize::from(folded)
+    }
+}
+
+/// The statement boundary [`python_lambdas_below_statement_boundary`]
+/// stops at. Only `expression_list` can change the count: a lambda body
+/// is a single expression, so no lambda ever sits *above* an `if` /
+/// `for` / `while` statement, and stopping at one is indistinguishable
+/// from running to the module root. The three statement kinds are kept
+/// as an explicit boundary set rather than a claim about coverage
+/// (#1090).
+fn is_statement_boundary(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Python::ExpressionList
+            | Python::IfStatement
+            | Python::ForStatement
+            | Python::WhileStatement
+    )
 }
 
 /// Single normalization point for Python's aliased `block` kind_ids.
@@ -710,6 +777,57 @@ pub(crate) fn python_is_bound_self_attribute<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `python_lambdas_below_statement_boundary` answers the climb's
+    /// count for every node, folded through a walk's cache or climbed
+    /// without one (#1767).
+    ///
+    /// The fixture puts a boolean operator under each of 300 nested
+    /// lambdas, past the fold's `u8` saturation at 255, so the deepest
+    /// operators can only answer right through the exact fallback; a
+    /// parenthesised `yield` (an `expression_list`) resets the count
+    /// mid-nest, and an `if` and a `for` sit above it all.
+    #[cfg(feature = "python")]
+    #[test]
+    fn lambdas_below_statement_boundary_match_the_climb_past_saturation() {
+        use crate::langs::PythonCode;
+        use crate::node::FoldCache;
+        use crate::test_support::for_each_node_with_chain;
+        let depth = 300;
+        let source = format!(
+            "def g():\n    if c:\n        for i in r:\n            x = {}a and b{}\n            y = lambda: (yield (lambda: a or b), 1)\n",
+            "lambda: (a and ".repeat(depth),
+            ")".repeat(depth)
+        );
+        let cache = FoldCache::default();
+        let (mut deepest, mut reset) = (0_usize, false);
+        for_each_node_with_chain::<PythonCode>(source.as_bytes(), |node, chain| {
+            if node.kind_id() != Python::BooleanOperator {
+                return;
+            }
+            let climbed = node.count_specific_ancestors::<PythonCode>(
+                Ancestors::known(chain),
+                python_is_lambda,
+                is_statement_boundary,
+            );
+            let folded = python_lambdas_below_statement_boundary(
+                node,
+                Ancestors::known(chain).with_folds(&cache),
+            );
+            let chained = python_lambdas_below_statement_boundary(node, Ancestors::known(chain));
+            assert_eq!(
+                (folded, chained),
+                (climbed, climbed),
+                "(folded, chained) must both be the climb's count"
+            );
+            deepest = deepest.max(climbed);
+            // `a or b` under the `yield`'s `expression_list`: one lambda
+            // below the boundary, though two enclose it.
+            reset |= node.start_row() == 4 && climbed == 1;
+        });
+        assert_eq!(deepest, depth, "the fixture must reach past saturation");
+        assert!(reset, "the `expression_list` must reset the count");
+    }
 
     /// Every `parenthesized_expression`, `(` and `)` of `source`, each
     /// asked through a memoised walk and through its chain alone, which

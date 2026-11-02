@@ -43,8 +43,9 @@ impl Loc for CppCode {
                 stats.lloc.count_logical_line();
             }
             Declaration => {
-                if node.count_specific_ancestors::<CppCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<CppCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |node| {
                         matches!(
                             node.kind_id().into(),
@@ -52,8 +53,7 @@ impl Loc for CppCode {
                         )
                     },
                     |node| node.kind_id() == CompoundStatement,
-                ) == 0
-                {
+                ) {
                     stats.lloc.count_logical_line();
                 }
             }

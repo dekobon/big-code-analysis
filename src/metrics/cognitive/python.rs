@@ -64,15 +64,11 @@ fn python_comprehension_clause_nesting(
 /// Python `boolean_operator` node contributes.
 ///
 /// Only the *outermost* boolean operator in a chain pays the structural
-/// cost: if walking ancestors (stopping at a `lambda` boundary) finds
-/// another `boolean_operator` first, this node is nested inside one
-/// already counted, so the `== 0` guard skips it. The outermost operator
-/// then adds one structural unit per enclosing `lambda`, walking upward
-/// only as far as the nearest `expression_list` / `if` / `for` / `while`.
-/// `count_specific_ancestors` takes `(ancestors, check, stop)` in that
-/// order, so it is the lambdas that get counted and the control
-/// constructs that end the walk — the reverse of what this comment
-/// claimed before #1090.
+/// cost: one with another `boolean_operator` above it before a `lambda`
+/// is nested inside one already counted, so it is skipped. The
+/// outermost operator then adds one structural unit per enclosing
+/// `lambda` below the nearest `expression_list` / `if` / `for` /
+/// `while`.
 ///
 /// The per-lambda surcharge is a deliberate Python-only deviation from
 /// Campbell, reviewed and kept in #1150; the user-facing statement of
@@ -81,46 +77,29 @@ fn python_comprehension_clause_nesting(
 /// `big-code-analysis-book/src/metrics.md`.
 ///
 /// The outermost test asks the `ShortCircuit` row whether an ancestor
-/// owns a chain, stopping at the first that does: a left-nested chain
+/// owns a chain before a `lambda`: a left-nested chain
 /// `a and a and … and a` nests one operator per operand, so counting
 /// every enclosing one was quadratic in the chain where only "is there
-/// one" is asked (#1695). An ancestor is handed over without its own
-/// chain — the walk's chain is `node`'s — and the row's owner has no
-/// gate, so `Ancestors::unknown()` is exact there.
+/// one" is asked (#1695). Both questions fold down the walk's chain
+/// rather than climbing it, so a boolean operator in every level of a
+/// nested list — no boundary near for either — costs each ancestor once
+/// per walk rather than once per operator (#1767).
 fn python_apply_boolean_operator<'a>(
     node: &Node<'a>,
-    code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
     use crate::roles::python::short_circuit;
-    use Python::*;
-    let nested_in_a_chain = ancestors
-        .iter(node)
-        .take_while(|(ancestor, _)| !python_is_lambda(ancestor))
-        .any(|(ancestor, _)| short_circuit::owns(&ancestor, code, Ancestors::unknown()));
+    let nested_in_a_chain = ancestors.has_ancestor_before_stop::<PythonCode>(
+        node,
+        GateLane::InsideBooleanChain,
+        // The row's owner has no gate, so neither the chain nor the
+        // bytes can change the answer; `owns` is asked bare.
+        |ancestor| short_circuit::owns(ancestor, &[], Ancestors::unknown()),
+        python_is_lambda,
+    );
     if !nested_in_a_chain {
-        stats.structural +=
-            node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
-                // Only `ExpressionList` can change the count: a lambda
-                // body is a single expression, so no lambda ever sits
-                // *above* an `if`/`for`/`while` statement, and stopping
-                // at one is indistinguishable from running to the module
-                // root. The three statement kinds are kept as an explicit
-                // statement-boundary set rather than a claim about
-                // coverage. `ExpressionList` is the observable arm,
-                // reached via a parenthesised `yield` or an f-string
-                // interpolation — see
-                // `python_boolean_in_expression_list_under_lambda`
-                // (#1090).
-                // role-bypass: allow(Branch, Loop) — traversal: the
-                // statement boundary a boolean sequence stops at, not
-                // whether the node is a branch or a loop
-                matches!(
-                    node.kind_id().into(),
-                    ExpressionList | IfStatement | ForStatement | WhileStatement
-                )
-            });
+        stats.structural += python_lambdas_below_statement_boundary(node, ancestors);
     }
     compute_booleans_from(node, stats, short_circuit::PAYERS);
 }
@@ -251,7 +230,7 @@ impl Cognitive for PythonCode {
             }
             // A `boolean_operator` — the `ShortCircuit` row's owner.
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
-                python_apply_boolean_operator(node, code, ancestors, stats);
+                python_apply_boolean_operator(node, ancestors, stats);
             }
             // A lambda — the `Closure` row, whose `Lambda` / `Lambda2`
             // alias set is what `python_is_lambda` accepts (#422; the

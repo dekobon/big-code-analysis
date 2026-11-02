@@ -233,14 +233,13 @@ pub fn nested_blocks(depth: usize) -> String {
 
 /// C: `int main(){ while (a) { int x; … } }`.
 ///
-/// One `declaration` per nesting level. `loc`'s C-family arm resolves
-/// each declaration's logical-line contribution with
-/// `Node::count_specific_ancestors`, whose `stop` predicate is
-/// `compound_statement` — the brace directly above every declaration
-/// here. The probe pins two things at once: that the stop predicate
-/// keeps the walk to one step per declaration, and that the step reads
-/// the walker's ancestor chain rather than calling `Node::parent`
-/// (#1084). Losing either turns this shape quadratic.
+/// One `declaration` per nesting level. `loc`'s C-family arm asks each
+/// declaration whether a loop or `if` header holds it, stopping at the
+/// nearest `compound_statement` — the brace directly above every
+/// declaration here. The probe pins that the question reads the
+/// walker's ancestor chain rather than calling `Node::parent` (#1084).
+/// [`cpp_nested_namespaces`] is the same question with no stop below
+/// the root (#1767).
 #[must_use]
 pub fn nested_declarations(depth: usize) -> String {
     format!(
@@ -590,6 +589,71 @@ pub fn c_conditional_per_struct_depth(depth: usize) -> String {
     )
 }
 
+/// C++: `namespace N { int x; namespace N { int x; … } }`.
+///
+/// One `declaration` per level, and no `compound_statement` anywhere
+/// above any of them: a namespace body is a `declaration_list`. The
+/// C-family `loc` arm asks every declaration whether a loop or `if`
+/// header holds it, nearest `compound_statement` first, so on this
+/// shape the question has no stop below the root (#1767).
+#[must_use]
+pub fn cpp_nested_namespaces(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "namespace N {\nint x;\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
+}
+
+/// TypeScript: `function f() { let x = 1; function f() { … } }`.
+///
+/// One `lexical_declaration` per level. The TypeScript `loc` arm asks
+/// every declaration whether an `ambient_declaration` holds it, with no
+/// stop at all, so each question reaches the root; the JavaScript arm
+/// asks only the export question, which a `statement_block` stops one
+/// step up (#1767).
+#[must_use]
+pub fn ts_nested_functions(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "function f() {\nlet x = 1;\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
+}
+
+/// JavaScript: `x = [() => 1, [() => 1, [ … 0 ] ] ];`.
+///
+/// One arrow per level, each an element of an array nested in the last.
+/// Whether an arrow is bound to a name is decided by asking its
+/// ancestors for a binding before a positional frame; an array is
+/// neither, and the outer `x =` is a binding, so every arrow is a
+/// function and the question climbs to that assignment, one level
+/// below the root, from each (#1767).
+#[must_use]
+pub fn js_arrow_per_array_depth(depth: usize) -> String {
+    format!(
+        "x = {}0{};\n",
+        "[() => 1,\n".repeat(depth),
+        "]\n".repeat(depth)
+    )
+}
+
+/// Python: `x = [a and b, [a and b, [ … 0 ] ] ]`.
+///
+/// One boolean operator per level, each an element of a list nested in
+/// the last. Each asks its ancestors whether it sits inside another
+/// boolean operator before a `lambda`, and how many `lambda`s enclose it
+/// before a statement boundary; a list is neither, so both questions
+/// reach the root from every operator (#1767).
+#[must_use]
+pub fn python_and_per_list_depth(depth: usize) -> String {
+    format!(
+        "x = {}0{}\n",
+        "[a and b,\n".repeat(depth),
+        "]\n".repeat(depth)
+    )
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -798,10 +862,11 @@ pub fn nested_cfg_predicate(depth: usize) -> String {
 ///
 /// The JS grammars have no production for "named function": `const f =
 /// () => …` and `g(() => …)` are the same `arrow_function` node, and
-/// `Checker::is_func` tells them apart by walking upward until it meets
-/// either a name binding or a frame that proves positional use. Here
-/// the enclosing `statement_block` stops the walk after two steps —
-/// which is the point. Two steps was still `O(depth)`, because
+/// `Checker::is_func` tells them apart by asking the ancestors for a
+/// name binding before a frame that proves positional use. Here the
+/// enclosing `statement_block` is that frame two steps up — which is
+/// the point; [`js_arrow_per_array_depth`] is the shape with no frame
+/// near. Two steps was still `O(depth)`, because
 /// `Node::parent` descends from the root, and the `PropertyIdentifier`
 /// adjacency check the predicate ends with scanned siblings the same
 /// way; both are why a shape with one arrow per level was quadratic
@@ -1492,6 +1557,19 @@ const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 /// the defect present is no probe; these sizes are where it goes red.
 const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
+/// Depths for the three #1767 probes, one rung above [`LINEAR_DEPTHS`].
+/// Each prices an ancestor question with no stop near, folded down the
+/// walk's chain instead of climbed per node. On [`LINEAR_DEPTHS`] the
+/// TypeScript probe read 1.65–1.69 with the climb, 0.15 past the bound;
+/// here the three read 2.10–2.18, 1.95–2.04 and 1.87–1.97 with it and
+/// 1.26–1.32, 1.00–1.03 and 0.70–0.73 without, the clean cells 3–19 ms
+/// rather than 1.4–8 ms. The C++ probe's clean fit leaves 0.18 under
+/// [`LINEAR_BOUND`]; the walk is linear there, so a reading that creeps
+/// toward the bound is cache drift on a deep tree before it is a
+/// regression. The Python probe added later read 2.00–2.01 with its climbs
+/// and 1.02–1.09 without on the same ladder.
+const ANCESTOR_GATE_DEPTHS: [usize; 3] = [2_000, 4_000, 8_000];
+
 /// Bound for a probe expected to be linear in its size parameter.
 ///
 /// Set from measurement, not from theory. A genuinely linear walk does
@@ -1873,7 +1951,7 @@ pub const PROBES: &[Probe] = &[
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-declaration`: the same \
                     nesting with no `declaration` node, so `loc` never \
-                    reaches `Node::count_specific_ancestors`.",
+                    asks the declaration's ancestor question.",
     },
     Probe {
         name: "loc/nested-declaration",
@@ -1887,14 +1965,15 @@ pub const PROBES: &[Probe] = &[
         render: nested_declarations,
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1084: `loc`'s C-family arm calls \
-                    `Node::count_specific_ancestors` for every \
-                    `declaration`. Its `stop` predicate fires on the \
-                    enclosing `compound_statement` immediately, so the \
-                    walk is one step, and that step now indexes the \
-                    walker's ancestor chain instead of calling \
-                    `Node::parent`. `loc/nested-while` is the same \
-                    nesting without a declaration.",
+        rationale: "#1084: `loc`'s C-family arm asks every `declaration` \
+                    whether a loop or `if` header holds it, stopping at \
+                    the enclosing `compound_statement` one step up. The \
+                    question reads the walker's ancestor chain instead of \
+                    calling `Node::parent`, and since #1767 folds down it \
+                    on `GateLane::InsideHeader`. `loc/nested-while` is \
+                    the same nesting without a declaration; \
+                    `loc/cpp-nested-namespaces` the same question with no \
+                    stop near.",
     },
     Probe {
         name: "halstead/nested-paren",
@@ -2703,6 +2782,99 @@ pub const PROBES: &[Probe] = &[
                     on their own (#1767), which would hide what this \
                     prices. Every block binds, so the reading is the doc \
                     rows, one per level.",
+    },
+    Probe {
+        name: "loc/cpp-nested-namespaces",
+        lang: LANG::Cpp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
+        render: cpp_nested_namespaces,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1767: every C++ `declaration` asks whether a loop or \
+                    `if` header holds it, stopping at the nearest \
+                    `compound_statement`. A namespace body is a \
+                    `declaration_list`, so in a namespace nest nothing \
+                    stops the climb short of the root and the shape was \
+                    quadratic in depth. The walk now folds the answer \
+                    down its chain on `GateLane::InsideHeader`: \
+                    2.10–2.18 with the climb reinstated, 1.26–1.32 \
+                    without. \
+                    `loc/nested-declaration` is the same question with \
+                    the stop one step up. The reading is `lloc`, one per \
+                    declaration, so a shape that lost them stops growing.",
+    },
+    Probe {
+        name: "loc/ts-nested-fn",
+        lang: LANG::Typescript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
+        render: ts_nested_functions,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1767: every TypeScript declaration asks whether an \
+                    `ambient_declaration` holds it, a question with no \
+                    stop at all, so each climbed to the root and a plain \
+                    function nest was quadratic. Folded on \
+                    `GateLane::InsideAmbient`: 1.95–2.04 with the climb \
+                    reinstated, 1.00–1.03 without. The export question on \
+                    `GateLane::InsideExport` is asked of the same nodes \
+                    and stops at the first `statement_block`, so this \
+                    shape prices the ambient lane alone. The reading is \
+                    `lloc`, one per declaration.",
+    },
+    Probe {
+        name: "nom/js-arrow-per-array-depth",
+        lang: LANG::Javascript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.functions_sum(),
+        },
+        render: js_arrow_per_array_depth,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1767: whether a JS arrow is bound to a name is asked \
+                    of its ancestors until a binding or a positional \
+                    frame. An array is neither, so an arrow per array \
+                    level climbed to the outer `x =` from every arrow and \
+                    the shape was quadratic. Folded on \
+                    `FoldLane::NamedBinding`: 1.87–1.97 with the climb \
+                    reinstated, 0.70–0.73 without. Every arrow is bound, so \
+                    the reading is `functions_sum`, one per level; an \
+                    arrow misread as a closure stops it growing.",
+    },
+    Probe {
+        name: "cognitive/python-and-per-list-depth",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: python_and_per_list_depth,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1767: every Python boolean operator asks whether it \
+                    sits inside another before a `lambda`, and how many \
+                    `lambda`s enclose it before a statement boundary. A \
+                    list is neither, so with an operator per list level \
+                    both questions climbed to the root and the shape was \
+                    quadratic. Folded on `GateLane::InsideBooleanChain` \
+                    and `FoldLane::LambdaDepth`: 2.00–2.01 with both climbs \
+                    reinstated, 1.02–1.09 without. Every operator is the \
+                    outermost of its chain, so the reading is the \
+                    cognitive sum, one per level.",
     },
     Probe {
         name: "loc/c-nested-conditional-docs",
@@ -3797,6 +3969,10 @@ mod tests {
             "npa/cpp-wide-class-members",
             "npm/ruby-nested-if-defs",
             "npm/ruby-wide-private-defs",
+            "loc/cpp-nested-namespaces",
+            "loc/ts-nested-fn",
+            "nom/js-arrow-per-array-depth",
+            "cognitive/python-and-per-list-depth",
         ] {
             let probe = PROBES
                 .iter()

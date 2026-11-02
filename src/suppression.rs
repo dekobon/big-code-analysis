@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use crate::checker::Checker;
 use crate::getter::Getter;
 use crate::metric_set::Metric;
-use crate::node::{Ancestors, Node};
+use crate::node::{Ancestors, FoldCache, Node};
 use crate::traits::ParserTrait;
 
 /// Resolve a sub-metric threshold name (e.g. `cyclomatic.modified`,
@@ -746,6 +746,11 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
     // node in the file, and `Node::children` would build and free a
     // `TreeCursor` at each (#1112, `Node::children_with`).
     let mut cursor = root.cursor();
+    // The memo `is_func_with_code`'s ancestor questions fold through, as
+    // the metrics walk lends one: without it a JS arrow asks its binding
+    // question by climbing, and a nest with no frame near climbs to the
+    // root from every arrow (#1767).
+    let folds = FoldCache::default();
     while let Some((node, enclosing, depth)) = stack.pop() {
         chain.truncate(depth);
 
@@ -758,7 +763,7 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
         // predicates that consult an ancestor — Elixir's `quote`
         // template check, the JS-family name-binding walk — read it off
         // `chain` rather than climbing with `Node::parent` (#1088).
-        let ancestors = Ancestors::checked(&chain, &node);
+        let ancestors = Ancestors::checked(&chain, &node).with_folds(&folds);
         let child_enclosing = if T::Checker::is_func_with_code(&node, code, ancestors) {
             T::Getter::get_func_name(&node, code, ancestors).or(enclosing)
         } else {

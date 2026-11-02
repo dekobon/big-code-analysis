@@ -47,12 +47,12 @@ impl Loc for CsharpCode {
                 // Variable declarations inside a `for_statement` init/condition/update
                 // (e.g. `for (int i = 0; i < n; i++)`) shouldn't bump LLOC; the
                 // surrounding `for_statement` already counts.
-                if node.count_specific_ancestors::<CsharpCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<CsharpCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |n| n.kind_id() == ForStatement,
                     |n| n.kind_id() == Block,
-                ) == 0
-                {
+                ) {
                     stats.lloc.count_logical_line();
                 }
             }

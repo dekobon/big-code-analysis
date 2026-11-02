@@ -68,12 +68,12 @@ impl Loc for GroovyCode {
                 stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
-                if node.count_specific_ancestors::<GroovyCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<GroovyCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |node| node.kind_id() == ForStatement,
                     |node| node.kind_id() == Block,
-                ) == 0
-                {
+                ) {
                     // Skip the initializer slot of a classic `for` loop —
                     // same reason as Java's impl.
                     stats.lloc.count_logical_line();

@@ -43,8 +43,9 @@ impl Loc for MozcppCode {
                 stats.lloc.count_logical_line();
             }
             Declaration => {
-                if node.count_specific_ancestors::<MozcppCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<MozcppCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |node| {
                         matches!(
                             node.kind_id().into(),
@@ -52,8 +53,7 @@ impl Loc for MozcppCode {
                         )
                     },
                     |node| node.kind_id() == CompoundStatement,
-                ) == 0
-                {
+                ) {
                     stats.lloc.count_logical_line();
                 }
             }

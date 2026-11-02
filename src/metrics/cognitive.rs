@@ -27,7 +27,7 @@ use crate::spaces::{Nesting, NestingMap};
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::lang_helpers::python::python_is_lambda;
+use crate::lang_helpers::python::{python_is_lambda, python_lambdas_below_statement_boundary};
 use crate::macros::implement_metric_trait;
 use crate::metrics::ConstraintReach;
 use crate::*;
@@ -1073,9 +1073,9 @@ mod tests {
         // branch chain (each continuation contributes +1 with no extra
         // nesting). `ElifClause` is a dedicated node handled directly
         // by the cognitive dispatch as a branch extension, and the
-        // generic `count_specific_ancestors` nesting walk does not
-        // include `ElifClause` in its kind sets, so no ancestor-side
-        // suppression via `is_else_if` is required.
+        // lambda-depth fold's statement boundary does not include
+        // `ElifClause`, so no ancestor-side suppression via
+        // `is_else_if` is required.
         // expected: outer if +1, elif +1, elif +1, else +1 = 4.
         check_metrics::<PythonParser>(
             "def f(a, b, c, d):

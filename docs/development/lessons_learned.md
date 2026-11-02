@@ -3331,6 +3331,21 @@ back in #1533 as walk state — the clause's end byte, recorded when the
 walk enters it — behind three `*/cpp-and-chain` probes that fit 1.97
 with the climb reinstated.
 
+**A stop bounds a climb only where a stop is near** (#1767). #1084's
+`count_specific_ancestors` made each step of the declaration climb
+`O(1)`, and its probe confirmed the walk linear — on a shape whose stop,
+the enclosing `compound_statement`, sat one step up. In a C++ namespace
+nest no `compound_statement` exists above a declaration, so the same
+question climbed to the root from every one: 12.8s for 32,000 levels
+in a release build, where a function nest of the same depth took 0.25s.
+TypeScript's ambient question had no stop at all, and Python cognitive's
+two boolean-operator questions stopped at a `lambda` and a statement
+boundary, neither of which a nested list holds. The fix folds the answer down the chain
+through the walk's `FoldCache`, one step per ancestor per walk. Price a
+stop-bounded climb on a shape where the stop is absent, not only where
+it is adjacent; the probe that passes on the adjacent shape is measuring
+the stop, not the climb.
+
 ---
 
 ## 83. A categorical proxy for a positional property is wrong in both directions

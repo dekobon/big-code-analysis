@@ -141,6 +141,37 @@ for historical reference.
 
 ### Changed
 
+- **The `loc` declaration gates, the JS-family binding gate and the
+  Python cognitive boolean-operator questions no longer climb to the
+  root from every node** (#1767). Each asks a node's ancestors a
+  question that stops only at some nearby kind:
+  - `loc` asks every C-family, C#, Go, Groovy and Java declaration
+    whether a loop header holds it, stopping at the nearest statement
+    block;
+  - `loc` asks every JS-family declaration whether an `export` holds
+    it, and every TypeScript one whether an ambient `declare` does,
+    with no stop at all;
+  - every JS-family function expression or arrow asks whether a name
+    binds it;
+  - every Python boolean operator asks whether another encloses it
+    before a `lambda`, and how many `lambda`s do before a statement
+    boundary.
+
+  Where nothing stopped the climb — nested C++ namespaces, a C `#ifdef`
+  nest, nested Java `switch` arms, any TypeScript function nest, arrows
+  or `and`s nested in arrays and lists — the walk was quadratic in
+  depth: 12.8s for 32,000 nested namespaces in a release build. Each
+  answer is now folded down the ancestor chain once per walk, through
+  the cache the metrics, `ops`, `find` / `count` and functions walks
+  already lent; the suppression walk now lends one too. A caller with
+  no cache keeps the bounded climb. Output is unchanged;
+  `loc/cpp-nested-namespaces`, `loc/ts-nested-fn`,
+  `nom/js-arrow-per-array-depth` and
+  `cognitive/python-and-per-list-depth` pin the shapes. In
+  `big-code-analysis-ast`, `FoldCache` keeps one cell per lane so a
+  fold's step can ask another lane's question memoised, and the new
+  `GateLane` (`#[doc(hidden)]`) names the lanes the metric crate may
+  ask on.
 - The seven documentation roles — `Comment`, `DocComment`, `Docstring`,
   `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody` —
   are declared per language in `big-code-analysis-ast/src/roles/` and

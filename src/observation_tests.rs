@@ -228,6 +228,61 @@ fn the_metric_and_suppression_walks_scan_a_tree_on_one_cursor() {
     );
 }
 
+/// Every seam that asks the JS-family binding question folds it through
+/// the walk's `FoldCache`, so an arrow per level of a nested array costs
+/// each ancestor once per walk rather than a climb per arrow (#1767).
+///
+/// Nothing in the output can see it: every arrow is bound to `x` either
+/// way, so the function counts, the space tree and the markers come out
+/// the same, and only the fold's stored-state count tells a memoised walk
+/// from the quadratic climb. A seam that lent no cache would fold
+/// nothing and climb instead, reading 0 here; the suppression seam is
+/// the one whose lend #1767 added.
+#[cfg(feature = "javascript")]
+#[test]
+fn every_seam_folds_the_js_binding_question() {
+    use crate::node::fold_steps;
+
+    type Seam<'a> = &'a dyn Fn(&crate::Ast);
+
+    let depth = 200;
+    let source = format!(
+        "x = {}0{};\n",
+        "[() => 1,\n".repeat(depth),
+        "]\n".repeat(depth)
+    );
+    let ast = crate::test_support::parse_named(crate::LANG::Javascript, "a.js", &source);
+    let nodes = ast.root_node().preorder().count();
+    let seams: [(&str, Seam); 4] = [
+        ("Ast::metrics", &|ast| {
+            ast.metrics(crate::MetricsOptions::default())
+                .expect("the walk must yield a top-level space");
+        }),
+        ("Ast::ops", &|ast| {
+            ast.ops().expect("the walk must yield a top-level space");
+        }),
+        ("Ast::functions", &|ast| {
+            assert_eq!(ast.functions().len(), depth, "every arrow is a function");
+        }),
+        ("Ast::suppressions", &|ast| {
+            assert!(
+                ast.suppressions().is_empty(),
+                "the fixture carries no marker"
+            );
+        }),
+    ];
+    for (name, run) in seams {
+        let before = fold_steps::observed();
+        run(&ast);
+        let folded = fold_steps::observed() - before;
+        assert!(
+            (depth..=4 * nodes).contains(&folded),
+            "{name} folded {folded} ancestor states over {nodes} nodes: it must \
+             lend its walk a FoldCache, and fold each ancestor about once"
+        );
+    }
+}
+
 #[cfg(feature = "rust")]
 type Dump = fn(&crate::Ast, crate::AstCfg) -> crate::AstResponse;
 

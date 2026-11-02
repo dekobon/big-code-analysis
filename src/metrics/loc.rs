@@ -12628,7 +12628,7 @@ class A {
     /// Objective-C for-header gating: the `int i = 0` declaration in a
     /// classic `for` init slot is part of the `for` statement's logical
     /// line and must NOT add a second one (mirrors the C / C++ gate).
-    /// Reverting the `count_specific_ancestors` gate would push lloc from
+    /// Reverting the declaration's loop-header gate would push lloc from
     /// 2 to 3.
     #[cfg(feature = "objc")]
     #[test]

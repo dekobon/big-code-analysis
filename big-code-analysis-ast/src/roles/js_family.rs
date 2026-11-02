@@ -103,8 +103,9 @@ macro_rules! js_family_containers {
 /// block, `return`, `new`, a call or its arguments — and the first met
 /// decides; an `else if` on the way is not a frame. The chain is what
 /// makes a two-step climb `O(1)` rather than `Node::parent`'s
-/// `O(depth)` (#1088); a chain of expression-bodied arrows is the one
-/// shape no chain flattens, and stays `O(depth)` per node.
+/// `O(depth)` (#1088), and the walk's fold is what keeps a climb with
+/// no frame near — arrows nested only in arrays or expression bodies —
+/// from costing `O(depth)` per arrow (#1767).
 ///
 /// The two forms differ in one clause, and must: a function
 /// expression's `identifier` child is its own name (`run(function g()
@@ -125,8 +126,9 @@ macro_rules! js_family_binding_gates {
             extra: impl FnOnce() -> bool,
         ) -> bool {
             use $lang::*;
-            node.count_specific_ancestors::<$crate::$code>(
-                ancestors,
+            ancestors.ancestor_before_stop::<$crate::$code>(
+                node,
+                $crate::node::FoldLane::NamedBinding,
                 |node| {
                     matches!(
                         node.kind_id().into(),
@@ -147,8 +149,7 @@ macro_rules! js_family_binding_gates {
                             | Arguments
                     )
                 },
-            ) > 0
-                || extra()
+            ) || extra()
         }
 
         fn bound_function<'a>(

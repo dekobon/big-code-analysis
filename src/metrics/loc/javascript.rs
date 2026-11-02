@@ -64,11 +64,11 @@ impl Loc for JavascriptCode {
             //     declaration node at all.
             //   * `export const a = 1;`: the declaration nests *inside*
             //     the `ExportStatement`, which already counted the line.
-            //     This is an ancestor walk rather than a parent check
+            //     This is an ancestor question rather than a parent check
             //     because the TypeScript and TSX grammars interpose an
             //     `ambient_declaration` for `export declare const y: string;`,
             //     and the four JS-family modules stay identical.
-            //     `StatementBlock` stops the walk, so a declaration in an
+            //     `StatementBlock` stops the question, so a declaration in an
             //     exported function's body still counts.
             //
             // `using_declaration` (`using r = open();`, TC39 explicit resource
@@ -83,11 +83,12 @@ impl Loc for JavascriptCode {
                             .child_by_field_name("initializer")
                             .is_some_and(|initializer| initializer.id() == node.id())
                 });
-                let is_exported = node.count_specific_ancestors::<JavascriptCode>(
-                    ancestors,
+                let is_exported = ancestors.has_ancestor_before_stop::<JavascriptCode>(
+                    node,
+                    GateLane::InsideExport,
                     |node| node.kind_id() == ExportStatement,
                     |node| node.kind_id() == StatementBlock,
-                ) > 0;
+                );
                 if !is_for_header && !is_exported {
                     stats.lloc.count_logical_line();
                 }

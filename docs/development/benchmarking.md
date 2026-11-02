@@ -141,7 +141,9 @@ Read it as follows.
 | `cognitive/wide-if-siblings` | Java | width | the `ElseIf` row's previous-sibling gate through the `SiblingCache` (#1697) | linear |
 | `cognitive/python-wide-if-siblings` | Python | width | the `ElseIf` row's sole-child gate reading its parents before scanning the block (#1697) | linear |
 | `loc/nested-while` | C | depth | shape control for the row below | linear |
-| `loc/nested-declaration` | C | depth | `Node::count_specific_ancestors` | linear |
+| `loc/nested-declaration` | C | depth | the declaration's loop-header question, its stop one step up | linear |
+| `loc/cpp-nested-namespaces` | C++ | depth | the same question with no stop below the root, folded on `GateLane::InsideHeader` (#1767) | linear |
+| `loc/ts-nested-fn` | TypeScript | depth | the ambient-declaration question, which has no stop, folded on `GateLane::InsideAmbient` (#1767) | linear |
 | `nom/nested-quote` | Elixir | depth | `elixir_is_inside_quote_block` | linear |
 | `nom/nested-fn` | Rust | depth | `FuncSpace` nesting; metric control for the row below | linear |
 | `cognitive/nested-fn` | Rust | depth | `increment_function_depth` (#1062) | linear |
@@ -151,6 +153,8 @@ Read it as follows.
 | `nom/nested-fn-rows` | Rust | depth | metric control for the row above | linear |
 | `nom/nested-declared-function` | JavaScript | depth | shape control for the row below | linear |
 | `nom/nested-arrow` | JavaScript | depth | JS-family `is_func` / `is_closure` (#1088) | linear |
+| `nom/js-arrow-per-array-depth` | JavaScript | depth | the same binding question with no frame below the root, folded on `FoldLane::NamedBinding` (#1767) | linear |
+| `cognitive/python-and-per-list-depth` | Python | depth | a boolean operator's "inside another chain" and enclosing-`lambda` questions, with no stop in a list, folded on `GateLane::InsideBooleanChain` and `FoldLane::LambdaDepth` (#1767) | linear |
 | `nom/wide-arrow-array` | JavaScript | width | the arrow binding gate's parent sibling scan on `run(() => 1, …)`, memoised per parent under `MemoQuestion::NamesAnArrow` (#1696) | linear |
 | `halstead/nested-paren` | Rust | depth | shape control for the row below | linear |
 | `halstead/nested-not` | Rust | depth | `Getter::get_op_type`'s parent read (#1096) | linear |

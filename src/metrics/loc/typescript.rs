@@ -64,7 +64,7 @@ impl Loc for TypescriptCode {
             //     declaration node at all.
             //   * `export const a = 1;`: the declaration nests *inside*
             //     the `ExportStatement`, which already counted the line.
-            //     This is an ancestor walk rather than a parent check
+            //     This is an ancestor question rather than a parent check
             //     because the grammar interposes an `ambient_declaration`
             //     for `export declare const y: string;`, and the four
             //     JS-family modules stay identical. `StatementBlock` stops
@@ -75,7 +75,7 @@ impl Loc for TypescriptCode {
             //     T; }`, `declare module "m" { … }`): ambient code is a
             //     type-level claim with no initializer to run, so it is
             //     no logical line at all. Ambience is transitive, which
-            //     is why this walk does not stop at a `StatementBlock`.
+            //     is why this question does not stop at a `StatementBlock`.
             VariableDeclaration | LexicalDeclaration => {
                 let is_for_header = ancestors.parent(node).is_some_and(|parent| {
                     parent.kind_id() == ForStatement
@@ -83,16 +83,18 @@ impl Loc for TypescriptCode {
                             .child_by_field_name("initializer")
                             .is_some_and(|initializer| initializer.id() == node.id())
                 });
-                let is_exported = node.count_specific_ancestors::<TypescriptCode>(
-                    ancestors,
+                let is_exported = ancestors.has_ancestor_before_stop::<TypescriptCode>(
+                    node,
+                    GateLane::InsideExport,
                     |node| node.kind_id() == ExportStatement,
                     |node| node.kind_id() == StatementBlock,
-                ) > 0;
-                let is_ambient = node.count_specific_ancestors::<TypescriptCode>(
-                    ancestors,
+                );
+                let is_ambient = ancestors.has_ancestor_before_stop::<TypescriptCode>(
+                    node,
+                    GateLane::InsideAmbient,
                     |node| node.kind_id() == AmbientDeclaration,
                     |_| false,
-                ) > 0;
+                );
                 if !is_for_header && !is_exported && !is_ambient {
                     stats.lloc.count_logical_line();
                 }

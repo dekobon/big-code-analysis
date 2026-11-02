@@ -45,12 +45,12 @@ impl Loc for JavaCode {
                 stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
-                if node.count_specific_ancestors::<JavaCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<JavaCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |node| node.kind_id() == ForStatement,
                     |node| node.kind_id() == Block,
-                ) == 0
-                {
+                ) {
                     // The initializer, condition, and increment in a for loop are expressions.
                     // Don't count the variable declaration if in a ForStatement.
                     // https://docs.oracle.com/javase/tutorial/java/nutsandbolts/for.html

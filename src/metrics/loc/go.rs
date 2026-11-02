@@ -66,12 +66,12 @@ impl Loc for GoCode {
                 // for-clause init or update slot (e.g. `for i := 0; i < n; i++`);
                 // the surrounding `for_statement` already counts as one
                 // logical line.
-                if node.count_specific_ancestors::<GoCode>(
-                    ancestors,
+                if !ancestors.has_ancestor_before_stop::<GoCode>(
+                    node,
+                    GateLane::InsideHeader,
                     |n| n.kind_id() == G::ForClause,
                     |n| n.kind_id() == G::Block,
-                ) == 0
-                {
+                ) {
                     stats.lloc.count_logical_line();
                 }
             }

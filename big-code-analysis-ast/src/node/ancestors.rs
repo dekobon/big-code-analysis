@@ -6,6 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use super::Node;
+use crate::checker::Checker;
 
 /// The chain of a node's children, held by a consumer that reads them
 /// without descending: what [`Ancestors::of_children`] builds. A
@@ -202,6 +203,62 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             Some(cache) => cache.fold(lane, chain, end, init, step_at),
             None => (0..end).fold(init, step_at),
         }
+    }
+
+    /// Whether an ancestor of `node` satisfies `check` before one
+    /// satisfies `stop`, nearest first, an `else if`'s inner `if` never
+    /// counting — what `node.count_specific_ancestors::<C>(self, check,
+    /// stop) > 0` answers.
+    ///
+    /// That climb stops at the nearest `stop`, which bounds it only where
+    /// one is near. A shape with none — a declaration in nested C++
+    /// namespaces, any TypeScript declaration asked whether it is
+    /// ambient — climbs to the root from every node and is quadratic in
+    /// depth (#1767). Under a walk that lent a [`FoldCache`] this folds
+    /// the answer down the chain on `lane` instead, each ancestor once
+    /// per walk: a `stop` resets it, a `check` sets it. Elsewhere the
+    /// climb is the cheaper of the two and is what runs, so a caller
+    /// with no cache keeps the climb's cost.
+    ///
+    /// A lane memoises whatever its first asker folded, so each
+    /// [`GateLane`] belongs to one question: one `check` / `stop` pair
+    /// and checker per walk. Both are plain `fn`s because the memo is
+    /// only sound for a pure function of the ancestor; a closure that
+    /// captured the asking node would hand every later node the first
+    /// one's answer. The `else if` exclusion is kept for parity with the
+    /// climb; no current asker can observe it.
+    #[doc(hidden)]
+    pub fn has_ancestor_before_stop<C: Checker>(
+        self,
+        node: &Node<'tree>,
+        lane: GateLane,
+        check: fn(&Node) -> bool,
+        stop: fn(&Node) -> bool,
+    ) -> bool {
+        self.ancestor_before_stop::<C>(node, lane.fold_lane(), check, stop)
+    }
+
+    /// [`has_ancestor_before_stop`](Self::has_ancestor_before_stop) on any
+    /// lane, for this crate's own questions.
+    pub(crate) fn ancestor_before_stop<C: Checker>(
+        self,
+        node: &Node<'tree>,
+        lane: FoldLane,
+        check: fn(&Node) -> bool,
+        stop: fn(&Node) -> bool,
+    ) -> bool {
+        if !self.memoises_folds() {
+            return node.count_specific_ancestors::<C>(self, check, stop) > 0;
+        }
+        self.fold_down(node, 0, lane, 0, |held, ancestor, outer, _| {
+            if stop(ancestor) {
+                0
+            } else if check(ancestor) && !C::is_else_if(ancestor, outer) {
+                1
+            } else {
+                held
+            }
+        }) == 1
     }
 
     /// The walk's memo for `question`, when it lent a [`FoldCache`].
@@ -680,6 +737,41 @@ fn climbed_chain<'tree>(node: &Node<'tree>) -> Vec<Node<'tree>> {
     climbed
 }
 
+/// The ancestor questions the metric crate asks through
+/// [`Ancestors::has_ancestor_before_stop`], one per lane of the walk's
+/// [`FoldCache`]. A subset of [`FoldLane`], so a caller outside this
+/// crate cannot name a lane another fold owns.
+#[doc(hidden)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateLane {
+    /// Whether a declaration sits in a loop or `if` header — a `for`
+    /// initializer — with no statement block between: the C family,
+    /// C#, Go, Groovy and Java. One lane serves all because a walk
+    /// parses one language.
+    InsideHeader,
+    /// JS family: whether a declaration sits in an `export` statement
+    /// with no statement block between.
+    InsideExport,
+    /// TypeScript: whether a declaration sits anywhere inside an
+    /// ambient `declare`.
+    InsideAmbient,
+    /// Python: whether a boolean operator sits inside another before a
+    /// `lambda`, so a chain is paid for once, at its outermost operator.
+    InsideBooleanChain,
+}
+
+impl GateLane {
+    const fn fold_lane(self) -> FoldLane {
+        match self {
+            Self::InsideHeader => FoldLane::InsideHeader,
+            Self::InsideExport => FoldLane::InsideExport,
+            Self::InsideAmbient => FoldLane::InsideAmbient,
+            Self::InsideBooleanChain => FoldLane::InsideBooleanChain,
+        }
+    }
+}
+
 /// Which memoised fold a [`FoldCache`] slot holds. A language may run
 /// more than one fold over the same walk, and two folds' states must not
 /// share a slot.
@@ -697,17 +789,31 @@ pub(crate) enum FoldLane {
     /// Elixir: whether an ancestor is a `quote do … end` call, under
     /// which a `def` is a template rather than a definition.
     InsideQuote,
+    /// [`GateLane::InsideHeader`].
+    InsideHeader,
+    /// [`GateLane::InsideExport`].
+    InsideExport,
+    /// [`GateLane::InsideAmbient`].
+    InsideAmbient,
+    /// [`GateLane::InsideBooleanChain`].
+    InsideBooleanChain,
+    /// JS family: whether a function expression or arrow meets a name
+    /// binding before a positional frame.
+    NamedBinding,
+    /// Python: how many `lambda`s enclose a node before the nearest
+    /// statement boundary, saturating (#1767).
+    LambdaDepth,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 4;
+    const COUNT: usize = 10;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the
 // first walk that folds on it; this makes a variant added without the
 // bump a build error instead.
-const _: () = assert!(FoldLane::InsideQuote as usize + 1 == FoldLane::COUNT);
+const _: () = assert!(FoldLane::LambdaDepth as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each
@@ -837,10 +943,15 @@ impl FoldCache {
     // The state after folding `step(state, depth)` over `chain[..end]`,
     // reusing and storing the per-depth states on `lane`.
     //
-    // The lane stays borrowed while `step` runs. A step that folds on the
-    // same lane would otherwise panic on the second borrow; it folds
-    // unmemoised instead, which answers the same, only without the memo.
-    // No step does today.
+    // The lane stays borrowed while `step` runs, so a step that folds on
+    // the same lane would otherwise panic on the second borrow; it folds
+    // unmemoised instead, which answers the same. No step does today, and
+    // the cost of one that did is the step's own: a step that re-enters
+    // at one ancestor pays a plain fold of that prefix, one that re-enters
+    // at every ancestor pays `2^depth`, since nothing a re-entered lane
+    // can store cuts the recursion short. Neither shows as a wrong answer,
+    // so debug builds refuse the shape: the whole test corpus then guards
+    // the contract.
     fn fold(
         &self,
         lane: FoldLane,
@@ -850,6 +961,10 @@ impl FoldCache {
         step: impl Fn(u8, usize) -> u8,
     ) -> u8 {
         let Ok(mut slots) = self.lanes[lane as usize].try_borrow_mut() else {
+            debug_assert!(
+                same_lane_reentry::allowed(),
+                "a fold step re-entered its own lane {lane:?}"
+            );
             return (0..end).fold(init, step);
         };
         // `slots[d]` is the state at `chain[d]`: folded over `chain[..d]`.
@@ -863,6 +978,7 @@ impl FoldCache {
         let mut depth = deepest_stored(&slots, chain, memo_end);
         let mut state = if depth == 0 { init } else { slots[depth].1 };
         while depth < memo_end {
+            fold_steps::record();
             state = step(state, depth);
             depth += 1;
             slots[depth] = (chain[depth].id(), state);
@@ -871,6 +987,36 @@ impl FoldCache {
             state = step(state, memo_end);
         }
         state
+    }
+}
+
+// Ancestor states a memoised fold computes and stores, so a test can see
+// a walk fold each ancestor once rather than once per asking node: the
+// answers are identical either way (#1767). Readable from the root
+// crate's tests through `test-support`, since most walks that lend the
+// cache live there.
+crate::observation::counter!(fold_steps, cfg(any(test, feature = "test-support")));
+
+/// Whether a fold may re-enter its own lane: refused everywhere, except
+/// on a thread where the one test that pins the fallback has opted in.
+/// A flag in every build rather than a `cfg(test)` branch, because the
+/// root crate's tests compile this crate without `cfg(test)`, and a
+/// branch they can never take reads as a line no test reaches.
+mod same_lane_reentry {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ALLOWED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn allowed() -> bool {
+        ALLOWED.get()
+    }
+
+    /// Opts the current thread in (`true`) or back out.
+    #[cfg(test)]
+    pub(super) fn allow(allowed: bool) {
+        ALLOWED.set(allowed);
     }
 }
 
@@ -1021,7 +1167,8 @@ mod tests {
     /// memoised through the same cache: each lane is its own cell, so the
     /// outer fold's borrow does not block it. A step that folds on its
     /// *own* lane finds that lane borrowed and runs unmemoised, answering
-    /// what the plain fold does rather than panicking on a second borrow.
+    /// what the plain fold does rather than panicking on a second borrow,
+    /// at the plain fold's cost.
     ///
     /// The inner fold counts its own steps, so memoisation is observed
     /// rather than inferred: walked in order, each inner fold costs one
@@ -1054,6 +1201,7 @@ mod tests {
         };
 
         let cache = FoldCache::default();
+        same_lane_reentry::allow(true);
         let nodes =
             for_each_node_with_chain::<crate::langs::RustCode>(source.as_bytes(), |node, chain| {
                 let (other, own) = (FoldLane::DocInBody, FoldLane::BareStringClimb);
@@ -1062,12 +1210,23 @@ mod tests {
                     fold(chain, node, None, other, FoldLane::DocScope),
                     "another lane must answer what the plain fold does"
                 );
+                let before = inner_steps.get();
+                let own_lane = fold(chain, node, Some(&cache), own, own);
+                let own_steps = inner_steps.get() - before;
                 assert_eq!(
-                    fold(chain, node, Some(&cache), own, own),
+                    own_lane,
                     fold(chain, node, None, own, own),
                     "its own lane must answer what the plain fold does"
                 );
+                // One plain fold of the prefix per query: `inner` folds
+                // its own lane once, at the node, and re-enters nowhere.
+                let depth = chain.len();
+                assert!(
+                    own_steps <= depth * (depth + 1) / 2,
+                    "its own lane must cost one plain fold of the prefix"
+                );
             });
+        same_lane_reentry::allow(false);
         assert!(nodes > 200, "the fixture must nest deeply: {nodes}");
 
         // The other-lane fold alone on a fresh cache, counting only its

@@ -15,10 +15,10 @@
 mod ancestors;
 mod parser_cache;
 
-#[doc(hidden)]
-pub use ancestors::WIDE_PARENT;
 pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
+#[doc(hidden)]
+pub use ancestors::{GateLane, WIDE_PARENT, fold_steps};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
@@ -2125,6 +2125,153 @@ mod tests {
         assert_eq!(
             nonzero, 1,
             "only the `for`-header declaration sits under a header with no block between"
+        );
+    }
+
+    /// A `check` / `stop` predicate pair for the ancestor-gate tests below.
+    #[cfg(any(feature = "c", feature = "typescript"))]
+    type Pair = (fn(&Node) -> bool, fn(&Node) -> bool);
+
+    /// `Ancestors::has_ancestor_before_stop` answers `count > 0` for every
+    /// node, whether it folds through a walk's cache, climbs a known chain
+    /// with none, or climbs with no chain at all (#1767).
+    ///
+    /// Two predicate pairs, each built so a broken step changes answers.
+    /// `loc`'s own (`while`/`for`/`if`, stop at a block) cannot see the
+    /// `else if` exclusion: an excluded inner `if` always has its outer
+    /// `if` adjacent above. So the second pair stops at the `else` clause
+    /// itself — `y` under `else if (b) y;` then has only the excluded
+    /// inner `if` below the stop — and a node that is both `stop` and
+    /// `check` (`if_statement` in the third pair) pins stop-wins
+    /// precedence. Each pair asserts both answers occur.
+    #[cfg(feature = "c")]
+    #[test]
+    fn has_ancestor_before_stop_answers_count_above_zero_on_every_path() {
+        use crate::node::{FoldCache, GateLane};
+        let pairs: [(&str, Pair); 3] = [
+            (
+                "loc",
+                (
+                    |n| {
+                        matches!(
+                            n.kind(),
+                            "while_statement" | "for_statement" | "if_statement"
+                        )
+                    },
+                    |n| n.kind() == "compound_statement",
+                ),
+            ),
+            (
+                "else-clause stop",
+                (
+                    |n| n.kind() == "if_statement",
+                    |n| n.kind() == "else_clause",
+                ),
+            ),
+            (
+                "stop and check overlap",
+                (
+                    |n| matches!(n.kind(), "if_statement" | "for_statement"),
+                    |n| matches!(n.kind(), "if_statement" | "compound_statement"),
+                ),
+            ),
+        ];
+        let code =
+            b"int main() { int a; if (x) { int b; } for (int i = 0; i < 2; i++) { int c; }\n\
+                     if (a) x; else if (b) y; else z;\n\
+                     for (;;) if (c) { int d; } else w; }";
+        for (label, (check, stop)) in pairs {
+            let cache = FoldCache::default();
+            let (mut yes, mut no) = (0_usize, 0_usize);
+            for_each_node_with_chain::<crate::langs::CCode>(code, |node, chain| {
+                let expected = node.count_specific_ancestors::<crate::langs::CCode>(
+                    Ancestors::known(chain),
+                    check,
+                    stop,
+                ) > 0;
+                let lane = GateLane::InsideHeader;
+                let folded = Ancestors::known(chain)
+                    .with_folds(&cache)
+                    .has_ancestor_before_stop::<crate::langs::CCode>(node, lane, check, stop);
+                let chained = Ancestors::known(chain)
+                    .has_ancestor_before_stop::<crate::langs::CCode>(node, lane, check, stop);
+                let climbed = Ancestors::unknown()
+                    .has_ancestor_before_stop::<crate::langs::CCode>(node, lane, check, stop);
+                assert_eq!(
+                    (folded, chained, climbed),
+                    (expected, expected, expected),
+                    "{label}: (folded, chained, climbed) must all be the count's answer"
+                );
+                if expected {
+                    yes += 1;
+                } else {
+                    no += 1;
+                }
+            });
+            assert!(
+                yes > 0 && no > 0,
+                "{label}: both answers must occur ({yes} / {no})"
+            );
+        }
+    }
+
+    /// Two lanes asked of the same nodes in one walk keep their own
+    /// answers: TypeScript asks every declaration both whether it is
+    /// exported (stop at a block) and whether it is ambient (no stop),
+    /// and a lane mix-up would hand one question the other's memo. `lloc`
+    /// cannot see that — either answer suppresses the line — so the
+    /// answers are asserted here, per declaration (#1767).
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn two_lanes_asked_of_one_node_keep_their_own_answers() {
+        use crate::languages::Typescript;
+        use crate::node::{FoldCache, GateLane};
+        let exported: Pair = (
+            |n| n.kind_id() == Typescript::ExportStatement,
+            |n| n.kind_id() == Typescript::StatementBlock,
+        );
+        let ambient: Pair = (|n| n.kind_id() == Typescript::AmbientDeclaration, |_| false);
+        let code = b"export const a = 1;\n\
+                     declare const b: number;\n\
+                     export declare const c: string;\n\
+                     export declare namespace N { const d: number; }\n\
+                     declare namespace M { const e: number; }\n\
+                     const f = 1;\n";
+        let cache = FoldCache::default();
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<crate::langs::TypescriptCode>(code, |node, chain| {
+            if node.kind() != "lexical_declaration" {
+                return;
+            }
+            let ask = |lane, (check, stop): Pair| {
+                Ancestors::known(chain)
+                    .with_folds(&cache)
+                    .has_ancestor_before_stop::<crate::langs::TypescriptCode>(
+                        node, lane, check, stop,
+                    )
+            };
+            seen.push((
+                ask(GateLane::InsideExport, exported),
+                ask(GateLane::InsideAmbient, ambient),
+            ));
+        });
+        assert_eq!(
+            seen,
+            [
+                (true, false),
+                (false, true),
+                (true, true),
+                // A `statement_block` stands between `d` and the export.
+                (false, true),
+                // Ambient, never exported: the export lane stores `false`
+                // at every depth of `e`'s chain, so a shared lane answers
+                // the ambient question `false` too. The shallower rows
+                // cannot show that — their stored states are the root's,
+                // the same for either question.
+                (false, true),
+                (false, false),
+            ],
+            "(exported, ambient) per declaration, in source order"
         );
     }
 }
