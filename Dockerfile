@@ -48,7 +48,7 @@ ENV PATH=/usr/local/cargo/bin:/home/dev/.local/bin:/usr/local/bin:$PATH
 #                         the per-arch SHA256 tables in their RUN blocks
 ENV RUST_VERSION=1.94.0
 ENV NODE_MAJOR=24
-ENV RUMDL_VERSION=0.2.2
+ENV RUMDL_VERSION=0.3.2
 ENV TAPLO_VERSION=0.10.0
 ENV SHFMT_VERSION=3.12.0
 ENV SHELLCHECK_VERSION=0.10.0
@@ -255,8 +255,8 @@ EOF
 RUN <<'EOF'
 set -eux
 case $(dpkg --print-architecture) in
-    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="d38ad81c51221990d5e0204b4746f8c980a77de235aa875c2f30f02f9a19bb1a" ;;
-    arm64) TRIPLE="aarch64-unknown-linux-gnu"; SHA256="f64e74228bfd25ef83a7b8f7da44911d5f3c4b69ecfa6482c7f06de1e210255d" ;;
+    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="f527d1374765d826c1627ceab3d1f46e548268731a495b5b12a3af529b3d79e8" ;;
+    arm64) TRIPLE="aarch64-unknown-linux-gnu"; SHA256="bdfca7a602f893fbe5d73d5e38f73b31f45a21d3bcf385b6ea819997d0449ec3" ;;
     *)     echo "Unsupported architecture: $(dpkg --print-architecture)" && exit 1 ;;
 esac
 wget --quiet -O /tmp/rumdl.tgz "https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-${TRIPLE}.tar.gz"

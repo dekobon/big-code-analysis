@@ -667,6 +667,13 @@ for historical reference.
   constructed. Python's `analyze_batch` / `analyze_paths` results are
   unchanged. (#1348)
 
+- Contributors: the Markdown linter pin moves from rumdl 0.2.2 to
+  0.3.2 in `mise.toml`, the CI `lint` job and the `Dockerfile`. The
+  tree lints clean under 0.3.2 with no auto-fix changes, so
+  `.rumdl.toml` is unchanged. Run `mise install` (or
+  `cargo install rumdl --version 0.3.2`) to pick it up.
+  0.3.0 removed MD037's auto-fix; the rule still reports. (#1653)
+
 ### Deprecated
 
 - `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;
