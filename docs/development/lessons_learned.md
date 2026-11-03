@@ -4458,6 +4458,10 @@ over a private enum now, and the same probe fails with E0599. When a
 cache may only be attached one way, audit every `pub` field, variant
 and tuple that can name it, not only the functions.
 
+**The walks' `SiblingCache` had no counter** (#1584): dropping
+`.with_siblings` passed both crates' library suites until PR #1782
+added `sibling_cache_reads`.
+
 ---
 
 ## 102. A recovery sweep's cut set is shaped by the drifts it has already found
@@ -4848,7 +4852,11 @@ at one call per file per entry inside it — and the miss is the normal
 case for the new caller, not the corner it was for the old one. Hoist
 the per-file work out of the per-entry loop, answer lexically where
 the input is already absolute, and measure with `strace -c` on a tree
-where the slow arm is taken, not one where it is not.
+where the slow arm is taken, not one where it is not. A dispatch that
+picks the cheaper of two paths is priced the same way: by how often it
+is asked, not by what one ask costs. Before retuning one, list the
+paths that exist now. If one dominates both, the fix is to delete the
+dispatch.
 
 `[check] exclude` and `[[thresholds.path]]` match files through the
 same anchor so one glob names the same files on both surfaces — the
@@ -4869,6 +4877,20 @@ multiple that a benchmark would have passed. The match path is now
 derived once per distinct origin per file, the parent directory's
 canonical form is memoised, the whole path is canonicalised only for
 an explicitly seeded symlink, and the count is single digits.
+
+**A width budget priced one ask and was asked once per item** (#1447,
+PR #1782). Under `exclude_tests`, a Rust item's `#[…]` run was read by
+a cursor pass over the parent whenever the parent's width fit a budget
+that #1100 had sized against `previous_sibling`'s per-depth cost. Each
+ask was cheap at that break-even. But the run is read once per item on
+the same parent, so a deep body of `3 * depth` one-attribute items was
+`O(depth²)`: 11.9 s at depth 2 000. #1446 reused the budget, and #1447
+was filed with three remedies that all kept it. By then #1545 and #1584
+had added `Ancestors::siblings_before` / `siblings_after`: a seek by
+byte offset, answered from the walk's `SiblingCache` under a wide
+parent, which pays nothing for depth and at most a logarithm of width.
+Reading through them and deleting the budget took the same file to
+0.04 s.
 
 ---
 
