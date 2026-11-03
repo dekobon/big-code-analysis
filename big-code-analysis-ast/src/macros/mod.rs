@@ -445,6 +445,125 @@ macro_rules! mk_action {
     };
 }
 
+/// Runs `$body` with `$C` bound to the `Checker` tag of a `LANG`
+/// *value*: the type-level twin of [`with_any_parser!`], for a test that
+/// walks a corpus whose language is chosen at run time and asks the
+/// tag's `Checker` / `Getter` methods of every node (#1700). Every
+/// variant is listed, so a language added to `mk_langs!` fails to
+/// compile here until it is added too; a disabled grammar's arm is
+/// compiled and reached only if the caller did not filter on
+/// `LANG::is_enabled` first, in which case `Tree::new` panics as it
+/// does for any disabled grammar. Test-only, like `test_support`.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! with_code_tag {
+    ($lang:expr, |$C:ident| $body:block) => {
+        match $lang {
+            $crate::LANG::Bash => {
+                type $C = $crate::BashCode;
+                $body
+            }
+            $crate::LANG::C => {
+                type $C = $crate::CCode;
+                $body
+            }
+            $crate::LANG::Ccomment => {
+                type $C = $crate::CcommentCode;
+                $body
+            }
+            $crate::LANG::Cpp => {
+                type $C = $crate::CppCode;
+                $body
+            }
+            $crate::LANG::Csharp => {
+                type $C = $crate::CsharpCode;
+                $body
+            }
+            $crate::LANG::Elixir => {
+                type $C = $crate::ElixirCode;
+                $body
+            }
+            $crate::LANG::Go => {
+                type $C = $crate::GoCode;
+                $body
+            }
+            $crate::LANG::Groovy => {
+                type $C = $crate::GroovyCode;
+                $body
+            }
+            $crate::LANG::Irules => {
+                type $C = $crate::IrulesCode;
+                $body
+            }
+            $crate::LANG::Java => {
+                type $C = $crate::JavaCode;
+                $body
+            }
+            $crate::LANG::Javascript => {
+                type $C = $crate::JavascriptCode;
+                $body
+            }
+            $crate::LANG::Kotlin => {
+                type $C = $crate::KotlinCode;
+                $body
+            }
+            $crate::LANG::Lua => {
+                type $C = $crate::LuaCode;
+                $body
+            }
+            $crate::LANG::Mozcpp => {
+                type $C = $crate::MozcppCode;
+                $body
+            }
+            $crate::LANG::Mozjs => {
+                type $C = $crate::MozjsCode;
+                $body
+            }
+            $crate::LANG::Objc => {
+                type $C = $crate::ObjcCode;
+                $body
+            }
+            $crate::LANG::Perl => {
+                type $C = $crate::PerlCode;
+                $body
+            }
+            $crate::LANG::Php => {
+                type $C = $crate::PhpCode;
+                $body
+            }
+            $crate::LANG::Preproc => {
+                type $C = $crate::PreprocCode;
+                $body
+            }
+            $crate::LANG::Python => {
+                type $C = $crate::PythonCode;
+                $body
+            }
+            $crate::LANG::Ruby => {
+                type $C = $crate::RubyCode;
+                $body
+            }
+            $crate::LANG::Rust => {
+                type $C = $crate::RustCode;
+                $body
+            }
+            $crate::LANG::Tcl => {
+                type $C = $crate::TclCode;
+                $body
+            }
+            $crate::LANG::Tsx => {
+                type $C = $crate::TsxCode;
+                $body
+            }
+            $crate::LANG::Typescript => {
+                type $C = $crate::TypescriptCode;
+                $body
+            }
+        }
+    };
+}
+
 /// Dispatches over every [`AnyParser`] variant, binding the concrete
 /// `Parser<XCode>` to `$p` and evaluating `$body` once per arm.
 ///

@@ -367,7 +367,13 @@ jobs:
           # warnings` is repeated here deliberately. Keep the two in
           # step if the workflow-level value ever gains a flag.
           RUSTFLAGS: "-D warnings --cfg chain_audit"
-        run: cargo test -p big-code-analysis -p big-code-analysis-ast --lib --all-features --locked
+        # `--skip ::corpus_`: this job checks out no submodule, and the
+        # derived parity's whole-corpus tests (#1700) assert the output
+        # submodule is present; the skip shows in the test count. The
+        # `::` anchors the prefix to a test name — `--skip` is a
+        # substring match on the full path, and a bare `corpus_` also
+        # drops `an_empty_corpus_directory_is_an_interrupted_checkout`.
+        run: cargo test -p big-code-analysis -p big-code-analysis-ast --lib --all-features --locked -- --skip ::corpus_
 
   coverage:
     name: coverage
@@ -640,7 +646,14 @@ jobs:
       # which *panics* with the #1171 "integration corpus not checked
       # out" diagnostic rather than skipping. Exact matchers (`=name`)
       # so `output` cannot also swallow the lib's `output_formats`.
-      - run: cargo nextest run ${{ matrix.flags }} --locked -E 'not binary(=corpus) and not binary(=cli_ux) and not binary(=output)'
+      #
+      # And the lib tests whose name starts `corpus_`: the derived
+      # role-table parity's whole-corpus obligations (#1700), which
+      # read `control_flow/` in the output submodule and assert it is
+      # checked out. Filtered by name, so the skip is a smaller test
+      # count here rather than a pass; the `test` and `coverage` jobs
+      # run them.
+      - run: cargo nextest run ${{ matrix.flags }} --locked -E 'not binary(=corpus) and not binary(=cli_ux) and not binary(=output) and not test(/::corpus_/)'
 
   deny:
     name: cargo-deny

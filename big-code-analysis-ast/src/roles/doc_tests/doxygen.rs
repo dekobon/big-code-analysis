@@ -146,10 +146,13 @@ old_names_are_the_row!(objc_old_names_are_the_row, Objc, objc, OBJC_KIND_FLAGS);
 // and an unterminated one, and a doc comment in a body (Doxygen's
 // in-body description: still a `DocComment`).
 #[cfg(feature = "c")]
+pub(super) const C_SOURCE: &[u8] = b"/** file */\n#include <stdio.h>\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/*! decl */\nint x;\n/// fn\nint f(void) { /** in body */ return x; }\n//! typedef\ntypedef int T;\n// plain\n/* block */\n/**/\n/** struct with body */\nstruct S { /** field */ int a; struct In; };\n/** forward */\nstruct Fwd;\nunion UF;\nenum EF;\n/** union */\nunion U { int b; };\n/** enum */\nenum E { /** enumerator */ A, B };\n/** macro call */\nFOO(bar);\n/** empty stmt */\n;\n#if X\n/** in if */\nint in_if;\n#elif Y\nint in_elif;\n#else\nint in_else;\n#endif\n#ifdef Z\n#endif\n#ifdef Y\n#elifdef YY\nint yy;\n#endif\n#if A\n# if B\nint deep;\n# endif\n#endif\nextern \"C\" { int c; }\n";
+
+#[cfg(feature = "c")]
 #[test]
 fn c_rows_answer_the_table() {
     use crate::CCode;
-    let source = b"/** file */\n#include <stdio.h>\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/*! decl */\nint x;\n/// fn\nint f(void) { /** in body */ return x; }\n//! typedef\ntypedef int T;\n// plain\n/* block */\n/**/\n/** struct with body */\nstruct S { /** field */ int a; struct In; };\n/** forward */\nstruct Fwd;\nunion UF;\nenum EF;\n/** union */\nunion U { int b; };\n/** enum */\nenum E { /** enumerator */ A, B };\n/** macro call */\nFOO(bar);\n/** empty stmt */\n;\n#if X\n/** in if */\nint in_if;\n#elif Y\nint in_elif;\n#else\nint in_else;\n#endif\n#ifdef Z\n#endif\n#ifdef Y\n#elifdef YY\nint yy;\n#endif\n#if A\n# if B\nint deep;\n# endif\n#endif\nextern \"C\" { int c; }\n";
+    let source = C_SOURCE;
     let expected: &[(&str, &str, Answers)] = &[
         ("comment", "/** file */", DOC),
         ("comment", "/** macro */", DOC),
@@ -293,7 +296,7 @@ fn c_error_clause_is_the_checkers_not_the_rows() {
 // pinned on the same source (grammar-dispatch, "a LANG variant that
 // owns no file extension").
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-const CPP_SOURCE: &[u8] = b"/** ns */\nnamespace N {\n/** using */\nusing std::string;\n/** alias */\nusing A = int;\n/** class */\nclass C {\n  /** friend */\n  friend class D;\n  /** member fn */\n  void m();\n  /** field */\n  int f;\n};\n/** template */\ntemplate <class T> class Tpl { };\n/** template fwd */\ntemplate <class T> class TplFwd;\n/** fn def */\nvoid C::m() { }\n}\n/** class fwd */\nclass Fwd;\nunion UF;\nenum EF;\n#if X\n/** in if */\nint in_if;\n#elifdef Y\nint y;\n#endif\n/** typedef */\ntypedef int T;\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/** linkage */\nextern \"C\" { int c; }\n/** enum */\nenum E { /** a */ A };\n/** struct */\nstruct S { int a; };\n/** union */\nunion U { int b; };\n/** macro call */\nFOO(bar);\n;\n#ifdef Z\nint z;\n#elif W\nint w;\n#else\nint e;\n#endif\n#ifdef EMPTY\n#endif\n";
+pub(super) const CPP_SOURCE: &[u8] = b"/** ns */\nnamespace N {\n/** using */\nusing std::string;\n/** alias */\nusing A = int;\n/** class */\nclass C {\n  /** friend */\n  friend class D;\n  /** member fn */\n  void m();\n  /** field */\n  int f;\n};\n/** template */\ntemplate <class T> class Tpl { };\n/** template fwd */\ntemplate <class T> class TplFwd;\n/** fn def */\nvoid C::m() { }\n}\n/** class fwd */\nclass Fwd;\nunion UF;\nenum EF;\n#if X\n/** in if */\nint in_if;\n#elifdef Y\nint y;\n#endif\n/** typedef */\ntypedef int T;\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/** linkage */\nextern \"C\" { int c; }\n/** enum */\nenum E { /** a */ A };\n/** struct */\nstruct S { int a; };\n/** union */\nunion U { int b; };\n/** macro call */\nFOO(bar);\n;\n#ifdef Z\nint z;\n#elif W\nint w;\n#else\nint e;\n#endif\n#ifdef EMPTY\n#endif\n";
 
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
 const CPP_EXPECTED: &[(&str, &str, Answers)] = &[
@@ -432,10 +435,13 @@ fn mozcpp_rows_answer_the_table() {
 // declaration and definition — the `implementation_definition`
 // wrapper of a definition is a target, of a `@synthesize` not.
 #[cfg(feature = "objc")]
+pub(super) const OBJC_SOURCE: &[u8] = b"/** interface */\n@interface C : NSObject {\n  /** ivar */\n  int iv;\n}\n/** property */\n@property int p;\n/** method decl */\n- (void)m;\n+ (void)c;\n@end\n/** impl */\n@implementation C\n/** method def */\n- (void)m { }\n@synthesize p;\n@end\n/** protocol */\n@protocol P\n- (void)q;\n@end\n/** fn */\nint f(void) { return 1; }\n#if X\n/** in if */\nint in_if;\n#else\nint e;\n#endif\n@protocol Q\n/** d */\n@optional\n- (void)r;\n@end\n/** typedef */\ntypedef int T;\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/** linkage */\nextern \"C\" { int c; }\n/** enum */\nenum E { /** a */ A };\n/** struct */\nstruct S { int a; };\n/** union */\nunion U { int b; };\nstruct SF;\nunion UF;\nenum EF;\n/** macro call */\nFOO(bar);\n;\n#ifdef Z\nint z;\n#elif W\nint w;\n#endif\n#ifdef Y\n#elifdef YY\nint yy;\n#endif\n#ifdef EMPTY\n#endif\n";
+
+#[cfg(feature = "objc")]
 #[test]
 fn objc_rows_answer_the_table() {
     use crate::{Objc, ObjcCode};
-    let source = b"/** interface */\n@interface C : NSObject {\n  /** ivar */\n  int iv;\n}\n/** property */\n@property int p;\n/** method decl */\n- (void)m;\n+ (void)c;\n@end\n/** impl */\n@implementation C\n/** method def */\n- (void)m { }\n@synthesize p;\n@end\n/** protocol */\n@protocol P\n- (void)q;\n@end\n/** fn */\nint f(void) { return 1; }\n#if X\n/** in if */\nint in_if;\n#else\nint e;\n#endif\n@protocol Q\n/** d */\n@optional\n- (void)r;\n@end\n/** typedef */\ntypedef int T;\n/** macro */\n#define X 1\n/** fn macro */\n#define F(a) (a)\n/** linkage */\nextern \"C\" { int c; }\n/** enum */\nenum E { /** a */ A };\n/** struct */\nstruct S { int a; };\n/** union */\nunion U { int b; };\nstruct SF;\nunion UF;\nenum EF;\n/** macro call */\nFOO(bar);\n;\n#ifdef Z\nint z;\n#elif W\nint w;\n#endif\n#ifdef Y\n#elifdef YY\nint yy;\n#endif\n#ifdef EMPTY\n#endif\n";
+    let source = OBJC_SOURCE;
     let expected: &[(&str, &str, Answers)] = &[
         ("comment", "/** interface */", DOC),
         ("class_interface", "@interface C : NSObject {", TARGET),

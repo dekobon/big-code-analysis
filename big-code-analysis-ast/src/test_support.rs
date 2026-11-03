@@ -121,6 +121,66 @@ fn clean_tree<L: LanguageInfo>(code: &[u8]) -> Tree {
     tree
 }
 
+/// [`for_each_node_with_sibling_cache`] for a source that may recover
+/// into an `ERROR` — a corpus file — reporting whether it did beside
+/// the node count, so the caller parses once and labels the walk
+/// (#1700).
+pub fn for_each_node_with_sibling_cache_tolerating_errors<L: LanguageInfo>(
+    code: &[u8],
+    mut check: impl for<'t, 'c> FnMut(&Node<'t>, Ancestors<'t, 'c>),
+) -> (usize, bool) {
+    let tree = Tree::new::<L>(code);
+    let recovered = tree.get_root().has_error();
+    let mut visited = 0;
+    tree.get_root().act_on_node(&mut |node, ancestors| {
+        visited += 1;
+        check(node, ancestors);
+    });
+    (visited, recovered)
+}
+
+/// The tolerant walker reports what the clean one asserts: a source
+/// that recovers into an `ERROR` is walked, labelled recovered, and
+/// hands every node the same chain-bearing `Ancestors` the clean
+/// walker does — pinned on the node count, which the two agree on for
+/// one parse, and on a parent read through the cache. Only the
+/// `#[ignore]`d corpus sweep reads it otherwise, so this is what runs
+/// it under the gate.
+#[cfg(all(test, feature = "rust"))]
+#[test]
+fn the_tolerant_walker_labels_recovery_and_lends_the_same_chain() {
+    use crate::RustCode;
+    let clean = b"fn f() { let x = 1; }\n";
+    let broken = b"fn f() { let x = ; }\n";
+    let mut parents_clean = Vec::new();
+    let clean_count = for_each_node_with_sibling_cache::<RustCode>(clean, |node, ancestors| {
+        parents_clean.push(ancestors.parent(node).map(|p| p.kind()));
+    });
+    let mut parents_tolerant = Vec::new();
+    let (tolerant_count, recovered) =
+        for_each_node_with_sibling_cache_tolerating_errors::<RustCode>(clean, |node, ancestors| {
+            // A known chain, not `Ancestors::unknown()`: `parent` would
+            // climb and answer the same either way (lesson 112), so the
+            // chain's presence is asserted directly.
+            assert!(
+                ancestors.depth().is_some(),
+                "the wrapper lends the walk's chain"
+            );
+            parents_tolerant.push(ancestors.parent(node).map(|p| p.kind()));
+        });
+    assert!(!recovered, "a clean parse is labelled clean");
+    assert_eq!(tolerant_count, clean_count);
+    assert_eq!(
+        parents_tolerant, parents_clean,
+        "the same chain under both walkers"
+    );
+    assert!(parents_clean.contains(&Some("let_declaration")));
+    let (count, recovered) =
+        for_each_node_with_sibling_cache_tolerating_errors::<RustCode>(broken, |_, _| {});
+    assert!(recovered, "a parse with an ERROR is labelled recovered");
+    assert!(count > 1);
+}
+
 fn walk_with_chain(tree: &Tree, mut check: impl FnMut(&Node<'_>, &[Node<'_>])) -> usize {
     let mut chain: Vec<Node<'_>> = Vec::new();
     let mut stack = vec![(tree.get_root(), 0_usize)];
@@ -135,6 +195,106 @@ fn walk_with_chain(tree: &Tree, mut check: impl FnMut(&Node<'_>, &[Node<'_>])) -
         stack[first..].reverse();
     }
     visited
+}
+
+fn output_submodule() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the ast crate sits under the workspace root")
+        .join("tests/repositories/big-code-analysis-output")
+}
+
+/// Whether the output submodule is checked out. An uninitialised
+/// submodule is an empty directory (or none); a populated one carries
+/// the snapshot tree beside `control_flow/`. The `features` and
+/// `chain-audit` CI legs run the lib tests with `submodules: false`; a
+/// test whose obligation needs the whole corpus asserts this first and
+/// carries the `corpus_` prefix those legs filter out by name.
+///
+/// # Panics
+///
+/// When the submodule path exists and cannot be enumerated — a
+/// permission error, a regular file in its place — since that is a
+/// broken checkout, not an absent one.
+#[must_use]
+pub fn control_flow_corpus_present() -> bool {
+    let path = output_submodule();
+    match std::fs::read_dir(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => panic!(
+            "{}: cannot enumerate the output submodule: {e}",
+            path.display()
+        ),
+        Ok(mut entries) => entries
+            .next()
+            .map(|entry| {
+                entry.unwrap_or_else(|e| {
+                    panic!(
+                        "{}: unreadable entry in the output submodule: {e}",
+                        path.display()
+                    )
+                });
+            })
+            .is_some(),
+    }
+}
+
+/// The control-flow fixtures of `lang` — `control_flow/<dir>/*` in the
+/// output submodule, the per-language files #1744 preserved — as
+/// `(name, bytes)` through the reader production parses them with.
+/// Mozcpp and Mozjs own no fixture and read the C++ and JavaScript
+/// files under their own grammars; Ccomment and Preproc own no
+/// extension and get `Some` of nothing whether or not the submodule
+/// is present. `None` when the submodule is not checked out at all — the `features` and `chain-audit` CI legs run the lib
+/// tests with `submodules: false` — so a caller can say what it did
+/// not walk; a checkout that *has* the submodule but no `control_flow/`
+/// or an empty directory is a failure, since that is a stale or
+/// interrupted checkout (#1171), not an absent one.
+///
+/// # Panics
+///
+/// When the submodule is checked out at a revision without
+/// `control_flow/`, or a directory holds no fixture.
+#[must_use]
+pub fn control_flow_sources(lang: crate::LANG) -> Option<Vec<(String, Vec<u8>)>> {
+    use crate::LANG;
+    let dir = match lang {
+        LANG::Ccomment | LANG::Preproc => return Some(Vec::new()),
+        LANG::Mozcpp => "cpp".to_owned(),
+        LANG::Mozjs => "javascript".to_owned(),
+        other => format!("{other:?}").to_lowercase(),
+    };
+    if !control_flow_corpus_present() {
+        return None;
+    }
+    let root = output_submodule().join("control_flow").join(&dir);
+    assert!(
+        root.is_dir(),
+        "{} missing; run `make worktree-setup` (the output submodule predates control_flow/)",
+        root.display()
+    );
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
+        .expect("readable corpus directory")
+        .map(|e| e.expect("readable corpus entry").path())
+        .filter(|p| p.is_file())
+        .collect();
+    paths.sort();
+    assert!(!paths.is_empty(), "{} holds no fixture", root.display());
+    Some(
+        paths
+            .into_iter()
+            .map(|path| {
+                let file = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .expect("UTF-8 fixture name");
+                let bytes = crate::tools::read_file_with_eol(&path)
+                    .expect("readable fixture")
+                    .expect("a fixture is not a binary file");
+                (format!("control_flow/{dir}/{file}"), bytes)
+            })
+            .collect(),
+    )
 }
 
 /// Walks `parser`'s tree and reports whether any node has `kind_id ==

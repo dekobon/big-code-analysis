@@ -433,16 +433,18 @@ const TARGET: Answers = at(&[DOC_TARGET]);
 // read the harness above.
 #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 mod doxygen;
-mod parity;
+pub(in crate::roles) mod parity;
 
 #[cfg(feature = "bash")]
 mod bash {
     use super::*;
     use crate::BashCode;
 
+    pub(super) const SOURCE: &[u8] = b"#!/usr/bin/env bash\n# plain\n## doubled, still plain\nf() {\n  # in a body\n  echo 1\n}\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"#!/usr/bin/env bash\n# plain\n## doubled, still plain\nf() {\n  # in a body\n  echo 1\n}\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "#!/usr/bin/env bash", PLAIN),
             ("comment", "# plain", PLAIN),
@@ -464,10 +466,12 @@ mod tcl {
     use super::*;
     use crate::TclCode;
 
+    pub(super) const SOURCE: &[u8] =
+        b"# plain\n## doubled, still plain\nproc f {} {\n  # in a body\n  return 1\n}\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source =
-            b"# plain\n## doubled, still plain\nproc f {} {\n  # in a body\n  return 1\n}\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "# plain", PLAIN),
             ("comment", "## doubled, still plain", PLAIN),
@@ -488,10 +492,12 @@ mod irules {
     use super::*;
     use crate::IrulesCode;
 
+    pub(super) const SOURCE: &[u8] =
+        b"# plain\n## doubled, still plain\nwhen HTTP_REQUEST {\n  # in a body\n  pool p\n}\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source =
-            b"# plain\n## doubled, still plain\nwhen HTTP_REQUEST {\n  # in a body\n  pool p\n}\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "# plain", PLAIN),
             ("comment", "## doubled, still plain", PLAIN),
@@ -514,9 +520,11 @@ mod ccomment {
 
     // A `/** */` is a comment the stripping pass elides, not
     // documentation: the pass reads none.
+    pub(super) const SOURCE: &[u8] = b"/** doc-looking */\nint x; // plain\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"/** doc-looking */\nint x; // plain\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "/** doc-looking */", PLAIN),
             ("comment", "// plain", PLAIN),
@@ -536,11 +544,13 @@ mod preproc {
     use super::*;
     use crate::PreprocCode;
 
+    // A comment after a directive on its row is the directive's
+    // text to this grammar, so the plain one sits on its own row.
+    pub(super) const SOURCE: &[u8] = b"/** doc-looking */\n#define X 1\n// plain\n";
+
     #[test]
     fn rows_answer_the_table() {
-        // A comment after a directive on its row is the directive's
-        // text to this grammar, so the plain one sits on its own row.
-        let source = b"/** doc-looking */\n#define X 1\n// plain\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "/** doc-looking */", PLAIN),
             ("comment", "// plain", PLAIN),
@@ -566,9 +576,11 @@ mod elixir {
     // are listed all-false so the fixture cannot lose them unnoticed
     // (testing.md, "Perturb the fixture as well"). A `#` comment is
     // the one comment kind.
+    pub(super) const SOURCE: &[u8] = b"# plain\ndefmodule M do\n  @moduledoc \"\"\"\n  doc\n  \"\"\"\n  @doc \"a doc\"\n  # in a body\n  def f, do: 1\nend\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"# plain\ndefmodule M do\n  @moduledoc \"\"\"\n  doc\n  \"\"\"\n  @doc \"a doc\"\n  # in a body\n  def f, do: 1\nend\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "# plain", PLAIN),
             ("unary_operator", "@moduledoc \"\"\"", NONE),
@@ -607,9 +619,11 @@ mod java {
     // it documents; `package b;` has a class after it, so it does not;
     // `package c;` at the end has nothing, so it does. The `/**/` is a
     // comment and not documentation; `///` is (JEP 467).
+    pub(super) const SOURCE: &[u8] = b"/** file */\npackage a;\n/** dangling: a class follows */\npackage b;\n/**/\n// line\n/// markdown\nclass C {\n  /** f */\n  int f;\n  C() { }\n  static { /** in static */ int s = 1; }\n  { /** in block */ int b = 1; }\n  void m() {\n    /* plain */ int x = switch (f) { default -> { /** in switch */ yield 1; } };\n    Runnable r = () -> { /** in lambda */ };\n  }\n}\nenum E { /** k */ K; }\nrecord R(int a) { R { } }\ninterface I { int K = 1; }\n@interface An { int v() default 1; }\n/** module */\nmodule m { }\npackage c;\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"/** file */\npackage a;\n/** dangling: a class follows */\npackage b;\n/**/\n// line\n/// markdown\nclass C {\n  /** f */\n  int f;\n  C() { }\n  static { /** in static */ int s = 1; }\n  { /** in block */ int b = 1; }\n  void m() {\n    /* plain */ int x = switch (f) { default -> { /** in switch */ yield 1; } };\n    Runnable r = () -> { /** in lambda */ };\n  }\n}\nenum E { /** k */ K; }\nrecord R(int a) { R { } }\ninterface I { int K = 1; }\n@interface An { int v() default 1; }\n/** module */\nmodule m { }\npackage c;\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("block_comment", "/** file */", DOC),
             ("package_declaration", "package a;", TARGET),
@@ -727,9 +741,11 @@ mod groovy {
     const EMPTY_GROOVYDOC: Answers = at(&[IS_COMMENT]);
     const BODY: Answers = at(&[HOLDS_IN_BODY]);
 
+    pub(super) const SOURCE: &[u8] = b"/** c */\nclass C {\n  /** f */\n  int f\n  /** ctor */\n  C() { }\n  /**/\n  // line\n  /* block */\n  /*** three */\n  static { /** in static */ int s = 1 }\n  /** m */\n  def m() { def c = { /** in closure */ 1 } }\n}\ntrait T { }\ninterface I { }\nenum E { /** k */ K }\nrecord R(int a) { }\n@interface An { }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"/** c */\nclass C {\n  /** f */\n  int f\n  /** ctor */\n  C() { }\n  /**/\n  // line\n  /* block */\n  /*** three */\n  static { /** in static */ int s = 1 }\n  /** m */\n  def m() { def c = { /** in closure */ 1 } }\n}\ntrait T { }\ninterface I { }\nenum E { /** k */ K }\nrecord R(int a) { }\n@interface An { }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("groovydoc_comment", "/** c */", DOC),
             ("class_declaration", "class C {", TARGET),
@@ -811,9 +827,11 @@ mod kotlin {
     // KDoc (a `val` must be `var` for a setter; the fixture keeps `val`
     // and the grammar still parses the accessor), a KDoc in a lambda (a `Closure` owner, not a row entry), and
     // the marker's edges: `/**/` is no KDoc; a line comment never is.
+    pub(super) const SOURCE: &[u8] = b"/** c */\nclass C(/** p */ val p: Int, q: Int) {\n    /** prop */\n    val a = 1\n        /** getter */\n        get() { /** in getter */ return field }\n        set(v) { /** in setter */ field = v }\n    init { /** in init */ }\n    /** ctor */\n    constructor() : this(1, 2)\n    /**/\n    // line\n    /* block */\n    /** f */\n    fun f(/** param */ x: Int) { val l = { /** in lambda */ 1 } }\n    companion object { }\n}\nobject O { }\ntypealias A = Int\nenum class E { /** k */ K }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"/** c */\nclass C(/** p */ val p: Int, q: Int) {\n    /** prop */\n    val a = 1\n        /** getter */\n        get() { /** in getter */ return field }\n        set(v) { /** in setter */ field = v }\n    init { /** in init */ }\n    /** ctor */\n    constructor() : this(1, 2)\n    /**/\n    // line\n    /* block */\n    /** f */\n    fun f(/** param */ x: Int) { val l = { /** in lambda */ 1 } }\n    companion object { }\n}\nobject O { }\ntypealias A = Int\nenum class E { /** k */ K }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("block_comment", "/** c */", DOC),
             (
@@ -929,9 +947,11 @@ mod csharp {
     // Every target kind, the marker's edges (`////` and `/**/` are no
     // doc, `/** … */` is), and a doc comment in an accessor list and in
     // an expression body — the `below` cases the Checker tells apart.
+    pub(super) const SOURCE: &[u8] = b"/// <summary>c</summary>\nclass C {\n    /// f\n    int f;\n    /** block doc */\n    C() { }\n    ~C() { }\n    /**/\n    //// banner\n    // line\n    /* block */\n    int P { /// in accessors\n        get; set; }\n    int Q => /// in body\n        1;\n    int this[int i] { get => i; }\n    int this[string s] => 1;\n    event System.Action E;\n    event System.Action F { add { } remove { } }\n    void M() { }\n    static C operator +(C a, C b) => a;\n    static explicit operator int(C a) => 1;\n}\nstruct S { }\nrecord R(int A);\ninterface I { }\nenum E { /// k\n    K }\ndelegate void D();\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"/// <summary>c</summary>\nclass C {\n    /// f\n    int f;\n    /** block doc */\n    C() { }\n    ~C() { }\n    /**/\n    //// banner\n    // line\n    /* block */\n    int P { /// in accessors\n        get; set; }\n    int Q => /// in body\n        1;\n    int this[int i] { get => i; }\n    event System.Action E;\n    event System.Action F { add { } remove { } }\n    void M() { }\n    static C operator +(C a, C b) => a;\n    static explicit operator int(C a) => 1;\n}\nstruct S { }\nrecord R(int A);\ninterface I { }\nenum E { /// k\n    K }\ndelegate void D();\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "/// <summary>c</summary>", DOC),
             ("class_declaration", "class C {", TARGET),
@@ -955,6 +975,14 @@ mod csharp {
             (
                 "indexer_declaration",
                 "int this[int i] { get => i; }",
+                TARGET_BODY,
+            ),
+            // Expression-bodied: the `FuncOpener` gate's positive beside
+            // the accessor-bodied negative above, so the derived
+            // gated-out shapes see both (#1700).
+            (
+                "indexer_declaration",
+                "int this[string s] => 1;",
                 TARGET_BODY,
             ),
             ("event_field_declaration", "event System.Action E;", TARGET),
@@ -1083,9 +1111,11 @@ mod php {
     // is absent, so a DocBlock in a closure or arrow body answers for
     // no body kind here — the Checker's body-child test is pinned
     // separately below.
+    pub(super) const SOURCE: &[u8] = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "/** file */", DOC),
             ("comment", "/** c */", DOC),
@@ -1177,9 +1207,11 @@ mod rust {
     // decided by the `doc_comment` child, never the bytes. The tuple
     // field's slot (`u8` under `ordered_field_declaration_list`) is no
     // row's: the Checker's clause, pinned below.
+    pub(super) const SOURCE: &[u8] = b"//! inner\n/// m\nmod m { }\n/// s\nstruct S { /// f\n    f: u8 }\n/// tuple\nstruct T(/// slot\n    u8, #[doc = \"x\"] u16);\n/// u\nunion U { a: u8 }\n/// e\nenum E { /// v\n    V }\n/// c\nconst C: u8 = 1;\n/// st\nstatic ST: u8 = 1;\n/// ty\ntype Ty = u8;\n/// f\nfn f() { //! inner in body\n    /// on a stmt\n    let x = 1; let c = || { /// in closure\n    1 }; }\n//// banner\n/**/\n// line\n/* block */\n/** block doc */\n/*! inner block */\ntrait Tr { /// sig\n    fn g(); /// assoc\n    type A; }\nimpl S { }\nuse std::fmt;\nextern crate core;\nmacro_rules! mk { () => {} }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"//! inner\n/// m\nmod m { }\n/// s\nstruct S { /// f\n    f: u8 }\n/// tuple\nstruct T(/// slot\n    u8, #[doc = \"x\"] u16);\n/// u\nunion U { a: u8 }\n/// e\nenum E { /// v\n    V }\n/// c\nconst C: u8 = 1;\n/// st\nstatic ST: u8 = 1;\n/// ty\ntype Ty = u8;\n/// f\nfn f() { //! inner in body\n    /// on a stmt\n    let x = 1; let c = || { /// in closure\n    1 }; }\n//// banner\n/**/\n// line\n/* block */\n/** block doc */\n/*! inner block */\ntrait Tr { /// sig\n    fn g(); /// assoc\n    type A; }\nimpl S { }\nuse std::fmt;\nextern crate core;\nmacro_rules! mk { () => {} }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("line_comment", "//! inner", DOC),
             ("line_comment", "/// m", DOC),
@@ -1288,9 +1320,11 @@ mod perl {
     // under its gate; a POD block in a sub body is documentation
     // (perldoc reads it there); a `=begin comment` region is a comment
     // and not documentation.
+    pub(super) const SOURCE: &[u8] = b"# plain\n\n=head1 NAME\n\nDoc.\n\n=cut\n\nsub f {\n    # in a body\n\n=pod\n\nIn a sub.\n\n=cut\n\n    return 1;\n}\n\n=begin comment\n\ncommented out\n\n=end comment\n\n=cut\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"# plain\n\n=head1 NAME\n\nDoc.\n\n=cut\n\nsub f {\n    # in a body\n\n=pod\n\nIn a sub.\n\n=cut\n\n    return 1;\n}\n\n=begin comment\n\ncommented out\n\n=end comment\n\n=cut\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comments", "# plain", PLAIN),
             ("pod_statement", "=head1 NAME", POD),
@@ -1328,9 +1362,11 @@ mod go {
     // constraint and against the `type_elem`s an instantiation's
     // arguments parse as, outside any interface; and a `//go:` directive
     // beside a plain comment.
+    pub(super) const SOURCE: &[u8] = b"// Package p.\npackage p\n\n//go:generate stringer\n// plain\nimport \"fmt\"\n\n// T doc\ntype T struct {\n\t// F doc\n\tF int\n}\n\ntype (\n\t// A doc\n\tA int\n\t// B alias\n\tB = int\n)\n\nvar (\n\t// V doc\n\tV = 1\n)\n\nconst (\n\t// K doc\n\tK = 2\n)\n\ntype G[K comparable, V any] struct{}\nvar gm G[string, int]\n\n// I doc\ntype I interface {\n\t// M doc\n\tM()\n\t// embedded\n\tfmt.Stringer\n\t~int\n}\n\n// F doc\nfunc F() {\n\t// local type: not a target\n\ttype L struct {\n\t\t// LF: not a target\n\t\tLF int\n\t}\n\tvar w = 3\n\tconst k = 1\n\ttype LA = int\n\ttype LI interface {\n\t\tLM()\n\t\tfmt.Stringer\n\t}\n\tf := func() { }\n\t_ = w\n\t_ = f\n}\n\n// Recv doc\nfunc (t T) Recv() { }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"// Package p.\npackage p\n\n//go:generate stringer\n// plain\nimport \"fmt\"\n\n// T doc\ntype T struct {\n\t// F doc\n\tF int\n}\n\ntype (\n\t// A doc\n\tA int\n\t// B alias\n\tB = int\n)\n\nvar (\n\t// V doc\n\tV = 1\n)\n\nconst (\n\t// K doc\n\tK = 2\n)\n\ntype G[K comparable, V any] struct{}\nvar gm G[string, int]\n\n// I doc\ntype I interface {\n\t// M doc\n\tM()\n\t// embedded\n\tfmt.Stringer\n\t~int\n}\n\n// F doc\nfunc F() {\n\t// local type: not a target\n\ttype L struct {\n\t\t// LF: not a target\n\t\tLF int\n\t}\n\tvar w = 3\n\tconst k = 1\n\ttype LA = int\n\ttype LI interface {\n\t\tLM()\n\t\tfmt.Stringer\n\t}\n\tf := func() { }\n\t_ = w\n\t_ = f\n}\n\n// Recv doc\nfunc (t T) Recv() { }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "// Package p.", PLAIN),
             ("package_clause", "package p", TARGET),
@@ -1413,9 +1449,11 @@ mod lua {
     // returned name), a `---` in a function body (gated out), and a long
     // comment. A `---` directly under a `--` row continues that group
     // and is no opener — the Checker test below spells that.
+    pub(super) const SOURCE: &[u8] = b"--- Module doc.\n-- continues\nlocal M = {}\n\n-- plain\n\n--- f doc\nfunction M.f() end\n\n--- local f\nlocal function g() end\n\n--- one name\nM.x = 1\n\n--- local one name\nlocal y = 2\n\n--- two names: no item\nlocal a, b = 1, 2\n\n--- index: no item\nM[1] = 3\n\n--- @tag only\n--- in a body\nlocal function h()\n  --- in body: not read\n  local z = 1\n  return z\nend\n\nlocal t = {\n  --- field\n  new = function() end,\n  --- positional: no item\n  4,\n}\n\n--[[ long ]]\n--- returns a table\nreturn { M }\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"--- Module doc.\n-- continues\nlocal M = {}\n\n-- plain\n\n--- f doc\nfunction M.f() end\n\n--- local f\nlocal function g() end\n\n--- one name\nM.x = 1\n\n--- local one name\nlocal y = 2\n\n--- two names: no item\nlocal a, b = 1, 2\n\n--- index: no item\nM[1] = 3\n\n--- @tag only\n--- in a body\nlocal function h()\n  --- in body: not read\n  local z = 1\n  return z\nend\n\nlocal t = {\n  --- field\n  new = function() end,\n  --- positional: no item\n  4,\n}\n\n--[[ long ]]\n--- returns a table\nreturn { M }\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "--- Module doc.", OPENER),
             ("comment", "-- continues", PLAIN),
@@ -1545,9 +1583,11 @@ mod ruby {
     // not read one. The row knows no scope: a `def` in a
     // `def` body or a `case` arm is a candidate here, and the Checker
     // test below is where the scope says no.
+    pub(super) const SOURCE: &[u8] = b"#!/usr/bin/env ruby\n# frozen_string_literal: true\n# plain\n# C doc\nclass C\n  # K doc\n  K = 1\n  # scoped\n  C::L = 2\n  # cvar\n  @@count = 0\n  # ivar: no\n  @x = 1\n  # local: no\n  y = 2\n  # m doc\n  def m\n    # in a def: not read\n    ##\n    # directive in a def: not read\n    z = 1\n    z\n  end\n  # smeth\n  def self.s; end\n  # attr\n  attr_reader :a\n  # alias_method\n  alias_method :n, :m\n  # alias stmt\n  alias o m\n  # global alias: no\n  alias $new $old\n  # singleton of const\n  class << self; end\n  class << C; end\n  # private def\n  private def p; end\n  # receiver: no\n  self.private def q; end\n  ##\n  # directive block\n  define_method(:dm) { }\n  # modifier\n  def r; end if true\n  case 1\n  when 1\n    # in a case: not read\n    def t; end\n  end\nend\n# M doc\nmodule M; end\n# then wrapper\nif true then\n  # first in then\n  def u; end\nend\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"#!/usr/bin/env ruby\n# frozen_string_literal: true\n# plain\n# C doc\nclass C\n  # K doc\n  K = 1\n  # scoped\n  C::L = 2\n  # cvar\n  @@count = 0\n  # ivar: no\n  @x = 1\n  # local: no\n  y = 2\n  # m doc\n  def m\n    # in a def: not read\n    ##\n    # directive in a def: not read\n    z = 1\n    z\n  end\n  # smeth\n  def self.s; end\n  # attr\n  attr_reader :a\n  # alias_method\n  alias_method :n, :m\n  # alias stmt\n  alias o m\n  # global alias: no\n  alias $new $old\n  # singleton of const\n  class << self; end\n  class << C; end\n  # private def\n  private def p; end\n  # receiver: no\n  self.private def q; end\n  ##\n  # directive block\n  define_method(:dm) { }\n  # modifier\n  def r; end if true\n  case 1\n  when 1\n    # in a case: not read\n    def t; end\n  end\nend\n# M doc\nmodule M; end\n# then wrapper\nif true then\n  # first in then\n  def u; end\nend\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("comment", "#!/usr/bin/env ruby", DIRECTIVE),
             ("comment", "# frozen_string_literal: true", DIRECTIVE),
@@ -2036,7 +2076,7 @@ mod tsx {
     /// scanner reads as an `html_comment` at the start of a line even
     /// in TSX; and TypeScript's table with that row's text to match. So
     /// the TSX `Comment` row's second owner is met on TSX's own ids.
-    fn tsx_fixture() -> (Vec<u8>, Vec<(&'static str, &'static str, Answers)>) {
+    pub(super) fn tsx_fixture() -> (Vec<u8>, Vec<(&'static str, &'static str, Answers)>) {
         const OPENING: &[u8] = b"<!-- html -->";
         const CLOSING: &[u8] = b"--> html";
         let at = super::typescript::SOURCE
@@ -2132,9 +2172,11 @@ mod python {
     // owner — the `concatenated_string`, never a fragment. Every string
     // and comment is listed, so `(false, false)` for `is_comment` /
     // `is_doc_comment` on each docstring is asserted, not implied.
+    pub(super) const SOURCE: &[u8] = b"\"\"\"module doc\"\"\"\n\"\"\"additional\"\"\"\n# plain\nimport os\n\"\"\"after import: no\"\"\"\nx = 1\n\"\"\"attribute doc\"\"\"\ny: int = 2\n\"\"\"annotated attribute doc\"\"\"\nclass C:\n    \"\"\"class doc\"\"\"\n    'single' \"concatenated\"\n    z = 3\n    \"\"\"z doc\"\"\"\n    def __init__(self):\n        \"\"\"init doc\"\"\"\n        self.a = 1\n        \"\"\"self.a doc\"\"\"\n        other.b = 2\n        \"\"\"other.b: no\"\"\"\n    def m(self):\n        \"\"\"m doc\"\"\"\n        w = 1\n        \"\"\"local: no\"\"\"\n        \"\"\"discarded in the middle\"\"\"\n        return w\ndef f():\n    f\"\"\"fstring: no\"\"\"\n    b\"\"\"bytes: no\"\"\"\n    return 1\nt = 1\n\"tuple\", \"element: no\"\n";
+
     #[test]
     fn rows_answer_the_table() {
-        let source = b"\"\"\"module doc\"\"\"\n\"\"\"additional\"\"\"\n# plain\nimport os\n\"\"\"after import: no\"\"\"\nx = 1\n\"\"\"attribute doc\"\"\"\ny: int = 2\n\"\"\"annotated attribute doc\"\"\"\nclass C:\n    \"\"\"class doc\"\"\"\n    'single' \"concatenated\"\n    z = 3\n    \"\"\"z doc\"\"\"\n    def __init__(self):\n        \"\"\"init doc\"\"\"\n        self.a = 1\n        \"\"\"self.a doc\"\"\"\n        other.b = 2\n        \"\"\"other.b: no\"\"\"\n    def m(self):\n        \"\"\"m doc\"\"\"\n        w = 1\n        \"\"\"local: no\"\"\"\n        \"\"\"discarded in the middle\"\"\"\n        return w\ndef f():\n    f\"\"\"fstring: no\"\"\"\n    b\"\"\"bytes: no\"\"\"\n    return 1\nt = 1\n\"tuple\", \"element: no\"\n";
+        let source = SOURCE;
         let expected: &[(&str, &str, Answers)] = &[
             ("string", "\"\"\"module doc\"\"\"", DOC_STRING),
             ("string", "\"\"\"additional\"\"\"", DOC_STRING),
@@ -2233,4 +2275,147 @@ mod python {
             "one scan per run"
         );
     }
+}
+
+/// One hand-written documentation fixture: the language it parses
+/// under and its bytes. The R09 fixtures, read in place by the derived
+/// parity test (#1700) so they keep sitting beside the `Answers` tables
+/// that give each row its independently specified expectation.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+pub(in crate::roles) struct DocFixture {
+    pub(in crate::roles) lang: crate::LANG,
+    pub(in crate::roles) name: &'static str,
+    pub(in crate::roles) source: std::borrow::Cow<'static, [u8]>,
+}
+
+/// Every documentation fixture this suite walks, one or more per
+/// enabled language: the per-language `rows_answer_the_table` sources,
+/// the Doxygen entries per dialect (the C++ source read as Mozcpp too,
+/// which is what `doxygen.rs` pins), and the TSX rewrite of the
+/// TypeScript source. Gated per entry as the tests that
+/// own each source are, so a build lacking a grammar lists no fixture
+/// for it. Not the recovery fixtures: those parse into `ERROR` on
+/// purpose and have their own test.
+// test-lang-gates: hand-written(bash,c,c-family-helpers,cpp,csharp,elixir,go,groovy,irules,java,javascript,kotlin,lua,mozcpp,mozjs,objc,perl,php,python,ruby,rust,tcl,typescript)
+//     — a `pub(in crate::roles)` provider read by the derived parity
+//     test in a sibling file, which the single-file scanner cannot see;
+//     each entry carries the gate of the test that owns its source
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[allow(clippy::too_many_lines)]
+pub(in crate::roles) fn fixtures() -> Vec<DocFixture> {
+    use crate::LANG;
+    use std::borrow::Cow;
+    let fixed = |lang: LANG, name: &'static str, source: &'static [u8]| DocFixture {
+        lang,
+        name,
+        source: Cow::Borrowed(source),
+    };
+    let mut out = Vec::with_capacity(26);
+    #[cfg(feature = "bash")]
+    out.push(fixed(LANG::Bash, "doc/bash", bash::SOURCE));
+    #[cfg(feature = "tcl")]
+    out.push(fixed(LANG::Tcl, "doc/tcl", tcl::SOURCE));
+    #[cfg(feature = "irules")]
+    out.push(fixed(LANG::Irules, "doc/irules", irules::SOURCE));
+    #[cfg(feature = "c-family-helpers")]
+    out.push(fixed(LANG::Ccomment, "doc/ccomment", ccomment::SOURCE));
+    #[cfg(feature = "c-family-helpers")]
+    out.push(fixed(LANG::Preproc, "doc/preproc", preproc::SOURCE));
+    #[cfg(feature = "elixir")]
+    out.push(fixed(LANG::Elixir, "doc/elixir", elixir::SOURCE));
+    #[cfg(feature = "java")]
+    out.push(fixed(LANG::Java, "doc/java", java::SOURCE));
+    #[cfg(feature = "groovy")]
+    out.push(fixed(LANG::Groovy, "doc/groovy", groovy::SOURCE));
+    #[cfg(feature = "kotlin")]
+    out.push(fixed(LANG::Kotlin, "doc/kotlin", kotlin::SOURCE));
+    #[cfg(feature = "csharp")]
+    out.push(fixed(LANG::Csharp, "doc/csharp", csharp::SOURCE));
+    #[cfg(feature = "php")]
+    out.push(fixed(LANG::Php, "doc/php", php::SOURCE));
+    #[cfg(feature = "rust")]
+    out.push(fixed(LANG::Rust, "doc/rust", rust::SOURCE));
+    #[cfg(feature = "perl")]
+    out.push(fixed(LANG::Perl, "doc/perl", perl::SOURCE));
+    #[cfg(feature = "go")]
+    out.push(fixed(LANG::Go, "doc/go", go::SOURCE));
+    #[cfg(feature = "lua")]
+    out.push(fixed(LANG::Lua, "doc/lua", lua::SOURCE));
+    #[cfg(feature = "ruby")]
+    out.push(fixed(LANG::Ruby, "doc/ruby", ruby::SOURCE));
+    #[cfg(feature = "javascript")]
+    out.push(fixed(LANG::Javascript, "doc/javascript", JS_SOURCE));
+    #[cfg(feature = "mozjs")]
+    out.push(fixed(LANG::Mozjs, "doc/mozjs", JS_SOURCE));
+    #[cfg(feature = "typescript")]
+    out.push(fixed(
+        LANG::Typescript,
+        "doc/typescript",
+        typescript::SOURCE,
+    ));
+    #[cfg(feature = "typescript")]
+    out.push(DocFixture {
+        lang: LANG::Tsx,
+        name: "doc/tsx",
+        source: Cow::Owned(tsx::tsx_fixture().0),
+    });
+    #[cfg(feature = "python")]
+    out.push(fixed(LANG::Python, "doc/python", python::SOURCE));
+    #[cfg(feature = "c")]
+    out.push(fixed(LANG::C, "doxygen/c", doxygen::C_SOURCE));
+    #[cfg(feature = "cpp")]
+    out.push(fixed(LANG::Cpp, "doxygen/cpp", doxygen::CPP_SOURCE));
+    #[cfg(feature = "mozcpp")]
+    out.push(fixed(LANG::Mozcpp, "doxygen/mozcpp", doxygen::CPP_SOURCE));
+    #[cfg(feature = "objc")]
+    out.push(fixed(LANG::Objc, "doxygen/objc", doxygen::OBJC_SOURCE));
+    out
 }

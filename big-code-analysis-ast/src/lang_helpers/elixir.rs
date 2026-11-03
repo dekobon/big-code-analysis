@@ -228,6 +228,49 @@ impl ElixirCallTarget {
     }
 }
 
+/// The word `target` spells — the inverse of
+/// [`ElixirCallTarget::from_text`] — or `None` for `Other`, which is
+/// every other target. A test that builds a fixture per word, or
+/// reports coverage per word, reads this rather than carrying a second
+/// table of spellings. A free fn rather than a method so the type's
+/// `wmc` counts one lookup table, not two of the same shape.
+#[must_use]
+pub fn elixir_call_target_word(target: ElixirCallTarget) -> Option<&'static str> {
+    use ElixirCallTarget as T;
+    // bca: suppress(cyclomatic) — one arm per word, a lookup table
+    Some(match target {
+        T::Other => return None,
+        T::If => "if",
+        T::Unless => "unless",
+        T::For => "for",
+        T::While => "while",
+        T::Case => "case",
+        T::Cond => "cond",
+        T::With => "with",
+        T::Try => "try",
+        T::Receive => "receive",
+        T::Throw => "throw",
+        T::Raise => "raise",
+        T::Reraise => "reraise",
+        T::Exit => "exit",
+        T::Def => "def",
+        T::Defp => "defp",
+        T::Defmacro => "defmacro",
+        T::Defmacrop => "defmacrop",
+        T::Defmodule => "defmodule",
+        T::Defprotocol => "defprotocol",
+        T::Defimpl => "defimpl",
+        T::Defstruct => "defstruct",
+        T::Defguard => "defguard",
+        T::Defguardp => "defguardp",
+        T::Quote => "quote",
+        T::Alias => "alias",
+        T::Import => "import",
+        T::Require => "require",
+        T::Use => "use",
+    })
+}
+
 /// [`ElixirCallTarget`] of `node`: `Other` for anything but a `call`
 /// whose `target` is an `identifier` spelling one of the words. Read
 /// once per `call` per walk for the node the walk is visiting — the
@@ -756,5 +799,20 @@ mod tests {
         for (index, target) in ElixirCallTarget::ALL.iter().enumerate() {
             assert_eq!(*target as usize, index, "`ALL` is in discriminant order");
         }
+    }
+
+    /// `word` is the inverse of `from_text` on every target but
+    /// `Other`, which spells nothing: the one table of spellings, held
+    /// to the one table of words, so a test building a fixture per
+    /// word cannot carry a third (#1700).
+    #[test]
+    fn word_round_trips_through_from_text() {
+        for target in ElixirCallTarget::ALL {
+            match elixir_call_target_word(target) {
+                Some(word) => assert_eq!(ElixirCallTarget::from_text(word), target, "{word}"),
+                None => assert_eq!(target, ElixirCallTarget::Other),
+            }
+        }
+        assert_eq!(ElixirCallTarget::from_text("foo"), ElixirCallTarget::Other);
     }
 }

@@ -368,6 +368,9 @@ macro_rules! byte_gate {
 }
 pub(crate) use byte_gate;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::{Ancestors, LANG, Node, SpaceKind};
+
 pub mod bash;
 pub mod c;
 pub mod c_family;
@@ -417,6 +420,45 @@ mod control_flow_tests;
 // predicates that read them (#1699).
 #[cfg(test)]
 mod doc_tests;
+
+// Cross-consumer parity derived from the rows themselves, on every
+// candidate node of the corpus (#1700). A full-enum sweep with an
+// `is_enabled()` filter and a non-vacuity assertion, so it is absent
+// rather than failing when no language is enabled; every item in it
+// inherits this gate.
+// test-lang-gates: hand-written(bash,c,c-family-helpers,cpp,csharp,elixir,go,groovy,irules,java,javascript,kotlin,lua,mozcpp,mozjs,objc,perl,php,python,ruby,rust,tcl,typescript)
+//     — the sweep dispatches on `LANG` through a macro naming every
+//     `Code` tag and filters at run time, so it needs the union, not
+//     what its body names
+#[cfg(all(
+    test,
+    any(
+        feature = "bash",
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    )
+))]
+mod derived_parity_tests;
 
 /// Whether two declared kind lists share an entry. `const` so the macro
 /// can assert disjointness at expansion time rather than in a test;
@@ -502,6 +544,133 @@ pub const fn excluded_kinds<const N: usize>(excluded: &[(u16, &str)]) -> [u16; N
         i += 1;
     }
     kinds
+}
+
+/// A gated row predicate as a value: `owns`, `pays_at_leaf`,
+/// `pays_at_wrapper` or `is_callable` of one row.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub type RowPred = for<'a> fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> bool;
+
+/// A kind-first row predicate as a value: the `*_kind` spellings.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub type RowKindPred = for<'a> fn(u16, &Node<'a>, &[u8], Ancestors<'a, '_>) -> bool;
+
+/// One declared row of a table, the emitted items a derived test
+/// reads reachable as values, so it can ask every row of every
+/// language the same questions without naming a module (#1700). The
+/// `*_kind` spellings and not the `node`-first ones, `pays_at_wrapper`
+/// and `project` — what the two derived modules read; an item is added
+/// here when a test reads it, not for uniformity, so that #1701's
+/// per-role emission profiles are not constrained by a field nothing
+/// asks. `role` is the row's role token as written, which is the one
+/// spelling the `@named` table and `utils/role_tables.py` share.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct DeclaredRow {
+    /// The role token as written on the row.
+    pub role: &'static str,
+    /// `OWNERS`.
+    pub owners: &'static [u16],
+    /// `PAYERS`.
+    pub payers: &'static [u16],
+    /// `LEAF_KINDS`.
+    pub leaf_kinds: &'static [u16],
+    /// `CALLABLE`.
+    pub callable: &'static [u16],
+    /// `HOLDS_PAYER`.
+    pub holds_payer: &'static [u16],
+    /// `WRAPS`.
+    pub wraps: &'static [u16],
+    /// `EXCLUDED`.
+    pub excluded: &'static [(u16, &'static str)],
+    /// `TEXT_GATED`.
+    pub text_gated: bool,
+    /// `PAYS_NEVER`.
+    pub pays_never: bool,
+    /// `MODE`.
+    pub mode: &'static str,
+    /// `pays_at_wrapper`.
+    pub pays_at_wrapper: RowPred,
+    /// `owns_kind`.
+    pub owns_kind: RowKindPred,
+    /// `pays_at_leaf_kind`.
+    pub pays_at_leaf_kind: RowKindPred,
+    /// `pays_at_token_kind`.
+    pub pays_at_token_kind: RowKindPred,
+    /// `is_callable_kind`.
+    pub is_callable_kind: RowKindPred,
+    /// `lists_kind`.
+    pub lists_kind: fn(u16) -> bool,
+    /// `project`.
+    pub project: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl DeclaredRow {
+    /// Every kind the row names as owning, paying or paying at the
+    /// leaf — the candidate set a derived census selects occurrences
+    /// from, gates aside (#1700). Declared lists, never a gated
+    /// verdict, so a gate's negatives are candidates too.
+    pub(crate) fn candidate_kinds(&self) -> impl Iterator<Item = u16> + '_ {
+        let mut seen = std::collections::BTreeSet::new();
+        self.owners
+            .iter()
+            .chain(self.payers)
+            .chain(self.leaf_kinds)
+            .copied()
+            .filter(move |k| seen.insert(*k))
+    }
+}
+
+/// One row of a table as the test-only enumeration sees it: declared
+/// with every emitted item, `absent` with its reason, or `pending`
+/// with its package. A `pending` row emits no predicates on purpose
+/// (a consumer that read one would miss what the row will declare),
+/// so the enumeration carries none for it either.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[derive(Clone)]
+pub enum RowView {
+    /// A row with owners.
+    Declared(Box<DeclaredRow>),
+    /// An `absent "why"` row.
+    Absent {
+        /// The role token as written.
+        role: &'static str,
+        /// The declared reason.
+        why: &'static str,
+    },
+    /// A `pending Rnn` row.
+    Pending {
+        /// The role token as written.
+        role: &'static str,
+        /// The package that fills it in.
+        package: &'static str,
+    },
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl RowView {
+    /// The role token as written on the row.
+    #[must_use]
+    pub fn role(&self) -> &'static str {
+        match self {
+            Self::Declared(row) => row.role,
+            Self::Absent { role, .. } | Self::Pending { role, .. } => role,
+        }
+    }
+
+    /// The row's items where it is declared, `None` for `absent` / `pending`.
+    #[must_use]
+    pub fn declared(&self) -> Option<&DeclaredRow> {
+        match self {
+            Self::Declared(row) => Some(row),
+            _ => None,
+        }
+    }
 }
 
 /// Declares one language's role rows; see the module doc for the row
@@ -675,6 +844,15 @@ macro_rules! role_table {
             out
         }
 
+        /// Every row of this table as a value, in declaration order —
+        /// the rows the invocation supplies and no others (#1700). The
+        /// derived parity test enumerates languages and roles from this,
+        /// so a row it does not list is a row no derived assertion asks.
+        #[cfg(any(test, feature = "test-support"))]
+        pub(crate) fn rows() -> Vec<$crate::roles::RowView> {
+            vec![ $( $crate::role_table!(@view $role), )* ]
+        }
+
         /// The `SpaceKind` `node` opens, folded over every `opens`
         /// annotation in this table; `Unknown` when it opens none. This
         /// is the one gated scan of the space-opening rows: a consumer
@@ -733,6 +911,11 @@ macro_rules! role_table {
             pub(crate) fn canonical() -> String {
                 format!("{} absent {}", stringify!($role), ABSENT)
             }
+            /// This row as the test-only enumeration sees it (#1700).
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) fn view() -> $crate::roles::RowView {
+                $crate::roles::RowView::Absent { role: stringify!($role), why: ABSENT }
+            }
         });
     };
     // The five predicates a declared row emits, each answering `false`
@@ -768,6 +951,11 @@ macro_rules! role_table {
             #[cfg(test)]
             pub(crate) fn canonical() -> String {
                 format!("{} pending {}", stringify!($role), PENDING)
+            }
+            /// This row as the test-only enumeration sees it (#1700).
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) fn view() -> $crate::roles::RowView {
+                $crate::roles::RowView::Pending { role: stringify!($role), package: PENDING }
             }
         });
     };
@@ -887,6 +1075,12 @@ macro_rules! role_table {
             pub const WRAPS: &[u16] = &[ $($( $lang::$wrapped as u16, )*)? ];
             /// Whether the construct has owners but no paying node at all.
             pub const PAYS_NEVER: bool = $crate::role_table!(@mode $mode never);
+            /// The row's paying mode as declared: `owners`, `split` or
+            /// `never` — the one field of `canonical()` the kind lists
+            /// cannot reconstruct (#1745), so the test-only view carries
+            /// it rather than inferring it.
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) const MODE: &str = stringify!($mode);
             // Whether the owners themselves are paying nodes: yes on a
             // plain row, no once a `pays` list splits the token off, no
             // under `pays never`.
@@ -1066,6 +1260,17 @@ macro_rules! role_table {
                 $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
             };
 
+            /// Every owner marked `holds_payer`, gates aside: the kinds
+            /// whose ownership is their projection landing on a payer,
+            /// which the test-only enumeration pins to project (#1700).
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) const HOLDS_PAYER: &[u16] = &{
+                const MARKED: &[Option<u16>] = &[ $( $crate::role_table!(
+                    @scan holds_payer_kind [] [$lang] $owner [] [] [] [] $($($owner_attr)*)?
+                ), )* ];
+                $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
+            };
+
             /// Whether `node` is a `callable` owner of the construct — a
             /// named function, for `Checker::is_func` — under its gate.
             #[inline]
@@ -1142,6 +1347,32 @@ macro_rules! role_table {
             ) -> bool {
                 owns(node, code, ancestors)
                     && project(node).is_some_and(|child| child.kind_id() == payer)
+            }
+
+            /// This row as the test-only enumeration sees it: every
+            /// emitted item as a value (#1700).
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) fn view() -> $crate::roles::RowView {
+                $crate::roles::RowView::Declared(Box::new($crate::roles::DeclaredRow {
+                    role: stringify!($role),
+                    owners: OWNERS,
+                    payers: PAYERS,
+                    leaf_kinds: LEAF_KINDS,
+                    callable: CALLABLE,
+                    holds_payer: HOLDS_PAYER,
+                    wraps: WRAPS,
+                    excluded: EXCLUDED,
+                    text_gated: TEXT_GATED,
+                    pays_never: PAYS_NEVER,
+                    mode: MODE,
+                    pays_at_wrapper,
+                    owns_kind,
+                    pays_at_leaf_kind,
+                    pays_at_token_kind,
+                    is_callable_kind,
+                    lists_kind,
+                    project,
+                }))
             }
         });
     };
@@ -1264,6 +1495,14 @@ macro_rules! role_table {
     };
     // In `CALLABLE`: `Some(kind)` for a marked owner, `None` otherwise;
     // `some_kinds` drops the `None`s at compile time.
+    // In `HOLDS_PAYER`: `Some(kind)` for an owner whose gate slot holds
+    // `holds_payer`, with or without a gate beside it.
+    (@holds_payer_kind [] [$l:ident] $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt $c:tt) => {
+        Some($l::$k as u16)
+    };
+    (@holds_payer_kind [] [$l:ident] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        None
+    };
     (@callable_kind [] [$l:ident] $k:ident $g:tt $p:tt $s:tt []) => {
         None
     };
@@ -1434,6 +1673,36 @@ macro_rules! role_table {
     (@canonical DocRunDirective) => { doc_run_directive::canonical() };
     (@canonical HoldsDocInBody) => { holds_doc_in_body::canonical() };
 
+    (@view Call) => { call::view() };
+    (@view StringLit) => { string_lit::view() };
+    (@view Comparison) => { comparison::view() };
+    (@view ShortCircuit) => { short_circuit::view() };
+    (@view EagerLogical) => { eager_logical::view() };
+    (@view Ternary) => { ternary::view() };
+    (@view NullSafe) => { null_safe::view() };
+    (@view CaseArm) => { case_arm::view() };
+    (@view Guard) => { guard::view() };
+    (@view Branch) => { branch::view() };
+    (@view Switch) => { switch::view() };
+    (@view Loop) => { r#loop::view() };
+    (@view Catch) => { catch::view() };
+    (@view ElseIf) => { else_if::view() };
+    (@view Exit) => { exit::view() };
+    (@view Modifier) => { modifier::view() };
+    (@view DeclKeyword) => { decl_keyword::view() };
+    (@view Primitive) => { primitive::view() };
+    (@view FuncOpener) => { func_opener::view() };
+    (@view Closure) => { closure::view() };
+    (@view Container) => { container::view() };
+    (@view Member) => { member::view() };
+    (@view Comment) => { comment::view() };
+    (@view DocComment) => { doc_comment::view() };
+    (@view Docstring) => { docstring::view() };
+    (@view DocTarget) => { doc_target::view() };
+    (@view DocRunOpener) => { doc_run_opener::view() };
+    (@view DocRunDirective) => { doc_run_directive::view() };
+    (@view HoldsDocInBody) => { holds_doc_in_body::view() };
+
     (@named Call { $($b:tt)* }) => {
         /// This language's `Call` row.
         pub mod call { $($b)* }
@@ -1552,41 +1821,124 @@ macro_rules! role_table {
     };
 }
 
-/// Every language's `DocTarget` owners, named by `LANG` variant: the one
-/// list a cross-language test enumerates languages from — the rows are
+/// One language's table as the test-only enumeration sees it: its
+/// `LANG` variant name, its rows in declaration order, and the
+/// `opens_space` fold (#1700).
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct LanguageTable {
+    /// The language.
+    pub lang: LANG,
+    /// The `LANG` variant's name, as the census and the Python reader
+    /// spell it.
+    pub name: &'static str,
+    /// The table's rows, in declaration order.
+    pub rows: fn() -> Vec<RowView>,
+    /// The table's `opens_space` fold.
+    pub opens_space: for<'a> fn(&Node<'a>, &[u8], Ancestors<'a, '_>) -> SpaceKind,
+    /// The grammar's spelling of a kind id, from the generated enum —
+    /// so a declared kind can be named with no node of it in hand.
+    pub kind_name: fn(u16) -> &'static str,
+    /// The table in the canonical form `utils/role_tables.py` emits.
+    #[cfg(test)]
+    pub(crate) canonical: fn() -> String,
+}
+
+/// Every language's table, named by `LANG` variant: the one list a
+/// cross-language test enumerates languages from — the rows are
 /// compiled unconditionally, so a test over a feature-gated set filters
 /// this by the enabled languages' names — held to the enum by
-/// `doc_target_rows_name_every_language` below.
-#[cfg(test)]
-pub(crate) fn doc_target_rows() -> &'static [(&'static str, &'static [u16])] {
-    &[
-        ("Bash", bash::doc_target::OWNERS),
-        ("C", c::doc_target::OWNERS),
-        ("Ccomment", ccomment::doc_target::OWNERS),
-        ("Cpp", cpp::doc_target::OWNERS),
-        ("Csharp", csharp::doc_target::OWNERS),
-        ("Elixir", elixir::doc_target::OWNERS),
-        ("Go", go::doc_target::OWNERS),
-        ("Groovy", groovy::doc_target::OWNERS),
-        ("Irules", irules::doc_target::OWNERS),
-        ("Java", java::doc_target::OWNERS),
-        ("Javascript", javascript::doc_target::OWNERS),
-        ("Kotlin", kotlin::doc_target::OWNERS),
-        ("Lua", lua::doc_target::OWNERS),
-        ("Mozcpp", mozcpp::doc_target::OWNERS),
-        ("Mozjs", mozjs::doc_target::OWNERS),
-        ("Objc", objc::doc_target::OWNERS),
-        ("Perl", perl::doc_target::OWNERS),
-        ("Php", php::doc_target::OWNERS),
-        ("Preproc", preproc::doc_target::OWNERS),
-        ("Python", python::doc_target::OWNERS),
-        ("Ruby", ruby::doc_target::OWNERS),
-        ("Rust", rust::doc_target::OWNERS),
-        ("Tcl", tcl::doc_target::OWNERS),
-        ("Tsx", tsx::doc_target::OWNERS),
-        ("Typescript", typescript::doc_target::OWNERS),
+/// `tables_name_every_language` below. Hand-listed like the `mod`
+/// lines above, which is what that pin is for.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[must_use]
+pub fn tables() -> &'static [LanguageTable] {
+    // `lang: module`, not `lang => module`: an `=>` at call-site
+    // indentation reads as a match arm to the rustfmt-bail probe, which
+    // `role_table!`'s own decision note avoids the same way.
+    macro_rules! tables {
+        ($($lang:ident : $module:ident),* $(,)?) => {
+            &[ $( LanguageTable {
+                lang: LANG::$lang,
+                name: stringify!($lang),
+                rows: $module::rows,
+                opens_space: $module::opens_space,
+                kind_name: |id| crate::$lang::from(id).into(),
+                #[cfg(test)]
+                canonical: $module::canonical,
+            }, )* ]
+        };
+    }
+    tables![
+        Bash: bash,
+        C: c,
+        Ccomment: ccomment,
+        Cpp: cpp,
+        Csharp: csharp,
+        Elixir: elixir,
+        Go: go,
+        Groovy: groovy,
+        Irules: irules,
+        Java: java,
+        Javascript: javascript,
+        Kotlin: kotlin,
+        Lua: lua,
+        Mozcpp: mozcpp,
+        Mozjs: mozjs,
+        Objc: objc,
+        Perl: perl,
+        Php: php,
+        Preproc: preproc,
+        Python: python,
+        Ruby: ruby,
+        Rust: rust,
+        Tcl: tcl,
+        Tsx: tsx,
+        Typescript: typescript,
     ]
 }
+
+/// The role set, in the order the `@named` table of `role_table!`
+/// spells it: the one list a cross-language test checks every table's
+/// `rows()` against (#1700). A role added to the macro and not here
+/// fails `every_production_table_declares_every_role_once`; one added
+/// here and not to the macro fails to compile on the first table that
+/// declares it. `utils/role_tables.py` carries the same set for the
+/// census, held to the compiled tables by the differential test.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) const ROLES: &[&str] = &[
+    "Call",
+    "StringLit",
+    "Comparison",
+    "ShortCircuit",
+    "EagerLogical",
+    "Ternary",
+    "NullSafe",
+    "CaseArm",
+    "Guard",
+    "Branch",
+    "Switch",
+    "Loop",
+    "Catch",
+    "ElseIf",
+    "Exit",
+    "Modifier",
+    "DeclKeyword",
+    "Primitive",
+    "FuncOpener",
+    "Closure",
+    "Container",
+    "Member",
+    "Comment",
+    "DocComment",
+    "Docstring",
+    "DocTarget",
+    "DocRunOpener",
+    "DocRunDirective",
+    "HoldsDocInBody",
+];
 
 #[cfg(test)]
 mod tests {
@@ -1659,19 +2011,92 @@ mod tests {
     // hand.
     type Canonical = fn() -> String;
 
-    /// `doc_target_rows` names every `LANG` once, under the variant's
-    /// own spelling, so a cross-language test enumerating from it
-    /// cannot miss a language the enum has or spell one differently.
+    /// `tables` names every `LANG` once, under the variant's own
+    /// spelling, so a cross-language test enumerating from it cannot
+    /// miss a language the enum has or spell one differently.
     #[test]
-    fn doc_target_rows_name_every_language() {
-        let rows = super::doc_target_rows();
+    fn tables_name_every_language() {
+        let tables = super::tables();
         let listed: std::collections::BTreeSet<String> =
-            rows.iter().map(|(name, _)| (*name).to_owned()).collect();
+            tables.iter().map(|t| t.name.to_owned()).collect();
         let known: std::collections::BTreeSet<String> = crate::LANG::into_enum_iter()
             .map(|l| format!("{l:?}"))
             .collect();
         pretty_assertions::assert_eq!(listed, known);
-        assert_eq!(rows.len(), known.len(), "no language listed twice");
+        assert_eq!(tables.len(), known.len(), "no language listed twice");
+    }
+
+    /// Every production table declares every role of `ROLES` exactly
+    /// once — declared, `absent` or `pending` — in some order, and no
+    /// role outside it. The census gate reads the same fact from the
+    /// source; this reads it from what the macro emitted, so a row the
+    /// macro dropped on the floor is seen here. Built in every feature
+    /// set: the rows are declarations.
+    #[test]
+    fn every_production_table_declares_every_role_once() {
+        let want: std::collections::BTreeSet<&str> = super::ROLES.iter().copied().collect();
+        assert_eq!(want.len(), super::ROLES.len(), "ROLES lists a role twice");
+        for table in super::tables() {
+            let rows = (table.rows)();
+            let roles: Vec<&str> = rows.iter().map(super::RowView::role).collect();
+            let got: std::collections::BTreeSet<&str> = roles.iter().copied().collect();
+            assert_eq!(
+                roles.len(),
+                got.len(),
+                "{}: a role declared twice",
+                table.lang
+            );
+            pretty_assertions::assert_eq!(got, want, "{}", table.lang);
+        }
+    }
+
+    /// `rows()` and `canonical()` are two emissions of one declaration
+    /// list; they agree row for row, in order, on the role and on the
+    /// kind lists, so the Python reader — held to `canonical()` — is
+    /// transitively held to the enumeration the derived test reads.
+    #[test]
+    fn rows_agree_with_canonical_row_for_row() {
+        use super::RowView;
+        for table in super::tables() {
+            let canonical = (table.rows)();
+            let lines: Vec<String> = (table.canonical)()
+                .lines()
+                .skip(1)
+                .map(str::to_owned)
+                .collect();
+            assert_eq!(lines.len(), canonical.len(), "{}: row count", table.name);
+            for (line, row) in lines.iter().zip(&canonical) {
+                let ids = |kinds: &[u16]| {
+                    kinds
+                        .iter()
+                        .map(u16::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                };
+                let want = match row {
+                    RowView::Absent { role, why } => format!("{role} absent {why}"),
+                    RowView::Pending { role, package } => format!("{role} pending {package}"),
+                    RowView::Declared(r) => {
+                        let excluded = r
+                            .excluded
+                            .iter()
+                            .map(|(k, why)| format!("{k}={why}"))
+                            .collect::<Vec<_>>()
+                            .join(";");
+                        format!(
+                            "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] mode={}",
+                            r.role,
+                            ids(r.owners),
+                            ids(r.payers),
+                            ids(r.wraps),
+                            excluded,
+                            r.mode
+                        )
+                    }
+                };
+                pretty_assertions::assert_eq!(line, &want, "{}", table.name);
+            }
+        }
     }
 
     #[cfg(not(windows))]
@@ -1680,40 +2105,17 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the ast crate sits under the workspace root");
-        let tables: &[(&str, Canonical)] = &[
-            ("bash", super::bash::canonical),
-            ("c", super::c::canonical),
-            ("ccomment", super::ccomment::canonical),
-            ("cpp", super::cpp::canonical),
-            ("csharp", super::csharp::canonical),
-            ("elixir", super::elixir::canonical),
-            ("go", super::go::canonical),
-            ("groovy", super::groovy::canonical),
-            ("irules", super::irules::canonical),
-            ("java", super::java::canonical),
-            ("javascript", super::javascript::canonical),
-            ("kotlin", super::kotlin::canonical),
-            ("lua", super::lua::canonical),
-            ("mozcpp", super::mozcpp::canonical),
-            ("mozjs", super::mozjs::canonical),
-            ("objc", super::objc::canonical),
-            ("perl", super::perl::canonical),
-            ("php", super::php::canonical),
-            ("preproc", super::preproc::canonical),
-            ("python", super::python::canonical),
-            ("ruby", super::ruby::canonical),
-            ("rust", super::rust::canonical),
-            ("tcl", super::tcl::canonical),
-            ("tsx", super::tsx::canonical),
-            ("typescript", super::typescript::canonical),
-        ];
+        let tables: Vec<(String, Canonical)> = super::tables()
+            .iter()
+            .map(|t| (t.name.to_lowercase(), t.canonical))
+            .collect();
         let listed: std::collections::BTreeSet<String> =
-            tables.iter().map(|(s, _)| (*s).to_owned()).collect();
+            tables.iter().map(|(s, _)| s.clone()).collect();
         let known: std::collections::BTreeSet<String> = crate::LANG::into_enum_iter()
             .map(|l| format!("{l:?}").to_lowercase())
             .collect();
         pretty_assertions::assert_eq!(listed, known, "every LANG has a table listed here");
-        for (stem, canonical) in tables {
+        for (stem, canonical) in &tables {
             let path = root.join(format!("big-code-analysis-ast/src/roles/{stem}.rs"));
             let out = std::process::Command::new("python3")
                 .arg("-B")
@@ -1887,6 +2289,10 @@ mod tests {
             FuncOpener { owns [..jvm_openers!(), StaticInitializer(opens Function)] }
             Exit { owns [..jvm_openers!()] pays [ReturnStatement] }
             Comparison { owns [BinaryExpression] pays [..equality_tokens!(), LT gated_by never] }
+            // A `pending` row, which no production table declares at
+            // this close: the enumeration's third shape, pinned here
+            // so `rows()` and `canonical()` agree on it too.
+            Guard { pending R99 }
         }
     }
 
@@ -2206,6 +2612,63 @@ mod tests {
         );
     }
 
+    /// A table with one row and no fixture enumerates as exactly that
+    /// row (#1700's first acceptance criterion, at the DSL): `rows()`
+    /// lists what the invocation supplied and nothing else, in order,
+    /// and a declared row's view carries the same items its module
+    /// does — so the derived census, which reads only views, can ask
+    /// about a row no fixture ever spelled. The three-row table pins
+    /// declaration order against the `@named` order, which differs.
+    #[test]
+    fn rows_enumerate_what_the_invocation_declared_in_its_order() {
+        use super::RowView;
+        let one = gated_self_payer::rows();
+        assert_eq!(one.len(), 1);
+        let row = one[0].declared().expect("the one row is declared");
+        assert_eq!(row.role, "Comparison");
+        assert_eq!(row.owners, gated_self_payer::comparison::OWNERS);
+        assert_eq!(row.payers, gated_self_payer::comparison::PAYERS);
+        assert_eq!(row.leaf_kinds, gated_self_payer::comparison::LEAF_KINDS);
+        assert_eq!(
+            (row.mode, row.pays_never, row.text_gated),
+            ("split", false, false)
+        );
+        assert_eq!(
+            row.candidate_kinds().collect::<Vec<_>>(),
+            [Java::InstanceofExpression as u16, Java::EQEQ as u16],
+            "owners, then payers, then leaf kinds, each once"
+        );
+        assert!((row.lists_kind)(Java::InstanceofExpression as u16));
+        assert!(!(row.lists_kind)(Java::EQEQ as u16));
+
+        let four: Vec<&str> = spliced::rows().iter().map(RowView::role).collect();
+        assert_eq!(
+            four,
+            ["FuncOpener", "Exit", "Comparison", "Guard"],
+            "declaration order"
+        );
+        let pending = spliced::rows().into_iter().nth(3).expect("four rows");
+        assert!(matches!(
+            &pending,
+            RowView::Pending {
+                role: "Guard",
+                package: "R99"
+            }
+        ));
+        assert!(pending.declared().is_none());
+        assert_eq!(spliced::guard::canonical(), "Guard pending R99");
+
+        let java = super::java::rows();
+        let absent = java
+            .iter()
+            .find(|r| r.role() == "NullSafe")
+            .expect("Java declares NullSafe absent");
+        assert!(
+            matches!(absent, RowView::Absent { why, .. } if *why == super::java::null_safe::ABSENT)
+        );
+        assert!(absent.declared().is_none());
+    }
+
     /// `TEXT_GATED` is true exactly when an owner is `text_gated_by`:
     /// not for a chain-reading `gated_by`, a `holds_payer`, a
     /// `callable_when` or an `opens_by`, which read no bytes, nor for a
@@ -2356,6 +2819,36 @@ mod tests {
             ]
         );
         assert_eq!(dsl_gates::guard::CALLABLE, &[] as &[u16]);
+    }
+
+    /// `HOLDS_PAYER` names every `holds_payer` owner in each spelling
+    /// the attribute list can carry it — bare, beside `gated_by`,
+    /// beside `text_gated_by` — and none that lacks the mark. Read
+    /// below the fold, which keeps the mark in the gate slot, unlike
+    /// `TEXT_GATED`; pinned so a scan-order change cannot empty it,
+    /// which would satisfy the derived projection invariant vacuously.
+    #[test]
+    fn holds_payer_lists_the_marked_owners_in_every_spelling() {
+        assert_eq!(
+            dsl_gates::comparison::HOLDS_PAYER,
+            &[Java::BinaryExpression as u16],
+            "bare"
+        );
+        assert_eq!(
+            dsl_gates::short_circuit::HOLDS_PAYER,
+            &[Java::BinaryExpression as u16],
+            "beside gated_by"
+        );
+        assert_eq!(
+            dsl_gates::call::HOLDS_PAYER,
+            &[Java::MethodInvocation as u16],
+            "beside text_gated_by"
+        );
+        assert_eq!(
+            dsl_gates::ternary::HOLDS_PAYER,
+            &[] as &[u16],
+            "unmarked owners"
+        );
     }
 
     // `opens_by f`: one kind, two space kinds, by what `f` reads.
