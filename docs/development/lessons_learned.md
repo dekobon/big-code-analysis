@@ -157,6 +157,7 @@ number and the higher number stays as a redirect.
 | [111](#111-a-tool-that-walks-source-items-does-not-see-what-a-macro-emits) | A tool that walks source items does not see what a macro emits |
 | [112](#112-a-test-double-can-intercept-the-wrong-calls) | A test double can intercept the wrong calls |
 | [113](#113-a-fingerprint-over-a-resolved-function-hashes-its-inputs-not-a-sample-of-its-outputs) | A fingerprint over a resolved function hashes its inputs, not its outputs |
+| [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
 
 ---
 
@@ -4104,6 +4105,14 @@ express *headroom surrendered*; the pricing that answers the second
 question is the offender set at the **old** limits with the raised
 population released, which is what the comment now reports.
 
+**A relation whose right side contains its left cannot be false**
+(#1700). The derived relation `DocComment ⊆ Comment ∪ DocComment`
+replaced the Checker-level `is_doc_comment ⇒ is_comment` and passed
+every table and node by the definition of the union. Perturbing
+`is_comment` failed the separate Checker-against-rows comparison and
+not the relation; the relation was removed and the Checker implication
+restored as a forward.
+
 ---
 
 ## 95. Error recovery inserts tokens that `is_missing()` does not flag
@@ -5052,5 +5061,37 @@ source's invocation path, or hashing its lines as a set each fails its
 own test row; the committed-attribute splice and the rule reorder have
 integration tests against a fresh walk, and a unit test pins the
 case-flip invalidation (cf. lesson #90).
+
+---
+
+## 114. A fallback that rebuilds what you withheld answers as if you had not
+
+**Lesson:** Before testing that a predicate does not depend on some
+input by handing it none, read what the API does when that input is
+missing. Where absence triggers reconstruction — a chain climbed from
+`Node::parent`, a position re-sought, a name re-looked-up — the
+predicate answers exactly through the slower path, and the test proves
+the fallback works, not that the predicate is independent of it. Hand
+it a value that is *wrong* and that the fallback cannot repair: an
+empty chain that says "this node is the root", a parent of the wrong
+kind, the wrong bytes. Then perturb the predicate to read the input and
+confirm the test fails. A wrong-value probe still cannot see a read
+whose answer happens to agree; that is a cost question for a read
+counter, and the test should say so. (cf. lessons 94, 103)
+
+**`Ancestors::unknown()` is not "no chain"; its structural queries
+climb the tree and answer exactly** (#1700). ABC's slot peel
+(`rows_own!`, `src/metrics/abc.rs`) asks five rows — `Comparison`,
+`ShortCircuit`, `Ternary`, `NullSafe` and Kotlin's `Branch` — with
+`Ancestors::unknown()`, on the stated premise that no owner gate of
+those rows reads its ancestry. The derived test measured that premise
+as `owns_kind(…, unknown()) == owns_kind(…, walk chain)` on every owner
+candidate of the corpus and passed — and passed again under the
+audit's deliberate previous-sibling gate on Kotlin's `Branch`, because
+`unknown()`'s `parent` and `previous_sibling` delegate to the tree's
+own lookups and return the same answer the chain would. The probe is
+`Ancestors::known(&[])` now, the chain that says the node is the root:
+a gate reading its parent disagrees with the walk under it, and the
+perturbation fails. The test's doc names what it still cannot see.
 
 ---

@@ -316,6 +316,26 @@ Where the construct contributes to no axis once excluded — a Lua
 anchor on, and the revert test is the only coverage available. Say so in
 a comment, so the missing anchor is not read as an oversight.
 
+### Retiring a test retires its fixture's shapes too
+
+A hand-written test is its assertions *and* the inputs they were asked
+on. When a derived or shared test replaces it, perturbing the mechanism
+and watching the replacement fail proves the mechanism is covered on
+the inputs the replacement reads — which need not be the inputs the
+retired test read. Before deleting, list the constructs the retired
+fixture spelled and confirm the replacement corpus spells each; a
+construct only the retired fixture had is a hole the perturbation
+cannot show, because the perturbation runs on the replacement corpus.
+
+#1700 retired `doc_targets_the_space_tree_rejects_by_gate_are_each_named`
+after its gated-out shapes were pinned exactly on the derived corpus.
+Its fixture had spelled both C# indexer forms — accessor-bodied and
+expression-bodied — and the derived corpus's C# fixture only the first,
+so between the retired test and its replacement, a `FuncOpener` gate
+rejecting *every* indexer was seen by neither (the `nom` and `wmc`
+suites pin the expression-bodied form on their own fixtures). The
+missing form was added unconditionally to the replacement fixture.
+
 ### Never let the measured value *be* the defect's output
 
 A fixture whose discriminating quantity is *produced by the bug* stops
