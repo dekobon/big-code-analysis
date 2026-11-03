@@ -118,10 +118,12 @@ fn the_exclude_tests_prune_resolves_no_sibling_from_a_node() {
 /// fails that row and every wide one. `sibling_cache_reads` pins which
 /// lookup `Ancestors` took. Neither counter sees a pass over the
 /// parent's children (the defect #1447 fixed) or a prune handed no
-/// chain: each answers the same and calls no counted accessor.
+/// chain: each answers the same and touches neither counter.
 /// `rust_outer_attr_scans_agree` checks the lookups' answers, the
-/// `exclude_tests_rust` tests in `spaces_tests.rs` check the walk's, and
-/// the scaling probes price the rest.
+/// `exclude_tests_rust` tests in `spaces_tests.rs` check the walk's,
+/// `the_exclude_tests_prune_scans_no_children_for_an_attribute` below
+/// catches the pass through `child_scan_cursors` (#1784), and the
+/// scaling probes price the prune handed no chain.
 #[cfg(feature = "rust")]
 #[test]
 fn the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_parent() {
@@ -185,6 +187,96 @@ fn the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_p
             cached,
             "{shape}: the walk's `SiblingCache` was {} consulted",
             if cached { "not" } else { "unexpectedly" },
+        );
+    }
+}
+
+/// What one metric walk over `ast` adds to `counter`, with
+/// `exclude_tests` as given: the measurement the two prune guards below
+/// compare.
+#[cfg(feature = "rust")]
+fn walk_delta(counter: fn() -> usize, ast: &crate::Ast, exclude_tests: bool) -> usize {
+    let before = counter();
+    ast.metrics(crate::MetricsOptions::default().with_exclude_tests(exclude_tests))
+        .expect("the walk must yield a top-level space");
+    counter() - before
+}
+
+/// The `exclude_tests` prune's attribute reading builds no child-scan
+/// cursor of its own: turning the prune on leaves `child_scan_cursors`
+/// where the unpruned walk leaves it (#1784).
+///
+/// #1447's defect was a pass from the parent's first child on every ask,
+/// and neither counter above sees it: the pass resolves no sibling from
+/// a node and touches no cache, and it answers what the seek answers.
+/// `Node::children` is what such a pass calls, and it records here;
+/// `Ancestors::siblings_before` / `siblings_after` seek through
+/// `Node::cursor`, which does not. Restoring an unconditional
+/// `parent.children()` pass in `rust_attributed_item` or in
+/// `rust_outer_attr_marks_test` fails this test, and no value test. The
+/// backward one also fails `rust_outer_attr_scans_agree`, but only
+/// because a parent wider than `WIDE_PARENT` stops consulting the
+/// sibling cache; under a narrower parent this test is its only guard.
+///
+/// Neither mutant is the body #1447 replaced (`749fa327^`). That one
+/// gated the pass on a budget of `max(6, 3 × depth)` children and took
+/// `Node::next_sibling` past it, which `node_resolved_sibling_lookups`
+/// already pins. Both rows sit inside the old budget, so a gated pass
+/// would fail here as well: the root's six children against a budget of
+/// 6, and the innermost body's 22 against 51 (a chain of 17: the root
+/// plus a `function_item` and a `block` per level).
+///
+/// The fixture holds no `mod`, because `rust_inner_attr_marks_test` scans
+/// a module body with `children()` on purpose. Nothing is pruned either:
+/// `#[inline]` keeps its `fn`, and `#[cfg(test)]` cannot prune a
+/// `use_declaration` (#1431). So both walks visit the same nodes, and
+/// the deltas must be equal, not just ordered.
+#[cfg(feature = "rust")]
+#[test]
+fn the_exclude_tests_prune_scans_no_children_for_an_attribute() {
+    let attributed = |items: usize| {
+        format!(
+            "{}#[cfg(test)]\nuse x;\n",
+            "#[inline]\nfn g() {}\n".repeat(items)
+        )
+    };
+    let nesting = 8;
+    let rows = [
+        ("the root", attributed(2), 6),
+        (
+            "a body eight functions deep",
+            format!(
+                "{}{}{}",
+                "fn f() {\n".repeat(nesting),
+                attributed(9),
+                "}\n".repeat(nesting),
+            ),
+            22,
+        ),
+    ];
+
+    // Seeded with a real scan, so a counter that stopped counting fails
+    // here rather than reading `0 == 0`.
+    let seed = crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", "fn a() {}\n");
+    let _ = seed.root_node().children().count();
+    assert!(
+        crate::node::child_scan_cursors::observed() > 0,
+        "the seed scan must be counted"
+    );
+
+    let cursors = crate::node::child_scan_cursors::observed;
+    for (shape, source, widest) in rows {
+        let ast = crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", &source);
+        assert_eq!(
+            ast.root_node().preorder().map(|n| n.child_count()).max(),
+            Some(widest),
+            "{shape}: the fixture's widest parent moved; re-derive the budget above"
+        );
+        assert_eq!(
+            walk_delta(cursors, &ast, true),
+            walk_delta(cursors, &ast, false),
+            "{shape}: the prune scanned a parent's children to read an attribute run; \
+             read it through `Ancestors` instead (#1447)"
         );
     }
 }

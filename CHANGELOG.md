@@ -864,7 +864,8 @@ for historical reference.
   are unchanged (byte-identical `--exclude-tests` JSON over this
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
-  1.08 after.
+  1.08 after. A unit test also pins that the reading scans none of the
+  parent's children (#1784).
 - **A `diff` attribute binding change now invalidates the persistent
   VCS history cache** (#1760). gix resolves the `.gitattributes` rules
   that route a path to a `diff.<driver>` section or mark it `-diff` for

@@ -478,8 +478,11 @@ fails. `rust_outer_attr_scans_agree` in
 the raw sibling accessors, and the `exclude_tests_rust` tests in
 `src/spaces_tests.rs` assert the walk's values under a cached parent.
 None of them sees a pass over the parent's children or a prune handed
-no chain, since both answer the same and call no counted accessor; only
-the probes above price those.
+no chain, since both answer the same and touch none of their counters.
+`the_exclude_tests_prune_scans_no_children_for_an_attribute`, beside
+the first, catches the pass through the `child_scan_cursors` count that
+`Node::children` keeps (#1784); only the probes above price a prune
+handed no chain.
 
 `nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
 probe that grows one *attribute* rather than the code around it:
