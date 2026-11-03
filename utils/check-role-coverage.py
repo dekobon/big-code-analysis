@@ -34,7 +34,9 @@ ever existed at ``HEAD``.
 
 Observation. ``.role-coverage-observed.txt``, written by ``--observe``,
 records which ``(language, id)`` pairs the integration corpus emitted at
-this pin, with provenance: the corpus submodules' HEAD SHAs, the
+this pin — the three repository submodules whole, and the output
+submodule under ``control_flow/`` only (``CORPORA``) — with
+provenance: the corpus submodules' HEAD SHAs, the
 ``bca`` that observed them (built by the command itself), the grammar
 pins, and per language the files attempted, parsed and failed. The
 gate labels each residue entry ``observed`` or ``unobserved`` from it,
@@ -44,6 +46,12 @@ file emits may be one line of valid input away. ``--require-observations``
 (CI) fails on a missing or stale file; languages the corpus does not
 sample are named in every run and are a limit of the corpus, not of
 the gate.
+
+``--claimed`` prints every claimed ``(language, role, kind)`` with the
+same label — the "no occurrence in corpus" rows of #1700, so a claim
+the corpus never exercises is visible rather than silent. It is a
+report, not a ratchet: the derived parity test in ``roles/`` asks only
+of what the corpus emits, and this is the list of what it cannot ask.
 
 What this gate cannot see, printed with every run: whether a kind is
 claimed by the *right* role, whether a row is complete, or whether the
@@ -74,7 +82,26 @@ import role_tables as rt  # noqa: E402
 DEFAULT_BASELINE = REPO_ROOT / ".role-coverage-baseline.txt"
 DEFAULT_OBSERVED = REPO_ROOT / ".role-coverage-observed.txt"
 CORPUS_DIR = REPO_ROOT / "tests" / "repositories"
-CORPORA = ("DeepSpeech", "pdf.js", "serde")
+# `(submodule, subpath)`: the files sampled are those under
+# `CORPUS_DIR / submodule / subpath`, or the whole submodule when the
+# subpath is `None`. The output submodule is sampled only under
+# `control_flow/`, the hand-written per-language fixtures #1744
+# preserved (one file per language spelling every control-flow owner
+# and payer); the rest of that submodule is snapshot output and a few
+# per-language corpora whose kind census belongs to their own suites.
+# Provenance records the submodule's SHA either way, since the subpath
+# is part of this script, not of the record.
+CORPORA: tuple[tuple[str, str | None], ...] = (
+    ("DeepSpeech", None),
+    ("pdf.js", None),
+    ("serde", None),
+    ("big-code-analysis-output", "control_flow"),
+)
+
+
+def corpus_root(corpus: str, subpath: str | None) -> pathlib.Path:
+    root = CORPUS_DIR / corpus
+    return root / subpath if subpath else root
 
 SCOPE_NOTE = (
     "role-coverage: every runtime kind id is claimed, excluded with a reason, or "
@@ -261,8 +288,8 @@ def corpus_files(lang: rt.Language, exts: dict[str, tuple[str, ...]]) -> list[pa
     files: list[pathlib.Path] = []
     if not want:
         return files
-    for corpus in CORPORA:
-        root = CORPUS_DIR / corpus
+    for corpus, subpath in CORPORA:
+        root = corpus_root(corpus, subpath)
         if not root.is_dir():
             continue
         for p in root.rglob("*"):
@@ -274,20 +301,28 @@ def corpus_files(lang: rt.Language, exts: dict[str, tuple[str, ...]]) -> list[pa
 def extensions_from_langs(langs_rs: pathlib.Path = rt.LANGS_RS) -> dict[str, tuple[str, ...]]:
     """The extension lists `mk_langs!` gives each variant, through the
     one reader (fail-closed: a row it cannot read is an error, not a
-    language silently `not-sampled`). Mozcpp owns no extension and is
-    routed through Cpp's files by `--language`."""
+    language silently `not-sampled`). Mozcpp owns no extension and Mozjs
+    one no corpus spells; each is routed through its sibling's files by
+    `--language`."""
     out = {l.variant: l.extensions for l in rt.languages(langs_rs)}
     if "Cpp" in out:
         out["Mozcpp"] = out["Cpp"]
+    # Mozjs owns `.jsm`, which no corpus spells; it reads JavaScript's
+    # files under its own grammar, as the derived parity test routes it
+    # (#1700), so the two censuses agree on what is sampled.
+    if "Javascript" in out and "Mozjs" in out:
+        out["Mozjs"] = tuple(dict.fromkeys(out["Mozjs"] + out["Javascript"]))
     return out
 
 
 def submodule_shas(allow_dirty: bool) -> dict[str, str]:
     shas: dict[str, str] = {}
-    for corpus in CORPORA:
+    for corpus, subpath in CORPORA:
         path = CORPUS_DIR / corpus
         if not path.is_dir():
             raise rt.RoleTableError(f"corpus {path} is not checked out; run `make worktree-setup`")
+        if subpath and not (path / subpath).is_dir():
+            raise rt.RoleTableError(f"corpus {path} has no `{subpath}/`; the submodule is older than this script expects")
         sha = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], check=True, **RUN).stdout.strip()
         dirty = subprocess.run(["git", "-C", str(path), "status", "--porcelain"], check=True, **RUN).stdout.strip()
         if dirty and not allow_dirty:
@@ -418,7 +453,7 @@ def recorded_corpus_shas() -> dict[str, str]:
     checkout without the submodules (the CI lint job) still knows which
     corpus the observation must describe."""
     shas: dict[str, str] = {}
-    for c in CORPORA:
+    for c, _ in CORPORA:
         rel = (CORPUS_DIR / c).relative_to(REPO_ROOT).as_posix()
         run = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "-s", "--", rel], check=False, **RUN)
         parts = run.stdout.split()
@@ -444,6 +479,30 @@ def corpus_label(obs: Observation | None, obs_status: str, lang: str, kid: int) 
     return "observed" if kid in obs.seen.get(lang, set()) else "unobserved"
 
 
+def claimed_report(reports: list[LangReport], obs: Observation | None, obs_status: str) -> list[str]:
+    """One line per claimed ``(language, role, kind id)``, labelled as
+    `corpus_label` labels a residue entry: ``observed``, ``unobserved``
+    or ``unknown``. The "no occurrence in corpus" rows #1700 asks for,
+    in the census output: a claim the corpus never exercises is a row
+    the derived parity test cannot ask about, and this is where that is
+    visible rather than silent. Informational — the gate neither fails
+    nor ratchets on it — and keyed by id, like everything else here, so
+    a kind two roles claim is listed under each. Sorted so the file-shaped
+    output is diffable run to run."""
+    out: list[str] = []
+    for r in sorted(reports, key=lambda r: r.lang):
+        counts = {"observed": 0, "unobserved": 0, "unknown": 0}
+        rows: list[str] = []
+        for kid, roles in sorted(r.claimed.items()):
+            label = corpus_label(obs, obs_status, r.lang, kid)
+            counts[label] += len(roles)
+            for role in sorted(roles):
+                rows.append(f"  {r.lang} {role} {kid} {label}")
+        out.append(f"{r.lang}: {len(r.claimed)} claimed kinds — {counts['observed']} observed, {counts['unobserved']} unobserved, {counts['unknown']} unknown (role, kind) claims")
+        out.extend(rows)
+    return out
+
+
 def observation_status(obs: Observation | None, reports: list[LangReport]) -> tuple[str, list[str]]:
     """``("ok" | "stale" | "missing", problems)``. Staleness is judged
     against the corpus commits the tree records; a populated submodule
@@ -452,7 +511,7 @@ def observation_status(obs: Observation | None, reports: list[LangReport]) -> tu
         return "missing", ["no .role-coverage-observed.txt; run `make role-coverage-observe`"]
     problems: list[str] = []
     recorded = recorded_corpus_shas()
-    for c in CORPORA:
+    for c, _ in CORPORA:
         want = recorded.get(c)
         if want is None:
             problems.append(f"corpus {c}: not a submodule of this tree")
@@ -500,6 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow-dirty", action="store_true", help="observe a corpus with local changes")
     ap.add_argument("--require-observations", action="store_true", help="fail when the observation file is missing or stale (CI)")
     ap.add_argument("--report", action="store_true", help="print the per-language accounting and the exclusions")
+    ap.add_argument("--claimed", action="store_true", help="print every claimed (language, role, kind) with its corpus label; the no-occurrence rows of #1700")
     args = ap.parse_args(argv)
 
     print(SCOPE_NOTE)
@@ -546,6 +606,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 2
     obs_status, obs_problems = observation_status(obs, reports)
+
+    if args.claimed:
+        for line in claimed_report(reports, obs, obs_status):
+            print(line)
 
     failed = False
     for r in sorted(reports, key=lambda r: r.lang):

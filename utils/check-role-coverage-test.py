@@ -355,6 +355,12 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(exts, {"Java": ("java",)})
         self.t.langs.write_text(LANGS_RS.replace("tree_sitter_java,\n        [java],", "tree_sitter_cpp,\n        [cpp, hpp],").replace("Java,", "Cpp,"))
         self.assertEqual(cov.extensions_from_langs(self.t.langs), {"Cpp": ("cpp", "hpp"), "Mozcpp": ("cpp", "hpp")})
+        self.t.langs.write_text(LANGS_RS.replace("tree_sitter_java,\n        [java],", "tree_sitter_javascript,\n        [js, mjs],").replace("Java,", "Javascript,"))
+        self.assertEqual(cov.extensions_from_langs(self.t.langs), {"Javascript": ("js", "mjs")}, "no Mozjs row, no override")
+        two = LANGS_RS.replace("tree_sitter_java,\n        [java],", "tree_sitter_javascript,\n        [js, mjs],").replace("Java,", "Javascript,")
+        two = two.replace("    ),\n);", '    ),\n    (\n        "mozjs",\n        Mozjs,\n        "Mozilla JS",\n        "mozjs",\n        MozjsCode,\n        MozjsParser,\n        tree_sitter_mozjs,\n        [jsm],\n    ),\n);')
+        self.t.langs.write_text(two)
+        self.assertEqual(cov.extensions_from_langs(self.t.langs), {"Javascript": ("js", "mjs"), "Mozjs": ("jsm", "js", "mjs")}, "Mozjs keeps its own extension and reads JavaScript's files too (#1700)")
         self.t.langs.write_text(LANGS_RS.replace("        [java],\n", ""))
         with self.assertRaises(rt.RoleTableError):
             cov.extensions_from_langs(self.t.langs)
@@ -371,6 +377,75 @@ class CoverageTests(unittest.TestCase):
         finally:
             cov.CORPUS_DIR = saved
         self.assertEqual([f.name for f in files], ["x.java"])
+
+    def test_a_corpus_with_a_subpath_is_sampled_under_it_only(self) -> None:
+        # The output submodule holds snapshot output and per-language
+        # corpora beside `control_flow/`; only the subpath is sampled, so
+        # a `.java` elsewhere in it is not an observation (#1700).
+        sub = self.t.repo / "tests" / "repositories" / "big-code-analysis-output"
+        (sub / "control_flow" / "java").mkdir(parents=True)
+        (sub / "control_flow" / "java" / "r07.java").write_text("")
+        (sub / "csharp").mkdir()
+        (sub / "csharp" / "stray.java").write_text("")
+        saved = (cov.CORPUS_DIR, cov.CORPORA)
+        cov.CORPUS_DIR, cov.CORPORA = self.t.repo / "tests" / "repositories", (("big-code-analysis-output", "control_flow"),)
+        try:
+            files = cov.corpus_files(rt.Language("Java", "java", "tree_sitter_java", ("java",)), {"Java": ("java",)})
+        finally:
+            cov.CORPUS_DIR, cov.CORPORA = saved
+        self.assertEqual([f.name for f in files], ["r07.java"])
+
+    def test_observe_refuses_a_corpus_missing_its_subpath(self) -> None:
+        # A checkout whose submodule predates `control_flow/` would
+        # otherwise observe nothing for it and write `not-sampled`, which
+        # reads as "no file in this language" rather than as a stale
+        # submodule (#1700).
+        sub = self.t.repo / "tests" / "repositories" / "big-code-analysis-output"
+        sub.mkdir()
+        subprocess.run(["git", "init", "-q", str(sub)], check=True)
+        saved = (cov.CORPUS_DIR, cov.CORPORA)
+        cov.CORPUS_DIR, cov.CORPORA = self.t.repo / "tests" / "repositories", (("big-code-analysis-output", "control_flow"),)
+        try:
+            with self.assertRaises(rt.RoleTableError) as ctx:
+                cov.submodule_shas(allow_dirty=True)
+        finally:
+            cov.CORPUS_DIR, cov.CORPORA = saved
+        self.assertIn("has no `control_flow/`", str(ctx.exception))
+
+    def test_the_production_corpora_name_the_output_submodule_under_control_flow(self) -> None:
+        self.assertIn(("big-code-analysis-output", "control_flow"), cov.CORPORA)
+        self.assertEqual(cov.corpus_root("big-code-analysis-output", "control_flow"), cov.CORPUS_DIR / "big-code-analysis-output" / "control_flow")
+        self.assertEqual(cov.corpus_root("serde", None), cov.CORPUS_DIR / "serde")
+
+    def test_claimed_report_labels_every_claim_by_the_corpus(self) -> None:
+        # `--claimed` is the no-occurrence census of #1700: every declared
+        # (language, role, kind) with the same label a residue entry gets,
+        # under every observation state. `Call` claims id 5 and `Branch`
+        # id 1; the fixture observation sees only id 5, so the `Call`
+        # claim is observed and the `Branch` one unobserved; without a
+        # sampled section every claim is unknown.
+        self.t.table("    Call { owns [MethodInvocation] }\n    Branch { owns [Identifier] }\n    Container { absent \"none\" }\n")
+        self.t.run("--bootstrap")
+        self.t.observed.write_text("[Java tree-sitter-java 0.23.5 sampled attempted=1 parsed=1 failed=0]\n5\n")
+        saved = cov.CORPORA
+        try:
+            cov.CORPORA = ()
+            code, out = self.t.run("--claimed")
+        finally:
+            cov.CORPORA = saved
+        self.assertEqual(code, 0, out)
+        lines = out.splitlines()
+        self.assertIn("Java: 2 claimed kinds \u2014 1 observed, 1 unobserved, 0 unknown (role, kind) claims", lines)
+        self.assertIn("  Java Call 5 observed", lines)
+        self.assertIn("  Java Branch 1 unobserved", lines)
+        self.t.observed.write_text("[Java tree-sitter-java 0.23.5 not-sampled attempted=0 parsed=0 failed=0]\n")
+        try:
+            cov.CORPORA = ()
+            _, out = self.t.run("--claimed")
+        finally:
+            cov.CORPORA = saved
+        self.assertIn("  Java Call 5 unknown", out.splitlines())
+        self.assertIn("Java: 2 claimed kinds \u2014 0 observed, 0 unobserved, 2 unknown (role, kind) claims", out.splitlines())
 
     def test_recorded_corpus_shas_read_the_index_before_head(self) -> None:
         # A corpus bump staged with its re-observation must pass: the
@@ -393,7 +468,7 @@ class CoverageTests(unittest.TestCase):
         new_sha = subprocess.run(["git", "-C", str(sub), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
         subprocess.run(["git", "-C", str(repo), "add", "tests/repositories/serde"], check=True)
         saved = (cov.REPO_ROOT, cov.CORPUS_DIR, cov.CORPORA)
-        cov.REPO_ROOT, cov.CORPUS_DIR, cov.CORPORA = repo, repo / "tests" / "repositories", ("serde",)
+        cov.REPO_ROOT, cov.CORPUS_DIR, cov.CORPORA = repo, repo / "tests" / "repositories", (("serde", None),)
         try:
             shas = cov.recorded_corpus_shas()
         finally:
