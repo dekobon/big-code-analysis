@@ -194,9 +194,8 @@ fn get_aho_corasick_match(code: &[u8]) -> bool {
 /// is a verdict a classifier can only reach by reading a *run* of
 /// siblings: Rust's `#[…]` rows all decorate the same item, so they all
 /// get the same answer, and re-deriving it per row is `O(run)` work
-/// done `run` times. A run of `3 * depth` attributes under a parent
-/// wide enough to stay inside the forward attribute-scan budget made
-/// that quadratic — 5.2 s at depth 2 000, against 0.05 s with
+/// done `run` times. A run of `3 * depth` attributes on one deep parent
+/// made that quadratic — 5.2 s at depth 2 000, against 0.05 s with
 /// `exclude_tests` off (#1446). Reporting the reach lets the walker ask
 /// the classifier once per run.
 ///
@@ -697,10 +696,12 @@ pub trait Checker {
     /// `RustCode` filters `#[cfg(test)]` items, gated by the runtime
     /// `MetricsOptions::exclude_tests` flag).
     ///
-    /// `ancestors` is the chain the caller descended through. Rust's
-    /// override needs the parent to read the run of `#[…]` siblings
-    /// before an item, and resolving siblings from the node alone
-    /// costs `O(depth)` per step (#1100).
+    /// `ancestors` is the chain the caller descended through, lending
+    /// the walk's [`SiblingCache`](crate::node::SiblingCache). Rust's
+    /// override reads the run of `#[…]` siblings around an item through
+    /// it: resolving siblings from the node alone costs `O(depth)` per
+    /// step (#1100), and without the cache a flat `ERROR` parent is
+    /// sought `O(index)` per ask (#1584).
     ///
     /// A verdict that took a *sibling-run* to reach should say so with
     /// [`SubtreeSkip::covering_through`], so the walker asks once per
@@ -998,7 +999,7 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
 /// verdict.
 ///
 /// `RustCode::should_skip_subtree` and
-/// [`rust_attribute_run_marks_test_item`] both consult this, so an
+/// [`rust_attribute_run_verdict`] both consult this, so an
 /// attribute run and the item it decorates can never disagree about
 /// whether that item is prunable: `#[cfg(test)] use foo;` keeps both
 /// rows, because a `use_declaration` is not on this list (#1431).
@@ -1030,11 +1031,10 @@ fn rust_prunable_item(node: &Node) -> bool {
 /// item and therefore the same verdict, so a walker that re-asks per
 /// row pays the run twice over per row: once in
 /// [`rust_attributed_item`]'s lookahead and once in the backward
-/// reading [`rust_item_is_test_only`] takes. Both are `O(run)` under a
-/// parent inside [`forward_attribute_scan_budget`], and a run of
-/// `3 * depth` attributes is inside it by construction — the diagonal
-/// #1446 measured at 5.2 s / depth 2 000. One ask per run makes it one
-/// pass, not `run` passes.
+/// reading [`rust_item_is_test_only`] takes. Both are `O(run)` (see
+/// [`rust_outer_attr_marks_test`]), so re-asking per row is `O(run²)` —
+/// the diagonal #1446 measured at 5.2 s / depth 2 000. One ask per run
+/// makes it one pass, not `run` passes.
 fn rust_attribute_run_verdict<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -1068,123 +1068,25 @@ fn rust_attribute_run_verdict<'a>(
 /// The item an outer-attribute run decorates: the first sibling after
 /// `node` that is not itself an `AttributeItem`.
 ///
-/// Dispatched on [`forward_attribute_scan_budget`] for the reason the
-/// backward reading of the same run is (#1100), with the directions
-/// swapped: a cursor pass over a narrow parent's children is `O(width)`
-/// and depth-free, while [`Node::next_sibling`] descends from the root
-/// per step. Reading forward unconditionally would be `O(width)` *per
-/// attribute*, which is quadratic on the flat `#[derive]`-per-item file
-/// `bindgen` emits — the exact shape `nom/wide-attributed-fn` prices.
+/// Read through [`Ancestors::siblings_after`], at the cost
+/// [`rust_outer_attr_marks_test`] describes for the run itself.
 ///
-/// A `parent` that is not `node`'s parent leaves the first pass with
-/// nothing to skip to and answers `None`, i.e. "nothing is pruned" —
-/// the same conservative reading `rust_attribute_run_under` takes, and
-/// a caller error either way (`Ancestors::checked`, #1122).
+/// A chain that does not describe `node` finds no siblings after it and
+/// answers `None`, i.e. "nothing is pruned" — the conservative reading,
+/// and a caller error either way (`Ancestors::checked`, #1122).
 ///
-/// # What this costs
-///
-/// An attribute now pays a lookahead plus the run reading the item
-/// pays, so a file of nothing but attributed items resolves about 2.5x
-/// the siblings it did. Measured in release: a generated 20 000-item
-/// `#[inline] fn f() {}` file went 245 ms to 305 ms and a 3 000-deep
-/// nest 33 ms to 35 ms, while this repository's own 90 kloc of Rust did
-/// not move off 59 ms — real code is a few percent attributed, not all
-/// of it. Every scaling probe kept its exponent (`nom/wide-attributed-
-/// fn` 1.02 to 1.04, `nom/nested-attributed-fn` 1.00 to 1.02), which is
-/// the property that matters: the constant is the price of asking, and
-/// the class is what #1100 was about.
-///
-/// Reusing [`rust_item_is_test_only`] rather than fusing the two walks
-/// into one pass is deliberate at that price. A fused scan would save
-/// one of the three sibling resolutions and would be a third reading of
-/// the same run, free to drift from the other two — the failure mode
-/// `.claude/rules/grammar-dispatch.md` §7 is about. #1446 kept that
-/// choice: what was quadratic there was asking `run` times, not the
-/// number of passes each ask makes, and
-/// [`rust_attribute_run_verdict`]'s reach removes the repetition
-/// without adding a reading.
-///
-/// # Why the same budget as the backward reading
-///
-/// The dispatch here weighs the same two costs #1100 did, and #1446 —
-/// which found the diagonal `width ~= 3 * depth` shape this branch is
-/// slowest on — did not move it. `parent.child_count() <= 3 * depth`
-/// picks the forward pass exactly when `width * 35 ns` beats
-/// `depth * 120 ns`, and on that diagonal it is still the cheaper of
-/// the two: the sibling walk would be `O(run)` *and* `O(depth)` per
-/// step. The budget was never what made the shape quadratic — asking
-/// once per attribute was.
+/// Reusing [`rust_item_is_test_only`] for the verdict rather than
+/// fusing this lookahead and the run reading into one pass is
+/// deliberate. A fused scan would be a third reading of the same run,
+/// free to drift from the other two — the failure mode
+/// `.claude/rules/grammar-dispatch.md` §7 is about. What was quadratic
+/// in #1446 was asking `run` times, which
+/// [`rust_attribute_run_verdict`]'s reach removes without adding a
+/// reading.
 fn rust_attributed_item<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<Node<'a>> {
-    match ancestors.parent(node) {
-        Some(parent) if parent.child_count() <= forward_attribute_scan_budget(ancestors) => parent
-            .children()
-            .skip_while(|child| child.id() != node.id())
-            .find(|child| child.kind_id() != Rust::AttributeItem),
-        _ => {
-            let mut sibling = node.next_sibling();
-            while let Some(candidate) = sibling {
-                if candidate.kind_id() != Rust::AttributeItem {
-                    return Some(candidate);
-                }
-                sibling = candidate.next_sibling();
-            }
-            None
-        }
-    }
-}
-
-/// Children a parent may have before reading its child list costs more
-/// than resolving the sibling from `node` itself.
-///
-/// The two scans below grow on different axes and neither dominates.
-/// [`Node::previous_sibling`] resolves the parent by descending from
-/// the root, so its cost tracks the node's *depth*; a cursor pass over
-/// the parent's children tracks the parent's *width*. Measured on this
-/// workspace's grammar build, one cursor sibling step costs ~68 ns
-/// against ~420 ns for a whole `previous_sibling` on a shallow node —
-/// and that 420 ns did not move with the sibling index, so the
-/// break-even sits near six children.
-///
-/// This is the budget at depth 1 only; deeper nodes get
-/// [`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH`] more per level. It
-/// still bounds the shallow-and-wide shape — a generated file of
-/// thousands of top-level items stays on exactly the walk it had
-/// before.
-const MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN: usize = 6;
-
-/// Children the budget above gains per level of depth.
-///
-/// Dispatching on width alone (#1100) reads the break-even as a
-/// constant, but only the forward scan's price is: a
-/// [`Node::previous_sibling`] descends from the root, so every extra
-/// level makes the backward walk dearer while a cursor step stays flat.
-/// One child too many therefore returned the whole `O(depth²)` walk —
-/// measured on nested `mod` bodies of `#[inline] fn`s, a 7-child body
-/// nested 3_200 deep took 2.67 s against 0.045 s for the same shape one
-/// child narrower.
-///
-/// Sized from a crossover sweep of a forward-only against a
-/// backward-only build over that fixture family: the *marginal* cost of
-/// one more level of depth measured ~120 ns against ~35 ns for a cursor
-/// step, and the observed break-even tracked that ratio — near 6
-/// children at depth 1, near 13 at depth 3, and past 161 at depth 100.
-/// (Marginal end-to-end figures, so they run below the isolated ~68 ns
-/// / ~420 ns above; it is the ratio the budget uses, not either
-/// absolute.) Three per level rounds the ratio down, keeping the
-/// backward walk for the shallow-but-wide shape it is genuinely
-/// cheaper on.
-const FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH: usize = 3;
-
-/// The widest parent worth reading forward from, for a node at
-/// `ancestors`' depth. A node reached without a chain has no depth to
-/// scale by, so the shallow cut stands.
-fn forward_attribute_scan_budget(ancestors: Ancestors<'_, '_>) -> usize {
     ancestors
-        .depth()
-        .map_or(0, |depth| {
-            depth.saturating_mul(FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH)
-        })
-        .max(MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN)
+        .siblings_after(node)
+        .find(|sibling| sibling.kind_id() != Rust::AttributeItem)
 }
 
 // The tree-sitter Rust grammar exposes outer attributes (`#[...]`) as
@@ -1195,80 +1097,48 @@ fn forward_attribute_scan_budget(ancestors: Ancestors<'_, '_>) -> usize {
 // `#[cfg(test)] mod tests` (an outer attribute on the module) is caught
 // here while `mod tests { #![cfg(test)] }` is caught by the inner scan.
 //
-// The two readings agree on every node — `rust_outer_attr_scans_agree`
-// pins that — so this only picks the cheaper one.
+// The run is read backward from `node` through `ancestors`, which locates
+// `node` by a search rather than a pass from the parent's first child,
+// the pass that made `3 * depth` one-attribute items on one deep parent
+// `O(depth²)` until #1447 (`docs/development/benchmarking.md`). Under the
+// walk's chain and `SiblingCache` an ask costs `O(log width + run)` for a
+// parent wider than `WIDE_PARENT`, a binary search in the recorded
+// children. Under a narrower one it is a seek bounded by `WIDE_PARENT`:
+// `Node::children_before` fetches each yielded sibling with
+// `Node::child(i)`, `O(index)` on a flat list, so at most
+// `WIDE_PARENT²` steps. Neither depends on depth. A chainless caller
+// (`Ancestors::unknown()`) pays `Node::parent`'s `O(depth)` on top, and
+// a chain that lends no cache seeks a flat `ERROR` `O(index)` per ask
+// (#1584).
 fn rust_outer_attr_marks_test<'a>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    match ancestors.parent(node) {
-        Some(parent) if parent.child_count() <= forward_attribute_scan_budget(ancestors) => {
-            rust_attribute_run_under(&parent, node, code)
-        }
-        _ => rust_attribute_run_before(node, code),
-    }
-}
-
-/// Reads the attribute run ending at `node` forward from `parent`,
-/// which the walker already holds. `O(parent.child_count())` — two
-/// cursor passes over the children when a preceding run exists, one
-/// otherwise — and independent of how deep `node` sits.
-///
-/// Two passes and not one: classifying each attribute as the first pass
-/// goes by would classify every attribute in the parent rather than
-/// only the adjacent run, and classification is itself `O(len)` in the
-/// attribute body (#1105). Folding them into a single-pass boolean
-/// would reclassify a huge `#[cfg(all(all(…)))]` once per subsequent
-/// sibling and put that quadratic straight back; the second
-/// [`Node::children`] cursor is the cheaper half of that trade.
-fn rust_attribute_run_under(parent: &Node, node: &Node, code: &[u8]) -> bool {
-    let mut run_start = None;
-    for child in parent.children() {
-        if child.id() == node.id() {
-            break;
-        }
-        if child.kind_id() == Rust::AttributeItem {
-            if run_start.is_none() {
-                run_start = Some(child);
-            }
-        } else {
-            run_start = None;
-        }
-    }
-    // No preceding attribute. A `parent` that is not `node`'s parent is
-    // a caller error, not a shape answered for here: the first pass then
-    // runs to the end of `parent`'s children, so the answer depends on
-    // whether those end in an attribute run and is meaningless either
-    // way. The walker constructs its chain through `Ancestors::checked`,
-    // which catches a mismatch that shows in the spans in any debug build
-    // and every mismatch under `make chain-audit` (#1122).
-    let Some(run_start) = run_start else {
-        return false;
-    };
-    parent
-        .children()
-        .skip_while(|child| child.id() != run_start.id())
-        .take_while(|child| child.id() != node.id() && child.kind_id() == Rust::AttributeItem)
+    ancestors
+        .siblings_before(node)
+        .take_while(|sibling| sibling.kind_id() == Rust::AttributeItem)
         .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#"))
 }
 
-/// Reads the same run backward from `node`. Each step resolves the
-/// parent by descending from the root, so this is `O(attributes x
-/// depth)` — but it does not touch the siblings it does not need,
-/// which is what makes it the cheaper reading under a wide parent.
+/// Reads the same run backward from `node` with the raw sibling
+/// accessor, which resolves the parent from the root per step. The
+/// oracle the tests compare [`rust_outer_attr_marks_test`] against: it
+/// shares no lookup with it, so a wrong seek or a wrong cache index
+/// cannot make the two agree.
+#[cfg(all(test, feature = "rust"))]
 fn rust_attribute_run_before(node: &Node, code: &[u8]) -> bool {
-    let mut sibling = node.previous_sibling();
-    while let Some(attribute) = sibling {
-        if attribute.kind_id() != Rust::AttributeItem {
-            break;
-        }
-        if rust_attribute_node_marks_test(&attribute, code, "#") {
-            return true;
-        }
-        sibling = attribute.previous_sibling();
-    }
-    false
+    std::iter::successors(node.previous_sibling(), Node::previous_sibling)
+        .take_while(|sibling| sibling.kind_id() == Rust::AttributeItem)
+        .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#"))
+}
+
+/// [`rust_attributed_item`]'s oracle, for the same reason: the raw
+/// forward accessor, one root descent per step.
+#[cfg(all(test, feature = "rust"))]
+fn rust_attributed_item_raw<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    std::iter::successors(node.next_sibling(), Node::next_sibling)
+        .find(|sibling| sibling.kind_id() != Rust::AttributeItem)
 }
 
 // `mod_item` additionally accepts inner attributes (`#![cfg(test)]`).
@@ -1305,7 +1175,9 @@ mod tests {
         BashParser, JavascriptCode, JavascriptParser, MozjsParser, PhpParser, TsxParser,
         TypescriptParser,
     };
-    use crate::test_support::{ast_has_kind_id, for_each_node_with_chain};
+    use crate::test_support::{
+        ast_has_kind_id, for_each_node_with_chain, for_each_node_with_sibling_cache,
+    };
     use std::fmt::Write as _;
     use std::path::PathBuf;
 
@@ -1762,26 +1634,33 @@ mod tests {
         assert!(!rust_inner_attr_marks_test(&node, code));
     }
 
-    /// Reading the `#[…]` run forward from the parent must answer
-    /// exactly what walking backward from the item answers, on every
-    /// node of every attribute shape.
+    /// The attribute run and the item it decorates, read through
+    /// `Ancestors`, must answer exactly what the raw sibling accessors
+    /// answer, on every node of every attribute shape — under a parent
+    /// the walk caches and under one it does not. Clean parses only:
+    /// `Node::next_sibling` steps over a zero-width recovery token at the
+    /// attribute's end that a cursor yields, a difference that moves no
+    /// prune verdict.
     ///
-    /// This is the acceptance criterion for #1100, not a nicety:
-    /// `rust_outer_attr_marks_test` picks between the two by the
-    /// parent's width against the node's depth, so a disagreement would
-    /// make `exclude_tests` prune a different set of subtrees on one
-    /// shape than on another and move published metric values —
-    /// including as the budget is retuned. The comparison is against the
-    /// backward reading directly rather than against the dispatcher,
-    /// which would compare the backward walk with itself on every wide
-    /// parent.
+    /// `Ancestors::siblings_before` / `siblings_after` take one of two
+    /// lookups: a binary search in the children the walk recorded for a
+    /// parent wider than `WIDE_PARENT`, or a seek on a narrower one.
+    /// A wrong index in the first, or a wrong seat in the second, moves
+    /// which subtrees `exclude_tests` prunes and so published metric
+    /// values. The oracle resolves every sibling from the node itself
+    /// and shares neither lookup, and each node is also asked with no
+    /// chain at all, the path the unit tests above take.
     ///
-    /// The counted `marked` / `unmarked` totals are what stop it from
-    /// passing vacuously — two readings that both answered `false`
-    /// everywhere would agree perfectly.
+    /// The answers are counted by lookup and by verdict, and every
+    /// cell must be filled: two readings that both answered `false`
+    /// everywhere would agree perfectly, and the wide fixtures without a
+    /// test marker would leave the cached arm agreeing by default.
     #[cfg(feature = "rust")]
     #[test]
     fn rust_outer_attr_scans_agree() {
+        use crate::node::WIDE_PARENT;
+        use crate::test_support::rust_root_of_width;
+
         // One attribute run longer than the file's actual code, so the
         // run length cannot be confused with the child count.
         let long_run = format!("{}fn f() {{}}\n", "#[allow(dead_code)]\n".repeat(64));
@@ -1791,6 +1670,22 @@ mod tests {
         for i in 0..200 {
             let _ = writeln!(wide, "#[inline] fn f{i}() {{}}");
         }
+        // The cache boundary: `WIDE_PARENT` children exactly (sought,
+        // not cached), then one more (cached). Sized from the constant,
+        // and checked below, so raising it cannot quietly leave both
+        // fixtures on one side.
+        let at_boundary = rust_root_of_width(WIDE_PARENT);
+        let past_boundary = rust_root_of_width(WIDE_PARENT + 1);
+        // #1447's shape, small: nested bodies whose innermost one holds
+        // many one-attribute items, so the cached arm runs below the
+        // root as well as at it.
+        let nesting = 4;
+        let nested_items = format!(
+            "{}{}{}",
+            "fn f() {\n".repeat(nesting),
+            "#[cfg(test)]\nfn t() {}\n#[inline]\nfn u() {}\n".repeat(WIDE_PARENT / 2),
+            "}\n".repeat(nesting),
+        );
         let sources = [
             // Attribute run opening the file, so the marked item is
             // its parent's first non-attribute child.
@@ -1816,108 +1711,69 @@ mod tests {
             // A bare item: no parent for the root, no preceding
             // sibling for the item.
             "fn a() {}\n",
-            // The dispatch boundary at depth 1, where the budget is
-            // `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN`: three attributed
-            // items make a `source_file` exactly six children wide, and
-            // a fourth bare item makes seven. Neither width occurred in
-            // any fixture above, so `<=` against `<` went untested.
-            "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\n",
-            "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\nfn d() {}\n",
-            // The same seven items one level down: two braces make the
-            // `declaration_list` nine wide, which is exactly the budget
-            // at depth 3, so the reading flips back to forward.
-            "mod m {\n#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n\
-             #[cfg(test)]\nfn c() {}\nfn d() {}\n}\n",
+            // A run that decorates nothing: the lookahead runs off the
+            // end of the parent.
+            "fn a() {}\n#[inline]\n#[allow(dead_code)]\n",
             &long_run,
             &wide,
+            &at_boundary,
+            &past_boundary,
+            &nested_items,
         ];
 
-        let (mut marked, mut unmarked) = (0_usize, 0_usize);
-        let (mut read_forward, mut read_backward) = (0_usize, 0_usize);
+        // Indexed `[cached][marked]`: the parent is wider than
+        // `WIDE_PARENT`, and the oracle found a test marker.
+        let mut answers = [[0_usize; 2]; 2];
+        let mut either_side_of_the_cut = [false; 2];
         for source in sources {
             let code = source.as_bytes();
-            let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
-                let Some(parent) = chain.last() else {
-                    return; // The root has no parent to read forward from.
-                };
+            let visited = for_each_node_with_sibling_cache::<RustCode>(code, |node, ancestors| {
+                // Built eagerly and shared, so each assertion below names
+                // the node in one place.
+                let at = format!("{} at row {}", node.kind(), node.start_row());
                 let backward = rust_attribute_run_before(node, code);
+                let reads = crate::node::sibling_cache_reads::observed();
+                let cached = rust_outer_attr_marks_test(node, code, ancestors);
+                let read_the_cache = crate::node::sibling_cache_reads::observed() > reads;
+                assert_eq!(cached, backward, "the cached run reading disagrees on {at}");
                 assert_eq!(
-                    rust_attribute_run_under(parent, node, code),
+                    rust_outer_attr_marks_test(node, code, Ancestors::unknown()),
                     backward,
-                    "outer-attribute readings disagree on {} at row {}",
-                    node.kind(),
-                    node.start_row(),
+                    "the chainless run reading disagrees on {at}",
                 );
-                assert_eq!(
-                    rust_outer_attr_marks_test(node, code, Ancestors::known(chain)),
-                    backward,
-                    "the width dispatch changed the answer on {} at row {}",
-                    node.kind(),
-                    node.start_row(),
-                );
-                if backward {
-                    marked += 1;
-                } else {
-                    unmarked += 1;
+                if node.kind_id() == Rust::AttributeItem {
+                    assert_eq!(
+                        rust_attributed_item(node, ancestors).map(|item| item.id()),
+                        rust_attributed_item_raw(node).map(|item| item.id()),
+                        "the lookahead found a different item from {at}",
+                    );
                 }
-                if parent.child_count() > forward_attribute_scan_budget(Ancestors::known(chain)) {
-                    read_backward += 1;
-                } else {
-                    read_forward += 1;
+                if let Some(parent) = ancestors.parent(node) {
+                    let width = parent.child_count();
+                    // Sorted by what the lookup did, not only by width:
+                    // a helper that stopped lending the cache would
+                    // otherwise turn the cached cells into seeks.
+                    assert_eq!(
+                        read_the_cache,
+                        width > WIDE_PARENT,
+                        "a {width}-child parent's lookup on {at} did not match the cut",
+                    );
+                    answers[usize::from(width > WIDE_PARENT)][usize::from(backward)] += 1;
+                    either_side_of_the_cut[0] |= width == WIDE_PARENT;
+                    either_side_of_the_cut[1] |= width == WIDE_PARENT + 1;
                 }
             });
             assert!(visited > 0, "fixture must have nodes to compare");
         }
         assert!(
-            marked > 0 && unmarked > 0,
-            "the comparison saw only one answer ({marked} marked, {unmarked} unmarked), \
-             so agreeing proves nothing"
+            answers.iter().flatten().all(|&count| count > 0),
+            "a lookup saw only one answer ([sought, cached] x [unmarked, marked] = \
+             {answers:?}), so agreeing there proves nothing"
         );
-        // Both arms have to fire: the dispatcher assertion above
-        // compares the backward walk with itself on every node that
-        // took the backward arm, so without forward readings it proves
-        // nothing, and without backward ones the `wide` shape is unmet.
-        assert!(
-            read_forward > 0 && read_backward > 0,
-            "one dispatch arm went unexercised ({read_forward} forward, \
-             {read_backward} backward)"
-        );
-    }
-
-    /// The budget is a width *per level of depth*, not a flat width.
-    ///
-    /// Pinned as a table because the shape of the formula is the whole
-    /// point of #1100's follow-up: a flat cut returned the `O(depth²)`
-    /// walk to any parent one child too wide, however deep it sat.
-    #[cfg(feature = "rust")]
-    #[test]
-    fn the_forward_attribute_scan_budget_grows_with_depth() {
         assert_eq!(
-            forward_attribute_scan_budget(Ancestors::unknown()),
-            MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN,
-            "no chain means no depth to scale by"
-        );
-
-        // `depth` reads the chain's length and nothing else, so one
-        // real node repeated stands in for any ancestry — which is what
-        // lets the table reach depths a fixture could not.
-        let mut checked = 0_usize;
-        for_each_node_with_chain::<RustCode>(b"fn a() {}\n", |node, _| {
-            checked += 1;
-            // The shallow cut floors the scaled one, so it governs
-            // until the depth term overtakes it at depth 3.
-            for (depth, want) in [(0, 6), (1, 6), (2, 6), (3, 9), (10, 30), (1_000, 3_000)] {
-                let chain = vec![*node; depth];
-                assert_eq!(
-                    forward_attribute_scan_budget(Ancestors::known(&chain)),
-                    want,
-                    "budget at depth {depth}"
-                );
-            }
-        });
-        assert!(
-            checked > 0,
-            "fixture must yield a node to build chains from"
+            either_side_of_the_cut,
+            [true, true],
+            "no parent sat exactly on, or one past, `WIDE_PARENT`"
         );
     }
 
@@ -1930,11 +1786,11 @@ mod tests {
     /// `exclude_tests` actually prunes.
     ///
     /// The oracle reads every run backward and every lookahead forward
-    /// with the raw sibling accessors — no depth-against-width budget —
-    /// so it disagrees with production the moment either dispatch arm
-    /// answers differently from the other. The fixture spans both:
-    /// `source_file` is wide enough at depth 1 to take the sibling
-    /// arm, and `mod narrow`'s body is not.
+    /// with the raw sibling accessors, sharing no lookup with
+    /// production's `Ancestors` readings, so it disagrees the moment
+    /// either one answers differently. Which lookup those readings take
+    /// is [`rust_outer_attr_scans_agree`]'s concern; this one pins what
+    /// the hook does with the answer.
     ///
     /// It also pins the [`SubtreeSkip`] reach, by replaying exactly what
     /// the walker does with it: carry the last covering verdict, and on
@@ -1954,7 +1810,7 @@ mod tests {
                       #[cfg(test)]\n#[allow(dead_code)]\nfn d() {}\n\
                       #[inline]\n#[allow(dead_code)]\n#[must_use]\n\
                       fn f() -> i32 {\n#[cfg(test)]\nfn inner() {}\n1\n}\n\
-                      mod narrow {\n#[cfg(test)]\nfn e() {}\n}\n\
+                      mod m {\n#[cfg(test)]\nfn e() {}\n}\n\
                       #[inline]\n#[allow(dead_code)]\n";
         let code = source.as_bytes();
         // Spelled out rather than reused from the production predicate:
@@ -1985,13 +1841,8 @@ mod tests {
         let (mut pruned_through, mut reused) = (0_usize, 0_usize);
         let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
             let reference = if node.kind_id() == Rust::AttributeItem {
-                // Walk to the item this run decorates with the raw
-                // forward accessor, independent of the budget dispatch.
-                let mut following = node.next_sibling();
-                while following.is_some_and(|s| s.kind_id() == Rust::AttributeItem) {
-                    following = following.and_then(|s| s.next_sibling());
-                }
-                following.is_some_and(|item| is_item(&item) && is_test_only(&item))
+                rust_attributed_item_raw(node)
+                    .is_some_and(|item| is_item(&item) && is_test_only(&item))
             } else {
                 is_item(node) && is_test_only(node)
             };

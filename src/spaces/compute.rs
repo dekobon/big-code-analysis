@@ -714,9 +714,9 @@ pub(crate) fn push_children<'a, 's, Tag: Copy>(
 /// siblings rather than one node: Rust's `#[…]` rows all decorate the
 /// same item, so a classifier that read the run to answer for the first
 /// row has answered for the rest of them too. Asking per row instead
-/// re-derived the run per row, which is `O(run^2)` on a file deep
-/// enough to keep the run inside the forward-scan budget — 5.2 s at
-/// depth 2 000 (#1446).
+/// re-derives the run per row, which is `O(run^2)` on any parent — a
+/// 6 000-attribute run 2 000 levels deep took 5.2 s that way
+/// (#1446).
 ///
 /// Pre-order visits `start_byte` non-decreasing, so a reach the walk
 /// has passed can never be re-entered and the stale-answer case does

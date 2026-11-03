@@ -1360,6 +1360,12 @@ impl Foo {
     // zero, deliberately and for every formula.
     #[test]
     fn an_all_test_file_measures_zero_rows() {
+        use big_code_analysis_ast::node::WIDE_PARENT;
+
+        let wide = format!(
+            "#[cfg(test)]\n#[allow(dead_code)]\nfn a() {{}}\n{}",
+            "#[test]\nfn b() {}\n".repeat(WIDE_PARENT / 2)
+        );
         for source in [
             // The issue's reproducer: attribute, item, and a nested
             // `#[test] fn` for good measure.
@@ -1371,15 +1377,12 @@ impl Foo {
             "#[cfg(test)]\n#[allow(dead_code)]\nmod t {\n    fn x() {}\n}\n",
             // Attribute and item on one row.
             "#[test] fn x() {}\n",
-            // Seven children at depth 1, past the six-child budget, so
-            // the lookahead resolves siblings from the node instead of
-            // reading the parent's child list. The two arms answer the
-            // same thing by construction and nothing else here reaches
-            // the second one (#1100's dispatch, #1431's use of it). The
-            // leading run is stacked so the arm has to walk *over* an
-            // attribute to find the item, not just take the next node.
-            "#[cfg(test)]\n#[allow(dead_code)]\nfn a() {}\n\
-             #[test]\nfn b() {}\n#[test]\nfn c() {}\n",
+            // A root wider than `WIDE_PARENT`, so the walk reads the run
+            // and the item from its `SiblingCache` instead of seeking:
+            // the one lookup no other fixture here reaches (#1447). The
+            // leading run is stacked so the lookahead has to walk *over*
+            // an attribute to find the item, not just take the next node.
+            &wide,
         ] {
             let pruned = analyse(source, true);
             let loc = &pruned.metrics.loc;
@@ -1410,6 +1413,12 @@ impl Foo {
     // one whose text mentions `test` — fails on it.
     #[test]
     fn a_non_test_attribute_run_survives_pruning() {
+        use big_code_analysis_ast::node::WIDE_PARENT;
+
+        // Seven children per repeat, so the root passes `WIDE_PARENT`.
+        let wide = "#[inline]\nfn a() {}\n#[cfg(not(test))]\nfn b() {}\n\
+                    #[cfg(test)]\nuse std::fmt;\nfn c() {}\n"
+            .repeat(WIDE_PARENT / 7 + 1);
         for source in [
             // Nothing test-related at all.
             "#[inline]\nfn a() {}\n",
@@ -1425,11 +1434,12 @@ impl Foo {
             // attribute lookahead must inherit that reading from
             // `rust_item_is_test_only` rather than re-deriving it.
             "#[cfg(not(test))]\nfn a() {}\n",
-            // The same, past the six-child budget: the sibling-resolving
-            // arm of the lookahead must be as conservative as the
-            // child-list one.
-            "#[inline]\nfn a() {}\n#[inline]\nfn b() {}\n\
-             #[inline]\nfn c() {}\n#[inline]\nfn d() {}\n",
+            // A root wider than `WIDE_PARENT`, so the run is read from
+            // the walk's cached child list. `fn c` sits one `use` past a
+            // `#[cfg(test)]`: a cached reading that skipped the nearest
+            // sibling would reach the marker and prune `fn c`, which the
+            // seek every row above takes cannot reach.
+            &wide,
         ] {
             let baseline = analyse(source, false);
             let pruned = analyse(source, true);
@@ -1465,12 +1475,11 @@ impl Foo {
         assert_eq!(pruned.metrics.loc.ploc(), 1);
     }
 
-    // #1446's shape, small enough to assert on: nesting deep enough
-    // that the attribute lookahead reads the parent's child list
-    // forward, and one attribute run long enough that re-deriving it
-    // per row was quadratic. The prune's answer is now taken once for
-    // the run and reused, so this pins that the *reused* answer is the
-    // same one every row used to compute for itself.
+    // #1446's shape, small enough to assert on: nesting, and one
+    // attribute run long enough that re-deriving it per row was
+    // quadratic. The prune's answer is now taken once for the run and
+    // reused, so this pins that the *reused* answer is the same one
+    // every row used to compute for itself.
     //
     // Only the innermost `fn t` is test code, so a reach that ran past
     // the item it stops at would take `let keep = 3;` — the row that

@@ -4,8 +4,8 @@
 //! Kept out of any production file so the self-scan gate does not spend a
 //! shipping module's metric budget on test-only code (#1066).
 
-use crate::node::{Node, Tree};
-use crate::traits::{LanguageInfo, ParserTrait};
+use crate::node::{Ancestors, Node, Tree};
+use crate::traits::{LanguageInfo, ParserTrait, Search};
 
 /// Every declared owner of `owners` was met by a fixture (`seen` is the
 /// kind ids its walk emitted), except the never-emitted aliases in
@@ -59,12 +59,7 @@ pub fn for_each_node_with_chain<L: LanguageInfo>(
     code: &[u8],
     check: impl FnMut(&Node<'_>, &[Node<'_>]),
 ) -> usize {
-    let tree = Tree::new::<L>(code);
-    assert!(
-        !tree.get_root().has_error(),
-        "fixture must parse cleanly, else the walk covers error recovery"
-    );
-    walk_with_chain(&tree, check)
+    walk_with_chain(&clean_tree::<L>(code), check)
 }
 
 /// [`for_each_node_with_chain`] for a fixture that recovers into an
@@ -83,6 +78,47 @@ pub fn for_each_node_with_chain_tolerating_errors<L: LanguageInfo>(
     check: impl FnMut(&Node<'_>, &[Node<'_>]),
 ) -> usize {
     walk_with_chain(&Tree::new::<L>(code), check)
+}
+
+/// [`for_each_node_with_chain`] through a production walk rather than a
+/// replica of one: [`Search::act_on_node`], the walk `find` and `count`
+/// run, which lends each node its chain together with the
+/// [`SiblingCache`](crate::node::SiblingCache) and
+/// [`FoldCache`](crate::node::FoldCache), built as `metrics_inner`
+/// builds them ([`Ancestors::for_walk`] plus
+/// [`Ancestors::with_siblings`]). A sibling read under a parent wider
+/// than [`WIDE_PARENT`](crate::node::WIDE_PARENT) therefore takes the
+/// cached binary search, and a change to how walks lend the caches
+/// reaches this helper without a hand-made copy to update.
+///
+/// A separate helper rather than a change to the bare-chain one: a
+/// sibling read through the bare chain always takes the seek path,
+/// which needs checking too. A predicate that reads siblings should be
+/// checked through both.
+///
+/// # Panics
+///
+/// As [`for_each_node_with_chain`].
+pub fn for_each_node_with_sibling_cache<L: LanguageInfo>(
+    code: &[u8],
+    mut check: impl for<'t, 'c> FnMut(&Node<'t>, Ancestors<'t, 'c>),
+) -> usize {
+    let tree = clean_tree::<L>(code);
+    let mut visited = 0;
+    tree.get_root().act_on_node(&mut |node, ancestors| {
+        visited += 1;
+        check(node, ancestors);
+    });
+    visited
+}
+
+fn clean_tree<L: LanguageInfo>(code: &[u8]) -> Tree {
+    let tree = Tree::new::<L>(code);
+    assert!(
+        !tree.get_root().has_error(),
+        "fixture must parse cleanly, else the walk covers error recovery"
+    );
+    tree
 }
 
 fn walk_with_chain(tree: &Tree, mut check: impl FnMut(&Node<'_>, &[Node<'_>])) -> usize {
@@ -131,6 +167,22 @@ pub fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
 pub fn tcl_wide_erroring_eval(width: usize) -> String {
     let half = "{a b} ".repeat(width / 2);
     format!("eval {half}] {half}\n")
+}
+
+/// A Rust file whose `source_file` has exactly `width` children:
+/// `#[cfg(test)] fn` items, two children each, plus one bare `fn` when
+/// `width` is odd. The wide-parent tests size it from
+/// [`WIDE_PARENT`](crate::node::WIDE_PARENT) to sit on each side of the
+/// sibling cache's threshold, so the parity fill is what keeps the two
+/// sides apart whatever value the constant takes. Shared by one test in
+/// this crate and one in the root's.
+#[must_use]
+pub fn rust_root_of_width(width: usize) -> String {
+    format!(
+        "{}{}",
+        "#[cfg(test)]\nfn a() {}\n".repeat(width / 2),
+        "fn z() {}\n".repeat(width % 2),
+    )
 }
 
 /// Asserts that `predicate` holds for every input in `yes` and for none

@@ -628,6 +628,14 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// [`Node::children_before`] yields on `node`'s parent, and nothing
     /// for the root. `self` is `node`'s chain; see
     /// [`siblings_after`](Self::siblings_after).
+    ///
+    /// When the chain does not describe `node`, so `node` is not among the
+    /// parent's children, both this and `siblings_after` yield nothing on
+    /// either lookup, where [`previous_sibling`](Self::previous_sibling)
+    /// falls back to [`Node::previous_sibling`]. The asymmetry is
+    /// deliberate: the mismatch is a caller error `Ancestors::checked`
+    /// reports (#1122), and "no siblings" is the conservative answer for
+    /// the `exclude_tests` prune that reads these (nothing is pruned).
     pub fn siblings_before(
         self,
         node: &Node<'tree>,
@@ -661,7 +669,10 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             _ => None,
         };
         match recorded {
-            Some(children) => Lookup::Wide(children, position_by_start(children, node)),
+            Some(children) => {
+                sibling_cache_reads::record();
+                Lookup::Wide(children, position_by_start(children, node))
+            }
             None => Lookup::Narrow(parent),
         }
     }
@@ -1060,6 +1071,15 @@ impl FoldCache {
 // crate's tests through `test-support`, since most walks that lend the
 // cache live there.
 crate::observation::counter!(fold_steps, cfg(any(test, feature = "test-support")));
+
+// Sibling lookups answered from a walk's `SiblingCache` rather than by a
+// seek. The two answer identically, so only this tells a walk that lends
+// the cache from one that dropped it (#1447 review); a seek on a wide
+// flat parent is the quadratic #1584 fixed.
+crate::observation::counter!(
+    sibling_cache_reads,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// Whether a fold may re-enter its own lane: refused everywhere, except
 /// on a thread where the one test that pins the fallback has opted in.

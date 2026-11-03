@@ -166,6 +166,7 @@ Read it as follows.
 | `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
+| `nom/deep-one-attribute-items` | Rust | depth | the same diagonal with many one-attribute items on one deep parent (#1447) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
@@ -392,25 +393,20 @@ depth 4000 against 8.3 ms for `nom/nested-fn`, the same nesting without
 the attributes. Reading the run forward from the parent the walker
 already holds took it to 1.21 and 8.1 ms, level with that control.
 
-That fix trades one axis against the other, and the probe alone would
+That fix traded one axis against the other, and the probe alone would
 not have caught why. A forward pass over the parent's children is
-`O(children)` and flat in depth; the backward walk is the reverse. The
-measured costs behind that trade, and the break-even they put it at,
-live on `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` and
-`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in
-`big-code-analysis-ast/src/checker.rs`, one copy, so re-measuring
-updates one place. Reading forward unconditionally fixed the depth axis
-and broke the width one: a
-generated file of 2 000 top-level attributed items went from 6.0 ms to
-569 ms, which is the shape `bindgen` output has. The scan now budgets
-the parent's child count against the node's depth, so it reads forward
-only where that is the cheaper bound and a shallow wide parent keeps
-exactly the walk it had.
+`O(children)` and flat in depth; the backward walk is the reverse.
+Reading forward unconditionally fixed the depth axis and broke the
+width one: a generated file of 2 000 top-level attributed items went
+from 6.0 ms to 569 ms, which is the shape `bindgen` output has. #1100
+therefore budgeted the parent's child count against the node's depth,
+reading forward only where that was the cheaper bound. [#1447][one-attr]
+removed the budget again, for the reason given below.
 
-**Both halves of that trade are now measured** (#1133).
+**Both halves of that trade were measured** (#1133).
 `nom/wide-attributed-fn` renders the wide shape (a flat file of
 `n` top-level `#[inline] fn f() {}` items, 500 / 1 000 / 2 000) under
-the same `exclude_tests` walk. It fits 0.97-1.00 against the budgeted
+the same `exclude_tests` walk. It fit 0.97-1.00 against the budgeted
 dispatch. Reintroducing the rejected forward-always scan behind a local
 patch takes it to **1.99**, at 35.6 / 145.5 / 560.6 ms against
 1.9 / 3.8 / 7.2 ms: 78x at the top of the ladder, the same order as
@@ -426,39 +422,64 @@ covers. [#1431][attribute-row] made the prune answer for every `#[…]`
 row rather than only for the item, and each answer re-derived the whole
 run, which is `O(run)` done `run` times. It is invisible to
 `nom/nested-attributed-fn`, where every run is one attribute long, and
-to `nom/wide-attributed-fn`, where depth 1 keeps the budget at six
+to `nom/wide-attributed-fn`, where depth 1 kept the budget at six
 children and the reading on the sibling walk.
 
 `nom/deep-attribute-run` renders the diagonal: `depth` nested `fn f`,
 then one run of `3 * depth` `#[cfg(test)]` rows on a single innermost
-item. The `3 *` is the point rather than a round number: it is exactly
-`forward_attribute_scan_budget`, so the parent is guaranteed to stay
-inside the budget and take the forward `O(children)` reading. The
-budget that exists to bound that scan selects *into* it on this shape.
+item. The `3 *` was the point rather than a round number: the run's
+parent, `3 * depth + 4` children sitting `2 * depth + 1` levels down,
+stayed inside the `6 * depth + 3` the budget allowed there, so it was
+guaranteed the forward `O(children)` reading. The budget that existed
+to bound that scan selected *into* it on this shape.
 Measured at 319 / 1 288 / 5 172 ms across the ladder, fitting **2.01**,
 against 0.05 s for the deepest cell with `exclude_tests` off. The run's
 verdict is now taken once and reused across its members
 (`SubtreeSkip`, `big-code-analysis-ast/src/checker.rs`), which reads
-1.5 / 3.1 / 6.4 ms and fits 1.06. The budget itself did not move: on
-this diagonal the forward pass is still the cheaper of the two
+1.5 / 3.1 / 6.4 ms and fits 1.06. #1446 left the budget alone: on
+this diagonal the forward pass was still the cheaper of the two
 readings, and what was quadratic was asking once per attribute.
 
 Its ladder is `ATTRIBUTE_RUN_DEPTHS`, half `LINEAR_DEPTHS` at every
-rung, because the shape renders four rows per unit of depth. A
+rung, because the shape renders five rows per unit of depth. A
 4 000-deep cell is a 200 KB tree under an 8 000-entry ancestor chain,
 and its per-byte cost drifts 1.7x up the ladder against the ~1.25x
 `LINEAR_BOUND` is set from: enough to fit 1.37 with the walk linear,
 which is 0.13 of headroom on a shared runner. The shorter ladder still
 reaches a 6 000-attribute run, well past where the quadratic shows.
 
-The unit suite still pins the *dispatch* separately:
-`the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
-in `big-code-analysis-ast/src/node.rs` asserts which arm each boundary
-shape takes, so widening the budget past a shallow parent fails a test
-rather than
-slipping through. The break-even *numbers* the budget is derived from
-remain unguarded, because the gate sees the complexity class and not
-the constant, so re-measure by hand when touching either constant.
+**A budget between two primitives goes stale when a third lands**
+(#1447). `nom/deep-one-attribute-items` keeps the diagonal but splits
+the run into one per item: `depth` nested `fn f`, then `3 * depth`
+separate `#[cfg(test)]\nfn t() {}` items in the innermost body. The
+reach makes each run one ask, but each ask still read the parent with
+a cursor pass from its first child, because the budget admitted the
+parent, so `3 * depth` asks of `O(width)` each were quadratic: 0.74 /
+2.99 / 11.97 s, fitting **2.00**. By then the budget was arbitrating
+between two readings that a third dominated: since #1545 and
+[#1584][flat-error], `Ancestors::siblings_before` / `siblings_after`
+find a node by binary search in the children the walk records for a
+wide parent (`SiblingCache`), or among at most `WIDE_PARENT` children by
+a short seek. That reading is free of depth and at most logarithmic in
+width, so the attribute run and the item it decorates now go through it
+and the budget is gone. The probe reads 1.8 / 3.7 / 7.9 ms and fits
+1.08; the three probes above fit 1.06-1.15 with and without the budget,
+and the repository's own Rust did not move off 0.64 s. What the probe
+prices is the removed pass from the first child, not the cache: its
+body is a grammar `repeat()`, where the byte seek is logarithmic too.
+The cache is what keeps a flat `ERROR` parent linear.
+
+The unit suite pins the reading only in part.
+`the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_parent`
+in `src/observation_tests.rs` asserts that the prune resolves no sibling
+from a node on either side of `WIDE_PARENT`, which restoring the budget
+fails. `rust_outer_attr_scans_agree` in
+`big-code-analysis-ast/src/checker.rs` compares both lookups against
+the raw sibling accessors, and the `exclude_tests_rust` tests in
+`src/spaces_tests.rs` assert the walk's values under a cached parent.
+None of them sees a pass over the parent's children or a prune handed
+no chain, since both answer the same and call no counted accessor; only
+the probes above price those.
 
 `nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
 probe that grows one *attribute* rather than the code around it:
@@ -990,6 +1011,7 @@ treating it as a regression.
 [attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
 [cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
 [attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
+[one-attr]: https://github.com/dekobon/big-code-analysis/issues/1447
 [space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
 [perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584

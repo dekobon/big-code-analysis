@@ -409,15 +409,15 @@ pub fn wide_attributed_fns(width: usize) -> String {
 /// depth 1. Neither produces a *long run*, and the prune's cost is per
 /// run, not per attribute.
 ///
-/// The `3 *` is what makes the shape adversarial rather than merely
-/// large. `forward_attribute_scan_budget` allows a parent
-/// `3 * depth` children wide before the reading flips to the
-/// depth-priced sibling walk, so a run sized to that budget is
-/// guaranteed to take the forward, `O(children)` branch — the budget
-/// selects *into* the expensive reading exactly here. Asking once per
-/// attribute then read the run `run` times: 0.08 / 0.34 / 1.21 / 5.18 s
-/// at depths 250 / 500 / 1 000 / 2 000, against 0.05 s for the deepest
-/// with `exclude_tests` off.
+/// The run was sized `3 * depth` so its parent, `3 * depth + 4` children
+/// sitting `2 * depth + 1` levels down, stayed inside the `6 * depth + 3`
+/// the width-against-depth budget then allowed there, and the shape took
+/// the forward `O(children)` reading for certain. Asking once per attribute
+/// read the run `run` times: 0.08 / 0.34 / 1.21 / 5.18 s at depths
+/// 250 / 500 / 1 000 / 2 000, against 0.05 s for the deepest with
+/// `exclude_tests` off. #1447 removed the budget, and the shape stays
+/// as the long-run diagonal; [`nested_fns_with_one_attribute_items`]
+/// is its many-runs counterpart.
 ///
 /// The reading is `nom.total()`, which counts the `depth` retained
 /// wrappers and not the pruned `fn t`. That is deliberate: a reading
@@ -432,6 +432,34 @@ pub fn nested_fns_with_attribute_run(depth: usize) -> String {
         "{}{}fn t() {{}}\nlet x = 1;\n{}",
         "fn f() {\n".repeat(depth),
         "#[cfg(test)]\n".repeat(3 * depth),
+        "}\n".repeat(depth),
+    )
+}
+
+/// Rust: `depth` nested `fn f`, then `3 * depth` separate
+/// `#[cfg(test)]\nfn t() {}` items in the innermost body.
+///
+/// [`nested_fns_with_attribute_run`] with the run split into one per
+/// item: the same diagonal, but many short runs on one deep parent
+/// instead of one long run. #1446's reach makes each run one ask, so
+/// what this prices is the ask itself. Under the width-against-depth
+/// budget #1100 set, the innermost body's `6 * depth + 2` children sit
+/// at depth `2 * depth + 1`, where the budget was `6 * depth + 3`, so
+/// each ask read the parent by a cursor pass from its first child,
+/// `O(width)` per ask, `3 * depth` times: 0.20 / 0.74 / 3.00 / 11.9 s at
+/// depths 250 / 500 / 1 000 / 2 000 (#1447). The ask now locates the
+/// node by a search instead: here the walk's `SiblingCache`, though on
+/// a `repeat()` body like this one the byte seek is logarithmic too.
+///
+/// The reading is `nom.total()`, the `depth` retained wrappers, for the
+/// reason [`nested_fns_with_attribute_run`] gives: the pruned `fn t`
+/// are the prune's own output and must not be what is measured.
+#[must_use]
+pub fn nested_fns_with_one_attribute_items(depth: usize) -> String {
+    format!(
+        "{}{}{}",
+        "fn f() {\n".repeat(depth),
+        "#[cfg(test)]\nfn t() {}\n".repeat(3 * depth),
         "}\n".repeat(depth),
     )
 }
@@ -1551,7 +1579,7 @@ const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 /// with one parameter.
 ///
 /// Half [`LINEAR_DEPTHS`] at every rung, and reasoned rather than
-/// harmonised. The shape renders `4 * depth` rows to a depth probe's
+/// harmonised. The shape renders `5 * depth + 2` rows to a depth probe's
 /// `depth`, so depth 2 000 here is already a 100 KB file with a
 /// 6 000-attribute run — comfortably past where #1446's quadratic
 /// showed (3.9x per doubling, ~2.0 fitted, 5.2 s at the top rung),
@@ -1564,6 +1592,11 @@ const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 /// own to fit 1.37 with the walk linear. That is a bound with 0.13 of
 /// headroom on a shared runner, and the ladder below fits 1.0-1.1
 /// instead.
+///
+/// `nom/deep-one-attribute-items` shares the ladder at 1.6 times the
+/// bytes (eight rows per unit of depth, 160 KB at the top rung) and fits
+/// 1.08 on it, so the same reasoning holds there with room to spare
+/// (#1447).
 const ATTRIBUTE_RUN_DEPTHS: [usize; 3] = [500, 1_000, 2_000];
 
 /// Depths for `loc/python-paren-bare-strings`, held under the 200 levels
@@ -2493,8 +2526,8 @@ pub const PROBES: &[Probe] = &[
                     answers by reading the run of `#[…]` siblings before \
                     an item. Walking that run backwards with \
                     `Node::previous_sibling` re-resolved the parent from \
-                    the root per step; it is now one forward pass over \
-                    the parent the walker already holds. `nom/nested-fn` \
+                    the root per step; it is now read off the walker's \
+                    chain, the parent an index (#1447). `nom/nested-fn` \
                     renders the same nesting without the attributes and \
                     with `exclude_tests` off, so it controls for both \
                     the nesting and the flag at once.",
@@ -2519,9 +2552,10 @@ pub const PROBES: &[Probe] = &[
                     a generated 2 000-item file going from 6.0 ms to \
                     569 ms while every depth probe stayed green. \
                     Reintroducing that scan takes this probe to 1.99. \
-                    The scan now budgets the parent's child count \
-                    against the node's depth, and this probe is what \
-                    keeps the shallow-wide half of that trade measured.",
+                    #1100 then budgeted the parent's width against the \
+                    node's depth; #1447 replaced the budget with the \
+                    walker's `SiblingCache`, and this probe keeps the \
+                    shallow-wide axis of that reading measured.",
     },
     Probe {
         name: "nom/deep-attribute-run",
@@ -2546,11 +2580,36 @@ pub const PROBES: &[Probe] = &[
                     `exclude_tests` off, fitting ~2.0. The run's verdict \
                     is now taken once and reused across its members \
                     (`SubtreeSkip`), which is what this probe holds in \
-                    place. Note the sizing: the run is `3 * depth` \
-                    because that is exactly `forward_attribute_scan_ \
-                    budget`, so the shape is guaranteed to take the \
-                    forward `O(children)` reading rather than sampling \
-                    whichever branch a round number happened to select.",
+                    place. The run is `3 * depth` so its parent stayed \
+                    inside the width budget #1447 later removed \
+                    (`6 * depth + 3` children at that depth); the shape \
+                    stays as the long-run axis of the diagonal.",
+    },
+    Probe {
+        name: "nom/deep-one-attribute-items",
+        lang: LANG::Rust,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_fns_with_one_attribute_items,
+        sizes: ATTRIBUTE_RUN_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1447: the many-runs axis of #1446's diagonal — \
+                    `3 * depth` one-attribute items in the innermost of \
+                    `depth` nested bodies. One ask per run is fine; the \
+                    ask itself read the parent by a cursor pass from its \
+                    first child, because #1100's width-against-depth \
+                    budget admitted the parent, so `3 * depth` asks of \
+                    `O(width)` each fitted 2.00 (0.74 / 2.99 / 11.97 s). \
+                    The attribute run and the decorated item now locate \
+                    the node by a search rather than that pass, which \
+                    fits 1.08 (1.8 / 3.7 / 7.9 ms). The search is the \
+                    walker's `SiblingCache` here, but a `repeat()` body \
+                    seeks in `O(log n)` too, so this prices the pass, \
+                    not the cache.",
     },
     Probe {
         name: "loc/wide-cfg-test-mod",

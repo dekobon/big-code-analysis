@@ -18,7 +18,7 @@ mod parser_cache;
 pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
-pub use ancestors::{GateLane, WIDE_PARENT, fold_steps};
+pub use ancestors::{GateLane, WIDE_PARENT, fold_steps, sibling_cache_reads};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
@@ -36,9 +36,10 @@ use parser_cache::parse_on_scratch_parser;
 // [`Ancestors::previous_sibling`] does, so no assertion on a metric
 // value can tell a walk that uses one from a walk that uses the
 // other — only the cost differs, and only on a deep tree. #1096 took
-// the last of these out of the metric bodies and #1100 out of the
-// `exclude_tests` prune; the counter is what makes putting one back a
-// test failure rather than a silent quadratic.
+// the last of these out of the metric bodies and #1447 out of the
+// `exclude_tests` prune, which #1100 had left calling one past a width
+// budget; the counter is what makes putting one back a test failure
+// rather than a silent quadratic.
 crate::observation::counter!(
     node_resolved_sibling_lookups,
     cfg(any(test, feature = "test-support"))
@@ -355,16 +356,14 @@ impl<'a> Node<'a> {
     /// The sibling immediately after this node.
     ///
     /// **`O(depth)`, not `O(1)`**, for [`previous_sibling`]'s reason:
-    /// `ts_node_next_sibling` opens with `ts_node_parent`. There is no
-    /// [`Ancestors`] counterpart because the only caller wants exactly
-    /// this cost — the `exclude_tests` attribute lookahead reads forward
-    /// over the parent's children whenever the parent is narrow enough,
-    /// and falls back here precisely for the wide-and-shallow parent a
-    /// cursor pass would make `O(width)` per node (#1431). Anything on a
-    /// walk that does not budget the two against each other should be
-    /// reading the child list instead.
+    /// `ts_node_next_sibling` opens with `ts_node_parent`. Test-only: a
+    /// walk reads forward with [`Ancestors::siblings_after`], and the
+    /// last production caller, the `exclude_tests` attribute lookahead,
+    /// moved there in #1447. The tests keep it as an oracle that shares
+    /// no lookup with the code it checks.
     ///
     /// [`previous_sibling`]: Self::previous_sibling
+    #[cfg(test)]
     #[inline]
     pub(crate) fn next_sibling(&self) -> Option<Node<'a>> {
         node_resolved_sibling_lookups::record();

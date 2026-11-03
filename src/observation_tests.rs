@@ -68,8 +68,7 @@ fn every_seam_scans_an_erroring_tcl_argument_list_once() {
     }
 }
 
-/// Under a parent narrow enough to read forward, the
-/// `exclude_tests` prune finds the run of `#[…]` siblings before an
+/// The `exclude_tests` prune finds the run of `#[…]` siblings before an
 /// item through the walker's ancestor chain, never by resolving
 /// siblings from the node.
 ///
@@ -77,13 +76,9 @@ fn every_seam_scans_an_erroring_tcl_argument_list_once() {
 /// returns the same answer, only `O(depth)` per step (#1100), and
 /// `rust_outer_attr_scans_agree` in `checker.rs` exists precisely
 /// to prove the two agree. The counter is the sole observable, so a
-/// revert is a silent quadratic without this.
-///
-/// Every parent in the fixture holds at most five children, which
-/// keeps it under `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` — the
-/// backward walk is still the deliberate reading above that width,
-/// so a wider fixture would assert the opposite of what it looks
-/// like it asserts.
+/// revert is a silent quadratic without this. Parent widths either
+/// side of `WIDE_PARENT` are swept in the test below; this one is the
+/// mixed shape.
 ///
 /// Seeding a real lookup first is what makes the assertion
 /// falsifiable: compared against zero it would also pass with
@@ -112,46 +107,84 @@ fn the_exclude_tests_prune_resolves_no_sibling_from_a_node() {
     );
 }
 
-/// Which arm the `exclude_tests` attribute-scan dispatch takes, at
-/// the boundary in both directions and on both of its axes.
+/// The `exclude_tests` prune resolves no sibling from a node under a
+/// narrow parent or a wide one, at the root or below it: the attribute
+/// run and the item it decorates are both read through `Ancestors`
+/// (#1447).
 ///
-/// `rust_outer_attr_scans_agree` in `checker.rs` proves the two
-/// readings answer the same thing, which is exactly why it cannot
-/// see which one ran — it passes at any budget, including one that
-/// never reads forward. This counter is the only observable that
-/// tells them apart, and it lives here, so the boundary is pinned
-/// here too.
-///
-/// The third case is the one #1100 got wrong: dispatching on width
-/// alone sent any over-wide body to the `O(depth)` walk however deep
-/// it sat, which on a nested `mod` tree is quadratic (a 3_200-deep
-/// fixture measured 2.67 s against 0.045 s for the same shape one
-/// child narrower).
+/// Until #1447 the prune budgeted the parent's width against the
+/// node's depth and fell back to `Node::previous_sibling` past it, so a
+/// seven-child root resolved siblings on purpose; restoring the budget
+/// fails that row and every wide one. `sibling_cache_reads` pins which
+/// lookup `Ancestors` took. Neither counter sees a pass over the
+/// parent's children (the defect #1447 fixed) or a prune handed no
+/// chain: each answers the same and calls no counted accessor.
+/// `rust_outer_attr_scans_agree` checks the lookups' answers, the
+/// `exclude_tests_rust` tests in `spaces_tests.rs` check the walk's, and
+/// the scaling probes price the rest.
 #[cfg(feature = "rust")]
 #[test]
-fn the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget() {
-    // Three attributed items make a `source_file` exactly six
-    // children wide — the depth-1 budget. A fourth, bare item makes
-    // seven, one over. Wrapping that in a `mod` puts the same seven
-    // between two braces, so its `declaration_list` is nine wide, at
-    // depth 3 — where the budget is also exactly nine.
-    let at_budget = "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\n";
-    let past_budget = format!("{at_budget}fn d() {{}}\n");
-    let nested = format!("mod m {{\n{past_budget}}}\n");
+fn the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_parent() {
+    use big_code_analysis_ast::node::WIDE_PARENT;
+    use big_code_analysis_ast::test_support::rust_root_of_width;
 
-    for (shape, source, resolves_siblings) in [
-        ("six children at depth 1", at_budget.to_string(), false),
-        ("seven children at depth 1", past_budget, true),
-        ("nine children at depth 3", nested, false),
+    // Seeded with a real lookup, as the test above is, so a counter that
+    // stopped counting fails here rather than reading `0 == 0`.
+    let seed =
+        crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", "fn a() {}\nfn b() {}\n");
+    let _ = seed
+        .root_node()
+        .children()
+        .last()
+        .expect("the file has items")
+        .previous_sibling();
+    assert!(
+        crate::node::node_resolved_sibling_lookups::observed() > 0,
+        "the seed call must be counted"
+    );
+
+    let nesting = 8;
+    let nested_wide = format!(
+        "{}{}{}",
+        "fn f() {\n".repeat(nesting),
+        "#[cfg(test)]\nfn t() {}\n".repeat(WIDE_PARENT),
+        "}\n".repeat(nesting),
+    );
+
+    // The last column is whether the walk's `SiblingCache` answers: a
+    // walk that stopped lending it (`with_siblings` dropped from
+    // `metrics_inner`) seeks instead, answers the same, and resolves no
+    // sibling from a node, so only `sibling_cache_reads` sees it.
+    for (shape, source, cached) in [
+        ("a seven-child root", rust_root_of_width(7), false),
+        (
+            "a `WIDE_PARENT`-child root, sought",
+            rust_root_of_width(WIDE_PARENT),
+            false,
+        ),
+        (
+            "a `WIDE_PARENT + 1`-child root, cached",
+            rust_root_of_width(WIDE_PARENT + 1),
+            true,
+        ),
+        ("a cached body eight functions deep", nested_wide, true),
     ] {
+        let reads = crate::node::sibling_cache_reads::observed();
         let before = crate::node::node_resolved_sibling_lookups::observed();
         crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", &source)
             .metrics(crate::MetricsOptions::default().with_exclude_tests(true))
             .expect("the walk must yield a top-level space");
-        let resolved = crate::node::node_resolved_sibling_lookups::observed() > before;
         assert_eq!(
-            resolved, resolves_siblings,
-            "{shape}: the prune took the wrong dispatch arm"
+            crate::node::node_resolved_sibling_lookups::observed(),
+            before,
+            "{shape}: the prune resolved a sibling from a node; \
+             read it through `Ancestors` instead (#1447)"
+        );
+        assert_eq!(
+            crate::node::sibling_cache_reads::observed() > reads,
+            cached,
+            "{shape}: the walk's `SiblingCache` was {} consulted",
+            if cached { "not" } else { "unexpectedly" },
         );
     }
 }

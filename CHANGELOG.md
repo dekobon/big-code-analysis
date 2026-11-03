@@ -734,6 +734,19 @@ for historical reference.
 
 ### Fixed
 
+- **`--exclude-tests` is no longer quadratic on many attributed items
+  in one deep body** (#1447). Each `#[…]` run's verdict was read by a
+  cursor pass from the parent's first child whenever the parent fell
+  inside a width-against-depth budget, so a Rust file `D` levels deep
+  whose innermost body holds `3 * D` separate `#[cfg(test)] fn` items
+  took 11.9 s at `D = 2000` against 0.07 s with the flag off. The run
+  and the item it decorates are now located by a search (the walk's
+  sibling cache under a wide parent) rather than a pass from the
+  parent's first child, and the same file takes 0.04 s. Metric values
+  are unchanged (byte-identical `--exclude-tests` JSON over this
+  repository's Rust and the `serde` corpus); the new
+  `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
+  1.08 after.
 - `utils/check-role-coverage.py`: the "no baseline section" error named
   `--report` as the way to list a new language's residue entries, but
   `--report` prints only per-language counts; it now names
