@@ -564,6 +564,12 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// over the siblings — or, for a wide parent the walk recorded in its
     /// [`SiblingCache`], a binary search, since a walk over every child
     /// of a Kotlin string's `$name` run was quadratic in it (#1584).
+    /// A debug build rejects that cursor walk over a parent wider than
+    /// [`WIDE_PARENT`], which only a chain lending no cache can reach.
+    /// The metric, ops and `find` / `count` walks call this and lend one;
+    /// the suppression, dump and comment-removal walks lend none, so a
+    /// predicate added to one of those must lend one before calling it
+    /// (#1785).
     #[inline]
     #[must_use]
     pub fn previous_sibling(self, node: &Node<'tree>) -> Option<Node<'tree>> {
@@ -580,6 +586,19 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         let mut previous = None;
         for child in parent.children() {
             if child.id() == node.id() {
+                // The scan is `O(index)`, so only a chain that lends no
+                // cache can reach it under a wide parent, and no caller
+                // does (#1785). One that starts to would be quadratic
+                // over the parent's children and answer the same, so
+                // make it loud. Asserted once the scan has found `node`:
+                // a chain that does not describe it is a different
+                // caller error, the one the fallback below answers.
+                debug_assert!(
+                    parent.child_count() <= WIDE_PARENT,
+                    "previous_sibling scanned a {}-child {} with no SiblingCache (#1785)",
+                    parent.child_count(),
+                    parent.kind()
+                );
                 return previous;
             }
             previous = Some(child);
@@ -1164,6 +1183,57 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 mod tests {
     use super::*;
     use crate::node::Tree;
+
+    /// A chain that lends no `SiblingCache` reaching `previous_sibling`'s
+    /// scan under a wide parent trips the debug assertion there, rather
+    /// than going quadratic in silence (#1785). No production walk does;
+    /// this is what shows the assertion can fire at all, so its silence
+    /// across the suite means something.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "with no SiblingCache (#1785)")]
+    fn previous_sibling_rejects_a_wide_parent_without_its_cache() {
+        let source = "fn a() {}\n".repeat(WIDE_PARENT + 1);
+        let tree = Tree::new::<crate::langs::RustCode>(source.as_bytes());
+        let root = tree.get_root();
+        let last = root.children().last().expect("the file has items");
+        let _ = Ancestors::known(&[root]).previous_sibling(&last);
+    }
+
+    /// A chain that does not describe the node still falls back to the
+    /// tree under a wide parent, as it does under a narrow one
+    /// (`previous_sibling_falls_back_on_a_chain_that_is_not_this_nodes`):
+    /// the #1785 assertion is about a scan that found the node, and a
+    /// mismatched chain is the caller error the fallback answers.
+    /// Discriminates only under a debug build, where the assertion is
+    /// compiled in.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn previous_sibling_falls_back_on_a_wide_chain_that_is_not_this_nodes() {
+        let source = format!(
+            "fn a() {{ let x = 1; }}\n{}",
+            "fn b() {}\n".repeat(WIDE_PARENT)
+        );
+        let tree = Tree::new::<crate::langs::RustCode>(source.as_bytes());
+        let root = tree.get_root();
+        assert!(root.child_count() > WIDE_PARENT, "the root must be wide");
+        let statement = root
+            .preorder()
+            .find(|node| node.kind() == "let_declaration")
+            .expect("fixture has a statement");
+        let expected = statement
+            .previous_sibling()
+            .map(|node| node.id())
+            .expect("the statement follows the body's `{`");
+        // The root is not the statement's parent, which is the body.
+        assert_eq!(
+            Ancestors::known(&[root])
+                .previous_sibling(&statement)
+                .map(|node| node.id()),
+            Some(expected),
+            "a mismatched chain must fall back, not panic or report `None`"
+        );
+    }
 
     // The ids of `nodes`, so a failing comparison prints which differ.
     #[cfg(feature = "perl")]

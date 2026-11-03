@@ -853,6 +853,13 @@ for historical reference.
   the `Node` rather than its start byte, and the new
   `SubtreeSkip::covering_through_node` names the item. (#1783)
 
+- In `big-code-analysis-ast`, `Ancestors::previous_sibling` panics in a
+  debug build when a chain lending no `SiblingCache` would answer by
+  scanning a parent wider than `WIDE_PARENT`, the per-ask cost that
+  cache exists to remove. Release builds answer as before. The walks
+  whose predicates call it (metrics, `ops`, `find` and `count`) all
+  lend the cache. (#1785)
+
 ### Deprecated
 
 - `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;
