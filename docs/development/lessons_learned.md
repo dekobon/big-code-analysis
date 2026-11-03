@@ -3373,10 +3373,14 @@ the stop, not the climb.
 read *that*, even when a category is already in hand and agrees on every
 input you have. When replacing a proxy, check **both directions** before
 sizing the fix: a one-line `debug_assert` probe in the shared path, run
-over the whole suite (`cargo test --workspace 2>&1 | rg -o "PROBE \w+"`),
-enumerates which grammars really reach a supposedly-unreachable branch.
-Treat "this per-part value exceeds the whole" as a hard invariant worth
-asserting outright.
+over the whole suite
+(`cargo test --workspace --no-fail-fast 2>&1 | rg -o "PROBE \w+"`, since
+a firing probe fails its target and cargo stops at the first one that
+fails), enumerates which grammars really reach a
+supposedly-unreachable branch, once a direct test has shown the probe
+can fire ([`testing.md`](../../.claude/rules/testing.md), "Prove a
+reachability probe can fire"). Treat "this per-part value exceeds the
+whole" as a hard invariant worth asserting outright.
 
 Both failures are silent, because the value stays a plausible number,
 and they have **opposite sign** — so an aggregate over mixed input can

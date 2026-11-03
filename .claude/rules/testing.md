@@ -148,6 +148,21 @@ perturbation then reports the integration guard as passing, which reads
 as a dead guard rather than a harness artifact (#1270). Pass
 `--no-fail-fast` in any multi-target perturbation run.
 
+**So is the target set.** A guard often lives outside the crate that
+holds the mutated line, in a dependent crate whose walk reaches the
+function without naming it. A sweep over one crate sees only that
+crate's guards, so every other guard reads as absent. During #1784 a
+sweep over `-p big-code-analysis --lib` reported the new test as the
+only failure of a mutant in `big-code-analysis-ast`'s `checker.rs`.
+Adding `-p big-code-analysis-ast` showed `rust_outer_attr_scans_agree`
+failing too, after the claim had reached the issue and the test's doc
+comment. Before writing "only this test catches it", sweep the mutated
+crate and every crate that depends on it (`cargo tree --workspace -i
+<crate> -e normal` lists them), or sweep `--workspace`. A text search
+for the function's name is no substitute: the root-crate guard calls
+`Ast::metrics` and never names the function, and `rg` found its file
+only because a doc comment mentions it.
+
 **Classify a build failure by `error[` or `could not compile`, never by
 `error`.** `cargo test` prints `error: test failed` to stderr on an
 ordinary red run, so a driver matching bare `error` reads every
@@ -384,6 +399,26 @@ Record the perturbed exponent in the probe's `rationale` beside the
 memoised one, as the two `#1602` probes do (1.97 and 1.92 / 1.67
 against ~1.0), so the next reader can see the probe was shown to
 discriminate rather than assumed to.
+
+### Prove a reachability probe can fire
+
+A temporary assertion run over the suite to show that a branch is
+unreachable (lesson 83's probe) reports zero in two cases: when the
+branch is unreachable, and when the assertion is dead. It is dead when
+it sits where its condition cannot hold, is gated by a `cfg` the run
+does not set, or is a `debug_assert!` in a release build. Before reading
+zero fires as a finding, drive the branch directly from a throwaway
+`#[should_panic(expected = …)]` test and watch it fire. Run any
+binary-driven half of the measurement on a dev build for the same
+reason.
+
+#1785's assert in the uncached arm of `Ancestors::previous_sibling`
+fired 0 times across 6 890 tests, the self-scan and six `bca`
+subcommands. That zero meant something only because a test querying a
+200-child root through `Ancestors::known`, with no cache, made it fire
+first. When the assertion is kept, keep the control with it:
+`previous_sibling_rejects_a_wide_parent_without_its_cache` queries a
+root one child wider than `WIDE_PARENT`.
 
 ## Coverage measures execution, not discrimination
 
