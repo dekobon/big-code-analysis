@@ -155,6 +155,7 @@ number and the higher number stays as a redirect.
 | [109](#109-a-resolved-view-printed-at-two-layers-re-layers-itself-when-read-back) | A resolved view printed at two layers re-layers itself when read back |
 | [110](#110-a-fallback-priced-at-one-call-frequency-is-a-syscall-per-node-at-another) | A fallback priced at one call frequency is a syscall per node at another |
 | [111](#111-a-tool-that-walks-source-items-does-not-see-what-a-macro-emits) | A tool that walks source items does not see what a macro emits |
+| [112](#112-a-test-double-can-intercept-the-wrong-calls) | A test double can intercept the wrong calls |
 
 ---
 
@@ -3837,22 +3838,18 @@ three possible resolutions records a different digest.
 
 ## 91. A gate can filter out its own subject before the check runs
 
-**Lesson:** When you add a dependency or supply-chain gate, prove it
-fails by reintroducing the condition it guards and watching it go red.
-A tool that builds a filtered view of its input before applying your
-rules can drop the very artifact a rule names, leaving an entry that is
-syntactically valid, semantically correct, and permanently silent. When
-the tool's view is derived, guard the raw artifact instead — the
-lockfile, the manifest — and record at the site where the dead entry
-would go why it is not there.
+**Lesson:** Before trusting a filtered gate, prove the subject reaches
+the check and that reintroducing the guarded condition makes it fail.
+A rule cannot protect an artifact the tool removes first. Inspect the
+tool's input set; if it omits the subject, use an unfiltered check or
+guard the raw artifact directly. Record the gap where a reader would
+otherwise mistake a config entry or suppression marker for coverage.
 
-A config entry reads as coverage. A future maintainer greps `deny.toml`,
-finds the crate and the version range spelled out, and stops looking;
-the tool exits 0, which is the same output it gives when the tree is
-genuinely clean. Nothing distinguishes "no violation" from "the subject
-was never in scope", and the gap opens precisely when the guard matters,
-because the condition that reintroduces the vulnerable crate is also the
-condition that puts it back beyond the filter.
+A successful exit can mean that the subject passed its checks or that
+it never reached them. The exit status alone cannot distinguish these
+cases. A config entry or suppression marker suggests the subject was
+checked, so its presence can end the investigation before anyone
+inspects the filter.
 
 **cargo-deny cannot guard `h2 0.3.27`** (RUSTSEC-2026-0258, Scorecard
 alert #776; `3df3b2c3`, `b60943b5` — direct pushes to `main`, no PR).
@@ -3879,6 +3876,22 @@ the probe read 1.0 with the memo and 1.0 without. The proof the probe
 discriminates is the same as this lesson's: remove the memo and watch
 the exponent leave the bound (`.claude/rules/testing.md`, "Validate a
 scaling probe by removing what it prices").
+
+**Production readers were classified as tests** (#1777). PR #1780
+introduced `cfg(any(<os>, test))` for the ELF reader; #1777 reused it
+for the Mach-O and PE readers. Their inner `reader` modules compile
+on the relevant OS or in tests, keeping unused parsers out of other
+targets' builds under `-D warnings`. The self-scan's `exclude_tests`
+classifier treats that shape as test code and prunes the parsers, so
+their suppression markers were not what made the scan pass. An
+unpruned `bca check --no-config --threshold nexits=5 -p <file>` found
+`Headers::debug_directory` at 9 with no marker and `file_offset` at 15
+with its marker attached to the inner closure instead of the function.
+The two functions and the closure now carry markers for unpruned
+checks. The cfg gates remain, and
+`big-code-analysis-cli/src/build_info/build_id/elf.rs` documents the
+self-scan's omission. Add `--no-suppress` to the command to inspect
+scores behind the current markers as well.
 
 ---
 
@@ -4929,5 +4942,41 @@ into macros (#1695), a week before #1747 deleted them; deleting them
 changed nothing, because the self-scan never scored a function there
 to gate. The `bca.toml` entry that replaced the markers says every
 function in the glob stays gated and, further down, names this gap.
+
+---
+
+## 112. A test double can intercept the wrong calls
+
+**Lesson:** When a test double intercepts calls to fixture files, match
+the fixture's own paths rather than a shape that real files can share.
+Run the suite with CI's explicit artifacts as well as its defaults.
+After production changes a routed call's path or arguments, repeat the
+mutation check: the assertion can still pass after the double stops
+recording the call. See the perturbation procedure in
+[`testing.md`](../../.claude/rules/testing.md).
+
+An overly broad match can apply a fake's handling to a real artifact.
+A stale match can let a call bypass the double and its recording logic.
+The first defect may appear only with an artifact absent from local
+validation. The second can leave a green test whose call log omits the
+very operation its assertion claims to count.
+
+**The preload intercepted CI's native analyzer** (#1776). The hook
+fixture routed any `…/target/{debug,release}/bca` through Node so its
+fake binaries could run on every OS. CI supplied the real checkout
+binary through `BCA_TEST_BINARY`, and that path matched too. The hook's
+`check` invocation tried to execute the native binary as JavaScript.
+The historical suites passed 68 of 68 tests with the default PATH
+analyzer, but only 65 of 68 with CI's explicit one. The preload now
+names the fixture's two exact local-build paths.
+
+**Resolving the executable path blinded the dedupe test** (#1776). A
+production change made the hook probe PATH `bca` by its resolved file
+path. The fixture still intercepted only the bare name `bca`. With
+deduplication removed, the symlink's extra probe bypassed the fake's
+recording logic, and all 71 tests passed under the mutation the test
+claimed to catch. Routing the symlink's path made that mutation fail
+exactly one test: the assertion that a local build also found on PATH
+is probed once.
 
 ---
