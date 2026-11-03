@@ -587,6 +587,30 @@ repos:
         entry: python3 -m unittest -q utils/check-safety-doc-pin-test.py
         pass_filenames: false
 
+      # The five vendored grammar build scripts carry a hand-maintained
+      # block that rerun-if-changed-watches src/tree_sitter/ (#1773).
+      # A regeneration does not restore it, and losing it leaves a
+      # stale parser object behind a fresh build-inputs digest. Fires
+      # on the root manifest too, since that is where the crate list
+      # comes from, and on any crate whose name contains `tree-sitter`,
+      # which is the gate's own discovery rule (#1778).
+      - id: check-grammar-build-watch
+        name: check-grammar-build-watch
+        language: system
+        files: '^(Cargo\.toml|[^/]*tree-sitter[^/]*/bindings/rust/build\.rs|utils/check-grammar-build-watch\.py)$'
+        entry: python3 -B utils/check-grammar-build-watch.py
+        pass_filenames: false
+
+      # Self-tests for the grammar-build-watch gate, for the same reason
+      # as the pairs above: a source-scanning gate that stops matching
+      # reports a clean tree.
+      - id: check-grammar-build-watch-test
+        name: check-grammar-build-watch-test
+        language: system
+        files: '^utils/check-grammar-build-watch(-test)?\.py$'
+        entry: python3 -B -m unittest -q utils/check-grammar-build-watch-test.py
+        pass_filenames: false
+
       # The `enums/` crate is workspace-excluded, so the workspace
       # clippy/test hooks above never touch it. Add a dedicated check
       # so warnings here cannot drift (see #164).

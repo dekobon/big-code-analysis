@@ -91,10 +91,13 @@ GRAMMAR_DEP_SUBSTRING = "tree-sitter"
 
 # Excluded crates deliberately exempt from carrying a `[lints]` table.
 #
-# The five vendored grammar forks hold ~60 lines of Rust each, and none
-# of it is ours: `bindings/rust/lib.rs` and `build.rs` come out of
+# The five vendored grammar forks hold ~60 lines of Rust each, and almost
+# none of it is ours: `bindings/rust/lib.rs` and `build.rs` come out of
 # `tree-sitter generate` from the upstream binding templates, and are
-# replaced wholesale when a grammar is regenerated. Applying the
+# replaced wholesale when a grammar is regenerated. The one exception is
+# the hand-maintained `src/tree_sitter/` header watch in `build.rs`
+# (#1773), which `check-grammar-build-watch.py` gates separately
+# (#1778); it does not change the lint decision here. Applying the
 # workspace's `pedantic` + `missing_docs` posture there would buy
 # annotations on generated code that the next regeneration discards,
 # against a body of code with no branching to get wrong. Nothing lints

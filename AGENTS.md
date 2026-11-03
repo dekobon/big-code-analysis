@@ -81,6 +81,7 @@ and `cargo run -p big-code-analysis-web --`.
   `check-snapshot-anchors.py`, `check-rustfmt-bail.py`,
   `check-manpage-assets.py`, `check-manpage-drift.py`,
   `check-diagnostic-prefix.py`, `check-safety-doc-pin.py`,
+  `check-grammar-build-watch.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
@@ -304,10 +305,14 @@ and `cargo run -p big-code-analysis-web --`.
   `lints.workspace = true`. A **workspace-excluded** crate roots its own
   workspace and inherits nothing, so it needs its own copy of those
   tables; `enums` carries one, and the five vendored `tree-sitter-*`
-  crates are exempt by decision (generated binding boilerplate that a
-  regeneration replaces wholesale). `utils/check-excluded-manifests.py`
-  gates this — without it a crate gated at `-D warnings` is measured
-  against the compiler defaults and still reads as fully linted (#1228).
+  crates are exempt by decision, because a regeneration replaces their
+  generated sources wholesale — with one exception,
+  `bindings/rust/build.rs`, which carries a hand-maintained
+  `src/tree_sitter/` header watch (#1773) that no regeneration
+  restores and that `make check-grammar-build-watch` gates (#1778).
+  `utils/check-excluded-manifests.py` gates the lint tables — without
+  it a crate gated at `-D warnings` is measured against the compiler
+  defaults and still reads as fully linted (#1228).
   Additional `allow`s go at file or function level, so the carve-out
   stays visible at the affected site.
 
@@ -354,7 +359,12 @@ the safety-doc pin gate
 version cited by the `unsafe` soundness argument in
 `big-code-analysis-py/src/node.rs` is not the version
 `[workspace.dependencies]` pins, or when the citation is dropped
-altogether — #1057), the bca self-scan threshold gate at both
+altogether — #1057), the grammar build-watch gate
+(`make check-grammar-build-watch`, which fails when the
+`bindings/rust/build.rs` of any `[workspace].exclude` entry naming
+`tree-sitter` no longer carries the hand-maintained `src/tree_sitter/`
+header watch verbatim, or is missing outright — #1778), the bca
+self-scan threshold gate at both
 tiers (`make self-scan` mirroring the `Threshold gate` step in
 `.github/workflows/pages.yml`, plus `make self-scan-headroom`
 which scales every limit by `BCA_HEADROOM` — default `0.95` — so

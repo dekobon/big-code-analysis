@@ -26,6 +26,15 @@ for historical reference.
 
 ### Added
 
+- **`make check-grammar-build-watch`** (`utils/check-grammar-build-watch.py`,
+  #1778): fails when the `bindings/rust/build.rs` of any
+  `[workspace].exclude` entry naming `tree-sitter` no longer carries,
+  token for token, the hand-maintained `src/tree_sitter/` header watch
+  #1773 added, or is missing outright — the block no regeneration
+  restores, and whose loss leaves a stale parser object behind a fresh
+  `build inputs:` digest. Wired into `make lint`, `make pre-commit`,
+  `make ci`, the pre-commit hooks and CI, with its own self-test.
+
 - **`bca --version` records build provenance** (#1773). `-V` is the
   unchanged one-line `bca <version>`; `--version` follows it with
   `build inputs:` (a SHA-256 content digest of every source compiled
