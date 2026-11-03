@@ -17,7 +17,7 @@
 //! current `now` rather than freezing at cache-write time.
 //!
 //! That contract holds only while every input the walk *records* is
-//! covered by the entry key or the fingerprint. Three repository-side
+//! covered by the entry key or the fingerprint. Four repository-side
 //! inputs are neither, and all enter [`cache::fingerprint`] here through
 //! [`history::WalkContext::input_digests`], which covers all three cache
 //! paths at once — the pure hit, `load_compatible`'s ancestor selection
@@ -29,19 +29,27 @@
 //! `binary` and `textconv` configure the
 //! blob-diff platform that produces the recorded churn, and a change to
 //! them was served stale — and spliced forward under each new head — until
-//! `--clear-cache` (issue #1425). The shallow boundary is the third: a
+//! `--clear-cache` (issue #1425). The `diff` attribute bindings that route
+//! a path to one of those drivers or mark it `-diff` are the third: gix
+//! resolves them for every walked commit from the *current* index and
+//! attribute files, so a staged `.gitattributes` or an `info/attributes`
+//! edit hit the exact entry, and a committed `.gitattributes` edit
+//! spliced onto the tail walked under the old bindings (issue #1760).
+//! The shallow boundary is the fourth: a
 //! still-shallow clone deepened in place (`git fetch --deepen`, a larger
 //! `--depth`, an earlier `--shallow-since`) moves neither `HEAD` nor the
 //! `is_shallow()` flag [`cache::HistoryCache::is_compatible`] checks, so
 //! only a full `--unshallow` (issue #810) retired the entry walked at the
 //! old depth; a deepen was a pure hit on it, and the splice re-persisted
 //! its truncated tail under each new head. A digest can only be taken
-//! from a context's snapshot, platform and shallow-file read, and this
-//! build opens exactly one context and walks through it, so an entry's
-//! stamp and its events share one read of the mailmap and of the diff
-//! configuration (issue #1409). gix's walk reads the shallow file again;
-//! [`history::WalkContext`] says why that second read can cost a cold walk
-//! but not a stale hit.
+//! from a context's snapshot, platform, index, attribute-file capture
+//! and shallow-file read, and this build opens exactly one context and
+//! walks through it, so an entry's stamp and its events share one read
+//! of the mailmap, of the diff configuration and of each attribute file
+//! (issue #1409). gix's walk reads the shallow file again;
+//! [`history::WalkContext`] says why that second read can cost a cold
+//! walk but not a stale hit, and why the attribute files could not be
+//! left to one.
 //!
 //! Fingerprinting the diff configuration was chosen over pinning the
 //! algorithm in the walk. A pin would also make churn host-independent,
@@ -52,15 +60,15 @@
 //! cache fix. The fingerprint only invalidates, so a cached run keeps
 //! reporting what `git diff` on that host reports.
 //!
-//! One walk input remains outside both the key and the fingerprint: the
-//! `diff` attribute bindings that route a path to a driver or mark it
-//! `-diff`. gix resolves them for every commit from the *current* index
-//! and attribute files, so a binding change is served stale until
-//! `--clear-cache` whether or not it moves `HEAD`: a staged
-//! `.gitattributes` or `info/attributes` edit hits the exact entry, and a
-//! committed `.gitattributes` edit splices onto the tail walked under the
-//! old bindings. [`history::WalkContext::diff_config_digest`] says why
-//! they are left out.
+//! The attribute term hashes the *content* of every source the walk
+//! resolves under — the index's `.gitattributes` blobs by id, the
+//! `info/attributes`, user and system files by the bytes
+//! the context captured and built the platform's stack from — plus
+//! `core.ignoreCase`, so a rule edit, a rule reorder, a file appearing or
+//! a case flip each retire the entry, and no path spelling enters.
+//! [`history::WalkContext::diff_attributes_digest`] lists the sources and
+//! names the one residual risk: a gix release adding a source kind that
+//! list does not name.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -249,15 +249,20 @@ score-formula version, the *walk-affecting* options, the repository's
 effective `.mailmap`, or the git diff configuration that decides how gix
 diffs (`diff.algorithm`, `core.bigFileThreshold`, and a `diff.<driver>`
 section's `algorithm`, `binary`, and whether it sets a `textconv`; a
-driver's `command` never runs here and does not count), or the shallow
-boundary of a shallow clone (a `git fetch --deepen` or `--unshallow`
-leaves `HEAD` where it was but reaches commits the entry never saw)
-differ; in
-particular **changing a window forces a fresh walk**. One walk input is
-not covered: the `diff` attribute bindings (`.gitattributes`,
-`.git/info/attributes`, the global attributes file) that route a path to
-a diff driver or mark it `-diff`, so after changing those run once with
-`--clear-cache`. A bca release that adds a term retires every existing
+driver's `command` never runs here and does not count), the `diff`
+attribute bindings that route a path to a diff driver or mark it `-diff`
+(the `.gitattributes` files in the index — committed or staged, never an
+unstaged edit, which the walk does not read either — and the full
+content of `.git/info/attributes`, `core.attributesFile` or its XDG
+default, and the system attributes file, so a
+reorder of two overlapping rules counts as much as an edit, as does a
+`core.ignoreCase` flip; each file is read once per run and both the
+walk and the entry's stamp come from that one read), or
+the shallow boundary of a shallow clone (a `git fetch --deepen` or
+`--unshallow` leaves `HEAD` where it was but reaches commits the entry
+never saw) differ; in particular **changing a window forces a fresh
+walk**. A bca
+release that adds a term retires every existing
 entry, so the first `bca vcs` after such an upgrade re-walks the whole
 long window once. Nothing deletes an entry that no longer matches, since
 a run with other options may still use it; `--clear-cache` removes the

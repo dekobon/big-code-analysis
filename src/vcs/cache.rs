@@ -290,13 +290,15 @@ fn parse_entry(bytes: &[u8]) -> Option<HistoryCache> {
 /// Each is input the way an option is — it decides what the walk records
 /// — while a change to it moves neither `HEAD` (the entry key) nor any
 /// option field, so each has to enter [`fingerprint`] on its own. The
-/// backend's `WalkContext` produces all three from the one mailmap
-/// snapshot, the one diff platform and the one shallow-file read its
-/// walk was opened with. The walk consumes the first two, so for them an
-/// entry's stamp and its events cannot come from two reads (issue #1409);
-/// gix's walk re-reads the shallow file, and `WalkContext` says why that
-/// pair heals on the next run. Named fields rather than `u64`
-/// parameters, so a call site cannot transpose them.
+/// backend's `WalkContext` produces all four from the one mailmap
+/// snapshot, the one diff platform (with the one index and the one read
+/// of each attribute file its attribute stack is built from) and the one
+/// shallow-file read its walk was opened with.
+/// The walk consumes the first three, so for them an entry's stamp and
+/// its events cannot come from two reads (issue #1409); gix's walk
+/// re-reads the shallow file, and `WalkContext` says why that pair heals
+/// on the next run. Named fields rather than `u64` parameters, so a call
+/// site cannot transpose them.
 #[derive(Clone, Copy, Debug, Hash)]
 pub(crate) struct WalkInputDigests {
     /// The effective mailmap, as gix merged it (issue #1262).
@@ -306,6 +308,11 @@ pub(crate) struct WalkInputDigests {
     /// `algorithm`, `binary` and `textconv` presence — as gix configured
     /// the walk's diff platform from it (issue #1425).
     pub diff_config: u64,
+    /// The `diff` attribute bindings — the index's `.gitattributes`
+    /// blobs, the bytes of the attribute files gix reads outside the
+    /// index, and `core.ignoreCase` — as the walk's platform resolves
+    /// them (issue #1760).
+    pub diff_attributes: u64,
     /// The shallow boundary, the set of commits `.git/shallow` lists, or
     /// the digest of no boundary for a clone with full history.
     pub shallow_boundary: u64,
@@ -335,10 +342,22 @@ pub(crate) struct WalkInputDigests {
 /// edit, and a blob over `core.bigFileThreshold` is not diffed at all —
 /// so a change served the old churn, and the splice carried it forward,
 /// exactly as the mailmap did. `WalkContext::diff_config_digest` owns the
-/// list of what it projects and names the one input still outside the
-/// fingerprint, the `diff` attribute bindings; the `git::cached` module
-/// docs record why the configuration is fingerprinted rather than the
-/// algorithm pinned in the walk.
+/// list of what it projects; the `git::cached` module docs record why
+/// the configuration is fingerprinted rather than the algorithm pinned
+/// in the walk.
+///
+/// `inputs.diff_attributes` (issue #1760) covers the `diff` attribute
+/// bindings that route a path to a `diff.<driver>` section or mark it
+/// `-diff`, which gix resolves for every walked commit from the *current*
+/// index and attribute files. A binding change — a staged or committed
+/// `.gitattributes`, `info/attributes`, the global file — rewrote the
+/// churn a fresh walk records while this fingerprint stayed put, and the
+/// splice carried the stale tail forward under each new head.
+/// `WalkContext::diff_attributes_digest` says what the value hashes —
+/// the content of every source, so a rule reorder or a case flip count
+/// as much as a rule edit — and names the one residual risk: an
+/// attribute source a future gix release adds that its list does not
+/// name.
 ///
 /// `inputs.shallow_boundary` covers the commits `.git/shallow` lists,
 /// behind which the walk records nothing. The entry's shallow flag
@@ -351,9 +370,9 @@ pub(crate) struct WalkInputDigests {
 /// value hashes.
 ///
 /// Adding a term retires every entry stamped before it on its own — the
-/// value moves for an unchanged configuration — so neither #1262, #1425
-/// nor the shallow-boundary term bumped [`CACHE_SCHEMA_VERSION`]; that
-/// version is for a change in what a recorded event *means*.
+/// value moves for an unchanged configuration — so neither #1262, #1425,
+/// #1760 nor the shallow-boundary term bumped [`CACHE_SCHEMA_VERSION`];
+/// that version is for a change in what a recorded event *means*.
 ///
 /// Note what this term does *not* generalise to. An input is fingerprinted
 /// only when it is hashed here, and what is hashed is the option's

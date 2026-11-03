@@ -667,12 +667,168 @@ fn a_diff_algorithm_change_is_not_baked_into_the_incremental_splice() {
 }
 
 #[test]
+fn a_committed_diff_attribute_binding_is_not_baked_into_the_incremental_splice() {
+    // Issue #1760, the issue's own table. The `diff.rs` driver exists and
+    // selects histogram from the start, but binds nothing until a
+    // `.gitattributes` routes `*.rs` to it; gix resolves that binding for
+    // every walked commit from the current index, so committing it
+    // rewrites the churn of the two commits already cached. Committing
+    // moves `HEAD`, so the next run takes the incremental splice — and
+    // under the pre-fix fingerprint adopted the Myers-era tail, then
+    // re-persisted it under the new head for every later pure hit (9
+    // against a fresh walk's 19, measured on the #1425 review branch).
+    //
+    // `core.attributesFile` is pinned to an empty file in the repository
+    // config because production opens the repository under the host's
+    // own configuration: a contributor's XDG attributes file binding
+    // `*.rs` would otherwise decide what the fixture primes.
+    let empty_attributes = tempfile::tempdir().expect("tempdir");
+    let empty_attributes = empty_attributes.path().join("attributes");
+    std::fs::write(&empty_attributes, b"").expect("write empty attributes file");
+    let repo = build_algorithm_sensitive_repo_with(|repo| {
+        repo.git(&[
+            "config",
+            "core.attributesFile",
+            empty_attributes.to_str().expect("temp path is valid UTF-8"),
+        ]);
+        repo.git(&["config", "diff.rs.binary", "false"]);
+        repo.git(&["config", "diff.rs.algorithm", "histogram"]);
+    });
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        churn_long(&primed, "a.rs"),
+        CHURN_UNDER_MYERS,
+        "unbound, the driver applies to nothing and the fixture primes under \
+         `diff.algorithm`'s Myers"
+    );
+
+    repo.write(".gitattributes", "*.rs diff=rs\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - DAY,
+        "chore: route rust through its driver",
+    );
+
+    let spliced = build_history_index_cached(repo.path(), &opts(), &cfg).expect("incremental");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        churn_long(&fresh, "a.rs"),
+        CHURN_UNDER_HISTOGRAM,
+        "bound, the driver's histogram rewrites the churn of both cached \
+         commits; the binding commit itself touches no `.rs` file"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&spliced),
+        "the splice must not adopt the cached tail's unbound Myers churn"
+    );
+
+    let hit = build_history_index_cached(repo.path(), &opts(), &cfg).expect("pure hit");
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&hit),
+        "the persisted entry replays the bound churn"
+    );
+
+    // As in the mailmap and algorithm splice tests: a cold walk equals a
+    // fresh walk too, so empty the entries to show the run above was a
+    // served hit on the entry the splice persisted.
+    empty_entry_events(cache_dir.path());
+    let served = snapshot(
+        &build_history_index_cached(repo.path(), &opts(), &cfg).expect("emptied pure hit"),
+    );
+    assert!(!served.is_empty(), "the index seeds a.rs regardless of hit");
+    assert!(
+        served.values().all(|stats| stats.commits_long == 0),
+        "the persisted entry was not served, so the assertion above was \
+         comparing two cold walks"
+    );
+
+    // Cache-file hygiene, as the sibling splice tests pin it: the unbound
+    // entry fingerprints differently, so it is neither a splice base nor
+    // superseded and lingers until `--clear-cache`.
+    assert_eq!(
+        count_entries(cache_dir.path()),
+        2,
+        "the unbound entry is bypassed, not spliced onto"
+    );
+}
+
+#[test]
+fn a_reordered_info_attributes_is_not_served_from_a_stale_entry() {
+    // The case that sank the first shape of the #1760 term, which
+    // hashed the set of rules that *win* the attribute for the index's
+    // files. `*.rs diff=rs` and `a.* diff` both match `a.rs`; the last
+    // match wins, so swapping the two lines rebinds `a.rs` from the
+    // histogram driver to the plain `diff`, and the churn moves — while
+    // each rule still wins *somewhere* (`b.rs` for the first, `a.txt` for
+    // the second), so the winning-rule set was unchanged and the stale
+    // entry was a pure hit (12 against a fresh walk's 22, measured on the
+    // review branch). The digest now hashes the file's bytes, which the
+    // reorder moves. `info/attributes` is outside the work tree, so the
+    // commit graph and the index are untouched.
+    //
+    // `core.attributesFile` is pinned to an empty file as in the sibling
+    // test, since production opens under the host's configuration.
+    let empty_attributes = tempfile::tempdir().expect("tempdir");
+    let empty_attributes = empty_attributes.path().join("attributes");
+    std::fs::write(&empty_attributes, b"").expect("write empty attributes file");
+    let repo = build_algorithm_sensitive_repo_with(|repo| {
+        repo.git(&[
+            "config",
+            "core.attributesFile",
+            empty_attributes.to_str().expect("temp path is valid UTF-8"),
+        ]);
+        repo.git(&["config", "diff.rs.binary", "false"]);
+        repo.git(&["config", "diff.rs.algorithm", "histogram"]);
+        repo.write("b.rs", "fn b() {}\n");
+        repo.write("a.txt", "plain\n");
+    });
+    let info_dir = repo.path().join(".git").join("info");
+    std::fs::create_dir_all(&info_dir).expect("mkdir info");
+    let info_file = info_dir.join("attributes");
+    std::fs::write(&info_file, "*.rs diff=rs\na.* diff\n").expect("write info/attributes");
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        churn_long(&primed, "a.rs"),
+        CHURN_UNDER_MYERS,
+        "`a.* diff` is the last match for `a.rs`, so it diffs under the \
+         platform's Myers rather than the driver's histogram"
+    );
+    empty_entry_events(cache_dir.path());
+
+    std::fs::write(&info_file, "a.* diff\n*.rs diff=rs\n").expect("reorder info/attributes");
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        churn_long(&fresh, "a.rs"),
+        CHURN_UNDER_HISTOGRAM,
+        "reordered, `*.rs diff=rs` is the last match and the driver's \
+         histogram applies, or the reorder changes nothing observable"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a rule reorder in `info/attributes` must invalidate the entry rather \
+         than replay its emptied events"
+    );
+}
+
+#[test]
 fn a_diff_driver_algorithm_change_is_not_served_from_a_stale_entry() {
     // A `diff.<driver>.algorithm` overrides `diff.algorithm` for the paths
     // `.gitattributes` binds to the driver, so the driver sections are an
     // input of their own. The binding is committed up front and never
-    // changes — the attribute bindings themselves are the one input still
-    // outside the fingerprint (see `git::cached`) — and the driver section
+    // changes — the bindings are their own fingerprint term (#1760), and
+    // this test is about the driver section — and the driver section
     // exists before priming, so the edit below changes the driver's
     // algorithm alone rather than creating the driver: a new section moves
     // the digest by name, which would mask a dropped `algorithm` term.

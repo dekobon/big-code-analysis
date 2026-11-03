@@ -817,6 +817,35 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **A `diff` attribute binding change now invalidates the persistent
+  VCS history cache** (#1760). gix resolves the `.gitattributes` rules
+  that route a path to a `diff.<driver>` section or mark it `-diff` for
+  every walked commit from the *current* index and attribute files, so
+  a staged or committed `.gitattributes`, an `info/attributes` edit or
+  a `core.attributesFile` edit rewrote the churn a fresh walk records
+  while nothing in the cache key or fingerprint moved: the stale entry
+  was served, and the incremental splice carried it forward under each
+  new head, until `--clear-cache`. The fingerprint now carries a digest
+  of the index's `.gitattributes` blobs by id, of the full content of
+  every attribute file gix reads outside the index
+  (`.git/info/attributes`, `core.attributesFile` or its XDG default,
+  and the system file), and of `core.ignoreCase` —
+  so a rule reorder, which changes what wins without changing the
+  rule set, and a case flip, which binds new paths with no file
+  changed, retire the entry as an edit does. No path spelling enters
+  the digest, so `-p .` and `-p "$PWD"` share an entry. An unstaged
+  `.gitattributes` edit is not read by the walk and does not count.
+  Each attribute file is read once per run, by the walk context, which
+  builds the diff platform's attribute stack from that capture and
+  digests the same bytes — as #1409 did for the mailmap — so a file
+  replaced while a run is opening cannot leave the walk under the old
+  rules and the entry stamped with the new digest. The XDG default is
+  located the way gix locates it, with the platform home directory
+  standing in for an unset `HOME`. No
+  `CACHE_SCHEMA_VERSION` bump: the added term retires pre-fix entries
+  on its own, and those entries stay on disk until `--clear-cache`, as
+  entries retired by #1262 and #1425 do.
+
 - **The self-scan now measures two hand-written files it silently
   skipped as generated** (#1763). The module docs of
   `big-code-analysis-py/src/analysis.rs` and
@@ -1122,8 +1151,8 @@ for historical reference.
   that sets none of those three. Previously the stale churn was served,
   and re-persisted by the incremental splice under each new head, until
   `--clear-cache` (#1425). The `diff` attribute bindings
-  (`.gitattributes`, `info/attributes`) remain uncovered and are
-  documented as such (#1760). No `CACHE_SCHEMA_VERSION` bump: the added
+  (`.gitattributes`, `info/attributes`) were left to #1760, fixed in
+  this release. No `CACHE_SCHEMA_VERSION` bump: the added
   fingerprint term retires pre-fix entries on its own.
 
 - Deepening a shallow clone that stays shallow (`git fetch --deepen`, a

@@ -5,16 +5,18 @@ use std::path::PathBuf;
 /// Stand-in digests, deliberately neither `0` nor equal to each other, so
 /// an assertion here cannot pass because two default values coincide
 /// (`.claude/rules/testing.md`). No real digest is computed in this
-/// module — `WalkContext::mailmap_digest`, `diff_config_digest` and
-/// `shallow_boundary_digest` live in the git backend, whose
-/// `history_tests` pin that the walk resolves identities through the
-/// snapshot the digest is taken from (#1409), which diff settings the
-/// platform reads (#1425) and that the shallow digest tracks the
-/// boundary set, and whose `vcs_cache` integration tests cover
-/// invalidation.
+/// module — `WalkContext::mailmap_digest`, `diff_config_digest`,
+/// `diff_attributes_digest` and `shallow_boundary_digest` live in the
+/// git backend, whose `history_tests` pin that the walk resolves
+/// identities through the snapshot the digest is taken from (#1409),
+/// which diff settings the platform reads (#1425), which attribute
+/// sources the binding digest tracks (#1760) and that the shallow digest
+/// tracks the boundary set, and whose `vcs_cache` integration tests
+/// cover invalidation.
 const SAMPLE_INPUTS: WalkInputDigests = WalkInputDigests {
     mailmap: 0xfeed_face_dead_beef,
     diff_config: 0x0ddb_a11c_0ffe_e000,
+    diff_attributes: 0xa77c_1b07_d1ff_5e7e,
     shallow_boundary: 0x5a11_0bad_c0de_ba5e,
 };
 
@@ -145,6 +147,27 @@ fn fingerprint_changes_with_the_diff_config_digest() {
         base,
         fingerprint(&options, swapped),
         "the mailmap and diff-config terms are not interchangeable"
+    );
+}
+
+#[test]
+fn fingerprint_changes_with_the_diff_attributes_digest() {
+    // The `diff` attribute bindings are the walk input #1425 left out:
+    // gix resolves them for every walked commit from the current index
+    // and attribute files, so a staged, committed or `info/attributes`
+    // binding change rewrote the churn a fresh walk records while the
+    // fingerprint stayed put, and the splice carried the stale tail
+    // forward under each new head (issue #1760).
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let rebound = WalkInputDigests {
+        diff_attributes: SAMPLE_INPUTS.diff_attributes ^ 1,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, rebound),
+        "a diff attribute binding change must change the fingerprint"
     );
 }
 

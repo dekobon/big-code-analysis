@@ -13,10 +13,12 @@
 
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
+use std::ffi::OsString;
 use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 
+use gix::bstr::BString;
 use gix::diff::Rewrites;
 use gix::diff::blob::Algorithm;
 use gix::revision::walk::Sorting;
@@ -74,11 +76,31 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// build one more per call — loading or `stat`ing the index and probing
 /// the global attribute files for every walked commit.
 ///
-/// The shallow boundary is the third input read here, for
+/// The `diff` attribute bindings are the third input (issue #1760), and
+/// they are read the way the mailmap is: once. [`open`](Self::open)
+/// reads the bytes of every attribute file outside the index into an
+/// [`AttributeSources`] capture, builds the platform's attribute stack
+/// from that capture ([`tree_diff_platform`]), and takes
+/// [`diff_attributes_digest`](Self::diff_attributes_digest) over the
+/// same capture. The first shape of this term let gix's
+/// `attributes_only` read the global files into the platform, let each
+/// clone's stack read `info/attributes` on its own first lookup, and
+/// then read every file a second time for the digest — so a file
+/// replaced between the two reads left the walk under the old rules and
+/// the entry stamped with the new digest, which every later run matched:
+/// a stale hit served until `--clear-cache`, the #1409 defect with the
+/// attribute files in place of the mailmap. Unlike the shallow boundary
+/// below, that window did not heal, because the edited file's digest is
+/// exactly what the mis-stamped entry carries. With one capture behind
+/// both consumers, a transient read yields a consistent pair that the
+/// next clean read fails to match.
+///
+/// The shallow boundary is the fourth input read here, for
 /// [`shallow_boundary_digest`](Self::shallow_boundary_digest), so that
 /// deepening a clone that stays shallow — which moves neither `HEAD` nor
 /// `is_shallow()` — still retires the entry walked at the old depth.
-/// Unlike the mailmap and the diff platform, it is not the only read: gix's
+/// Unlike the mailmap, the diff platform and the attribute files, it is
+/// not the only read: gix's
 /// `rev_walk` calls `shallow_commits` itself when the traversal starts, to
 /// skip the grafted parents, and accepts no shallow set from the caller. Both
 /// reads share gix's snapshot, which re-reads `.git/shallow` only when the
@@ -103,23 +125,20 @@ pub(super) struct WalkContext<'a> {
     /// [`gix::Repository::open_mailmap`] merged it when this context was
     /// opened.
     mailmap: gix::mailmap::Snapshot,
-    /// The index the diff platform's attribute stack reads its
-    /// `.gitattributes` blobs through: `.git/index` when there is one,
-    /// else (a bare repository) one built from `HEAD`'s tree. Loaded once
-    /// here and kept so #1760 can digest the `diff` attribute bindings
-    /// from the same index the platform resolves them through, rather
-    /// than a second load that could see a different `.git/index`.
-    // `expect` rather than `allow` so the carve-out fails to compile the
-    // moment #1760's digest reads the field; that wave widens the
-    // visibility when it needs to.
-    #[expect(dead_code, reason = "read by the #1760 attribute digest")]
-    index: gix::worktree::IndexPersistedOrInMemory,
     /// The blob-diff platform configured from the repository's diff
     /// settings — `diff.algorithm`, the `diff.<driver>.*` sections,
     /// `core.bigFileThreshold` — and the attribute stack it resolves
     /// `diff=` bindings through. Its resource cache is empty: every
     /// consumer clones it and fills the clone.
     diff: gix::diff::blob::Platform,
+    /// The digest of the `diff` attribute bindings
+    /// ([`diff_attributes_digest`](Self::diff_attributes_digest)),
+    /// computed by [`open`](Self::open) over the index the platform's
+    /// attribute stack reads its `.gitattributes` blobs through —
+    /// `.git/index` when there is one, else (a bare repository) one built
+    /// from `HEAD`'s tree — and the captured bytes of the attribute files
+    /// outside it, the same capture the stack was built from.
+    diff_attributes: u64,
     /// The shallow boundary (`.git/shallow`) as gix read it when this
     /// context was opened; `None` for a clone with full history.
     shallow: Option<gix::shallow::Commits>,
@@ -128,19 +147,23 @@ pub(super) struct WalkContext<'a> {
 }
 
 impl<'a> WalkContext<'a> {
-    /// Open the inputs for one build, reading the mailmap and the diff
-    /// configuration exactly once.
+    /// Open the inputs for one build, reading the mailmap, the diff
+    /// configuration and the attribute files exactly once.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Diff`] when gix cannot build the diff platform:
+    /// Returns [`Error::Diff`] when the diff platform cannot be built:
     /// the index cannot be loaded (or, in a bare repository, built from
-    /// `HEAD`'s tree) or an attributes file cannot be read. The diff keys
-    /// are not a source of failure — the repository is opened leniently,
-    /// so an unparseable `diff.algorithm`, `diff.<driver>.*` or
-    /// `core.bigFileThreshold` falls back to gix's default. Returns
-    /// [`Error::OpenRepository`] when `.git/shallow` exists but cannot be
-    /// read or parsed.
+    /// `HEAD`'s tree), `core.attributesFile` cannot be interpolated, or
+    /// an attribute file exists but cannot be read — the failures gix's
+    /// own platform build raises for the same inputs. The diff keys are
+    /// not a source of failure — the repository
+    /// is opened leniently, so an unparseable `diff.algorithm`,
+    /// `diff.<driver>.*` or `core.bigFileThreshold` falls back to gix's
+    /// default — and neither is `core.ignoreCase`, which
+    /// [`ignore_case`] reads as unset when it does not parse, whatever
+    /// the open's leniency. Returns [`Error::OpenRepository`] when `.git/shallow`
+    /// exists but cannot be read or parsed.
     ///
     /// [`repo::open`](super::repo::open) only stats that file, so before
     /// this read a corrupt one failed the walk but not a pure cache hit,
@@ -157,13 +180,22 @@ impl<'a> WalkContext<'a> {
         now: i64,
     ) -> Result<Self, Error> {
         let index = repo.index_or_load_from_head_or_empty().map_err(diff_err)?;
-        let diff = tree_diff_platform(repo, &index).map_err(diff_err)?;
+        let sources = AttributeSources::read(
+            repo,
+            &mut gix::path::env::var,
+            gix::open::permissions::Attributes::all(),
+        )
+        .map_err(diff_err)?;
+        let ignore_case = ignore_case(repo);
+        let mappings = id_mappings(&index, ignore_case);
+        let diff_attributes = diff_attributes_digest(&mappings, &sources, ignore_case);
+        let diff = tree_diff_platform(repo, sources, ignore_case, mappings).map_err(diff_err)?;
         Ok(Self {
             repo,
             options,
             mailmap: repo.open_mailmap(),
-            index,
             diff,
+            diff_attributes,
             shallow: repo
                 .shallow_commits()
                 .map_err(|e| Error::OpenRepository(e.to_string()))?,
@@ -180,13 +212,14 @@ impl<'a> WalkContext<'a> {
 
     /// The digests of the walk inputs the repository supplies outside
     /// [`Options`], for [`cache::fingerprint`](crate::vcs::cache::fingerprint).
-    /// All three come from the snapshot, platform and shallow boundary
-    /// this context was opened with, never from a second read.
+    /// All four come from the snapshot, platform, index and shallow
+    /// boundary this context was opened with, never from a second read.
     #[must_use]
     pub(super) fn input_digests(&self) -> WalkInputDigests {
         WalkInputDigests {
             mailmap: self.mailmap_digest(),
             diff_config: self.diff_config_digest(),
+            diff_attributes: self.diff_attributes_digest(),
             shallow_boundary: self.shallow_boundary_digest(),
         }
     }
@@ -330,17 +363,380 @@ impl<'a> WalkContext<'a> {
     /// cannot move the digest.
     ///
     /// Not covered are the `diff` *attribute* bindings that route a path
-    /// to a driver or mark it `-diff`. gix resolves them per path from the
-    /// attribute files it reads — the index's `.gitattributes` blobs,
-    /// `$GIT_DIR/info/attributes`, the global and system files — inside an
-    /// attribute stack that keeps those sources private; covering them
-    /// would mean re-deriving that source list — the coverage claim #1262
-    /// avoided — or resolving every path before the cache lookup. Neither
-    /// is done: a binding change, committed or not, is served stale until
-    /// `--clear-cache`, as the `git::cached` module docs record.
+    /// to a driver or mark it `-diff`: they are the separate
+    /// [`diff_attributes_digest`](Self::diff_attributes_digest) term.
     #[must_use]
     pub(super) fn diff_config_digest(&self) -> u64 {
         diff_config_digest(&self.diff)
+    }
+
+    /// A stable 64-bit digest of the `diff` attribute bindings the
+    /// platform resolves paths through: which `.gitattributes` blobs the
+    /// index supplies, the bytes of every attribute file gix reads from
+    /// outside the index, and whether patterns match case-insensitively.
+    ///
+    /// The bindings route a path to a `diff.<driver>` section or mark it
+    /// `-diff`, so they decide the line counts as much as the
+    /// configuration does, and gix resolves them for *every* walked
+    /// commit from the current index and attribute files — never from the
+    /// commit's own tree. A binding change therefore rewrites the churn a
+    /// fresh walk would record while moving neither `HEAD` nor any field
+    /// of [`Options`] (issue #1760, the class #1262 and #1425 fixed for
+    /// the mailmap and the configuration). A *committed* change does move
+    /// `HEAD`, but the next run then takes the incremental splice under
+    /// the unchanged fingerprint and adopts the tail walked under the old
+    /// bindings, so it was served stale either way until `--clear-cache`.
+    ///
+    /// # Three terms, one hasher
+    ///
+    /// A lookup's answer is a function of exactly three things: the
+    /// ordered patterns of each source the stack consults, the
+    /// precedence between those sources, and the case rule the globs
+    /// match under. The precedence is gix's and fixed; the other two are
+    /// hashed as the inputs they are, in a fixed order:
+    ///
+    /// 1. The `(path, blob id)` pairs
+    ///    [`id_mappings_from_index`](gix::worktree::stack::State::id_mappings_from_index)
+    ///    yields — the very list the stack binary-searches when it pushes
+    ///    a directory, computed from the context's index and handed to
+    ///    the stack as its own ([`id_mappings`]). It covers every
+    ///    committed or staged `.gitattributes`, for every path the
+    ///    patterns can reach — including paths deleted before `HEAD`,
+    ///    which a per-path term over the index cannot see.
+    /// 2. The captured bytes of each attribute file gix loads from
+    ///    outside the index, in the order [`AttributeSources`] holds
+    ///    them: the system file, the user file (`core.attributesFile`,
+    ///    else the XDG default) and `$GIT_COMMON_DIR/info/attributes`. Each is hashed as a fixed
+    ///    source tag followed by its content, or by an absent marker, so
+    ///    a file appearing, vanishing, or changing in any way — a rule
+    ///    edit, a rule *reorder*, which changes what wins without
+    ///    changing the rule set — moves the digest. The stack is built
+    ///    from the same capture, so the bytes hashed are the bytes the
+    ///    walk resolves under. Nothing about a file's *path* is hashed:
+    ///    `info/attributes` is reached through
+    ///    [`common_dir`](gix::Repository::common_dir), whose spelling
+    ///    follows the caller's (`-p .` against `-p "$PWD"`, a symlinked
+    ///    checkout), and a digest over it would thrash between two
+    ///    spellings of one repository.
+    /// 3. `core.ignoreCase`, which the stack applies to every glob: a
+    ///    flip lets a rule already in a file newly bind a path whose case
+    ///    differs from the pattern's, with no file changed.
+    ///
+    /// The earlier shape of term 2 hashed the set of rules that *won*
+    /// the attribute for the index's blobs, resolved through the stack.
+    /// A per-winner term is unsound on its own evidence: a reorder of
+    /// two overlapping rules leaves the set unchanged while flipping
+    /// every path both match; a case flip binds a new path through a rule
+    /// already in the set; and the winner's source path carried the
+    /// invocation spelling. Only the ordered content of each source is
+    /// complete. The content is also cheaper: three `read`s against one
+    /// stack lookup per index entry, which on this repository was a
+    /// quarter of a millisecond per 1,000 blobs on every cache hit.
+    ///
+    /// Term 1 hashes the construction order of a sorted list and term 2
+    /// a fixed source order, so the digest is deterministic across
+    /// processes. The source tags are fixed `u8`s, never
+    /// `mem::discriminant`, since the fingerprint is persisted.
+    ///
+    /// # What is left out
+    ///
+    /// The working tree's `.gitattributes` is deliberately not read: the
+    /// platform is built with `Source::IdMapping`, so an unstaged edit
+    /// changes nothing the walk reads, and a digest over the worktree
+    /// bytes would cold-walk on an edit the walk cannot observe.
+    ///
+    /// The capture follows gix's own permission policy:
+    /// [`AttributeSources::read`] takes the
+    /// [`Attributes`](gix::open::permissions::Attributes) permissions
+    /// and withholds the system file and the XDG default exactly as
+    /// `assemble_attribute_globals` does under the same value, so the
+    /// stack and the digest see the files gix's build would have, and
+    /// no others. What it cannot do is read those permissions off the
+    /// open: they are not reachable through the public API, so
+    /// [`open`](Self::open) hard-codes `Attributes::all()`. That is the
+    /// value every `bca` open carries — `repo::open` goes through
+    /// `gix::discover`, whose default trust mapping applies
+    /// `Permissions::all()` to a fully trusted repository and
+    /// `Permissions::secure()` to one of reduced trust, and both
+    /// presets set the attribute permissions to `Attributes::all()` —
+    /// so production is exact. A context opened over an
+    /// `Options::isolated()` repository, which only the tests do, reads
+    /// the two files gix would skip; the stack is built from the same
+    /// capture, so the walk still resolves under exactly the files the
+    /// digest hashes, and the mismatch can only cost a cold walk. The
+    /// installation's file is never loaded by either.
+    ///
+    /// The residual risk is the list itself. [`AttributeSources`] names
+    /// the sources gix 0.89's `assemble_attribute_globals` and
+    /// `Attributes::push_directory` read; a gix release that adds a
+    /// source kind would leave it outside both the capture and this
+    /// digest, and that fails toward *staleness*: an edit to the new
+    /// source would hit. A gix bump must re-check that function against
+    /// [`AttributeSources::read`].
+    #[must_use]
+    pub(super) fn diff_attributes_digest(&self) -> u64 {
+        self.diff_attributes
+    }
+}
+
+/// The `(path, blob id)` pairs of every `.gitattributes` the index holds,
+/// computed the way gix's `attributes_only` computes the stack's own.
+/// Computed once per open and handed both to the stack and to the digest
+/// (term 1), so the two cannot read different index loads.
+fn id_mappings(index: &gix::index::State, ignore_case: bool) -> Vec<(BString, gix::ObjectId)> {
+    gix::worktree::stack::State::AttributesStack(gix::worktree::stack::state::Attributes::default())
+        .id_mappings_from_index(index, index.path_backing(), glob_case(ignore_case))
+}
+
+/// `core.ignoreCase` as gix's own stack applies it: the value the
+/// repository was opened with, where a value that does not parse as a
+/// boolean (`ignoreCase = yesplease`) reads as unset under a lenient
+/// open — the open every `bca` run is, since `repo::open` keeps
+/// `Options::default()`'s `lenient_config`. The snapshot's `boolean`
+/// degrades a parse failure to `None` whatever the open's leniency, so
+/// it can never answer where gix's open-time read did not. Read once,
+/// so the digest's third term and the stack's case rule come from one
+/// value. `filesystem_options()` is the same read, but through a
+/// method whose error a caller is tempted to propagate; an earlier
+/// shape of `open` did, and a strict parse would refuse a repository
+/// `git` and gix both open, so the fixture for it stays even though
+/// today's gix also applies the open's leniency there.
+fn ignore_case(repo: &gix::Repository) -> bool {
+    repo.config_snapshot()
+        .boolean(gix::config::tree::Core::IGNORE_CASE)
+        .unwrap_or(false)
+}
+
+/// The glob case rule gix derives from `core.ignoreCase`.
+fn glob_case(ignore_case: bool) -> gix::glob::pattern::Case {
+    if ignore_case {
+        gix::glob::pattern::Case::Fold
+    } else {
+        gix::glob::pattern::Case::Sensitive
+    }
+}
+
+/// The digest [`WalkContext::diff_attributes_digest`] documents, over the
+/// three inputs [`WalkContext::open`] captured: the id mappings the stack
+/// was handed, the attribute-file bytes it was built from, and the case
+/// rule it matches under.
+fn diff_attributes_digest(
+    mappings: &[(BString, gix::ObjectId)],
+    sources: &AttributeSources,
+    ignore_case: bool,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    mappings.len().hash(&mut hasher);
+    for (path, id) in mappings {
+        path.hash(&mut hasher);
+        hasher.write(id.as_slice());
+    }
+    for (tag, source) in (0u8..).zip(&sources.files) {
+        tag.hash(&mut hasher);
+        match &source.bytes {
+            Some(bytes) => {
+                true.hash(&mut hasher);
+                bytes.hash(&mut hasher);
+            }
+            None => false.hash(&mut hasher),
+        }
+    }
+    u8::from(ignore_case).hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Whether gix's `add_patterns_file` reads an attribute file that failed
+/// to open this way as *absent* rather than failing: a missing path, or
+/// a path that names a directory. Mirrors gix-glob 0.29's
+/// `read_in_full_ignore_missing` and `io_err_is_dir`
+/// (`src/search/pattern.rs`), including the Windows clause: there,
+/// opening a directory as a file reports `PermissionDenied`, so gix reads
+/// that kind as a directory too — and with it a genuine permission
+/// failure, which it cannot tell apart. The capture is now the *only*
+/// reader of these files, so what it treats as absent is what the walk
+/// resolves without, and this rule has to be gix's exactly or an
+/// attributes file a user could not read would fail here where `git`
+/// and gix silently skip it.
+fn gix_treats_as_missing(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::IsADirectory
+            | std::io::ErrorKind::NotADirectory
+    ) || (cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied)
+}
+
+/// One attribute file gix loads from outside the index: where it was
+/// looked for, and its bytes if it was there.
+struct AttributeSource {
+    /// The path gix would open, or `None` where gix could not resolve a
+    /// location for this source (no `HOME`, no git on `PATH`). Kept for
+    /// the stack, which records the source path beside each pattern;
+    /// the digest never hashes it.
+    path: Option<PathBuf>,
+    /// The file's content, or `None` for a file gix reads as absent.
+    bytes: Option<Vec<u8>>,
+}
+
+/// The one read of every attribute file gix loads from outside the index
+/// (issue #1760), in the order gix adds them to its global pattern group,
+/// which is the order [`diff_attributes_digest`] hashes them in.
+///
+/// Both consumers — the platform's attribute stack and the digest — are
+/// built from one capture, so the walk can only resolve under the bytes
+/// the entry is stamped with. Written out against gix 0.89's
+/// `assemble_attribute_globals` (the system and user files, in that
+/// order — never the installation's, which every permission preset
+/// turns off) and `Attributes::push_directory`
+/// (`info/attributes`), so a source gix adds must be added here;
+/// [`WalkContext::diff_attributes_digest`] says why that failure leans
+/// toward staleness.
+struct AttributeSources {
+    /// System, user, `info/attributes`.
+    files: [AttributeSource; 3],
+}
+
+/// The index entry gix's `push_directory` looks up for the root
+/// directory: the exact, case-sensitive spelling its binary search
+/// compares against, whatever case rule the mappings were collected
+/// under.
+const ROOT_ATTRIBUTES: &str = ".gitattributes";
+
+impl AttributeSources {
+    /// Read the three sources once, under the permissions gix's own
+    /// build applies: the system file only when `permissions.system`,
+    /// the XDG default only when `permissions.git`, as
+    /// `assemble_attribute_globals` gates them. `core.attributesFile`
+    /// is consulted regardless, as it is there. The installation's
+    /// file is never read: every gix preset sets `git_binary: false`,
+    /// so gix never loads it either, and resolving its location would
+    /// run the `git` binary.
+    ///
+    /// The user file is `core.attributesFile` when set — read through
+    /// `trusted_path`, as gix reads it, so the same interpolation
+    /// applies — else the XDG default. The XDG and system locations are
+    /// resolved through
+    /// [`gix::attrs::Source::storage_location`] with `env`, which
+    /// production passes as [`gix::path::env::var`]: the resolver gix's
+    /// own `make_source_env` wraps, whose `HOME` falls back to the
+    /// platform home directory (`std::env::home_dir`, the passwd entry
+    /// on Unix) when the variable is unset. A plain `std::env::var_os`
+    /// here read `~/.config/git/attributes` as absent exactly when gix
+    /// loaded it. `GIT_ATTR_NOSYSTEM` drops the system file here as it
+    /// does there. A location that cannot be resolved, or that the
+    /// permissions withhold, is captured as absent.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `core.attributesFile` is set but cannot be
+    /// interpolated, or when a file exists but cannot be read — the
+    /// errors gix's own platform build raises for the same inputs.
+    fn read(
+        repo: &gix::Repository,
+        env: &mut dyn FnMut(&str) -> Option<OsString>,
+        permissions: gix::open::permissions::Attributes,
+    ) -> gix::Result<Self> {
+        use gix::attrs::Source;
+        let user = match repo
+            .config_snapshot()
+            .trusted_path(gix::config::tree::Core::ATTRIBUTES_FILE)?
+        {
+            Some(configured) => Some(configured),
+            None if permissions.git => Source::Git.storage_location(env),
+            None => None,
+        };
+        let system = permissions
+            .system
+            .then(|| Source::System.storage_location(env))
+            .flatten();
+        let paths = [
+            system,
+            user,
+            Some(repo.common_dir().join("info").join("attributes")),
+        ];
+        let mut files = paths.map(|path| AttributeSource { path, bytes: None });
+        for file in &mut files {
+            file.bytes = match file.path.as_deref().map(std::fs::read) {
+                Some(Ok(bytes)) => Some(bytes),
+                Some(Err(err)) if !gix_treats_as_missing(&err) => {
+                    return Err(gix::Error::from_error(err));
+                }
+                Some(Err(_)) | None => None,
+            };
+        }
+        Ok(Self { files })
+    }
+
+    /// Build the attribute state gix's `attributes_only` would, from the
+    /// captured bytes instead of from a read of its own, with
+    /// `root_attributes` — the root `.gitattributes` blob, when the index
+    /// holds one — folded in where gix's stack would push it.
+    ///
+    /// # Reproducing gix's precedence from captured bytes
+    ///
+    /// gix seeds its *global* group with the built-in `binary` macro and
+    /// then each file it read, and leaves `info/attributes` to the
+    /// stack's first directory push, which appends it to the
+    /// *per-directory* group right after the root `.gitattributes`.
+    /// Matching walks the per-directory group, then the globals, each
+    /// last-added-first, so the order a lookup consults is: a nested
+    /// `.gitattributes`, `info/attributes`, the root `.gitattributes`,
+    /// the user file, the system file, the built-in.
+    /// (That is not git's: `git check-attr` has `info/attributes`
+    /// override every in-tree file, nested ones included. The walk has
+    /// always resolved through gix's stack, so gix's order is the one
+    /// reproduced here, and the parity test says where the two differ.)
+    ///
+    /// The per-directory group cannot be seeded from outside, so the
+    /// captured `info/attributes` has to be a global — and a global
+    /// below the root `.gitattributes` unless the root moves too. It
+    /// does: the root blob is appended to the globals just before
+    /// `info/attributes`, with the base and macro permission gix's push
+    /// gives it (none, and allowed, since the root is the directory
+    /// macros may be read from), and [`tree_diff_platform`] withholds
+    /// its mapping from the stack so the first push finds nothing and
+    /// pushes gix's empty placeholder instead. The group that holds a
+    /// list is then different, the order lookups consult is the same,
+    /// and so is the order the lists enter the metadata collection.
+    /// `the_hand_built_stack_resolves_diff_as_gix_s_does` pins this
+    /// against gix's own construction on a fixture where every pair of
+    /// sources overlaps.
+    fn into_attributes(
+        self,
+        root_attributes: Option<&[u8]>,
+        source: gix::worktree::stack::state::attributes::Source,
+    ) -> std::io::Result<gix::worktree::stack::state::Attributes> {
+        let mut collection = gix::attrs::search::MetadataCollection::default();
+        let mut globals = gix::attrs::Search::default();
+        globals.add_patterns_buffer(
+            b"[attr]binary -diff -merge -text",
+            "[builtin]".into(),
+            None,
+            &mut collection,
+            true,
+        )?;
+        let [system, user, info] = self.files;
+        for file in [system, user] {
+            let (Some(path), Some(bytes)) = (file.path, file.bytes) else {
+                continue;
+            };
+            globals.add_patterns_buffer(&bytes, path, None, &mut collection, true)?;
+        }
+        if let Some(bytes) = root_attributes {
+            globals.add_patterns_buffer(
+                bytes,
+                ROOT_ATTRIBUTES.into(),
+                None,
+                &mut collection,
+                true,
+            )?;
+        }
+        if let (Some(path), Some(bytes)) = (info.path, info.bytes) {
+            globals.add_patterns_buffer(&bytes, path, None, &mut collection, true)?;
+        }
+        Ok(gix::worktree::stack::state::Attributes::new(
+            globals, None, source, collection,
+        ))
     }
 }
 
@@ -415,33 +811,77 @@ fn binary_tag(is_binary: Option<bool>) -> u8 {
     }
 }
 
-/// Build the tree-to-tree blob-diff platform from an already loaded
-/// `index`: what [`gix::Repository::diff_resource_cache_for_tree_diff`]
-/// builds, minus the index load it performs for itself. Spelled out so
-/// [`WalkContext::open`] can load the index once and keep it (#1760 reads
-/// it again); `the_hand_built_platform_matches_gix_s` pins that the two
-/// constructions diff under the same configuration.
+/// Build the tree-to-tree blob-diff platform from inputs already read:
+/// what [`gix::Repository::diff_resource_cache_for_tree_diff`] builds,
+/// minus the index load and the attribute-file reads it performs for
+/// itself. Spelled out so [`WalkContext::open`] can read each of those
+/// once and digest the attribute bindings from the same reads (#1760),
+/// rather than from a second index load or a second read of a file that
+/// could have changed in between.
+/// `the_hand_built_platform_matches_gix_s` pins that the two
+/// constructions diff under the same configuration, and
+/// `the_hand_built_stack_resolves_diff_as_gix_s_does` that their
+/// attribute stacks resolve `diff` alike.
 ///
 /// The attribute source is `IdMapping`: without worktree roots gix reads
 /// `.gitattributes` from the index's blobs, never from the working tree,
 /// which is what `diff_resource_cache` selects for an unset
-/// [`WorktreeRoots`](gix::diff::blob::pipeline::WorktreeRoots).
+/// [`WorktreeRoots`](gix::diff::blob::pipeline::WorktreeRoots). The
+/// stack's root is the one gix's `attributes_only` uses — a virtual
+/// root that is never read, since every lookup resolves through
+/// `mappings`.
 fn tree_diff_platform(
     repo: &gix::Repository,
-    index: &gix::index::State,
+    sources: AttributeSources,
+    ignore_case: bool,
+    mut mappings: Vec<(BString, gix::ObjectId)>,
 ) -> gix::Result<gix::diff::blob::Platform> {
-    let stack = repo
-        .attributes_only(
-            index,
+    let root_attributes = take_root_attributes(repo, &mut mappings)?;
+    let attributes = sources
+        .into_attributes(
+            root_attributes.as_deref(),
             gix::worktree::stack::state::attributes::Source::IdMapping,
-        )?
-        .detach();
+        )
+        .map_err(gix::Error::from_error)?;
+    let stack = gix::worktree::Stack::new(
+        repo.workdir().unwrap_or(repo.git_dir()),
+        gix::worktree::stack::State::AttributesStack(attributes),
+        glob_case(ignore_case),
+        Vec::with_capacity(512),
+        mappings,
+    );
     gix::diff::resource_cache(
         repo,
         gix::diff::blob::pipeline::Mode::ToGit,
         stack,
         gix::diff::blob::pipeline::WorktreeRoots::default(),
     )
+}
+
+/// Remove the root `.gitattributes` from `mappings` and return its blob,
+/// for [`AttributeSources::into_attributes`] to place among the globals.
+/// The lookup is the exact one gix's `push_directory` makes for the root
+/// — a binary search on the sorted mappings for the literal
+/// [`ROOT_ATTRIBUTES`] — so the entry withheld here is precisely the one
+/// the stack would have found. Under `core.ignoreCase` the mappings may
+/// also hold a `.GitAttributes`; gix's search misses it just the same,
+/// so it stays.
+///
+/// # Errors
+///
+/// Fails when the index names a blob the object database does not hold,
+/// the failure gix's first push would raise.
+fn take_root_attributes(
+    repo: &gix::Repository,
+    mappings: &mut Vec<(BString, gix::ObjectId)>,
+) -> gix::Result<Option<Vec<u8>>> {
+    let Ok(at) =
+        mappings.binary_search_by(|(path, _)| path.as_slice().cmp(ROOT_ATTRIBUTES.as_bytes()))
+    else {
+        return Ok(None);
+    };
+    let (_, id) = mappings.remove(at);
+    Ok(Some(repo.find_blob(id)?.take_data()))
 }
 
 /// The two platforms one commit's tree diff fills: gix's rewrite tracker
@@ -738,3 +1178,7 @@ fn classify_commit(commit: &gix::Commit<'_>) -> Result<Classification, Error> {
 #[cfg(test)]
 #[path = "history_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "history_coverage_tests.rs"]
+mod coverage_tests;
