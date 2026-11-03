@@ -3,14 +3,14 @@
 //! `build.rs` bakes the fields in as `BCA_BUILD_*` environment
 //! variables; this module reads them with `env!` and renders the long
 //! version block. One field is read at run time rather than build time:
-//! the linker's GNU build-id note, which does not exist until the
-//! binary has been linked ([`elf`]).
+//! the linker's build id, which does not exist until the binary has
+//! been linked ([`build_id`]).
 //!
 //! Of the fields, only `inputs` ever decides anything — the self-scan
 //! resolver compares it with the live tree. The others are evidence
 //! for a human reading a log or a report later.
 
-pub(crate) mod elf;
+mod build_id;
 
 #[cfg(test)]
 pub(crate) mod digest;
@@ -65,7 +65,7 @@ pub(crate) fn build_git() -> Option<&'static str> {
 /// for this workspace's release profile.
 pub(crate) fn long_version() -> String {
     let assertions = if cfg!(debug_assertions) { "on" } else { "off" };
-    let binary_id = elf::current_build_id().unwrap_or_else(|| "unavailable".to_owned());
+    let binary_id = build_id::current_build_id().unwrap_or_else(|| "unavailable".to_owned());
     format!(
         "{}\nbuild inputs: {BUILD_INPUTS}\ngit: {BUILD_GIT}\nbuilt: {BUILD_TIME} \
          (profile {BUILD_PROFILE}, {BUILD_RUSTC}, {BUILD_TARGET}, debug-assertions \

@@ -691,8 +691,20 @@ compiled into the binary, or `unavailable` for a build from the
 crates.io tarball, where the workspace is not beside the crate),
 `git:`, `built:` (RFC 3339 UTC, `SOURCE_DATE_EPOCH` when it was set
 at build time, with the profile, `rustc` version, target and
-debug-assertions state) and `build id:` (the linker's GNU build-id
-note on Linux; `unavailable` elsewhere). The first line is the stable
+debug-assertions state) and `build id:` (the identifier the linker
+stamped into the executable, read back from it at run time: the GNU
+build-id note on Linux, the `LC_UUID` of a thin 64-bit Mach-O on
+macOS, and the `CodeView` record that pairs a PE with its `.pdb` on
+Windows — each only when the linker emitted it; `ld64` does so by
+default and omits it under `-no_uuid`). The id is the lowercase hex of the raw
+bytes, and its length is the format's — the ELF note's descriptor
+(whatever the linker wrote: 20 bytes for GNU `ld --build-id`'s SHA-1
+and for `lld` 19+, 8 for older `lld`'s `fast` hash), the 16-byte UUID,
+or the PE record's 16-byte GUID as stored plus its 4-byte age, which
+is not the byte-swapped spelling `dumpbin` prints. A universal (FAT)
+Mach-O, a Mach-O linked with `-no_uuid`, a PE without a `CodeView`
+entry, an ELF linked without `--build-id`, and any other format read
+`unavailable`. The first line is the stable
 contract, and so is one thing about the second: a line beginning
 `build inputs:` followed by a space and either 64 lowercase hex digits
 or the word `unavailable`, which is what `utils/self-scan-bca.py` —

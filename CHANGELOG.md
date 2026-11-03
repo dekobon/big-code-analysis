@@ -26,6 +26,18 @@ for historical reference.
 
 ### Added
 
+- **`bca --version` reads the Mach-O and PE build ids** (#1777). `build
+  id:` was `unavailable` off Linux because only the ELF reader existed;
+  two bounded readers now sit beside it — the 16-byte `LC_UUID` of a
+  thin 64-bit Mach-O, and the `CodeView` `RSDS` GUID plus age of a PE32
+  or PE32+ image, fetched with a second bounded read since the debug
+  directory routinely sits past the 64 KiB head. Each is checked
+  arithmetic, `get`-bounded reads and fail-closed `None`, with synthetic
+  fixtures for every malformed shape; a universal (FAT) Mach-O and a PE
+  without a `CodeView` entry read `unavailable`. The ELF reader now also
+  refuses an `e_phentsize` below 56, which let one `PT_NOTE` be walked
+  `phnum` times.
+
 - **`make check-grammar-build-watch`** (`utils/check-grammar-build-watch.py`,
   #1778): fails when the `bindings/rust/build.rs` of any
   `[workspace].exclude` entry naming `tree-sitter` no longer carries,
@@ -45,7 +57,12 @@ for historical reference.
   on a bare commit would cost the rebuild #1773 removes),
   `built:` (RFC 3339 UTC, honouring `SOURCE_DATE_EPOCH`, with the
   profile, `rustc`, target and debug-assertions state) and
-  `build id:` (the linker's GNU build-id on Linux). Two builds of one
+  `build id:` (the identifier the linker stamped into the executable,
+  read back at run time: the GNU build-id note on Linux, the `LC_UUID`
+  of a thin 64-bit Mach-O on macOS, and the `CodeView` GUID plus age on
+  Windows — each only when the linker emitted it; lowercase hex of the
+  raw bytes, `unavailable` for a universal Mach-O or any other shape,
+  #1777). Two builds of one
   tree share a digest whatever their mtimes or branch, and two
   binaries that both print `2.4.0` from different commits do not —
   which is the question "is this installed `bca` the one this checkout

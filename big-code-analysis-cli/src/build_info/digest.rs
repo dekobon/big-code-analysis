@@ -264,10 +264,10 @@ pub(crate) fn digest_of(workspace: &Path, files: &[String]) -> Result<String, Di
 }
 
 /// Lowercase hex, two digits per byte. The same shape as the Code
-/// Climate writer's `hex_lower_bytes` and `elf::hex_lower`, repeated
+/// Climate writer's `hex_lower_bytes` and `build_id::hex_lower`, repeated
 /// because this file is `#[path]`-included by `build.rs`, which can
 /// import nothing from the crate — and the crate includes this file
-/// only under `cfg(test)`, so `elf.rs` cannot borrow it back.
+/// only under `cfg(test)`, so `build_id/mod.rs` cannot borrow it back.
 pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);

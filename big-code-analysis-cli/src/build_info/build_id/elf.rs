@@ -1,71 +1,34 @@
-//! The GNU build-id note of the running executable (#1773).
+//! The GNU build-id note of an ELF executable (#1773).
 //!
 //! The linker writes a hash of the final object into a `PT_NOTE`
 //! segment as `NT_GNU_BUILD_ID`; debuggers, `perf` and symbol servers
-//! key on it. It is the one provenance field that cannot be baked in by
-//! `build.rs`, because it does not exist until the link has finished,
-//! so it is read back from the binary at run time.
-//!
-//! Support is deliberately narrow: ELF64 in the host's byte order,
-//! which is every Linux target the gate runs on. Anything else — ELF32,
-//! a Mach-O or PE executable, a truncated or hand-edited file, an
-//! executable that has been deleted since it started — yields `None`
-//! and renders as `unavailable`. Nothing is decided on this field, so
-//! every failure is informational.
-//!
-//! All offsets come from the file and are bounds-checked against the
-//! bytes actually read; arithmetic is `checked_*` throughout, so a
-//! malformed header cannot panic.
+//! key on it. Support is ELF64 in little-endian byte order, which is
+//! every Linux target the gate runs on; ELF32 and big-endian images
+//! read as absent.
 
-/// How much of the executable to read looking for the note. The
-/// program headers and every `PT_NOTE` segment the linker emits sit in
-/// the first page or so of a GNU-linked image (`PT_PHDR`, `PT_INTERP`
-/// and the notes precede the first `PT_LOAD` of code); 64 KiB covers
-/// that with a wide margin and keeps this off the path of reading a
-/// 140 MB binary into memory to answer `--version`. A note past the
-/// bound reads as absent, the documented answer for every shape the
-/// reader does not handle.
 #[cfg(target_os = "linux")]
-const HEAD_BYTES: u64 = 64 * 1024;
-#[cfg(target_os = "linux")]
-pub(crate) fn current_build_id() -> Option<String> {
-    use std::io::Read as _;
-    let exe = std::env::current_exe().ok()?;
-    let mut head = Vec::with_capacity(usize::try_from(HEAD_BYTES).unwrap_or(0));
-    std::fs::File::open(exe)
-        .ok()?
-        .take(HEAD_BYTES)
-        .read_to_end(&mut head)
-        .ok()?;
-    reader::build_id(&head).map(reader::hex_lower)
-}
-
-/// Lowercase hex of the running executable's GNU build-id, or `None` —
-/// always `None` off Linux, where the executable is not ELF.
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn current_build_id() -> Option<String> {
-    None
+pub(super) fn current() -> Option<String> {
+    let head = super::read_head(&std::env::current_exe().ok()?)?;
+    reader::build_id(&head).map(super::hex_lower)
 }
 
 #[cfg(test)]
-pub(crate) use reader::{build_id, hex_lower};
+pub(super) use reader::build_id;
 
 /// The parser itself. Compiled only where it has a caller — Linux, and
 /// the test build on every platform, where the synthetic fixtures
 /// exercise it — so a macOS or Windows release build under
 /// `-D warnings` carries no dead code.
+///
+/// The `test` alternative also takes this module out of the self-scan:
+/// `bca check` under `exclude_tests` prunes a `cfg(any(…, test))`
+/// subtree as test code, so the `bca: suppress(nexits)` markers here
+/// and in the sibling readers document the intent for an unpruned run
+/// (`bca check --no-config --threshold nexits=5 -p <file>`) rather than
+/// hold the gate.
 #[cfg(any(target_os = "linux", test))]
 mod reader {
-    /// Lowercase hex, two digits per byte.
-    pub(crate) fn hex_lower(bytes: &[u8]) -> String {
-        const DIGITS: &[u8; 16] = b"0123456789abcdef";
-        let mut out = String::with_capacity(bytes.len() * 2);
-        for b in bytes {
-            out.push(DIGITS[usize::from(b >> 4)] as char);
-            out.push(DIGITS[usize::from(b & 0x0f)] as char);
-        }
-        out
-    }
+    use super::super::{u16_at, u32_at, u64_at};
 
     const ELF_MAGIC: &[u8; 4] = b"\x7fELF";
     const ELFCLASS64: u8 = 2;
@@ -73,6 +36,7 @@ mod reader {
     const PT_NOTE: u32 = 4;
     const NT_GNU_BUILD_ID: u32 = 3;
     const GNU_NOTE_NAME: &[u8] = b"GNU\0";
+    const PHENTSIZE: usize = 0x38;
 
     /// The raw `NT_GNU_BUILD_ID` descriptor in `elf`, or `None` when the
     /// bytes are not a little-endian ELF64 image carrying one.
@@ -101,15 +65,23 @@ mod reader {
             // bca: suppress(nexits) — every exit is a `?` on a bounds-checked
             // read; a binary-format reader that fails closed is clearest as
             // one straight line of them, not as nested `if let`s.
-            if elf.get(..4)? != ELF_MAGIC
+            if !elf.starts_with(ELF_MAGIC)
                 || *elf.get(4)? != ELFCLASS64
                 || *elf.get(5)? != ELFDATA2LSB
             {
                 return None;
             }
+            // ELF64 fixes `e_phentsize` at 56. A smaller value would make
+            // every index alias the same header, so one `PT_NOTE` could be
+            // walked `phnum` times — 272 ms measured for `phentsize = 0`
+            // against 31 µs — and `readelf` rejects it too.
+            let phentsize = usize::from(u16_at(elf, 0x36)?);
+            if phentsize < PHENTSIZE {
+                return None;
+            }
             Some(Self {
                 phoff: usize::try_from(u64_at(elf, 0x20)?).ok()?,
-                phentsize: usize::from(u16_at(elf, 0x36)?),
+                phentsize,
                 phnum: usize::from(u16_at(elf, 0x38)?),
             })
         }
@@ -135,14 +107,15 @@ mod reader {
         // argument of the module, and it reads best uninterrupted.
         let mut at = 0usize;
         while let Some(namesz) = u32_at(segment, at) {
-            // `u32_at(segment, at)` succeeded, so `at + 8 <= len`: these
-            // two plain additions cannot overflow.
+            // `u32_at(segment, at)` succeeded, so `at + 4 <= len`, and a
+            // slice is at most `isize::MAX` bytes: neither plain addition
+            // can overflow.
             let descsz = usize::try_from(u32_at(segment, at + 4)?).ok()?;
             let kind = u32_at(segment, at + 8)?;
             let namesz = usize::try_from(namesz).ok()?;
             let name_at = at.checked_add(12)?;
-            let desc_at = name_at.checked_add(align4(namesz)?)?;
-            let next = desc_at.checked_add(align4(descsz)?)?;
+            let desc_at = name_at.checked_add(namesz.checked_next_multiple_of(4)?)?;
+            let next = desc_at.checked_add(descsz.checked_next_multiple_of(4)?)?;
             if kind == NT_GNU_BUILD_ID
                 && segment.get(name_at..name_at.checked_add(namesz)?)? == GNU_NOTE_NAME
             {
@@ -151,27 +124,5 @@ mod reader {
             at = next;
         }
         None
-    }
-
-    fn align4(n: usize) -> Option<usize> {
-        n.checked_add(3).map(|v| v & !3)
-    }
-
-    /// `N` little-endian bytes at `at`, or `None` past the end or on an
-    /// overflowing offset. One reader for the three widths below.
-    fn le_at<const N: usize>(bytes: &[u8], at: usize) -> Option<&[u8; N]> {
-        bytes.get(at..at.checked_add(N)?)?.as_array()
-    }
-
-    fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
-        le_at(bytes, at).copied().map(u16::from_le_bytes)
-    }
-
-    fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
-        le_at(bytes, at).copied().map(u32::from_le_bytes)
-    }
-
-    fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
-        le_at(bytes, at).copied().map(u64::from_le_bytes)
     }
 }
