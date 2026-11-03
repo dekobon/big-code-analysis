@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::digest::{DigestError, INPUT_ROOTS, digest, input_files};
 use super::elf::{build_id, hex_lower};
@@ -229,7 +229,10 @@ fn walk_refuses_a_symlinked_root() {
 
 /// A name the shared encoding cannot spell is refused rather than
 /// hashed under a lossy spelling the Python side would not reproduce.
-#[cfg(unix)]
+/// Linux only: APFS refuses to create such a name (`EILSEQ`), and
+/// Windows file names are UTF-16, where the analogous case is an
+/// unpaired surrogate this fixture cannot write portably.
+#[cfg(target_os = "linux")]
 #[test]
 fn walk_refuses_a_non_utf8_path() {
     use std::os::unix::ffi::OsStrExt as _;
@@ -288,13 +291,13 @@ fn an_unlistable_directory_is_an_io_error_naming_the_directory() {
 /// the `TempDir` in each test so it drops first.
 #[cfg(unix)]
 struct Unreadable {
-    path: PathBuf,
+    path: std::path::PathBuf,
     restore: u32,
 }
 
 #[cfg(unix)]
 impl Unreadable {
-    fn new(path: PathBuf, restore: u32) -> Self {
+    fn new(path: std::path::PathBuf, restore: u32) -> Self {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
         Self { path, restore }
