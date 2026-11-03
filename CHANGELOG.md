@@ -37,7 +37,6 @@ for historical reference.
   without a `CodeView` entry read `unavailable`. The ELF reader now also
   refuses an `e_phentsize` below 56, which let one `PT_NOTE` be walked
   `phnum` times.
-
 - **`make check-grammar-build-watch`** (`utils/check-grammar-build-watch.py`,
   #1778): fails when the `bindings/rust/build.rs` of any
   `[workspace].exclude` entry naming `tree-sitter` no longer carries,
@@ -773,6 +772,21 @@ for historical reference.
   repository's Rust and the `serde` corpus); the new
   `nom/deep-one-attribute-items` scaling probe reads 2.00 before and
   1.08 after.
+- **The agent hooks run the analyzer whose build inputs match the
+  tree** (#1776). Since #1773 nothing in the ordinary workflow builds
+  release, so the `target/release/bca` the Claude Code hook and the
+  OpenCode plugin preferred was routinely a stale binary and the
+  per-edit advisory reported offenders a different `bca` computed than
+  `make self-scan`. `analyzer()` now takes `$BCA` unprobed; else the
+  first of `target/debug/bca`, `target/release/bca` and PATH `bca` whose
+  `--version` `build inputs:` equals the digest `utils/self_scan_digest.py`
+  computes over the checkout — the test the self-scan applies; else the
+  newest local build; else PATH `bca`. The `[bca-check]` health line
+  names the choice and why. Discovery shares one 4 s budget under the
+  hook's signal, the digest script is resolved from the hook module
+  rather than a nested checkout, and the plugin resolves once per
+  checkout root per event.
+
 - `utils/check-role-coverage.py`: the "no baseline section" error named
   `--report` as the way to list a new language's residue entries, but
   `--report` prints only per-language counts; it now names

@@ -8,7 +8,7 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.mjs"],
-            "timeout": 10
+            "timeout": 15
           }
         ]
       }

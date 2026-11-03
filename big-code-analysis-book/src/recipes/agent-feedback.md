@@ -142,7 +142,7 @@ existing settings:
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-check.mjs"],
-            "timeout": 10
+            "timeout": 15
           }
         ]
       }
@@ -170,10 +170,19 @@ How the hook finds its configuration and analyzer:
 - `CLAUDE_PROJECT_DIR` locates the script, but stays at the original
   project when Claude enters a worktree. Using it to select the
   analyzer configuration would check the wrong tree.
-- Select `$BCA` first, then the current checkout's executable
-  `target/release/bca` (`bca.exe` on Windows), then `bca` on `PATH`.
-  An explicit but unavailable `$BCA` stays unavailable rather than
-  falling back to another binary.
+- Select `$BCA` first, unprobed. Otherwise run `--version` on the
+  checkout's `target/debug/bca`, `target/release/bca` (`bca.exe` on
+  Windows) and `bca` on `PATH`, and take the first whose
+  `build inputs:` digest equals the one `utils/self_scan_digest.py`
+  computes over the checkout — the same matching criterion `make
+  self-scan` applies, so a build that satisfies one satisfies the
+  other (they can still pick different matching files, since the
+  self-scan prefers a matching `PATH` binary). When none matches, take the
+  newest local build by modification time, then `bca` on `PATH`. A
+  copy of the hook without `utils/self_scan_digest.py` beside it
+  skips the digest step and degrades to that order. An explicit but
+  unavailable `$BCA` stays unavailable rather than falling back to
+  another binary.
 - Within one checkout, the session's manifest also applies when it
   edits a sibling package. Change the session directory to select
   that package's own manifest.
@@ -212,8 +221,9 @@ no advisory. In
 `[bca-check]` JSON records distinguish findings, clean/excluded files,
 out-of-scope paths, superseded results, and unavailable checks. These
 records go to stderr with exit 0, so Claude does not receive them as
-additional context. They record the checkout, analyzer, outcome, and
-up to 1,000 characters of analyzer stderr for troubleshooting.
+additional context. They record the checkout, the analyzer and why it was chosen
+(`analyzerReason`), the outcome, and up to 1,000 characters of
+analyzer stderr for troubleshooting.
 Offender rows remain in the advisory; CI annotations and summary-file
 side effects are disabled. The reference suite runs with
 `make plugin-test`, including the shared OpenCode helper regressions.
@@ -328,10 +338,14 @@ setup:
 - **Repo-scope guard.** Resolve the path and skip anything outside the
   project root, so the hook never runs `bca` on a file the agent edits
   elsewhere on disk.
-- **Local-build resolution.** Prefer `$BCA`, then a
-  `target/release/bca` in the checkout, then `bca` on `PATH`. A project
-  that builds `bca` itself then gates against its own analyzer instead
-  of whatever is installed globally.
+- **Local-build resolution.** Prefer `$BCA`; then the candidate among
+  the checkout's `target/debug/bca`, `target/release/bca` and `bca` on
+  `PATH` whose `build inputs:` digest matches the checkout; then the
+  newest local build; then `bca` on `PATH`. A project that builds
+  `bca` itself then gates against a binary built from the tree it is
+  editing whenever one exists, rather than a stale one or whatever is
+  installed globally; with no match it falls back to the newest build
+  it can find.
 - **Shared guidance.** Read the guidance text from one file that both
   this plugin and the Claude Code hook cite, so the two never drift.
 

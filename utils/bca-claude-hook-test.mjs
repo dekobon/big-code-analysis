@@ -1,14 +1,15 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve, sep } from "node:path"
+import { delimiter, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import test from "node:test"
 
 const REPO = resolve(fileURLToPath(new URL("../", import.meta.url)))
 const HOOK = join(REPO, ".claude/hooks/bca-check.mjs")
+const EXE = process.platform === "win32" ? ".exe" : ""
 const ROW = '[new] ./sample.rs:1-3: "quoted\\name": cognitive = 20 (limit 15)'
 const GUIDANCE = "Keep the change focused."
 const baseEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_") && key !== "BCA"))
@@ -28,6 +29,7 @@ async function fixture(t) {
   await writeFile(join(root, ".claude/hooks/bca-guidance.txt"), GUIDANCE)
   const stub = join(temp, "analyzer.mjs")
   const calls = join(temp, "calls.jsonl")
+  const probes = join(temp, "probes.txt")
   await writeFile(stub, `
 import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -44,19 +46,34 @@ else {
 }
 `)
   const preload = join(temp, "preload.mjs")
+  // Only the fixture's own local builds are routed through node: a shape
+  // match would also capture the real `target/debug/bca` CI hands the
+  // real-CLI tests through BCA_TEST_BINARY.
+  const local = (profile) => join(root, "target", profile, `bca${EXE}`)
   await writeFile(preload, `
 import cp from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 const original = cp.spawn;
-cp.spawn = (file, args, options) => file === ${JSON.stringify(stub)} || file.endsWith("/target/release/bca") || file.endsWith("\\\\target\\\\release\\\\bca.exe")
+cp.spawn = (file, args, options) => [${JSON.stringify(stub)}, ${JSON.stringify(local("debug"))}, ${JSON.stringify(local("release"))}].includes(file)
   ? original(process.execPath, [file, ...args], options)
   : original(file, args, options);
 syncBuiltinESMExports();
 `)
   const path = join(root, "sample.rs")
   await writeFile(path, "{}")
+  // Extends the preload so a spawn of the bare `name` runs `script` under node;
+  // `{ exec }` instead spawns that path as-is, for the ENOENT case.
+  const route = async (name, script, { exec } = {}) => writeFile(preload, (await readFile(preload, "utf8")) + `
+{
+  const previous = cp.spawn;
+  cp.spawn = (file, args, options) => file === ${JSON.stringify(name)}
+    ? original(${exec ? `${JSON.stringify(exec)}, args` : `process.execPath, [${JSON.stringify(script)}, ...args]`}, options)
+    : previous(file, args, options);
+  syncBuiltinESMExports();
+}
+`)
   return {
-    temp, root, path, env, stub, preload, git,
+    temp, root, path, env, stub, preload, git, route,
     file: (data) => writeFile(path, JSON.stringify(data)),
     input: (overrides = {}) => ({ hook_event_name: "PostToolUse", tool_name: "Edit", cwd: root,
       session_id: "session-a", tool_input: { file_path: path }, ...overrides }),
@@ -70,6 +87,41 @@ syncBuiltinESMExports();
       try { return (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse) }
       catch (error) { if (error.code === "ENOENT") return []; throw error }
     },
+    // A fake `bca` at `file` whose `--version` reports `inputs` and whose `check`
+    // prints `finding`; `delay` holds `--version` open that long. Routed through
+    // the preload's spawn patch, so it runs under node on every platform. Each
+    // `--version` probe appends `file` to `probes()` before the delay starts.
+    async binary(file, { inputs, finding, delay = 0, mtime } = {}) {
+      await mkdir(join(file, ".."), { recursive: true })
+      await writeFile(file, `
+const [command] = process.argv.slice(2);
+if (command === "--version") {
+  require("node:fs").appendFileSync(${JSON.stringify(probes)}, ${JSON.stringify(file)} + "\\n");
+  setTimeout(() => { process.stdout.write("bca 0.0.0\\nbuild inputs: ${inputs ?? "unavailable"}\\n"); }, ${delay});
+} else { console.log(${JSON.stringify(finding ?? ROW)}); process.exitCode = 2; }
+`, { mode: 0o755 })
+      if (mtime) await utimes(file, mtime, mtime)
+      return file
+    },
+    async probes() {
+      try { return (await readFile(probes, "utf8")).trim().split("\n") }
+      catch (error) { if (error.code === "ENOENT") return []; throw error }
+    },
+    local,
+    // The digest the hook believes the tree has: a fake `self_scan_digest.py`
+    // (run by a fake `python3`, routed like the binaries) printing `digest`, or
+    // exiting 1 with `error:` when `digest` is undefined.
+    async digest(digest) {
+      const script = join(temp, "self_scan_digest.py")
+      await writeFile(script, "")
+      const python3 = join(temp, "python3.mjs")
+      await writeFile(python3, digest === undefined
+        ? 'console.error("error: the tree cannot be digested"); process.exitCode = 1;'
+        : `console.log(${JSON.stringify(digest)});`)
+      await route("python3", python3)
+      return { BCA: "", BCA_DIGEST_SCRIPT: script }
+    },
+    health: (result) => JSON.parse(result.stderr.slice("[bca-check] ".length)),
   }
 }
 
@@ -96,7 +148,10 @@ test("configured exec hook sends escaped advisory JSON for every file-writing to
   const [handler] = group.hooks
   assert.equal(handler.type, "command")
   assert.equal(handler.command, "node")
-  assert.equal(handler.timeout, 10)
+  // 15 s: the bounded stages — checkout's git (3 s), discovery (4 s), the
+  // check (3 s) — sum to 10 s, so the registered slot must leave room for
+  // node startup and the health line on a contended host (#1776).
+  assert.equal(handler.timeout, 15)
   const script = handler.args[0].replace("${CLAUDE_PROJECT_DIR}", REPO)
   assert.equal(resolve(script), HOOK)
   for (const tool of ["Edit", "Write", "MultiEdit"]) {
@@ -203,25 +258,190 @@ test("missing binary, timeout and output overflow remain model-silent", async (t
   }
 })
 
+// A PATH `bca`: `installed()` resolves it to the file in `bin`, which is
+// what the hook probes and runs, so the preload routes that path; the bare
+// `bca` is routed too, for the no-digest fallback that still spawns by name.
+async function onPath(f, options, bin = join(f.temp, "bin")) {
+  const pathBinary = await f.binary(join(bin, `bca${EXE}`), options)
+  await f.route(pathBinary, pathBinary)
+  await f.route("bca", pathBinary)
+  return { BCA: "", PATH: `${bin}${delimiter}${f.env.PATH}` }
+}
+
 test("explicit analyzer wins over the checkout build, which wins over PATH", async (t) => {
   const f = await fixture(t)
+  const pathEnv = await onPath(f, { finding: "PATH-only finding" })
+  assert.match(report(f.run(f.input(), pathEnv)), /PATH-only finding/)
+  await f.binary(f.local("release"), { finding: "local finding" })
+  assert.ok(report(f.run(f.input())).includes(ROW))
+  // The real utils/self_scan_digest.py refuses this fixture checkout (no
+  // Cargo.toml), so nothing can match: a lone release build is still "newest
+  // local build", which outranks PATH as before #1776. Only the digest step's
+  // failure is pinned, not its spelling: `exited 1` here, but a host with no
+  // `python3` on PATH reports ENOENT (the CLI's own python3 parity test is
+  // `cfg(not(windows))` for that reason), and the fake-python3 test below
+  // pins both spellings exactly (audit-tests).
+  const result = f.run(f.input(), pathEnv)
+  assert.match(report(result), /local finding/)
+  assert.match(f.health(result).analyzerReason, /^newest local build \(python3 /)
+  assert.deepEqual(await f.probes(), [])
+  quiet(f.run(f.input(), { BCA: join(f.temp, "not-installed") }), "unavailable")
+})
+
+// #1776: the build whose `build inputs:` equals the tree's digest measures the
+// edit, whichever profile it is. Fails if the digest comparison is dropped
+// (both candidates then fall to the mtime order and the first row picks the
+// newer non-matching release) or if `reportedInputs` reads the wrong line.
+test("the local build whose build inputs match the tree wins regardless of profile", async (t) => {
+  const f = await fixture(t)
+  const digest = "a".repeat(64)
+  const env = await f.digest(digest)
+  const older = new Date(Date.now() - 60_000)
+  await f.binary(f.local("debug"), { inputs: digest, finding: "debug finding", mtime: older })
+  await f.binary(f.local("release"), { inputs: "b".repeat(64), finding: "release finding" })
+  let result = f.run(f.input(), env)
+  assert.match(report(result), /debug finding/)
+  assert.equal(f.health(result).analyzerReason, "build inputs match this tree")
+  await f.binary(f.local("debug"), { inputs: "b".repeat(64), finding: "debug finding", mtime: older })
+  await f.binary(f.local("release"), { inputs: digest, finding: "release finding" })
+  result = f.run(f.input(), env)
+  assert.match(report(result), /release finding/)
+  assert.equal(f.health(result).analyzerReason, "build inputs match this tree")
+})
+
+// Fails if PATH `bca` is left out of the probed candidates: the stale debug
+// build is then "newest local build" and its finding is reported instead.
+test("a PATH bca whose build inputs match beats stale local builds", async (t) => {
+  const f = await fixture(t)
+  const digest = "c".repeat(64)
+  const env = { ...(await f.digest(digest)), ...(await onPath(f, { inputs: digest, finding: "PATH finding" })) }
+  await f.binary(f.local("debug"), { inputs: "d".repeat(64), finding: "debug finding" })
+  const result = f.run(f.input(), env)
+  assert.match(report(result), /PATH finding/)
+  assert.equal(f.health(result).analyzerReason, "build inputs match this tree")
+})
+
+// Fails if the mtime sort is removed (the debug row then always wins, so the
+// second half picks debug) or inverted (the first half picks release).
+test("when no candidate matches, the newest local build wins, then PATH", async (t) => {
+  const f = await fixture(t)
+  const env = await f.digest("e".repeat(64))
+  const older = new Date(Date.now() - 60_000)
+  await f.binary(f.local("debug"), { inputs: "f".repeat(64), finding: "debug finding" })
+  await f.binary(f.local("release"), { inputs: "f".repeat(64), finding: "release finding", mtime: older })
+  let result = f.run(f.input(), env)
+  assert.match(report(result), /debug finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (no candidate reports this tree's build inputs)")
+  await f.binary(f.local("debug"), { inputs: "f".repeat(64), finding: "debug finding", mtime: older })
+  await f.binary(f.local("release"), { inputs: "f".repeat(64), finding: "release finding" })
+  assert.match(report(f.run(f.input(), env)), /release finding/)
+  await rm(join(f.root, "target"), { recursive: true })
+  const pathEnv = { ...env, ...(await onPath(f, { inputs: "f".repeat(64), finding: "PATH finding" })) }
+  result = f.run(f.input(), pathEnv)
+  assert.match(report(result), /PATH finding/)
+  assert.equal(f.health(result).analyzerReason, "PATH bca (no local build; no candidate reports this tree's build inputs)")
+})
+
+// A relative PATH entry names a directory under the checkout the hook runs
+// the check in, which is where `spawn` resolves it too. Fails if `installed()`
+// resolves PATH against the hook's own cwd (the fixture's temp dir, where
+// `bin/` does not exist) or skips the entry: the matching PATH `bca` is then
+// never probed and the stale debug build wins. The health line names the
+// resolved file, so the binary that matched is the one recorded.
+test("a relative PATH entry is resolved against the checkout and reported by file", async (t) => {
+  const f = await fixture(t)
+  const digest = "7".repeat(64)
+  const bin = join(f.root, "bin")
+  const env = { ...(await f.digest(digest)), ...(await onPath(f, { inputs: digest, finding: "PATH finding" }, bin)) }
+  env.PATH = `bin${delimiter}${f.env.PATH}`
+  await f.binary(f.local("debug"), { inputs: "8".repeat(64), finding: "debug finding" })
+  const result = f.run(f.input(), env)
+  assert.match(report(result), /PATH finding/)
+  assert.equal(f.health(result).analyzer, join(bin, `bca${EXE}`))
+  assert.equal(f.health(result).analyzerReason, "build inputs match this tree")
+})
+
+// A PATH `bca` that resolves to a local build — a `cargo install`ed symlink,
+// or `target/release` on PATH — is one candidate, not two. Fails if the
+// identity dedupe is dropped: the symlink is then probed again through its
+// PATH name, after both local builds (audit-tests).
+test("a PATH bca that is a local build is probed once", { skip: process.platform === "win32" && "symlinks need a privilege on Windows" }, async (t) => {
+  const f = await fixture(t)
+  const env = await f.digest("0".repeat(64))
+  await f.binary(f.local("debug"), { inputs: "f".repeat(64), finding: "debug finding", mtime: new Date(Date.now() - 60_000) })
+  await f.binary(f.local("release"), { inputs: "f".repeat(64), finding: "release finding" })
   const bin = join(f.temp, "bin")
   await mkdir(bin)
-  const pathBinary = join(bin, process.platform === "win32" ? "bca.exe" : "bca")
-  await writeFile(pathBinary, 'console.log("PATH-only finding"); process.exitCode = 2;', { mode: 0o755 })
-  await writeFile(f.preload, (await readFile(f.preload, "utf8")) + `
-const previous = cp.spawn;
-cp.spawn = (file, args, options) => file === "bca" ? original(process.execPath, [${JSON.stringify(pathBinary)}, ...args], options) : previous(file, args, options);
-syncBuiltinESMExports();
-`)
-  const pathEnv = { BCA: "", PATH: `${bin}${process.platform === "win32" ? ";" : ":"}${f.env.PATH}` }
-  assert.match(report(f.run(f.input(), pathEnv)), /PATH-only finding/)
-  const local = join(f.root, "target/release", process.platform === "win32" ? "bca.exe" : "bca")
-  await mkdir(join(f.root, "target/release"), { recursive: true })
-  await writeFile(local, 'console.log("local finding"); process.exitCode = 3;', { mode: 0o755 })
-  assert.ok(report(f.run(f.input())).includes(ROW))
-  assert.match(report(f.run(f.input(), pathEnv)), /local finding/)
-  quiet(f.run(f.input(), { BCA: join(f.temp, "not-installed") }), "unavailable")
+  await symlink(f.local("release"), join(bin, "bca"))
+  // Without the dedupe the symlink is probed by its own path, so that path
+  // must be routed too, or the extra probe would bypass the fake and go
+  // unrecorded — which is what made the earlier form of this test blind.
+  await f.route(join(bin, "bca"), f.local("release"))
+  const result = f.run(f.input(), { ...env, BCA: "", PATH: `${bin}${delimiter}${f.env.PATH}` })
+  assert.match(report(result), /release finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (no candidate reports this tree's build inputs)")
+  assert.deepEqual(await f.probes(), [f.local("debug"), f.local("release")])
+})
+
+// Fails if the `$BCA` return is moved below the digest step: the matching
+// debug build is then probed and chosen over the explicit analyzer.
+test("explicit BCA is never probed and outranks a matching local build", async (t) => {
+  const f = await fixture(t)
+  const digest = "1".repeat(64)
+  const env = await f.digest(digest)
+  await f.binary(f.local("debug"), { inputs: digest, finding: "debug finding" })
+  const result = f.run(f.input(), { ...env, BCA: f.stub })
+  assert.ok(report(result).includes(ROW))
+  assert.equal(f.health(result).analyzerReason, "BCA environment variable")
+  assert.deepEqual(await f.probes(), [])
+})
+
+// Fails if a failing or absent digest step is allowed to propagate: the hook
+// must still pick a binary, by mtime, and say why the digest was skipped.
+test("a failing or missing python3 still yields a local build", async (t) => {
+  const f = await fixture(t)
+  await f.binary(f.local("release"), { inputs: "2".repeat(64), finding: "release finding" })
+  let result = f.run(f.input(), await f.digest(undefined))
+  assert.match(report(result), /release finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (python3 exited 1: error: the tree cannot be digested)")
+  await f.route("python3", undefined, { exec: join(f.temp, "no-such-python3") })
+  result = f.run(f.input(), { BCA: "", BCA_DIGEST_SCRIPT: join(f.temp, "self_scan_digest.py") })
+  assert.match(report(result), /release finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (python3 ENOENT)")
+})
+
+// A digest script that cannot even be stat'ed — here a symlink loop, so the
+// error is `ELOOP` rather than the `ENOENT` the hook already tolerates — is a
+// discovery failure like any other, not a thrown error that turns the whole
+// check `unavailable`. Fails if `treeDigest`'s stat is left unguarded.
+test("a digest script that cannot be inspected still yields a local build", { skip: process.platform === "win32" && "symlinks need a privilege on Windows" }, async (t) => {
+  const f = await fixture(t)
+  await f.binary(f.local("release"), { inputs: "a".repeat(64), finding: "release finding" })
+  const loop = join(f.temp, "digest-loop.py")
+  await symlink(loop, loop)
+  const result = f.run(f.input(), { BCA: "", BCA_DIGEST_SCRIPT: loop })
+  assert.match(report(result), /release finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (digest script ELOOP)")
+})
+
+// Two candidates each answering `--version` after 2.5 s: the first finishes
+// inside `run()`'s 3 s TIMEOUT and does not match, the second would match at
+// ~5 s, and the 4 s budget cuts it off first. Fails if the budget is removed
+// or its abort is not chained into the probes: the release build then answers,
+// matches, and is chosen with "build inputs match this tree". Decided on the
+// output, not the clock — an earlier `elapsed < 5_500` form passed the
+// unchained abort whenever the reason was read alone, and only its wall-clock
+// bound (4.1 s measured against 6 s) told the two apart (audit-tests).
+test("candidates that stall on --version are abandoned at the discovery budget", async (t) => {
+  const f = await fixture(t)
+  const digest = "3".repeat(64)
+  const env = await f.digest(digest)
+  await f.binary(f.local("debug"), { inputs: "4".repeat(64), finding: "debug finding", delay: 2_500 })
+  await f.binary(f.local("release"), { inputs: digest, finding: "release finding", delay: 2_500, mtime: new Date(Date.now() - 60_000) })
+  const result = f.run(f.input(), env)
+  assert.match(report(result), /debug finding/)
+  assert.equal(f.health(result).analyzerReason, "newest local build (discovery budget exhausted)")
+  assert.deepEqual(await f.probes(), [f.local("debug"), f.local("release")])
 })
 
 test("retargeting an edited symlink discards the old target's findings", async (t) => {
@@ -236,6 +456,38 @@ unlinkSync(process.argv[3]); symlinkSync(${JSON.stringify(replacement)}, process
 console.log(${JSON.stringify(ROW)}); process.exitCode = 2;
 `)
   quiet(f.run(f.input()), "superseded")
+})
+
+// Discovery runs under the hook's own signal: a SIGTERM that arrives while a
+// candidate is stalling on `--version` ends the hook at once, with the
+// stalled probe killed and no check run. Fails if the caller's signal is not
+// chained into the discovery budget — the hook then sits out the full 4 s
+// budget before exiting. The `--version` fake logs its probe before it
+// stalls, which is the ready signal.
+test("SIGTERM during discovery ends the hook without waiting out the budget", { skip: process.platform === "win32" }, async (t) => {
+  const f = await fixture(t)
+  const env = await f.digest("9".repeat(64))
+  await f.binary(f.local("debug"), { inputs: "9".repeat(64), finding: "debug finding", delay: 5_000 })
+  const probes = join(f.temp, "probes.txt")
+  const child = spawn(process.execPath, ["--import", pathToFileURL(f.preload).href, HOOK], { env: { ...f.env, ...env }, cwd: f.temp })
+  t.after(() => child.kill("SIGKILL"))
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (data) => { stdout += data })
+  child.stderr.on("data", (data) => { stderr += data })
+  const closed = once(child, "close")
+  child.stdin.end(JSON.stringify(f.input()))
+  const started = Date.now()
+  while (!(await f.probes()).length) {
+    assert.ok(Date.now() - started < 10_000, `no probe logged in ${probes}`)
+    await new Promise((wake) => setTimeout(wake, 25))
+  }
+  child.kill("SIGTERM")
+  const [code] = await closed
+  assert.equal(code, 0)
+  assert.equal(stdout, "")
+  assert.ok(Date.now() - started < 3_000, `hook took ${Date.now() - started} ms after SIGTERM`)
+  assert.equal(JSON.parse(stderr.slice("[bca-check] ".length)).outcome, "cancelled")
 })
 
 test("SIGTERM and SIGINT abort an active analyzer without later context", { skip: process.platform === "win32" }, async (t) => {

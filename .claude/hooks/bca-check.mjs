@@ -39,8 +39,9 @@ export async function checkHook(input, signal) {
     const { named, cwd } = context
     health.root = context.root
     health.cwd = cwd
-    const bca = await analyzer(context.root)
+    const { path: bca, reason } = await analyzer(context.root, { signal })
     health.analyzer = bca
+    health.analyzerReason = reason
     if (signal?.aborted) {
       health.outcome = "cancelled"
       return

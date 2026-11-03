@@ -137,6 +137,13 @@ export default {
         const root = await checkout(directory)
         audit.root = root
 
+        // Per event, not per plugin load: a rebuild between events must be seen.
+        const analyzers = new Map()
+        const resolveAnalyzer = (checkoutRoot) => {
+          let resolved = analyzers.get(checkoutRoot)
+          if (!resolved) analyzers.set(checkoutRoot, resolved = analyzer(checkoutRoot, { signal: lifetime.signal }))
+          return resolved
+        }
         const pending = []
         const selected = [...paths].slice(0, MAX_FILES)
         const omitted = paths.size - selected.length
@@ -156,14 +163,15 @@ export default {
           }
           const context = await checkContext(directory, root, lexical, file)
           const { named, cwd } = context
-          const bca = await analyzer(context.root)
+          const { path: bca, reason } = await resolveAnalyzer(context.root)
           audit.analyzer = bca
+          audit.analyzerReason = reason
           audit.cwd = cwd
-          const binaryKey = JSON.stringify([context.root, bca])
+          const binaryKey = JSON.stringify([context.root, bca, reason])
           if (!binaries.has(binaryKey)) {
             if (binaries.size >= 256) binaries.clear()
             binaries.add(binaryKey)
-            console.info(`[bca-check] analyzer=${bca} cwd=${cwd}`)
+            console.info(`[bca-check] analyzer=${bca} cwd=${cwd} reason=${reason}`)
           }
           const state = fileState(file, lexical, version)
           if (!held.has(state)) state.users++

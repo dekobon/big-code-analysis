@@ -973,6 +973,53 @@ test("cleanup disables old registrations and explicit BCA takes precedence over 
   assert.equal(unloaded.result.content, "Edited successfully")
 })
 
+// #1776: discovery runs once per event per checkout root, not once per file.
+// Fails if the per-event cache is removed (the digest and both probes then run
+// three times for the three-file patch) or if it is hoisted to plugin scope
+// (the second event then reuses the stale selection and runs no digest).
+test("a multi-file patch resolves the analyzer once per event and re-resolves next event", async (t) => {
+  const f = await fixture(t)
+  delete process.env.BCA
+  const digest = "5".repeat(64)
+  const python3 = join(f.directory, "python3.mjs")
+  await writeFile(python3, `#!${process.execPath}\nconsole.log(${JSON.stringify(digest)});`, { mode: 0o755 })
+  const script = join(f.directory, "self_scan_digest.py")
+  await writeFile(script, "")
+  process.env.BCA_DIGEST_SCRIPT = script
+  t.after(() => { delete process.env.BCA_DIGEST_SCRIPT })
+  const binary = async (profile, inputs, finding) => {
+    const file = join(f.root, `target/${profile}/bca${EXE}`)
+    await mkdir(join(file, ".."), { recursive: true })
+    await writeFile(file, `#!${process.execPath}
+if (process.argv[2] === "--version") console.log("bca 0.0.0\\nbuild inputs: ${inputs}");
+else { console.log(${JSON.stringify(finding)}); process.exitCode = 2; }
+`, { mode: 0o755 })
+    f.scripts.add(file)
+    return file
+  }
+  await binary("debug", "6".repeat(64), "debug finding")
+  const release = await binary("release", digest, "release finding")
+  const spawned = () => childProcess.spawn.mock.calls.map((call) => call.arguments[0])
+  const original = childProcess.spawn
+  const mock = t.mock.method(childProcess, "spawn", (file, args, options) => {
+    return file === "python3" ? original(process.execPath, [python3, ...args], options) : original(file, args, options)
+  })
+  syncBuiltinESMExports()
+  t.after(() => { mock.mock.restore(); syncBuiltinESMExports() })
+  const files = await Promise.all(["a.rs", "b.rs", "c.rs"].map((name) => f.file(name)))
+  const first = event(undefined, { tool: "patch", result: { content: "Patched", metadata: { files: files.map((file) => ({ file })) } } })
+  await f.hook(first)
+  assert.equal((advice(first).match(/release finding/g) ?? []).length, 3)
+  const discovery = (calls) => calls.filter((file) => file === "python3" || file.endsWith(`${sep}bca${EXE}`) || file === "bca")
+  const afterFirst = spawned()
+  assert.deepEqual(discovery(afterFirst).slice(0, 3), ["python3", join(f.root, `target/debug/bca${EXE}`), release])
+  assert.equal(discovery(afterFirst).filter((file) => file === "python3").length, 1)
+  assert.ok(f.messages.some(([, text]) => text === `[bca-check] analyzer=${release} cwd=${f.root} reason=build inputs match this tree`))
+  const second = event(files[0], { sessionID: "next-event" })
+  await f.hook(second)
+  assert.equal(discovery(spawned().slice(afterFirst.length)).filter((file) => file === "python3").length, 1)
+})
+
 const integrationBca = process.env.BCA_TEST_BINARY || "bca"
 const realBca = spawnSync(integrationBca, ["--version"], { encoding: "utf8" })
 test("real analyzer respects explicit-path exclusions and a baseline", { skip: !process.env.BCA_TEST_BINARY && realBca.status !== 0 && "bca not found; unit contract tests still run" }, async (t) => {

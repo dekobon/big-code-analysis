@@ -1,10 +1,14 @@
 import { execFile, spawn } from "node:child_process"
 import { constants } from "node:fs"
 import { access, open, realpath, stat } from "node:fs/promises"
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const TIMEOUT = 3_000
+const DISCOVERY_BUDGET = 4_000
 const MAX_REPORT = 4_000
+const BUILD_INPUTS = "build inputs: "
+const DIGEST_SCRIPT = fileURLToPath(new URL("../../utils/self_scan_digest.py", import.meta.url))
 const FALLBACK = "Review findings relevant to your change; do not move complexity just to lower a score.\n" +
   "These are current file findings, not proof of an edit-caused regression. Keep the task-boundary gate."
 
@@ -70,16 +74,110 @@ export function inside(root, file) {
   return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
-export async function analyzer(root) {
-  if (process.env.BCA) return process.env.BCA
-  const local = resolve(root, "target/release", process.platform === "win32" ? "bca.exe" : "bca")
+async function executableFile(path) {
   try {
-    await access(local, constants.X_OK)
-    if ((await stat(local)).isFile()) return local
+    await access(path, constants.X_OK)
+    const info = await stat(path)
+    return info.isFile() ? { path, mtimeMs: info.mtimeMs, identity: await realpath(path) } : undefined
   } catch {
-    // This checkout has no executable release build; use the installed analyzer.
+    return undefined
   }
-  return "bca"
+}
+
+async function localBuilds(root) {
+  const name = process.platform === "win32" ? "bca.exe" : "bca"
+  const builds = await Promise.all(["debug", "release"].map((profile) => executableFile(resolve(root, "target", profile, name))))
+  return builds.filter(Boolean)
+}
+
+// The executable a bare `name` would spawn with `cwd` as the working
+// directory: PATH entries are resolved against `cwd` — a relative entry,
+// or an empty one, which `spawn` reads as the child's cwd — so the file
+// probed here is the file the check later runs.
+async function installed(name, cwd) {
+  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""]
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    for (const extension of extensions) {
+      const found = await executableFile(resolve(cwd, directory, name + extension))
+      if (found) return found
+    }
+  }
+  return undefined
+}
+
+async function probe(file, args, cwd, signal) {
+  const result = await run(file, args, cwd, signal)
+  if (!result.failed && result.code === 0) return { stdout: result.stdout }
+  const detail = result.stderr.split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 200)
+  const status = Number.isInteger(result.code) ? `exited ${result.code}` : result.code ?? "signal"
+  return { failure: detail ? `${file} ${status}: ${detail}` : `${file} ${status}` }
+}
+
+// Every failure of the digest step is a discovery failure, never a thrown
+// error, so a check can lose at most the match step — never itself.
+async function treeDigest(script, root, signal) {
+  let present
+  try { present = (await stat(script)).isFile() } catch (error) { return { failure: `digest script ${error.code ?? "unreadable"}` } }
+  if (!present) return { failure: "no digest script" }
+  const { stdout, failure } = await probe("python3", ["-B", script, root], root, signal)
+    .catch((error) => ({ failure: `python3 ${error.code ?? error.message}` }))
+  if (failure) return { failure }
+  const digest = stdout.split(/\r?\n/).map((line) => line.trim()).find((line) => /^[0-9a-f]{64}$/.test(line))
+  return digest ? { digest } : { failure: "python3 printed no digest" }
+}
+
+function reportedInputs(stdout) {
+  return stdout.split(/\r?\n/).find((line) => line.startsWith(BUILD_INPUTS))?.slice(BUILD_INPUTS.length).trim()
+}
+
+// Order: `$BCA` unprobed; else the first of `target/debug/bca`, `target/release/bca`
+// and PATH `bca` whose `--version` reports a `build inputs:` digest equal to the
+// one `utils/self_scan_digest.py` computes over `root` — the same test
+// `utils/self-scan-bca.py` applies, so the hook agrees with `make self-scan`
+// (#1776); else the newest local build by mtime; else PATH `bca`.
+// Probing executes each candidate, which is the trust level the old order already
+// granted `target/release/bca` by running it unconditionally. The script is
+// resolved relative to this module, never to `root`: `checkContext` can hand over
+// a nested checkout, and that checkout must not supply the Python the parent's
+// hook runs. `BCA_DIGEST_SCRIPT` is the tests' seam for that path, like
+// `BCA_SELF_SCAN_WORKSPACE` in self-scan-bca.py. PATH `bca` is probed and
+// returned as the resolved file, so the binary that answered `--version` is
+// the one the check runs and the one the health line names. Discovery shares
+// one budget so the check itself keeps room: the digest plus three probes at
+// TIMEOUT each could otherwise spend more. The `checkout()` git call before
+// this is not under the budget; its 3 s TIMEOUT plus this 4 s plus the
+// check's 3 s is 10 s, which is why `.claude/settings.json` registers 15.
+export async function analyzer(root, options = {}) {
+  if (process.env.BCA) return { path: process.env.BCA, reason: "BCA environment variable" }
+  const budget = new AbortController()
+  const expire = () => budget.abort()
+  const timer = setTimeout(expire, DISCOVERY_BUDGET)
+  options.signal?.addEventListener("abort", expire, { once: true })
+  if (options.signal?.aborted) expire()
+  try {
+    const builds = await localBuilds(root)
+    const script = process.env.BCA_DIGEST_SCRIPT || DIGEST_SCRIPT
+    let { digest, failure } = await treeDigest(script, root, budget.signal)
+    if (digest) {
+      const candidates = builds.map((build) => build.path)
+      const onPath = await installed("bca", root)
+      if (onPath && !builds.some((build) => build.identity === onPath.identity)) candidates.push(onPath.path)
+      for (const candidate of candidates) {
+        if (budget.signal.aborted) break
+        const { stdout } = await probe(candidate, ["--version"], root, budget.signal)
+        if (stdout !== undefined && reportedInputs(stdout) === digest) {
+          return { path: candidate, reason: "build inputs match this tree" }
+        }
+      }
+      failure = budget.signal.aborted ? "discovery budget exhausted" : "no candidate reports this tree's build inputs"
+    }
+    const [newest] = builds.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    if (newest) return { path: newest.path, reason: `newest local build (${failure})` }
+    return { path: "bca", reason: `PATH bca (no local build; ${failure})` }
+  } finally {
+    clearTimeout(timer)
+    options.signal?.removeEventListener("abort", expire)
+  }
 }
 
 export async function checkout(directory) {

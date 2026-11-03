@@ -942,7 +942,14 @@ Three things to know before quoting a number at anyone:
 This repo dogfoods its own analyzer: a `bca check` threshold violation
 may surface mid-edit (via the Claude Code `PostToolUse` hook in
 `.claude/hooks/bca-check.mjs`, enabled by `.claude/settings.json`) or at
-the task boundary (`make self-scan`, `make pre-commit`). A violation (cognitive, cyclomatic, ABC, …) means
+the task boundary (`make self-scan`, `make pre-commit`). The hook runs
+`$BCA` if set; otherwise the candidate — `target/debug/bca`,
+`target/release/bca`, then PATH `bca` — whose `build inputs:` digest
+matches the tree, the same test `utils/self-scan-bca.py` applies, so it
+agrees with `make self-scan`; with no match it takes the newest local
+build, then PATH `bca`, and names its choice and why in the
+`[bca-check]` health line (#1776).
+A violation (cognitive, cyclomatic, ABC, …) means
 *this function is hard for a human to follow* — the number is a proxy
 for that, not the goal. Make the code genuinely simpler, not the number
 smaller.
