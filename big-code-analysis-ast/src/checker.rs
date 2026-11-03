@@ -212,10 +212,18 @@ fn get_aho_corasick_match(code: &[u8]) -> bool {
 /// skipped node's descendants are never pushed. A `RETAIN` reach
 /// carries the heavier claim: the members' descendants *are* walked, so
 /// it must be right for them too.
+///
+/// A verdict can also answer for one node named by identity, where the
+/// reach stops ([`Self::covering_through_node`]). That claim is about
+/// the node alone: its descendants are not inside the reach, so a
+/// `RETAIN` walk still asks about each of them. It cannot be re-entered
+/// either, since an id is unique within one tree and a pre-order walk
+/// visits each node once.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SubtreeSkip {
     skipped: bool,
     covers_through_byte: Option<usize>,
+    covers_node: Option<usize>,
 }
 
 impl SubtreeSkip {
@@ -223,12 +231,14 @@ impl SubtreeSkip {
     pub const RETAIN: Self = Self {
         skipped: false,
         covers_through_byte: None,
+        covers_node: None,
     };
 
     /// Elide this node and its descendants. Answers for nothing else.
     pub const SKIP: Self = Self {
         skipped: true,
         covers_through_byte: None,
+        covers_node: None,
     };
 
     /// [`Self::SKIP`] or [`Self::RETAIN`], from a predicate's answer.
@@ -258,15 +268,30 @@ impl SubtreeSkip {
         self.skipped
     }
 
-    /// Whether this verdict already answers for a node starting at
-    /// `start_byte`, so the classifier need not be asked again.
+    /// [`Self::covering_through`] `node`'s start, plus `node` itself.
+    ///
+    /// The caller is asserting that this verdict is also `node`'s own.
+    /// Naming `node` by identity, rather than moving the reach past its
+    /// start, leaves its descendants out: its first child starts at the
+    /// same byte.
     #[inline]
     #[must_use]
-    pub const fn answers_for(self, start_byte: usize) -> bool {
-        match self.covers_through_byte {
-            Some(through) => start_byte < through,
-            None => false,
+    pub fn covering_through_node(self, node: &Node) -> Self {
+        Self {
+            covers_node: Some(node.id()),
+            ..self.covering_through(node.start_byte())
         }
+    }
+
+    /// Whether this verdict already answers for `node`, so the
+    /// classifier need not be asked again.
+    #[inline]
+    #[must_use]
+    pub fn answers_for(self, node: &Node) -> bool {
+        self.covers_node == Some(node.id())
+            || self
+                .covers_through_byte
+                .is_some_and(|through| node.start_byte() < through)
     }
 }
 
@@ -705,8 +730,10 @@ pub trait Checker {
     ///
     /// A verdict that took a *sibling-run* to reach should say so with
     /// [`SubtreeSkip::covering_through`], so the walker asks once per
-    /// run rather than once per member. See that method for what makes
-    /// such a claim sound.
+    /// run rather than once per member, or with
+    /// [`SubtreeSkip::covering_through_node`] when it is also the verdict
+    /// of the node the run ends at. See the type for what makes such a
+    /// claim sound.
     #[inline]
     #[must_use]
     fn should_skip_subtree<'a>(
@@ -998,11 +1025,11 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
 /// The item kinds the `exclude_tests` prune removes, given a test-only
 /// verdict.
 ///
-/// `RustCode::should_skip_subtree` and
-/// [`rust_attribute_run_verdict`] both consult this, so an
-/// attribute run and the item it decorates can never disagree about
-/// whether that item is prunable: `#[cfg(test)] use foo;` keeps both
-/// rows, because a `use_declaration` is not on this list (#1431).
+/// `RustCode::should_skip_subtree` consults this for an item, and
+/// [`rust_attribute_run_verdict`] takes a run's verdict from that hook's
+/// answer for the item it decorates, so the two can never disagree
+/// about whether that item is prunable: `#[cfg(test)] use foo;` keeps
+/// both rows, because a `use_declaration` is not on this list (#1431).
 fn rust_prunable_item(node: &Node) -> bool {
     // role-bypass: allow(FuncOpener, Container, Member, DocTarget) — which
     // items a `#[cfg(test)]` prunes, not membership
@@ -1027,14 +1054,14 @@ fn rust_prunable_item(node: &Node) -> bool {
 /// way (#1431).
 ///
 /// That is also why the answer is reported as covering the rest of the
-/// run. Every attribute from `node` up to the item resolves the same
-/// item and therefore the same verdict, so a walker that re-asks per
-/// row pays the run twice over per row: once in
-/// [`rust_attributed_item`]'s lookahead and once in the backward
-/// reading [`rust_item_is_test_only`] takes. Both are `O(run)` (see
-/// [`rust_outer_attr_marks_test`]), so re-asking per row is `O(run²)` —
-/// the diagonal #1446 measured at 5.2 s / depth 2 000. One ask per run
-/// makes it one pass, not `run` passes.
+/// run, and the item it ends at (#1783). Every attribute from `node` up
+/// to the item resolves the same item and therefore the same verdict,
+/// so a walker that re-asks per row pays the run twice over per row:
+/// once in [`rust_attributed_item`]'s lookahead and once in the
+/// backward reading [`rust_item_is_test_only`] takes. Both are `O(run)`
+/// (see [`rust_outer_attr_marks_test`]), so re-asking per row is
+/// `O(run²)` — the diagonal #1446 measured at 5.2 s / depth 2 000. One
+/// ask per run makes it one pass, not `run` passes.
 fn rust_attribute_run_verdict<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -1052,17 +1079,25 @@ fn rust_attribute_run_verdict<'a>(
         };
     };
     // `item` is `node`'s sibling, so the chain that describes one
-    // describes the other — parent and depth alike.
-    let skipped = rust_prunable_item(&item) && rust_item_is_test_only(&item, code, ancestors);
+    // describes the other — parent and depth alike. Its verdict is
+    // asked of the hook itself, which cannot recurse here because `item`
+    // is never an `AttributeItem`, so the run's verdict is the item's
+    // own by construction rather than by a second spelling of it.
+    let skipped = RustCode::should_skip_subtree(&item, code, ancestors).is_skipped();
     // Everything strictly between `node` and `item` is an
     // `AttributeItem` — that is what `rust_attributed_item` searched
     // for — so the reach holds for the run's remaining members. It
     // holds for *their* descendants too, which the walk visits whenever
     // the run is retained: an attribute's children are the `#`, `[`,
-    // `]` tokens and the `attribute` body, none of them a
-    // `rust_prunable_item` or an `AttributeItem`, so `RETAIN` is their
-    // answer as well.
-    SubtreeSkip::of(skipped).covering_through(item.start_byte())
+    // `]` tokens and the `attribute` body, whose path, argument token
+    // tree and literal or macro-call value nest no `rust_prunable_item`
+    // and no `AttributeItem`, so `RETAIN` is their answer as well. A
+    // `value` that nests an item, such as a block, is the exception:
+    // rustc accepts one only for a proc macro to consume, and a
+    // `#[cfg(test)]` item inside it is kept. The reach holds for `item`
+    // too, since `skipped` is its own verdict, so the walk need not ask
+    // about it again (#1783).
+    SubtreeSkip::of(skipped).covering_through_node(&item)
 }
 
 /// The item an outer-attribute run decorates: the first sibling after
@@ -1838,7 +1873,7 @@ mod tests {
         // children, so a reach owes them nothing and asserting over
         // them would fail on correct code.
         let mut reach = SubtreeSkip::RETAIN;
-        let (mut pruned_through, mut reused) = (0_usize, 0_usize);
+        let (mut pruned_through, mut members, mut decorated) = (0_usize, 0_usize, 0_usize);
         let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
             let reference = if node.kind_id() == Rust::AttributeItem {
                 rust_attributed_item_raw(node)
@@ -1856,8 +1891,18 @@ mod tests {
                 node.start_row(),
             );
             if node.start_byte() >= pruned_through {
-                if reach.answers_for(node.start_byte()) {
-                    reused += 1;
+                if reach.answers_for(node) {
+                    // Either the item a run decorates, or a run member or
+                    // one of its descendants.
+                    let ends_a_run = node.kind_id() != Rust::AttributeItem
+                        && node
+                            .previous_sibling()
+                            .is_some_and(|s| s.kind_id() == Rust::AttributeItem);
+                    if ends_a_run {
+                        decorated += 1;
+                    } else {
+                        members += 1;
+                    }
                     assert_eq!(
                         reach.is_skipped(),
                         reference,
@@ -1876,6 +1921,13 @@ mod tests {
             pruned += usize::from(skipped);
         });
         assert!(visited > 0, "fixture must have nodes to compare");
+        // Every run that decorates an item answers for that item by
+        // identity (#1783), so the replay checks each such claim against
+        // the item's own verdict. Eight runs end at an item: `mod tests`,
+        // `static S`, `fn b`, the `use`, `fn d`, `fn f`, and the nested
+        // `fn inner` and `fn e`. A reach that stopped at the item's start
+        // byte, as before #1783, reads 0 here.
+        assert_eq!(decorated, 8, "a run's verdict did not answer for its item");
         // Both halves of the reach have to fire, or the assertion above
         // is decoration: a run whose members are pruned (`fn d`'s two
         // rows) and one whose members are kept (`fn f`'s three, plus
@@ -1889,24 +1941,29 @@ mod tests {
         // construction — so a reach extended one node too far reads as
         // correct. Extended over the item's *body*, it swallows the
         // nested `#[cfg(test)] fn inner`, and the two answers part
-        // company (verified by perturbation: `item.start_byte()` to
-        // `item.end_byte()` fails this assertion, and without `fn f`'s
-        // body it fails nothing).
+        // company (verified by perturbation: `node.start_byte()` to
+        // `node.end_byte()` in `SubtreeSkip::covering_through_node`
+        // fails the reach assertion in the replay above, and without
+        // `fn f`'s body it fails nothing).
+        //
+        // The floor below counts run members and their descendants; the
+        // items, counted apart above, would clear it on their own.
         assert!(
-            reused > 4,
-            "only {reused} nodes were answered by a reach; the fixture \
+            members > 4,
+            "only {members} run members were answered by a reach; the fixture \
              must carry runs long enough for the walker to reuse one"
         );
-        // Seven test-only items — `mod tests`, `mod inner`, `fn b`,
-        // `fn d`, `fn inner`, `fn e`, and `fn a` inside `mod tests` —
-        // plus the six `#[…]` rows that mark five of them (`fn d`
-        // carries two, `mod inner` an inner attribute that its own
-        // subtree covers). Neither `#[allow(dead_code)]` on the
-        // production `static`, nor `#[cfg(test)]` on the `use`, nor the
-        // trailing run that decorates nothing, is the prune's to take.
-        // A hook that pruned everything would satisfy the equality
-        // above only if the oracle agreed; this pins the count the
-        // fixture was written for.
+        // Six test-only items — `mod tests`, `mod inner`, `fn b`,
+        // `fn d`, `fn inner` and `fn e` — plus the six `#[…]` rows that
+        // mark five of them (`fn d` carries two, `mod inner` an inner
+        // attribute that its own subtree covers). The `fn a` inside
+        // `mod tests` is test code too, but nothing marks it, so its own
+        // verdict keeps it and only its pruned parent removes it.
+        // Neither `#[allow(dead_code)]` on the production `static`, nor
+        // `#[cfg(test)]` on the `use`, nor the trailing run that
+        // decorates nothing, is the prune's to take. A hook that pruned
+        // everything would satisfy the equality above only if the oracle
+        // agreed; this pins the count the fixture was written for.
         assert_eq!(
             pruned, 12,
             "expected the test-only items and the attributes marking them"
@@ -1928,24 +1985,30 @@ mod tests {
     fn a_trailing_attribute_run_answers_for_its_whole_run() {
         let source = "fn a() {}\n#[inline]\n#[allow(dead_code)]\n";
         let code = source.as_bytes();
-        let mut attributes = Vec::new();
+        let mut attributes: Vec<SubtreeSkip> = Vec::new();
+        let mut first_answers_second = None;
         for_each_node_with_chain::<RustCode>(code, |node, chain| {
             if node.kind_id() == Rust::AttributeItem {
-                attributes.push((
-                    node.start_byte(),
-                    RustCode::should_skip_subtree(node, code, Ancestors::known(chain)),
+                if let [first] = attributes[..] {
+                    first_answers_second = Some(first.answers_for(node));
+                }
+                attributes.push(RustCode::should_skip_subtree(
+                    node,
+                    code,
+                    Ancestors::known(chain),
                 ));
             }
         });
-        let [(_, first), (second_start, second)] = attributes[..] else {
+        let [first, second] = attributes[..] else {
             panic!("fixture must hold exactly two attributes, got {attributes:?}");
         };
         assert!(
             !first.is_skipped() && !second.is_skipped(),
             "a run decorating nothing prunes nothing"
         );
-        assert!(
-            first.answers_for(second_start),
+        assert_eq!(
+            first_answers_second,
+            Some(true),
             "the first row's verdict must answer for the rest of the run"
         );
     }

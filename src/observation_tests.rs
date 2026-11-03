@@ -281,6 +281,54 @@ fn the_exclude_tests_prune_scans_no_children_for_an_attribute() {
     }
 }
 
+/// The `exclude_tests` walk asks about an attributed item once: the
+/// attribute run's verdict names the item it decorates, so the walk
+/// reuses it there instead of asking again (#1783).
+///
+/// The verdict is the item's own either way, so no value moves, and two
+/// counters see the second ask:
+///
+/// - Each retained `mod` costs one `child_scan_cursors` cursor per
+///   ask, because `rust_inner_attr_marks_test` scans its body for
+///   `#![…]`. Re-asking reads two per `mod`.
+/// - A pruned `#[cfg(test)] fn` pair under a parent wider than
+///   `WIDE_PARENT` costs two `sibling_cache_reads`: the attribute looks
+///   ahead to its item and back along its run. Re-asking adds the
+///   item's backward read, so three. The width is even so that
+///   `rust_root_of_width` adds no bare `fn`, whose own ask would be a
+///   read more.
+///
+/// Reverting `rust_attribute_run_verdict` to
+/// `covering_through(item.start_byte())` fails both.
+#[cfg(feature = "rust")]
+#[test]
+fn the_exclude_tests_prune_asks_once_per_attributed_item() {
+    use big_code_analysis_ast::node::WIDE_PARENT;
+    use big_code_analysis_ast::test_support::rust_root_of_width;
+
+    let mods = 3;
+    let source = "#[inline]\nmod m {}\n".repeat(mods);
+    let ast = crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", &source);
+    let cursors = crate::node::child_scan_cursors::observed;
+    assert_eq!(
+        walk_delta(cursors, &ast, true),
+        walk_delta(cursors, &ast, false) + mods,
+        "the prune did not scan each retained `mod` body exactly once"
+    );
+
+    let pairs = WIDE_PARENT / 2 + 1;
+    let ast = crate::test_support::parse_named(
+        crate::LANG::Rust,
+        "lib.rs",
+        &rust_root_of_width(2 * pairs),
+    );
+    assert_eq!(
+        walk_delta(crate::node::sibling_cache_reads::observed, &ast, true),
+        2 * pairs,
+        "the prune asked about a pruned item after its attribute had answered"
+    );
+}
+
 /// The metric and suppression walks #1112 moved onto
 /// `Node::children_with` must scan a whole tree on one cursor, not one
 /// per node. The `preorder` and `act_on_node` halves of this guard sit

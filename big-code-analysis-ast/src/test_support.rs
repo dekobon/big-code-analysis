@@ -334,8 +334,10 @@ pub fn tcl_wide_erroring_eval(width: usize) -> String {
 /// `width` is odd. The wide-parent tests size it from
 /// [`WIDE_PARENT`](crate::node::WIDE_PARENT) to sit on each side of the
 /// sibling cache's threshold, so the parity fill is what keeps the two
-/// sides apart whatever value the constant takes. Shared by one test in
-/// this crate and one in the root's.
+/// sides apart whatever value the constant takes. Shared by tests in
+/// this crate and in the root's, and one of the root's counts
+/// sibling-cache reads per pair, so it relies on an even `width` adding
+/// no bare `fn`: a change to the fill is a change to all of them.
 #[must_use]
 pub fn rust_root_of_width(width: usize) -> String {
     format!(

@@ -844,6 +844,15 @@ for historical reference.
   `cargo install rumdl --version 0.3.2`) to pick it up.
   0.3.0 removed MD037's auto-fix; the rule still reports. (#1653)
 
+- `--exclude-tests` reads each attributed Rust item once rather than
+  twice: an attribute run's verdict now also answers for the item it
+  decorates. A file of 20 000 `#[inline] mod` items runs about 5%
+  faster; on real code the change is within noise, and output is
+  byte-identical. In `big-code-analysis-ast`, which `STABILITY.md`
+  leaves outside the shape contract, `SubtreeSkip::answers_for` takes
+  the `Node` rather than its start byte, and the new
+  `SubtreeSkip::covering_through_node` names the item. (#1783)
+
 ### Deprecated
 
 - `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;

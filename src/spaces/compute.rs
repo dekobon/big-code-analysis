@@ -722,14 +722,17 @@ pub(crate) fn push_children<'a, 's, Tag: Copy>(
 /// has passed can never be re-entered and the stale-answer case does
 /// not arise. `SubtreeSkip::RETAIN` reaches nothing, which is what the
 /// walk starts from and what every classifier that answers per node
-/// keeps returning.
+/// keeps returning. The reach can also name the run's item, which the
+/// walk then does not ask about again (#1783); that half cannot go stale
+/// either, since a node id is unique within a tree and pre-order visits
+/// each node once.
 fn prunes_subtree<'a, T: MetricSuite>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     run_verdict: &mut SubtreeSkip,
 ) -> bool {
-    if !run_verdict.answers_for(node.start_byte()) {
+    if !run_verdict.answers_for(node) {
         *run_verdict = T::Checker::should_skip_subtree(node, code, ancestors);
     }
     run_verdict.is_skipped()

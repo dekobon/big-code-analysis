@@ -207,7 +207,9 @@ impl Checker for RustCode {
         // reported as reaching the rest of the run: the walker then
         // asks once per run instead of once per row, which is what
         // keeps a deep file carrying one long run out of `O(run^2)`
-        // (#1446).
+        // (#1446). It is the decorated item's verdict too, which it
+        // names, so the walker does not ask about that item either
+        // (#1783).
         if node.kind_id() == Rust::AttributeItem {
             return rust_attribute_run_verdict(node, code, ancestors);
         }
