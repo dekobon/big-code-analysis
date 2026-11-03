@@ -140,11 +140,20 @@ pub(crate) fn dump_sarif_with_suppressed(
 /// neither and stamps nothing — an absent property, not a sentinel a
 /// consumer comparing digests would read as a value.
 fn sarif_provenance() -> SarifProvenance {
+    provenance_from(
+        crate::build_info::build_inputs(),
+        crate::build_info::build_git(),
+    )
+}
+
+/// [`sarif_provenance`] over explicit fields, so the registry build's
+/// shape — neither known — can be pinned from a checkout build.
+fn provenance_from(build_inputs: Option<&str>, build_git: Option<&str>) -> SarifProvenance {
     let mut provenance = SarifProvenance::default();
-    if let Some(digest) = crate::build_info::build_inputs() {
+    if let Some(digest) = build_inputs {
         provenance = provenance.with_build_inputs(digest);
     }
-    if let Some(revision) = crate::build_info::build_git() {
+    if let Some(revision) = build_git {
         provenance = provenance.with_build_git(revision);
     }
     provenance
@@ -623,6 +632,36 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
 mod tests {
     use super::*;
     use crate::thresholds::test_threshold;
+
+    /// Each field is stamped iff known: the registry build (neither)
+    /// yields the empty provenance whose document is byte-identical to
+    /// `write_sarif`'s, and a half-known pair stamps only its half.
+    #[test]
+    fn provenance_stamps_exactly_the_fields_that_are_known() {
+        assert_eq!(provenance_from(None, None), SarifProvenance::default());
+        assert_eq!(
+            provenance_from(Some("ab"), None),
+            SarifProvenance::default().with_build_inputs("ab")
+        );
+        assert_eq!(
+            provenance_from(None, Some("cd")),
+            SarifProvenance::default().with_build_git("cd")
+        );
+        assert_eq!(
+            provenance_from(Some("ab"), Some("cd")),
+            SarifProvenance::default()
+                .with_build_inputs("ab")
+                .with_build_git("cd")
+        );
+        // What this binary stamps is exactly what its own fields say.
+        assert_eq!(
+            sarif_provenance(),
+            provenance_from(
+                crate::build_info::build_inputs(),
+                crate::build_info::build_git()
+            )
+        );
+    }
 
     fn violation(function: &str) -> Violation {
         Violation {

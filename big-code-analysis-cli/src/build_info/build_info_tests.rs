@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::digest::{DigestError, INPUT_ROOTS, digest, input_files};
 use super::elf::{build_id, hex_lower};
@@ -179,6 +179,152 @@ fn input_files_under_root(workspace: &Path, root: &str) -> Result<(), DigestErro
     super::digest::lookup_root(workspace, root).map(|_| ())
 }
 
+/// Every `DigestError` renders its path and its kind; `build.rs` prints
+/// the rendering as a `cargo:warning`, so each arm is a line a reader
+/// has to be able to act on.
+#[test]
+fn every_digest_error_names_its_path_and_its_kind() {
+    let cases = [
+        (
+            DigestError::MissingRoot("src".into()),
+            "input root is absent: src",
+        ),
+        (
+            DigestError::Symlink("src/link.rs".into()),
+            "symlink under an input root: src/link.rs",
+        ),
+        (
+            DigestError::NonUtf8Path("src/x".into()),
+            "non-UTF-8 path under an input root: src/x",
+        ),
+        (
+            DigestError::Io("src/lib.rs".into(), "boom".into()),
+            "src/lib.rs: boom",
+        ),
+    ];
+    for (error, rendered) in cases {
+        assert_eq!(error.to_string(), rendered);
+    }
+}
+
+/// A root that is itself a symlink is refused before anything beneath
+/// it is read — the compiler would follow it to bytes the digest never
+/// saw.
+#[cfg(unix)]
+#[test]
+fn walk_refuses_a_symlinked_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    shared_fixture(dir.path());
+    std::fs::remove_dir_all(dir.path().join("big-code-analysis-ast")).expect("rm");
+    std::os::unix::fs::symlink(
+        "big-code-analysis-cli",
+        dir.path().join("big-code-analysis-ast"),
+    )
+    .expect("symlink");
+    assert_eq!(
+        digest(dir.path()),
+        Err(DigestError::Symlink("big-code-analysis-ast".into()))
+    );
+}
+
+/// A name the shared encoding cannot spell is refused rather than
+/// hashed under a lossy spelling the Python side would not reproduce.
+#[cfg(unix)]
+#[test]
+fn walk_refuses_a_non_utf8_path() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    shared_fixture(dir.path());
+    let name = std::ffi::OsStr::from_bytes(b"bad\xff.rs");
+    std::fs::write(dir.path().join("src").join(name), b"fn x() {}\n").expect("write");
+    assert!(
+        matches!(digest(dir.path()), Err(DigestError::NonUtf8Path(_))),
+        "{:?}",
+        digest(dir.path())
+    );
+}
+
+/// `input_files` lists the file, then the read fails: the error carries
+/// the file's path, not the directory's, so the warning names what to
+/// fix. Skipped for root, who reads anything.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_file_is_an_io_error_naming_the_file() {
+    if effective_root() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    shared_fixture(dir.path());
+    let _unreadable = Unreadable::new(dir.path().join("src/lib.rs"), 0o644);
+    let result = digest(dir.path());
+    assert!(
+        matches!(result, Err(DigestError::Io(ref p, _)) if p.ends_with("src/lib.rs")),
+        "{result:?}"
+    );
+}
+
+/// A directory the walk cannot list is an `Io` error naming that
+/// directory, from `read_dir` rather than from a later read.
+#[cfg(unix)]
+#[test]
+fn an_unlistable_directory_is_an_io_error_naming_the_directory() {
+    if effective_root() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    shared_fixture(dir.path());
+    let _unlistable = Unreadable::new(dir.path().join("src/nested"), 0o755);
+    let result = digest(dir.path());
+    assert!(
+        matches!(result, Err(DigestError::Io(ref p, _)) if p.ends_with("src/nested")),
+        "{result:?}"
+    );
+}
+
+/// A path held at mode `0o000` for the guard's lifetime and restored on
+/// drop — on an assertion failure too, which matters for a directory:
+/// `TempDir::drop` ignores the `remove_dir_all` error a `0o000`
+/// subdirectory produces and leaves the tree behind. Declared before
+/// the `TempDir` in each test so it drops first.
+#[cfg(unix)]
+struct Unreadable {
+    path: PathBuf,
+    restore: u32,
+}
+
+#[cfg(unix)]
+impl Unreadable {
+    fn new(path: PathBuf, restore: u32) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        Self { path, restore }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Unreadable {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(self.restore));
+    }
+}
+
+/// Whether this process reads past permission bits. The *effective*
+/// uid, from `id -u`, which every Unix has — `/proc` does not exist on
+/// macOS, and the `Uid:` line there is the real uid anyway. An answer
+/// that cannot be read is not evidence of an unprivileged run, so it
+/// counts as root and skips.
+#[cfg(unix)]
+fn effective_root() -> bool {
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .is_none_or(|uid| uid.trim() == "0")
+}
+
 #[cfg(unix)]
 #[test]
 fn walk_refuses_a_symlinked_input() {
@@ -249,6 +395,21 @@ fn python_digest_agrees_with_the_rust_digest_over_this_checkout() {
     );
     let python = String::from_utf8(out.stdout).expect("digest is UTF-8");
     assert_eq!(python.trim(), rust);
+}
+
+/// The sentinel `build.rs` writes for a field it could not determine
+/// is a word in the `--version` text and nothing anywhere else: the
+/// accessors map it to `None` so SARIF omits the property and the
+/// footer its suffix. A checkout build never produces it, so the
+/// mapping is pinned on the function rather than on the baked consts.
+#[test]
+fn the_unavailable_sentinel_reads_as_none_and_anything_else_as_itself() {
+    assert_eq!(super::known("unavailable"), None);
+    assert_eq!(super::known("deadbeef"), Some("deadbeef"));
+    assert_eq!(super::known(""), Some(""));
+    // Whatever this build baked, the accessors agree with the consts.
+    assert_eq!(super::build_inputs(), super::known(super::BUILD_INPUTS));
+    assert_eq!(super::build_git(), super::known(super::BUILD_GIT));
 }
 
 #[test]
@@ -368,12 +529,65 @@ fn build_id_is_none_for_every_shape_the_reader_does_not_support() {
         "not NT_GNU_BUILD_ID"
     );
 
+    // Every prefix of a valid image must read as absent, not panic and
+    // not misparse. This walks each `?` in the header and program-header
+    // readers; it never reaches the note reader, because the shortened
+    // image keeps the program header's declared segment size and the
+    // segment slice fails first.
+    for cut in 0..good.len() {
+        assert_eq!(build_id(&good[..cut]), None, "truncated at byte {cut}");
+    }
+    // The note reader's own short reads need a segment whose *declared*
+    // size is honest: 4 bytes reach `descsz`'s read, 8 reach `kind`'s,
+    // 12 reach the name's. These execute each read's `None` arm; they
+    // cannot tell a failed read from an infallible one, because the
+    // next read fails the same way and no id can come out of a note
+    // that short — the outcome, not the mechanism, is what is pinned.
+    for short in [&[0u8; 4][..], &[0u8; 8], &[0u8; 12]] {
+        assert_eq!(
+            build_id(&elf64(4, short)),
+            None,
+            "{}-byte note segment",
+            short.len()
+        );
+    }
+
     let mut overflow = good.clone();
     overflow[0x40 + 0x20..0x40 + 0x28].copy_from_slice(&u64::MAX.to_le_bytes());
     assert_eq!(build_id(&overflow), None, "segment size past the end");
-    let mut far_offset = good;
+    let mut far_offset = good.clone();
     far_offset[0x40 + 0x08..0x40 + 0x10].copy_from_slice(&u64::MAX.to_le_bytes());
     assert_eq!(build_id(&far_offset), None, "segment offset past the end");
+
+    let mut more_headers_than_exist = good.clone();
+    more_headers_than_exist[0x38..0x3a].copy_from_slice(&7u16.to_le_bytes());
+    assert_eq!(
+        build_id(&more_headers_than_exist),
+        Some(&id[..]),
+        "a phnum past the table still finds the note in the headers present"
+    );
+
+    let mut huge_phoff = good.clone();
+    huge_phoff[0x20..0x28].copy_from_slice(&u64::MAX.to_le_bytes());
+    assert_eq!(
+        build_id(&huge_phoff),
+        None,
+        "program-header offset past the end"
+    );
+
+    // A name length that overruns the segment: the note walk fails
+    // closed. (A clamped slice would fail closed too — the name would
+    // not compare equal — so this pins the outcome, not the mechanism;
+    // the bounded-read spelling is the module's safety argument.)
+    let mut lying_namesz = good;
+    let note_at = 0x40 + 0x38;
+    lying_namesz[note_at..note_at + 4].copy_from_slice(&0xffff_fff0u32.to_le_bytes());
+    assert_eq!(build_id(&lying_namesz), None, "namesz past the segment");
+
+    // A descriptor length that overruns: same, on the other field.
+    let mut lying_descsz = elf64(4, &note(b"GNU\0", 3, &id));
+    lying_descsz[note_at + 4..note_at + 8].copy_from_slice(&0xffff_fff0u32.to_le_bytes());
+    assert_eq!(build_id(&lying_descsz), None, "descsz past the segment");
 }
 
 /// A capability probe, not a contract: the linker on this host is what
