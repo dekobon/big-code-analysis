@@ -9,9 +9,15 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_field_operands, rows_own, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_field_operands, rows_own, rows_own_inventory,
+    wrapped_operand,
+};
 use crate::roles::kotlin::{branch, call, case_arm, catch, comparison, null_safe, short_circuit};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, branch);
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
 // JVM and Java's spec roots: assignments count once per `=` / augmented

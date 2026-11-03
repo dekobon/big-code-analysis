@@ -11,11 +11,14 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
-    wrapped_operand,
+    rows_own_inventory, wrapped_operand,
 };
 use crate::lang_helpers::tcl::{TclCommandWord, tcl_command_word};
 use crate::roles::tcl::{branch, comparison, else_if, short_circuit, ternary};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // The mutator commands ABC counts as assignments: `incr`, `append`,
 // `lappend`. Each invocation acts as an assignment operator rather than

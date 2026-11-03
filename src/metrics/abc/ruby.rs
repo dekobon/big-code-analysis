@@ -11,12 +11,15 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
-    rows_own,
+    rows_own, rows_own_inventory,
 };
 use crate::roles::ruby::{
     branch, case_arm, catch, comparison, else_if, guard, short_circuit, ternary,
 };
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
 // tree-sitter-ruby:

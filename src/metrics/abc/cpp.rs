@@ -11,10 +11,13 @@
 
 use super::{
     Abc, ScoresItself, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, is_operand, last_operand, rows_own, wrapped_operand,
+    count_negated_operand, is_operand, last_operand, rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::roles::cpp::{comparison, short_circuit, ternary};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // The C-family slot rule, shared by the `CCode`, `CppCode`, `MozcppCode`
 // and `ObjcCode` ABC impls (#720). Every kind is matched by NAME: the

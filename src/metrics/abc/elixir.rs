@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands, last_operand,
-    rows_own, wrapped_operand,
+    rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::lang_helpers::elixir::{
     ElixirCallTarget, elixir_applying_remote_call, elixir_call_target,
@@ -23,6 +23,9 @@ use crate::lang_helpers::elixir_decisions::{
 };
 use crate::roles::elixir::{call, case_arm, comparison, guard, short_circuit};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit);
 
 /// The grammar rule an applied binary operator hangs off. Matched by
 /// name: see `elixir_applying_operator`.

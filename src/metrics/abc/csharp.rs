@@ -11,13 +11,16 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, last_operand, peel, rows_own, wrapped_operand,
+    count_negated_operand, last_operand, peel, rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
 use crate::roles::csharp::{
     branch, call, case_arm, comparison, guard, null_safe, short_circuit, ternary,
 };
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // The operand a transparent wrapper wraps, and whether the wrapper
 // itself proves that operand is boolean. `None` means the node is not a

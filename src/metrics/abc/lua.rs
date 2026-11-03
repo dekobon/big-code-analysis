@@ -11,10 +11,13 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, rows_own, wrapped_operand,
+    count_negated_operand, rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::roles::lua::{branch, call, comparison, else_if, short_circuit};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit);
 
 // Fitzpatrick's ABC rules adapted for Lua.
 //

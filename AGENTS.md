@@ -786,10 +786,17 @@ by `(language, id)` under the pinned grammar version — never by
 spelling, and with no kind category forgiven. A moved pin fails until
 `--migrate-pin <lang>` confirms the baselined ids still spell the same
 kinds. `.role-coverage-observed.txt` records which kinds the
-integration corpus emits, with provenance; refresh it with `make
+integration corpus emits — the three repository submodules whole and
+the output submodule under `control_flow/` only (#1700) — with
+provenance; refresh it with `make
 role-coverage-observe` (builds `bca`, walks the corpora) when the
 corpus submodules or a grammar pin move, since `--require-observations`
-fails on a stale file. `make role-bypass`: inside the consumer boundary
+fails on a stale file. `make role-coverage-claimed` prints every
+claimed (language, role, kind) with its corpus label, the
+"no occurrence in corpus" rows the derived parity test cannot ask
+about; `make role-parity-corpus` runs that test's forward comparison
+over the three repository corpora, and `make role-corpus-refresh` runs
+it with the observation — the recipe for a moved corpus (#1700). `make role-bypass`: inside the consumer boundary
 (the per-language dispatch files, their dispatcher modules and
 macros), a kind a row claims must not be restated as classification;
 `.role-bypass-baseline.txt` holds the pre-migration sites, and a site
@@ -822,7 +829,7 @@ submodule** (`tests/repositories/big-code-analysis-output/`). Any
 behaviour-changing fix that touches metric computation, AST traversal,
 or alterator rules — cognitive, cyclomatic, Halstead, exit, ABC,
 etc. — generates `.snap.new` files **inside the submodule**, not the
-parent repo. A fix is not done until **all four** of these have
+parent repo. A fix is not done until **all five** of these have
 happened in the same change:
 
 1. `cargo test --workspace --all-features` exits clean from a fresh
@@ -838,6 +845,14 @@ happened in the same change:
    history is force-pushed often enough that prior accepts cannot be
    assumed to survive — see lesson 8 in
    `docs/development/lessons_learned.md`.
+5. `make role-coverage-observe` and commit the regenerated
+   `.role-coverage-observed.txt` in the same parent commit. The
+   observation samples this submodule (its `control_flow/` directory,
+   since #1700) and records its whole SHA as provenance, so every bump
+   of the gitlink — a snapshot-only one included — leaves the file
+   stale, and `make role-coverage` (`--require-observations`, in
+   `make pre-commit` and CI) fails until it is refreshed. The scan
+   builds a release `bca` and walks ~1,900 files; about a minute.
 
 A behaviour-changing fix without the matching submodule bump leaves
 the next fresh clone with either an unfetchable submodule SHA or

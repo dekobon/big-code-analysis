@@ -11,9 +11,12 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, last_operand, rows_own, wrapped_operand,
+    count_negated_operand, last_operand, rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::roles::rust::{call, case_arm, comparison, guard, short_circuit};
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit);
 // `Branch` / `Loop` are not read here: every arm below walks a slot or
 // counts an assignment on a subset of an owner set, never membership.
 use crate::*;

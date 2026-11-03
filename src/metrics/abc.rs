@@ -528,16 +528,136 @@ pub(super) type ScoresItself<'c> = &'c dyn Fn(&Node<'_>) -> bool;
 /// descends from the slot and keeps none (see `PeelStep`); that is
 /// sound only for an owner gate that reads no ancestors, which is
 /// every owner gate of the `Comparison`, `ShortCircuit`, `Ternary` and
-/// `NullSafe` rows (the `CaseArm` / `Guard` owners that read the chain
-/// are never a slot's operand).
+/// `NullSafe` rows, and of Kotlin's `Branch` (the `CaseArm` / `Guard`
+/// owners that read the chain are never a slot's operand). Measured on
+/// every owner candidate of the corpus by
+/// `metrics::derived_parity_tests` (#1700), through the rows the
+/// language's `rows_own_inventory!` names — and each row named here
+/// must be named there, which the build asserts.
 macro_rules! rows_own {
     ($expr:expr, $code:expr; $($row:ident),+ $(,)?) => {{
+        $( #[cfg(test)] const _: () = assert!(
+            $crate::metrics::abc::names_row(ROWS_OWN, stringify!($row)),
+            "a row handed to `rows_own!` is not in this language's `rows_own_inventory!`"
+        ); )+
         let unknown = Ancestors::unknown();
         let kind = $expr.kind_id();
         false $(|| $row::owns_kind(kind, $expr, $code, unknown))+
     }};
 }
 pub(super) use rows_own;
+
+/// Whether `rows` names `row`: `const`, for the build-time pin in
+/// `rows_own!`.
+#[cfg(test)]
+pub(super) const fn names_row(rows: &[&str], row: &str) -> bool {
+    let mut i = 0;
+    while i < rows.len() {
+        if const_str_eq(rows[i], row) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+#[cfg(test)]
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// The two `const fn`s that pin `rows_own!` to its inventory run at
+/// compile time on every call site, which executes none of their lines
+/// under instrumentation; asked at run time over the shapes the pin
+/// sees — a listed row, an unlisted one, a prefix of a listed name, a
+/// longer name, an empty inventory — they answer by exact byte
+/// equality and nothing looser.
+#[cfg(test)]
+#[test]
+fn names_row_matches_an_inventory_entry_exactly() {
+    const ROWS: &[&str] = &["comparison", "short_circuit", "ternary"];
+    assert!(names_row(ROWS, "comparison"));
+    assert!(names_row(ROWS, "ternary"), "last entry");
+    assert!(!names_row(ROWS, "branch"));
+    assert!(!names_row(ROWS, "compar"), "a prefix is not a match");
+    assert!(!names_row(ROWS, "comparisons"), "nor is a longer name");
+    assert!(
+        !names_row(ROWS, "comparisox"),
+        "equal length, same prefix: the last byte decides"
+    );
+    assert!(
+        !names_row(ROWS, "Comparison"),
+        "byte equality, no case fold"
+    );
+    assert!(
+        !names_row(&[], "comparison"),
+        "an empty inventory names nothing"
+    );
+    assert!(const_str_eq("", ""));
+    assert!(!const_str_eq("a", "b"));
+}
+
+/// Declares which rows a language's `scores_itself` hands `rows_own!`,
+/// as a test-only `ROWS_OWN` const beside the call, so the derived
+/// premise test (`metrics::derived_parity_tests`) measures the rows the
+/// code names rather than a hand inventory of them (#1700). Every row
+/// a `rows_own!` in the same module names must be listed, or the test
+/// build fails on that call; a row listed and handed to no call is the
+/// one direction nothing checks, and costs only an extra measurement.
+macro_rules! rows_own_inventory {
+    ($($row:ident),+ $(,)?) => {
+        #[cfg(test)]
+        pub(super) const ROWS_OWN: &[&str] = &[ $( stringify!($row), )+ ];
+    };
+}
+pub(super) use rows_own_inventory;
+
+/// The `rows_own_inventory!` of `lang` — the rows its `scores_itself`
+/// asks with no chain — or `None` for a language with no `rows_own!`
+/// call site. The one place the per-language consts are named, for
+/// the derived premise test (#1700); a language that gains a call site
+/// and no arm here is unmeasured until listed, which nothing else sees.
+#[cfg(test)]
+pub(crate) fn rows_own_inventory_of(lang: LANG) -> Option<&'static [&'static str]> {
+    Some(match lang {
+        LANG::C => c::ROWS_OWN,
+        LANG::Cpp => cpp::ROWS_OWN,
+        LANG::Csharp => csharp::ROWS_OWN,
+        LANG::Elixir => elixir::ROWS_OWN,
+        LANG::Groovy => groovy::ROWS_OWN,
+        LANG::Irules => irules::ROWS_OWN,
+        LANG::Java => java::ROWS_OWN,
+        LANG::Kotlin => kotlin::ROWS_OWN,
+        LANG::Lua => lua::ROWS_OWN,
+        LANG::Mozcpp => mozcpp::ROWS_OWN,
+        LANG::Objc => objc::ROWS_OWN,
+        LANG::Perl => perl::ROWS_OWN,
+        LANG::Php => php::ROWS_OWN,
+        LANG::Python => python::ROWS_OWN,
+        LANG::Ruby => ruby::ROWS_OWN,
+        LANG::Rust => rust::ROWS_OWN,
+        LANG::Tcl => tcl::ROWS_OWN,
+        LANG::Bash
+        | LANG::Ccomment
+        | LANG::Go
+        | LANG::Javascript
+        | LANG::Mozjs
+        | LANG::Preproc
+        | LANG::Tsx
+        | LANG::Typescript => return None,
+    })
+}
 
 pub(super) fn count_boolean_slot<'a>(
     slot: &Node<'a>,

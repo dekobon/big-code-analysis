@@ -175,6 +175,9 @@ impl Cognitive for ElixirCode {
                 // +nesting via `RescueBlock` / `CatchBlock`). Adding the
                 // `try` itself would double-count, matching Java /
                 // C#'s "try is a wrapper, only catch counts" rule.
+                // `ELIXIR_WORD_POLICY` (`metrics/derived_parity_tests.rs`)
+                // pins it as the one word the rows own that opens no
+                // level; a second needs an entry there.
                 // Not the `FuncOpener` row's callable: the row declines a
                 // `def` inside a `quote` template (#310), which opens no
                 // space, while this arm resets on the keyword wherever it

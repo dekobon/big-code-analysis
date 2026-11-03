@@ -11,10 +11,13 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, rows_own,
-    wrapped_operand,
+    rows_own_inventory, wrapped_operand,
 };
 use crate::roles::irules::{branch, call, comparison, else_if, short_circuit, ternary};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 /// The three operand slots of a `ternary_expr`, located relative to the
 /// `?` and `:` tokens rather than by fixed index.

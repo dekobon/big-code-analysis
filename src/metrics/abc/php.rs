@@ -11,12 +11,15 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
-    rows_own, wrapped_operand,
+    rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::roles::php::{
     branch, call, case_arm, catch, comparison, else_if, short_circuit, ternary,
 };
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
 // (its `value`), an `@` error suppression and an assignment (its

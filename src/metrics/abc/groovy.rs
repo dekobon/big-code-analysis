@@ -11,12 +11,15 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
-    count_negated_operand, peel, rows_own, wrapped_operand,
+    count_negated_operand, peel, rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::roles::groovy::{
     branch, case_arm, catch, comparison, null_safe, short_circuit, ternary,
 };
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // One peel step for a Groovy boolean operand: given a wrapper node,
 // returns the operand inside it plus whether the wrapper itself *proves*

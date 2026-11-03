@@ -13,9 +13,12 @@ use super::cpp::{
     cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
     cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, ScoresItself, Stats, rows_own};
+use super::{Abc, ScoresItself, Stats, rows_own, rows_own_inventory};
 use crate::roles::objc::{branch, call, case_arm, catch, comparison, short_circuit, ternary};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // The row-keyed `ScoresItself` (see the Cpp twin): a
 // `binary_expression` the `Comparison` or `ShortCircuit` row owns, or a

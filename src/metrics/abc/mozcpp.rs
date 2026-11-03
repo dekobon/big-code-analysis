@@ -13,9 +13,12 @@ use super::cpp::{
     cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
     cpp_family_abc, cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, ScoresItself, Stats, rows_own};
+use super::{Abc, ScoresItself, Stats, rows_own, rows_own_inventory};
 use crate::roles::mozcpp::{comparison, short_circuit, ternary};
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(comparison, short_circuit, ternary);
 
 // The row-keyed `ScoresItself` of the Mozilla fork — the Cpp twin's,
 // against this dialect's rows and ids; the walk below is `CppCode`'s

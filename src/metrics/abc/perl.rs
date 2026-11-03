@@ -11,7 +11,7 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand, peel,
-    rows_own, wrapped_operand,
+    rows_own, rows_own_inventory, wrapped_operand,
 };
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_dash_signs_keyword_key_under, perl_not_is_key,
@@ -20,6 +20,9 @@ use crate::roles::perl::{
     branch, call, case_arm, comparison, else_if, null_safe, short_circuit, ternary,
 };
 use crate::*;
+
+// The rows this language's `scores_itself` asks with no chain (#1700).
+rows_own_inventory!(ternary, short_circuit, null_safe);
 
 // Fitzpatrick's ABC rules adapted for Perl.
 //

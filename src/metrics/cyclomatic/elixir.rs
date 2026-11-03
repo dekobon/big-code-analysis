@@ -193,6 +193,9 @@ impl Cyclomatic for ElixirCode {
                 // above in both tiers. What modified collapses is its
                 // `else`, the dispatch over the failed value — once, and
                 // only when that dispatch picks between anything (#1535).
+                // `ELIXIR_WORD_POLICY` (`metrics/derived_parity_tests.rs`)
+                // pins this as the one word the rows own that pays no
+                // container decision; a second needs an entry there.
                 ElixirCallTarget::With if elixir_with_else_dispatches(node, code) => {
                     stats.cyclomatic_modified += 1.;
                 }

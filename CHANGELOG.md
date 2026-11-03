@@ -340,6 +340,54 @@ for historical reference.
   taking the census from 3673 to 5048 mutants across sixteen shards
   instead of ten, priced per crate from the first run's `outcomes.json`
   (#1728).
+- Cross-consumer parity is derived from the role tables beside the
+  hand-written suites (#1700, part of #1690). For every production
+  language, every declared row and every node of a corpus whose kind
+  the row names as owner, payer or leaf — the declared lists, never a
+  gated verdict, so a gate's negatives are candidates too — the
+  derived tests in `big-code-analysis-ast/src/roles/derived_parity_tests.rs`
+  ask the row with the walk's real bytes and chain and compare: the
+  DSL's own invariants (a self-test, labelled as such); every
+  `Checker` spelling that drops bytes or a chain against the row with
+  them (`is_else_if`, `is_closure`, `is_doc_comment`,
+  `is_doc_run_directive`, `is_comment`, `is_call`, `is_string`, the
+  `_with_code` spellings, the byte-less `is_func_space` /
+  `get_space_kind`, `promotes_to_func_space_with_code`,
+  `holds_doc_comment_in_body`, `is_doc_comment ⇒ is_comment` and a
+  docstring reaching neither), every disagreement a named
+  `(language, forward, kind)` pinned in both directions; and three
+  relations between rows, each on the declared lists and on every
+  candidate with the exceptions named and a positive per language. The
+  root crate's half (`src/metrics/derived_parity_tests.rs`) measures
+  `rows_own!`'s premise — that the owner gates it asks with no chain
+  read none — on every owner candidate, and Elixir's word policy for
+  every `ElixirCallTarget` against a declared exception set. The corpus
+  is `control_flow/<lang>/*` plus the R09 documentation fixtures read
+  in place, every one of the 25 tables; `make role-parity-corpus` runs
+  the same forward comparison over the three repository corpora (1,861
+  files, symlinks not followed, 83 with error recovery, reported not
+  failed);
+  `make role-corpus-refresh` runs it and `role-coverage-observe`
+  together, the recipe for a moved corpus. Retired under the issue's
+  protocol, each after a perturbation of the mechanism it guarded
+  failed the derived test beside it (recorded on #1700): the three
+  cross-language doc pins of `doc_tests/parity.rs` and the Elixir
+  word-policy test of `elixir_spelling_parity_tests.rs`. Not retired,
+  and measured before being left: no `slot_pays_tests.rs` row — the
+  per-function `abc.conditions == cyclomatic() - 1` fails by design on
+  36 corpus functions, since Rule 5 counts every `else` and no loop
+  while cyclomatic counts the reverse. Two things the derived test
+  cannot do, and its module doc says: detect an omitted row, and ask
+  about a kind the corpus never emits — `make role-coverage-claimed`
+  names those, and `role-coverage` now samples the control-flow
+  fixtures (scoped to that directory of the output submodule), taking
+  the languages the corpus does not sample from 15 to 2 (Ccomment and
+  Preproc own no extension; Mozjs reads JavaScript's files, as Mozcpp
+  reads C++'s). `role_table!`
+  emits a test-only `view()` per row and `rows()` per table; the AST
+  crate is outside `STABILITY.md`, and the `test-support` items it
+  widens are not re-exported by the root crate. No metric values
+  change.
 - The seven documentation roles — `Comment`, `DocComment`, `Docstring`,
   `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody` —
   are declared per language in `big-code-analysis-ast/src/roles/` and

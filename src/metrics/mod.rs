@@ -78,6 +78,42 @@ mod elixir_named_operator_tests;
 #[cfg(test)]
 #[path = "elixir_spelling_parity_tests.rs"]
 mod elixir_spelling_parity_tests;
+// Metric-arm parity derived from the role tables (#1700): the
+// root-crate half of `roles/derived_parity_tests.rs`. A full-enum sweep
+// with an `is_enabled()` filter and a non-vacuity assertion, so absent
+// rather than failing with no language enabled; every item inherits.
+// test-lang-gates: hand-written(bash,c,cpp,csharp,elixir,go,groovy,irules,java,javascript,kotlin,lua,mozcpp,mozjs,objc,perl,php,python,ruby,rust,tcl,typescript)
+//     — the sweep dispatches on `LANG` through a macro naming every
+//     `Code` tag and filters at run time, so it needs the union
+#[cfg(all(
+    test,
+    any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    )
+))]
+#[path = "derived_parity_tests.rs"]
+mod derived_parity_tests;
 #[cfg(test)]
 #[path = "perl_keyword_key_tests.rs"]
 mod perl_keyword_key_tests;
