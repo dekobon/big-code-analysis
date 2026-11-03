@@ -156,6 +156,7 @@ number and the higher number stays as a redirect.
 | [110](#110-a-fallback-priced-at-one-call-frequency-is-a-syscall-per-node-at-another) | A fallback priced at one call frequency is a syscall per node at another |
 | [111](#111-a-tool-that-walks-source-items-does-not-see-what-a-macro-emits) | A tool that walks source items does not see what a macro emits |
 | [112](#112-a-test-double-can-intercept-the-wrong-calls) | A test double can intercept the wrong calls |
+| [113](#113-a-fingerprint-over-a-resolved-function-hashes-its-inputs-not-a-sample-of-its-outputs) | A fingerprint over a resolved function hashes its inputs, not its outputs |
 
 ---
 
@@ -2364,6 +2365,19 @@ spec permits — after a member-access operator (`x.int`, `x?.int`,
 `f(int: 1)`) — pinned by a Java-twin test on shared declarations and by
 the class-literal rows in one shared expectation table.
 
+**A lexical path lookup chose a file's own history over the bytes it
+analysed** (#1764, PR #1788). `HistoryIndex::get_for_path` strips the canonical
+work tree lexically, so a lexical-first lookup that canonicalized only
+on a miss returned the wrong history: a tracked
+`a.py` replaced in the work tree by a symlink to `b.py` *is a key*, so
+the lexical hit returned `a.py`'s one commit where the bytes under
+analysis were `b.py`'s two. A lexical index hit does not establish
+which file supplied the bytes; a final-component `lstat` can detect
+the symlink, but resolving its target is the `canonicalize` the lookup
+was trying to skip. The per-file call stayed, profiled at under one
+percent of the wall, and
+`file_level_block_follows_the_path_the_bytes_came_from` pins the case.
+
 ---
 
 ## 58. A wrapper-node + keyword leaf is one operator, not two
@@ -3481,6 +3495,12 @@ on the way in. Reworded once and still wrong, it fell on the second
 review pass — by reasoning, since no test can see a read that changes
 no answer.
 
+**"`git init` runs the hook on git 2.55"** (#1771, PR #1788) was true from 2.46
+and false on the host's 2.34.1, where an init-then-pin hostile-config
+test would have passed against the unfixed helper; the tests now
+discriminate through a `user.name` sentinel no git version can make
+vacuous.
+
 ---
 
 ## 85. Coverage measures execution, not discrimination
@@ -3832,7 +3852,10 @@ the one snapshot, private, with `mailmap_digest()` on it, so the walk
 cannot open its own, and
 `the_walk_resolves_identities_through_the_captured_snapshot` writes the
 inverse mailmap to disk *after* capturing the snapshot, so each of the
-three possible resolutions records a different digest.
+three possible resolutions records a different digest. The same
+pairing recurred for the attribute bindings (#1760, PR #1788), where a FIFO
+reproduction handed gix's stack and the fingerprint different files;
+both now consume one capture.
 
 ---
 
@@ -4217,6 +4240,17 @@ almost all of the movement was the change of repositories. The default
 stayed at 50,000, the book's column was regenerated from the new
 corpus, and the corpus is recorded in
 `docs/development/threshold_corpus.md`.
+
+**A walk timed against `main` credited nineteen commits to one**
+(#1761, PR #1788). The platform-reuse fix was measured base-against-head, where
+base was `main` and head carried every earlier commit of the batch,
+700 lines of them in `src/vcs/`; the "4.7% faster non-bare" it reported
+could not be attributed to platform reuse. Against the isolated
+control — the same tree with only the `_with_cache` call reverted —
+non-bare timings were unchanged within noise (the per-commit rebuild
+there is one `statx` from page cache), while bare elapsed time fell
+from 3.97 to 3.43 seconds, about 14% (1.16× speedup). The syscall
+counts, measured with the same revert, were already isolated.
 
 ---
 
@@ -4978,5 +5012,45 @@ recording logic, and all 71 tests passed under the mutation the test
 claimed to catch. Routing the symlink's path made that mutation fail
 exactly one test: the assertion that a local build also found on PATH
 is probed once.
+
+---
+
+## 113. A fingerprint over a resolved function hashes its inputs, not a sample of its outputs
+
+**Lesson:** When a cache keys on something that is *resolved* — a path
+→ attribute state, a name → identity, a key → config value under a
+precedence chain — fingerprint the ordered content of every source the
+resolver reads, plus the resolver's own switches, and nothing else.
+Do not hash the resolved answers for the inputs you happen to have,
+and do not hash the rules that won: any summary of outputs drops the
+losers, and a loser decides the answer for some other input. Use fixed
+tags and length-prefixed bytes; keep the paths that decide a rule's
+scope and drop the invocation-dependent spellings of a source.
+
+Two source states can agree on every sampled input and disagree on an
+input the sample never asked — a path deleted before `HEAD`, a path a
+reordered rule now binds. Tests restricted to the sampled inputs miss
+that difference. Hashing the ordered sources closes the blind spot, at
+the cost of invalidating on some edits that change no resolved answer.
+
+**The diff attribute bindings in the history cache's fingerprint**
+(#1760, PR #1788). Three designs each failed on a different sample. Per-path
+state over the index missed historical paths absent from the current
+index and invalidated on unrelated file additions and removals. The
+set of winning
+`(pattern, state)` rules survived adds and removes and missed a
+reorder of two overlapping rules — both still won somewhere — and a
+`core.ignoreCase` flip that bound a new path to a rule already in the
+set; hashing each winner's source path then made `-p .` and `-p "$PWD"`
+thrash the cache, since gix spells `info/attributes` under whatever
+path discovery was handed. Each hole was a reviewer's reproduction
+against a fixture the design's tests had passed. The term that landed
+hashes the index's repository-relative `.gitattributes` paths and
+blob ids, the bytes of the system, user and `info/attributes` files in
+gix's load order, and `core.ignoreCase`; dropping any term, hashing a
+source's invocation path, or hashing its lines as a set each fails its
+own test row; the committed-attribute splice and the rule reorder have
+integration tests against a fresh walk, and a unit test pins the
+case-flip invalidation (cf. lesson #90).
 
 ---
