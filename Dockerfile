@@ -251,6 +251,8 @@ EOF
 
 # ---------------------------------------------------------------------------
 # rumdl (Markdown linter/formatter) — SHA256-verified release tarball.
+# `make check-rumdl-lockstep` holds RUMDL_VERSION and the x86_64 hash to
+# the CI lint job's pin, and the version to mise.toml (#1779).
 # ---------------------------------------------------------------------------
 RUN <<'EOF'
 set -eux
