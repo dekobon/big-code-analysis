@@ -26,14 +26,26 @@ reading satisfies; a run with any `expect`-less case prints a note, and
 The failure parser reads `cargo test` output only: the `test <name>
 ... FAILED` lines and the `test result:` summary of each target. A
 `cargo nextest` argv prints neither, so every red run under it is
-`HARNESS-ERROR` — loud, but not a result. A `cargo` argv naming more
-than one target must carry `--no-fail-fast`, or the targets after the
-first failing one never run and their guards read as dead
-(`.claude/rules/testing.md`, "So is the invocation").
+`HARNESS-ERROR` — loud, but not a result.
 
-The refusals and classifications are the acceptance criteria of #1744,
-each one a failure the rules file has already paid for:
+The refusals and classifications are the acceptance criteria of #1744
+and #1787, each one a failure the rules file has already paid for:
 
+- A `cargo test` argv that can run more than one test target must carry
+  `--no-fail-fast`, or the targets after the first failing one never
+  run and their guards read as dead (`.claude/rules/testing.md`, "So is
+  the invocation"). Anything but exactly one `-p` with exactly one of
+  `--lib`, `--doc`, `--test`, `--bin`, `--example` or `--bench` is
+  refused without it, before anything is read or run; so is a glob
+  (`*`, `?`, `[`) in either value, since cargo expands it, and a second
+  `--target`, since each triple builds test executables of its own. A
+  `-p` inside a short-option cluster (`-qpa`) counts like any other. The
+  flag is never added on the manifest's behalf: the manifest says what
+  it runs. A wrapper in front of cargo (`timeout 1800 cargo test`, `env`,
+  `nice`, `rustup run nightly cargo test`) is seen through; an argv with
+  no `cargo` program in it (the self-test's stub, a `sh -c` string) or
+  whose subcommand is not `test` (a cargo `[alias]` included) is not
+  checked.
 - Every mutation target must be tracked and clean in git: `git ls-files
   --error-unmatch` refuses an untracked, ignored or nonexistent path,
   and `git status --porcelain` a modified one, both before the first
@@ -79,6 +91,115 @@ FAILED_RES = (
     re.compile(r"^test (\S+) \.\.\. FAILED", re.M),
 )
 TEST_RESULT_RE = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed;", re.M)
+
+CARGO_PROGRAMS = frozenset({"cargo", "cargo.exe"})
+# `t` is cargo's built-in alias for `test`.
+TEST_SUBCOMMANDS = frozenset({"test", "t"})
+# Options cargo accepts before the subcommand whose value is the next
+# token; skipping them is what finds `test` in `cargo --color never test`.
+CARGO_GLOBAL_VALUE_OPTS = frozenset({"--color", "--config", "-C", "-Z"})
+PACKAGE_OPTS = frozenset({"-p", "--package"})
+SINGLE_TARGET_FLAGS = frozenset({"--lib", "--doc"})
+SINGLE_TARGET_OPTS = frozenset({"--test", "--bin", "--example", "--bench"})
+MULTI_TARGET_FLAGS = frozenset({"--workspace", "--all", "--bins", "--tests", "--examples", "--benches", "--all-targets"})
+# `cargo test`'s short options that take a value (`-C` and `-Z` are
+# cargo's global ones). In a cluster such as `-qpa`, clap reads every
+# letter as a flag up to the first of these, whose value is the rest of
+# the token, or the next token when nothing is left.
+SHORT_VALUE_OPTS = frozenset("pFjmCZ")
+GLOB_CHARS = frozenset("*?[")
+
+
+def split_short_cluster(tok: str) -> list[str]:
+    """A short-option token as clap reads it: `-qpa` is `-q -p a`, `-vv`
+    is `-v -v`, and `-p=a` is `-p a`."""
+    split: list[str] = []
+    for at, letter in enumerate(tok[1:], start=1):
+        split.append(f"-{letter}")
+        if letter in SHORT_VALUE_OPTS:
+            value = tok[at + 1 :].removeprefix("=")
+            if value:
+                split.append(value)
+            break
+    return split
+
+
+def cargo_test_args(cargo: list[str]) -> list[str] | None:
+    """The `cargo test` options of `cargo`, before any bare `--` and with
+    `--opt=value` and short-option clusters split into separate tokens;
+    None when the argv runs no `cargo test`.
+
+    Every token named `cargo` is tried in turn and the first that starts a
+    `cargo test` invocation is read, which sees through a wrapper program
+    in front of it. Trying each matters: an assignment such as
+    `env CARGO=/usr/bin/cargo cargo test` also names `cargo`."""
+    for start, program in enumerate(cargo):
+        if pathlib.PurePath(program).name not in CARGO_PROGRAMS:
+            continue
+        rest = cargo[start + 1 :]
+        if rest and rest[0].startswith("+"):
+            rest = rest[1:]
+        while rest and rest[0].startswith("-"):
+            rest = rest[2:] if rest[0] in CARGO_GLOBAL_VALUE_OPTS else rest[1:]
+        if rest and rest[0] in TEST_SUBCOMMANDS:
+            return split_test_options(rest[1:])
+    return None
+
+
+def split_test_options(tokens: list[str]) -> list[str]:
+    """`tokens` up to a bare `--`, with `--opt=value` and short-option
+    clusters split the way cargo reads them."""
+    args: list[str] = []
+    for tok in tokens:
+        if tok == "--":
+            break
+        if tok.startswith("--"):
+            args.extend(tok.split("=", 1))
+        elif tok.startswith("-") and len(tok) > 2:
+            args.extend(split_short_cluster(tok))
+        else:
+            args.append(tok)
+    return args
+
+
+def cargo_argv_problem(cargo: list[str]) -> str | None:
+    """Why `cargo` can run more than one test target with no
+    `--no-fail-fast`, or None when it cannot (or is not `cargo test`).
+
+    One target is exactly one package selector with exactly one of
+    `--lib`, `--doc`, `--test N`, `--bin N`, `--example N`, `--bench N`,
+    neither value a glob, built for at most one `--target` triple.
+    Feature and profile options do not change the target count, so they
+    are not read; nor is a `build.target` list in cargo's config."""
+    args = cargo_test_args(cargo)
+    if args is None or "--no-fail-fast" in args:
+        return None
+    reasons: list[str] = []
+    packages = targets = triples = 0
+    it = iter(args)
+    for tok in it:
+        if tok in MULTI_TARGET_FLAGS:
+            reasons.append(f"`{tok}` selects several targets")
+        elif tok in SINGLE_TARGET_FLAGS:
+            targets += 1
+        elif tok == "--target":
+            next(it, "")
+            triples += 1
+        elif tok in PACKAGE_OPTS or tok in SINGLE_TARGET_OPTS:
+            value = next(it, "")
+            if GLOB_CHARS.intersection(value):
+                reasons.append(f"`{tok} {value}` is a glob, which cargo expands to every match")
+            if tok in PACKAGE_OPTS:
+                packages += 1
+            else:
+                targets += 1
+    if packages != 1:
+        reasons.append(f"{packages} package selectors, need exactly one `-p`")
+    if targets != 1:
+        reasons.append(f"{targets} target selectors, need exactly one of --lib/--doc/--test/--bin/--example/--bench")
+    if triples > 1:
+        reasons.append(f"{triples} `--target` triples, each building its own test executables")
+    return "; ".join(reasons) or None
 
 
 def target_problems(cwd: pathlib.Path, files: list[str]) -> list[str]:
@@ -162,6 +283,15 @@ def sweep(manifest: dict, backup_dir: pathlib.Path) -> tuple[list[dict], int]:
     any case is not a clean `caught`, or a harness problem occurred)."""
     cwd = pathlib.Path(manifest["cwd"]).resolve()
     cargo = list(manifest["cargo"])
+    argv_problem = cargo_argv_problem(cargo)
+    if argv_problem is not None:
+        print(f"refusing: the cargo argv can run several test targets without --no-fail-fast: {argv_problem}", file=sys.stderr)
+        print(
+            "a failing target stops the run and every later target's guards read as dead; "
+            "add --no-fail-fast to the manifest's argv — perturb.py never adds it on your behalf",
+            file=sys.stderr,
+        )
+        return [], 2
     cases = manifest["cases"]
     files = sorted({case["file"] for case in cases})
     problems = target_problems(cwd, files)

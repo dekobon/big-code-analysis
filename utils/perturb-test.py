@@ -270,6 +270,169 @@ class PerturbTests(unittest.TestCase):
         self.assertFalse((self.repo.root / "perturb-results.json").exists(), "no litter in the repo")
         self._drop(backup)
 
+    def _cargo_stub(self) -> pathlib.Path:
+        """An executable named `cargo`, outside the repository, that
+        records it ran and reports one failing test; the argv check keys
+        on the program's basename, so only this shape reaches it."""
+        bin_dir = pathlib.Path(self._tmp.name) / "bin"
+        bin_dir.mkdir()
+        stub = bin_dir / "cargo"
+        ran = pathlib.Path(self._tmp.name) / "cargo-ran"
+        stub.write_text(
+            f"#!{sys.executable}\nimport pathlib, sys\npathlib.Path({str(ran)!r}).write_text(' '.join(sys.argv[1:]))\n"
+            f"sys.stdout.write('test a::b ... FAILED\\n{RED}')\nsys.exit(101)\n"
+        )
+        stub.chmod(0o755)
+        return stub
+
+    def test_refuses_a_multi_target_argv_before_any_git_read_or_write(self) -> None:
+        stub = self._cargo_stub()
+        # Dirty too: the argv refusal must come first, so the target
+        # check's message is absent and no `git` ran to produce it.
+        dirty = ORIGINAL + b"// uncommitted\n"
+        self.repo.target.write_bytes(dirty)
+        manifest = {**self.repo.manifest("", 0, [_case()]), "cargo": [str(stub), "test", "-p", "a", "-p", "b", "--lib"]}
+        results, rc, _, err = self._sweep(manifest)
+        self.assertEqual((results, rc), ([], 2))
+        self.assertIn("without --no-fail-fast: 2 package selectors", err)
+        self.assertNotIn("not tracked and clean", err)
+        self.assertEqual(self.repo.target.read_bytes(), dirty)
+        self.assertEqual(list(self.backup.iterdir()), [], "nothing was written")
+        self.assertFalse((pathlib.Path(self._tmp.name) / "cargo-ran").exists(), "cargo never ran")
+
+    def test_an_accepted_cargo_argv_runs(self) -> None:
+        # The positive control for the refusal above: the same stub with
+        # the flag, and a single-target argv without it, reach the run.
+        stub = self._cargo_stub()
+        ran = pathlib.Path(self._tmp.name) / "cargo-ran"
+        for tail in (["-p", "a", "-p", "b", "--lib", "--no-fail-fast"], ["-p", "a", "--lib"]):
+            ran.unlink(missing_ok=True)
+            manifest = {**self.repo.manifest("", 0, [_case(expect=["a::b"])]), "cargo": [str(stub), "test", *tail]}
+            results, rc, _, err = self._sweep(manifest)
+            self.assertEqual((rc, results[0]["verdict"]), (0, "caught"), err)
+            self.assertEqual(ran.read_text(), " ".join(["test", *tail]))
+            self.assertEqual(self.repo.target.read_bytes(), ORIGINAL)
+
+    def test_argv_rule_refuses_every_multi_target_shape(self) -> None:
+        refused = {
+            "two packages": ["-p", "a", "-p", "b", "--lib"],
+            "no target selector": ["-p", "a"],
+            "no package selector": ["--lib"],
+            "nothing selected": [],
+            "two targets": ["-p", "a", "--lib", "--test", "t"],
+            # Each beside an otherwise single-target argv, so the flag
+            # itself is the only reason it is refused. Spelled out rather
+            # than read from `perturb.MULTI_TARGET_FLAGS`: a table built
+            # from the set under test loses a case with every member the
+            # set loses.
+            **{
+                flag: ["-p", "a", "--lib", flag]
+                for flag in ("--workspace", "--all", "--bins", "--tests", "--examples", "--benches", "--all-targets")
+            },
+            "--package= spelling": ["--package=a", "--package=b", "--doc"],
+            "-pNAME spelling": ["-pa", "-pb", "--doc"],
+            # cargo reads `-qpa` as `-q -p a`, so these are two packages.
+            "a -p inside a cluster": ["-qpa", "-p", "b", "--lib"],
+            "two clusters": ["-qpa", "-vpb", "--lib"],
+            # Each triple is a test executable of its own.
+            "two triples": ["-p", "a", "--lib", "--target", "x86_64-unknown-linux-gnu", "--target", "i686-unknown-linux-gnu"],
+            "--target= spelling": ["-p", "a", "--lib", "--target=x86_64-unknown-linux-gnu", "--target=i686-unknown-linux-gnu"],
+        }
+        for label, tail in refused.items():
+            self.assertIsNotNone(perturb.cargo_argv_problem(["cargo", "test", *tail]), label)
+            # The flag anywhere before `--` accepts each one.
+            for at in (0, len(tail)):
+                flagged = [*tail[:at], "--no-fail-fast", *tail[at:]]
+                self.assertIsNone(perturb.cargo_argv_problem(["cargo", "test", *flagged]), (label, at))
+
+    def test_argv_rule_accepts_one_package_with_one_target(self) -> None:
+        for tail in (
+            ["-p", "a", "--lib"],
+            ["-p", "a", "--doc"],
+            ["--package", "a", "--test", "t"],
+            ["--package=a", "--test=t"],
+            ["-pa", "--bin", "b"],
+            ["-p=a", "--example", "e"],
+            ["-p", "a", "--bench", "b"],
+            # Feature, profile and filter arguments do not add targets.
+            ["-p", "a", "--lib", "--all-features", "-F", "x,y", "--release", "some_filter"],
+            # Short-option clusters, read as cargo reads them.
+            ["-qp", "a", "--lib"],
+            ["-qpa", "--lib"],
+            ["-vqp=a", "--lib"],
+            ["-p", "a", "--lib", "-j8", "-Fx"],
+            # A value holding a `p` is a value, not a second `-p`: the
+            # letters after `-F`, `-j` or `-m` are its argument.
+            ["-p", "a", "--lib", "-Fpx"],
+            ["-p", "a", "--lib", "-jp"],
+            ["-p", "a", "--lib", "-mp"],
+            # One triple is one build.
+            ["-p", "a", "--lib", "--target", "x86_64-unknown-linux-gnu"],
+        ):
+            self.assertIsNone(perturb.cargo_argv_problem(["cargo", "test", *tail]), tail)
+
+    def test_argv_rule_ignores_everything_after_a_bare_double_dash(self) -> None:
+        # Those go to the test binary: neither a selector nor the flag.
+        self.assertIsNone(perturb.cargo_argv_problem(["cargo", "test", "-p", "a", "--lib", "--", "--test", "x", "--workspace"]))
+        self.assertIn(
+            "2 package selectors", perturb.cargo_argv_problem(["cargo", "test", "-p", "a", "-p", "b", "--lib", "--", "--no-fail-fast"]) or ""
+        )
+
+    def test_argv_rule_refuses_a_glob_selector(self) -> None:
+        # Cargo expands these, so one selector can still run many targets.
+        for tail in (
+            ["-p", "bca-*", "--lib"],
+            ["-p", "a?", "--lib"],
+            ["-p", "a", "--test", "*"],
+            ["-p", "a", "--test=t[12]"],
+            ["-p", "a", "--bin", "b*"],
+        ):
+            problem = perturb.cargo_argv_problem(["cargo", "test", *tail])
+            self.assertIn("is a glob", problem or "", tail)
+            self.assertIsNone(perturb.cargo_argv_problem(["cargo", "test", *tail, "--no-fail-fast"]), tail)
+
+    def test_argv_rule_recognises_every_spelling_of_cargo_test(self) -> None:
+        multi = ["-p", "a", "-p", "b", "--lib"]
+        for head in (
+            ["cargo", "test"],
+            ["cargo.exe", "test"],
+            ["/home/u/.cargo/bin/cargo", "test"],
+            ["cargo", "+nightly", "test"],
+            ["cargo", "t"],
+            ["cargo", "--locked", "test"],
+            ["cargo", "--color", "never", "-Z", "unstable-options", "test"],
+            ["cargo", "+nightly", "-q", "--config=build.jobs=2", "test"],
+            # A global option's value as a separate token, which the
+            # skip must consume with it.
+            ["cargo", "--config", "build.jobs=2", "test"],
+            ["cargo", "-C", "sub", "test"],
+            # A wrapper in front of cargo is seen through, including one
+            # whose own argument also ends in `cargo`.
+            ["timeout", "1800", "cargo", "test"],
+            ["env", "RUST_BACKTRACE=1", "cargo", "test"],
+            ["nice", "cargo", "test"],
+            ["rustup", "run", "nightly", "cargo", "test"],
+            ["env", "CARGO=/usr/bin/cargo", "cargo", "test"],
+        ):
+            self.assertIsNotNone(perturb.cargo_argv_problem([*head, *multi]), head)
+
+    def test_argv_rule_leaves_other_programs_and_subcommands_alone(self) -> None:
+        # The self-tests' own stub argv, and cargo subcommands that are
+        # not `cargo test`, carry no target rule.
+        self.assertIsNone(perturb.cargo_argv_problem(self.repo.manifest(RED, 101, [_case()])["cargo"]))
+        for argv in (
+            [],
+            ["cargo"],
+            ["cargo", "build", "-p", "a", "-p", "b"],
+            ["cargo", "nextest", "run", "--workspace"],
+            ["cargo-test", "-p", "a", "-p", "b"],
+            # A shell string is not parsed, and a wrapped cargo that does
+            # not run `test` is not `cargo test`.
+            ["sh", "-c", "cargo test --workspace"],
+            ["timeout", "60", "cargo", "build", "-p", "a", "-p", "b"],
+        ):
+            self.assertIsNone(perturb.cargo_argv_problem(argv), argv)
+
     def test_help_and_a_missing_manifest_are_usage_not_a_traceback(self) -> None:
         for argv in (["--help"], []):
             err, out = io.StringIO(), io.StringIO()
