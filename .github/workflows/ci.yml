@@ -427,7 +427,18 @@ jobs:
       # runs doctests for correctness — only their coverage is omitted.
       - name: Clean coverage data
         run: cargo llvm-cov clean --workspace
+      #
+      # LLVM_PROFILE_FILE_NAME drops the `%p` cargo-llvm-cov puts in its
+      # default name. nextest runs every test in a process of its own, so
+      # one raw profile per process came to ~8,000 files and 15 GB, and
+      # the job ran the runner out of disk (PR #1804). Without `%p`, every
+      # process of one test binary merges on-line into `%4m`'s pool of
+      # four files: LLVM locks the file and adds the counters, so no count
+      # is lost. Measured on that PR: 101 files and 62 MB, with every
+      # file's covered lines and regions identical to the default naming.
       - name: Run tests with coverage instrumentation
+        env:
+          LLVM_PROFILE_FILE_NAME: big-code-analysis-%4m.profraw
         run: cargo llvm-cov --no-report nextest --all-features --workspace --locked
       # Codecov's native format preserves region coverage (lcov would drop to
       # line-only).
