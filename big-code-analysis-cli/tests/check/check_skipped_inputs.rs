@@ -558,3 +558,115 @@ fn excluded_and_ignored_file_is_not_counted() {
         .success()
         .stderr(predicate::str::contains("not checked").not());
 }
+
+/// Run `bca check --report-skipped` from `cwd` over `seeds` at `jobs`
+/// threads under the file's `cyclomatic=1` gate, returning stderr. The
+/// seeds are relative to `cwd`, which `check()` cannot express.
+fn report_skipped(cwd: &Path, seeds: &[&str], jobs: &str) -> String {
+    let mut args = vec!["check", "--no-config", "--threshold", "cyclomatic=1"];
+    for seed in seeds {
+        args.extend_from_slice(&["--paths", seed]);
+    }
+    args.extend_from_slice(&["--report-skipped", "--jobs", jobs]);
+    let output = cli(cwd).args(&args).assert().success().get_output().clone();
+    String::from_utf8(output.stderr).unwrap()
+}
+
+/// The measurement re-lists the walked directories on the walk's whole
+/// thread budget (#1307), so its output must not depend on that budget:
+/// the listing is byte-identical at `--jobs 1` and `--jobs 8`, and
+/// overlapping seeds keep the *first-named* seed's spelling of a path
+/// both reached — `-p . -p pkg0` prints `./pkg0/…`, `-p pkg0 -p .`
+/// prints `pkg0/…` — rather than whichever worker reported it first.
+///
+/// The expected spellings are built with `Path::join`, as the walk builds
+/// the printed paths, so they carry `\` on Windows exactly where the
+/// listing does.
+#[test]
+fn report_skipped_is_independent_of_job_count_and_keeps_seed_order() {
+    // Packages under the root: with the root and the `pkg0` seed that is
+    // `PKGS + 2` per-directory jobs, enough to occupy all eight workers
+    // of the `--jobs 8` run.
+    const PKGS: usize = 24;
+    let (dir, proj) = fixture(&[("ok.rs", CLEAN), (".gitignore", "*.gen.rs\n")]);
+    for d in 0..PKGS {
+        let pkg = proj.join(format!("pkg{d}"));
+        fs::create_dir(&pkg).unwrap();
+        fs::write(pkg.join("ok.rs"), CLEAN).unwrap();
+        fs::write(pkg.join("v.gen.rs"), CLEAN).unwrap();
+    }
+
+    let dotted = format!("{}", Path::new(".").join("pkg0").join("v.gen.rs").display());
+    let bare = format!(": {}", Path::new("pkg0").join("v.gen.rs").display());
+    let summary = format!("bca: {PKGS} files not checked ({PKGS} ignored)");
+    for (seeds, kept, dropped) in [
+        (&[".", "pkg0"], &dotted, &bare),
+        (&["pkg0", "."], &bare, &dotted),
+    ] {
+        let serial = report_skipped(&proj, seeds, "1");
+        assert!(serial.contains(&summary), "{seeds:?}: {serial}");
+        assert!(serial.contains(kept), "{seeds:?} keeps {kept}: {serial}");
+        assert!(
+            !serial.contains(dropped),
+            "{seeds:?} drops {dropped}: {serial}"
+        );
+        assert_eq!(
+            report_skipped(&proj, seeds, "8"),
+            serial,
+            "{seeds:?}: the listing must not depend on --jobs"
+        );
+    }
+    drop(dir);
+}
+
+/// A `./`-spelled seed is measured like its bare twin, and the listing
+/// keeps the spelling the walk emitted: the seed verbatim, joined to the
+/// entry name (`./proj\violator.rs` on Windows, hence the `join`).
+#[test]
+fn dot_slash_seed_reports_the_ignored_file() {
+    let (dir, _proj) = fixture(&[
+        ("violator.rs", &branchy("offender")),
+        ("ok.rs", CLEAN),
+        (".gitignore", "violator.rs\n"),
+    ]);
+
+    let stderr = report_skipped(dir.path(), &["./proj"], "auto");
+    assert!(
+        stderr.contains("bca: 1 file not checked (1 ignored)"),
+        "{stderr}"
+    );
+    let note = format!(
+        "note: skipped (ignored): {}",
+        Path::new("./proj").join("violator.rs").display()
+    );
+    assert!(stderr.contains(&note), "{stderr}");
+}
+
+/// Ignored files whose names are not UTF-8 are each counted: the
+/// measurement compares paths as `OsStr`, never through a lossy string.
+/// The two names here both decode lossily to `\u{fffd}\u{fffd}.gen.rs`,
+/// so a lossy sort or dedupe would merge them into one. Not on macOS,
+/// whose filesystems refuse such a name with `EILSEQ`, nor Windows,
+/// which has no byte-path constructor.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+#[test]
+fn non_utf8_ignored_file_is_counted() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let (dir, proj) = fixture(&[("ok.rs", CLEAN), (".gitignore", "*.gen.rs\n")]);
+    for bytes in [&b"\xff\xfe.gen.rs"[..], &b"\xfe\xff.gen.rs"[..]] {
+        let name = std::ffi::OsStr::from_bytes(bytes);
+        // A filesystem mounted `utf8only` (ZFS) refuses the name as macOS
+        // does, so the fixture cannot exist there either.
+        if let Err(e) = fs::write(proj.join(name), CLEAN) {
+            eprintln!("skipping: this filesystem refuses a non-UTF-8 name: {e}");
+            return;
+        }
+    }
+
+    let stderr = report_skipped(dir.path(), &["proj"], "auto");
+    assert!(
+        stderr.contains("bca: 2 files not checked (2 ignored)"),
+        "{stderr}"
+    );
+}

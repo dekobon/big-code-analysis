@@ -470,7 +470,7 @@ pub(crate) fn expand_seed_paths(
         warn("0 files matched");
     }
     let ignored = if filters.measure_ignored {
-        measure_ignored_entries(&walked_dirs, &found, filters)
+        measure_ignored_entries(&walked_dirs, &found, filters, threads)
     } else {
         IgnoredEntries::default()
     };
@@ -512,56 +512,125 @@ fn admit_file_seed(seed: &Path, filters: &WalkFilters<'_>, found: &mut SeedSet) 
 /// just listed, so the cost tracks the *kept* tree, not the no-ignore
 /// universe. Read errors are skipped silently: the walk already warned
 /// about anything it could not list, and this pass is advisory.
+///
+/// The listings run on `threads` scoped workers, the walk's own budget:
+/// serial, this pass was a second full enumeration of the kept tree on
+/// the main thread after the parallel walk had joined, and on a
+/// 65k-directory tree it cost more wall time than the walk itself
+/// (#1307). Jobs are per *directory*, not per seed, because the usual
+/// workload is one seed with many directories.
 fn measure_ignored_entries(
     walked_dirs: &[(PathBuf, Vec<PathBuf>)],
     found: &SeedSet,
     filters: &WalkFilters<'_>,
+    threads: usize,
 ) -> IgnoredEntries {
-    let walked = WalkedSets {
-        dirs: walked_dirs
-            .iter()
-            .flat_map(|(_, dirs)| dirs)
-            .map(|dir| walk_seed::strip_cur_dir(dir))
-            .collect(),
-        files: found
-            .files
-            .iter()
-            .map(|file| walk_seed::strip_cur_dir(file))
-            .collect(),
-        explicit_canon: found
-            .explicit_files
-            .iter()
-            .filter_map(|path| path.canonicalize().ok())
-            .collect(),
-    };
-    let mut ignored = IgnoredEntries::default();
-    for (seed, dirs) in walked_dirs {
-        for dir in dirs {
-            let Ok(entries) = std::fs::read_dir(dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                classify_dropped_child(&entry, seed, filters, &walked, &mut ignored);
+    let walked = WalkedSets::new(walked_dirs, found);
+    let jobs: Vec<MeasureJob<'_>> = walked_dirs
+        .iter()
+        .enumerate()
+        .flat_map(|(rank, (seed, dirs))| dirs.iter().map(move |dir| MeasureJob { rank, seed, dir }))
+        .collect();
+    let next = AtomicUsize::new(0);
+    let measure = || measure_jobs(&jobs, &next, filters, &walked);
+    let parts = std::thread::scope(|scope| {
+        // The calling thread is the last worker, so one thread spawns
+        // nothing and `--jobs 1` stays serial. Every handle is collected
+        // before that share runs: joining each as it is spawned would run
+        // the workers one at a time.
+        let workers: Vec<_> = (1..threads.min(jobs.len()))
+            .map(|_| scope.spawn(measure))
+            .collect();
+        let mut parts = vec![measure()];
+        // `resume_unwind` re-raises a panicking worker's own payload,
+        // where the scope's implicit join would raise a generic one.
+        parts.extend(workers.into_iter().map(|worker| {
+            worker
+                .join()
+                .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        }));
+        parts
+    });
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    for part in parts {
+        files.extend(part.files);
+        dirs.extend(part.dirs);
+    }
+    IgnoredEntries {
+        files: merge_measured(files),
+        dirs: merge_measured(dirs),
+    }
+}
+
+/// One directory [`measure_ignored_entries`] re-lists: the seed whose
+/// walk entered it, and that seed's position among the directory seeds
+/// — what [`merge_measured`] orders overlapping spellings by.
+struct MeasureJob<'a> {
+    rank: usize,
+    seed: &'a Path,
+    dir: &'a Path,
+}
+
+/// One worker's share of the measurement, each path tagged with the
+/// rank of the seed it was found under.
+#[derive(Default)]
+struct RankedEntries {
+    files: Vec<(usize, PathBuf)>,
+    dirs: Vec<(usize, PathBuf)>,
+}
+
+/// Claim directories from the shared job list until it is exhausted,
+/// classifying each one's children. Claiming one directory at a time
+/// keeps the workers balanced without knowing the directories' sizes.
+fn measure_jobs(
+    jobs: &[MeasureJob<'_>],
+    next: &AtomicUsize,
+    filters: &WalkFilters<'_>,
+    walked: &WalkedSets<'_>,
+) -> RankedEntries {
+    let mut found = RankedEntries::default();
+    while let Some(job) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
+        let Ok(entries) = std::fs::read_dir(job.dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match classify_dropped_child(&entry, job.seed, filters, walked) {
+                Some(Dropped::File(path)) => found.files.push((job.rank, path)),
+                Some(Dropped::Dir(path)) => found.dirs.push((job.rank, path)),
+                None => {}
             }
         }
     }
-    // Overlapping seeds can flag the same entry once per seed; one
-    // mention per path, in a stable order for the `--report-skipped`
-    // listing.
-    dedupe_measured(&mut ignored.files);
-    dedupe_measured(&mut ignored.dirs);
-    ignored
+    found
 }
 
 /// Sort and dedupe one measured list in the `./`-stripped space, so the
 /// two spellings overlapping seeds give one path (`-p .` yields
 /// `./src/f.rs` where `-p src` yields `src/f.rs`) collapse to a single
-/// mention instead of being counted twice. A *stable* sort keeps the
-/// surviving spelling the first-seeded one rather than whichever walker
-/// thread happened to report it.
-fn dedupe_measured(paths: &mut Vec<PathBuf>) {
-    paths.sort_by(|a, b| walk_seed::strip_cur_dir(a).cmp(walk_seed::strip_cur_dir(b)));
-    paths.dedup_by(|a, b| walk_seed::strip_cur_dir(a) == walk_seed::strip_cur_dir(b));
+/// mention instead of being counted twice, in a deterministic order
+/// for the `--report-skipped` listing.
+///
+/// The surviving spelling is the earliest seed's. That is a tie-break
+/// on the seed rank, not on input order: the input is concatenated in
+/// whatever order the workers finished, so a stable sort over it would
+/// let thread timing pick the spelling. The raw spelling is the final
+/// key so the order is total and no tie is left to the sort.
+fn merge_measured(mut ranked: Vec<(usize, PathBuf)>) -> Vec<PathBuf> {
+    ranked.sort_unstable_by(|(rank_a, a), (rank_b, b)| {
+        walk_seed::strip_cur_dir(a)
+            .cmp(walk_seed::strip_cur_dir(b))
+            .then(rank_a.cmp(rank_b))
+            .then_with(|| a.as_os_str().cmp(b.as_os_str()))
+    });
+    ranked.dedup_by(|(_, a), (_, b)| walk_seed::strip_cur_dir(a) == walk_seed::strip_cur_dir(b));
+    ranked.into_iter().map(|(_, path)| path).collect()
+}
+
+/// What [`classify_dropped_child`] attributes to an ignore rule.
+enum Dropped {
+    File(PathBuf),
+    Dir(PathBuf),
 }
 
 /// What the walk produced, as membership sets: the directories it
@@ -584,8 +653,39 @@ struct WalkedSets<'a> {
     explicit_canon: std::collections::HashSet<PathBuf>,
 }
 
-/// Classify one directory child the walk did not keep, recording it in
-/// `ignored` when only an ignore rule can explain the drop. Hidden
+impl<'a> WalkedSets<'a> {
+    fn new(walked_dirs: &'a [(PathBuf, Vec<PathBuf>)], found: &'a SeedSet) -> Self {
+        Self {
+            dirs: walked_dirs
+                .iter()
+                .flat_map(|(_, dirs)| dirs)
+                .map(|dir| walk_seed::strip_cur_dir(dir))
+                .collect(),
+            files: found
+                .files
+                .iter()
+                .map(|file| walk_seed::strip_cur_dir(file))
+                .collect(),
+            explicit_canon: found
+                .explicit_files
+                .iter()
+                .filter_map(|path| path.canonicalize().ok())
+                .collect(),
+        }
+    }
+
+    /// Whether `path` is a file the caller named explicitly, analyzed
+    /// despite the ignore rule that kept it out of the walk (#726).
+    fn checked_explicitly(&self, path: &Path) -> bool {
+        !self.explicit_canon.is_empty()
+            && path
+                .canonicalize()
+                .is_ok_and(|canonical| self.explicit_canon.contains(&canonical))
+    }
+}
+
+/// Classify one directory child the walk did not keep, returning it
+/// when only an ignore rule can explain the drop. Hidden
 /// entries and symlinks are what the walker skips unconditionally;
 /// exclude globs and unrecognized extensions are the walk's own
 /// filters; anything in `walked` the walk saw. What remains was pruned
@@ -595,30 +695,25 @@ fn classify_dropped_child(
     seed: &Path,
     filters: &WalkFilters<'_>,
     walked: &WalkedSets<'_>,
-    ignored: &mut IgnoredEntries,
-) {
+) -> Option<Dropped> {
     // `DirEntry::file_type` does not follow symlinks, matching the
     // walk's `follow_links(false)`.
-    let Ok(file_type) = entry.file_type() else {
-        return;
-    };
+    let file_type = entry.file_type().ok()?;
     // Hidden entries are dropped by `.hidden(true)` and symlinks by
     // `follow_links(false)` whether or not any ignore rule exists, so
     // neither carries an ignore signal.
     if walker_hides(entry) || file_type.is_symlink() {
-        return;
+        return None;
     }
     let path = entry.path();
     // Both membership tests compare in the `./`-stripped space — see
     // [`WalkedSets`] for why the spelling cannot be trusted verbatim.
     if file_type.is_dir() {
-        if !walked.dirs.contains(walk_seed::strip_cur_dir(&path)) {
-            ignored.dirs.push(path);
-        }
-        return;
+        let pruned = !walked.dirs.contains(walk_seed::strip_cur_dir(&path));
+        return pruned.then_some(Dropped::Dir(path));
     }
     if !file_type.is_file() || walked.files.contains(walk_seed::strip_cur_dir(&path)) {
-        return;
+        return None;
     }
     // A file no parser owns would have been read and skipped, not
     // checked, so it is not worth reporting as a gate bypass. The
@@ -626,17 +721,13 @@ fn classify_dropped_child(
     // handling off too, so they own their explanation; and a file the
     // caller named explicitly was analyzed despite the ignore rule
     // (#726), so accusing the run of skipping it would contradict the
-    // violations it just printed.
-    let checked_explicitly = !walked.explicit_canon.is_empty()
-        && path
-            .canonicalize()
-            .is_ok_and(|canonical| walked.explicit_canon.contains(&canonical));
-    if !checked_explicitly
-        && filters.analyzable(&path)
+    // violations it just printed. That last test canonicalizes, a
+    // syscall chain per file, so it runs after the two lookups that turn
+    // most dropped files away.
+    let reportable = filters.analyzable(&path)
         && filters.passes(&path, &walk_seed::match_path_for(seed, &path))
-    {
-        ignored.files.push(path);
-    }
+        && !walked.checked_explicitly(&path);
+    reportable.then_some(Dropped::File(path))
 }
 
 /// Mirror of the walker's `.hidden(true)` filter: a dot-prefixed name
