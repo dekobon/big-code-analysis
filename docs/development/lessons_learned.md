@@ -5099,3 +5099,74 @@ a gate reading its parent disagrees with the walk under it, and the
 perturbation fails. The test's doc names what it still cannot see.
 
 ---
+
+## 115. Sharing the rule left the list at every caller; sharing the list leaves the judgement
+
+**Lesson:** When the same fact is encoded in N places, decide which
+half of it you are sharing. A shared *rule* — one helper that says
+"a string wrapping interpolation is not one operand", "a predicate
+the operator arms did not score pays one condition" — still leaves
+each caller to say *which kinds* the rule applies to, and that list is
+where the omissions live. A shared *list* — one declaration per
+language of which kinds own a construct — ends the per-caller
+omission and makes every consumer of the list agree by construction,
+but it cannot say whether the list is right: a kind claimed by the
+wrong role, an alias left off its row, a consumer reading the wrong
+projection, a policy keyed on the bytes rather than the kind, all pass
+every gate that reads the list, because the gate's expected answer
+comes from the same declaration. Name that remainder in one place,
+say what manual check covers each item, and link to it from every rule
+that used to ask for the check — a second copy of the list is where an
+item goes missing. (cf. lessons 34, 94, 103, 114)
+
+**Sharing the rule.** #420 found the Halstead interpolation rule
+re-implemented at nine `getter.rs` sites with three mechanisms, each
+added as its own regression fix; #454 was the next two victims, and
+neither was a wrong argument to the shared helper: Groovy's
+`StringLiteral` arm did not call it at all, and Kotlin's short `$name`
+form emits no interpolation child kind for it to look for, so the
+rule needed a source-aware hook there. #1520 fixed Ruby's ABC
+*conditions* count with a `scores_itself` predicate, for an `if`
+predicate no operator arm had scored; #1526 then measured the same
+gap in thirteen languages, each with its own terminal-set walker and
+no such predicate; and #1529 was Ruby again, because the `&&` chain
+walker still read the old `ruby_bool_terminal_kinds!()` list instead
+of the rule the `if` slot had just been given. Three shapes of the
+same thing: a caller that never asks the rule, a caller the rule
+cannot answer from kinds, and a caller still holding the list the
+rule replaced. The design
+behind the role tables (#1690) read three review trails (the ABC
+condition slot, Halstead's "bills no X", and Checker-vs-metric
+disagreement) and classified 72 entries: 38 an omitted membership, 17
+two encodings of one fact disagreeing, so 55 of 72 were the list, not
+the rule. Those are review-entry totals over overlapping trails, not
+distinct issues and not a measured preventability rate, and the
+design said so; the lesson is the shape, not the ratio.
+
+**Sharing the list.** R01–R10 (#1691–#1700) moved the membership of
+29 roles in 25 languages onto one `role_table!` per language, read by
+the `Checker`, the `Getter` and the metric arms. What that bought:
+redoing #1567's decision (bill three more angle-bracket constructs as
+one `<>` pair) on the shared list is three row entries and three test
+rows, and dropping `Volatile2` from the C-family modifier fragment
+fails `make role-coverage` by name in four languages. What it did
+*not* buy is the omission itself: #1567's
+three constructs were left off the generic-list rule *on purpose* by
+a scoping decision, and the shared list would have carried that
+decision as faithfully as the three hand lists did. The census,
+coverage and bypass gates and the derived parity suite see a cell
+nobody declared, an id nobody accounted for, a list restated inside
+the boundary, and two consumers disagreeing on a corpus node. None of
+them sees a row that is wrong, because every one of them takes "right"
+from the row.
+
+**What stays manual, and where it is written.** The one list is the
+"What the mechanism cannot see" section of
+`big-code-analysis-ast/src/roles/mod.rs`'s module doc; AGENTS.md, the
+rules under `.claude/rules/` and the book link to it, and so does this
+lesson. Each of its items had been a separate gate's "cannot see"
+header before #1701; consolidating them found two of the bypass
+lint's items missing from the first draft of the list, which is why
+there is one copy.
+
+---
