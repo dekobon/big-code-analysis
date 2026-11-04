@@ -6,16 +6,26 @@
 //! is one language's answer: which kinds *own* the construct (the node a
 //! slot predicate receives), which token kinds *pay* for it (the leaf a
 //! counting arm fires on), and how to get from one to the other. The
-//! [`role_table!`](crate::role_table) macro turns a table of rows into the predicates the
-//! `Checker`, `Getter` and root-crate consumers will read instead of
-//! restating the kind lists themselves. This crate computes no metric:
-//! a row says what a construct *is*; which occurrence a metric counts
-//! is a policy decision in `big-code-analysis` (contract 7 of #1690).
+//! [`role_table!`](crate::role_table) macro turns a table of rows into
+//! the predicates the `Checker`, `Getter` and root-crate consumers read
+//! instead of restating the kind lists themselves. This crate computes
+//! no metric: a row says what a construct *is*; which occurrence a
+//! metric counts is a policy decision in `big-code-analysis` (contract
+//! 7 of #1690). A row may *gate* an owner or a payer on a `fn` that
+//! reads the node, its source bytes and its ancestor *chain* (the
+//! walk's stack of enclosing nodes, root first); the attributes that
+//! say so are in "The row grammar" below.
+//!
+//! This doc is the contributor reference for the tables. Read it before
+//! adding a language, a row, or a consumer; the rules under
+//! `.claude/rules/` and the book's new-language chapter link here rather
+//! than restating it.
 //!
 //! # The role set
 //!
-//! Fixed here because the census (#1692) iterates it and a role added
-//! later reopens every table. A meaning names the existing `Checker` /
+//! Fixed here because the census gate (`make role-census`, #1692,
+//! below) iterates it, and a role added later must be declared or
+//! marked `absent` in every table. A meaning names the existing `Checker` /
 //! `Getter` contract where one exists, so a row restates that contract
 //! rather than a reading of the word. Each row of a table names one of:
 //!
@@ -58,14 +68,6 @@
 //!   a generator's `yield` (control leaves the body, resumably) and a
 //!   `switch` expression's `yield` (control leaves the arm). An implicit
 //!   tail expression is not one.
-//! - `DocRunOpener` is `Checker::is_doc_run_opener`: a run that is
-//!   documentation with no declaration under it — an LDoc `---` block,
-//!   RDoc `##`, a YARD `@!` directive — not merely the first comment of
-//!   a run.
-//! - `DocRunDirective` is `Checker::is_doc_run_directive`: a member of a
-//!   doc run that is not documentation text and is not billed as such,
-//!   such as `//go:generate` or a Ruby shebang or magic comment. It is
-//!   not a markup directive like `@param`.
 //! - `Member` is what the attribute count walks: the declaration node
 //!   of a field, property or attribute. In most grammars that is a
 //!   child of the container's body (`field_declaration`); in Python it
@@ -85,23 +87,47 @@
 //! - `DocTarget` is the *candidate* under the gates that read the node
 //!   itself — a declarator binds a name, a specifier has a body, a Go
 //!   declaration sits outside a function body. The context a row cannot
-//!   see is the Checker's, as a named `fn` beside the row read: tsc's
-//!   "a declaration directly under `export` documents nothing on its
-//!   own", Ruby's `then` wrapper and YARD scope, Rust's any-kind
-//!   tuple-struct slot, Doxygen's `ERROR` holding an entry. Where that
-//!   makes the row over-approximate the Checker, `doc_tests/mod.rs` pins it.
-//!   Lua's row is read by the opener's content decision alone; its
+//!   see belongs to the `Checker`, which reads a named `fn` beside the
+//!   row: tsc's rule that a declaration directly under `export`
+//!   documents nothing on its own, Ruby's `then` wrapper and YARD
+//!   scope, Rust's any-kind tuple-struct slot, Doxygen's `ERROR`
+//!   holding an entry. Where that
+//!   makes the row over-approximate the Checker, `doc_tests/mod.rs` pins
+//!   it. Lua's row is read by the opener's content decision alone; its
 //!   `Checker::is_doc_target` stays the trait default, since LDoc
 //!   attaches nothing to a declaration a plain `--` run precedes.
+//! - `DocRunOpener` is `Checker::is_doc_run_opener`: a run that is
+//!   documentation with no declaration under it — an LDoc `---` block,
+//!   RDoc `##`, a YARD `@!` directive — not merely the first comment of
+//!   a run.
+//! - `DocRunDirective` is `Checker::is_doc_run_directive`: a member of a
+//!   doc run that is not documentation text and is not billed as such,
+//!   such as `//go:generate` or a Ruby shebang or magic comment. It is
+//!   not a markup directive like `@param`.
 //! - `HoldsDocInBody` is the *residual* of
-//!   `Checker::holds_doc_comment_in_body`: the kinds a language's tool
-//!   reads a doc comment in as a body beyond the callables and closures
-//!   — Java's `static { … }`, bare `block` and `switch_block`, Kotlin's
+//!   `Checker::holds_doc_comment_in_body`: the kinds, other than the
+//!   callables and closures, in whose body the language's documentation
+//!   tool reads a doc comment — Java's `static { … }`, bare `block` and `switch_block`, Kotlin's
 //!   accessors and `init`, C#'s property and indexer in every form. The
 //!   full answer an adapter composes is `func_opener::is_callable ∪
 //!   closure::owns ∪ holds_doc_in_body::owns`, then the language's
 //!   body-child test (`checker/<lang>.rs`), which no kind spells. A
-//!   class body is never one.
+//!   class body is never one. (The residual-by-name shape is #1797's.)
+//!
+//! The seven documentation roles are what a language's doc-comment
+//! adapter (`checker/<lang>.rs`, the per-language half of the
+//! doc-comment work in #1654 and #1655) uses to *recognise* candidates:
+//! the rows, composed with the named context fns listed above. What is
+//! not a row: the `DocBinding` (`lang_helpers/doc_comment.rs`: its `kept`
+//! policy and `skips`, `forward`, `gathers` callbacks), which decides
+//! *which* doc comments of a stretch attach; candidate selection between
+//! the source and legacy views; owner normalisation; and text decoding.
+//! Those stay the epic's mechanisms, reading the rows. The reusable
+//! helpers beside the rows: the marker tests in
+//! `lang_helpers/doc_comment.rs`, the Doxygen entry projection and
+//! conditional memo in `lang_helpers/doxygen.rs`, YARD's scope fold and
+//! call forms in `lang_helpers/ruby.rs`, and Python's run and assignment
+//! helpers in `lang_helpers/python.rs`.
 //!
 //! A row gate may be generic over its own language's `Checker` tag —
 //! Lua's opener reads `documents_where_it_sits::<LuaCode>`, the C-family
@@ -112,26 +138,15 @@
 //! gate (`doxygen_entry` tests `preproc_conditional` first;
 //! `doxygen_entry_never_reenters_the_conditional_walk` pins it).
 //!
-//! # For the documentation epic (#1654, #1655)
-//!
-//! An adapter's *recognition set* is its rows: these seven, composed
-//! with the named context fns in `checker/<lang>.rs` listed above. What
-//! is not a row: the `DocBinding` (`lang_helpers/doc_comment.rs`: its
-//! `kept` policy and `skips`, `forward`, `gathers` callbacks), which decides *which* doc
-//! comments of a stretch attach; candidate selection between the source
-//! and legacy views; owner normalisation; and text decoding. Those stay
-//! the epic's mechanisms, reading the rows. The reusable helpers beside
-//! the rows: the marker tests in `lang_helpers/doc_comment.rs`, the
-//! Doxygen entry projection and conditional memo in
-//! `lang_helpers/doxygen.rs`, YARD's scope fold and call forms in
-//! `lang_helpers/ruby.rs`, and Python's run and assignment helpers in
-//! `lang_helpers/python.rs`.
-//!
 //! # The row grammar
+//!
+//! An illustrative table, not Java's: it spells every row shape the
+//! macro accepts, including the two (`pays never`, `pending`) no table
+//! uses today.
 //!
 //! ```text
 //! role_table! {
-//!     lang: Java;
+//!     lang: Example;
 //!     Exit       { owns [ReturnStatement, ThrowStatement] }
 //!     Comparison { owns [BinaryExpression(holds_payer),
 //!                        InstanceofExpression]
@@ -140,62 +155,103 @@
 //!                  excludes [QMARK "a wildcard bound's `?` is type syntax"] }
 //!     Container  { owns [ClassDeclaration(opens Class),
 //!                        ObjectCreationExpression(opens Class gated_by has_class_body)] }
+//!     ElseIf     { owns [IfStatement(gated_by follows_else)] pays [] }
 //!     Guard      { owns [Guard] pays never }
 //!     NullSafe   { absent "no `?.` or `??`" }
-//!     Comment    { pending R11 }
+//!     Comment    { pending R99 }
 //! }
 //! ```
 //!
-//! The doctest on [`role_table!`](crate::role_table) compiles the same shapes, so the
-//! grammar shown here cannot drift from what the macro accepts without
-//! a reviewer noticing both.
+//! The doctest on [`role_table!`](crate::role_table) compiles these
+//! shapes. The block here is not compiled; when the grammar changes,
+//! change both. Every table in the tree is fully declared since #1700:
+//! no row is `pending`, and the census baseline that ratchets the
+//! pending set is empty.
+//!
+//! ## Owner attributes
 //!
 //! An owner's attributes go in parentheses after its kind, in any
-//! order: `gated_by f` makes the kind own the construct only when
-//! `f(node, code, ancestors)` says so; `text_gated_by f` is the same
-//! with a name that says the gate reads source bytes; `pays_itself`
-//! marks a kind the grammar gives no token for, so the owner is also the
-//! payer, and `pays_itself_when f` one the grammar gives a token in some
-//! spellings and none in others, so the owner pays only where `f` says
-//! it holds none (Groovy's `a !in b` beside `a in b`); `holds_payer`
-//! gates the owner on its projection landing on one of the row's payers
-//! — the one gate every field-projected owner of a shared kind reads,
-//! so a `binary_expression` owns a comparison when its `operator` is a
-//! comparison token; `opens K` records the `SpaceKind` the owner opens,
-//! and `opens_by f` the `SpaceKind` a named `fn(&Node, &[u8],
-//! Ancestors) -> SpaceKind` answers for a kind that spells two
-//! containers at once (Kotlin's `class_declaration` is a class or an
-//! interface by its keyword token) — `Unknown` meaning it opens none;
-//! `callable` marks a `FuncOpener` owner that is a *named function* —
-//! what `Checker::is_func` answers — beside openers that are not
-//! (Java's `static { … }` opens a `Function` space and is nobody's
-//! callee; Elixir's `fn … end` opens one and is a `Closure`), and
-//! `callable_when f` one that is a named function only where `f` says
-//! so, under a gate of its own beside the owner's — a JS
-//! `function_expression` opens a space wherever it sits and is a
-//! function only when bound to a name, a closure otherwise.
-//! A payer takes `gated_by f` or `text_gated_by f` bare, after its
-//! kind, or `under P` / `under [P, Q]`, which gates it on its parent's
-//! kind — the one gate a token the grammar spells in several
-//! productions reads (`?` under the ternary and not a wildcard). Per
-//! row: `pays [..]` splits the paying occurrences from the owners (see
-//! the projections below), and `pays []` — the split row with *no*
-//! payers — says the owners are recognised but pay nothing at the leaf
-//! unless marked `pays_itself`: the `ElseIf` shape, where the chained
-//! `if` is `Branch`'s to pay and a dedicated `elif_clause` pays for
-//! itself (#1697); `pays never` says the construct has owners and no
-//! paying node at all — a shape the macro keeps for a construct every
-//! consumer recognises and none counts, which no row declares today
-//! (Java's `Guard` was its proof row until #1695 found cyclomatic pays
-//! the node); neither means the owners are the paying nodes.
-//! `project "field"` names the child field holding an owner's paying
-//! token; `wraps [..]` lists the interpolation kinds a
-//! `StringLit` can hold; `excludes [K "why"]` records a kind the row's
-//! author considered and rejected, for the coverage ratchet. Row
-//! attributes are written in that order — `pays`, `project`, `wraps`,
-//! `excludes` — and owner attributes in any. `absent "why"` is a
-//! language with no such construct, and `pending Rnn` a row a later
-//! package fills in; the census treats both as declared.
+//! order:
+//!
+//! - `gated_by f` makes the kind own the construct only when
+//!   `f(node, code, ancestors)` says so; `text_gated_by f` is the same
+//!   with a name that says the gate reads source bytes. Both emit only
+//!   the with-code spelling (see "Reading a row").
+//! - `pays_itself` marks a kind the grammar gives no token for, so the
+//!   owner is also the payer; `pays_itself_when f` one the grammar gives
+//!   a token in some spellings and none in others, so the owner pays
+//!   only where `f` says it holds none (Groovy's `a !in b` beside
+//!   `a in b`).
+//! - `holds_payer` gates the owner on its `project` field (the row
+//!   attribute below) holding one of the row's payers, so a
+//!   `binary_expression` owns a comparison only when its `operator`
+//!   child is a comparison token. It is the one gate a kind shared by
+//!   several constructs needs.
+//! - `opens K` records the `SpaceKind` the owner opens, and `opens_by f`
+//!   the `SpaceKind` a named `fn(&Node, &[u8], Ancestors) -> SpaceKind`
+//!   answers for a kind that spells two containers at once (Kotlin's
+//!   `class_declaration` is a class or an interface by its keyword
+//!   token) — `Unknown` meaning it opens none.
+//! - `callable` marks a `FuncOpener` owner that is a *named function* —
+//!   what `Checker::is_func` answers — beside openers that are not
+//!   (Java's `static { … }` opens a `Function` space and is nobody's
+//!   callee; Elixir's `fn … end` opens one and is a `Closure`), and
+//!   `callable_when f` one that is a named function only where `f` says
+//!   so, under a gate of its own beside the owner's — a JS
+//!   `function_expression` opens a space wherever it sits and is a
+//!   function only when bound to a name, a closure otherwise.
+//!
+//! An owner takes at most one gate, one `pays_itself*` and one `opens*`;
+//! a second of any is a compile error. An owner that needs two
+//! conditions names one `fn` that tests both.
+//!
+//! ## Payer attributes
+//!
+//! A payer takes `gated_by f` or `text_gated_by f` bare, after its kind,
+//! or `under P` / `under [P, Q]`, which gates it on its parent's kind —
+//! the one gate a token the grammar spells in several productions reads
+//! (`?` under the ternary and not a wildcard).
+//!
+//! ## Row attributes
+//!
+//! Written in this order — `pays`, `project`, `wraps`, `excludes`:
+//!
+//! - `pays [..]` splits the paying occurrences from the owners (see the
+//!   projections below). Three modes, which `canonical()` emits as
+//!   `mode=owners|split|never` so `utils/role_tables.py` is held to
+//!   them (#1745): no `pays` list, and the owners are the paying nodes;
+//!   `pays [..]`, and the listed tokens pay plus every `pays_itself`
+//!   owner; `pays []` — the split row with *no* payers — says the owners
+//!   are recognised but pay nothing at the leaf unless marked
+//!   `pays_itself`, the `ElseIf` shape, where the chained `if` is
+//!   `Branch`'s to pay and a dedicated `elif_clause` pays for itself
+//!   (#1697). `pays never` says the construct has owners and no paying
+//!   node at all — a shape the macro keeps for a construct every
+//!   consumer recognises and none counts, which no row declares today
+//!   (Java's `Guard` was its proof row until #1695 found cyclomatic pays
+//!   the node). Neither `pays []` nor `pays never` means the owners are
+//!   the paying nodes.
+//! - `project "field"` names the child field holding an owner's paying
+//!   token.
+//! - `wraps [..]` lists the interpolation kinds a `StringLit` can hold.
+//! - `excludes [K "why"]` records a kind the row's author considered
+//!   and rejected, for the coverage ratchet: the kind leaves the
+//!   coverage residue with the reason beside it, and emits nothing
+//!   else. Groovy's `Switch` row excludes its `switch_block` this way —
+//!   the owner's child, not a construct of its own (#1701).
+//!
+//! `absent "why"` is a language with no such construct, and
+//! `pending Rnn` a row a later package fills in; the census treats both
+//! as declared. An `absent` row answers every membership question
+//! `false`, so a consumer shared by several languages reads it as it
+//! reads a declared row. A `pending` row emits no predicate: a consumer
+//! that read one would silently miss what the row will declare, and
+//! the compile error says so.
+//!
+//! An `owns` or `pays` list may splice a shared kind fragment with
+//! `..name!()` (`roles/c_family.rs`, `roles/js_family.rs`,
+//! `roles/tcl_family.rs` — each a kind list and the gates that read
+//! it); the fragment note on the macro below has the shape.
 //!
 //! # What a table emits
 //!
@@ -213,12 +269,13 @@
 //! - `owns_kind` / `pays_at_leaf_kind` / `is_callable_kind`: the same
 //!   with the node's kind id passed in, for a consumer that asks several
 //!   rows about one node — `kind_id()` is an FFI call per read, and a
-//!   classifier on the walk's hot path reading three rows paid six of
-//!   them (#1693).
+//!   classifier on the metric walk's hot path (`spaces::compute`)
+//!   reading three rows paid six of them (#1693).
 //! - `lists_kind(kind)`: whether the row names `kind` among its owners,
 //!   gates aside — the byte-less `Checker` spellings (`is_call`,
 //!   `is_string`), which read no bytes and no chain and so answer the
-//!   kind table a gated owner over-approximates on (#1698). A chain the
+//!   ungated kind set, on which a gated owner over-approximates (#1698).
+//!   A chain the
 //!   caller does not have is not the same as an empty one: the Tcl
 //!   family's braced word reads "no parent" as a script body.
 //! - `pays_at_token_kind`: `pays_at_leaf_kind` restricted to the
@@ -238,7 +295,6 @@
 //!   beside it `owns_via(payer, node, …)`, the owner test narrowed to
 //!   one payer, for a consumer that scores some of a row's payers and
 //!   not others.
-//!
 //! - `is_callable(node, code, ancestors)`: the `callable` owners under
 //!   their gates, and the `callable_when f` owners under their gates
 //!   *and* `f` — a function someone names at a call site, as opposed
@@ -250,41 +306,217 @@
 //!   callable only under a gate (C#'s property, callable without
 //!   accessors) is in the list for its gated-away spellings too, so a
 //!   consumer whose ancestors can carry one keeps a list of its own.
+//! - `TEXT_GATED`: whether any *owner* of the row carries a
+//!   `text_gated_by` annotation, so a forward that hands the row no
+//!   bytes can assert at build time that no declared byte gate is
+//!   dropped. That is the whole of what it sees: a payer's
+//!   `text_gated_by` is carried as `gated_by`, and a gate that reads
+//!   bytes under a plain `gated_by`, `callable_when`, `pays_itself_when`
+//!   or `opens_by` is not flagged — the keyword is the declaration, and
+//!   a gate named under the wrong keyword is the author's error. There
+//!   is no chain-reading twin at all (#1793), which is why the forwards
+//!   are a manual check.
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
 //! `FuncOpener` or `Container` row names are not restated. The fold
 //! answers with the first `opens` clause whose gate admits the node, in
 //! row order; a kind two rows both `opens` must have gates that cannot
-//! both admit one node, or the earlier row decides.
+//! both admit one node, or the earlier row decides. Under `cfg(test)` or
+//! the `test-support` feature, a crate-private `rows()` enumerates every
+//! row of the table as a `RowView` in declaration order (#1700), reached
+//! from outside the crate through the public `roles::tables()`: the
+//! derived parity suite takes its languages and roles from that, so a
+//! row it does not list is a row no derived assertion asks.
 //!
-//! Every emitted predicate takes `(node, code, ancestors)`; a text-gated
-//! row cannot be answered without the bytes (contract 4 of #1690). The
-//! one byte-less spelling is `lists_kind`, the kind table gates aside,
-//! which the legacy `Checker::is_*` forms in `checker.rs` read — or
-//! forward to the `_with_code` form with a known-empty chain where no
-//! gate reads "no parent" as an answer.
-//!
-//! Everything a table emits is `pub`: the root crate's metric
+//! Every production predicate and constant a table emits is `pub`
+//! (the test-support enumeration, `canonical()` and the per-row
+//! `MODE` / `HOLDS_PAYER` are not): the root crate's metric
 //! dispatchers are consumers too (`abc`, `cyclomatic`, `cognitive` read
 //! the `Comparison` and `ShortCircuit` rows since #1694), and they reach
 //! a row as `big_code_analysis_ast::roles::<lang>::<role>`. The AST
 //! crate is outside `STABILITY.md`, so this widens no published
 //! contract.
 //!
-//! An `owns` or `pays` list may splice a shared kind fragment with
-//! `..name!()` (`roles/c_family.rs`, `roles/js_family.rs`); the
-//! fragment note on the macro below has the shape.
+//! # Reading a row from a consumer
 //!
-//! What a row must not *decide* is which consumer reads which
-//! projection, or why: that is policy, and it lives with the consumer
-//! in `big-code-analysis`. A row's comment describes the grammar — what
+//! Every emitted predicate takes `(node, code, ancestors)`; a text-gated
+//! row cannot be answered without the bytes (contract 4 of #1690), and a
+//! chain-gated one not without the chain. So:
+//!
+//! - **Reach for the `_with_code` spelling** — that is what the walk
+//!   calls (`promotes_to_func_space_with_code`,
+//!   `get_space_kind_with_code`). The legacy `Checker` spellings come
+//!   in three shapes, and only one of them is the ungated kind set.
+//!   `is_call`, `is_string` and `is_comment` take neither bytes nor a
+//!   chain and read `lists_kind`. `is_func_space` and `get_space_kind`
+//!   take neither either, and forward to the `_with_code` form with
+//!   `&[]` and a *known-empty* chain, `Ancestors::known(&[])` — never
+//!   `Ancestors::unknown()`, which climbs through `Node::parent` and
+//!   answers the gated result, so the spelling would silently stop
+//!   being the kind set (lesson 114); a gate that reads only the node's
+//!   own children (Java's anonymous-class body) still applies there.
+//!   `is_func`, `is_closure` and `is_else_if` take the caller's chain
+//!   and hand it through with `&[]` bytes, so a chain gate (Ruby's
+//!   `block` under a stabby lambda) answers exactly and only a byte
+//!   gate is dropped. The chain-less pair disagrees with the walk
+//!   wherever a gate reads what it drops — Elixir's text-gated `call`
+//!   openers, Ruby's `block` — and the derived parity suite pins each
+//!   such disagreement by name (`KNOWN_DISAGREEMENTS`).
+//! - **Ask several rows of one node through the `_kind` projections**,
+//!   reading `kind_id()` once.
+//! - **A consumer's policy over a row is the consumer's.** Which
+//!   projection it reads, which subset of a row's owners it acts on,
+//!   where it opens a nesting level — those live in `big-code-analysis`
+//!   and are not what a row decides. A structural projection of an
+//!   owner's child that one consumer needs — the `switch_block` a
+//!   `Switch` owner nests its arms in, where cognitive opens its level —
+//!   lives as a named `fn` beside the table (`is_switch_body_kind` in
+//!   `roles/java.rs` and `roles/groovy.rs`), with a row test pinning
+//!   the parent/child relation, and the kind either claimed by whichever
+//!   row holds it for its own reason (Java's `HoldsDocInBody`) or
+//!   recorded under `excludes` on the owner's row (Groovy). A DSL `body`
+//!   attribute would be the declared form if a third grammar needs it
+//!   (#1701).
+//! - **A kind a row claims is not restated as classification inside the
+//!   consumer boundary** — the per-language dispatch files, their
+//!   dispatcher modules and macros (`utils/check-role-bypass.py`,
+//!   `BOUNDARY`). A site that is not membership — a naming rule, a
+//!   traversal step, a consumer-chosen *subset* of a row's owners the
+//!   row cannot express — takes a `// role-bypass: allow(<Role>) —
+//!   <reason>` on the line above, naming a role that claims the kind,
+//!   with the reason beginning on that line. The exemption covers the
+//!   whole statement or match arm after it, and passes any kind in that
+//!   span that one of its named roles claims — a kind claimed only by
+//!   some other role is still reported — so what it hides is a kind of
+//!   the *same* roles later added inside the span; the Elixir byte-less
+//!   space table is the one such pair of sites, and the derived
+//!   forward-parity test is what sees a kind added there (#1701).
+//!
+//! A row's comment describes the grammar — what
 //! the construct's nodes are and how they nest — and may cross-reference
 //! the consumers' readings where that explains a declaration (why a
 //! kind is excluded as "the consumers' own", which projection a gate
 //! serves), since the reader deciding whether a row is right needs to
 //! know who reads it; the decision itself stays at the consumer, and
-//! nothing a row *emits* names a metric (#1690).
+//! nothing a row *emits* names a metric (#1690). The row-comment
+//! placement rule is `.claude/rules/macro-comments.md`.
+//!
+//! # The gates and the derived suite
+//!
+//! Three gates in `make pre-commit` and `make ci` keep the tables
+//! honest, each reading the declarations through `utils/role_tables.py`
+//! — the one reader, held to the compiled constants by
+//! `python_reader_agrees_with_the_compiled_tables` below. AGENTS.md
+//! ("The role-table gates") carries the recipes; this is what each
+//! decides.
+//!
+//! - **Census** (`make role-census`): every (language, role) cell is
+//!   declared rows, `absent "why"` or `pending Rnn`; the pending set is a
+//!   ratchet in `.role-census-baseline.txt`, empty since #1700.
+//! - **Coverage** (`make role-coverage`): every runtime kind id of every
+//!   generated enum is claimed by some row (`owns`, `pays` or `wraps`),
+//!   excluded with a reason, or debt in `.role-coverage-baseline.txt`,
+//!   keyed by `(language, id)` under the pinned grammar version. A moved
+//!   pin fails until `--migrate-pin <lang>` confirms the baselined ids
+//!   still spell the same kinds; `.role-coverage-observed.txt` records
+//!   which kinds the integration corpus emits and must be refreshed
+//!   (`make role-coverage-observe`) when a corpus submodule or a pin
+//!   moves. `make role-coverage-claimed` lists every claimed kind with
+//!   its corpus label — the "no occurrence" rows are what the derived
+//!   suite cannot ask about.
+//! - **Bypass** (`make role-bypass`): inside the consumer boundary, a
+//!   kind a row claims is not restated as classification;
+//!   `.role-bypass-baseline.txt` is empty since #1701, so a new finding
+//!   fails outright, and a non-membership site takes the `allow`
+//!   exemption above.
+//! - **The derived parity suite** (`derived_parity_tests.rs` here;
+//!   `src/metrics/derived_parity_tests.rs` in the root crate for the
+//!   metric arms, #1700): for every declared row and every candidate
+//!   node of a corpus, ask the row with the walk's real bytes and chain
+//!   and compare against each `Checker` spelling that reads it and
+//!   against the DSL's own invariants. `make role-parity-corpus` runs
+//!   its forward comparison over the three repository corpora.
+//!
+//! All three baselines are exact record sets: `--update` only removes,
+//! `--bootstrap` refuses a file that exists or is tracked at `HEAD`, so a
+//! swap cannot hide behind an unchanged count.
+//!
+//! # What the mechanism cannot see
+//!
+//! The one list. The rules, the book and the lessons link here rather
+//! than restating it, because a second copy is where an item goes
+//! missing. Each gate prints its own part of this with every run; this
+//! is the union, grouped by the kind of mistake, with the manual check
+//! that covers each.
+//!
+//! **A wrong-role claim.** A kind claimed by the *wrong* role passes
+//! every gate: the census counts the cell as declared, coverage counts
+//! the id as claimed, and the derived suite takes its expected verdict
+//! from the same declaration. So does an `absent` reason that is not
+//! true of the language, and a kind the corpus never emits, which the
+//! derived suite cannot ask about (`make role-coverage-claimed` names
+//! those). The check is review of the row against the grammar — `bca
+//! dump` on a one-line fixture per construct, every `(kind, parent)`
+//! pair the dump shows given a row or a stated exclusion
+//! (`.claude/rules/grammar-dispatch.md` §6) — and a per-language
+//! spelling test for a kind no corpus file spells.
+//!
+//! **An incomplete entry.** A *missing cell* — a language with no row,
+//! `absent` or `pending` for some role — is what the census catches. A
+//! kind left off a declared row is not: the derived suite's inputs and
+//! expected verdicts come from the same declaration, and coverage fails
+//! only on an id that is claimed by *no* row, excluded by none and not
+//! baselined — an alias omitted from its row is still debt in the
+//! baseline, or claimed by some other role, and the gate passes either
+//! way. Coverage is accounting, not a measured sweep (#1458). (The
+//! census header's third item, a `pending` cell naming the wrong future
+//! package, is retired with the pending set: no table declares one.)
+//! The check
+//! is the alias inventory of `grammar-dispatch.md` §1 — every
+//! numeric-suffix variant listed or excluded with a comment — for row
+//! declarations as for consumers, and the §7 cross-walk of the sibling
+//! predicates.
+//!
+//! **A forward whose dropped context no gate reads yet.** A byte-less or
+//! chain-less forward answers the same under any context until the day
+//! a gate reads what it drops (lesson 103), and that day it answers
+//! `false` silently. `TEXT_GATED` pins the declared owner byte gates at
+//! build time and nothing else; nothing pins the chain (#1793), so the derived suite compares every forward
+//! on every corpus candidate, and a known disagreement is a named
+//! `KNOWN_DISAGREEMENTS` entry that must still occur (a stale entry
+//! fails too), never a tolerance. The check, when adding a chain- or
+//! byte-reading gate to a row: list every forward of that row
+//! (`rg 'Ancestors::known\(&\[\]\)'` and the `&[]` byte arguments),
+//! decide for each whether the dropped input changes the answer, and
+//! either route the caller to the `_with_code` spelling or add the
+//! disagreement to `KNOWN_DISAGREEMENTS` with its reason. And know which
+//! corpus asked: the `features` and `chain-audit` CI legs check out no
+//! submodule and filter the `corpus_` tests, so on those legs the
+//! forward comparison runs over the inline documentation fixtures
+//! alone, and a disagreement only the control-flow corpus spells is
+//! seen by the `test` and `coverage` legs.
+//!
+//! **A consumer reading the wrong projection, or nothing.** Which
+//! projection a consumer reads — `owns` where it meant `pays_at_leaf`,
+//! a kind table where the walk needed the gate — no gate judges. Nor is
+//! a dead consumer path seen: reachable code no fixture exercises, or a
+//! row no consumer asks at all. Text-keyed policy (Elixir's keyword
+//! `call`s, Ruby's `private`) is the consumer's reading of the bytes and
+//! is pinned only by the fixtures that spell it. The check is
+//! `grammar-dispatch.md` §7 and §11: one input per independent path,
+//! verified by revert.
+//!
+//! **What the bypass lint does not scan.** A restatement outside the
+//! boundary, or in a `#[cfg(test)]` module; a kind reached through a
+//! helper function in `lang_helpers` or any other call; a `kind_id()`
+//! held in a local and compared later; a `kind()` compared to a variable
+//! rather than a literal; and, inside an `allow` exemption's span, any
+//! kind one of its named roles claims. A `macro_rules!` shape beyond the three it resolves is reported
+//! as unsupported, never silently passed. The check, when a row's
+//! membership moves: `rg` the kind's `Lang::Kind` and `"kind"`
+//! spellings across `big-code-analysis-ast/src/` and `src/metrics/`,
+//! and read every hit outside the boundary by hand.
 //!
 //! # Decision note
 //!
@@ -329,19 +561,12 @@
 //!   the slices (`wraps` and `excludes` are not checked for repeats).
 //!   A `pays_itself` owner on a `pays never` row, or on a row with no
 //!   `pays` list, hits a `compile_error!` naming the contradiction. A
-//!   second gate, `pays_itself` or `opens` on one owner matches no scan
-//!   rule. All are pinned by `compile_fail` doctests on the macro.
+//!   second gate, `pays_itself` or `opens` on one owner matches no
+//!   expansion rule. All are pinned by `compile_fail` doctests on the
+//!   macro.
 //! - **Not expressible, by design:** a kind claimed by the *wrong* role,
 //!   an incomplete entry, and whether a consumer reads the right
-//!   projection. Those are what the census, the parity suites and review
-//!   are for (#1690, "What this does and does not claim").
-//!
-//! `Getter::get_keyword_role` reads the `Modifier`, `DeclKeyword` and
-//! `Primitive` rows through `pays_at_leaf` (#1693), and ABC, cyclomatic,
-//! cognitive and `Getter::get_paying_role` read the seven paying-construct
-//! rows through `owns` / `owns_kind`, `pays_at_leaf_kind`, `project`
-//! and `PAYERS` (#1694, #1695); the items no package reads yet are what
-//! the module-level allow below is for.
+//!   projection. Those are the list above.
 
 // Every role has consumers (#1693–#1699). What no Rust reader reaches
 // is what `utils/role_tables.py` reads from the declarations instead —
@@ -349,8 +574,8 @@
 // predicates the macro emits for uniformity on every row that no
 // consumer asks of that row (`canonical`, a `pays_*` on an owner-only
 // role, every predicate of an `absent` row): 58 items with the allow
-// off at #1699's close. Narrowing it is a DSL question — emitting less
-// per row, or `#[allow]` per emitted item — for #1701.
+// off at #1699's close. Narrowing it is a DSL question — a per-role
+// emission profile — which #1701 deferred to #1792.
 #![allow(dead_code)]
 
 /// Emits a `text_gated_by` gate that reads the node's bytes through one
