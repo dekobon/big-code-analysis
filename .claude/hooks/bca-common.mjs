@@ -93,9 +93,14 @@ async function localBuilds(root) {
 // The executable a bare `name` would spawn with `cwd` as the working
 // directory: PATH entries are resolved against `cwd` — a relative entry,
 // or an empty one, which `spawn` reads as the child's cwd — so the file
-// probed here is the file the check later runs.
+// probed here is the file the check later runs. PATHEXT spells its
+// entries in upper case (`.COM;.EXE;…`) while Windows matches them
+// case-insensitively, so the spelling here is the hook's to choose:
+// lower case names the file as cargo writes it and as `localBuilds`
+// spells it, rather than reporting (and spawning) a `bca.EXE` that
+// exists on no disk.
 async function installed(name, cwd) {
-  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""]
+  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").toLowerCase().split(";") : [""]
   for (const directory of (process.env.PATH ?? "").split(delimiter)) {
     for (const extension of extensions) {
       const found = await executableFile(resolve(cwd, directory, name + extension))
