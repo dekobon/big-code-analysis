@@ -22,6 +22,16 @@ impl Loc for TclCode {
         is_func_space: bool,
     ) {
         let start = init(node, stats, is_func_space);
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: Tcl::Comment as u16,
+                continued: true,
+            },
+        );
 
         match node.kind_id().into() {
             // Tcl is the only grammar family here that surfaces the row

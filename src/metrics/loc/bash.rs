@@ -24,6 +24,16 @@ impl Loc for BashCode {
         use Bash::*;
 
         let start = init(node, stats, is_func_space);
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: Bash::Comment as u16,
+                continued: false,
+            },
+        );
 
         match node.kind_id().into() {
             Program => {}
@@ -119,34 +129,33 @@ impl Loc for BashCode {
                 stats.ploc.lines.insert(start);
                 add_string_interior_ploc(node, stats, start);
             }
-            // The wrapper spans the command-line *prefix* as well as the
-            // literal, and the grammar lets that prefix cross rows — a
-            // `pipeline` is one of its children — so this range can
-            // over-credit. #1443 narrowed it to the literal's own rows and
-            // that was **reverted**; the narrowing is restored only when
-            // #1445 lands. The reasoning is worth keeping, because the
-            // narrowing looks obviously right:
+            // The wrapper spans the command-line prefix as well as the
+            // literal, and credits its whole interior. #1443 narrowed this
+            // to "one past the last row any non-body child occupies"; that
+            // narrowing is withdrawn because its premise — that a blank or
+            // comment-only prefix row is a bash syntax error — is false for
+            // a prefix ending in `|`, `|&`, `&&` or `||`. There
+            // tree-sitter-bash parses the *first body rows* as the
+            // operator's right-hand command, while bash starts the body on
+            // the row after the `<<` (`cat <<EOT |` + blank + `body` + `EOT`
+            // + `grep x` is valid, and all five rows are code: the blank
+            // one is the literal's first line). A narrowed range left those
+            // literal rows to the pipeline's leaves, so a blank body row
+            // read as `blank` and a `#…` body row as comment-only.
             //
-            // - What it fixed is unreachable. A *blank or comment-only*
-            //   prefix row needs `bash -n` to reject the file: bash begins
-            //   the body on the line after the one carrying `<<`, and a `\`
-            //   continuation splices the rows rather than leaving one
-            //   empty. All four spellings — bare and `\`-continued, blank
-            //   row and comment row — are syntax errors.
-            // - What it broke is not. A continuation row holding only `\`
-            //   is valid Bash and is code, and it carries no leaf for the
-            //   leaf-gated catch-all below to credit, so narrowing the
-            //   range dropped it: `cat <<EOT | \` + `\` + `  grep x` went
-            //   from `ploc 5, blank 0` to `ploc 4, blank 1`.
+            // The misparse is upstream (tree-sitter-bash 0.25.1) and reaches
+            // every metric, not only this range: the body rows still read as
+            // commands, so a `#…` row is also a comment (CLOC) and an `if`
+            // row adds cyclomatic and cognitive decisions. This arm settles
+            // only the rows.
             //
-            // That is #1445, a general Bash gap — `echo a | \` + `\` +
-            // `  grep b` shows it with no heredoc in sight — which this
-            // blanket range happens to mask here. Masking it is the better
-            // trade until #1445 closes it: the rows it over-credits belong
-            // to files that do not run, and the row it saves belongs to
-            // files that do. Distinguishing a `\`-only row from an empty
-            // one needs the source bytes, which `Loc::compute` has carried
-            // since #1597, so #1445 can now be fixed here.
+            // The trade this keeps: a prefix that really crosses rows with
+            // no `\` — `cat <<EOT $(` + blank + `echo -n)` — over-credits its
+            // blank row as code. Telling the two apart needs the operator
+            // position, not the child spans; until then the literal's rows
+            // win, since they belong to valid input in both shapes. A
+            // bare-`\` prefix row is credited by
+            // `credit_bare_continuation_rows` above either way (#1445).
             HeredocRedirect => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);

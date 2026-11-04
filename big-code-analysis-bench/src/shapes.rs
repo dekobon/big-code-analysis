@@ -337,6 +337,50 @@ pub fn nested_fns_by_row(depth: usize) -> String {
     )
 }
 
+/// Bash: functions nested `depth` deep, each body opening with a
+/// pipeline continued across a row that holds only `\`.
+///
+/// The bare row is the `loc` question #1445 answers: it carries no node,
+/// so it is found by reading the padding between a node's children. Every
+/// level is a space of its own, so a scan that read each space's whole
+/// byte range would read the bytes of level *k* `depth - k` times; the
+/// padding of each node is read once. Affine in depth, no indentation.
+#[must_use]
+pub fn bash_nested_continued_fns(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "f() {\necho a | \\\n\\\ncat\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
+}
+
+/// Tcl: `width` comments, each continued by a row holding only `\` and
+/// closed by a blank row, at the top level of one file.
+///
+/// Each bare row is comment text (#1445), and telling it from a code row
+/// asks whether the row before it ends inside a comment node, once per
+/// bare row. `descendant_for_byte_range` answers by descending the
+/// root's balanced `repeat` tree; finding the comment by walking the
+/// root's children instead costs the file's width per question.
+#[must_use]
+pub fn tcl_wide_continued_comments(width: usize) -> String {
+    "# c \\\n\\\n\nputs x\n".repeat(width)
+}
+
+/// Tcl: `width` units of a `proc` whose body never closes, each holding
+/// a comment continued by a row holding only `\` and closed by a blank
+/// row.
+///
+/// The unclosed openers leave every unit a direct child of one flat root
+/// `ERROR`, which tree-sitter never balances, so the lookup that tells a
+/// bare row continuing a comment from a code row (#1445) costs that
+/// root's width when it descends from the gap's owner. It descends from
+/// the child before the gap instead, a constant per bare row.
+#[must_use]
+pub fn tcl_unclosed_continued_comments(width: usize) -> String {
+    "proc p {} {\n# c \\\n\\\n\n".repeat(width)
+}
+
 /// JavaScript: `function f() { function f() { … 1; … } }`.
 ///
 /// The linear control for [`nested_arrows`]: one function per nesting
@@ -2410,6 +2454,71 @@ pub const PROBES: &[Probe] = &[
                     shape under a metric that keeps no per-row set.",
     },
     Probe {
+        name: "loc/bash-nested-continued-fn",
+        lang: LANG::Bash,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.ploc(),
+        },
+        render: bash_nested_continued_fns,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1445: a row holding only `\\` has no node, so `Loc` \
+                    finds it in the padding between a node's children. Each \
+                    padding byte belongs to one node, so the scan is linear \
+                    however deep the spaces nest. Scanning every node's \
+                    whole range instead, which reads level k once per \
+                    enclosing level, took this from 1.09 to 1.93. The \
+                    reading counts the bare rows too, one in five of the \
+                    file's code rows.",
+    },
+    Probe {
+        name: "loc/tcl-wide-continued-comment",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: tcl_wide_continued_comments,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1445: a bare `\\` row after a comment is that \
+                    comment's text, decided by looking up the comment node \
+                    under the row before it, once per bare row, from the \
+                    child just before the bare row's gap. Finding the \
+                    comment by walking the root's children instead measured \
+                    2.00 against 1.01 at widths 1 000-4 000; at this probe's \
+                    own sizes one such walk at 16 000 exceeds the 20 s \
+                    budget. The reading is the comment rows, half of them \
+                    the bare ones.",
+    },
+    Probe {
+        name: "loc/tcl-unclosed-continued-comments",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: tcl_unclosed_continued_comments,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1445 review: an unclosed opener per unit leaves every \
+                    unit a direct child of one flat root `ERROR`, which \
+                    tree-sitter never balances, and its \
+                    `descendant_for_byte_range` scans each level's children \
+                    from the first. The comment lookup descends from the \
+                    child before the bare row's gap, a constant per bare \
+                    row. Descending from the gap's owner, the root, instead \
+                    measured 2.09 against 1.10. The reading is the comment \
+                    rows, half of them the bare ones.",
+    },
+    Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -3807,6 +3916,9 @@ mod tests {
         "nexits/perl-error-tail-keys",
         "count/perl-error-tail-calls",
         "dump/perl-error-tail-calls",
+        // The flat root `ERROR` is the shape: its unclosed openers are
+        // what keep tree-sitter from balancing the root's children.
+        "loc/tcl-unclosed-continued-comments",
     ];
 
     /// Probes whose shape recovers *inside* a command rather than at
@@ -4121,6 +4233,7 @@ mod tests {
             "npm/ruby-nested-if-defs",
             "npm/ruby-wide-private-defs",
             "npa/ruby-nested-if-attrs",
+            "loc/tcl-unclosed-continued-comments",
             "loc/cpp-nested-namespaces",
             "loc/ts-nested-fn",
             "nom/js-arrow-per-array-depth",
@@ -4185,6 +4298,34 @@ mod tests {
                 .walk(&ast, probe.workload.options())
                 .expect("walker must succeed");
             assert_eq!(reading, size as u64 + 2, "if +1, N else-ifs +1, else +1");
+        }
+    }
+
+    /// The three #1445 bare-row probes read their bare rows: each unit's
+    /// reading counts the `\`-only row as well as the row it continues,
+    /// so a shape that lost the bare row reads `1 × size` (Tcl, comment
+    /// rows) or `4 × size` (Bash, code rows) instead. The timing bound
+    /// cannot tell — the shape would still grow — and nor can
+    /// `probe_workload_is_exercised` or the growth check.
+    #[test]
+    fn bare_row_probes_read_their_bare_rows() {
+        for (name, rows_per_unit) in [
+            ("loc/bash-nested-continued-fn", 5),
+            ("loc/tcl-wide-continued-comment", 2),
+            ("loc/tcl-unclosed-continued-comments", 2),
+        ] {
+            let probe = PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"));
+            for size in [3, probe.sizes[0]] {
+                let ast = parse(probe, size);
+                let reading = probe
+                    .workload
+                    .walk(&ast, probe.workload.options())
+                    .expect("metrics walk");
+                assert_eq!(reading, (rows_per_unit * size) as u64, "{name} at {size}");
+            }
         }
     }
 

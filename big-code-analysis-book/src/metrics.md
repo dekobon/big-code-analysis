@@ -1074,6 +1074,26 @@ string interpolations are all handled correctly. The per-language
 LLOC; this is the subtle one, because what counts as a statement is
 language-defined.
 
+One kind of row has no node to identify it. In Bash, Tcl and iRules
+the lexer splices a line-continuation `\` and its newline away, so a
+row holding only that `\` is invisible in the tree. Such rows are found
+by reading the bytes between nodes. Each one counts as PLOC, the code
+it continues. The exception is a row that continues a Tcl or iRules
+comment (`# note \`), which counts as CLOC. A row that continues
+nothing starts a line and counts as what that line becomes: CLOC when
+the row it joins is a comment, blank when that row is empty, PLOC
+otherwise. The C family, Ruby and Elixir grammars splice a
+continuation the same way, but their bare rows are not found yet and
+still count as blank
+([#1801](https://github.com/dekobon/big-code-analysis/issues/1801)).
+Where CRLF line endings reach the parser unchanged, through the
+library's own `analyze` or Python's `Ast.parse`, the Tcl and iRules
+grammars lex the bare row as a word, so there it counts as PLOC even
+after a comment
+([#1802](https://github.com/dekobon/big-code-analysis/issues/1802)).
+`bca`, the web server and the Python bindings' `analyze`,
+`analyze_source` and `Ast.from_path` convert line endings to LF first.
+
 Documentation rows are comment rows that are also reported on their
 own as DLOC (`loc.dloc`), so CLOC can be read with or without them.
 Each language's own documentation tool decides which comments are

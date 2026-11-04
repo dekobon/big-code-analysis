@@ -8464,22 +8464,15 @@ EOF
     }
 
     /// A `\`-continuation row inside a heredoc's command prefix is code
-    /// (#1443, #1445).
+    /// (#1445).
     ///
-    /// `heredoc_redirect` spans the command-line prefix as well as the
-    /// literal, so crediting its whole interior over-credits a blank or
-    /// comment-only prefix row. #1443 narrowed the range to the literal's
-    /// own rows to fix that, and the narrowing was reverted: the shape it
-    /// fixed needs `bash -n` to reject the file, while the shape it broke
-    /// — this one — runs.
-    ///
-    /// A continuation row holding only `\` carries no leaf for the
-    /// leaf-gated catch-all to credit, so the wrapper's blanket range is
-    /// the only thing covering it. Narrowing took it from `ploc 5` to
-    /// `ploc 4`. The general gap is #1445 (`echo a | \` + `\` +
-    /// `  grep b` loses the row with no heredoc involved); until that
-    /// lands, this pins the row the blanket range saves, so a second
-    /// attempt at the narrowing fails here rather than shipping.
+    /// A row holding only `\` carries no leaf. The heredoc arm's
+    /// whole-interior range happens to cover this one, so the pair below
+    /// passes with or without `credit_bare_continuation_rows`; the
+    /// heredoc-free `echo a | \` fixtures are what pin that helper. This
+    /// test pins the row against a future narrowing of the heredoc range
+    /// (#1443 tried one; `bash_heredoc_body_rows_after_an_operator_are_the_literal`
+    /// says why it was withdrawn).
     #[cfg(feature = "bash")]
     #[test]
     fn bash_heredoc_continuation_row_is_code() {
@@ -8507,6 +8500,439 @@ EOF
             ),
             (4, 4, 0)
         );
+    }
+
+    /// A heredoc whose command line ends in an operator keeps every body
+    /// row as part of the literal.
+    ///
+    /// tree-sitter-bash parses the first body rows after a trailing `|`,
+    /// `&&` or `||` as the operator's right-hand command, while bash
+    /// starts the body on the row after the `<<` and reads the command
+    /// after the terminator. #1443's narrowed range, briefly restored
+    /// under #1445, started the credit after the last non-body child and
+    /// so lost one literal row per fixture: a blank body row read as
+    /// `blank`, a `#` body row as comment-only. Each fixture is valid
+    /// Bash (`bash -n` accepts it, and the `# hash line` one prints that
+    /// row), and the expected rows are `main`'s before #1445: every row
+    /// is code. The `cloc 1` of the two `#` rows is not: bash prints them
+    /// as data, and the comment is the upstream misparse's own `comment`
+    /// node (see the `HeredocRedirect` arm), pinned so a grammar fix is
+    /// seen rather than endorsed.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_heredoc_body_rows_after_an_operator_are_the_literal() {
+        let cases: [(&[u8], LocRows); 4] = [
+            (b"cat <<EOT |\n\nbody\nEOT\ngrep x\n", (5, 5, 0, 0)),
+            // FIXME(#1806): bash reads (5, 5, 0, 0); the `cloc 1` is the
+            // grammar's `comment` node over a heredoc body row.
+            (b"cat <<EOT |\n# hash line\nbody\nEOT\ngrep hash\n", (5, 5, 1, 0)),
+            (b"cat <<EOT &&\n\nbody\nEOT\necho hi\n", (5, 5, 0, 0)),
+            // FIXME(#1806): as above, bash reads (8, 8, 0, 0).
+            (
+                b"f() {\n  cat <<EOF &&\n\n  # literal, not a comment\n  text\nEOF\n  echo done\n}\n",
+                (8, 8, 1, 0),
+            ),
+        ];
+        for (source, want) in cases {
+            assert_eq!(
+                loc_rows(&bash_loc_verbatim(source)),
+                want,
+                "{}",
+                String::from_utf8_lossy(source)
+            );
+        }
+    }
+
+    /// `(sloc, ploc, cloc, blank)`, the tuple the #1445 tables compare.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
+    type LocRows = (u64, u64, u64, u64);
+
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
+    fn loc_rows(loc: &Stats) -> LocRows {
+        (loc.sloc(), loc.ploc(), loc.cloc(), loc.blank())
+    }
+
+    /// Asserts each `(source, file rows, blank before #1445)` fixture's
+    /// file-level `loc_rows` under `lang`, byte-for-byte: `check_metrics`
+    /// would normalise away the CRLF and the missing final newline that
+    /// two of the fixtures are about (`.claude/rules/testing.md`).
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
+    #[track_caller]
+    fn assert_continuation_fixtures(lang: crate::LANG, fixtures: &[(&[u8], LocRows, u64)]) {
+        let mismatches: Vec<String> = fixtures
+            .iter()
+            .filter_map(|&(source, expected, blank_before)| {
+                let loc = metrics_verbatim(
+                    lang,
+                    source,
+                    MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+                )
+                .loc;
+                let measured = loc_rows(&loc);
+                (measured != expected).then(|| {
+                    format!(
+                        "{:?}: measured {measured:?}, expected {expected:?} \
+                         (blank {blank_before} before #1445)",
+                        String::from_utf8_lossy(source)
+                    )
+                })
+            })
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{lang:?}, {} of {} fixtures:\n{}",
+            mismatches.len(),
+            fixtures.len(),
+            mismatches.join("\n")
+        );
+    }
+
+    /// Asserts `(unit, nested space)` `loc_rows` for a source holding one
+    /// function-like space, so a bare row is shown credited to the space
+    /// that contains it and not only to the file (#1445): `Loc::compute`
+    /// writes into the current space's `Stats`, and the unit sees nested
+    /// rows only through `Stats::merge`.
+    #[cfg(any(feature = "bash", feature = "irules", feature = "tcl"))]
+    #[track_caller]
+    fn assert_nested_continuation(lang: crate::LANG, source: &[u8], expected: LocRows) {
+        let space = space_verbatim(
+            lang,
+            source,
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        );
+        let text = String::from_utf8_lossy(source);
+        assert_eq!(space.spaces.len(), 1, "{lang:?} {text:?}: one nested space");
+        assert_eq!(
+            loc_rows(&space.metrics.loc),
+            expected,
+            "{lang:?} {text:?}: unit"
+        );
+        assert_eq!(
+            loc_rows(&space.spaces[0].metrics.loc),
+            expected,
+            "{lang:?} {text:?}: the nested space spans every row too"
+        );
+    }
+
+    /// #1445: a `\`-continuation row holding only the backslash is the
+    /// code it continues. The lexer splices `\` + newline away, so the row
+    /// surfaces no node, and nothing credited it before. One that continues
+    /// nothing starts a logical line and is what that line becomes: code,
+    /// a comment, or blank.
+    ///
+    /// Every fixture is valid Bash (`bash -n`, and run) except the CRLF
+    /// one: bash rejects a CRLF script outright, but the grammar splices
+    /// `\` + CRLF the same way (`/\\\r?\n/` in its extras), and the row
+    /// holds text either way.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(
+            crate::LANG::Bash,
+            &[
+                // The issue's reproduction, and the bare row indented by
+                // spaces and by a tab: the row is still only the `\`.
+                (b"echo a | \\\n\\\n  grep b\n", (3, 3, 0, 0), 1),
+                (b"echo a | \\\n  \\\n  grep b\n", (3, 3, 0, 0), 1),
+                (b"echo a | \\\n\t\\\n  grep b\n", (3, 3, 0, 0), 1),
+                // Before the root's first token, which is where its span
+                // begins, so only the root's leading padding holds it.
+                (b"\\\necho a\n", (2, 2, 0, 0), 1),
+                (b"echo a | \\\r\n\\\r\n  grep b\r\n", (3, 3, 0, 0), 1),
+                // At EOF with no newline the grammar emits a node for the
+                // `\`, so this one was already code. Tcl's twin is the EOF
+                // row that only the root's trailing padding reaches.
+                (b"echo a | \\\n\\", (2, 2, 0, 0), 0),
+                // Between two function definitions, which the grammar
+                // emits as adjacent siblings with no token between: the
+                // row is in the root's own padding, outside both spaces.
+                (b"f() { :; }\n\\\ng() { :; }\n", (3, 3, 0, 0), 1),
+                // Controls. A blank row between continuations stays blank:
+                // only a row spelled `\` is credited.
+                (b"echo a \\\n\n\\\necho b\n", (4, 3, 0, 1), 2),
+                // Bash never continues a comment (`echo b` runs), so the
+                // bare row after one is code, not comment.
+                (b"# c \\\n\\\necho b\n", (3, 2, 1, 0), 1),
+                // A bare row that continues nothing joins the row after it,
+                // and bash reads that logical line as the row it joins: a
+                // comment (also after indentation, or after a run of bare
+                // rows), or an empty line, at EOF too. Each runs only its
+                // `echo`.
+                (b"\\\n# note\necho done\n", (3, 1, 2, 0), 1),
+                (b"\\\n  # note\necho done\n", (3, 1, 2, 0), 1),
+                (b"\\\n\\\n# note\necho done\n", (4, 1, 3, 0), 2),
+                (b"\\\n\necho done\n", (3, 1, 0, 2), 2),
+                (b"echo a\n\\\n", (2, 1, 0, 1), 1),
+                // After a comment's `\`, which is comment text, the bare row
+                // starts a line of its own and joins the empty row.
+                (b"# c \\\n\\\n\necho b\n", (4, 1, 1, 2), 2),
+                // Two bare rows in the root's gaps three rows apart: the
+                // first joins a comment, the second a function, so the
+                // second does not inherit the first's class.
+                (b"\\\n# note\nf() { :; }\n\\\ng() { :; }\n", (5, 3, 2, 0), 2),
+                // The same joins with CRLF, which only Bash's grammar
+                // splices (`/\\\r?\n/`); Tcl's lexes the row as a word.
+                (b"\\\r\n# note\r\necho done\r\n", (3, 1, 2, 0), 1),
+                (b"\\\r\n\r\necho done\r\n", (3, 1, 0, 2), 2),
+                // Inside a `raw_string`, a leaf with no gaps, so the bare-row
+                // scan never sees the row: the literal's own interior
+                // credit makes it code. A control for that arm, not for
+                // the scan.
+                (b"echo 'a\n\\\nb'\n", (3, 3, 0, 0), 0),
+            ],
+        );
+    }
+
+    /// #1445's rows inside a function are the function's own, not only
+    /// the file's.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_bare_continuation_row_in_a_function_is_its_code() {
+        assert_nested_continuation(
+            crate::LANG::Bash,
+            b"f() {\n  echo a | \\\n\\\n    grep b\n}\n",
+            (5, 5, 0, 0),
+        );
+        // Indented as a function body's rows usually are.
+        assert_nested_continuation(
+            crate::LANG::Bash,
+            b"f() {\n  echo a | \\\n  \\\n    grep b\n}\n",
+            (5, 5, 0, 0),
+        );
+    }
+
+    /// A bare row between two function definitions is in the root's own
+    /// padding, so the file counts it and neither function does: each
+    /// space keeps its one row.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_bare_continuation_row_between_functions_is_neither_s() {
+        let source = b"f() { :; }\n\\\ng() { :; }\n";
+        let space = space_verbatim(
+            crate::LANG::Bash,
+            source,
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        );
+        assert_eq!(loc_rows(&space.metrics.loc), (3, 3, 0, 0), "the file");
+        assert_eq!(space.spaces.len(), 2, "one space per function");
+        for function in &space.spaces {
+            assert_eq!(
+                loc_rows(&function.metrics.loc),
+                (1, 1, 0, 0),
+                "{:?} holds only its own row",
+                function.name
+            );
+        }
+    }
+
+    /// #1445 for Tcl, whose comments continue: `tclsh` reads `# c \` + `\`
+    /// as one comment, but the grammar's `comment` token (`#[^\n]*`) stops
+    /// at the row's end, so a bare row continuing one is comment that no
+    /// comment node covers. It goes to CLOC, and a run of bare rows
+    /// continues whatever its first one did.
+    ///
+    /// Each comment fixture ends the comment with a blank row before the
+    /// code that follows, because the grammar does not honour the
+    /// continuation past a row with text: `# c \` + `puts x` runs nothing
+    /// in `tclsh` and parses as a command here, a separate gap no bare-row
+    /// credit can fix. Every fixture was run through `tclsh`.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_bare_continuation_rows_are_code_or_comment() {
+        assert_continuation_fixtures(
+            crate::LANG::Tcl,
+            &[
+                (b"puts [list a \\\n\\\n  b]\n", (3, 3, 0, 0), 1),
+                // An indented bare row is still bare (`tclsh` prints `a b`).
+                (b"puts [list a \\\n   \\\n  b]\n", (3, 3, 0, 0), 1),
+                (b"\\\nputs a\n", (2, 2, 0, 0), 1),
+                // A bare row that continues nothing is the line it joins: a
+                // comment, which may itself continue, or an empty line.
+                (b"\\\n# note\nputs done\n", (3, 1, 2, 0), 1),
+                (b"\\\n\nputs done\n", (3, 1, 0, 2), 2),
+                (b"\\\n  # c \\\n\\\n\nputs x\n", (5, 1, 3, 1), 3),
+                // FIXME(#1808): `tclsh` reads (3, 1, 2, 0) — the bare row
+                // and `# c` are one comment line — but the grammar joins
+                // the bare row to `puts a` before it, so `#` and `c` are
+                // two words of that command and the row reads as code.
+                (b"puts a\n\\\n# c\n", (3, 3, 0, 0), 1),
+                // With CRLF the grammar lexes the bare row's `\` + `\r` as
+                // an escaped character, a word of the surrounding command,
+                // so the row was already code; see the FIXME below for the
+                // comment position, where that word is the defect.
+                (b"puts [list a \\\r\n\\\r\n  b]\r\n", (3, 3, 0, 0), 0),
+                // At EOF with no newline, which only the root's trailing
+                // padding reaches. `tclsh` runs it as a command named `\`.
+                (b"puts a\n\\", (2, 2, 0, 0), 1),
+                // rows: 0 comment, 1 its continuation, 2 blank, 3 code.
+                (b"# c \\\n\\\n\nputs x\n", (4, 1, 2, 1), 2),
+                (b"# c \\\n\\\n\\\n\nputs x\n", (5, 1, 3, 1), 3),
+                // FIXME(#1802): `tclsh` reads (4, 1, 2, 1), as for the LF
+                // twin above. With CRLF the grammar lexes the bare row's
+                // `\` + `\r` as an escaped character and emits a `command`,
+                // so the row is a node, not padding, and reads as code.
+                (b"# c \\\r\n\\\r\n\r\nputs x\r\n", (4, 2, 1, 1), 1),
+                // A CRLF comment row before an LF bare row: the comment
+                // token takes the `\r`, and the lookup steps over it to
+                // the `\`. Only the raw library path keeps the CR.
+                (b"# c \\\r\n\\\n\nputs x\n", (4, 1, 2, 1), 2),
+                // A comment after code on its row continues too.
+                (b"puts x ;# c \\\n\\\n\nputs y\n", (4, 2, 2, 1), 2),
+                // The comment sits in a command substitution inside a
+                // quoted word, which already made its rows code: the bare
+                // row is a comment on a code row, and row 4 stays blank.
+                (b"puts \"[# c \\\n\\\n\n]\"\n\nputs x\n", (6, 5, 2, 1), 1),
+                // Controls. An even run is escaped backslashes: the comment
+                // ends on its row, and the bare row continues `puts x`.
+                (b"# c \\\\\n\\\nputs x\n", (3, 2, 1, 0), 1),
+                // A braced literal credits no blank row of its own, but its
+                // bare row is text.
+                (b"set x {a\n\n\\\nb}\n", (4, 3, 0, 1), 2),
+                // A quoted word already credits every row it spans.
+                (b"puts \"a\n\\\nb\"\n", (3, 3, 0, 0), 0),
+            ],
+        );
+    }
+
+    /// #1445's rows inside a `proc` are the procedure's own: a bare code
+    /// row, and a bare row continuing a comment in the body.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_bare_continuation_rows_in_a_proc_are_its_own() {
+        assert_nested_continuation(
+            crate::LANG::Tcl,
+            b"proc p {} {\n  puts [list a \\\n\\\n    b]\n}\n",
+            (5, 5, 0, 0),
+        );
+        // rows: 0 header, 1 comment, 2 its continuation, 3 blank, 4 code,
+        // 5 `}`. The comment sits inside the body's braced word, so the
+        // lookup that classifies the bare row runs below the root.
+        assert_nested_continuation(
+            crate::LANG::Tcl,
+            b"proc p {} {\n  # c \\\n\\\n\n  puts x\n}\n",
+            (6, 3, 2, 1),
+        );
+    }
+
+    /// #1445 for iRules, which forked Tcl's grammar and shares both its
+    /// extras and its `#[^\n]*` comment token. No iRules interpreter was
+    /// available to run these; the Tcl twins above were run through
+    /// `tclsh`.
+    #[cfg(feature = "irules")]
+    #[test]
+    fn irules_bare_continuation_rows_are_code_or_comment() {
+        assert_continuation_fixtures(
+            crate::LANG::Irules,
+            &[
+                (b"set a [list a \\\n\\\n  b]\n", (3, 3, 0, 0), 1),
+                // The line a bare row that continues nothing joins, as in Tcl.
+                (b"\\\n# note\nset a 1\n", (3, 1, 2, 0), 1),
+                (b"\\\n\nset a 1\n", (3, 1, 0, 2), 2),
+                // A word of the command, as in Tcl's CRLF fixture.
+                (b"set a [list a \\\r\n\\\r\n  b]\r\n", (3, 3, 0, 0), 0),
+                (b"# c \\\n\\\n\nset a 1\n", (4, 1, 2, 1), 2),
+                // A CRLF comment row before an LF bare row, as in Tcl.
+                (b"# c \\\r\n\\\n\nset a 1\n", (4, 1, 2, 1), 2),
+                // FIXME(#1802): the same CRLF word as Tcl's twin.
+                (b"# c \\\r\n\\\r\n\r\nset a 1\r\n", (4, 2, 1, 1), 1),
+                (b"# c \\\\\n\\\nset a 1\n", (3, 2, 1, 0), 1),
+            ],
+        );
+    }
+
+    /// #1445's rows inside an event handler are the handler's own.
+    #[cfg(feature = "irules")]
+    #[test]
+    fn irules_bare_continuation_rows_in_a_handler_are_its_own() {
+        assert_nested_continuation(
+            crate::LANG::Irules,
+            b"when HTTP_REQUEST {\n  log local0. [list a \\\n\\\n  b]\n}\n",
+            (5, 5, 0, 0),
+        );
+        assert_nested_continuation(
+            crate::LANG::Irules,
+            b"when HTTP_REQUEST {\n  # c \\\n\\\n\n  log local0. x\n}\n",
+            (6, 3, 2, 1),
+        );
+        // A bare row that continues nothing joins the handler's comment.
+        assert_nested_continuation(
+            crate::LANG::Irules,
+            b"when HTTP_REQUEST {\n\\\n  # note\n  log local0. x\n}\n",
+            (5, 3, 2, 0),
+        );
+        // The comment inside a quoted word's command substitution, as in
+        // Tcl's twin: the bare row is a comment on a code row, so row 5
+        // stays blank.
+        assert_nested_continuation(
+            crate::LANG::Irules,
+            b"when HTTP_REQUEST {\n  log local0. \"[# c \\\n\\\n\n]\"\n\n  log local0. x\n}\n",
+            (8, 7, 2, 1),
+        );
+    }
+
+    /// FIXME(#1801): the C family, Ruby and Elixir splice `\` + newline in
+    /// their lexer extras as Bash does, but their `Loc` impls do not call
+    /// `credit_bare_continuation_rows` yet, so the bare row still reads as
+    /// blank. Pinned so the gap stays visible rather than endorsed: the fix
+    /// moves every row to `(3, 3, 0, 0)`.
+    ///
+    /// gcc, g++ and clang (`-x objective-c`) accept the C-family fixture,
+    /// and `ruby -c` the Ruby one, which evaluates to 3. No Elixir
+    /// interpreter was available; its row rests on the grammar alone.
+    #[cfg(all(
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby"
+    ))]
+    #[test]
+    fn bare_continuation_rows_in_unwired_grammars_still_read_blank() {
+        let c_family: &[(&[u8], LocRows, u64)] =
+            &[(b"int x = 1 + \\\n\\\n  2;\n", (3, 2, 0, 1), 1)];
+        for lang in [
+            crate::LANG::C,
+            crate::LANG::Cpp,
+            crate::LANG::Mozcpp,
+            crate::LANG::Objc,
+        ] {
+            assert_continuation_fixtures(lang, c_family);
+        }
+        let expression: &[(&[u8], LocRows, u64)] = &[(b"x = 1 + \\\n\\\n  2\n", (3, 2, 0, 1), 1)];
+        for lang in [crate::LANG::Ruby, crate::LANG::Elixir] {
+            assert_continuation_fixtures(lang, expression);
+        }
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the

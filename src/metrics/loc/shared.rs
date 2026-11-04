@@ -348,3 +348,360 @@ pub(crate) fn add_string_interior_ploc(node: &Node, stats: &mut Stats, start: us
         .lines
         .insert_range(start.saturating_add(1), node.end_line().saturating_sub(1));
 }
+
+// A node's start row, the bare row and its end row: a node spanning fewer
+// rows has no complete row strictly between its children to find.
+const ROWS_AROUND_A_GAP_ROW: usize = 2;
+
+// Credits each `\`-continuation row that holds nothing but the backslash
+// as the code it continues (#1445).
+//
+// Bash, Tcl and iRules splice `\` + newline away in the lexer — each
+// grammar lists `/\\\r?\n/` among its extras — so a row spelled only `\`
+// surfaces no node at all. Their `Loc` arms credit nodes, and a row no
+// node covers reaches neither PLOC nor CLOC, so
+// `blank = sloc - ploc - cloc` claimed it: `echo a | \` + `\` +
+// `  grep b` reported `ploc 2, blank 1` for one three-row command.
+//
+// FIXME(#1801): C, C++, Mozcpp, Objective-C, Ruby and Elixir list the
+// same extra and do not call this yet, so a bare row there still reads
+// as blank — `#define` bodies included, where a bare row between the
+// parameters and the body, or after a `/* … */` that ends a
+// `preproc_arg`, is padding rather than macro text.
+//
+// A bare row that continues no row before it starts a logical line, and
+// is what that line becomes once spliced: a comment where the row it joins
+// opens one (`\` + `# note` is one comment line to bash and tclsh), blank
+// where that row is empty or EOF (`\` + an empty row), and code otherwise.
+// The joined row is the first after the run of bare rows, and since only
+// padding precedes its first token, that token is the gap's next child.
+//
+// It reads only a node's *gaps*, the padding between its children. A
+// bare row carries no token, so it lies in exactly one gap: that of the
+// deepest node spanning it. That node's `stats` belongs to the innermost
+// space containing the row, which is the space whose own `ploc` needs
+// it, and every enclosing space receives it through `Stats::merge`. A
+// per-space scan of each space's whole byte range would also be right
+// and costs bytes × nesting depth, the class `loc/nested-fn-rows` exists
+// to keep linear (`loc/bash-nested-continued-fn` measures it); each
+// padding byte here sits in one node's gaps, so the scan is linear in the
+// file. Iterating a node's children is the cost every node would pay, so
+// a node too short to hold a gap row returns before it.
+//
+// The root alone also owns the padding before its first child and after
+// its last, to EOF: its span begins at its first token, so a leading
+// `\` + `echo a` has its bare row outside every node.
+//
+// `comments` names the grammar's comment kind and whether a `\` ending a
+// comment row continues the comment. `tclsh` reads `# c \` + `\` +
+// `puts x` as one comment, but the Tcl and iRules `comment` token is
+// `#[^\n]*` and stops at the row's end, so a bare row continuing one is
+// comment text the comment node does not cover; it is credited to CLOC.
+// Bash never continues a comment — `echo a # c \` + `\` + `echo b` runs
+// `echo b` — so there a bare row after a comment starts a logical line.
+#[inline]
+pub(crate) fn credit_bare_continuation_rows<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+    comments: BareRowComments,
+) {
+    let is_root = ancestors.parent(node).is_none();
+    if !is_root
+        && (node.child_count() == 0
+            || node.end_row() < node.start_row().saturating_add(ROWS_AROUND_A_GAP_ROW))
+    {
+        return;
+    }
+    let mut scan = GapScan {
+        node: node.as_tree_sitter(),
+        before: [None; CHILDREN_BEFORE_A_GAP],
+        code,
+        stats,
+        comments,
+        previous_bare: None,
+    };
+    let (mut gap_start, mut gap_row) = if is_root {
+        (0, 0)
+    } else {
+        (node.start_byte(), node.start_row())
+    };
+    for child in node.children() {
+        scan.gap(gap_start, gap_row, Some(child.as_tree_sitter()));
+        gap_start = child.end_byte();
+        gap_row = child.end_row();
+        scan.before.rotate_right(1);
+        scan.before[0] = Some(child.as_tree_sitter());
+    }
+    // A non-root node ends where its last child does; the root runs on
+    // to EOF, the one place a bare row can lack its newline.
+    if is_root {
+        scan.gap(gap_start, gap_row, None);
+    }
+}
+
+// The grammar's comment kind, and whether a `\` ending a comment row
+// carries the comment onto the next row (Tcl, iRules) or not (Bash).
+#[derive(Clone, Copy)]
+pub(crate) struct BareRowComments {
+    pub(crate) kind: u16,
+    pub(crate) continued: bool,
+}
+
+// What a bare row is credited as.
+#[derive(Clone, Copy)]
+enum BareRow {
+    Code,
+    Comment,
+    Blank,
+}
+
+// What the row read so far holds, for the bare-row test: optional
+// horizontal whitespace, one `\`, and an optional `\r` before the newline.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowShape {
+    Blank,
+    Backslash,
+    BackslashCr,
+    Other,
+}
+
+impl RowShape {
+    fn step(self, byte: u8) -> Self {
+        match (self, byte) {
+            (Self::Blank, b' ' | b'\t') => Self::Blank,
+            (Self::Blank, b'\\') => Self::Backslash,
+            (Self::Backslash, b'\r') => Self::BackslashCr,
+            _ => Self::Other,
+        }
+    }
+
+    fn is_bare(self) -> bool {
+        matches!(self, Self::Backslash | Self::BackslashCr)
+    }
+}
+
+// How many of a node's children before a gap `GapScan` keeps for the
+// comment lookup: the one ending at the gap, the `\n` token a grammar may
+// put between it and the gap, and one spare for a zero-width recovery
+// token.
+const CHILDREN_BEFORE_A_GAP: usize = 3;
+
+struct GapScan<'s, 'a> {
+    // The node whose gaps are scanned, and so the one holding any comment
+    // a bare row in them continues.
+    node: tree_sitter::Node<'a>,
+    // The node's children before the gap being scanned, nearest first.
+    before: [Option<tree_sitter::Node<'a>>; CHILDREN_BEFORE_A_GAP],
+    code: &'s [u8],
+    stats: &'s mut Stats,
+    comments: BareRowComments,
+    // The last bare row credited and what as: a run of bare rows is
+    // whatever its first one is.
+    previous_bare: Option<(usize, BareRow)>,
+}
+
+impl<'a> GapScan<'_, 'a> {
+    // Scans `start` up to `next`, the child ending the gap (EOF for
+    // `None`); the gap's first byte sits on `row`.
+    fn gap(&mut self, start: usize, mut row: usize, next: Option<tree_sitter::Node<'a>>) {
+        let end = next.map_or(self.code.len(), |child| child.start_byte());
+        let Some(bytes) = self.code.get(start..end) else {
+            return;
+        };
+        // `None` while the row being read began inside a child, whose
+        // token it then carries.
+        let mut row_start =
+            (start == 0 || self.code.get(start.wrapping_sub(1)) == Some(&b'\n')).then_some(start);
+        let mut shape = RowShape::Blank;
+        for (offset, &byte) in (start..).zip(bytes) {
+            if byte == b'\n' {
+                if let Some(first) = row_start
+                    && shape.is_bare()
+                {
+                    self.credit(row, first, start, next);
+                }
+                row = row.saturating_add(1);
+                row_start = Some(offset.saturating_add(1));
+                shape = RowShape::Blank;
+            } else {
+                shape = shape.step(byte);
+            }
+        }
+        if end == self.code.len()
+            && let Some(first) = row_start
+            && shape.is_bare()
+        {
+            self.credit(row, first, start, next);
+        }
+    }
+
+    // Credits the bare `row`, which starts at byte `row_start` in the gap
+    // that starts at `gap_start` and ends at `next`.
+    fn credit(
+        &mut self,
+        row: usize,
+        row_start: usize,
+        gap_start: usize,
+        next: Option<tree_sitter::Node<'a>>,
+    ) {
+        let class = self.classify(row, row_start, gap_start, next);
+        match class {
+            // A range arm already made the row code — a Tcl quoted word
+            // around the command substitution holding the comment — so it
+            // is a comment on a code line, as `add_cloc_lines` files one;
+            // filing it comment-only too would subtract it from `blank`
+            // twice.
+            BareRow::Comment if self.stats.ploc.lines.contains(row) => {
+                add_code_comment_line(self.stats, row);
+            }
+            BareRow::Comment => add_only_comment_lines(self.stats, row, row),
+            // No `check_comment_ends_on_code_line`: that reclassifies a
+            // comment ending on this row, and nothing but the `\` is on it.
+            BareRow::Code => {
+                self.stats.ploc.lines.insert(row);
+            }
+            BareRow::Blank => {}
+        }
+        self.previous_bare = Some((row, class));
+    }
+
+    // What the bare `row` is: what the row before it continues onto it,
+    // or, when that row continues nothing, what the logical line it starts
+    // becomes.
+    fn classify(
+        &self,
+        row: usize,
+        row_start: usize,
+        gap_start: usize,
+        next: Option<tree_sitter::Node<'a>>,
+    ) -> BareRow {
+        if let Some((bare_row, class)) = self.previous_bare
+            && bare_row.saturating_add(1) == row
+        {
+            return class;
+        }
+        let Some(last) = continuing_backslash(self.code, row_start) else {
+            return self.spliced_into(row_start, next);
+        };
+        let in_comment = self.holder_of(last, gap_start).is_some_and(|holder| {
+            holder
+                .descendant_for_byte_range(last, last.saturating_add(1))
+                .is_some_and(|covering| covering.kind_id() == self.comments.kind)
+        });
+        match (in_comment, self.comments.continued) {
+            (false, _) => BareRow::Code,
+            (true, true) => BareRow::Comment,
+            // A Bash comment's `\` is comment text, so the bare row starts
+            // a logical line of its own.
+            (true, false) => self.spliced_into(row_start, next),
+        }
+    }
+
+    // What the logical line a run of bare rows starts at byte `row_start`
+    // becomes, read off the first row after the run: blank when that row
+    // is empty or the file ends, a comment when the gap's `next` child
+    // opening it is a comment, code otherwise.
+    fn spliced_into(&self, row_start: usize, next: Option<tree_sitter::Node<'a>>) -> BareRow {
+        let mut at = row_start;
+        loop {
+            let rest = self.code.get(at..).unwrap_or_default();
+            let indent = rest
+                .iter()
+                .take_while(|&&byte| matches!(byte, b' ' | b'\t'))
+                .count();
+            let first = at.saturating_add(indent);
+            match rest.get(indent..).unwrap_or_default() {
+                [b'\\', b'\n', ..] => at = first.saturating_add(2),
+                [b'\\', b'\r', b'\n', ..] => at = first.saturating_add(3),
+                [] | [b'\n', ..] | [b'\r', b'\n', ..] => return BareRow::Blank,
+                _ if next.is_some_and(|child| self.opens_comment(child, first)) => {
+                    return BareRow::Comment;
+                }
+                _ => return BareRow::Code,
+            }
+        }
+    }
+
+    // Whether `child`, or a first descendant of it, is a comment starting
+    // at byte `first`. Each node is asked for one gap's run at most, so
+    // the descent stays linear in the file. In every tree seen so far the
+    // comment is `child` itself; the descent runs (Tcl's `puts a` + `\`
+    // + `# c`, #1808, descends into a word) but has not yet found a
+    // comment below a node, and is kept because a grammar may wrap one.
+    fn opens_comment(&self, child: tree_sitter::Node<'a>, first: usize) -> bool {
+        let mut node = Some(child);
+        while let Some(current) = node
+            && current.start_byte() == first
+        {
+            if current.kind_id() == self.comments.kind {
+                return true;
+            }
+            node = current.child(0);
+        }
+        false
+    }
+
+    // The node to look byte `last` up from, the `\` ending the row before
+    // a bare one: `None` when it is padding in the gap itself (a code
+    // continuation's `\`), else the child before the gap that holds it.
+    //
+    // Only the newline separates `last` from the gap's first row, so the
+    // child holding it is the one ending at the gap or, past a `\n`
+    // token, the one before. Looking up from the gap's owner instead
+    // costs that owner's width per bare row: tree-sitter scans each
+    // level's children from the first, and an unclosed opener per unit
+    // leaves every unit a direct child of one flat `ERROR`, which it
+    // never balances (`loc/tcl-unclosed-continued-comments`). The child
+    // must contain `last`: looked up from a child that does not,
+    // `descendant_for_byte_range` answers the child itself, a comment
+    // that ended a row earlier among them.
+    fn holder_of(&self, last: usize, gap_start: usize) -> Option<tree_sitter::Node<'a>> {
+        if last >= gap_start {
+            return None;
+        }
+        // None of the three fallbacks below is reached by any fixture or
+        // by the malformed inputs probed for #1445: the `\` is always
+        // inside the child ending at the gap or the one before. Each
+        // returns the safe answer rather than asserting, because a
+        // zero-width recovery token landing between the `\` and the gap
+        // would reach one, and there the answer below is the right one.
+        for child in self.before {
+            // Fewer children than slots: `last` is padding before the
+            // first, where no comment is.
+            let child = child?;
+            if child.start_byte() <= last {
+                return (last < child.end_byte()).then_some(child);
+            }
+        }
+        // More zero-width children than slots stand between: the owner
+        // still holds `last`, at the owner's width.
+        Some(self.node)
+    }
+}
+
+// The offset of the `\` that ends the row before the one starting at byte
+// `row_start`, if that `\` continues the row: a trailing `\r` is stepped
+// over, and an even run is escaped backslashes rather than a continuation
+// (`tclsh` runs the row after `# c \\`).
+fn continuing_backslash(code: &[u8], row_start: usize) -> Option<usize> {
+    // `row_start - 1` is the previous row's newline.
+    let newline = row_start.checked_sub(1)?;
+    let before = code.get(..newline)?;
+    // Reads the row the way `RowShape` reads the bare one. It decides
+    // input whose comment row ends in CRLF while the bare row after it
+    // ends in LF: the Tcl and iRules `comment` token takes the `\r`, the
+    // bare row is padding, and tclsh continues the comment through it
+    // (`tcl_bare_continuation_rows_are_code_or_comment`). Only the raw
+    // library and Python `Ast.parse` paths keep a CR at all; the CLI
+    // normalises line endings first. An all-CRLF bare row never gets
+    // here: those grammars lex its `\` + `\r` as a word (#1802).
+    let content = before.strip_suffix(b"\r").unwrap_or(before);
+    let run = content
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b'\\')
+        .count();
+    (run % 2 == 1).then(|| content.len().saturating_sub(1))
+}

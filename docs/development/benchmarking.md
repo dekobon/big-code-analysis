@@ -194,6 +194,9 @@ Read it as follows.
 | `loc/ruby-nested-doc-constants` | Ruby | depth | YARD's namespace scope test through nested `if`s (#1597) | linear |
 | `loc/lua-tagless-blocks` | Lua | width | LDoc's first-block test, scanning back to the previous block (#1597) | linear |
 | `loc/perl-data-pod` | Perl | width | the one-pass POD scan of the data section after `__END__` (#1608) | linear |
+| `loc/bash-nested-continued-fn` | Bash | depth | the bare-`\`-row gap scan (`credit_bare_continuation_rows`), each padding byte read by one node however deep the spaces nest (#1445) | linear |
+| `loc/tcl-wide-continued-comment` | Tcl | width | the comment lookup for a bare row continuing a comment, from the child before the row's gap (#1445) | linear |
+| `loc/tcl-unclosed-continued-comments` | Tcl | width | the same lookup when an unclosed opener per unit leaves every unit a direct child of one flat `ERROR` (#1445) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |
 | `abc/perl-nested-signed-keys` | Perl | depth | the ABC value peel's `-and` / `-not` sign test, handed the `-`'s parent rather than a chain to climb (#1603) | linear |

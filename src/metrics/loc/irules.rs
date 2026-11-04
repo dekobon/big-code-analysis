@@ -22,6 +22,16 @@ impl Loc for IrulesCode {
         is_func_space: bool,
     ) {
         let start = init(node, stats, is_func_space);
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: Irules::Comment as u16,
+                continued: true,
+            },
+        );
 
         match node.kind_id().into() {
             // Same row-terminator quirk as the Tcl impl this dialect
