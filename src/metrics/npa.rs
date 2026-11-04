@@ -384,8 +384,10 @@ macro_rules! impl_npa_java_like {
     };
 }
 
+mod ruby_body;
 mod shared;
 pub(crate) use python::python_unwrap_function;
+pub(crate) use ruby_body::{RubyBodyConsumer, RubyBodyShape, RubyBodyState, RubyOpenCall};
 pub(crate) use shared::*;
 
 // Reached by the per-language submodules through `use super::*`.
