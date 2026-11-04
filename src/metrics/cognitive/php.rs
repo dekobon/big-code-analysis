@@ -78,7 +78,10 @@ impl Cognitive for PhpCode {
             // `break N;` / `continue N;`, which breaks out of N enclosing
             // loops. Those enclosing loops are already counted via nesting,
             // so the numeric form is a structured loop-level exit and adds
-            // +0 — only `goto` is genuinely unstructured here.
+            // +0 — only `goto` is genuinely unstructured here. That +0 is a
+            // deliberate, still undecided deviation from v1.7 §B1, which
+            // lists a jump to a NUMBER as an increment: #1765 (item 2)
+            // decides it, so do not "fix" it from the citation alone.
             GotoStatement => {
                 increment_by_one(stats);
             }

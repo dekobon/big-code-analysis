@@ -32,6 +32,24 @@ use crate::macros::implement_metric_trait;
 use crate::metrics::ConstraintReach;
 use crate::*;
 
+// `§B1` / `B2` / `B3` here and in the per-language modules cite Appendix B
+// ("Specification") of Campbell's *Cognitive Complexity* white paper at
+// v1.7, 29 August 2023. The PDF's URL is unversioned and the rules have
+// been reworded under it (v1.5 made the multi-level break/continue
+// increment explicit), so check a citation against this summary of v1.7:
+//   B1 Increments: if, else if, else, ternary; switch; for, foreach;
+//      while, do while; catch; goto/break/continue to a LABEL or NUMBER;
+//      sequences of binary logical operators; each recursion-cycle method.
+//   B2 Nesting level: the B1 structures from if through catch, plus nested
+//      methods and lambdas. Jumps, operator sequences and recursion do not
+//      raise it.
+//   B3 Nesting increments: if, ternary, switch, for, foreach, while,
+//      do while, catch. Nothing else pays for its depth, so a flat +1 is
+//      a B1 increment that B3 omits.
+// The paper's prose also ignores null-coalescing operators as shorthand,
+// so scoring `??` (#230), Elvis `?:` (#239, #246) and Perl's `//` as
+// boolean sequences is this crate's choice, not a B1 reading.
+
 // No language scores the specification's recursion increment (B1, "each
 // method in a recursion cycle"), and this is a decision rather than a gap:
 // the walk is a single pass over one file's syntax tree and resolves no
@@ -8053,10 +8071,12 @@ end",
     #[test]
     fn typescript_nullish_coalescing_with_if_230() {
         // Regression for issue #230: the example from the issue body.
-        // Boolean sequences pay a flat +1 (no nesting penalty) per Sonar
-        // B1, so the issue body's stated total of 3 was wrong — the
-        // correct answer is if(+1) + ?? chain (+1) = 2. Previously the
-        // `??` chain was not counted at all (= 1).
+        // Boolean sequences pay a flat +1: Sonar B1's increment, with no
+        // nesting increment since B3 omits them (that `??` counts at all
+        // is this crate's choice; see the module header). So the issue
+        // body's stated total of 3 was wrong — the correct answer is
+        // if(+1) + ?? chain (+1) = 2. Previously the `??` chain was not
+        // counted at all (= 1).
         check_metrics::<TypescriptParser>(
             "function risky(x: string | null, fallback: string | null): string {
                  if (x === \"y\") { // +1
@@ -8144,8 +8164,8 @@ end",
     #[test]
     fn csharp_null_coalescing_cognitive_230() {
         // Regression for issue #230: C# `??` must form a boolean sequence
-        // just like `&&` / `||`. Boolean sequences pay a flat +1 (no
-        // nesting penalty) per Sonar B1.
+        // just like `&&` / `||`. Boolean sequences pay a flat +1: Sonar
+        // B1's increment, with no nesting increment since B3 omits them.
         // if(+1) + ?? chain (+1) = 2. Previously the `??` chain
         // contributed nothing and the function scored 1.
         check_metrics::<CsharpParser>(
@@ -8182,8 +8202,8 @@ end",
     fn php_null_coalescing_cognitive_230() {
         // Regression for issue #230: PHP `??` must form a boolean sequence
         // just like `&&` / `||`. Parallels the PHP cyclomatic
-        // null-coalescing handling. Boolean sequences pay a flat +1 (no
-        // nesting penalty) per Sonar B1.
+        // null-coalescing handling. Boolean sequences pay a flat +1: Sonar
+        // B1's increment, with no nesting increment since B3 omits them.
         // if(+1) + ?? chain (+1) = 2.
         check_metrics::<PhpParser>(
             "<?php
@@ -8674,8 +8694,9 @@ end",
     #[test]
     fn groovy_elvis_inside_if_246() {
         // Regression for issue #246: Elvis chain inside an `if` body.
-        // Boolean sequences pay a flat +1 (no nesting penalty) per
-        // SonarSource B1: if(+1) + Elvis chain(+1) = 2.
+        // Boolean sequences pay a flat +1: SonarSource B1's increment,
+        // with no nesting increment since B3 omits them.
+        // if(+1) + Elvis chain(+1) = 2.
         check_metrics::<GroovyParser>(
             "def f(a, b) {
                 if (a != null) { // +1
@@ -9151,8 +9172,9 @@ end",
     #[test]
     fn kotlin_elvis_inside_if_239() {
         // Regression for issue #239: Elvis chain inside an `if` body.
-        // Boolean sequences pay a flat +1 (no nesting penalty) per
-        // Sonar B1: if(+1) + ?: chain(+1) = 2. Previously the Elvis
+        // Boolean sequences pay a flat +1: Sonar B1's increment, with no
+        // nesting increment since B3 omits them.
+        // if(+1) + ?: chain(+1) = 2. Previously the Elvis
         // chain was not counted at all and the function scored 1.
         check_metrics::<KotlinParser>(
             "fun f(a: String?, b: String?): String {
@@ -9885,7 +9907,9 @@ end",
         // PHP has no labeled break/continue; only the numeric level form
         // `break N;` / `continue N;`, which exits N enclosing loops already
         // accounted for by nesting. Per issue #435 the numeric form is a
-        // structured loop-level exit and adds +0.
+        // structured loop-level exit and adds +0. v1.7 §B1 increments a
+        // jump to a NUMBER, so this pins a deliberate, still undecided
+        // deviation, not the paper: #1765 (item 2) decides it.
         check_metrics::<PhpParser>(
             "<?php
             function f(int $n): int {
@@ -10242,8 +10266,10 @@ end",
     fn ruby_redo_retry_counted() {
         // `redo` (restart the current loop iteration) and `retry` (re-run a
         // rescued `begin` block) are genuinely unstructured jumps with no
-        // structured equivalent, so each adds +1 per SonarSource §B1
-        // (issue #435) even though `break`/`next` do not.
+        // structured equivalent, so each adds +1 by analogy with
+        // SonarSource §B1 (issue #435) even though `break`/`next` do not.
+        // §B1's jump bullet names only goto and a break/continue to a
+        // LABEL or NUMBER; neither keyword is on it.
         check_metrics::<RubyParser>(
             "def foo\n  while a\n    redo\n  end\n  begin\n    work\n  rescue\n    retry\n  end\nend\n",
             "foo.rb",

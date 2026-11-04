@@ -310,6 +310,12 @@ introduced **Cognitive Complexity** in the 2017 white paper
 understandability*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
 and the follow-up IEEE TechDebt 2018 paper [*Cognitive Complexity: An
 Overview and Evaluation*](https://ieeexplore.ieee.org/document/8595102/).
+The white paper's link always serves the latest revision, and the
+rules have been reworded since 2017: v1.5 made the multi-level
+`break` / `continue` increment explicit. This chapter and the source
+cite it at v1.7, 29 August 2023, where Appendix B's §B1 lists the
+increments, §B2 the structures that raise the nesting level, and §B3
+the ones that pay a nesting increment.
 
 The metric was designed as a replacement for Cyclomatic Complexity in
 code-quality tooling. Campbell's argument is that cyclomatic
@@ -422,6 +428,12 @@ since adopted it.
   levels up happened to be a closure. Python cannot express the shape
   at all: a `def` is a statement and a lambda body is a single
   expression.
+- **PHP** scores `break N` / `continue N`, its only non-default jump
+  argument, at `+0`. The numeric form leaves N enclosing loops whose
+  nesting is already counted, so it is treated as a structured
+  loop-level exit; `goto label;` still adds `+1`. The paper's v1.7 §B1
+  lists a jump to a NUMBER as an increment, so this is a deliberate
+  deviation, and an undecided one: #1765 (item 2) tracks it.
 - **Rust**'s `let`-`else` (`let Some(a) = y else { continue };`)
   postdates the specification. It is scored as the `if let` it
   replaces: `+1` plus the current nesting, with everything under it,
