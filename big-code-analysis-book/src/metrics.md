@@ -106,7 +106,7 @@ invocation (`S s(1);`). Each scores zero.
 | `delete` operator | one per occurrence | Figure 3 (C++) |
 | `goto label`, `break label`, `continue label` | one per occurrence | Figure 2 (C) / Figure 3 (C++) / Figure 4 (Java, labeled `break` / `continue` only, since Java has no `goto`) |
 
-#### Conditions
+#### Conditions {#conditions}
 
 | Rule | Counted as `C` | First defined in |
 |------|----------------|------------------|
@@ -116,6 +116,15 @@ invocation (`S s(1);`). Each scores zero.
 | Preprocessor `#else`, `#elif` | one per occurrence | Figure 2, Rule 5 |
 | `try`, `catch` | one per occurrence | Figure 3 (C++) / Figure 4 (Java) |
 | Unary conditional expression | one per `&&` / `\|\|` operand and per `if` / `while` / ternary / guard predicate that no other rule already counts (and per `!`-wrapped argument or `return` value) | Figure 3, Rule 7 / Figure 4, Rule 9 |
+
+Each language has a *role table*, a declaration in the source of which
+tree-sitter node kinds play each syntactic role
+([/big-code-analysis-ast/src/roles/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/roles)).
+Which kinds are a comparison, a short-circuit operator, a ternary or a
+null-safe operator are its `Comparison`, `ShortCircuit`, `Ternary` and
+`NullSafe` rows, and the counting rules in the table above read those
+rows: a row says what a construct *is*; the rule says which occurrence
+pays.
 
 The short-circuit logical operators (`&&`, `||`, and the per-language
 equivalents: Ruby `and` / `or`, Python `and` / `or`, Perl `and` /
@@ -398,7 +407,12 @@ since adopted it.
   block, an Objective-C block) is not a function boundary in that
   sense. It adds a surcharge *on top of* the enclosing nesting
   instead of replacing it, so a decision inside a lambda written
-  inside an `if` is charged for both.
+  inside an `if` is charged for both. Which kinds are a closure, and
+  which open a function boundary, are each language's `Closure` and
+  `FuncOpener` rows in its role table (see [Conditions](#conditions)
+  above for what a role table is); a kind can be on both (Elixir's
+  `fn … end` opens a space and is a closure), and the surcharge rule
+  reads the `Closure` row.
 - That surcharge stops at the next function boundary. A function
   *declared inside* a closure body opens a fresh lexical scope, so it
   does not inherit the closure's surcharge: `fn g` inside a `|| { … }`

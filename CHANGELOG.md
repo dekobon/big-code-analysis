@@ -239,6 +239,27 @@ for historical reference.
   owner's child lives as a named `fn` beside the table, with a row
   test pinning the parent/child relation. Zero drift: no emitted
   predicate changed.
+- **The role-table series is closed** (#1701, closing #1690). The
+  module doc of `big-code-analysis-ast/src/roles/mod.rs` is rewritten
+  as the contributor reference — the role set, the row grammar with
+  its three `pays` modes, what a table emits, how a consumer reads a
+  row, the three gates and the derived suite, and the one list of
+  what the mechanism cannot see, which the rules under
+  `.claude/rules/` and the book now link to rather than restate.
+  `grammar-dispatch.md` says which of its items the gates catch and
+  which stay manual (an alias omitted from its intended row passes
+  `role-coverage`; the §7 cross-walk is the check for a consumer
+  reading the wrong projection); `macro-comments.md` gains the
+  row-comment placement table.
+  Lesson 115 records what the series found: sharing a rule left a
+  kind list at every caller, and sharing the list leaves the
+  judgement — wrong-role claims, incomplete rows, text-keyed policy
+  and dead walker paths — to review. Seven DSL follow-ups are filed
+  outside the series: #1792 (per-role emission profile), #1793
+  (`child_gated_by` / `CHAIN_GATED`), #1794 (owner `under` /
+  `not_under`), #1795 (`preproc_conditional` by id), #1796 (a
+  `Parameter` row or the kept bypass), #1797 (`HoldsDocInBody`'s
+  name), #1798 (role test-file house style).
 - **The history walk no longer rebuilds gix's blob-diff platform for
   every commit it visits** (#1761). `for_each_to_obtain_tree` builds a
   platform per call for its rename tracker, whether or not rename

@@ -130,12 +130,23 @@ workspace defines:
 - **A role table** in
   [/big-code-analysis-ast/src/roles/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/roles)
   (`roles/<lang>.rs`, one `role_table!` per language), declaring for
-  every role either its rows, `absent "why"`, or `pending Rnn`. `make
-  role-census`, `make role-coverage` and `make role-bypass` (all in
-  `make pre-commit`) fail on a language with no table, a kind id that
-  is neither claimed by a row, excluded with a reason, nor baselined,
-  or a claimed kind restated as classification in a dispatch file
-  without a `// role-bypass: allow(<Role>)` exemption.
+  every role either its rows or `absent "why"` (`pending Rnn` is
+  accepted by the grammar but no table has used it since the series
+  closed). The module doc of `roles/mod.rs` is the reference: the
+  role set, the row grammar, what a table emits, how a consumer reads
+  a row, and what the gates cannot see. `make role-census`, `make
+  role-coverage` and `make role-bypass` (all in `make pre-commit`)
+  fail on a language with no table, a kind id that is neither claimed
+  by a row, excluded with a reason, nor baselined, or a claimed kind
+  restated as classification in a dispatch file without a
+  `// role-bypass: allow(<Role>)` exemption. A new language also
+  needs a control-flow fixture under `control_flow/<lang>/` in the
+  integration-snapshot submodule
+  ([`tests/repositories/big-code-analysis-output`](https://github.com/dekobon/big-code-analysis-output))
+  and a `make role-coverage-observe` run, so
+  `.role-coverage-observed.txt` records which of its kinds the corpus
+  emits and the derived parity suite (`make role-parity-corpus`) has
+  nodes to compare.
 - **All thirteen metric traits**: `Abc`, `Cognitive`, `Cyclomatic`,
   `Exit` (the `nexits` metric), `Halstead`, `Loc`, `Mi`, `NArgs`,
   `Nom`, `Npa`, `Npm`, `Tokens`, `Wmc`. Register twelve of them via
