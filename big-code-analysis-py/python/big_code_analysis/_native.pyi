@@ -598,7 +598,9 @@ def analyze(
       ``"halstead"``.
     * ``"wmc"`` → also computes ``"cyclomatic"``, ``"nom"``.
     * ``"cognitive"``, ``"nargs"``, ``"nexits"`` → also compute
-      ``"nom"``, whose function count their averages divide by.
+      ``"nom"``; ``"nargs"`` divides its per-channel averages by the
+      counts it supplies, the other two keep the declaration so
+      their output shape is unchanged.
 
     The number-of-exit-points metric is spelled ``"nexits"`` (its
     canonical JSON key); the legacy ``"exit"`` alias was retired at

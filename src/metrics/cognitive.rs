@@ -67,10 +67,15 @@ use crate::*;
 pub struct Stats {
     structural: usize,
     structural_sum: usize,
+    /// Sum of the own values of the function spaces in this subtree,
+    /// and their count: numerator and divisor of
+    /// [`Stats::cognitive_average`], folded by the same predicate as
+    /// `structural_min` / `structural_max` (#1284).
+    structural_function_sum: usize,
+    function_spaces: usize,
     structural_min: usize,
     structural_max: usize,
     nesting: usize,
-    total_space_functions: usize,
     boolean_seq: BoolSequence,
     constraint: ConstraintReach,
     bash_runs: bash::ComparisonRuns,
@@ -81,10 +86,11 @@ impl Default for Stats {
         Self {
             structural: 0,
             structural_sum: 0,
+            structural_function_sum: 0,
+            function_spaces: 0,
             structural_min: usize::MAX,
             structural_max: 0,
             nesting: 0,
-            total_space_functions: 1,
             boolean_seq: BoolSequence::default(),
             constraint: ConstraintReach::default(),
             bash_runs: bash::ComparisonRuns::default(),
@@ -111,6 +117,8 @@ impl Stats {
         self.structural_min = self.structural_min.min(other.structural_min);
         self.structural_max = self.structural_max.max(other.structural_max);
         self.structural_sum += other.structural_sum;
+        self.structural_function_sum += other.structural_function_sum;
+        self.function_spaces += other.function_spaces;
     }
 
     /// Returns the `Cognitive Complexity` metric value
@@ -118,16 +126,18 @@ impl Stats {
     pub fn cognitive(&self) -> u64 {
         self.structural as u64
     }
-    /// Returns the `Cognitive Complexity` sum metric value
+    /// Returns the `Cognitive Complexity` sum over every space in the
+    /// subtree, the file unit and containers included.
     #[must_use]
     pub fn cognitive_sum(&self) -> u64 {
         self.structural_sum as u64
     }
 
-    /// Returns the `Cognitive Complexity` minimum metric value.
+    /// Returns the minimum `Cognitive Complexity` of a single function
+    /// space in the subtree.
     ///
     /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
-    /// into `structural_min` to `0`, so a never-observed space
+    /// into `structural_min` to `0`, so a subtree with no function space
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[must_use]
     pub fn cognitive_min(&self) -> u64 {
@@ -137,39 +147,47 @@ impl Stats {
             self.structural_min as u64
         }
     }
-    /// Returns the `Cognitive Complexity` maximum metric value
+    /// Returns the maximum `Cognitive Complexity` of a single function
+    /// space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cognitive_max(&self) -> u64 {
         self.structural_max as u64
     }
 
-    /// Returns the `Cognitive Complexity` metric average value
+    /// Returns the average `Cognitive Complexity` per function.
     ///
-    /// This value is computed dividing the `Cognitive Complexity` value
-    /// for the total number of functions/closures in a space.
-    ///
-    /// The per-function divisor (shared with `cyclomatic`/`exit`/`nargs`,
-    /// #512) is guarded with `.max(1)` via the shared `average` helper, so
-    /// a space with no counted functions (or one where `Nom` was not
-    /// selected) degrades to `sum / 1` instead of producing `inf`/`NaN`
-    /// (#428).
+    /// Numerator and divisor both read the
+    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
+    /// the population [`Stats::cognitive_min`] and
+    /// [`Stats::cognitive_max`] fold over, so `min <= average <= max`
+    /// holds on every space (#1284). A closure that opens no space (a
+    /// Python `lambda`) is not a divisor unit: its increments are part
+    /// of the enclosing function's own value. Before #1284 the divisor
+    /// was `nom.total()`, which counts such closures, and a function
+    /// holding one lambda could report `average 7.0` against
+    /// `min 14, max 14`. The divisor is guarded with `.max(1)` via the
+    /// shared `average` helper, so a subtree with no function space
+    /// reports `0.0` (#428).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
-        crate::metrics::average(self.cognitive_sum() as f64, self.total_space_functions)
+        crate::metrics::average(self.structural_function_sum as f64, self.function_spaces)
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.structural_sum += self.structural;
     }
+    /// Folds this space's own value into the aggregates once it is
+    /// finalized; see `cyclomatic::Stats::compute_minmax` for why the
+    /// per-function aggregates share one `is_function` (#1284).
     #[inline]
-    pub(crate) fn compute_minmax(&mut self) {
-        self.structural_min = self.structural_min.min(self.structural);
-        self.structural_max = self.structural_max.max(self.structural);
+    pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
-    }
-
-    pub(crate) fn finalize(&mut self, total_space_functions: usize) {
-        self.total_space_functions = total_space_functions;
+        if is_function {
+            self.function_spaces += 1;
+            self.structural_function_sum += self.structural;
+            self.structural_min = self.structural_min.min(self.structural);
+            self.structural_max = self.structural_max.max(self.structural);
+        }
     }
 }
 
@@ -597,8 +615,9 @@ mod tests {
 
     use super::*;
 
-    // Cognitive's dependency closure adds Nom, the divisor behind
-    // `cognitive_average`.
+    // Cognitive's dependency closure still adds Nom (#1284 kept the
+    // declaration for output-shape stability), which is what the
+    // `metric.nom.closures_sum()` assertion below reads.
     check_metrics_only_shim!(check_metrics, Cognitive);
     check_func_space_only_shim!(check_func_space, Cognitive);
     // The Python-comprehension tests (#417/#421) assert the cyclomatic
@@ -926,7 +945,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -963,7 +982,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -989,7 +1008,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1015,7 +1034,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1044,7 +1063,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1075,7 +1094,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -1115,7 +1134,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1201,7 +1220,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1236,7 +1255,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1268,7 +1287,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1550,7 +1569,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1580,7 +1599,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1610,7 +1629,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1640,7 +1659,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1670,7 +1689,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -1695,7 +1714,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1722,7 +1741,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1745,7 +1764,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1782,7 +1801,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1817,7 +1836,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -1844,7 +1863,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1867,7 +1886,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1894,7 +1913,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1917,7 +1936,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1944,7 +1963,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1973,7 +1992,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1996,7 +2015,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -2035,7 +2054,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2060,7 +2079,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2090,7 +2109,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2113,7 +2132,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -2144,7 +2163,7 @@ mod tests {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2167,7 +2186,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -2192,7 +2211,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2219,7 +2238,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2246,7 +2265,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2273,7 +2292,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2301,7 +2320,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2327,7 +2346,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2364,7 +2383,7 @@ mod tests {
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -2390,7 +2409,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2427,7 +2446,7 @@ mod tests {
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -2464,7 +2483,7 @@ mod tests {
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -2495,7 +2514,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -2522,7 +2541,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -2554,7 +2573,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -2583,7 +2602,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -2618,7 +2637,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -2654,7 +2673,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2686,7 +2705,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2725,7 +2744,7 @@ mod tests {
                   "sum": 7,
                   "value": 0,
                   "average": 7.0,
-                  "min": 0,
+                  "min": 7,
                   "max": 7
                 }
                 "#
@@ -2760,7 +2779,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2795,7 +2814,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -2833,7 +2852,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -2864,7 +2883,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -2895,7 +2914,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -2926,7 +2945,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -2964,7 +2983,7 @@ mod tests {
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -2999,7 +3018,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3034,7 +3053,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -3101,7 +3120,7 @@ mod tests {
                   "sum": 7,
                   "value": 0,
                   "average": 7.0,
-                  "min": 0,
+                  "min": 7,
                   "max": 7
                 }
                 "#
@@ -3139,7 +3158,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3175,7 +3194,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -3207,7 +3226,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3243,7 +3262,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3277,7 +3296,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3311,7 +3330,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3344,7 +3363,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3378,7 +3397,7 @@ mod tests {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -3411,7 +3430,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3447,7 +3466,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3484,7 +3503,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -3523,8 +3542,8 @@ mod tests {
                 {
                   "sum": 2,
                   "value": 0,
-                  "average": 1.0,
-                  "min": 0,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -3593,7 +3612,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3633,7 +3652,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3669,7 +3688,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3707,7 +3726,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3742,7 +3761,7 @@ mod tests {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -3768,7 +3787,7 @@ mod tests {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -3921,8 +3940,8 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 0,
-                  "average": 1.25,
-                  "min": 0,
+                  "average": 2.5,
+                  "min": 2,
                   "max": 3
                 }
                 "#
@@ -4031,7 +4050,7 @@ mod tests {
                   "sum": 9,
                   "value": 0,
                   "average": 9.0,
-                  "min": 0,
+                  "min": 9,
                   "max": 9
                 }
                 "#
@@ -4063,7 +4082,7 @@ mod tests {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -4244,7 +4263,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -4292,7 +4311,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -4327,7 +4346,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -4359,7 +4378,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -4395,7 +4414,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -4426,7 +4445,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -4459,7 +4478,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -4495,7 +4514,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -4530,7 +4549,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -4563,7 +4582,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -4599,7 +4618,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -4791,7 +4810,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -4827,7 +4846,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -5024,7 +5043,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -5060,7 +5079,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -5196,7 +5215,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -5234,7 +5253,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -5271,7 +5290,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -5334,7 +5353,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -5358,7 +5377,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -5394,7 +5413,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -5422,7 +5441,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -5448,7 +5467,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -5476,7 +5495,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#);
@@ -5504,7 +5523,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -5532,7 +5551,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -5585,7 +5604,7 @@ fn ie(x: bool) -> i32 {
               "sum": 1,
               "value": 0,
               "average": 1.0,
-              "min": 0,
+              "min": 1,
               "max": 1
             }
             "#);
@@ -5614,9 +5633,9 @@ fn ie(x: bool) -> i32 {
                 {
                   "sum": 4,
                   "value": 4,
-                  "average": 4.0,
-                  "min": 4,
-                  "max": 4
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#);
             },
@@ -5642,9 +5661,9 @@ fn ie(x: bool) -> i32 {
                 {
                   "sum": 1,
                   "value": 1,
-                  "average": 1.0,
-                  "min": 1,
-                  "max": 1
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#);
             },
@@ -5673,7 +5692,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 7,
                   "value": 0,
                   "average": 7.0,
-                  "min": 0,
+                  "min": 7,
                   "max": 7
                 }
                 "#
@@ -5703,7 +5722,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -5738,7 +5757,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -5780,7 +5799,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 14,
                   "value": 0,
                   "average": 14.0,
-                  "min": 0,
+                  "min": 14,
                   "max": 14
                 }
                 "#
@@ -5817,7 +5836,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -5845,7 +5864,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#);
@@ -5865,7 +5884,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#);
@@ -5891,7 +5910,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#);
@@ -5924,7 +5943,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -5967,7 +5986,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -5993,7 +6012,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#);
@@ -6012,8 +6031,8 @@ fn ie(x: bool) -> i32 {
                 {
                   "sum": 2,
                   "value": 0,
-                  "average": 1.0,
-                  "min": 0,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -6125,7 +6144,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -6157,7 +6176,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -6190,7 +6209,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -6220,7 +6239,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -6252,7 +6271,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -6285,7 +6304,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 7,
                   "value": 0,
                   "average": 7.0,
-                  "min": 0,
+                  "min": 7,
                   "max": 7
                 }
                 "#
@@ -6318,7 +6337,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#);
@@ -6363,7 +6382,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -6394,7 +6413,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -6423,7 +6442,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -6453,7 +6472,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -6484,7 +6503,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -6517,7 +6536,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 2,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -6545,7 +6564,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -6580,7 +6599,7 @@ fn ie(x: bool) -> i32 {
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -7339,7 +7358,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -7372,7 +7391,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -7402,7 +7421,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -7431,7 +7450,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -7461,7 +7480,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -7493,7 +7512,7 @@ end",
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -7526,7 +7545,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -7556,7 +7575,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -7592,7 +7611,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -8058,7 +8077,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -8095,7 +8114,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -8123,7 +8142,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -8151,7 +8170,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -8188,7 +8207,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -8224,7 +8243,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -8330,7 +8349,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -8366,7 +8385,7 @@ end",
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -8402,7 +8421,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -8982,7 +9001,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -9018,7 +9037,7 @@ end",
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -9054,7 +9073,7 @@ end",
                   "sum": 4,
                   "value": 0,
                   "average": 4.0,
-                  "min": 0,
+                  "min": 4,
                   "max": 4
                 }
                 "#
@@ -9159,7 +9178,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -9194,7 +9213,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -9524,7 +9543,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -9574,7 +9593,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -9618,7 +9637,7 @@ end",
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -9661,7 +9680,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -9694,7 +9713,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -9729,7 +9748,7 @@ end",
                   "sum": 6,
                   "value": 0,
                   "average": 6.0,
-                  "min": 0,
+                  "min": 6,
                   "max": 6
                 }
                 "#
@@ -10330,9 +10349,9 @@ end",
             {
               "sum": 1,
               "value": 1,
-              "average": 1.0,
-              "min": 1,
-              "max": 1
+              "average": 0.0,
+              "min": 0,
+              "max": 0
             }
             "#);
         });
@@ -10497,7 +10516,7 @@ end",
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -10531,7 +10550,7 @@ end",
                   "sum": 5,
                   "value": 0,
                   "average": 5.0,
-                  "min": 0,
+                  "min": 5,
                   "max": 5
                 }
                 "#
@@ -10566,7 +10585,7 @@ end",
                   "sum": 11,
                   "value": 0,
                   "average": 11.0,
-                  "min": 0,
+                  "min": 11,
                   "max": 11
                 }
                 "#
@@ -10786,7 +10805,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -10817,7 +10836,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -10848,7 +10867,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -10880,7 +10899,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -10916,7 +10935,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -10950,7 +10969,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -11173,7 +11192,7 @@ end",
                   "sum": 1,
                   "value": 0,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#);
@@ -11205,7 +11224,7 @@ end",
                   "sum": 2,
                   "value": 0,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);
@@ -11237,7 +11256,7 @@ end",
                   "sum": 3,
                   "value": 0,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#);
@@ -11270,8 +11289,8 @@ end",
                 {
                   "sum": 2,
                   "value": 0,
-                  "average": 1.0,
-                  "min": 0,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);

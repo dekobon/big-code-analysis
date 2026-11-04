@@ -54,7 +54,7 @@ metric owns. `Metric::dependencies` is the source of truth:
 |---|---|
 | `Metric::Mi`  | `Loc`, `Cyclomatic`, `Halstead` |
 | `Metric::Wmc` | `Cyclomatic`, `Nom` |
-| `Metric::Cognitive`, `Metric::Nexits`, `Metric::Nargs` | `Nom` (the per-function average's divisor) |
+| `Metric::Cognitive`, `Metric::Nexits`, `Metric::Nargs` | `Nom` (`Nargs` divides its per-channel averages by the counts `Nom` supplies; `Cognitive` and `Nexits` count their own function spaces since #1284 and keep the declaration so their selection's output shape is unchanged) |
 
 `with_only` automatically adds the selected metrics' dependencies.
 Selecting `Mi` therefore also computes `Loc`, `Cyclomatic` and

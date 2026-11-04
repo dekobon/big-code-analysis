@@ -95,11 +95,15 @@ impl Metric {
             // Wmc aggregates per-method cyclomatic complexity and
             // needs Nom to count those methods.
             Self::Wmc => &[Self::Cyclomatic, Self::Nom],
-            // Cognitive, Nexits, and Nargs each expose a per-function
-            // average whose divisor is the function/closure count
-            // sourced from Nom (see `spaces::compute_averages`).
-            // Without Nom the divisor would be the `Stats` default
-            // (zero), producing inf/NaN averages (#428).
+            // Nargs' per-channel averages divide by the function and
+            // closure counts sourced from Nom (see
+            // `spaces::compute_averages`); without Nom the divisor would
+            // be the `Stats` default (zero), producing inf/NaN averages
+            // (#428). Cognitive and Nexits count their own function
+            // spaces since #1284 and read nothing from Nom, but keep the
+            // declaration: dropping it would remove the `nom` block from
+            // a `cognitive`- or `nexits`-only selection, an output-shape
+            // change that is a separate decision from the value fix.
             Self::Cognitive | Self::Nexits | Self::Nargs => &[Self::Nom],
             _ => &[],
         }

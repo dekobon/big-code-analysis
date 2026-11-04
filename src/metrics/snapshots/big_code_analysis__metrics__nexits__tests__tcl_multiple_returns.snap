@@ -5,6 +5,6 @@ expression: metric.nexits
 {
   "sum": 2,
   "average": 2.0,
-  "min": 0,
+  "min": 2,
   "max": 2
 }

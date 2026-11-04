@@ -5,14 +5,14 @@ expression: metric.cyclomatic
 {
   "sum": 3,
   "value": 1,
-  "average": 3.0,
-  "min": 1,
+  "average": 2.0,
+  "min": 2,
   "max": 2,
   "modified": {
     "sum": 3,
     "value": 1,
-    "average": 3.0,
-    "min": 1,
+    "average": 2.0,
+    "min": 2,
     "max": 2
   }
 }

@@ -74,8 +74,10 @@ Duplicates are silently collapsed.
 ## Dependencies
 
 Selecting a metric that reads another metric's result computes that
-one too. `cognitive`, `nargs` and `nexits` each report a per-function
-average whose divisor is the function count `nom` supplies.
+one too. `nargs` divides its per-channel averages by the function and
+closure counts `nom` supplies; `cognitive` and `nexits` count their
+own function spaces but still pull `nom` in, so a selection naming
+either returns the same blocks it always did.
 
 | Metric | JSON key | Dependencies pulled in |
 |--------|----------|------------------------|

@@ -1676,12 +1676,14 @@ fn prod(x: i32) -> i32 {
     }
 
     // #428: selecting Cognitive/Exit/NArgs alone must auto-pull
-    // Nom so their per-function averages divide by the real
-    // function count instead of the `Stats` default (0), which
-    // would otherwise yield inf/NaN. `SOURCE` is a single
-    // function with one `if` branch and one argument, so the
-    // function count is exactly 1 and each average equals its
-    // own sum.
+    // Nom. NArgs divides its per-channel averages by the counts Nom
+    // supplies, so without it the divisor would be the `Stats`
+    // default (0) and the average inf/NaN; Cognitive and Nexits count
+    // their own function spaces since #1284 and keep the declaration
+    // so a selection naming either still emits the `nom` block.
+    // `SOURCE` is a single function with one `if` branch and one
+    // argument, so the function count is exactly 1 and each average
+    // equals its own sum.
     #[cfg(feature = "rust")]
     #[test]
     fn cognitive_only_pulls_nom_and_average_is_finite() {

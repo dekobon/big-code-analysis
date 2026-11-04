@@ -30,28 +30,33 @@ use crate::*;
 pub struct Stats {
     cyclomatic_sum: f64,
     cyclomatic: f64,
-    /// Number of function/closure spaces in this subtree, used as the
-    /// per-function divisor for the cyclomatic averages.
+    /// Sum of the own values of the [`SpaceKind::Function`][crate::SpaceKind]
+    /// spaces in this subtree: the numerator of [`Stats::cyclomatic_average`].
     ///
-    /// Seeded to `1` for a [`SpaceKind::Function`][crate::SpaceKind]
-    /// space and `0` otherwise (see [`Stats::note_function_space`]), then
-    /// summed across child spaces in [`Stats::merge`]. This is the
-    /// per-function divisor convention shared with `cognitive`/`exit`/
-    /// `nargs`, sourced independently of whether the `Nom` metric was
-    /// selected (#512).
+    /// Kept apart from `cyclomatic_sum`, which also folds the base value
+    /// every container and the file unit contribute: those spaces are
+    /// not in the population `average`/`min`/`max` describe, and folding
+    /// them into the numerator but not the divisor is what put
+    /// `fn f() {}` at `average 2.0` against `min 1, max 1` (#1284).
+    cyclomatic_function_sum: f64,
+    /// Number of function/closure spaces in this subtree: the divisor of
+    /// the cyclomatic averages, and the population `cyclomatic_min` /
+    /// `cyclomatic_max` fold over.
     ///
-    /// It counts the function/closure *spaces* — the spaces that each
-    /// contribute a base cyclomatic value to the sum — so it equals
-    /// `nom.total()` wherever every function and closure opens its own
-    /// space (the common case). The known exception is a closure form
-    /// that opens no space, such as a Python `lambda`: `nom` counts it
-    /// but it folds its decisions into the enclosing space, so
-    /// `function_spaces` does not count it as a separate divisor unit.
+    /// Bumped by [`Stats::compute_minmax`] for a
+    /// [`SpaceKind::Function`][crate::SpaceKind] space, then summed
+    /// across child spaces in [`Stats::merge`]. Sourced from the space
+    /// kind rather than from `nom`, so the averages are correct even
+    /// when `Nom` is not selected (#512), and so a closure that opens no
+    /// space (a Python `lambda`, which `nom` counts) is not a divisor
+    /// unit: its decisions fold into the enclosing function's own value,
+    /// so that function is the one population member they belong to.
     function_spaces: usize,
     cyclomatic_max: f64,
     cyclomatic_min: f64,
     cyclomatic_modified_sum: f64,
     cyclomatic_modified: f64,
+    cyclomatic_modified_function_sum: f64,
     cyclomatic_modified_max: f64,
     cyclomatic_modified_min: f64,
     constraint: ConstraintReach,
@@ -62,11 +67,13 @@ impl Default for Stats {
         Self {
             cyclomatic_sum: 0.,
             cyclomatic: 1.,
+            cyclomatic_function_sum: 0.,
             function_spaces: 0,
             cyclomatic_max: 0.,
             cyclomatic_min: f64::MAX,
             cyclomatic_modified_sum: 0.,
             cyclomatic_modified: 1.,
+            cyclomatic_modified_function_sum: 0.,
             cyclomatic_modified_max: 0.,
             cyclomatic_modified_min: f64::MAX,
             constraint: ConstraintReach::default(),
@@ -98,6 +105,7 @@ impl Stats {
         self.cyclomatic_max = self.cyclomatic_max.max(other.cyclomatic_max);
         self.cyclomatic_min = self.cyclomatic_min.min(other.cyclomatic_min);
         self.cyclomatic_sum += other.cyclomatic_sum;
+        self.cyclomatic_function_sum += other.cyclomatic_function_sum;
         self.function_spaces += other.function_spaces;
 
         self.cyclomatic_modified_max = self
@@ -107,6 +115,7 @@ impl Stats {
             .cyclomatic_modified_min
             .min(other.cyclomatic_modified_min);
         self.cyclomatic_modified_sum += other.cyclomatic_modified_sum;
+        self.cyclomatic_modified_function_sum += other.cyclomatic_modified_function_sum;
     }
 
     /// Returns the `Cyclomatic` metric value for the current space.
@@ -116,34 +125,46 @@ impl Stats {
     }
 
     /// Returns the sum of standard cyclomatic values across all spaces.
+    ///
+    /// Every space in the subtree contributes its own value — the file
+    /// unit and each container included, at their base of 1 — so this
+    /// is **not** the numerator of [`Stats::cyclomatic_average`], which
+    /// reads function spaces only (#1284). It is the `G` term MI reads
+    /// and the value WMC rolls up.
     #[must_use]
     pub fn cyclomatic_sum(&self) -> u64 {
         self.cyclomatic_sum as u64
     }
 
-    /// Returns the average standard cyclomatic complexity.
+    /// Returns the average standard cyclomatic complexity per function.
     ///
-    /// The divisor is the number of function/closure spaces in the
-    /// subtree (`function_spaces`), guarded with `.max(1)` via the shared
-    /// `average` helper. This is the per-function convention shared with
-    /// `cognitive`/`exit`/`nargs`; before #512 the divisor was the
-    /// per-space count `n`, which also counted classes, structs, and the
-    /// file unit and so reported a different — lower — average.
+    /// Numerator and divisor both read the
+    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
+    /// the same population [`Stats::cyclomatic_min`] and
+    /// [`Stats::cyclomatic_max`] fold over, so `min <= average <= max`
+    /// holds on every space (#1284). Before that the numerator was
+    /// [`Stats::cyclomatic_sum`], whose unit and container base values
+    /// had no divisor unit to match, and `fn f() {}` reported
+    /// `average 2.0` against `min 1, max 1`. The divisor is guarded
+    /// with `.max(1)` via the shared `average` helper, so a subtree with
+    /// no function space reports `0.0`.
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_sum() as f64, self.function_spaces)
+        crate::metrics::average(self.cyclomatic_function_sum, self.function_spaces)
     }
 
-    /// Returns the maximum standard cyclomatic complexity.
+    /// Returns the maximum standard cyclomatic complexity of a single
+    /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_max(&self) -> u64 {
         self.cyclomatic_max as u64
     }
 
-    /// Returns the minimum standard cyclomatic complexity.
+    /// Returns the minimum standard cyclomatic complexity of a single
+    /// function space in the subtree.
     ///
     /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
-    /// into `cyclomatic_min` to `0`, so a never-observed space
+    /// into `cyclomatic_min` to `0`, so a subtree with no function space
     /// serializes to a meaningful number rather than `1.7976931e308`.
     #[allow(clippy::float_cmp)]
     #[must_use]
@@ -176,22 +197,24 @@ impl Stats {
         self.cyclomatic_modified_sum as u64
     }
 
-    /// Returns the average modified cyclomatic complexity.
+    /// Returns the average modified cyclomatic complexity per function.
     ///
-    /// Uses the same per-function divisor (`function_spaces`, guarded by
-    /// the shared `average` helper) as [`Stats::cyclomatic_average`].
+    /// Reads the same function-space population as
+    /// [`Stats::cyclomatic_average`].
     #[must_use]
     pub fn cyclomatic_modified_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_modified_sum() as f64, self.function_spaces)
+        crate::metrics::average(self.cyclomatic_modified_function_sum, self.function_spaces)
     }
 
-    /// Returns the maximum modified cyclomatic complexity.
+    /// Returns the maximum modified cyclomatic complexity of a single
+    /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_modified_max(&self) -> u64 {
         self.cyclomatic_modified_max as u64
     }
 
-    /// Returns the minimum modified cyclomatic complexity.
+    /// Returns the minimum modified cyclomatic complexity of a single
+    /// function space in the subtree.
     ///
     /// Same `f64::MAX` sentinel collapse as `cyclomatic_min`.
     #[allow(clippy::float_cmp)]
@@ -204,33 +227,34 @@ impl Stats {
         }
     }
 
-    /// Marks this space as a function/closure space, seeding the
-    /// per-function divisor (`function_spaces`) with `1`.
-    ///
-    /// Called once at space construction for every
-    /// [`SpaceKind::Function`][crate::SpaceKind] space; non-function
-    /// spaces leave the seed at its `0` default. [`Stats::merge`] then
-    /// sums the seeds so each space's `function_spaces` reflects the
-    /// function/closure count of its whole subtree — independently of
-    /// the `Nom` metric (#512).
-    #[inline]
-    pub(crate) fn note_function_space(&mut self) {
-        self.function_spaces = 1;
-    }
-
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.cyclomatic_sum += self.cyclomatic;
         self.cyclomatic_modified_sum += self.cyclomatic_modified;
     }
 
+    /// Folds this space's own value into the aggregates, once, when the
+    /// space is finalized — after its children have merged into it.
+    ///
+    /// The all-space sums take every space. The per-function numerator,
+    /// divisor and extrema take only a
+    /// [`SpaceKind::Function`][crate::SpaceKind] space, decided by the
+    /// one `is_function` the walk passes, so the three cannot describe
+    /// different populations (#1284).
     #[inline]
-    pub(crate) fn compute_minmax(&mut self) {
-        self.cyclomatic_max = self.cyclomatic_max.max(self.cyclomatic);
-        self.cyclomatic_min = self.cyclomatic_min.min(self.cyclomatic);
-        self.cyclomatic_modified_max = self.cyclomatic_modified_max.max(self.cyclomatic_modified);
-        self.cyclomatic_modified_min = self.cyclomatic_modified_min.min(self.cyclomatic_modified);
+    pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
+        if is_function {
+            self.function_spaces += 1;
+            self.cyclomatic_function_sum += self.cyclomatic;
+            self.cyclomatic_max = self.cyclomatic_max.max(self.cyclomatic);
+            self.cyclomatic_min = self.cyclomatic_min.min(self.cyclomatic);
+            self.cyclomatic_modified_function_sum += self.cyclomatic_modified;
+            self.cyclomatic_modified_max =
+                self.cyclomatic_modified_max.max(self.cyclomatic_modified);
+            self.cyclomatic_modified_min =
+                self.cyclomatic_modified_min.min(self.cyclomatic_modified);
+        }
     }
 }
 
@@ -778,21 +802,18 @@ mod tests {
         assert_eq!(stats.cyclomatic_modified_average(), 0.0);
     }
 
-    /// #512: the cyclomatic average divisor is now the per-function count
-    /// (`function_spaces`), reconciled with the `cognitive`/`exit`/`nargs`
-    /// convention, *not* the per-space count `n` it used before. For a
-    /// file with one class holding two methods the spaces are
-    /// `{unit, class, method, method}` (4) but only the two methods are
-    /// functions, so the divisor is 2.
+    /// #512 moved the cyclomatic divisor to the per-function count
+    /// (`function_spaces`); #1284 moved the numerator and the extrema
+    /// onto the same population. For a file with one class holding two
+    /// methods the spaces are `{unit, class, method, method}` (4) but
+    /// only the two methods are functions, so the aggregates read over
+    /// exactly those two.
     ///
     /// Here every function/closure opens its own space, so
-    /// `function_spaces == nom.total()` and
-    /// `cyclomatic_average == cyclomatic_sum / nom.total()` — the same
-    /// denominator `cognitive_average` divides by. (That equality can
-    /// break for closure forms that open no space, e.g. Python lambdas —
-    /// see `cyclomatic_python_lambda_divisor_excludes_spaceless_closure`.)
-    /// Before #512 the divisor was 4 (every space, base 1 each) and the
-    /// averages were two-thirds of these values (`6 / 4 == 1.5`).
+    /// `function_spaces == nom.total()`; the equality the test pins is
+    /// `average == (sum of the functions' own values) / nom.total()`,
+    /// not `cyclomatic_sum / nom.total()` as before #1284 — the unit's
+    /// and the class's base 1 are in `cyclomatic_sum` and in no divisor.
     #[cfg(feature = "csharp")]
     #[test]
     fn cyclomatic_average_is_per_function_512() {
@@ -805,17 +826,27 @@ mod tests {
             |metric| {
                 // Sum is over every space's base 1 plus its decisions:
                 // unit(1) + class(1) + f(1 + ternary 1) + g(1 + ternary 1)
-                // = 6.
+                // = 6, unchanged by #1284.
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
-                // Divisor is the two function spaces, not the four total
-                // spaces: 6 / 2 = 3.0 (was 6 / 4 = 1.5 before #512).
-                assert_eq!(metric.cyclomatic.cyclomatic_average(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_average(), 3.0);
-                // Reconciliation invariant: cyclomatic divides by the same
-                // function/closure count cognitive does.
+                // expected: average = (f 2 + g 2) / 2 functions = 2.0;
+                // min = max = 2 since both methods score 2. Was 3.0 on
+                // main (6 / 2, the numerator carrying the unit's and the
+                // class's base 1), with min 1 pinned by those same two
+                // containers — `average > max` on a two-method class.
+                assert_eq!(metric.cyclomatic.cyclomatic_average(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_average(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_min(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_min(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+                // Reconciliation invariant: the divisor is the same
+                // function count `nom` reports where every callable opens
+                // a space; the numerator is the two methods' own values,
+                // which `cyclomatic_sum` carries minus the two containers'
+                // base 1.
                 assert_eq!(
                     metric.cyclomatic.cyclomatic_average(),
-                    metric.cyclomatic.cyclomatic_sum() as f64 / metric.nom.total() as f64
+                    (metric.cyclomatic.cyclomatic_sum() - 2) as f64 / metric.nom.total() as f64
                 );
                 assert_eq!(metric.nom.total(), 2);
             },
@@ -830,9 +861,9 @@ mod tests {
     /// cyclomatic to `nom` to obtain the divisor would have leaked a
     /// `nom` block into a cyclomatic-only selection.
     ///
-    /// `nom.total()` is `0.0` here (Nom was never computed) yet the
-    /// average is still the correct per-function `6 / 2 == 3.0` — proof
-    /// the divisor does not read `nom`.
+    /// `nom.total()` is `0` here (Nom was never computed) yet the
+    /// average is still the correct per-function `(2 + 2) / 2 == 2.0`
+    /// — proof the divisor does not read `nom`.
     #[cfg(feature = "csharp")]
     #[test]
     fn cyclomatic_average_per_function_without_nom_512() {
@@ -848,25 +879,26 @@ mod tests {
 
         let c = &space.metrics.cyclomatic;
         assert_eq!(c.cyclomatic_sum(), 6);
-        assert_eq!(c.cyclomatic_average(), 3.0);
-        assert_eq!(c.cyclomatic_modified_average(), 3.0);
+        // expected: same fixture as `cyclomatic_average_is_per_function_512`
+        // — (2 + 2) / 2 = 2.0 (was 6 / 2 = 3.0 on main).
+        assert_eq!(c.cyclomatic_average(), 2.0);
+        assert_eq!(c.cyclomatic_modified_average(), 2.0);
         // Nom was not selected, so its count stays at the zero default —
         // the cyclomatic divisor must not depend on it.
         assert_eq!(space.metrics.nom.total(), 0);
     }
 
-    /// #512 edge case: a Python `lambda` is counted by `nom` (as a
-    /// closure) but opens **no** function space — it folds its decisions
-    /// into the enclosing space. So `function_spaces` counts only the
-    /// spaces that actually carry a cyclomatic value (here the single
-    /// `def`), and the cyclomatic divisor is `1`, not `nom.total()`'s `2`.
+    /// A Python `lambda` is counted by `nom` (as a closure) but opens
+    /// **no** function space — it folds its decisions into the enclosing
+    /// space. So `function_spaces` counts only the spaces that carry a
+    /// cyclomatic value of their own (here the single `def`), and the
+    /// cyclomatic divisor is `1`, not `nom.total()`'s `2` (#512).
     ///
-    /// This documents that the per-function reconciliation with
-    /// `cognitive` is exact only where every function/closure opens its
-    /// own space; for spaceless closures `function_spaces` is the divisor
-    /// that matches the spaces contributing to `cyclomatic_sum`. The
-    /// behaviour is intentional, not a bug — pinning it so a future change
-    /// to lambda space-handling is a deliberate, visible decision.
+    /// Since #1284 the numerator is the same population, so the
+    /// lambda's ternary — folded into the *unit*, since the lambda sits
+    /// at module level — is in `cyclomatic_sum` but in no per-function
+    /// aggregate. Pinned so a future change to lambda space-handling is
+    /// a deliberate, visible decision.
     #[cfg(feature = "python")]
     #[test]
     fn cyclomatic_python_lambda_divisor_excludes_spaceless_closure() {
@@ -878,10 +910,14 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 // nom counts the lambda as a closure, so total == 2 …
                 assert_eq!(metric.nom.total(), 2);
-                // … but only the `def` opens a function space, so the
-                // cyclomatic divisor is 1: 4 / 1 = 4.0, which deliberately
-                // differs from cyclomatic_sum / nom.total() (4 / 2 = 2.0).
-                assert_eq!(metric.cyclomatic.cyclomatic_average(), 4.0);
+                // expected: … but only the `def` is a function space, so
+                // average = f's own 2 / 1 = 2.0 = min = max. Was 4.0 on
+                // main (`cyclomatic_sum` 4 over the same divisor of 1),
+                // twice the only function's value, with min 1 from the
+                // unit's base.
+                assert_eq!(metric.cyclomatic.cyclomatic_average(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_min(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -916,14 +952,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1145,14 +1181,14 @@ mod tests {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 6,
                     "value": 1,
-                    "average": 6.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -1189,14 +1225,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1241,14 +1277,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -1275,14 +1311,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -1313,14 +1349,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -1352,14 +1388,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1525,14 +1561,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1565,14 +1601,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1607,14 +1643,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -1659,14 +1695,14 @@ mod tests {
                 {
                   "sum": 7,
                   "value": 3,
-                  "average": 7.0,
-                  "min": 3,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 7,
                     "value": 3,
-                    "average": 7.0,
-                    "min": 3,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -1715,14 +1751,14 @@ mod tests {
                 {
                   "sum": 7,
                   "value": 3,
-                  "average": 7.0,
-                  "min": 3,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 7,
                     "value": 3,
-                    "average": 7.0,
-                    "min": 3,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -1763,14 +1799,14 @@ mod tests {
                 {
                   "sum": 9,
                   "value": 1,
-                  "average": 4.5,
-                  "min": 1,
+                  "average": 2.5,
+                  "min": 2,
                   "max": 3,
                   "modified": {
                     "sum": 9,
                     "value": 1,
-                    "average": 4.5,
-                    "min": 1,
+                    "average": 2.5,
+                    "min": 2,
                     "max": 3
                   }
                 }
@@ -1826,14 +1862,14 @@ mod tests {
                 {
                   "sum": 11,
                   "value": 1,
-                  "average": 3.6666666666666665,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 10,
                     "value": 1,
-                    "average": 3.3333333333333335,
-                    "min": 1,
+                    "average": 2.6666666666666665,
+                    "min": 2,
                     "max": 3
                   }
                 }
@@ -1872,14 +1908,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -1918,14 +1954,14 @@ mod tests {
                 {
                   "sum": 9,
                   "value": 1,
-                  "average": 4.5,
-                  "min": 1,
+                  "average": 2.5,
+                  "min": 2,
                   "max": 3,
                   "modified": {
                     "sum": 9,
                     "value": 1,
-                    "average": 4.5,
-                    "min": 1,
+                    "average": 2.5,
+                    "min": 2,
                     "max": 3
                   }
                 }
@@ -1980,14 +2016,14 @@ mod tests {
                 {
                   "sum": 11,
                   "value": 1,
-                  "average": 3.6666666666666665,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 10,
                     "value": 1,
-                    "average": 3.3333333333333335,
-                    "min": 1,
+                    "average": 2.6666666666666665,
+                    "min": 2,
                     "max": 3
                   }
                 }
@@ -2018,13 +2054,13 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 2.5,
+                  "average": 1.5,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 2.5,
+                    "average": 1.5,
                     "min": 1,
                     "max": 2
                   }
@@ -2065,14 +2101,14 @@ mod tests {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2315,14 +2351,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2350,14 +2386,14 @@ mod tests {
                 {
                   "sum": 7,
                   "value": 1,
-                  "average": 7.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 7,
                     "value": 1,
-                    "average": 7.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -2387,14 +2423,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -2432,14 +2468,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2471,14 +2507,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2503,13 +2539,13 @@ mod tests {
                 {
                   "sum": 2,
                   "value": 1,
-                  "average": 2.0,
+                  "average": 1.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
                     "value": 1,
-                    "average": 2.0,
+                    "average": 1.0,
                     "min": 1,
                     "max": 1
                   }
@@ -2540,14 +2576,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2580,14 +2616,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -2614,14 +2650,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2651,14 +2687,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2688,14 +2724,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2731,14 +2767,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2767,14 +2803,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2804,14 +2840,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -2838,14 +2874,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -2873,13 +2909,13 @@ mod tests {
                 {
                   "sum": 2,
                   "value": 1,
-                  "average": 2.0,
+                  "average": 1.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
                     "value": 1,
-                    "average": 2.0,
+                    "average": 1.0,
                     "min": 1,
                     "max": 1
                   }
@@ -2937,13 +2973,13 @@ mod tests {
                 {
                   "sum": 11,
                   "value": 1,
-                  "average": 2.2,
+                  "average": 1.4,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 11,
                     "value": 1,
-                    "average": 2.2,
+                    "average": 1.4,
                     "min": 1,
                     "max": 2
                   }
@@ -2985,14 +3021,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3032,14 +3068,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3304,14 +3340,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3373,14 +3409,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3410,14 +3446,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3445,14 +3481,14 @@ mod tests {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 6,
                     "value": 1,
-                    "average": 6.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -3478,14 +3514,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3522,14 +3558,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -3554,14 +3590,14 @@ mod tests {
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3591,14 +3627,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3628,14 +3664,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -3672,14 +3708,14 @@ mod tests {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -3712,14 +3748,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3756,14 +3792,14 @@ mod tests {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -3794,14 +3830,14 @@ mod tests {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3849,14 +3885,14 @@ mod tests {
                 {
                   "sum": 9,
                   "value": 1,
-                  "average": 9.0,
-                  "min": 1,
+                  "average": 7.0,
+                  "min": 7,
                   "max": 7,
                   "modified": {
                     "sum": 8,
                     "value": 1,
-                    "average": 8.0,
-                    "min": 1,
+                    "average": 6.0,
+                    "min": 6,
                     "max": 6
                   }
                 }
@@ -3892,14 +3928,14 @@ mod tests {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -3977,14 +4013,14 @@ end",
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4016,14 +4052,14 @@ end",
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -4049,14 +4085,14 @@ end",
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -4114,14 +4150,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -4239,13 +4275,13 @@ f() {
                 {
                   "sum": 2,
                   "value": 1,
-                  "average": 2.0,
+                  "average": 1.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
                     "value": 1,
-                    "average": 2.0,
+                    "average": 1.0,
                     "min": 1,
                     "max": 1
                   }
@@ -4632,14 +4668,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4670,14 +4706,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -4706,14 +4742,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4742,14 +4778,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4781,14 +4817,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4819,14 +4855,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4857,14 +4893,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4895,14 +4931,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -4936,14 +4972,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -4975,14 +5011,14 @@ f() {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 6,
                     "value": 1,
-                    "average": 6.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -5014,14 +5050,14 @@ f() {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 6,
                     "value": 1,
-                    "average": 6.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -5053,14 +5089,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 4.0,
+                    "min": 4,
                     "max": 4
                   }
                 }
@@ -5201,14 +5237,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -5521,14 +5557,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -5790,14 +5826,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -6380,14 +6416,14 @@ end
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -6451,14 +6487,14 @@ end
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -6521,14 +6557,14 @@ end
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -6564,14 +6600,14 @@ end
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -6595,14 +6631,14 @@ end
             {
               "sum": 2,
               "value": 1,
-              "average": 2.0,
+              "average": 1.0,
               "min": 1,
               "max": 1,
               "modified": {
                 "sum": 3,
                 "value": 1,
-                "average": 3.0,
-                "min": 1,
+                "average": 2.0,
+                "min": 2,
                 "max": 2
               }
             }
@@ -6638,14 +6674,14 @@ end
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -6686,14 +6722,14 @@ end
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -6758,14 +6794,14 @@ end
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7117,14 +7153,14 @@ end
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -7159,14 +7195,14 @@ end
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 6,
                     "value": 1,
-                    "average": 6.0,
-                    "min": 1,
+                    "average": 5.0,
+                    "min": 5,
                     "max": 5
                   }
                 }
@@ -7210,14 +7246,14 @@ end
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7260,14 +7296,14 @@ end
                 {
                   "sum": 3,
                   "value": 1,
-                  "average": 3.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7298,11 +7334,13 @@ end
                 // modified sum: unit(1) + fn(1 + 1 MatchExpr)       = 3
                 let s = &metric.cyclomatic;
                 assert_eq!(s.cyclomatic_modified_sum(), 3);
-                assert_eq!(s.cyclomatic_modified_min(), 1);
+                // expected: the one function space scores modified 2, so
+                // min = max = average = 2 (#1284). On main min was 1 from
+                // the unit's base and average 3.0 (sum 3 over the single
+                // function), above the only function's value.
+                assert_eq!(s.cyclomatic_modified_min(), 2);
                 assert_eq!(s.cyclomatic_modified_max(), 2);
-                // #512: divisor is the single function space, not the two
-                // total spaces (unit + fn), so 3 / 1 = 3.0 (was 3 / 2 = 1.5).
-                assert_eq!(s.cyclomatic_modified_average(), 3.0);
+                assert_eq!(s.cyclomatic_modified_average(), 2.0);
                 assert!(s.cyclomatic_modified_sum() <= s.cyclomatic_sum());
             },
         );
@@ -7328,14 +7366,14 @@ end
                 {
                   "sum": 2,
                   "value": 1,
-                  "average": 2.0,
+                  "average": 1.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7368,14 +7406,14 @@ end
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7406,14 +7444,14 @@ end
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7444,14 +7482,14 @@ end
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7484,14 +7522,14 @@ end
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 4.0,
+                  "min": 4,
                   "max": 4,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -7615,14 +7653,14 @@ f() {
                 {
                   "sum": 2,
                   "value": 1,
-                  "average": 2.0,
+                  "average": 1.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 3,
                     "value": 1,
-                    "average": 3.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -7660,14 +7698,14 @@ f() {
                 {
                   "sum": 6,
                   "value": 1,
-                  "average": 6.0,
-                  "min": 1,
+                  "average": 5.0,
+                  "min": 5,
                   "max": 5,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -7702,14 +7740,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -8219,14 +8257,14 @@ f() {
                 {
                   "sum": 5,
                   "value": 1,
-                  "average": 5.0,
-                  "min": 1,
+                  "average": 3.0,
+                  "min": 3,
                   "max": 3,
                   "modified": {
                     "sum": 5,
                     "value": 1,
-                    "average": 5.0,
-                    "min": 1,
+                    "average": 3.0,
+                    "min": 3,
                     "max": 3
                   }
                 }
@@ -8259,14 +8297,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }
@@ -8298,14 +8336,14 @@ f() {
                 {
                   "sum": 4,
                   "value": 1,
-                  "average": 4.0,
-                  "min": 1,
+                  "average": 2.0,
+                  "min": 2,
                   "max": 2,
                   "modified": {
                     "sum": 4,
                     "value": 1,
-                    "average": 4.0,
-                    "min": 1,
+                    "average": 2.0,
+                    "min": 2,
                     "max": 2
                   }
                 }

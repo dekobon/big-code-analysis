@@ -98,28 +98,19 @@ fn note_member_scope<T: MetricSuite>(state: &mut State, selected: MetricSet) {
 
 #[inline]
 fn compute_averages(state: &mut State, selected: MetricSet) {
-    // The per-function averages for Cognitive, Exit, and NArgs divide
-    // by counts sourced from `Nom`. `Metric::dependencies` declares
-    // `Nom` as a dependency of all three, so `with_only` pulls it into
-    // any selection that includes them and these divisors reflect the
-    // real function/closure counts. As defense-in-depth, each `average`
-    // accessor additionally guards its divisor with `.max(1)`, so even
-    // a zero divisor degrades to `sum / 1` rather than `inf`/`NaN`
-    // (#428). Compute the divisors once and feed them into each gated
-    // finalize.
-    let nom_functions = state.space.metrics.nom.functions_sum() as usize;
-    let nom_closures = state.space.metrics.nom.closures_sum() as usize;
-    let nom_total = state.space.metrics.nom.total() as usize;
-    // Cognitive average
-    if selected.contains(Metric::Cognitive) {
-        state.space.metrics.cognitive.finalize(nom_total);
-    }
-    // Nexit average
-    if selected.contains(Metric::Nexits) {
-        state.space.metrics.nexits.finalize(nom_total);
-    }
-    // Nargs average
+    // NArgs' per-channel averages divide by the function and closure
+    // counts `Nom` reports. `Metric::dependencies` declares `Nom` as a
+    // dependency of NArgs, so `with_only` pulls it into any selection
+    // that includes NArgs and these divisors reflect the real counts.
+    // As defense-in-depth, each `average` accessor additionally guards
+    // its divisor with `.max(1)`, so even a zero divisor degrades to
+    // `sum / 1` rather than `inf`/`NaN` (#428). Cognitive and Nexits
+    // used to take `nom.total()` here too; since #1284 they count the
+    // function spaces they fold in `compute_minmax`, the one population
+    // their `min` / `max` also read.
     if selected.contains(Metric::Nargs) {
+        let nom_functions = state.space.metrics.nom.functions_sum() as usize;
+        let nom_closures = state.space.metrics.nom.closures_sum() as usize;
         state
             .space
             .metrics
@@ -130,14 +121,19 @@ fn compute_averages(state: &mut State, selected: MetricSet) {
 
 #[inline]
 fn compute_minmax(state: &mut State, selected: MetricSet) {
+    // The per-function metrics fold numerator, divisor and extrema from
+    // this one kind read, so the three aggregates describe the same
+    // population (#1284). The all-space sums each metric accumulates in
+    // the same call are unconditional, so a container still rolls up.
+    let is_function = state.space.kind == SpaceKind::Function;
     if selected.contains(Metric::Cyclomatic) {
-        state.space.metrics.cyclomatic.compute_minmax();
+        state.space.metrics.cyclomatic.compute_minmax(is_function);
     }
     if selected.contains(Metric::Nexits) {
-        state.space.metrics.nexits.compute_minmax();
+        state.space.metrics.nexits.compute_minmax(is_function);
     }
     if selected.contains(Metric::Cognitive) {
-        state.space.metrics.cognitive.compute_minmax();
+        state.space.metrics.cognitive.compute_minmax(is_function);
     }
     if selected.contains(Metric::Nargs) {
         state.space.metrics.nargs.compute_minmax();

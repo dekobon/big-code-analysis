@@ -307,20 +307,10 @@ impl FuncSpace {
             })
             .flatten();
 
-        let mut metrics = CodeMetrics::with_selected(selected);
-        // Seed the cyclomatic per-function divisor: each function/closure
-        // space contributes 1 to `function_spaces`, which `Stats::merge`
-        // then sums across the subtree. Sourced here from the space kind
-        // rather than from the `Nom` metric so the cyclomatic averages
-        // stay correct even when `Nom` is not selected (#512).
-        if kind == SpaceKind::Function {
-            metrics.cyclomatic.note_function_space();
-        }
-
         Self {
             name,
             spaces: Vec::new(),
-            metrics,
+            metrics: CodeMetrics::with_selected(selected),
             kind,
             start_line: start_position,
             end_line: end_position,

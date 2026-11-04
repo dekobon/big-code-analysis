@@ -6,6 +6,6 @@ expression: metric.cognitive
   "sum": 6,
   "value": 0,
   "average": 6.0,
-  "min": 0,
+  "min": 6,
   "max": 6
 }

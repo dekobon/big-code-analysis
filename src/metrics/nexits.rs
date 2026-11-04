@@ -32,7 +32,12 @@ use crate::*;
 pub struct Stats {
     exit: usize,
     exit_sum: usize,
-    total_space_functions: usize,
+    /// Sum of the own values of the function spaces in this subtree,
+    /// and their count: numerator and divisor of
+    /// [`Stats::nexits_average`], folded by the same predicate as
+    /// `exit_min` / `exit_max` (#1284).
+    exit_function_sum: usize,
+    function_spaces: usize,
     exit_min: usize,
     exit_max: usize,
 }
@@ -42,7 +47,8 @@ impl Default for Stats {
         Self {
             exit: 0,
             exit_sum: 0,
-            total_space_functions: 1,
+            exit_function_sum: 0,
+            function_spaces: 0,
             exit_min: usize::MAX,
             exit_max: 0,
         }
@@ -68,6 +74,8 @@ impl Stats {
         self.exit_max = self.exit_max.max(other.exit_max);
         self.exit_min = self.exit_min.min(other.exit_min);
         self.exit_sum += other.exit_sum;
+        self.exit_function_sum += other.exit_function_sum;
+        self.function_spaces += other.function_spaces;
     }
 
     /// Returns the `NExit` metric value
@@ -75,15 +83,17 @@ impl Stats {
     pub fn nexits(&self) -> u64 {
         self.exit as u64
     }
-    /// Returns the `NExit` metric sum value
+    /// Returns the `NExit` sum over every space in the subtree, the
+    /// file unit and containers included.
     #[must_use]
     pub fn nexits_sum(&self) -> u64 {
         self.exit_sum as u64
     }
-    /// Returns the `NExit` metric minimum value.
+    /// Returns the minimum `NExit` of a single function space in the
+    /// subtree.
     ///
     /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
-    /// into `exit_min` to `0`, so a never-observed space
+    /// into `exit_min` to `0`, so a subtree with no function space
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[must_use]
     pub fn nexits_min(&self) -> u64 {
@@ -93,38 +103,44 @@ impl Stats {
             self.exit_min as u64
         }
     }
-    /// Returns the `NExit` metric maximum value
+    /// Returns the maximum `NExit` of a single function space in the
+    /// subtree; `0` where there is none.
     #[must_use]
     pub fn nexits_max(&self) -> u64 {
         self.exit_max as u64
     }
 
-    /// Returns the `NExit` metric average value
+    /// Returns the average `NExit` per function.
     ///
-    /// This value is computed dividing the `NExit` value
-    /// for the total number of functions/closures in a space.
-    ///
-    /// The per-function divisor (shared with `cyclomatic`/`cognitive`/
-    /// `nargs`, #512) is guarded with `.max(1)` via the shared `average`
-    /// helper, so a space with no counted functions (or one where `Nom`
-    /// was not selected) degrades to `sum / 1` instead of producing
-    /// `inf`/`NaN` (#428).
+    /// Numerator and divisor both read the
+    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
+    /// the population [`Stats::nexits_min`] and [`Stats::nexits_max`]
+    /// fold over, so `min <= average <= max` holds on every space
+    /// (#1284). A closure that opens no space (a Python `lambda`) is not
+    /// a divisor unit; before #1284 the divisor was `nom.total()`, which
+    /// counts one. The divisor is guarded with `.max(1)` via the shared
+    /// `average` helper, so a subtree with no function space reports
+    /// `0.0` (#428).
     #[must_use]
     pub fn nexits_average(&self) -> f64 {
-        crate::metrics::average(self.nexits_sum() as f64, self.total_space_functions)
+        crate::metrics::average(self.exit_function_sum as f64, self.function_spaces)
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.exit_sum += self.exit;
     }
+    /// Folds this space's own value into the aggregates once it is
+    /// finalized; see `cyclomatic::Stats::compute_minmax` for why the
+    /// per-function aggregates share one `is_function` (#1284).
     #[inline]
-    pub(crate) fn compute_minmax(&mut self) {
-        self.exit_max = self.exit_max.max(self.exit);
-        self.exit_min = self.exit_min.min(self.exit);
+    pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
-    }
-    pub(crate) fn finalize(&mut self, total_space_functions: usize) {
-        self.total_space_functions = total_space_functions;
+        if is_function {
+            self.function_spaces += 1;
+            self.exit_function_sum += self.exit;
+            self.exit_max = self.exit_max.max(self.exit);
+            self.exit_min = self.exit_min.min(self.exit);
+        }
     }
 }
 
@@ -280,9 +296,9 @@ mod tests {
 
     use super::*;
 
-    // Nexits pulls Nom for its per-function average divisor, which is
-    // also what this module's one `metric.nom.functions_sum()`
-    // assertion reads.
+    // Nexits' dependency closure still adds Nom (#1284 kept the
+    // declaration for output-shape stability), which is what this
+    // module's one `metric.nom.functions_sum()` assertion reads.
     check_metrics_only_shim!(check_metrics, Nexits);
     check_func_space_only_shim!(check_func_space, Nexits);
 
@@ -338,15 +354,19 @@ mod tests {
     #[test]
     fn rust_question_mark() {
         check_metrics::<RustParser>("let _ = a? + b? + c?;", "foo.rs", |metric| {
-            // 0 functions
+            // expected: the three `?` are the unit's own exits, so sum 3;
+            // with no function space in the population the per-function
+            // aggregates are 0 (#1284 — they read 3 before, from the
+            // unit).
+            assert_eq!(metric.nexits.nexits_sum(), 3);
             insta::assert_json_snapshot!(
                 metric.nexits,
                 @r#"
             {
               "sum": 3,
-              "average": 3.0,
-              "min": 3,
-              "max": 3
+              "average": 0.0,
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -371,7 +391,7 @@ mod tests {
             {
               "sum": 1,
               "average": 1.0,
-              "min": 0,
+              "min": 1,
               "max": 1
             }
             "#
@@ -418,7 +438,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -444,7 +464,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -519,7 +539,7 @@ mod tests {
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -589,7 +609,7 @@ mod tests {
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -623,7 +643,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -699,7 +719,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -727,7 +747,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -752,7 +772,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -780,7 +800,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -807,8 +827,8 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
-                  "average": 0.5,
-                  "min": 0,
+                  "average": 1.0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -854,7 +874,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -906,7 +926,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -938,7 +958,7 @@ mod tests {
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -965,7 +985,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -991,7 +1011,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1018,7 +1038,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1047,7 +1067,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1105,7 +1125,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1149,7 +1169,7 @@ mod tests {
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1178,7 +1198,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1210,7 +1230,7 @@ mod tests {
                 {
                   "sum": 4,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1274,7 +1294,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1456,7 +1476,7 @@ mod tests {
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -1501,7 +1521,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1546,7 +1566,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1573,7 +1593,7 @@ mod tests {
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1624,7 +1644,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1650,7 +1670,7 @@ end",
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1676,7 +1696,7 @@ end",
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1704,7 +1724,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -1776,7 +1796,7 @@ end",
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1800,7 +1820,7 @@ end",
                 {
                   "sum": 1,
                   "average": 1.0,
-                  "min": 0,
+                  "min": 1,
                   "max": 1
                 }
                 "#
@@ -1827,7 +1847,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2191,7 +2211,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2224,7 +2244,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2276,7 +2296,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2447,7 +2467,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2474,7 +2494,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2501,7 +2521,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2527,7 +2547,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2553,7 +2573,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2582,7 +2602,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2745,7 +2765,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#
@@ -2799,7 +2819,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2828,7 +2848,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2856,7 +2876,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2883,7 +2903,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2910,7 +2930,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2940,7 +2960,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2971,7 +2991,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -2998,7 +3018,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3025,7 +3045,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3052,7 +3072,7 @@ end",
                 {
                   "sum": 3,
                   "average": 3.0,
-                  "min": 0,
+                  "min": 3,
                   "max": 3
                 }
                 "#
@@ -3245,7 +3265,7 @@ end",
                 {
                   "sum": 2,
                   "average": 2.0,
-                  "min": 0,
+                  "min": 2,
                   "max": 2
                 }
                 "#);

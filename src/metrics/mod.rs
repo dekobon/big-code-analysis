@@ -115,6 +115,9 @@ mod elixir_spelling_parity_tests;
 #[path = "derived_parity_tests.rs"]
 mod derived_parity_tests;
 #[cfg(test)]
+#[path = "function_population_tests.rs"]
+mod function_population_tests;
+#[cfg(test)]
 #[path = "perl_keyword_key_tests.rs"]
 mod perl_keyword_key_tests;
 
@@ -129,13 +132,14 @@ mod perl_keyword_key_tests;
 /// The *meaning* of `count` is the caller's choice of denominator
 /// convention; the project uses two:
 ///
-/// - **Per-function** averages (`cognitive`, `cyclomatic`, `exit`,
-///   `nargs`) divide by the function/closure count of the subtree, so the
-///   value reads as "average complexity per function". `cognitive`/
-///   `exit`/`nargs` source this count from `Nom`; `cyclomatic` counts its
-///   own function/closure *spaces* (equal in the common case, but
-///   independent of whether `Nom` is selected — see
-///   `cyclomatic::Stats::function_spaces`).
+/// - **Per-function** averages (`cognitive`, `cyclomatic`, `nexits`,
+///   `nargs`) divide by a function count, so the value reads as "average
+///   complexity per function". `cognitive`, `cyclomatic` and `nexits`
+///   count the [`SpaceKind::Function`] spaces of the subtree — the same
+///   population their numerator and their `min` / `max` fold, so the
+///   three agree (#1284) — independently of whether `Nom` is selected.
+///   `nargs` keeps two channels, functions and closures, and sources
+///   both counts from `Nom`.
 /// - **Per-space** averages (`nom`, `loc`, `abc`, `tokens`) divide by the
 ///   total number of spaces (functions, closures, classes, the file unit,
 ///   …). These measure a property of each space rather than of each

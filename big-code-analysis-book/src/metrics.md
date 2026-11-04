@@ -357,8 +357,10 @@ sequence. Precedence still decides what nests where, so Ruby's
 `//` are operations of their own; `xor`, like `^`, is no sequence.
 
 big-code-analysis exports the per-space structural score as `value`
-along with the subtree `sum`, `min`, `max`, and a per-function
-`average`. The implementation is in `src/metrics/cognitive.rs`.
+along with the subtree `sum` and a per-function `average`, `min` and
+`max`; the [aggregate population](#aggregate-population) section
+below says exactly which spaces those three read. The implementation
+is in `src/metrics/cognitive.rs`.
 
 ### How to read it
 
@@ -529,6 +531,42 @@ asks each tree-sitter node "are you a decision?" and increments the
 counter. The metric is rolled up per function and per file; per-class
 aggregation across method bodies is provided separately by
 [WMC](#wmc) below.
+
+### Aggregate population {#aggregate-population}
+
+Every space carries its own `value`, a subtree `sum`, and a
+per-function `average`, `min` and `max`. The three per-function
+fields read **one population**: the spaces of kind `function` in the
+subtree, named functions, methods, and every closure form that opens
+a space of its own (a Rust `|x| …`, a JavaScript arrow function, a
+Java anonymous-class method, a Kotlin property accessor or `init`
+block, a `static {}` initializer). `average` is the mean of their
+`value`s, `min` and `max` their extremes, so `min <= average <= max`
+holds on every space. A subtree with no function space reports
+`average 0.0`, `min 0`, `max 0`.
+
+Two things are deliberately *not* in that population:
+
+- **Containers and the file unit.** Each still contributes its own
+  `value` — base 1 for cyclomatic, its module-level decisions for all
+  three — to `sum`, which is what [MI](#maintainability-index-mi) and
+  [WMC](#wmc) read, but not to the per-function fields. Until 2.4 the
+  numerator and the extrema folded every space while the divisor
+  counted functions only, so a file holding one branch-free function
+  reported cyclomatic `average 2.0` against `min 1, max 1`, and the
+  unit's own `0` pinned file-level cognitive `min` at `0` whatever the
+  functions scored.
+- **Closures that open no space.** A Python `lambda` is counted by
+  [NOM](#nom) but has no space of its own: its decisions are part of
+  the enclosing function's `value`, so that function is the one
+  population member they belong to. Until 2.4 cognitive and NExits
+  divided by `nom`'s total instead, and a function holding one lambda
+  could report `average 7.0` against `min 14, max 14`.
+
+The same three fields on `cognitive` and `nexits` follow this rule;
+`sum` on all three keeps its all-spaces meaning. The other metrics'
+`*_average` / `*_min` / `*_max` fields are per-space averages over
+every space in the subtree, as their sections say.
 
 ### Modified cyclomatic
 
@@ -1675,8 +1713,10 @@ as a clarity-improving pattern when they reduce nesting.
 big-code-analysis walks each function's syntax tree, identifies the
 language-specific exit nodes (see the per-language `Exit` trait in
 `src/metrics/nexits.rs`), and reports per-function counts plus
-file-level `sum`, `average`, `min`, and `max`. The serialised
-field name is `nexits`, matching the prose acronym used here.
+file-level `sum`, `average`, `min`, and `max`; the last three read the
+function-space [population](#aggregate-population) cyclomatic's do.
+The serialised field name is `nexits`, matching the prose acronym
+used here.
 
 ### How to read it
 
