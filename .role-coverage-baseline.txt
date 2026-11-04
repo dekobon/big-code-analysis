@@ -1884,7 +1884,6 @@
 210 named visible 'annotation'
 212 named visible 'expression_statement'
 213 anon hidden '_expression'
-215 named visible 'switch_block'
 217 named visible 'switch_arrow_case'
 219 named visible 'cast_expression'
 220 anon hidden '_cast_type'

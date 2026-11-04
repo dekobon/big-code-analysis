@@ -18,6 +18,14 @@ impl Checker for ElixirCode {
     // `promotes_to_func_space_with_code` below, which reads the one
     // keyword lookup both rows share rather than each row in turn.
     fn is_func_space(node: &Node) -> bool {
+        // role-bypass: allow(FuncOpener, Container) — the ungated subset of the
+        // two rows' owners, which is all a byte-less spelling can answer: the
+        // rows' third owner is the text-gated `Call`. Not a forward to
+        // `opens_space` with no bytes: `promotes_to_func_space_with_code`
+        // calls this per node before its one keyword read, and the forward
+        // would scan the target twice more per `call` for a known `None`
+        // (`promotion_reads_each_calls_keyword_once`). The derived forward
+        // parity test pins this list against the rows on every corpus node.
         matches!(
             node.kind_id().into(),
             Elixir::Source | Elixir::AnonymousFunction

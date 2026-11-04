@@ -219,6 +219,26 @@ for historical reference.
 
 ### Changed
 
+- **The role-bypass baseline is empty** (#1701, part of #1690). The
+  four pre-migration sites it still held were Elixir's byte-less
+  `is_func_space` and `get_space_kind`, which list `source` and
+  `anonymous_function` — the ungated subset of the `FuncOpener` and
+  `Container` rows' owners, the one a spelling with no bytes can answer,
+  since the rows' third owner is the text-gated `call`. They are now
+  `// role-bypass: allow` exemptions under the lint's documented
+  subset clause rather than forwards to `opens_space`: the walk's
+  promotion calls the byte-less checker spelling before its single
+  keyword read, and the forward would scan each `call`'s target twice
+  more for a known `None`. The derived forward-parity test pins both
+  lists against the rows on every corpus node. Groovy's `switch_block`
+  is recorded under `excludes` on its `Switch` row instead of as
+  coverage debt — the owner's child, where cognitive opens its
+  nesting level — and the Java row comment no longer says no row
+  claims its twin, which `HoldsDocInBody` has since #1699. The
+  convention both name: a consumer's structural projection of an
+  owner's child lives as a named `fn` beside the table, with a row
+  test pinning the parent/child relation. Zero drift: no emitted
+  predicate changed.
 - **The history walk no longer rebuilds gix's blob-diff platform for
   every commit it visits** (#1761). `for_each_to_obtain_tree` builds a
   platform per call for its rename tracker, whether or not rename

@@ -40,12 +40,17 @@ impl Getter for ElixirCode {
     // function and the file root. `defmodule` / `def` / `defp` /
     // `defmacro` / `defmacrop` are `call`s told apart by their target
     // text, so only the `_with_code` spelling — the `opens` annotations
-    // of `roles/elixir.rs` (#275, #310, #1696) — labels those.
+    // of `roles/elixir.rs` (#275, #310, #1696) — labels those. Each arm
+    // is the ungated subset of its row's owners, the one a byte-less
+    // spelling can answer; the derived forward parity test pins both
+    // against the rows on every corpus node.
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Elixir as E;
 
         match node.kind_id().into() {
+            // role-bypass: allow(FuncOpener, Closure) — the `FuncOpener` owner with no gate
             E::AnonymousFunction => SpaceKind::Function,
+            // role-bypass: allow(Container) — the `Container` owner with no gate
             E::Source => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }

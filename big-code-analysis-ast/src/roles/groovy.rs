@@ -154,6 +154,16 @@ else_if_prev_sibling_gate!(Groovy, Else);
 
 /// The container a `switch` nests its arms in, the `Switch` owner's
 /// child: where cognitive opens its level (see Java's twin, #1697).
+/// A consumer's structural projection of an owner's child, not a row:
+/// the `Switch` row records the kind under `excludes`, and
+/// `is_else_if_is_the_row_and_the_switch_body_is_the_owners_child`
+/// pins the parent/child relation (#1701). Java's twin is instead
+/// claimed by its `HoldsDocInBody` row, because javadoc reads a doc
+/// comment inside a `switch_block` in a field initializer; whether
+/// Groovydoc does the same was not measured in #1699, so this
+/// language's `HoldsDocInBody` row does not list the kind and the
+/// exclusion here is a coverage-accounting fact, not a Groovydoc
+/// one. Deciding it is the row-membership question #1797 holds.
 #[inline]
 #[must_use]
 pub fn is_switch_body_kind(kind: u16) -> bool {
@@ -287,8 +297,15 @@ role_table! {
     // which keeps the modified count aligned with the `case` arms (#300).
     // The `switch_block` — the arms' container, where cognitive opens its
     // level so a ternary or closure in the *subject* does not inherit
-    // one — is the owner's child and no row's (`is_switch_body_kind`).
-    Switch { owns [SwitchExpression] pays [Switch] }
+    // one — is the owner's child, not a construct of its own: no row
+    // claims it, and it is excluded here rather than left as coverage
+    // debt. The consumer's projection onto it is the named
+    // `is_switch_body_kind` beside this table (#1701).
+    Switch {
+        owns [SwitchExpression]
+        pays [Switch]
+        excludes [SwitchBlock "the owner's child; cognitive's projection is the named `is_switch_body_kind` beside the table"]
+    }
     // Every loop statement, its keyword paying: `for` once in the classic
     // and the `for (x in xs)` form, `while` once in a `while` and once in
     // a `do … while` (#284).

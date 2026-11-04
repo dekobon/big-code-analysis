@@ -17,7 +17,3 @@
 # One entry per line, tab-separated and sorted:
 #   <file> <item> <language> <kind> <shape>#<n>
 # where <n> numbers the sites of one kind and shape within the item.
-big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	AnonymousFunction	matches#1
-big-code-analysis-ast/src/checker/elixir.rs	fn is_func_space	Elixir	Source	matches#1
-big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	AnonymousFunction	arm#1
-big-code-analysis-ast/src/getter/elixir.rs	fn get_space_kind	Elixir	Source	arm#1

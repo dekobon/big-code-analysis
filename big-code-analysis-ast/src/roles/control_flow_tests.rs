@@ -411,10 +411,12 @@ mod java {
     }
 
     /// The body occurrence cognitive nests at is the `switch_block`,
-    /// the owner's child; no row claims it.
+    /// the owner's child: not the `Switch` row's, and claimed by
+    /// `HoldsDocInBody` for the doc comment its body holds (#1699,
+    /// #1701).
     #[test]
-    fn switch_body_is_the_owners_child_and_no_rows() {
-        use crate::roles::java::{is_switch_body_kind, switch};
+    fn switch_body_is_the_owners_child_and_not_the_switch_rows() {
+        use crate::roles::java::{holds_doc_in_body, is_switch_body_kind, switch};
         let source = b"class A { int f(int a) { switch (a) { default: return 0; } } }\n";
         let mut seen = Vec::new();
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
@@ -430,6 +432,7 @@ mod java {
         });
         assert_eq!(seen, [("switch_expression".to_owned(), true)]);
         assert!(!switch::lists_kind(Java::SwitchBlock as u16));
+        assert!(holds_doc_in_body::lists_kind(Java::SwitchBlock as u16));
         // The owner projects to its `switch` keyword, the row's payer.
         let mut projected = Vec::new();
         for_each_node_with_chain::<JavaCode>(source, |node, _| {
@@ -811,7 +814,14 @@ mod groovy {
                 false
             )
         );
+        // The body is no row's: the `Switch` row records it under
+        // `excludes` rather than leaving it as coverage debt (#1701).
         assert!(!switch::lists_kind(Groovy::SwitchBlock as u16));
+        assert!(
+            switch::EXCLUDED
+                .iter()
+                .any(|(kind, _)| *kind == Groovy::SwitchBlock as u16)
+        );
     }
 }
 

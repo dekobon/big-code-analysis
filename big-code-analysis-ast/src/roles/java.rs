@@ -75,11 +75,16 @@ else_if_prev_sibling_gate!(Java, Else);
 
 /// The container a `switch` nests its arms in: the `switch_block`, the
 /// `Switch` owner's child — a structural fact about the construct the
-/// row recognises, pinned by `switch_body_is_the_owners_child_and_no_rows`,
-/// not a row of its own. Which consumer opens a level here (cognitive,
-/// so a ternary or lambda in the switch's *subject* does not inherit
-/// one, #1697) is that consumer's policy; a DSL `body` attribute on the
-/// `Switch` row would be the declared form if a third grammar needs it.
+/// row recognises, pinned by
+/// `switch_body_is_the_owners_child_and_not_the_switch_rows`, not an
+/// owner of that row. The kind is claimed by `HoldsDocInBody` (a
+/// `switch_block` holds a doc comment, #1699), which is a different
+/// question. Which consumer opens a level here (cognitive, so a ternary
+/// or lambda in the switch's *subject* does not inherit one, #1697) is
+/// that consumer's policy, and a consumer's structural projection of an
+/// owner's child lives as a named `fn` beside the table, as here
+/// (#1701); a DSL `body` attribute on the `Switch` row would be the
+/// declared form if a third grammar needs it.
 #[inline]
 #[must_use]
 pub fn is_switch_body_kind(kind: u16) -> bool {
@@ -247,9 +252,10 @@ role_table! {
     // aligned with the `case` arms (#300). The `switch_block` — the
     // arms' container, where cognitive opens its nesting level so a
     // ternary or lambda in the *subject* does not inherit one (#1697:
-    // moving the level to this owner drifted) — is the
-    // owner's child and no row's: cognitive names it as the body of
-    // the construct this row recognises.
+    // moving the level to this owner drifted) — is the owner's child,
+    // not this row's: `HoldsDocInBody` claims the kind, for the doc
+    // comment its body can hold, and cognitive names it as the body of
+    // the construct this row recognises (`is_switch_body_kind`, #1701).
     Switch { owns [SwitchExpression] pays [Switch] }
     // Every loop statement, with its keyword paying: `for` fires once
     // in a classic and an enhanced `for` alike, `while` once in a
