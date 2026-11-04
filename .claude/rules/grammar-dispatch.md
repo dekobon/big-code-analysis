@@ -1,17 +1,33 @@
 # Grammar Dispatch Rule
 
-Every per-language metric impl, `Checker` predicate, and `Getter`
-classifier is a `match` over `node.kind_id()`. **The arm list is a
-coverage claim, not a specification** — the compiler cannot tell you it
-is incomplete, and a metric that scores a valid construct as zero looks
-exactly like a construct that legitimately scores zero.
+Every per-language `Checker` predicate, `Getter` classifier and metric
+arm asks a question of a node's kind. Since the role-table series
+(#1690, R01–R10, closed by #1701) the *membership* half of that
+question — which kinds own a construct, which tokens pay for it — is
+declared once per
+language in `big-code-analysis-ast/src/roles/<lang>.rs` and read
+through the predicates `role_table!` emits; the module doc of
+`roles/mod.rs` is the contributor reference for the row grammar, what
+a table emits, how a consumer reads a row, and **what the mechanism
+cannot see**. Read that last section before this file. Where a gate
+now catches part of an item, the item says which (§1, §5, §7); the
+rest is manual and stays for that reason.
 
-Nothing in the standard gates catches any failure below. There is no
-compile error, no clippy warning, and no test failure unless a fixture
+**A kind list is a coverage claim, not a specification** — whether it
+sits on a row or in a surviving `match`. The compiler cannot tell you
+it is incomplete, and a metric that scores a valid construct as zero
+looks exactly like a construct that legitimately scores zero. Three
+gates (`make role-census`, `role-coverage`, `role-bypass`) and the
+derived parity suite see a *new, unaccounted-for* kind, a restated
+list inside the consumer boundary, and two consumers of one row
+disagreeing on a corpus node. None of them judges whether a row's
+membership is right, which role should claim a kind, or whether a
+consumer reads the right projection. There is no compile error, no
+clippy warning, and no test failure for those unless a fixture
 exercises the exact shape *and* asserts a value above the base.
 
 The checklist applies whenever you add a language, bump a grammar pin,
-add an arm to a dispatch table, or copy an arm from a sibling module.
+add a kind to a row, or copy a row or a gate from a sibling module.
 
 ## 1. Match every aliased variant
 
@@ -34,12 +50,27 @@ The bug class reaches every match on a grammar rule — `alterator.rs`,
 `checker.rs`. A kind list a role owns belongs on its row in
 `big-code-analysis-ast/src/roles/<lang>.rs`, and a list several
 languages share is a `..name!()` fragment there (`roles/c_family.rs`,
-`roles/js_family.rs`); the alias unions no row owns yet live in
-`big-code-analysis-ast/src/macros/kind_sets.rs`. Prefer extending either
-over open-coding a list. When a rule has many
-aliases, prefer one `node.kind()` string comparison over enumerating
+`roles/js_family.rs`, `roles/tcl_family.rs`); what is left in
+`big-code-analysis-ast/src/macros/kind_sets.rs` is five alias unions
+no row owns — C#'s parenthesised, prefix-unary and variable-declaration
+shapes and Go's boolean terminals, read by the ABC and NPA walkers
+only. Prefer extending either over open-coding a list. When a rule has
+many aliases, prefer one `node.kind()` string comparison over enumerating
 seventeen variants — pay the small runtime cost for forward
 compatibility.
+
+**What `make role-coverage` buys here, precisely.** It fails on a kind
+id that is claimed by *no* row, excluded by none, and not in
+`.role-coverage-baseline.txt` — so a grammar bump that mints a
+`PrimitiveType4` is caught the moment the enum is regenerated. It does
+**not** catch an alias omitted from the *intended* row: that id is
+either still in the baseline as debt, or claimed by some other role,
+and the gate passes either way (`utils/check-role-coverage.py`, "What
+the ratchet cannot see: … an incomplete row"). So the inventory above
+— every numeric-suffix variant listed on the row or excluded with a
+reason — stays a manual check, for row declarations exactly as for
+the consumers outside the boundary. Do not read "the gate is green" as
+"every alias is on its row".
 
 **After bumping a grammar pin, regenerate the enum first.** Bump both
 manifests in lockstep (root `Cargo.toml` and `enums/Cargo.toml` — the
@@ -123,6 +154,12 @@ as an owner that pays for itself. And Elixir's `absent` is a declared
 answer with its reason on the row, not a stub: the language has no
 `else if` chain to recognise.
 
+**Not every structural fact is a row.** A consumer's projection of an
+owner's *child* (the `switch_block` a `Switch` owner nests its arms in)
+lives as a named `fn` beside the table with a row test pinning the
+relation; the module doc's "Reading a row from a consumer" states the
+convention and its two kind-accounting forms (#1701).
+
 Dump the AST for the construct in the *target* grammar before reusing a
 sibling's predicate, and add a fixture that exercises the gated branch —
 a suite of only unlabelled inputs proves nothing about a label gate.
@@ -145,6 +182,17 @@ The trap generalises past Halstead: any predicate listing both a
 container and a kind it can contain double-counts. Ruby's
 `is_closure` matching `Lambda | Block | DoBlock` scored one stabby
 lambda as two closures for the same reason.
+
+On a row the two halves are declared apart and the macro keeps them
+apart: a kind in both `owns` and `pays` of one row fails a `const`
+assertion at expansion time, so declared owners and declared payers
+are disjoint by construction. A consumer that wants the wrapper *and*
+the leaf reads two projections — `pays_at_wrapper` and `pays_at_leaf` — so a
+deliberate double count is a visible choice at the consumer, never an
+accident on the row. The compound-operator case above is still the
+consumer's: the row owns `not in` and pays its token, and returning
+`Unknown` for the inner `not` *under* the compound is a parent guard
+in the classifier, which a row cannot spell.
 
 ## 6. Narrow a dispatch set with a gate, never by deletion
 
@@ -256,14 +304,26 @@ complete as the fixtures it was read from.
 
 ## 7. Walk the sibling predicates for parity
 
+This is the manual check for a consumer reading the wrong projection,
+and for an incomplete row seen from the consumer's side; a wrong-role
+claim is caught by the dump-and-spelling-test check in the module doc's
+"What the mechanism cannot see", and this cross-walk stays after the
+series for the other two. The derived parity suite
+(`roles/derived_parity_tests.rs`, `src/metrics/derived_parity_tests.rs`,
+`make role-parity-corpus`) now
+asks every consumer of every claimed kind on a corpus node, which
+catches two consumers *disagreeing*; it cannot catch two consumers
+agreeing on a wrong row, because its expected verdict comes from the
+same declaration.
+
 `Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,
 `Checker::is_func_space`, and the per-metric body walkers all classify
-the same nodes through parallel `matches!()`. Two that disagree drift
-silently: `find string` counts a node that Halstead calls `Unknown`.
-Each predicate reads as internally consistent, so the disagreement is
-invisible from either one alone.
+the same nodes, most through one row now and some through a surviving
+`matches!()`. Two that disagree drift silently: `find string` counts a
+node that Halstead calls `Unknown`. Each predicate reads as internally
+consistent, so the disagreement is invisible from either one alone.
 
-Minimum cross-walk when you edit one:
+Minimum cross-walk when you edit one — or edit the row they read:
 
 - `is_string` ↔ `get_op_type` operand classification of string kinds
 - `is_call` ↔ `get_op_type` operator classification of call kinds
@@ -317,6 +377,19 @@ open a space only outside a stabby lambda's own body, and
 spelling over-approximates there exactly as the pre-row kind list did.
 A byte-less call site is therefore wrong on Elixir *and* Ruby today, and
 on whichever language next gates an opener.
+
+Elixir's byte-less pair is also the worked example of a kind list the
+bypass gate *exempts* on purpose: `is_func_space` and `get_space_kind`
+spell `Source | AnonymousFunction` under `// role-bypass: allow(…)` —
+the ungated subset of the `FuncOpener` / `Container` owners, which is
+all a spelling with no bytes can answer, and not a forward to
+`opens_space`, because the walk's promotion calls the byte-less checker
+spelling per node *before* its single keyword read and the forward
+would scan each `call`'s target twice more for a known `None`. The
+exemption hides a kind later added inside that `matches!`; the derived
+suite's `KNOWN_DISAGREEMENTS` names exactly `call` for both, so any
+other kind added there fails as an unnamed disagreement, and `call`
+itself fails `promotion_reads_each_calls_keyword_once` (#1701).
 
 This has already landed once. `ops_inner` opened spaces on the byte-less
 `is_func || is_func_space`, so `bca ops` returned a bare file-level space

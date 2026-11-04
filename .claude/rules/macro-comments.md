@@ -55,3 +55,29 @@ Lesson #34 documents the related case of hidden-rule variants;
 this rule is the call-site discipline that makes those defensive
 arms self-explanatory at the call site even after another round
 of macro consolidation.
+
+## Row comments in a `role_table!`
+
+A `role_table!` invocation (`big-code-analysis-ast/src/roles/<lang>.rs`)
+is the largest macro call site in the tree, and the same rule applies
+one row at a time. The module doc of `roles/mod.rs` ("Reading a row
+from a consumer") states what a row's comment may and may not say —
+the grammar, not the consumer's policy; cite it rather than restating
+it. Where each kind of rationale goes:
+
+| what it explains | where it lives |
+| --- | --- |
+| the grammar fact a row encodes — what the construct's nodes are, how they nest, why an alias is listed or left off | a `//` comment on the line above the row, inside the invocation |
+| why a gate exists and what it reads (`gated_by f`, `text_gated_by f`) | the `///` doc on the gate `fn` beside the table |
+| why a kind the author considered is not on the row | the `excludes [K "why"]` string itself — it is read by the coverage gate and printed with the residue |
+| which consumer reads which projection, and why it counts there | at the consumer, in `big-code-analysis` |
+| the shape of the macro — what `owns`, `pays`, `opens` mean | `roles/mod.rs` only, never a row comment |
+
+Groovy's `Switch` row after #1701 is the model: the `//` comment above
+it states the grammar fact, the `excludes` string the rejection, and
+the consumer's reading sits in `src/metrics/cognitive/groovy.rs`.
+
+The failure mode is the same as above: a row comment that explains a
+consumer's reading is wrong the day that consumer changes, and the
+reader deciding whether the row is right has no way to tell the stale
+policy sentence from the grammar fact beside it.

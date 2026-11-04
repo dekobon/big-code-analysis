@@ -49,6 +49,18 @@ and `cargo run -p big-code-analysis-web --`.
   mirror each other, as do the per-language `checker/`, `getter/` and
   `src/metrics/<metric>/` siblings. A bug in one language module
   typically exists in several — fix all affected siblings together.
+- `big-code-analysis-ast/src/roles/` — one `role_table!` per language
+  (`<lang>.rs`), declaring for every role which kinds own a construct
+  and which tokens pay for it, read by the `Checker`, the `Getter` and
+  the root crate's metric arms instead of restated kind lists (#1690).
+  `mod.rs` holds the macro and the **module doc that is the
+  contributor reference**: the role set, the row grammar, what a table
+  emits, how a consumer reads a row, the gates, and the one list of
+  what the mechanism cannot see — link to it, do not copy it.
+  `c_family.rs`, `js_family.rs` and `tcl_family.rs` are the shared
+  `..fragment!()` kind lists; `control_flow.rs` the shared `ElseIf`
+  gates; `*_tests.rs`, `doc_tests/` and `derived_parity_tests.rs` the
+  per-package, documentation and derived parity suites.
 - `big-code-analysis-ast/src/` — `langs.rs` (`LANG`, `AnyParser`),
   `node.rs`, `parser.rs`, `traits.rs` (`ParserTrait`), `checker.rs`,
   `getter.rs`, `alterator.rs`, `lang_helpers/`, `preproc.rs`,
@@ -799,16 +811,23 @@ over the three repository corpora, and `make role-corpus-refresh` runs
 it with the observation — the recipe for a moved corpus (#1700). `make role-bypass`: inside the consumer boundary
 (the per-language dispatch files, their dispatcher modules and
 macros), a kind a row claims must not be restated as classification;
-`.role-bypass-baseline.txt` holds the pre-migration sites, and a site
-that is not membership — naming, traversal — takes a `// role-bypass:
+`.role-bypass-baseline.txt` is empty since #1701, so a new finding
+fails outright, and a site that is not membership — naming, traversal,
+a consumer-chosen subset of a row's owners — takes a `// role-bypass:
 allow(<Role>) — <reason>` exemption on the line above, which must name
-the role that claims the kind. All three baselines are exact record
+a role that claims the kind and covers the whole statement or arm
+after it (so a kind of the *same* role later added inside that span
+is the derived suite's to catch, not the gate's; a kind only another
+role claims is still reported). All three baselines are exact record
 sets (the bypass one numbers repeated sites within an item):
 `--update` only removes, `--bootstrap` refuses a file that exists or is
 tracked at `HEAD`, so a swap cannot hide behind an unchanged count. Each
 gate prints what it cannot see with every run: none judges whether a
 row's membership is right, which role should claim a kind, or whether
-a consumer reads the right projection.
+a consumer reads the right projection. The full list, with the manual
+check that covers each item, is the "What the mechanism cannot see"
+section of `big-code-analysis-ast/src/roles/mod.rs`'s module doc —
+the one copy; the rules under `.claude/rules/` link to it.
 
 **`cargo fmt --check` is not the whole formatting gate.** A comment
 inside a match *pattern* makes rustfmt emit the enclosing match
