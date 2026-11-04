@@ -3455,6 +3455,378 @@ mod tests {
         );
     }
 
+    // --- Ruby attributes the body reaches through a wrapper (#1719) -------
+    //
+    // The attribute walk reads the statements the method walk does — the
+    // shared body walk in `npa/ruby_body.rs` — so an `attr_*` call or an
+    // `@x = …` / `@@x = …` assignment counts wherever it runs at class
+    // scope: under a conditional, a loop, a `begin`, a `case` arm, a
+    // statement modifier, parentheses, an assignment's right side, or as
+    // a call's argument. Until #1719 only the body's direct children and
+    // a visibility call's direct arguments were read, and a bare marker
+    // was read only as a direct child, with no shadow table. These mirror
+    // `npm.rs`'s #1401 block. Every visibility expectation was measured
+    // against ruby 3.0.2 with `public_instance_methods(false)` and its
+    // siblings (the reader method is the attribute's visibility), the
+    // instance and class variables with `instance_variables` /
+    // `class_variables`; the oracle script and its output are recorded on
+    // #1719. The walk is syntactic and counts every branch, as `nom`
+    // does, so a branch Ruby skips still counts.
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_under_a_conditional_counts() {
+        // Both arms of an `if`, a `begin` after a `private` marker, and a
+        // bare `attr_reader` after it. Measured: `modern` public, `hidden`
+        // and `plain` private, `@wrapped` set; `legacy` sits on the branch
+        // Ruby did not take. Before #1719: na = 1 (`plain`), npa = 0.
+        //
+        // expected: na = 5 (modern, legacy, @wrapped, hidden, plain),
+        // npa = 2 (modern, legacy).
+        check_metrics::<RubyParser>(
+            "class Cond\n  if RUBY_VERSION > \"3.0\"\n    attr_reader :modern\n  else\n    attr_reader :legacy\n  end\n  private\n  begin\n    @wrapped = 1\n    attr_reader :hidden\n  end\n  attr_reader :plain\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_under_each_statement_wrapper_counts() {
+        // One declaration per wrapper the walk reads through, each
+        // reachable by that wrapper's arm alone: `while`, `until`, `for`
+        // (whose body is a `do`), `unless`, the four statement modifiers
+        // (the `body` field), `rescue` and `ensure`, `elsif`, a `when`
+        // and a `case` `else`, and an `in` clause. Ruby defines the eight
+        // on branches it takes, every one public. Before #1719: na = 1.
+        //
+        // expected: na = 15 (twelve `attr_reader`s, three assignments),
+        // npa = 15.
+        check_metrics::<RubyParser>(
+            "class W\n  while false\n    attr_reader :in_while\n  end\n  until true\n    attr_reader :in_until\n  end\n  for i in [] do\n    attr_reader :in_for\n  end\n  unless false\n    attr_reader :in_unless\n  end\n  attr_reader :early unless false\n  attr_reader :if_mod if true\n  @late = 1 while false\n  @until_mod = 1 until true\n  begin\n    1\n  rescue\n    attr_reader :in_rescue\n  ensure\n    attr_reader :in_ensure\n  end\n  if false\n    2\n  elsif true\n    attr_reader :in_elsif\n  end\n  case 1\n  when 1\n    attr_reader :in_when\n  else\n    @in_case_else = 1\n  end\n  case 2\n  in Integer\n    attr_reader :in_clause\n  end\n  attr_reader :bare\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 15);
+                assert_eq!(metric.npa.class_npa_sum(), 15);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_in_parentheses_a_rescue_modifier_or_an_assignment_counts() {
+        // A parenthesised statement list; the `rescue` modifier on both
+        // sides; the right side of an assignment, plain, through
+        // parentheses and chained (`@p = @q = 1` sets both, measured);
+        // and `@h = private attr_reader :h`, whose target is one
+        // attribute and whose right side declares a private `h`.
+        // Measured: `h` private, every other reader Ruby defines public.
+        // Before #1719: na = 3 (@p, @h, bare).
+        //
+        // expected: na = 13 (grouped, rescued, handler, @on_raise, a, @b,
+        // plain, @in_parens, @p, @q, @h, h, bare), npa = 12.
+        check_metrics::<RubyParser>(
+            "class P\n  (attr_reader :grouped)\n  attr_reader :rescued rescue attr_reader :handler\n  raise \"boom\" rescue @on_raise = 1\n  (attr_reader :a; @b = 1)\n  x = attr_reader :plain\n  y = (@in_parens = 1)\n  @p = @q = 1\n  @h = private attr_reader :h\n  attr_reader :bare\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 13);
+                assert_eq!(metric.npa.class_npa_sum(), 12);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_in_a_call_argument_counts() {
+        // A call's arguments run at class scope: `memoize(attr_reader
+        // :a)` defines `a`, `foo(@x = 1)` sets `@x`, and two decorators
+        // deep is no different (measured, with `memoize` and `foo`
+        // defined on `Module`: `a`, `b` and `bare` public, `@x` set). An
+        // ordinary call governs nothing, so each takes the flag. Before
+        // #1719: na = 1 (`bare`).
+        //
+        // expected: na = 4, npa = 4.
+        check_metrics::<RubyParser>(
+            "class Arg\n  memoize(attr_reader :a)\n  foo(@x = 1)\n  memoize memoize attr_reader :b\n  attr_reader :bare\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_only_a_plain_ivar_assignment_is_an_attribute() {
+        // The scope `npa/ruby.rs` documents: a plain `@x = …` is an
+        // attribute, while an operator assignment (`@c ||= 1`, `@d += 1`)
+        // and a multiple assignment (`@a, @b = 1, 2`) are not counted,
+        // though Ruby sets each variable. The shared walk reads both as
+        // wrappers and asks the `Member` row about their target, so it
+        // is the row's `is_assignment_target` gate that keeps them out;
+        // `ruby_space_tree_rows` pins the gate, this pins npa reading it.
+        //
+        // expected: na = 1 (`@x`).
+        check_metrics::<RubyParser>(
+            "class A\n  @c ||= 1\n  @d += 1\n  @a, @b = 1, 2\n  @x = 1\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_in_an_ordinary_call_takes_a_private_flag() {
+        // The other half of `ruby_attribute_in_a_call_argument_counts`:
+        // an ordinary call governs nothing, so its argument takes the
+        // body flag even when that flag is not the default (measured,
+        // with `memoize` returning its argument: `a` and `b` private).
+        //
+        // expected: na = 2, npa = 0.
+        check_metrics::<RubyParser>(
+            "class P\n  private\n  memoize(attr_reader :a)\n  attr_reader :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_shadowed_keyword_does_not_flip_the_attribute_flag() {
+        // The issue's second half: after `private = false`, the bare
+        // `private` statement is the local, not the marker, so `@x` and
+        // `y` stay public — and the method walk already said so of `m`
+        // (measured: `A` has `m`, `y` and `y=` public). Before #1719 the
+        // attribute walk had no shadow table and read the bare word as a
+        // direct child, so npa was 0 while npm was 1. Removing the shadow
+        // table fails this.
+        //
+        // expected: na = 2, npa = 2; nm = 1, npm = 1.
+        check_metrics_with_npm::<RubyParser>(
+            "class A\n  private = false\n  private\n  @x = 1\n  attr_accessor :y\n  def m; end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_shadowed_keyword_in_a_condition_is_not_a_statement() {
+        // The condition-is-not-a-statement control: `if private` reads
+        // the local, and the walk reads the `if`'s `then`, never its
+        // condition. Measured: `y` public (`x` sits on the branch the
+        // falsy local skips). What this pins is that `x` is read under
+        // the `if` (na = 1 without the wrapper) and that the later bare
+        // `private` is the local (npa = 1 without the shadow table). It
+        // cannot discriminate a widened `If` arm that read the condition
+        // as a statement: that arm would find the same shadowed local and
+        // change nothing, as `is_statement_of`'s comment records.
+        //
+        // expected: na = 2 (x, y), npa = 2.
+        check_metrics::<RubyParser>(
+            "class K\n  private = false\n  if private\n    attr_accessor :x\n  end\n  private\n  attr_reader :y\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_marker_inside_a_wrapper_sets_the_attribute_flag() {
+        // A marker inside a wrapper's statements runs when the wrapper
+        // does: a `public` under `if true` undoes the `private` before
+        // it, a `private` in a `begin` demotes what follows, a `public`
+        // in a `while` undoes that (measured: `after_branch` public,
+        // `after_begin` private, `after_while` public). Each marker moves
+        // the flag across npa's public/non-public line, so none of the
+        // three can be skipped unseen. Before #1719 all three read
+        // private under the first marker.
+        //
+        // expected: na = 3, npa = 2 (`after_branch`, `after_while`).
+        check_metrics::<RubyParser>(
+            "class In\n  private\n  if true\n    public\n  end\n  attr_reader :after_branch\n  begin\n    private\n  end\n  attr_reader :after_begin\n  while true\n    public\n    break\n  end\n  attr_reader :after_while\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_bare_keyword_in_an_expression_or_argument_is_the_attribute_marker() {
+        // Ruby's `private` is a method call wherever it is evaluated:
+        // `x = private` and `foo(private)` demote what follows, `y =
+        // public` undoes it, and a binding in an argument (`foo(private =
+        // 1)`) shadows the word from then on (measured: `U` has
+        // `after_assign` private; `E1` has `m` public; `E2` has `d`
+        // private). Before #1719 none of the three was read: U npa 3,
+        // E2 npa 2.
+        //
+        // expected: U na 3 / npa 2; E1 na 1 / npa 1; E2 na 2 / npa 1.
+        // Asserted per class: in the totals (na 6 / npa 4) a lost
+        // argument-position shadow (E1 -1) and a lost argument-position
+        // marker (E2 +1) cancel.
+        check_func_space::<RubyParser, _>(
+            "class U\n  attr_reader :before\n  x = private\n  attr_reader :after_assign\n  y = public\n  attr_reader :after_second\nend\nclass E1\n  foo(private = 1)\n  x = private\n  attr_reader :m\nend\nclass E2\n  attr_reader :a\n  foo(private)\n  attr_reader :d\nend\n",
+            "foo.rb",
+            |func_space| {
+                for (class, na, npa) in [("U", 3, 2), ("E1", 1, 1), ("E2", 2, 1)] {
+                    let npa_stats = &child_space(&func_space, class).metrics.npa;
+                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
+                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
+                }
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_destructured_for_and_rescue_bindings_shadow_the_attribute_keyword() {
+        // Each binding form the walk models shadows the keyword — a
+        // destructuring target flat, nested or splatted, a `for` variable,
+        // a `rescue =>` variable — so the later `x = private` is the local
+        // and `visible` / `v` stay public; an instance-variable target
+        // binds no local, so `F`'s `demoted` is private (measured: as
+        // listed). `F`'s `@private = 1` is itself an attribute, set
+        // public. Not modelled: a pattern-matching binding (`in [Integer
+        // => private, *]`, `1 => private`) and a regexp named capture
+        // create the local too, and the walk still reads a later bare
+        // `private` as the marker there.
+        //
+        // expected: na = 7 (visible ×4, @private, demoted, v), npa = 6.
+        check_metrics::<RubyParser>(
+            "class D\n  private, other = false, nil\n  x = private\n  attr_reader :visible\nend\nclass N1\n  (a, private) = [1, false]\n  x = private\n  attr_reader :visible\nend\nclass N2\n  *private = [false]\n  x = private\n  attr_reader :visible\nend\nclass E\n  for private in [false]\n  end\n  y = private\n  attr_reader :visible\nend\nclass F\n  @private = 1\n  z = private\n  attr_reader :demoted\nend\nclass G\n  begin\n    raise \"x\"\n  rescue => private\n  end\n  w = private\n  attr_reader :v\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 7);
+                assert_eq!(metric.npa.class_npa_sum(), 6);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_inside_another_space_is_not_the_class_s() {
+        // The boundary the walk stops at: a `def` body, a block, a lambda
+        // and a nested `class` / `module` body are spaces of their own.
+        // `Inner`'s `@v` is `Inner`'s attribute, counted once, under
+        // `Inner`; `M` is a namespace, which `npa` does not count. A walk
+        // that entered `Inner` would count `@v` twice, and one that
+        // entered `M` would count `q`.
+        //
+        // Ruby does set `@y` on `S` — a block's `self` is the class — but
+        // a block opens a space, as it does for `npm`'s `def`, and the
+        // walk does not read it (measured: `S.instance_variables` is
+        // `[:@y]`). That gap is recorded here rather than asserted.
+        //
+        // expected: na = 2 (S's `bare`, Inner's `@v`), npa = 2.
+        check_metrics::<RubyParser>(
+            "class S\n  def inner\n    @x = 1\n  end\n  [1].each do |i|\n    @y = 1\n  end\n  l = -> { @w = 1 }\n  class Inner\n    @v = 1\n  end\n  module M\n    attr_reader :q\n  end\n  attr_reader :bare\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_under_deeply_nested_calls_does_not_recurse() {
+        // The attribute walk is the method walk's explicit stack, so an
+        // `attr_reader` under 5,000 nested calls costs no Rust stack; run
+        // on a small stack so a reintroduced recursion fails here.
+        //
+        // expected: na = 2 (deep, bare), npa = 2.
+        let nested = format!(
+            "class C\n  {}attr_reader :deep{}\n  attr_reader :bare\nend\n",
+            "f(".repeat(5_000),
+            ")".repeat(5_000)
+        );
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                check_metrics::<RubyParser>(&nested, "foo.rb", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 2);
+                    assert_eq!(metric.npa.class_npa_sum(), 2);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the attribute walk must not overflow a 512 KiB stack");
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attr_in_a_wrapper_argument_counts() {
+        // A statement wrapper passed as a keyword's argument runs its
+        // `attr_*` at class scope, so each is an attribute: the statement
+        // list of `private (attr_reader :x)` (the space before the
+        // parenthesis makes it one) and a `begin`.
+        //
+        // Only the count is pinned, as for `def` in npm's
+        // `ruby_def_in_a_wrapper_argument_counts`. Ruby hands the
+        // wrapper's last value to `private`, so `x` and `y` are private
+        // (measured on ruby 3.0.2), while the walk does not resolve that
+        // value and both take the body-wide flag — a known gap, not a
+        // contract, and so not asserted.
+        //
+        // expected: na = 3 (x, y, bare).
+        check_metrics::<RubyParser>(
+            "class A\n  private (attr_reader :x)\n  private(begin\n    attr_reader :y\n  end)\n  attr_reader :bare\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_and_method_walks_agree_on_visibility() {
+        // Grammar-dispatch rule 7's parity: one `attr_reader` beside one
+        // `def` in each position the walk reads — under a wrapper after a
+        // marker inside it, after an expression-position `public`, after
+        // a bare `private` that a local shadows, and after an
+        // argument-position `protected` — so the two walks must count
+        // the same and agree on which are public. The shadowed `private`
+        // sits where the flag is public, so reading it as the marker
+        // would demote `rd`/`md`. Measured: `ra`/`ma` private, `rb`/`mb`
+        // and `rd`/`md` public, `rc`/`mc` protected. Before #1719 the
+        // attribute walk read na = 2.
+        //
+        // expected: na = nm = 4, npa = npm = 2.
+        check_metrics_with_npm::<RubyParser>(
+            "class Par\n  if true\n    private\n    attr_reader :ra\n    def ma; end\n  end\n  x = public\n  attr_reader :rb\n  def mb; end\n  private = 1\n  private\n  attr_reader :rd\n  def md; end\n  foo(protected)\n  begin\n    attr_reader :rc\n    def mc; end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+            },
+        );
+    }
+
     // ---------------------------------------------------------------
     // Default-impl placeholder smoke tests (audited in #188).
     //

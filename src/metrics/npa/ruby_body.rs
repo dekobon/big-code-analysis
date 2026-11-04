@@ -5,20 +5,21 @@
 //! statements and arguments it is handed for its own declarations;
 //! this module counts nothing.
 //!
-//! The protocol is four events. A *statement* is a node the body or a
+//! The protocol is three events. A *statement* is a node the body or a
 //! wrapper runs at class scope; an *argument* is a named child of a
 //! call's argument list, handed with the call it belongs to. Both are
-//! read before the walk enters them, so a call is "entered" at the
-//! event that reaches it, and its arguments follow as events of their
-//! own. *Leaving* a call comes once its arguments are all read, which
-//! is when a consumer that acts on what they named — `npm`'s re-filing
-//! of `private :foo` — can act. A bare visibility marker is the walk's
-//! own and reaches no consumer.
+//! read before the walk enters them, so a call is entered at the event
+//! that reaches it, and its arguments follow as events of their own.
+//! *Leaving* a call comes once its arguments are all read, which is
+//! when a consumer that acts on what they named — `npm`'s re-filing of
+//! `private :foo` — can act. A bare visibility marker is the walk's own
+//! and reaches no consumer.
 //!
-//! FIXME(#1719): `Npa`'s attribute walk, `ruby_walk_class_body` in
-//! `npa/shared.rs`, does not drive this yet: it reads the body's direct
-//! children only and keeps a visibility flag of its own with no shadow
-//! table, so the two Ruby member walks can disagree on one body.
+//! `npm` (`npm/ruby.rs`) declares the `def`s it is handed; `npa`
+//! (`npa/ruby.rs`) counts the `attr_*` calls and the instance- and
+//! class-variable assignments. Because both read one walk, they agree
+//! on which statements a body holds and on the visibility each runs
+//! under (#1719; grammar-dispatch rule 7).
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
@@ -201,12 +202,14 @@ pub(crate) trait RubyBodyConsumer<'a> {
     );
 
     /// `call`'s arguments are all read. `outer` is the call whose
-    /// argument it was, if it was one.
+    /// argument it was, if it was one. A consumer that gathers nothing
+    /// from a call's arguments has nothing to do here.
     fn leave_call(
         &mut self,
-        call: RubyOpenCall<Self::Gathered>,
-        outer: Option<&mut RubyOpenCall<Self::Gathered>>,
-    );
+        _call: RubyOpenCall<Self::Gathered>,
+        _outer: Option<&mut RubyOpenCall<Self::Gathered>>,
+    ) {
+    }
 }
 
 // What the walk is inside while it reads a node's children: the body
@@ -244,10 +247,14 @@ pub(crate) struct RubyBodyState<'a, 'chain> {
     // body is that variable, and Ruby reads it as the marker call only
     // where no such local is in scope (measured: `x = private` with no
     // local demotes what follows; with the local assigned first it does
-    // not). A Ruby local lives to the end of the body it was assigned
-    // in, which here is the class body or a wrapper under it — the
-    // walk does not unshadow at a wrapper's end, which over-shadows
-    // only the body after an assignment made *inside* a branch.
+    // not). A Ruby local exists from its binding to the end of its scope,
+    // decided at parse time, and the only scope here is the class body:
+    // none of the wrappers the walk reads through opens one, and the
+    // scopes that do (a `def`, a block, a nested class) are not read. A
+    // binding inside a branch therefore shadows the rest of the body
+    // whether or not the branch runs (measured: `if false; private = 1;
+    // end; private` leaves what follows public), and never unshadowing
+    // is exact.
     shadowed: [bool; RubyVisibility::COUNT],
 }
 
@@ -271,9 +278,28 @@ impl<'a, 'chain> RubyBodyState<'a, 'chain> {
         state.read_body(body, consumer);
     }
 
+    /// The source the body was parsed from.
+    pub(crate) fn code(&self) -> &'a [u8] {
+        self.code
+    }
+
     /// The body-wide visibility flag where the walk stands.
     pub(crate) fn visibility(&self) -> RubyVisibility {
         self.visibility
+    }
+
+    /// Answers `read` with the chain of `node`'s children, for a gate
+    /// on a child the walk does not read itself (an assignment's
+    /// target). `node` is the statement or argument being read.
+    pub(crate) fn below<R>(
+        &mut self,
+        node: &Node<'a>,
+        read: impl FnOnce(Ancestors<'a, '_>) -> R,
+    ) -> R {
+        self.chain.descend(node);
+        let answer = read(self.chain.get());
+        self.chain.ascend();
+        answer
     }
 
     // A bare `private` / `public` / `protected` sets the flag — Ruby
@@ -328,6 +354,14 @@ impl<'a, 'chain> RubyBodyState<'a, 'chain> {
     // `=> e` variable (an `exception_variable` wrapping the target).
     // All three bind at class scope; a block's parameters bind in the
     // block, a space the walk does not enter.
+    //
+    // Only nodes the walk reads are asked, so a binding anywhere else
+    // creates the local unseen: in a condition, a `case` value, an
+    // operand or a literal element (`if (private = false)`, `x =
+    // [private = 1]`), or by a pattern match or a regexp named capture.
+    // A later bare keyword is then read as the marker though Ruby reads
+    // the local (measured on ruby 3.0.2); the same statement-position
+    // limit `is_statement_of` records.
     fn shadow_statement_bindings(&mut self, statement: &Node<'a>, kind: u16) {
         use Ruby::*;
 

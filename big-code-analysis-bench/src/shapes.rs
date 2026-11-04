@@ -776,6 +776,24 @@ pub fn ruby_wide_private_defs(width: usize) -> String {
     source
 }
 
+/// Ruby: a class body holding `depth` nested `if`s, an instance-variable
+/// assignment and an `attr_reader` at every level beside the next `if`,
+/// so the attribute walk reads one wrapper per level and asks the
+/// `Member` row about one assignment target under each.
+#[must_use]
+pub fn ruby_nested_if_attrs(depth: usize) -> String {
+    let mut source = String::from(
+        "class C
+",
+    );
+    for i in 0..depth {
+        // `fmt::Write for String` never fails; see `wide_distinct_fns`.
+        let _ = writeln!(source, "if c{i}\n@a{i} = 1\nattr_reader :r{i}");
+    }
+    source.push_str(&"end\n".repeat(depth + 1));
+    source
+}
+
 /// Lua: a module block, then `width` units of a tagless `---` block
 /// directly under a call — no item follows it, so the first-block test
 /// scans back — and a documented function, whose block is the reading.
@@ -3193,6 +3211,28 @@ pub const PROBES: &[Probe] = &[
                     call.",
     },
     Probe {
+        name: "npa/ruby-nested-if-attrs",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa],
+            reading: |m| m.npa.class_na_sum(),
+        },
+        render: ruby_nested_if_attrs,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1719: the Ruby attribute walk reads the statements the \
+                    method walk does, through every conditional at class \
+                    scope, and asks the `Member` row whether an assignment's \
+                    target is an attribute under the chain the walk holds, \
+                    one push and pop below the statement. Asked with \
+                    `Ancestors::unknown()` instead, the gate's parent lookup \
+                    climbs from the root and the walk measured quadratic \
+                    (exponent 1.98 against 1.10). The reading is two \
+                    attributes per level.",
+    },
+    Probe {
         name: "loc/lua-tagless-blocks",
         lang: LANG::Lua,
         axis: Axis::Width,
@@ -4080,6 +4120,7 @@ mod tests {
             "npa/cpp-wide-class-members",
             "npm/ruby-nested-if-defs",
             "npm/ruby-wide-private-defs",
+            "npa/ruby-nested-if-attrs",
             "loc/cpp-nested-namespaces",
             "loc/ts-nested-fn",
             "nom/js-arrow-per-array-depth",

@@ -8,8 +8,7 @@
 
 use super::npa::{
     RubyBodyConsumer, RubyBodyShape, RubyBodyState, RubyOpenCall, RubyVisibility,
-    RubyVisibilityCall, ruby_declaration_is_public, ruby_method_name, ruby_symbol_name,
-    ruby_wrapped_is_public,
+    RubyVisibilityCall, ruby_method_name, ruby_symbol_name, ruby_wrapped_is_public,
 };
 use std::collections::HashMap;
 
@@ -123,10 +122,8 @@ impl<'a> RubyMethodLedger<'a> {
         let singleton = method.kind_id() == SingletonMethod as u16;
         let name = ruby_method_name(method, self.code);
         let named_by_keyword = keyword.is_some_and(|kw| kw.governs(singleton));
-        let public = keyword.map_or_else(
-            || ruby_declaration_is_public(singleton, body_flag),
-            |kw| ruby_wrapped_is_public(kw, singleton, body_flag),
-        ) && (named_by_keyword || !self.is_auto_private(name, singleton));
+        let public = ruby_wrapped_is_public(keyword, singleton, body_flag)
+            && (named_by_keyword || !self.is_auto_private(name, singleton));
         if let Some(name) = name {
             self.by_name
                 .entry((name, singleton))

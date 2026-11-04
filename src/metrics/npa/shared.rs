@@ -201,8 +201,9 @@ pub(crate) fn ruby_method_name<'a>(method: &Node<'a>, source: &'a [u8]) -> Optio
 // Ruby class-body visibility state. `private` / `public` / `protected`
 // keywords flip this flag for every subsequent declaration in the same
 // body until another marker overrides them. The default at the top of
-// every class body is `Public`. The discriminants index `npm`'s
-// per-keyword shadow table, which is `COUNT` long.
+// every class body is `Public`. The discriminants index the shared body
+// walk's per-keyword shadow table (`ruby_body.rs`), which is `COUNT`
+// long.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RubyVisibility {
     Public,
@@ -256,9 +257,9 @@ impl RubyVisibilityCall {
     }
 }
 
-// What a visibility-keyword `Call` in a Ruby class body does. Shared by
-// `Npm` and `Npa` so the two walkers cannot drift on the same Ruby rule
-// (grammar-dispatch rule 7).
+// What a visibility-keyword `Call` in a Ruby class body does. Read by
+// the body walk `Npm` and `Npa` share (`ruby_body.rs`), so the two
+// cannot drift on the same Ruby rule (grammar-dispatch rule 7).
 pub(crate) enum RubyVisibilityEffect {
     // `private()` — the explicit-parens spelling of the bare keyword,
     // which sets the default for every later instance-level declaration
@@ -303,21 +304,21 @@ pub(crate) fn ruby_declaration_is_public(singleton: bool, body_flag: RubyVisibil
     singleton || body_flag == RubyVisibility::Public
 }
 
-// Whether a declaration nested in a visibility call's argument list is
-// public. The keyword governs it only when it names that method family,
-// so `private def self.x` leaves the singleton alone and
-// `private_class_method` never reaches an instance method or an
-// attribute; an ungoverned declaration falls back to its own default.
-// The single source of the rule for both `Npm` and `Npa` (#1255).
+// Whether a declaration is public, given the visibility call whose
+// argument list it sits in, if any. The keyword governs it only when it
+// names that method family, so `private def self.x` leaves the singleton
+// alone and `private_class_method` never reaches an instance method or an
+// attribute; an unwrapped or ungoverned declaration falls back to its own
+// default. The single source of the rule for both `Npm` and `Npa`
+// (#1255).
 pub(crate) fn ruby_wrapped_is_public(
-    keyword: RubyVisibilityCall,
+    keyword: Option<RubyVisibilityCall>,
     singleton: bool,
     body_flag: RubyVisibility,
 ) -> bool {
-    if keyword.governs(singleton) {
-        keyword.visibility == RubyVisibility::Public
-    } else {
-        ruby_declaration_is_public(singleton, body_flag)
+    match keyword {
+        Some(keyword) if keyword.governs(singleton) => keyword.visibility == RubyVisibility::Public,
+        _ => ruby_declaration_is_public(singleton, body_flag),
     }
 }
 
@@ -358,111 +359,6 @@ pub(crate) fn add_attributes(stats: &mut Stats, count: usize, public: bool) {
     stats.class_na += count;
     if public {
         stats.class_npa += count;
-    }
-}
-
-// Attributes declared by an `attr_*` macro nested in a visibility call's
-// argument list: `private attr_accessor :b` parses as a `private` call
-// whose sole argument is the `attr_accessor` call, so the macro is never
-// a direct child of the body (#1255).
-fn ruby_wrapped_attr_count(call: &Node, source: &[u8]) -> usize {
-    use Ruby::*;
-
-    // role-bypass: allow(NullSafe) — an `attr_*` macro call, which the row's safe-navigation
-    // owner is a kind of; the macro is told by its name
-    ruby_call_named_arguments(call)
-        .filter(|arg| {
-            matches!(arg.kind_id().into(), Call | Call2 | Call3 | Call4)
-                && ruby_is_attr_macro(arg, source)
-        })
-        .map(|arg| ruby_attr_macro_symbol_count(&arg))
-        .sum()
-}
-
-// Walks the direct children of a Ruby class / singleton-class body
-// (`BodyStatement` under `Class` / `SingletonClass`) tallying:
-// - class-scope assignments to `@var` (`InstanceVariable`) and
-//   `@@var` (`ClassVariable`) — one attribute per assignment, regardless
-//   of whether the RHS is a constant or another expression.
-// - `attr_accessor` / `attr_reader` / `attr_writer` macros — one
-//   attribute per symbol argument.
-//
-// Visibility flags follow Ruby's keyword-marker convention: a bare
-// `private` / `public` / `protected` identifier flips the default for
-// every subsequent declaration in the body. The default visibility at
-// the top of every class body is `public`. The argument-form of those
-// keywords (`private :foo`, `private attr_accessor :b`) does not flip
-// the body-wide flag — matching Ruby's runtime behaviour — but it does
-// govern the declarations it wraps, so an `attr_*` macro nested in a
-// visibility call takes the keyword's visibility (#1255).
-//
-// The retroactive symbol form (`private :b` after `attr_accessor :b`)
-// is deliberately not modelled here. It renames the visibility of the
-// generated *reader* only, leaving `b=` public, so there is no single
-// answer for the attribute — unlike `Npm`, where the symbol names one
-// method (see #1399).
-//
-// Attribute assignments to instance/class variables are visible only
-// via the methods that wrap them, so the visibility flag at the point
-// of declaration is what `npa` should reflect.
-pub(crate) fn ruby_walk_class_body(body: &Node<'_>, source: &[u8], stats: &mut Stats) {
-    // bca: suppress(cognitive) — grammar dispatch match, clearest whole
-    // One pass over the body carrying Ruby's body-wide visibility flag, with
-    // an arm per attribute-declaring shape (`@x = …`, `attr_*` macros). The
-    // flag must be readable at every arm, so the arms cannot be lifted out
-    // without threading it back through each helper.
-    use crate::roles::ruby::member;
-    use Ruby::*;
-
-    let mut visibility = RubyVisibility::Public;
-    for child in body.children() {
-        if let Some(marker) = ruby_visibility_marker(&child, source) {
-            visibility = marker;
-            continue;
-        }
-        match child.kind_id().into() {
-            // A class-scope `@x = …` / `@@n = …`: the `Member` row's
-            // variable where it is an assignment target. The lhs's chain
-            // is the body's plus the statement, which is all the gate
-            // reads.
-            // role-bypass: allow(DocTarget) — the statement whose target the
-            // attribute count reads; not whether it takes a doc comment
-            Assignment | Assignment2 => {
-                let Some(lhs) = child.children().next() else {
-                    continue;
-                };
-                let under = [*body, child];
-                if member::owns(&lhs, source, Ancestors::known(&under)) {
-                    add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
-                }
-            }
-            // role-bypass: allow(NullSafe) — the `attr_*` and visibility macro calls, which the
-            // row's safe-navigation owner is a kind of; each is told by its name
-            Call | Call2 | Call3 | Call4 if ruby_is_attr_macro(&child, source) => {
-                add_attributes(
-                    stats,
-                    ruby_attr_macro_symbol_count(&child),
-                    ruby_declaration_is_public(false, visibility),
-                );
-            }
-            // role-bypass: allow(NullSafe) — the visibility macro calls, told by name
-            Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(&child, source) {
-                Some(RubyVisibilityEffect::Flag(flag)) => visibility = flag,
-                // `private attr_accessor :b`. An attribute is always an
-                // instance-level declaration, so a class-method keyword
-                // never governs one: the macro it wraps still declares
-                // its attributes, at the body-wide flag.
-                Some(RubyVisibilityEffect::Arguments(keyword)) => {
-                    add_attributes(
-                        stats,
-                        ruby_wrapped_attr_count(&child, source),
-                        ruby_wrapped_is_public(keyword, false, visibility),
-                    );
-                }
-                None => {}
-            },
-            _ => {}
-        }
     }
 }
 
