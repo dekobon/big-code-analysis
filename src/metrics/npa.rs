@@ -763,6 +763,94 @@ mod tests {
         });
     }
 
+    // `cpp_count_field_identifiers`'s member-pointer arm (#1718), asked
+    // directly. Its one caller hands it a `field_declaration`, and no
+    // field spelling reaches the arm under the pinned grammars — the
+    // parenthesised one recovers into an `ERROR` over `S::` beside a
+    // `pointer_declarator`, the unparenthesised one into a
+    // `field_identifier` `S` beside a `bitfield_clause` — so the
+    // templated payloads are the only real trees carrying the
+    // shape. Rows: a member pointer counts one; one under a global scope
+    // and with an array bound `N` (an `identifier`) still counts one; a
+    // qualified *type* holds no member pointer and adds nothing.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_member_pointer_names_count_once(lang: LANG) {
+        let ast = crate::test_support::parse_named(
+            lang,
+            "foo.cpp",
+            "struct S {\n\
+                 template<class T> static int (S::*fp)(T);\n\
+                 template<class T> static int (::S::*fps[N])(T);\n\
+                 template<class T> static std::vector<T> v;\n\
+             };",
+        );
+        let counts: Vec<usize> = ast
+            .root_node()
+            .descendants_by_kind(&["declaration"])
+            .iter()
+            .map(cpp_count_field_identifiers)
+            .collect();
+        assert_eq!(counts, [1, 1, 0]);
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_member_pointer_names_count_once() {
+        assert_member_pointer_names_count_once(LANG::Cpp);
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_member_pointer_names_count_once() {
+        assert_member_pointer_names_count_once(LANG::Mozcpp);
+    }
+
+    // A type qualified 20,000 levels deep (`A::A::…::B v;`) is one data
+    // member. Every member-pointer arm asks `cpp_member_pointer` about
+    // each qualified name a member holds, so the scope chain is walked in
+    // a loop: the recursive first draft overflowed a worker's stack at
+    // about 11,000 levels, a depth no other metric minds (#1718 review).
+    // Run on a small stack so a reintroduced recursion aborts here.
+    // Measured with the recursion restored, in the dev profile the tests
+    // build: it overflows at about 2,600 levels on this 512 KiB stack
+    // (10,800 at the 2 MiB a spawned worker gets, 43,500 at 8 MiB), so
+    // `DEPTH` is ~7.7x past it. A future `DEPTH` must stay well above the
+    // overflow depth for the stack it sets, or a recursion passes here.
+    //
+    // expected: one static data member — na = 1, nm = 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_deeply_qualified_type_is_one_attribute<T: crate::MetricSuite + 'static>() {
+        // `A::` levels before the type's last name, far past what the
+        // stack below holds at one frame per level.
+        const DEPTH: usize = 20_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        let source = format!("struct X {{ static {}B v; }};\n", "A::".repeat(DEPTH));
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(move || {
+                check_metrics_with_npm::<T>(&source, "foo.cpp", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 1);
+                    assert_eq!(metric.npm.class_nm_sum(), 0);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the member-pointer walk must not overflow a 512 KiB stack");
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_deeply_qualified_type_is_one_attribute() {
+        assert_deeply_qualified_type_is_one_attribute::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_deeply_qualified_type_is_one_attribute() {
+        assert_deeply_qualified_type_is_one_attribute::<MozcppParser>();
+    }
+
     #[cfg(feature = "java")]
     #[test]
     fn java_single_attributes() {

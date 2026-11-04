@@ -564,8 +564,36 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
         "pointer_declarator" | "reference_declarator" | "declaration" | "init_declarator" => {
             cpp_declares_function(&child)
         }
+        // A member pointer outside parentheses: `template<class T>
+        // static int S::*getPd();` and, under a `pointer_declarator`,
+        // `template<class T> int (*S::*getPp())(T);` are methods
+        // returning one (#1718). Any other qualified name — the `std::`
+        // of a field's type among them — declares no function.
+        "qualified_identifier" => {
+            cpp_member_pointer(&child).is_some_and(|pointer| cpp_declares_function(&pointer))
+        }
         _ => false,
     })
+}
+
+// The `pointer_type_declarator` of a member-pointer declarator, which
+// both grammars spell as a `qualified_identifier` whose `name` holds it:
+// `S::*fp` is `qualified_identifier(scope: S, name:
+// pointer_type_declarator(*fp))`. A nested or global scope (`N::S::*`,
+// `::S::*`) nests a further `qualified_identifier` in `name`, so the walk
+// follows `name` rather than reading one level. Anything else — a plain
+// qualified name — has no member pointer and answers `None`.
+//
+// A loop, not recursion: every qualified *type* a member declaration
+// holds is asked too, and `A::A::…::B` nests one `qualified_identifier`
+// per `::`, so a recursive walk overflowed the stack on a deep enough
+// name that every other metric reads (#1718 review).
+fn cpp_member_pointer<'a>(qualified: &Node<'a>) -> Option<Node<'a>> {
+    let mut name = qualified.child_by_field_name("name")?;
+    while name.kind() == "qualified_identifier" {
+        name = name.child_by_field_name("name")?;
+    }
+    (name.kind() == "pointer_type_declarator").then_some(name)
 }
 
 // Given the `parenthesized_declarator` in a `function_declarator`'s
@@ -584,15 +612,33 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
 //   function pointer. Neither language lets a function return a
 //   function type, so that inner nesting is the only reading — the
 //   same grammar fact `crate::c_declarator` relies on.
+// - `template<class T> static int (S::*fp)(T);` interposes a member
+//   pointer, `template<class T> int (S::*get())(T);` the same around a
+//   further `function_declarator`: a data member and a method returning
+//   a member-function pointer, told apart exactly as the two above
+//   (#1718). Only the templated form gets here. Both grammars parse the
+//   non-templated `int (S::*pmf)(int);` and `static int (S::*fp)(int);`
+//   into an `ERROR` over `S::` beside a plain `pointer_declarator`,
+//   which the first arm already reads correctly. Not every
+//   non-templated spelling recovers that way: with two specifiers
+//   before the return type (`static constexpr int (S::*fp)(int) =
+//   nullptr;`, `static inline`, `static const`) a `function_declarator`
+//   nests directly in another, so the data member still reads as a
+//   method — a recovery of the grammar's that this predicate cannot see
+//   past, and older than #1718.
 //
 // Hence: every child must still read as a function. An indirection
 // qualifies only when `cpp_declares_function` finds a function under
-// it; a bare name, an `operator_name`, or an `ms_call_modifier`
-// (`int (__cdecl *f)(int)`) never disqualifies on its own.
+// it; a bare name, an `operator_name`, a qualified name with no member
+// pointer, or an `ms_call_modifier` (`int (__cdecl *f)(int)`) never
+// disqualifies on its own.
 fn cpp_parenthesized_declares_function(paren: &Node) -> bool {
     paren.children().all(|child| match child.kind() {
         "pointer_declarator" | "reference_declarator" => cpp_declares_function(&child),
         "parenthesized_declarator" => cpp_parenthesized_declares_function(&child),
+        "qualified_identifier" => {
+            cpp_member_pointer(&child).is_none_or(|pointer| cpp_declares_function(&pointer))
+        }
         _ => true,
     })
 }
@@ -627,6 +673,25 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
             | "reference_declarator" => {
                 count += cpp_count_field_identifiers(&child);
             }
+            // The member-pointer data member `(S::*fp)` that
+            // `cpp_parenthesized_declares_function` declines (#1718).
+            // One member pointer declares one name, so it counts one
+            // without a walk: the scope `S` is never a member, and the
+            // name's kind does not matter (the templated parse makes it
+            // a `type_identifier`, which a walk for `field_identifier`
+            // would miss). No `field_declaration` reaches this arm under
+            // the pinned grammars, which never leave a member pointer as
+            // a direct `qualified_identifier` child of one: the
+            // parenthesised `int (S::*pmf)(int);` recovers into an
+            // `ERROR` over `S::` beside a `pointer_declarator`, and the
+            // unparenthesised `int S::*pd;` into a `field_identifier`
+            // `S`, an `ERROR` over `:` and a `bitfield_clause` — which
+            // counts the scope as the one attribute, right for data and
+            // wrong for a method (`int S::*getPd();` reads as data; older
+            // than #1718). It keeps the invariant above if a grammar
+            // stops doing so: whatever the predicate declines, this
+            // counts.
+            "qualified_identifier" => count += usize::from(cpp_member_pointer(&child).is_some()),
             _ => {}
         }
     }
@@ -660,14 +725,9 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
 // initialiser and the parameter name of `static int (*fp)(int a)` — all
 // plain `identifier`s, unlike a field's `field_identifier` — from being
 // counted as members. Name-based like `cpp_declares_function`, for the
-// same Mozcpp reason.
-//
-// FIXME(#1718): a pointer-to-member-function data member,
-// `static int (S::*fp)(T);`, still reads as a method here and in the
-// non-templated `int (S::*pmf)(int);` alike — the parenthesised
-// declarator holds a `qualified_identifier` wrapping a
-// `pointer_type_declarator`, an indirection
-// `cpp_parenthesized_declares_function` does not recognise.
+// same Mozcpp reason. A member-pointer data member template,
+// `template<class T> static int (S::*fp)(T);`, is a `declaration` that
+// helper declines like any other (#1718).
 pub(crate) fn cpp_template_declares_data_member(template: &Node) -> bool {
     template
         .children()

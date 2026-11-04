@@ -5183,6 +5183,167 @@ class C {
         );
     }
 
+    // Member pointers (#1718), shared by the `cpp_*` / `mozcpp_*` pair for
+    // the same no-file-extension reason as the fixtures above. Valid
+    // C++20: `g++ -std=c++20 -fsyntax-only` accepts it as written.
+    //
+    // Both grammars spell the templated `S::*fp` as `qualified_identifier
+    // (scope: S, name: pointer_type_declarator)`; the predicate missed
+    // that indirection inside parentheses and so read every member-pointer
+    // data member template as a method, and outside parentheses it missed
+    // the function under one and read two methods as data. Before #1718
+    // this class measured npa 4/4 and npm 8/6.
+    //
+    // - `fp`, `cfp`, `fps`, `gfp` and `privFp` are data in the
+    //   parenthesised position. `gfp`'s global scope nests a second
+    //   `qualified_identifier` in `name`, so a walk that read one level
+    //   finds no member pointer and keeps it a method.
+    // - `get` and `privGet` are methods returning a member-function
+    //   pointer: the member pointer wraps their `function_declarator`.
+    //   A gate that declined every member pointer outright makes both
+    //   data.
+    // - `getPp` (under a `pointer_declarator`) and `getPd` (unparenthesised)
+    //   are methods reached through `cpp_declares_function`'s own
+    //   `qualified_identifier` arm, not the parenthesised one.
+    // - `pd` is the data control for that arm: a member pointer with no
+    //   function under it.
+    // - `pmf` and `getPmf` are the parenthesised non-templated forms,
+    //   which both grammars recover into an `ERROR` over `S::` beside a
+    //   plain `pointer_declarator`; they read correctly before the fix
+    //   and pin that it left that path alone. Other non-templated
+    //   spellings recover differently and still misread, older than the
+    //   fix: the unparenthesised `int S::*getPd();` as data, and
+    //   `static constexpr int (S::*fp)(int) = nullptr;` as a method —
+    //   FIXME(#1807), pinned by `*_member_pointer_recovery_misreads`.
+    // - the `private:` section makes public and total differ on both
+    //   metrics, and the two metrics differ from each other (7/6 against
+    //   5/4), so neither a visibility-blind arm nor a swap of the two
+    //   counters can pass.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBER_POINTER_MEMBERS: &str = "class S {\n\
+         public:\n\
+             template<class T> static int (S::*fp)(T);\n\
+             template<class T> static int (S::*const cfp)(T);\n\
+             template<class T> static int (S::*fps[4])(T);\n\
+             template<class T> static int (::S::*gfp)(T);\n\
+             template<class T> static int S::*pd;\n\
+             int (S::*pmf)(int);\n\
+             template<class T> int (S::*get())(T);\n\
+             template<class T> int (*S::*getPp())(T);\n\
+             template<class T> static int S::*getPd();\n\
+             int (S::*getPmf())(int);\n\
+         private:\n\
+             template<class T> static int (S::*privFp)(T);\n\
+             template<class T> int (S::*privGet())(T);\n\
+         };";
+
+    // Positive controls, one shape per class so neither can borrow its
+    // count from the other: the non-templated member-function pointer is
+    // one attribute, and the templated method returning one is one
+    // method.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBER_FUNCTION_POINTER_DATA: &str = "class S { public: int (S::*pmf)(int); };";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const METHOD_RETURNING_MEMBER_FUNCTION_POINTER: &str =
+        "class S { public: template<class T> int (S::*get())(T); };";
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_member_pointer_members_split_between_npa_and_npm() {
+        check_metrics_with_npa::<CppParser>(MEMBER_POINTER_MEMBERS, "foo.cpp", |metric| {
+            // `fp`, `cfp`, `fps`, `gfp`, `pd`, `pmf`, and `privFp`.
+            assert_eq!(metric.npa.class_na_sum(), 7);
+            assert_eq!(metric.npa.class_npa_sum(), 6);
+            // `get`, `getPp`, `getPd`, `getPmf`, and `privGet`.
+            assert_eq!(metric.npm.class_nm_sum(), 5);
+            assert_eq!(metric.npm.class_npm_sum(), 4);
+        });
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_member_pointer_members_split_between_npa_and_npm() {
+        check_metrics_with_npa::<MozcppParser>(MEMBER_POINTER_MEMBERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 7);
+            assert_eq!(metric.npa.class_npa_sum(), 6);
+            assert_eq!(metric.npm.class_nm_sum(), 5);
+            assert_eq!(metric.npm.class_npm_sum(), 4);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_member_pointer_controls() {
+        check_metrics_with_npa::<CppParser>(MEMBER_FUNCTION_POINTER_DATA, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<CppParser>(
+            METHOD_RETURNING_MEMBER_FUNCTION_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_member_pointer_controls() {
+        check_metrics_with_npa::<MozcppParser>(MEMBER_FUNCTION_POINTER_DATA, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<MozcppParser>(
+            METHOD_RETURNING_MEMBER_FUNCTION_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
+    }
+
+    // FIXME(#1807): two valid non-templated spellings (`g++ -std=c++20
+    // -fsyntax-only` accepts both) that both grammars' error recovery
+    // misreads. Each is alone in its class because together the class
+    // totals come out right (na 1, nm 1) while both members are wrong.
+    // The truth is the swap of each pin: `getPd` is a method (na 0, nm
+    // 1), `fp` a static data member (na 1, nm 0). Pinned so a grammar
+    // or reader fix moves these rows visibly.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const GET_PD_METHOD: &str = "struct S {\n  int S::*getPd();\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const FP_DATA_MEMBER: &str =
+        "struct S {\n  static constexpr int (S::*fp)(int) = nullptr;\n};\n";
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_member_pointer_recovery_misreads() {
+        check_metrics_with_npa::<CppParser>(GET_PD_METHOD, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<CppParser>(FP_DATA_MEMBER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_member_pointer_recovery_misreads() {
+        check_metrics_with_npa::<MozcppParser>(GET_PD_METHOD, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<MozcppParser>(FP_DATA_MEMBER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
+    }
+
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_non_method_template_payloads_are_not_counted() {
