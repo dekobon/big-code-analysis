@@ -531,7 +531,7 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
   `holds_doc_comment_in_body`) — what the language's own
   documentation tool reads (#1597). They feed `dloc`; the defaults
   answer `false`, which is right for a language with no doc
-  convention. Where one exists, `lang_helpers/doc_comment.rs` has the
+  convention. Where one exists, `lang_helpers/doc_text.rs` has the
   shared opener tests.
 - `is_func_space` / `is_func_space_with_code`, `is_func`,
   `is_closure` — forward to the table: `crate::roles::<lang>::opens_space`

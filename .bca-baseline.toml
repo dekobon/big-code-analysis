@@ -261,12 +261,6 @@ value = 101217.532578918
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 642.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bind_leading"
 metric = "nargs"
 value = 5.0

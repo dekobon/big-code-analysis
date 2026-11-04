@@ -124,7 +124,7 @@
 //! the source and legacy views; owner normalisation; and text decoding.
 //! Those stay the epic's mechanisms, reading the rows. The reusable
 //! helpers beside the rows: the marker tests in
-//! `lang_helpers/doc_comment.rs`, the Doxygen entry projection and
+//! `lang_helpers/doc_text.rs`, the Doxygen entry projection and
 //! conditional memo in `lang_helpers/doxygen.rs`, YARD's scope fold and
 //! call forms in `lang_helpers/ruby.rs`, and Python's run and assignment
 //! helpers in `lang_helpers/python.rs`.

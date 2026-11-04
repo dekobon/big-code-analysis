@@ -22,6 +22,10 @@ pub(crate) mod case_arms;
 // `Checker` impls; only the run walk the LOC metric drives is
 // re-exported below.
 pub(crate) mod doc_comment;
+// Crate-private: the per-tool doc-marker tests over a comment's bytes,
+// split from the binding walk in `doc_comment` (#1649), which re-exports
+// them so their callers keep one path.
+pub(crate) mod doc_text;
 // Crate-private: Doxygen's attachment rule, read by the four C-family
 // `Checker` impls only (#1613).
 pub(crate) mod doxygen;
