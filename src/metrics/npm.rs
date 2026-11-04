@@ -5271,6 +5271,49 @@ class C {
         });
     }
 
+    // Member function templates whose every parameter parses as an
+    // expression — a pointer, a function pointer, a member-function
+    // pointer — read as `init_declarator(name, argument_list(…))` in both
+    // grammars, which took the parameter list for a parenthesised
+    // initialiser that a class member cannot have. `connect` and `post`
+    // are methods; `x` (`= T(1)`, an expression value) and `y` (`{1}`, an
+    // initializer list) are the data controls, whose values are never an
+    // `argument_list`. Valid C++20: `g++ -std=c++20 -fsyntax-only`
+    // accepts it as written. Before the fix this class read npa 4 / npm 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const EXPRESSION_LIKE_PARAMETER_TEMPLATES: &str = "struct C {\n\
+             template<class T> void connect(T* obj, void (T::*slot)());\n\
+             template<class T> static void post(void (*fn)(T));\n\
+             template<class T> static constexpr T x = T(1);\n\
+             template<class T> static constexpr T y{1};\n\
+         };";
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_expression_like_parameter_templates_are_methods() {
+        check_metrics_with_npa::<CppParser>(
+            EXPRESSION_LIKE_PARAMETER_TEMPLATES,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_expression_like_parameter_templates_are_methods() {
+        check_metrics_with_npa::<MozcppParser>(
+            EXPRESSION_LIKE_PARAMETER_TEMPLATES,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
+    }
+
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_member_pointer_controls() {

@@ -561,8 +561,22 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
         // payload. A field's own initialiser is its `default_value`
         // field, never an `init_declarator`, so the `field_declaration`
         // call site is unaffected.
-        "pointer_declarator" | "reference_declarator" | "declaration" | "init_declarator" => {
+        "pointer_declarator" | "reference_declarator" | "declaration" => {
             cpp_declares_function(&child)
+        }
+        // A parenthesised value is a member function template's parameter
+        // list, read by the grammar as an expression list when every
+        // parameter parses as one: `template<class T> void connect(T* obj,
+        // void (T::*slot)());` is `init_declarator(connect,
+        // argument_list(…))`. A member-declarator takes only a
+        // brace-or-equal-initializer ([class.mem.general]), so at class
+        // scope, the only scope these helpers read, that value is never
+        // an initialiser.
+        "init_declarator" => {
+            child
+                .child_by_field_name("value")
+                .is_some_and(|value| value.kind() == "argument_list")
+                || cpp_declares_function(&child)
         }
         // A member pointer outside parentheses: `template<class T>
         // static int S::*getPd();` and, under a `pointer_declarator`,
