@@ -217,6 +217,18 @@ for historical reference.
   (`EISDIR` on unix) rather than a skip. The Python
   `Ast.from_path` `ValueError` names the reason.
 
+- **`make check-rumdl-lockstep`** (`utils/check-rumdl-lockstep.py`,
+  #1779) fails when the rumdl pin in `mise.toml`, the CI lint job's
+  `RUMDL_VERSION` / `RUMDL_SHA256` and the `Dockerfile` disagree on the
+  version, naming the file that differs, or when the `Dockerfile`'s
+  x86_64 SHA256 differs from CI's. `.rumdl-lockstep-baseline.txt`
+  records the version and hash it last accepted, so a bump that moves
+  the version but keeps the old hash fails by name, and an honest bump
+  fails until `python3 utils/check-rumdl-lockstep.py --update` records
+  the new pair in the same commit. It is wired into `make lint`, `make pre-commit`, `make ci`,
+  the pre-commit hooks (which also run on an edit to the baseline) and
+  the CI lint job.
+
 ### Changed
 
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
@@ -901,6 +913,14 @@ for historical reference.
   whose predicates call it (metrics, `ops`, `find` and `count`) all
   lend the cache. (#1785)
 
+- **`bca check` measures its ignored-file summary on the `--jobs`
+  thread budget** (#1307). Walked directories were re-listed serially
+  after the walk; they are now claimed per directory by scoped worker
+  threads, which cuts a 65,720-directory tree from 340 ms to 143 ms.
+  The `--report-skipped` listing is byte-identical, including which
+  spelling of a path reached by overlapping seeds is printed (the
+  first-named seed's).
+
 ### Deprecated
 
 - `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;
@@ -1187,9 +1207,8 @@ for historical reference.
   than an identifier walk, because `[temp.pre]/5` allows a template
   declaration at most one declarator and a walk would read an array
   bound, an initialiser's callee or a function pointer's parameter
-  name. Cpp and Mozcpp alike. A pointer-to-member-function data member
-  (`static int (S::*fp)(T);`, and the plain `int (S::*pmf)(int);`)
-  still reads as a method — #1718.
+  name. Cpp and Mozcpp alike. A templated pointer-to-member-function
+  data member (`static int (S::*fp)(T);`) is left to #1718, below.
 
 - **Ruby's `npm` counts a `def` wherever the class body's statements
   reach it** (#1401). The member walk read the body's direct children
@@ -1331,6 +1350,52 @@ for historical reference.
   already is. Both sides read the patterns, and the first drained
   stdin, so the after side applied no exclusions and reported the files
   they should have hidden as added.
+
+- `utils/perturb.py` refuses a `cargo test` argv that can run more than
+  one test target without `--no-fail-fast`, instead of reporting the
+  guards in later targets as uncaught (#1787). It sees through a wrapper
+  in front of cargo (`timeout`, `env`, `nice`, `rustup run`), counts a
+  `-p` inside a short-option cluster (`-qpa`), and refuses a second
+  `--target`.
+
+- `npa` / `npm` (C++, Mozcpp): a templated pointer-to-member data
+  member such as `template<class T> static int (S::*fp)(T);` is counted
+  as an attribute instead of a method, and the methods
+  `template<class T> int (*S::*getPp())(T);` and
+  `template<class T> static int S::*getPd();` as methods instead of
+  attributes. A method returning a member-function pointer stays a
+  method, and the parenthesised non-templated `int (S::*pmf)(int);` was
+  already correct (#1718). A member function template whose every
+  parameter parses as an expression, such as
+  `template<class T> void connect(T* obj, void (T::*slot)());`, is
+  counted as a method instead of an attribute: both grammars read it as
+  a variable with a parenthesised initialiser, which a class member
+  cannot have. Still misread by the grammars' error recovery, as before:
+  the unparenthesised `int S::*getPd();` as data, and
+  `static constexpr int (S::*fp)(int) = nullptr;` as a method.
+
+- Ruby `npa` counts `attr_*` macros and `@x` / `@@x` class-scope
+  assignments wherever the class body runs them: under a conditional,
+  loop, `begin` / `rescue` / `ensure`, `case` arm, statement modifier,
+  parentheses, an assignment's right side, or a call's argument. A bare
+  `private` / `public` / `protected` shadowed by a local of the same
+  name — bound by an assignment, `for` or `rescue =>` the walk reads —
+  no longer changes attribute visibility, and a marker inside a
+  wrapper or in expression position now sets it, as it already did for
+  `npm`. The attribute and method walks share one traversal and agree
+  on a body's visibility (#1719).
+
+- `loc` (Bash, Tcl, iRules): a line-continuation row holding only the
+  `\` counts as code instead of blank, or as comment where it continues
+  a Tcl or iRules comment (`# note \`), in its enclosing function, proc
+  or event handler as well as the file (#1445). One that continues
+  nothing counts as the line it starts once joined to the next row: a
+  comment where that row is one (`\` + `# note`), blank where it is
+  empty, code otherwise. Where CRLF line endings
+  reach the parser unchanged (the library's `analyze`, Python's
+  `Ast.parse`; `bca` converts them first), the Tcl and iRules grammars
+  still lex such a row as a word (#1802). The C family, Ruby and Elixir
+  splice the row the same way and still count it as blank (#1801).
 
 ## [2.4.0] - 2026-10-21
 
