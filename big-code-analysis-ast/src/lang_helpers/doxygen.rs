@@ -32,10 +32,12 @@ pub(crate) fn doxygen_member_after(s: &[u8]) -> bool {
 /// not. Checked against Doxygen 1.13.2: a command counts wherever it
 /// sits in the text, even inside `<tt>` or after a word (`foo@file`), but
 /// not escaped (`\\file`, `@@file`), in a mail address, a backtick span, a
-/// fenced block, an HTML comment, or a format block (`\code`,
-/// `\verbatim`, `\htmlonly`, `\dot`, …). Commands match case sensitively,
-/// as Doxygen's command table does. Quoted text and `<![CDATA[` sections,
-/// which Doxygen also reads past, are read for commands here.
+/// fenced block, an HTML comment, a format block (`\code`,
+/// `\verbatim`, `\htmlonly`, `\dot`, …), text quoted with `"` on one
+/// line, or a `<![CDATA[` section (`commentscan.l`, the `<Comment>`
+/// rules for quoted text and `<![CDATA[`; the last two from the source,
+/// #1646). Commands match case sensitively, as Doxygen's command table
+/// does.
 #[must_use]
 pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
     const ALWAYS: &[&[u8]] = &[
@@ -87,43 +89,83 @@ pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
 }
 
 /// Where the text Doxygen does not read for commands ends, when such text
-/// starts at `s[at]`: a ```` ``` ```` fence (to the next fence or the end
-/// of the block), a backtick span closed before the next blank line
-/// (Markdown's `processCodeSpan`), an HTML comment (to its `-->` or the
-/// end of the block), a format block (to its end command or the end of
-/// the block), or an escaped `\\` / `@@`.
+/// starts at `s[at]`: a backtick span closed before the next blank line
+/// (Markdown's `processCodeSpan`), text quoted with `"` and closed on
+/// the same line — the scanner's quoted-text rule is `"\""[^"\n]*"\""`,
+/// so an unclosed `"` is one character and the command after it is read
+/// (#1646) — an escaped `\\` / `@@`, a fence, an HTML comment or a
+/// `<![CDATA[` section ([`delimited_end`]), or a format block
+/// ([`format_block_end`]).
 fn literal_end(s: &[u8], at: usize) -> Option<usize> {
     let rest = &s[at..];
-    if let Some(fenced) = rest.strip_prefix(b"```") {
-        let close = fenced.windows(3).position(|w| w == b"```");
-        return Some(close.map_or(s.len(), |close| at + 6 + close));
-    }
-    if let Some(span) = rest.strip_prefix(b"`") {
+    if let Some(span) = rest
+        .strip_prefix(b"`")
+        .filter(|_| !rest.starts_with(b"```"))
+    {
         return code_span_close(span).map(|close| at + close + 2);
     }
-    if rest.starts_with(b"<!--") {
-        return Some(html_comment_end(s, at + 4));
+    if let Some(quoted) = rest.strip_prefix(b"\"") {
+        return quoted_text_close(quoted).map(|close| at + close + 2);
     }
     if matches!(rest, [b'@', b'@', ..] | [b'\\', b'\\', ..]) {
         return Some(at + 2);
     }
-    let end: &[u8] = match doxygen_command(s, at)? {
-        b"code" => b"endcode",
-        b"icode" => b"endicode",
-        b"verbatim" => b"endverbatim",
-        b"iverbatim" => b"endiverbatim",
-        b"iliteral" => b"endiliteral",
-        b"htmlonly" => b"endhtmlonly",
-        b"latexonly" => b"endlatexonly",
-        b"xmlonly" => b"endxmlonly",
-        b"rtfonly" => b"endrtfonly",
-        b"manonly" => b"endmanonly",
-        b"docbookonly" => b"enddocbookonly",
-        b"dot" => b"enddot",
-        b"msc" => b"endmsc",
-        b"startuml" => b"enduml",
-        _ => return None,
+    delimited_end(s, at).or_else(|| format_block_end(s, at))
+}
+
+/// Where a literal that runs to a closing delimiter or the end of the
+/// block ends, when one opens at `s[at]`: a ```` ``` ```` fence, an HTML
+/// comment, or a `<![CDATA[` section.
+fn delimited_end(s: &[u8], at: usize) -> Option<usize> {
+    let rest = &s[at..];
+    if rest.starts_with(b"<!--") {
+        return Some(html_comment_end(s, at + 4));
+    }
+    let (open, close): (&[u8], &[u8]) = if rest.starts_with(b"```") {
+        (b"```", b"```")
+    } else if rest.starts_with(b"<![CDATA[") {
+        (b"<![CDATA[", b"]]>")
+    } else {
+        return None;
     };
+    let body = at + open.len();
+    let found = s[body..].windows(close.len()).position(|w| w == close);
+    Some(found.map_or(s.len(), |found| body + found + close.len()))
+}
+
+/// The offset in `quoted` of the `"` closing a quoted text whose opening
+/// `"` precedes `quoted`, or `None` when a newline or the end of the
+/// comment comes first.
+fn quoted_text_close(quoted: &[u8]) -> Option<usize> {
+    quoted
+        .iter()
+        .position(|&b| b == b'"' || b == b'\n')
+        .filter(|&close| quoted[close] == b'"')
+}
+
+/// The format blocks, each opening command beside the one that closes it.
+const FORMAT_BLOCKS: &[(&[u8], &[u8])] = &[
+    (b"code", b"endcode"),
+    (b"icode", b"endicode"),
+    (b"verbatim", b"endverbatim"),
+    (b"iverbatim", b"endiverbatim"),
+    (b"iliteral", b"endiliteral"),
+    (b"htmlonly", b"endhtmlonly"),
+    (b"latexonly", b"endlatexonly"),
+    (b"xmlonly", b"endxmlonly"),
+    (b"rtfonly", b"endrtfonly"),
+    (b"manonly", b"endmanonly"),
+    (b"docbookonly", b"enddocbookonly"),
+    (b"dot", b"enddot"),
+    (b"msc", b"endmsc"),
+    (b"startuml", b"enduml"),
+];
+
+/// Where a format block opened by the command at `s[at]` ends: after its
+/// end command, or at the end of the comment when it has none.
+fn format_block_end(s: &[u8], at: usize) -> Option<usize> {
+    let word = doxygen_command(s, at)?;
+    let (_, end) = FORMAT_BLOCKS.iter().find(|(open, _)| *open == word)?;
     Some(block_end(s, at, end))
 }
 
@@ -544,6 +586,14 @@ mod tests {
         b"/** @msc x @endmsc @file */",
         b"/** @startuml x @enduml @file */",
         b"/** <!-- x -->@file */",
+        // From `commentscan.l`'s `<Comment>` rules (#1646): a quote
+        // closes only on its own line, and a CDATA section ends at `]]>`.
+        b"/** \"@file */",
+        b"/** \"a\"\n * @file\n */",
+        b"/** \"x\n * @file\" */",
+        b"/** \"\"@file */",
+        b"/** <![CDATA[ x ]]> @file */",
+        b"/** <![CDATA[ x ]]>@file */",
     ];
 
     /// Blocks Doxygen 1.13.2 gave to the declaration after them.
@@ -588,11 +638,21 @@ mod tests {
         b"/**\n * <!-- x --->\n * @file\n */",
         b"/**\n * <!-- x --!>\n * @file\n */",
         b"/**\n * <!-- x\n * @file\n */",
+        // From `commentscan.l`'s `<Comment>` rules (#1646): quoted text
+        // on one line and a CDATA section, closed or running to the end
+        // of the block, are read past.
+        b"/** \"@file\" */",
+        b"/** a \"b\" \"@file\" c */",
+        b"/** \"@file x\" \"@class X\" */",
+        b"/** <![CDATA[ @file ]]> */",
+        b"/** <![CDATA[ @file */",
+        b"/**\n * <![CDATA[\n * @file\n * ]]>\n */",
     ];
 
     /// Each row is what Doxygen 1.13.2 made of the block above a
     /// declaration: an entry of its own (standalone), or the declaration's
-    /// documentation.
+    /// documentation. The quoted-text and `<![CDATA[` rows are read from
+    /// `commentscan.l`'s `<Comment>` rules rather than from a run (#1646).
     #[test]
     fn doxygen_standalone_follows_commentscan() {
         crate::test_support::assert_classifies(doxygen_standalone, STANDALONE, ATTACHED);

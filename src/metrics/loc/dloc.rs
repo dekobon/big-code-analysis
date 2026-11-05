@@ -2776,6 +2776,36 @@ mod tests {
                 4,
                 4,
             ),
+            // expected: `commentscan.l`'s `<Comment>` rules read past
+            // text quoted on one line and a `<![CDATA[` section, so
+            // the `@file` in each is no command and the block above
+            // `#include` binds to nothing; on `main` both read dloc 1.
+            // An unclosed quote is one character, so the command after
+            // it is read and the block stands alone (#1646).
+            (
+                "in quoted text",
+                b"/** \"@file\" */\n#include <x.h>\n",
+                0,
+                1,
+            ),
+            (
+                "in a CDATA section",
+                b"/** <![CDATA[ @file ]]> */\n#include <x.h>\n",
+                0,
+                1,
+            ),
+            (
+                "after an unclosed quote",
+                b"/** \"@file */\n#include <x.h>\n",
+                1,
+                1,
+            ),
+            (
+                "after quoted text",
+                b"/** \"x\" @file */\n#include <x.h>\n",
+                1,
+                1,
+            ),
         ];
         for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc] {
             assert_doc_rows(lang, c_family);

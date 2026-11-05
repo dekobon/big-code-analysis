@@ -284,18 +284,6 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
-path = "big-code-analysis-ast/src/lang_helpers/doxygen.rs"
-qualified = "literal_end"
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/lang_helpers/doxygen.rs"
-qualified = "literal_end"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/elixir_decisions.rs"
 qualified = "elixir_pair_section"
 metric = "nexits"
