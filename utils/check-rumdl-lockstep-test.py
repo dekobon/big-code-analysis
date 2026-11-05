@@ -376,6 +376,12 @@ def _bumped(**kinds: str) -> dict[str, str]:
     return files
 
 
+# Valid records under a header the template does not write, so a baseline
+# `--update` rewrote no longer reads byte for byte as one it left alone.
+HAND_RUMDL_BASELINE = f"# hand-written header\n0.3.2 {X86_SHA}\n"
+HAND_AL_BASELINE = f"# hand-written header\n1.7.12 {AL_SHA}\n"
+
+
 class RepoCase(unittest.TestCase):
     """A synthetic repository root for `main()` to read."""
 
@@ -587,6 +593,26 @@ class MainTest(RepoCase):
                     f"record in {unreadable.baseline}, found 0", str(caught.exception)
                 )
 
+    def test_an_unreadable_input_does_not_hide_an_unrecorded_bump(self) -> None:
+        # The other drift kind: rumdl's honest bump is a plain run's
+        # failure, so the hard error carries it; under `--update` it is
+        # the pair being asked for, so it is left out, and nothing is
+        # written either way.
+        self._repo(**_bumped(rumdl=HONEST), actionlint_baseline="# x\n")
+        before = self._baselines()
+        for argv, reported in (((), True), (("--update",), False)):
+            with self.subTest(argv=argv):
+                with self.assertRaises(SystemExit) as caught:
+                    self._run(*argv)
+                message = str(caught.exception)
+                self.assertIn(f"record in {GATE.ACTIONLINT.baseline}, found 0", message)
+                unrecorded = f"error: rumdl bumped to 0.3.3 (SHA256 {NEW_SHA[:12]}...)"
+                if reported:
+                    self.assertIn(unrecorded, message)
+                else:
+                    self.assertNotIn(unrecorded, message)
+                self.assertEqual(self._baselines(), before)
+
     def test_an_absent_input_file_is_a_hard_error(self) -> None:
         self._repo()
         (GATE.REPO_ROOT / GATE.DOCKERFILE).unlink()
@@ -635,8 +661,9 @@ class BaselineTest(RepoCase):
 
     def test_update_records_an_honest_bump(self) -> None:
         # rumdl only: actionlint's unchanged pair is not an error, and its
-        # baseline is left byte for byte as it was.
-        self._repo(**_bumped(rumdl=HONEST))
+        # baseline is left byte for byte as it was. It starts hand-written,
+        # since the template's bytes are also what a rewrite would leave.
+        self._repo(**_bumped(rumdl=HONEST), actionlint_baseline=HAND_AL_BASELINE)
         before = self._baselines()
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
@@ -652,7 +679,7 @@ class BaselineTest(RepoCase):
         self.assertEqual((code, err), (0, ""))
 
     def test_update_records_an_actionlint_only_bump(self) -> None:
-        self._repo(**_bumped(actionlint=HONEST))
+        self._repo(**_bumped(actionlint=HONEST), rumdl_baseline=HAND_RUMDL_BASELINE)
         before = self._baselines()
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
