@@ -277,7 +277,7 @@ fn check<C: Checker + crate::LanguageInfo>(
     defensive: &[u16],
 ) {
     let mut seen_kinds = BTreeSet::new();
-    let mut got: Vec<(String, Labelled<{ NAMES.len() }>)> = Vec::new();
+    let mut got = Vec::new();
     for_each_node_with_chain::<C>(source, |node, chain| {
         seen_kinds.insert(node.kind_id());
         let answers = read(node, source, Ancestors::known(chain));
@@ -286,7 +286,7 @@ fn check<C: Checker + crate::LanguageInfo>(
             got.push((node.kind().to_owned(), Labelled(answers, &NAMES)));
         }
     });
-    let want: Vec<(String, Labelled<{ NAMES.len() }>)> = expected
+    let want: Vec<_> = expected
         .iter()
         .map(|(k, a)| ((*k).to_owned(), Labelled(*a, &NAMES)))
         .collect();
