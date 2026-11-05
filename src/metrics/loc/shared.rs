@@ -363,11 +363,13 @@ const ROWS_AROUND_A_GAP_ROW: usize = 2;
 // `blank = sloc - ploc - cloc` claimed it: `echo a | \` + `\` +
 // `  grep b` reported `ploc 2, blank 1` for one three-row command.
 //
-// FIXME(#1801): C, C++, Mozcpp, Objective-C, Ruby and Elixir list the
-// same extra and do not call this yet, so a bare row there still reads
-// as blank — `#define` bodies included, where a bare row between the
-// parameters and the body, or after a `/* … */` that ends a
-// `preproc_arg`, is padding rather than macro text.
+// C, C++, Mozcpp, Objective-C, Ruby and Elixir splice it the same way,
+// some inside a wider extras pattern, and call this too (#1801). That
+// covers `#define`: a bare row between the name or parameters and the
+// body is padding in the directive, before `preproc_arg` starts, not
+// macro text the `PreprocArg` range credits, and so is one after a
+// `/* … */` that ends a `preproc_arg`, where the grammar recovers with
+// an `ERROR` around the rest of the body.
 //
 // A bare row that continues no row before it starts a logical line, and
 // is what that line becomes once spliced: a comment where the row it joins
@@ -397,8 +399,11 @@ const ROWS_AROUND_A_GAP_ROW: usize = 2;
 // `puts x` as one comment, but the Tcl and iRules `comment` token is
 // `#[^\n]*` and stops at the row's end, so a bare row continuing one is
 // comment text the comment node does not cover; it is credited to CLOC.
-// Bash never continues a comment — `echo a # c \` + `\` + `echo b` runs
-// `echo b` — so there a bare row after a comment starts a logical line.
+// C and its siblings continue a comment as well (translation phase 2),
+// but their `//` token takes the continued rows itself, so no bare row
+// after one is padding. Bash, Ruby and Elixir never continue a comment
+// — `echo a # c \` + `\` + `echo b` runs `echo b` — so there a bare row
+// after a comment starts a logical line.
 #[inline]
 pub(crate) fn credit_bare_continuation_rows<'a>(
     node: &Node<'a>,
@@ -442,7 +447,8 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
 }
 
 // The grammar's comment kind, and whether a `\` ending a comment row
-// carries the comment onto the next row (Tcl, iRules) or not (Bash).
+// carries the comment onto the next row (Tcl, iRules and the C family)
+// or not (Bash, Ruby, Elixir).
 #[derive(Clone, Copy)]
 pub(crate) struct BareRowComments {
     pub(crate) kind: u16,

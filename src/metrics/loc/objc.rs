@@ -24,6 +24,17 @@ impl Loc for ObjcCode {
         use Objc::*;
 
         let start = init(node, stats, is_func_space);
+        // Translation phase 2 splices a comment row's trailing `\` too.
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: Objc::Comment as u16,
+                continued: true,
+            },
+        );
 
         match node.kind_id().into() {
             // ObjC has no raw string literals. `instance_variables` is

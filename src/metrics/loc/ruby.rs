@@ -24,6 +24,18 @@ impl Loc for RubyCode {
         use Ruby as R;
 
         let start = init(node, stats, is_func_space);
+        // A `#` comment ends with its row: `ruby` runs the row after `# c \`.
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: R::Comment as u16,
+                continued: false,
+            },
+        );
+
         match node.kind_id().into() {
             R::Program => {}
             R::Comment => {

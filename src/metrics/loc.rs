@@ -8572,10 +8572,12 @@ EOF
         (loc.sloc(), loc.ploc(), loc.cloc(), loc.blank())
     }
 
-    /// Asserts each `(source, file rows, blank before #1445)` fixture's
-    /// file-level `loc_rows` under `lang`, byte-for-byte: `check_metrics`
-    /// would normalise away the CRLF and the missing final newline that
-    /// two of the fixtures are about (`.claude/rules/testing.md`).
+    /// Asserts each `(source, file rows, blank before the bare-row credit)`
+    /// fixture's file-level `loc_rows` under `lang`, byte-for-byte:
+    /// `check_metrics` would normalise away the CRLF and the missing final
+    /// newline that some fixtures are about (`.claude/rules/testing.md`).
+    /// The credit reached Bash, Tcl and iRules in #1445 and the C family,
+    /// Ruby and Elixir in #1801.
     #[cfg(any(
         feature = "bash",
         feature = "c",
@@ -8602,7 +8604,7 @@ EOF
                 (measured != expected).then(|| {
                     format!(
                         "{:?}: measured {measured:?}, expected {expected:?} \
-                         (blank {blank_before} before #1445)",
+                         (blank {blank_before} before the bare-row credit)",
                         String::from_utf8_lossy(source)
                     )
                 })
@@ -8622,7 +8624,7 @@ EOF
     /// that contains it and not only to the file (#1445): `Loc::compute`
     /// writes into the current space's `Stats`, and the unit sees nested
     /// rows only through `Stats::merge`.
-    #[cfg(any(feature = "bash", feature = "irules", feature = "tcl"))]
+    #[cfg(any(feature = "bash", feature = "c", feature = "irules", feature = "tcl"))]
     #[track_caller]
     fn assert_nested_continuation(lang: crate::LANG, source: &[u8], expected: LocRows) {
         let space = space_verbatim(
@@ -8900,39 +8902,163 @@ EOF
         );
     }
 
-    /// FIXME(#1801): the C family, Ruby and Elixir splice `\` + newline in
-    /// their lexer extras as Bash does, but their `Loc` impls do not call
-    /// `credit_bare_continuation_rows` yet, so the bare row still reads as
-    /// blank. Pinned so the gap stays visible rather than endorsed: the fix
-    /// moves every row to `(3, 3, 0, 0)`.
+    /// #1801's fixtures for the four C-family grammars, each of which lists
+    /// `\s|\\\r?\n` among its extras, so a bare `\` row in padding has no
+    /// node, as in Bash. Every LF fixture and the CRLF twin pass `gcc -x
+    /// c`, `g++ -x c++` and `clang -x objective-c` with `-fsyntax-only`.
     ///
-    /// gcc, g++ and clang (`-x objective-c`) accept the C-family fixture,
-    /// and `ruby -c` the Ruby one, which evaluates to 3. No Elixir
-    /// interpreter was available; its row rests on the grammar alone.
-    #[cfg(all(
-        feature = "c",
-        feature = "cpp",
-        feature = "elixir",
-        feature = "mozcpp",
-        feature = "objc",
-        feature = "ruby"
-    ))]
+    /// expected: translation phase 2 splices each `\` + newline before
+    /// anything else is read, so a bare row in padding is the code it
+    /// continues, and one that continues nothing is the line it joins. The
+    /// third element is `blank` before #1801, when the bare row read blank
+    /// and nothing else differed: each non-control row's earlier tuple is
+    /// the expected one with that row moved back to `blank`, out of
+    /// `ploc`, or out of `cloc` for the row that joins `// note`.
+    ///
+    /// No fixture can tell `continued: true` from `false` here: the `//`
+    /// token takes a trailing `\` with the row it continues, and `/* … */`
+    /// spans its own rows, so a bare row never sits in padding after a
+    /// comment's `\`. The flag records phase 2 for a grammar that stops
+    /// doing so.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    const C_FAMILY_BARE_CONTINUATION_ROWS: &[(&[u8], LocRows, u64)] = &[
+        (b"int x = 1 + \\\n\\\n2;\n", (3, 3, 0, 0), 1),
+        (b"int x = 1 + \\\r\n\\\r\n2;\r\n", (3, 3, 0, 0), 1),
+        // A bare row that continues nothing joins the comment after it,
+        // which is the whole logical line once spliced.
+        (b"\\\n// note\nint z = 1;\n", (3, 1, 2, 0), 1),
+        // The bare row is padding in `preproc_def` *before* `preproc_arg`,
+        // which starts on the last row, so the `PreprocArg` interior
+        // credit (#1423) never reached it.
+        (b"#define X \\\n\\\n1\n", (3, 3, 0, 0), 1),
+        (b"#define X \\\n\\\n1\nint z = X;\n", (4, 4, 0, 0), 1),
+        (b"#define F(a) \\\n\\\n  (a)\n", (3, 3, 0, 0), 1),
+        // A block comment ends the first `preproc_arg`, and the grammar
+        // recovers with an `ERROR` holding it, the comment and `+`: the
+        // bare row is padding in that `ERROR`.
+        (b"#define X a /* c */ \\\n\\\n  + b\n", (3, 3, 1, 0), 1),
+        // The `\` follows a closed comment and continues that row into
+        // `int z = 1;`; the `\` is no token, so the comment row stays
+        // comment-only.
+        (b"/* c */ \\\n\\\nint z = 1;\n", (3, 2, 1, 0), 1),
+        // Controls: the bare row is inside a node, and an arm older than
+        // #1801 credits it. The first `//` comment spans all three rows.
+        (b"// c \\\n\\\nint y = 2;\nint z = 3;\n", (4, 1, 3, 0), 0),
+        (b"/* a\n\\\nb */\nint z = 1;\n", (4, 1, 3, 0), 0),
+        (b"#define X a \\\n\\\n  b\n", (3, 3, 0, 0), 0),
+        (b"const char *s = \"ab\\\n\\\ncd\";\n", (3, 3, 0, 0), 0),
+        // `gcc -E` defines `X` as empty: the comment runs through both
+        // continued rows, `int z = 1;` included, and its node spans them.
+        (b"#define X // c \\\n\\\nint z = 1;\n", (3, 1, 3, 0), 0),
+    ];
+
+    #[cfg(feature = "c")]
     #[test]
-    fn bare_continuation_rows_in_unwired_grammars_still_read_blank() {
-        let c_family: &[(&[u8], LocRows, u64)] =
-            &[(b"int x = 1 + \\\n\\\n  2;\n", (3, 2, 0, 1), 1)];
-        for lang in [
+    fn c_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(crate::LANG::C, C_FAMILY_BARE_CONTINUATION_ROWS);
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(crate::LANG::Cpp, C_FAMILY_BARE_CONTINUATION_ROWS);
+    }
+
+    /// Mozcpp owns no file extension, so no integration snapshot reaches
+    /// it and this is its only coverage of the credit.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(crate::LANG::Mozcpp, C_FAMILY_BARE_CONTINUATION_ROWS);
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(crate::LANG::Objc, C_FAMILY_BARE_CONTINUATION_ROWS);
+    }
+
+    /// #1801's bare row inside a C function is the function's own code.
+    ///
+    /// expected: every row is code; before #1801 the unit and the function
+    /// both read `(6, 5, 0, 1)`.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_bare_continuation_row_in_a_function_is_its_code() {
+        assert_nested_continuation(
             crate::LANG::C,
-            crate::LANG::Cpp,
-            crate::LANG::Mozcpp,
-            crate::LANG::Objc,
-        ] {
-            assert_continuation_fixtures(lang, c_family);
-        }
-        let expression: &[(&[u8], LocRows, u64)] = &[(b"x = 1 + \\\n\\\n  2\n", (3, 2, 0, 1), 1)];
-        for lang in [crate::LANG::Ruby, crate::LANG::Elixir] {
-            assert_continuation_fixtures(lang, expression);
-        }
+            b"int f() {\n  int x = 1 + \\\n\\\n  2;\n  return x;\n}\n",
+            (6, 6, 0, 0),
+        );
+    }
+
+    /// #1801 for Ruby, whose extras splice `\\\r?\n` as the C family's do
+    /// but whose `#` comment never continues: `ruby` runs the row after
+    /// `# c \`. Every LF fixture passes `ruby -c`.
+    ///
+    /// expected: as for the C family, the third element is `blank` before
+    /// #1801, and each non-control row's earlier tuple is the expected one
+    /// with the bare row moved back to `blank`, out of `ploc`, or out of
+    /// `cloc` for the row that joins `# note`.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(
+            crate::LANG::Ruby,
+            &[
+                (b"x = 1 + \\\n\\\n  2\n", (3, 3, 0, 0), 1),
+                (b"x = 1 + \\\r\n\\\r\n  2\r\n", (3, 3, 0, 0), 1),
+                // A comment's `\` is comment text, so the bare row starts a
+                // line of its own: the code it joins (`ruby` prints 1), or
+                // the empty row, which keeps it blank.
+                (b"# c \\\n\\\nputs 1\n", (3, 2, 1, 0), 1),
+                (b"# c \\\n\\\n\nx = 2\n", (4, 1, 1, 2), 2),
+                (b"\\\n# note\nputs 1\n", (3, 1, 2, 0), 1),
+                // Controls: inside a literal `\` + newline is an
+                // `escape_sequence` node, so the row is not padding, and
+                // the heredoc and string arms credit it.
+                (b"x = <<~EOS\n  a\n\\\n  b\nEOS\n", (5, 5, 0, 0), 0),
+                (b"x = \"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 0),
+                // FIXME(#1816): (3, 3, 0, 0). No arm routes `string_array`
+                // or `regex`, and the `escape_sequence` spanning the bare
+                // row starts on the row above it.
+                (b"x = %w[a\\\n\\\nb]\n", (3, 2, 0, 1), 1),
+                (b"x = /ab\\\n\\\ncd/\n", (3, 2, 0, 1), 1),
+            ],
+        );
+    }
+
+    /// #1801 for Elixir, whose extras splice `\\\r?\n` too. No Elixir
+    /// interpreter was available; `elixir_tokenizer.erl` (elixir-lang/elixir
+    /// `cb869525`) is the evidence: `tokenize("\\\n" ++ Rest, …)` and its
+    /// `\r\n` twin continue the line with no `eol` token, and
+    /// `tokenize_comment` stops at the newline, so a comment never
+    /// continues.
+    ///
+    /// expected: as for Ruby, the third element is `blank` before #1801,
+    /// and each non-control row's earlier tuple is the expected one with
+    /// the bare row moved back to `blank`, out of `ploc`, or out of `cloc`
+    /// for the row that joins `# note`.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(
+            crate::LANG::Elixir,
+            &[
+                (b"x = 1 + \\\n\\\n  2\n", (3, 3, 0, 0), 1),
+                (b"x = 1 + \\\r\n\\\r\n  2\r\n", (3, 3, 0, 0), 1),
+                (b"# c \\\n\\\nx = 1\n", (3, 2, 1, 0), 1),
+                (b"\\\n# note\nx = 1\n", (3, 1, 2, 0), 1),
+                // Control: the bare row is inside a heredoc's
+                // `quoted_content`, which its arm credits.
+                (b"x = \"\"\"\nab\n\\\ncd\n\"\"\"\n", (5, 5, 0, 0), 0),
+                // FIXME(#1816): (3, 3, 0, 0). The bare row is inside an
+                // `escape_sequence` leaf that starts on the row above it,
+                // and the leaf-gated catch-all credits only that row.
+                (b"x = \"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
+                (b"x = ~s(ab\\\n\\\ncd)\n", (3, 2, 0, 1), 1),
+            ],
+        );
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the

@@ -24,6 +24,17 @@ impl Loc for CppCode {
         use Cpp::*;
 
         let start = init(node, stats, is_func_space);
+        // Translation phase 2 splices a comment row's trailing `\` too.
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: Cpp::Comment as u16,
+                continued: true,
+            },
+        );
 
         match node.kind_id().into() {
             DeclarationList | FieldDeclarationList | TranslationUnit => {}

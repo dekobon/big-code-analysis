@@ -40,6 +40,17 @@ impl Loc for ElixirCode {
         use Elixir as E;
 
         let start = init(node, stats, is_func_space);
+        // `elixir_tokenizer` ends a `#` comment at the newline, `\` or not.
+        credit_bare_continuation_rows(
+            node,
+            code,
+            ancestors,
+            stats,
+            BareRowComments {
+                kind: E::Comment as u16,
+                continued: false,
+            },
+        );
 
         match node.kind_id().into() {
             // Root of the file — handled by `init` above.
