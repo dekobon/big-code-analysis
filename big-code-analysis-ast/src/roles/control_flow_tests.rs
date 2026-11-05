@@ -86,6 +86,21 @@ mod slot {
     pub(super) const ELSE_IF: usize = 8;
     pub(super) const ELSE_IF_LEAF: usize = 9;
     pub(super) const EXIT: usize = 10;
+
+    /// Each slot's name, indexed by slot: what [`super::Labelled`] prints.
+    pub(super) const NAMES: [&str; 11] = [
+        "BRANCH",
+        "BRANCH_LEAF",
+        "SWITCH",
+        "SWITCH_LEAF",
+        "LOOP",
+        "LOOP_LEAF",
+        "CATCH",
+        "CATCH_LEAF",
+        "ELSE_IF",
+        "ELSE_IF_LEAF",
+        "EXIT",
+    ];
 }
 #[cfg(any(
     feature = "bash",
@@ -233,6 +248,72 @@ macro_rules! declared {
     }};
 }
 
+/// An [`Answers`] that prints as the names of its true slots —
+/// `{BRANCH, BRANCH_LEAF}` — so a failing `check` names the slot that
+/// differs instead of leaving its reader to count `[bool; 11]` columns.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[derive(PartialEq)]
+struct Labelled(Answers);
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+impl std::fmt::Debug for Labelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut set = f.debug_set();
+        for (name, on) in NAMES.iter().zip(self.0) {
+            if on {
+                set.entry(&format_args!("{name}"));
+            }
+        }
+        set.finish()
+    }
+}
+
 /// Walks `source`, answers the six rows for every node whose kind the
 /// `expected` table names (or that any row answers non-false for), and
 /// compares against the table in walk order. `defensive` kinds must be
@@ -275,18 +356,18 @@ fn check<C: Checker + crate::LanguageInfo>(
     defensive: &[u16],
 ) {
     let mut seen_kinds = BTreeSet::new();
-    let mut got: Vec<(String, Answers)> = Vec::new();
+    let mut got: Vec<(String, Labelled)> = Vec::new();
     for_each_node_with_chain::<C>(source, |node, chain| {
         seen_kinds.insert(node.kind_id());
         let answers = read(node, source, Ancestors::known(chain));
         let listed = node.is_named() && expected.iter().any(|(k, _)| *k == node.kind());
         if listed || answers != NONE {
-            got.push((node.kind().to_owned(), answers));
+            got.push((node.kind().to_owned(), Labelled(answers)));
         }
     });
-    let want: Vec<(String, Answers)> = expected
+    let want: Vec<(String, Labelled)> = expected
         .iter()
-        .map(|(k, a)| ((*k).to_owned(), *a))
+        .map(|(k, a)| ((*k).to_owned(), Labelled(*a)))
         .collect();
     pretty_assertions::assert_eq!(got, want);
     owners_covered(&seen_kinds, declared, defensive);
@@ -328,6 +409,85 @@ const fn at(set: &[usize]) -> Answers {
         i += 1;
     }
     a
+}
+
+/// `Labelled` prints `NAMES[i]` for slot `i`, so a name list that drops
+/// a slot or falls out of order mislabels every failure it explains.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[test]
+fn every_slot_is_named_after_its_constant() {
+    let by_constant = [
+        (BRANCH, "BRANCH"),
+        (BRANCH_LEAF, "BRANCH_LEAF"),
+        (SWITCH, "SWITCH"),
+        (SWITCH_LEAF, "SWITCH_LEAF"),
+        (LOOP, "LOOP"),
+        (LOOP_LEAF, "LOOP_LEAF"),
+        (CATCH, "CATCH"),
+        (CATCH_LEAF, "CATCH_LEAF"),
+        (ELSE_IF, "ELSE_IF"),
+        (ELSE_IF_LEAF, "ELSE_IF_LEAF"),
+        (EXIT, "EXIT"),
+    ];
+    let by_index: Vec<(usize, &str)> = NAMES.iter().copied().enumerate().collect();
+    assert_eq!(by_constant.as_slice(), by_index.as_slice());
+    assert_eq!(NAMES.len(), NONE.len());
+}
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[test]
+fn labelled_prints_the_true_slots_by_name() {
+    assert_eq!(
+        format!("{:?}", Labelled(at(&[BRANCH, BRANCH_LEAF]))),
+        "{BRANCH, BRANCH_LEAF}"
+    );
+    assert_eq!(format!("{:?}", Labelled(NONE)), "{}");
 }
 
 #[cfg(feature = "java")]

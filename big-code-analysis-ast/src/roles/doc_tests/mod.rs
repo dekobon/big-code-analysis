@@ -101,6 +101,20 @@ mod slot {
     pub(super) const IS_COMMENT: usize = 7;
     pub(super) const IS_DOC_COMMENT: usize = 8;
     pub(super) const IS_RUN_DIRECTIVE: usize = 9;
+
+    /// Each slot's name, indexed by slot: what [`super::Labelled`] prints.
+    pub(super) const NAMES: [&str; 10] = [
+        "COMMENT",
+        "DOC_COMMENT",
+        "DOCSTRING",
+        "DOC_TARGET",
+        "RUN_OPENER",
+        "RUN_DIRECTIVE",
+        "HOLDS_IN_BODY",
+        "IS_COMMENT",
+        "IS_DOC_COMMENT",
+        "IS_RUN_DIRECTIVE",
+    ];
 }
 #[cfg(any(
     feature = "bash",
@@ -247,6 +261,74 @@ macro_rules! declared {
     }};
 }
 
+/// An [`Answers`] that prints as the names of its true slots —
+/// `{COMMENT, IS_COMMENT}` — so a failing `check` names the slot that
+/// differs instead of leaving its reader to count `[bool; 10]` columns.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[derive(PartialEq)]
+struct Labelled(Answers);
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+impl std::fmt::Debug for Labelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut set = f.debug_set();
+        for (name, on) in NAMES.iter().zip(self.0) {
+            if on {
+                set.entry(&format_args!("{name}"));
+            }
+        }
+        set.finish()
+    }
+}
+
 /// Walks `source`, answers the rows and the `Checker` for every node
 /// whose kind the `expected` table names (or that any reading answers
 /// non-false for), and compares against the table in walk order, with
@@ -289,7 +371,7 @@ fn check<C: Checker + crate::LanguageInfo>(
     defensive: &[u16],
 ) {
     let mut seen_kinds = BTreeSet::new();
-    let mut got: Vec<(String, String, Answers)> = Vec::new();
+    let mut got: Vec<(String, String, Labelled)> = Vec::new();
     for_each_node_with_chain::<C>(source, |node, chain| {
         seen_kinds.insert(node.kind_id());
         let answers = read(node, source, Ancestors::known(chain));
@@ -297,12 +379,12 @@ fn check<C: Checker + crate::LanguageInfo>(
         if listed || answers != NONE {
             let text = node.utf8_text(source).unwrap_or("<non-utf8>");
             let text = text.lines().next().unwrap_or("").to_owned();
-            got.push((node.kind().to_owned(), text, answers));
+            got.push((node.kind().to_owned(), text, Labelled(answers)));
         }
     });
-    let want: Vec<(String, String, Answers)> = expected
+    let want: Vec<(String, String, Labelled)> = expected
         .iter()
-        .map(|(k, t, a)| ((*k).to_owned(), (*t).to_owned(), *a))
+        .map(|(k, t, a)| ((*k).to_owned(), (*t).to_owned(), Labelled(*a)))
         .collect();
     pretty_assertions::assert_eq!(got, want);
     owners_covered(&seen_kinds, declared, defensive);
@@ -342,6 +424,86 @@ const fn at(set: &[usize]) -> Answers {
         i += 1;
     }
     a
+}
+
+/// `Labelled` prints `NAMES[i]` for slot `i`, so a name list that drops
+/// a slot or falls out of order mislabels every failure it explains.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[test]
+fn every_slot_is_named_after_its_constant() {
+    let by_constant = [
+        (COMMENT, "COMMENT"),
+        (DOC_COMMENT, "DOC_COMMENT"),
+        (DOCSTRING, "DOCSTRING"),
+        (DOC_TARGET, "DOC_TARGET"),
+        (RUN_OPENER, "RUN_OPENER"),
+        (RUN_DIRECTIVE, "RUN_DIRECTIVE"),
+        (HOLDS_IN_BODY, "HOLDS_IN_BODY"),
+        (IS_COMMENT, "IS_COMMENT"),
+        (IS_DOC_COMMENT, "IS_DOC_COMMENT"),
+        (IS_RUN_DIRECTIVE, "IS_RUN_DIRECTIVE"),
+    ];
+    let by_index: Vec<(usize, &str)> = NAMES.iter().copied().enumerate().collect();
+    assert_eq!(by_constant.as_slice(), by_index.as_slice());
+    assert_eq!(NAMES.len(), NONE.len());
+}
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+#[test]
+fn labelled_prints_the_true_slots_by_name() {
+    assert_eq!(
+        format!("{:?}", Labelled(at(&[COMMENT, IS_COMMENT]))),
+        "{COMMENT, IS_COMMENT}"
+    );
+    assert_eq!(format!("{:?}", Labelled(NONE)), "{}");
 }
 
 /// A plain comment: the `Comment` row and `is_comment`, nothing else.
