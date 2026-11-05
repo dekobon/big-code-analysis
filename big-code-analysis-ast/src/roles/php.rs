@@ -5,13 +5,36 @@
 //! `Catch`, `ElseIf`, `Exit` (#1697) — and
 //! the documentation rows (#1699) are declared.
 
-use crate::lang_helpers::doc_comment::phpdoc;
+use crate::lang_helpers::doc_comment::{node_bytes, phpdoc};
 use crate::role_table;
 use crate::{Ancestors, Node, Php};
 
 // Whether a comment opens with the DocBlock marker PHP's scanner reads
 // (`/**` followed by whitespace), from the bytes.
 crate::roles::byte_gate!(opens_with_docblock_marker, phpdoc);
+
+/// Whether an `expression_statement` is a `define()` call, which
+/// phpDocumentor's `Define` factory turns into a constant carrying the
+/// statement's DocBlock (`Reflection/Php/Factory/Define.php`,
+/// `matches`): the statement's expression is a `FuncCall` whose name
+/// is a `Name` spelling exactly `define` — compared as a string, so
+/// `DEFINE` is no match, and after PHP-Parser's `NameResolver` has
+/// run, which leaves an unqualified `define` as is, resolves `\define`
+/// to a `FullyQualified` printing as `define`, and prefixes a
+/// qualified or `namespace\` name with its namespace. Read from the
+/// subtree alone: the call's `function` child is a bare `name` spelling
+/// `define`, or a `qualified_name` spelling `\define` (PHP allows no
+/// whitespace inside a name).
+fn is_define_call(node: &Node<'_>, code: &[u8]) -> bool {
+    node.children()
+        .find(|child| child.kind_id() == Php::FunctionCallExpression)
+        .and_then(|call| call.child_by_field_name("function"))
+        .is_some_and(|callee| match callee.kind_id().into() {
+            Php::Name => node_bytes(&callee, code) == b"define",
+            Php::QualifiedName => node_bytes(&callee, code) == b"\\define",
+            _ => false,
+        })
+}
 
 /// Whether an `if_statement` continues a two-word `else if`: its parent
 /// is an `else_clause` (either alias), read off the chain (#1084).
@@ -238,12 +261,15 @@ role_table! {
     Docstring { absent "PHP documents with PHPDoc comments, not string literals" }
     // The structural elements phpDocumentor's reflection builds: a
     // class, interface, trait or enum, a function or method, a
-    // property, a class or global constant and an enum case. `define()`
-    // is a call the grammar parses as a statement, so a DocBlock above
-    // it stays a plain comment, where phpDocumentor reads it as a
-    // constant's; a `use`, a `namespace` or any other statement takes
-    // none. Outside the space-tree rows: the enum case (a tag, not a
-    // member) — the parity exception `roles/doc_tests/parity.rs` records.
+    // property, a class or global constant and an enum case, and a
+    // `define()` call — which the grammar parses as an
+    // `expression_statement` (one id, no alias) holding the
+    // `function_call_expression`, owned under a gate on the callee's
+    // bytes (#1646); a `use`, a `namespace` or any other statement
+    // takes none. Outside the
+    // space-tree rows: the enum case (a tag, not a member) and the
+    // `define()` statement — the parity exceptions
+    // `roles/doc_tests/parity.rs` records.
     DocTarget {
         owns [
             ClassDeclaration,
@@ -256,6 +282,7 @@ role_table! {
             ConstDeclaration,
             ConstDeclaration2,
             EnumCase,
+            ExpressionStatement(text_gated_by is_define_call no_chain),
         ]
     }
     DocRunOpener { absent "phpDocumentor attaches every DocBlock to an element or the file; none documents by its own content" }

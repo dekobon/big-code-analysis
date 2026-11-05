@@ -1885,11 +1885,20 @@ mod tests {
 
     /// phpDocumentor gives an element PHP-Parser's `getDocComment`, the
     /// last DocBlock before its first token, plain comments read past; a
-    /// DocBlock above a statement documents nothing. `createFileDocBlock`
+    /// DocBlock above a statement documents nothing — except a `define()`
+    /// call, which the `Define` factory makes a constant of, with the
+    /// statement's DocBlock (`Factory/Define.php`, `matches`: an
+    /// `Expression` holding a `FuncCall` whose `Name` prints `define`,
+    /// after `NameResolver` has printed `\define` as `define` and a
+    /// namespace-qualified or `DEFINE` spelling as something else; the
+    /// factory runs at file, function and method level, so a `define()`
+    /// in a body is a constant to the tool, which bca's in-body policy
+    /// withholds) (#1646). `createFileDocBlock`
     /// makes the file's first DocBlock the file's own when a non-element
     /// (a `namespace`, a `use`, a statement, nothing) follows the leading
     /// DocBlocks, or when exactly two precede the first element (#1613).
-    /// Each row was checked with phpDocumentor 3's reflection.
+    /// Each row was checked with phpDocumentor 3's reflection; the
+    /// `define()` rows against the factory's source.
     #[cfg(feature = "php")]
     #[test]
     fn php_doc_comments_bind_to_the_element_after_them() {
@@ -1979,6 +1988,78 @@ mod tests {
                     "file DocBlock above a statement",
                     b"<?php\n/** f */\n$x = 1;\n",
                     1,
+                    1,
+                ),
+                // expected: the `Define` factory makes the statement a
+                // constant with its DocBlock; on `main` every row below
+                // read dloc 0 (#1646).
+                (
+                    "above a define()",
+                    b"<?php\nfunction z() {}\n/** d */\ndefine('X', 1);\n",
+                    1,
+                    1,
+                ),
+                (
+                    "above a \\define()",
+                    b"<?php\nfunction z() {}\n/** d */\n\\define('X', 1);\n",
+                    1,
+                    1,
+                ),
+                (
+                    "above a define() in an if",
+                    b"<?php\nif (!defined('X')) {\n    /** d */\n    define('X', 1);\n}\n",
+                    1,
+                    1,
+                ),
+                // expected: phpDocumentor's `Function_` factory descends
+                // a function's statements and `Define::matches` reads no
+                // context, so the tool makes this a constant too; bca's
+                // in-body policy (`DOC_COMMENTS_IN_FUNCTION_BODIES`,
+                // #1597) withholds every in-body DocBlock before the
+                // binding runs, so this stays `cloc` — a recorded
+                // divergence on #1646, not a row's to decide.
+                (
+                    "above a define() in a function body",
+                    b"<?php\nfunction f() {\n    /** d */\n    define('X', 1);\n}\n",
+                    0,
+                    1,
+                ),
+                // expected: `matches` compares the printed name to
+                // `define` exactly, so these stay plain comments.
+                (
+                    "above a defined()",
+                    b"<?php\nfunction z() {}\n/** d */\ndefined('X');\n",
+                    0,
+                    1,
+                ),
+                (
+                    "above another call",
+                    b"<?php\nfunction z() {}\n/** d */\nfoo();\n",
+                    0,
+                    1,
+                ),
+                (
+                    "above a DEFINE()",
+                    b"<?php\nfunction z() {}\n/** d */\nDEFINE('X', 1);\n",
+                    0,
+                    1,
+                ),
+                (
+                    "above a namespace-qualified define()",
+                    b"<?php\nfunction z() {}\n/** d */\nFoo\\define('X', 1);\n",
+                    0,
+                    1,
+                ),
+                (
+                    "above an assigned define()",
+                    b"<?php\nfunction z() {}\n/** d */\n$x = define('X', 1);\n",
+                    0,
+                    1,
+                ),
+                (
+                    "after a define()'s arguments",
+                    b"<?php\nfunction z() {}\ndefine('X', 1) /** t */;\n",
+                    0,
                     1,
                 ),
             ],

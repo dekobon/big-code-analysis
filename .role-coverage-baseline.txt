@@ -4524,7 +4524,6 @@
 301 named visible 'switch_block'
 304 named visible 'compound_statement'
 305 named visible 'named_label_statement'
-306 named visible 'expression_statement'
 307 anon hidden 'expression'
 308 anon hidden '_unary_expression'
 309 named visible 'unary_op_expression'

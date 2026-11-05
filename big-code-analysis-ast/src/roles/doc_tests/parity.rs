@@ -269,7 +269,10 @@ pub(in crate::roles) fn doc_target_tables() -> Vec<Table> {
         ReturnStatement: "a `return` of a function or table, an LDoc item",
     ]));
     #[cfg(feature = "php")]
-    tables.push(table!(Php, php, [EnumCase: "an enum case, a tag rather than a member"]));
+    tables.push(table!(Php, php, [
+        EnumCase: "an enum case, a tag rather than a member",
+        ExpressionStatement: "a `define()` call, a constant to phpDocumentor",
+    ]));
     #[cfg(feature = "ruby")]
     tables.push(table!(Ruby, ruby, [
         Alias: "a method alias",

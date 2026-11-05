@@ -74,21 +74,30 @@ impl Checker for PhpCode {
         forward: |comment, code, ancestors| {
             let in_signature = ancestors.parent(comment).is_some_and(|parent| {
                 let kind = parent.kind_id();
-                // The declarations are the `DocTarget` row's kind table;
-                // beside them the closures, a parameter list and a
+                // The declarations are the `DocTarget` row's kind table,
+                // less the `define()` statement: a DocBlock among an
+                // expression statement's children sits after its
+                // expression, where PHP-Parser gives it to the token
+                // after it, as `/** d */ $x = 1;` does (#1646). Beside
+                // the declarations the closures, a parameter list and a
                 // promoted parameter, which hold a DocBlock in a
                 // signature without being targets themselves.
-                crate::roles::php::doc_target::lists_kind(kind)
-                    // role-bypass: allow(Closure) — a DocBlock *inside* a closure is in
-                    // its signature; where a declaration's children end is a binding
-                    // question, not membership
-                    || matches!(
-                        kind.into(),
-                        Php::AnonymousFunction
-                            | Php::ArrowFunction
-                            | Php::FormalParameters
-                            | Php::PropertyPromotionParameter
-                    )
+                // role-bypass: allow(DocTarget) — the row's declaration owners, which hold
+                // their DocBlock as a child after `#[…]` attributes; the statement owner
+                // holds no declaration children, so it is left out of the signature set
+                let declaration = crate::roles::php::doc_target::lists_kind(kind)
+                    && kind != Php::ExpressionStatement;
+                // role-bypass: allow(Closure) — a DocBlock *inside* a closure is in
+                // its signature; where a declaration's children end is a binding
+                // question, not membership
+                let signature_holder = matches!(
+                    kind.into(),
+                    Php::AnonymousFunction
+                        | Php::ArrowFunction
+                        | Php::FormalParameters
+                        | Php::PropertyPromotionParameter
+                );
+                declaration || signature_holder
             });
             !in_signature && !php_file_docblock(comment, code, ancestors)
         },

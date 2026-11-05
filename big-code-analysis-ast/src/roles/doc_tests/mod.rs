@@ -1110,8 +1110,11 @@ mod php {
     // the marker); `#` and `//` and `/* */` never are. `DocBodyResidual`
     // is absent, so a DocBlock in a closure or arrow body answers for
     // no body kind here — the Checker's body-child test is pinned
-    // separately below.
-    pub(super) const SOURCE: &[u8] = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n";
+    // separately below. The `define()` statement is a target under its
+    // callee gate, in its bare and `\`-qualified spellings; `defined()`,
+    // `DEFINE()`, a namespace-qualified `define` and an assigned one
+    // are not (#1646).
+    pub(super) const SOURCE: &[u8] = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n/** d */\ndefine('X', 1);\n\\define('Y', 2);\ndefined('X');\nDEFINE('Z', 3);\nFoo\\define('W', 4);\n$v = define('V', 5);\n";
 
     #[test]
     fn rows_answer_the_table() {
@@ -1135,7 +1138,19 @@ mod php {
                 "function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }",
                 TARGET,
             ),
+            // The two statements in `m()`'s body are listed because an
+            // `expression_statement` is now a (gated) target kind.
+            (
+                "expression_statement",
+                "$f = function () { /** in closure */ };",
+                NONE,
+            ),
             ("comment", "/** in closure */", DOC),
+            (
+                "expression_statement",
+                "$g = fn() => /** in arrow */ 1;",
+                NONE,
+            ),
             ("comment", "/** in arrow */", DOC),
             (
                 "interface_declaration",
@@ -1149,6 +1164,13 @@ mod php {
             ("enum_case", "case A;", TARGET),
             ("comment", "/** f */", DOC),
             ("function_definition", "function f() { }", TARGET),
+            ("comment", "/** d */", DOC),
+            ("expression_statement", "define('X', 1);", TARGET),
+            ("expression_statement", "\\define('Y', 2);", TARGET),
+            ("expression_statement", "defined('X');", NONE),
+            ("expression_statement", "DEFINE('Z', 3);", NONE),
+            ("expression_statement", "Foo\\define('W', 4);", NONE),
+            ("expression_statement", "$v = define('V', 5);", NONE),
         ];
         check::<PhpCode>(
             source,
@@ -1194,6 +1216,38 @@ mod php {
             ]
         );
         assert_eq!(crate::roles::php::doc_body_residual::OWNERS, &[] as &[u16]);
+    }
+
+    /// The binding's signature set reads the `DocTarget` row's kind
+    /// table less the `define()` statement (#1646): a DocBlock that is a
+    /// child of an `expression_statement` — after the call, before its
+    /// `;` — still binds forward, as one after any other statement's
+    /// expression does, while one after a declaration's `#[…]`
+    /// attribute is in that declaration's signature and does not.
+    #[test]
+    fn a_docblock_inside_a_statement_is_in_no_signature() {
+        use crate::Checker;
+        let source = b"<?php\ndefine('X', 1) /** s */;\n$x = 1 /** t */;\n#[Attr]\n/** a */\nfunction f() {}\n";
+        let binding = PhpCode::DOC_BINDING.expect("PHP binds its DocBlocks");
+        let mut seen = Vec::new();
+        for_each_node_with_chain::<PhpCode>(source, |node, chain| {
+            if !PhpCode::is_doc_comment(node, source) {
+                return;
+            }
+            let text = node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            seen.push((
+                text,
+                (binding.forward)(node, source, Ancestors::known(chain)),
+            ));
+        });
+        assert_eq!(
+            seen,
+            [
+                ("/** s */".to_owned(), true),
+                ("/** t */".to_owned(), true),
+                ("/** a */".to_owned(), false),
+            ]
+        );
     }
 }
 
