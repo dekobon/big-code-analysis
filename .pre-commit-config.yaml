@@ -63,7 +63,7 @@ repos:
       - id: bca-plugin-test
         name: Agent hook regression tests
         language: system
-        files: '^(\.opencode/plugins/.*\.[cm]?[jt]s|\.claude/hooks/.*|\.claude/settings\.json|utils/bca-(check-plugin|claude-hook)-test\.mjs|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$'
+        files: '^(\.opencode/plugins/.*\.[cm]?[jt]s|\.claude/hooks/.*|\.claude/settings\.json|utils/bca-(check-plugin|claude-hook)-test\.mjs|AGENTS\.md|big-code-analysis-book/src/recipes/agent-feedback\.md|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$'
         entry: make plugin-test
         pass_filenames: false
 

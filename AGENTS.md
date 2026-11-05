@@ -976,50 +976,61 @@ Three things to know before quoting a number at anyone:
 
 This repo dogfoods its own analyzer: a `bca check` threshold violation
 may surface mid-edit (via the Claude Code `PostToolUse` hook in
-`.claude/hooks/bca-check.mjs`, enabled by `.claude/settings.json`) or at
-the task boundary (`make self-scan`, `make pre-commit`). The hook runs
-`$BCA` if set; otherwise the candidate — `target/debug/bca`,
-`target/release/bca`, then PATH `bca` — whose `build inputs:` digest
-matches the tree, the same test `utils/self-scan-bca.py` applies, so it
-agrees with `make self-scan`; with no match it takes the newest local
-build, then PATH `bca`, and names its choice and why in the
-`[bca-check]` health line (#1776).
-A violation (cognitive, cyclomatic, ABC, …) means
-*this function is hard for a human to follow* — the number is a proxy
-for that, not the goal. Make the code genuinely simpler, not the number
-smaller.
+`.claude/hooks/bca-check.mjs`, enabled by `.claude/settings.json`, or
+the OpenCode plugin `.opencode/plugins/bca-check.js`, loaded by
+discovery) or at the task boundary (`make self-scan`, `make
+pre-commit`). The hook runs `$BCA` if set; otherwise the candidate —
+`target/debug/bca`, `target/release/bca`, then PATH `bca` — whose
+`build inputs:` digest matches the tree, the same test
+`utils/self-scan-bca.py` applies, so it agrees with `make self-scan`;
+with no match it takes the newest local build, then PATH `bca`, and
+names its choice and why in the `[bca-check]` health line (#1776).
+
+The policy below is the book's "Agent guidance (ship this verbatim)"
+block, kept identical by `make plugin-test`; the list after it is
+this repository's own addition.
+
+**Responding to `bca` metric feedback.** A threshold violation is a
+reason to review readability, not proof of a defect. Improve the code
+where that helps the current task; lowering a score is not itself a goal.
 
 - **Do not game the metric.** Do not extract a helper that exists only
   to move complexity off one function, split a cohesive function at an
-  arbitrary line, collapse readable branches into a dense expression, or
-  inline/obfuscate logic to dodge the count. These lower the
-  per-function score while making the code worse — and a spurious helper
-  often *raises* file-level `nom`/`nargs`, so the file is no better off.
+  arbitrary line, collapse readable branches into a dense expression,
+  or inline/obfuscate logic to dodge the count. These lower the
+  per-function score without necessarily improving readability.
+  New helpers also add names and interfaces that readers must understand.
 - **Refactor only when it truly clarifies.** A good split has a name
   that means something and a boundary a reader would have drawn anyway.
-  If you cannot name the extracted piece without inventing a `foo_part2`,
-  the split is gaming — stop.
+  If you cannot name the extracted piece without inventing a
+  `foo_part2`, reconsider the split.
 - **When the complexity is essential, suppress with a reason.** Some
-  functions are irreducibly complex *and clearest left whole* — a
+  functions are clearest left whole, such as a
   dispatch `match`, a hand-rolled parser table, an exhaustive state
-  machine. For these, add an in-source marker rather than contorting
-  the code, with the rationale on the same line:
-  `// bca: suppress(<metrics>) — <why>` inside the function (per-file:
-  `// bca: suppress-file(<metrics>) — <why>`). Anything after the metric
-  list is free text; no separator is required. **Name the metrics** if
-  you want to write a reason: a *bare* verb (`// bca: suppress`, no
-  list) takes no trailing text at all, because nothing distinguishes a
-  rationale from prose *about* the marker — put the reason on the line
-  above if the `All` scope is really what you want.
-  Use canonical metric names — it is `nexits`, **never** `exit`; an
-  unknown identifier warns and is skipped, while the recognised names in
-  the same marker still suppress. `tokens` is not suppressible. See
-  [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
-  and the full recipe at
-  [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).
+  machine. For these, do not contort the code: add a suppression marker
+  with the rationale on the same line:
+  `// bca: suppress(cognitive) -- exhaustive opcode dispatch`.
+  A clear function with an honest marker is better than a
+  "compliant" tangle.
 - **Keep the fix within the task.** Review findings relevant to the
   current change. Findings may concern other functions or the whole
   file; mention unrelated findings without expanding the edit.
+
+Repository-specific additions:
+
+- **Marker syntax.** Per-file: `// bca: suppress-file(<metrics>) — <why>`.
+  Anything after the metric list is free text; no separator is
+  required. **Name the metrics** if you want to write a reason: a
+  *bare* verb (`// bca: suppress`, no list) takes no trailing text at
+  all, because nothing distinguishes a rationale from prose *about* the
+  marker — put the reason on the line above if the `All` scope is
+  really what you want. Use canonical metric names — it is `nexits`,
+  **never** `exit`; an unknown identifier warns and is skipped, while
+  the recognised names in the same marker still suppress. `tokens` is
+  not suppressible. See
+  [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
+  and the full recipe at
+  [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).
 - **Attribute the score before sizing the fix, then size against every
   gated metric.** Re-derive the genuine decision count by hand and
   compare it to the measurement: part of the headline may be a metric

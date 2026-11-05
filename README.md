@@ -73,7 +73,9 @@ configure the hook. The Claude Code hook also needs
   [`.claude/settings.json`](.claude/settings.json).
 - **OpenCode V2**: an `execute.after` plugin does the same; the
   reference copy is at
-  [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js).
+  [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js),
+  loaded by discovery with no `opencode.json` entry (see
+  [the install steps](https://dekobon.github.io/big-code-analysis/recipes/agent-feedback.html#opencode-v2)).
 
 The
 [agent feedback recipe](https://dekobon.github.io/big-code-analysis/recipes/agent-feedback.html)

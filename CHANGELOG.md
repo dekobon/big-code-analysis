@@ -231,6 +231,18 @@ for historical reference.
 
 ### Changed
 
+- **The agent-feedback recipe documents the OpenCode V2 install**
+  (#1811). The
+  book had only the legacy V1 example and a pointer to the shipped V2
+  plugin; a new `OpenCode V2` section names the three files to copy,
+  the discovery-only loading, what triggers the check, the advisory
+  bounds and the per-session dedup, and how to verify delivery. The
+  V1 example's `GUIDANCE` literal is now the text of
+  `.claude/hooks/bca-guidance.txt`, and `AGENTS.md` carries the
+  recipe's "ship this verbatim" policy block unchanged, with this
+  repository's additions listed after it; `make plugin-test` pins
+  both equalities and the recipe's `.claude/settings.json` example to
+  the file the repository runs.
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
   four pre-migration sites it still held were Elixir's byte-less
   `is_func_space` and `get_space_kind`, which list `source` and
@@ -929,6 +941,14 @@ for historical reference.
 
 ### Fixed
 
+- **`opencode.jsonc` no longer registers the metric-feedback plugin by
+  file** (#1811). OpenCode V2 takes packages and plugin *directories* under
+  `plugins` and skips a single-file path — 2.1.3 logs `configured
+  plugin path must be a directory` on every load of every checkout —
+  while loading the same file by discovery from `.opencode/plugins/`.
+  The entry, which the 2.4.0 notes described as the explicit
+  registration, was inert; it is removed and the plugin loads by
+  discovery, as the recipe prescribes.
 - **`--exclude-tests` is no longer quadratic on many attributed items
   in one deep body** (#1447). Each `#[…]` run's verdict was read by a
   cursor pass from the parent's first child whenever the parent fell

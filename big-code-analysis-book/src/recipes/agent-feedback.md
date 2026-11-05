@@ -228,14 +228,82 @@ Offender rows remain in the advisory; CI annotations and summary-file
 side effects are disabled. The reference suite runs with
 `make plugin-test`, including the shared OpenCode helper regressions.
 
-## OpenCode V1 (legacy)
+## OpenCode V2 {#opencode-v2}
 
-The example in this section uses the V1 plugin API. The repository's
-[current V2 plugin](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js)
-uses the [V2 hook API](https://opencode.ai/v2/docs/build/plugins) and
-also requires
-[`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs).
-Use the
+Use the reference [OpenCode](https://opencode.ai/) plugin to append
+current threshold findings to the result of a successful `edit`,
+`write` or `patch` tool call. The edit stays successful; the advisory
+is extra text in the tool result, not an error. This is the
+integration the repository runs on itself, verified with OpenCode
+2.1.3.
+
+Prerequisites:
+
+- OpenCode 2.x. The plugin uses the
+  [V2 server plugin API](https://opencode.ai/v2/docs/build/plugins/server);
+  for OpenCode 1.x see the [legacy section](#opencode-v1-legacy).
+- `bca`, and a nonempty `[thresholds]` table in
+  [`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest), as
+  for Claude Code above.
+
+Copy these files into the same paths in your project:
+
+- [`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js):
+  the plugin.
+- [`.claude/hooks/bca-common.mjs`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-common.mjs)
+  and
+  [`.claude/hooks/bca-guidance.txt`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-guidance.txt):
+  the shared helper and the short runtime reminder, the same two files
+  the Claude Code hook uses. The plugin imports the helper by relative
+  path, so keep this layout even if you do not use Claude Code.
+  Replace the reminder's final `make` commands with your project's
+  validation commands.
+
+OpenCode loads direct `.js` files under `.opencode/plugins/`
+automatically ([Plugins](https://opencode.ai/v2/docs/plugins)). Do
+**not** add the file to `plugins` in `opencode.json(c)`: that key
+takes published packages and local plugin *directories*, and a
+single-file path there is skipped with a
+`configured plugin path must be a directory` warning in the server log.
+
+How it behaves:
+
+- It reacts to completed `edit`, `write` and `patch` calls, and to
+  nothing else; shell commands and external editors need separate
+  integration.
+- It finds the configuration and analyzer the same way the Claude Code
+  hook does, including the `build inputs:` match against a local
+  build. The session's directory, not the plugin's, selects the
+  checkout, so a session moved into a Git worktree checks that
+  worktree. A copy without `utils/self_scan_digest.py` beside it
+  degrades to the newest local build, then `bca` on `PATH`.
+- A `patch` touching several files checks at most 8 of them and says
+  how many it skipped. One advisory is at most 4,000 characters,
+  guidance included; longer reports are truncated with a notice.
+- Findings already delivered for the same file in the same session are
+  not repeated, so a second edit that leaves the offenders unchanged is
+  silent. A clean check, deleting the file, or reloading the plugin
+  resets that; truncated reports are not recorded and can reappear.
+- Analyzer failure, exit 1, timeout and output overflow stay out of the
+  tool result and are logged as `[bca-check]` warnings.
+
+**Verify model delivery after installation.** Open a session in the
+project and use the `write` tool to create a disposable source file
+that breaches a configured limit; the tool result should end with a
+`bca advisory` block that the model can quote back. Simplify the file
+with `edit` and confirm the clean result adds nothing. The server log
+records `[bca-check] analyzer=… reason=…` on the first check per
+checkout, and the plugin keeps a per-location health record under its
+storage (`health/<directory>`) with the last outcome and the analyzer
+chosen. Configuration changes under `.opencode/` reload without a
+restart; if a freshly copied plugin does not load, `opencode service
+restart` is the fallback.
+
+## OpenCode V1 (legacy) {#opencode-v1-legacy}
+
+The example in this section uses the V1 plugin API and is an
+alternative to the V2 plugin above, not an addition to it: both are
+`.opencode/plugins/bca-check.js`. Use the
 [migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1)
 when porting a V1 plugin.
 
@@ -262,8 +330,9 @@ runs: a no-op that looks installed. Read `input.args.filePath` in the
 after hook.
 
 Drop this file in `.opencode/plugins/`. It is project-level and
-auto-loaded; no `opencode.json` entry is needed, since that key is for
-npm-published plugins. The plugin below is plain JavaScript. For a
+auto-loaded; no `opencode.json` entry is needed, and in V2 a
+single-file entry under `plugins` is skipped with a warning (see
+above). The plugin below is plain JavaScript. For a
 TypeScript plugin, `import type { Plugin } from "@opencode-ai/plugin"`
 and annotate the export, and declare any extra deps in
 `.opencode/package.json` (opencode installs it with
@@ -271,15 +340,19 @@ and annotate the export, and declare any extra deps in
 
 ```javascript
 // .opencode/plugins/bca-check.js
+// The same text as .claude/hooks/bca-guidance.txt.
 const GUIDANCE = `
-Responding to bca metric feedback: make the code genuinely simpler,
-not the number smaller. Do not extract a meaningless helper or split a
-cohesive function to dodge the count — a spurious helper often raises
-file-level nom/nargs and helps nothing. If the complexity is essential
-and the function is clearest left whole, add a suppression marker with
-a one-line reason instead of contorting the code. Keep the fix in the
-function that was flagged rather than widening it into a module
-rewrite.
+[new] and [regr] compare with the configured baseline, not this edit;
+without a baseline, every offender is new. <file> rows are file-level
+findings, not necessarily a problem in the function you changed.
+Review findings relevant to your task: simplify where it genuinely
+clarifies, or justify essential complexity with a narrow suppression.
+For example, inside a Rust function: // bca: suppress(cognitive) -- reason.
+Use the language's comment syntax; use nexits, never exit, and halstead
+for halstead.* metrics. tokens is not suppressible. Leave unrelated code
+alone and mention relevant remaining findings. Do not move complexity
+around just to lower a number. Finish the coherent edit before reacting;
+make self-scan and make pre-commit remain this repository's final gates.
 `.trim()
 
 export const BcaCheck = async ({ $ }) => {
@@ -314,26 +387,26 @@ export const BcaCheck = async ({ $ }) => {
 }
 ```
 
-Keep the `GUIDANCE` string in sync with the verbatim block below (or
-read it from a shared file). Because the channel is a thrown error,
+`GUIDANCE` is the short runtime reminder from `bca-guidance.txt`, not
+the standing policy block below; keep it in step with that file (the
+repository's hook tests pin the two equal). Because the channel is a
+thrown error,
 opencode reports it as a failed post-edit step, which is the intended
 "address this before continuing" framing. The edit itself still lands:
 `tool.execute.after` runs once the `write` or `edit` tool has already
 written the file, so the throw frames the next step without undoing the
 change.
 
-**Restart opencode after adding the plugin.** Plugins are loaded once at
-startup and are not hot-reloaded. A freshly dropped
-`.opencode/plugins/bca-check.js` does nothing in the running session.
-Quit and relaunch opencode, then confirm by editing a file you know is
-over threshold and checking that the `edit`/`write` tool reports the
-`bca` failure. An installed-but-inert plugin is the most likely symptom,
-and a stale session is the most likely cause.
+**Restart opencode after adding the plugin.** OpenCode 1.x loads
+plugins once at startup and does not hot-reload them, so a freshly
+dropped `.opencode/plugins/bca-check.js` does nothing in the running
+session. Quit and relaunch opencode, then confirm by editing a file you
+know is over threshold and checking that the `edit`/`write` tool
+reports the `bca` failure. An installed-but-inert plugin is the most
+likely symptom, and a stale session is the most likely cause.
 
-The repository ships a V2 reference at
-[`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js).
-It uses a different plugin API and adds guards worth porting to a V1
-setup:
+The [V2 plugin](#opencode-v2) uses a different plugin API and adds
+guards worth porting to a V1 setup:
 
 - **Repo-scope guard.** Resolve the path and skip anything outside the
   project root, so the hook never runs `bca` on a file the agent edits
@@ -348,6 +421,8 @@ setup:
   it can find.
 - **Shared guidance.** Read the guidance text from one file that both
   this plugin and the Claude Code hook cite, so the two never drift.
+  The V1 example above inlines it instead, to stay a single-file
+  install.
 
 ## Agent guidance (ship this verbatim) {#agent-guidance-ship-this-verbatim}
 

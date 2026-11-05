@@ -58,7 +58,9 @@ Claude Code フックには `PATH` 上の [Node.js](https://nodejs.org/) も必�
   本リポジトリは Node.js ベースの[リファレンス実装](.claude/hooks/bca-check.mjs)を
   [`.claude/settings.json`](.claude/settings.json)で有効にしています。
 - **OpenCode V2** — `execute.after` プラグインが同じ役割を果たします。
-  リファレンスコピーは [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js) にあります。
+  リファレンスコピーは [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js) にあり、
+  `opencode.json` への登録なしに自動検出で読み込まれます
+  ([導入手順](https://dekobon.github.io/big-code-analysis/ja/recipes/agent-feedback.html#opencode-v2))。
 
 [エージェントフィードバックのレシピ](https://dekobon.github.io/big-code-analysis/ja/recipes/agent-feedback.html)には、
 両ツール向けのコピー＆ペーストで使える設定に加えて、
