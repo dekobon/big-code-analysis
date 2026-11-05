@@ -308,6 +308,59 @@ for historical reference.
   The limit is the repository's to set: `diff.renameLimit` is honoured
   (#1814, under Added), and `--no-follow-renames` turns the pass off.
   `VCS_SCHEMA_VERSION` is unchanged: the emitted shape did not move.
+- **`cyclomatic`, `cognitive` and `nexits` `average` / `min` / `max`
+  now describe one population** (#1284). All three fields read the
+  `function` spaces of the subtree — named functions, methods and every
+  closure that opens a space — for numerator, divisor and extrema alike.
+  Previously the divisor counted functions while the numerator and the
+  extrema folded every space's own value, the file unit and containers
+  included, so `fn f() {}` reported cyclomatic `average 2.0` against
+  `min 1, max 1`, the unit's own 0 pinned file-level cognitive `min` at
+  0, and a Python function holding one `lambda` (which `nom` counts but
+  which opens no space) could report `average 7.0` against `min 14,
+  max 14`. `min <= average <= max` now holds on every space; a subtree
+  with no function space reports `0.0 / 0 / 0`. The all-space `sum` is
+  unchanged, as is every per-space `value`; JSON keys are unchanged. The
+  book's "Aggregate population" section under Cyclomatic Complexity
+  defines the rule. `nargs`' two-channel form of the same defect is
+  #1809.
+- **Cognitive complexity no longer scores the null-coalescing
+  operators**, following the white paper's "Ignore shorthand" section
+  (v1.7, p. 6): `??` and `??=` in JavaScript, Mozjs, TypeScript, TSX, C#
+  and PHP, Elvis `?:` in Kotlin and Groovy, and Perl's defined-or `//`
+  and `//=` now add nothing (they were folded into the boolean sequence
+  since #230, #239, #246 and #249). Cyclomatic complexity still counts
+  each as a decision. In the same change PHP's `break N` / `continue N`
+  pays a flat +1 for any explicit level, as Appendix B §B1 lists `break
+  NUMBER` / `continue NUMBER`; a bare `break;` / `continue;` stays +0.
+  Values move for any input using these constructs (#1800, #1765).
+- **A row gate may be declared `no_chain`** (#1793): `gated_by f
+  no_chain`, `text_gated_by f no_chain` and `opens_by f no_chain` give
+  the gate the signature `fn(&Node, &[u8])` and call it with two
+  arguments, so it cannot read the ancestor chain by construction.
+  Every row emits `CHAIN_GATED` beside `TEXT_GATED` (both in
+  `canonical()` and read by `utils/role_tables.py`), and each
+  context-dropping forward asserts at build time the flags of what it
+  drops: `is_doc_comment` / `is_doc_run_directive` assert
+  `!CHAIN_GATED`; the byte-less `is_func_space` / `get_space_kind` pair
+  asserts `!TEXT_GATED && !CHAIN_GATED` on `FuncOpener` and `Container`
+  in 21 languages (Elixir overrides both spellings; Ruby's opener is
+  chain-gated by design and stays pinned by
+  `ruby_byte_less_spellings_stay_the_kind_table`). Only `FuncOpener` /
+  `Container` may carry `opens` / `opens_by`.
+  `no_chain_rows_answer_alike_under_the_empty_chain` and the new
+  `node_resolved_parent_lookups` counter catch a marked gate that climbs
+  with `Node::parent`. 90 gate references across 24 tables migrated; no
+  output changes.
+- **The `HoldsDocInBody` role is `DocBodyResidual`** (#1797;
+  `holds_doc_in_body` → `doc_body_residual`), naming what the row
+  holds: the kinds beyond `FuncOpener` and `Closure` whose body a doc
+  tool reads a comment into, with the full set still the Checker's
+  union. Rename only, no adapter or gate change; zero output drift,
+  role baselines byte-identical. The TS/TSX `DocTarget` rows record
+  that no `Parameter` role is added for the Checker's `after_code`
+  parameter subset, which stays a consumer-policy `role-bypass` allow
+  (#1796).
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
   four pre-migration sites it still held were Elixir's byte-less
   `is_func_space` and `get_space_kind`, which list `source` and
@@ -1014,6 +1067,33 @@ for historical reference.
   The entry, which the 2.4.0 notes described as the explicit
   registration, was inert; it is removed and the plugin loads by
   discovery, as the recipe prescribes.
+- **`--exclude-tests` no longer keeps a Rust item whose `#[cfg(test)]`
+  / `#[test]` run has a comment between the attribute and the item**
+  (#1647). A `//`, `/* */` or `///` comment there is part of the run —
+  rustc reads a `///` as a `#[doc]` attribute and a `//` as no token —
+  so the item and the comment rows are pruned with it, as is an outer
+  `///` doc comment written above the attribute. A plain comment above
+  the first attribute, a `//!` inner doc comment, and runs ending on an
+  item the prune does not remove (`use`, `struct`) are unchanged. The
+  self-scan `sloc` of `src/wire.rs` drops from 718 to 495.
+- **`npa` (Ruby) re-files an attribute named by a later visibility
+  call** (#1399): `private :b` after `attr_reader :b`, `private :b=`,
+  `public :b`, `protected :b`, under the rule that an attribute is
+  public iff any of the accessors its `attr_*` macro generated is
+  public — so `attr_accessor :b; private :b` stays public (the writer
+  is untouched) while `attr_reader :b; private :b` is now private, and
+  `attr_reader :initialize` carries Ruby's automatic-private reader.
+  `private "foo"` (a plain string argument) now names the method for
+  both `npm` and `npa`, and `attr_reader "f"` declares an attribute.
+  Splat and non-literal arguments (`private *SYMS`, `private
+  send(...)`) remain unmodelled by decision.
+- **PHP: a DocBlock above a `define()` call is `dloc`** (#1646):
+  `define` or `\define`, as phpDocumentor's `Define` factory makes it
+  the constant's documentation. `defined()`, `DEFINE()`, a qualified
+  `Foo\define()` and an assigned call stay plain comments.
+- **C, C++, Objective-C, MozCpp: a Doxygen structural command inside
+  `"…"` quoted text on one line or a `<![CDATA[` section no longer
+  makes the block stand alone** (#1646), matching `commentscan.l`.
 - **`--exclude-tests` is no longer quadratic on many attributed items
   in one deep body** (#1447). Each `#[…]` run's verdict was read by a
   cursor pass from the parent's first child whenever the parent fell
