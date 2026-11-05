@@ -17,7 +17,7 @@
 //! current `now` rather than freezing at cache-write time.
 //!
 //! That contract holds only while every input the walk *records* is
-//! covered by the entry key or the fingerprint. Four repository-side
+//! covered by the entry key or the fingerprint. Five repository-side
 //! inputs are neither, and all enter [`cache::fingerprint`] here through
 //! [`history::WalkContext::input_digests`], which covers all three cache
 //! paths at once — the pure hit, `load_compatible`'s ancestor selection
@@ -35,7 +35,10 @@
 //! attribute files, so a staged `.gitattributes` or an `info/attributes`
 //! edit hit the exact entry, and a committed `.gitattributes` edit
 //! spliced onto the tail walked under the old bindings (issue #1760).
-//! The shallow boundary is the fourth: a
+//! The shallow boundary is the fourth, and the rename limit the fifth:
+//! `diff.renameLimit` decides which commits the similarity pass runs on,
+//! so an edit to it changes the rename edges a walk records under an
+//! unchanged `follow_renames` (#1814). A
 //! still-shallow clone deepened in place (`git fetch --deepen`, a larger
 //! `--depth`, an earlier `--shallow-since`) moves neither `HEAD` nor the
 //! `is_shallow()` flag [`cache::HistoryCache::is_compatible`] checks, so

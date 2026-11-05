@@ -86,7 +86,11 @@ ref (first-parent only by default; `--full-history` follows all parent
 links in the commit graph) and attributes it to every file it
 modifies. Merge commits are
 excluded unless `--include-merges` is passed, and renames are followed
-by default so a file's history survives a move. The walk counts
+by default so a file's history survives a move — paired the way git
+pairs them, under the repository's `diff.renameLimit` (read through
+the same trusted-section filter git applies to a repository owned by
+someone else, so a repository-local value there is ignored). The walk
+counts
 *distinct commits* per file per window, not diffs or hunks, so a
 commit that touches a file once and a commit that touches it in three
 hunks both count as one.

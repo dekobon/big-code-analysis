@@ -260,7 +260,10 @@ reorder of two overlapping rules counts as much as an edit, as does a
 walk and the entry's stamp come from that one read), or
 the shallow boundary of a shallow clone (a `git fetch --deepen` or
 `--unshallow` leaves `HEAD` where it was but reaches commits the entry
-never saw) differ; in particular **changing a window forces a fresh
+never saw), or the effective `diff.renameLimit` the rename pass ran
+under (read through the same trusted-section filter gix applies to a
+repository owned by someone else; with `--no-follow-renames` it is not
+read at all) differ; in particular **changing a window forces a fresh
 walk**. A bca
 release that adds a term retires every existing
 entry, so the first `bca vcs` after such an upgrade re-walks the whole

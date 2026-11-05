@@ -15,7 +15,6 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use gix::ObjectId;
-use gix::diff::Rewrites;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 
@@ -213,7 +212,7 @@ fn collect_touched(
 ) -> Result<Vec<Touched>, Error> {
     use gix::object::tree::diff::Change;
 
-    let rewrites = options.follow_renames.then(Rewrites::default);
+    let rewrites = super::repo::rewrites(repo, options.follow_renames);
     // One platform built from the repository, and a clone of it for gix's
     // rewrite tracker: without the `_with_cache` form gix builds that
     // second one itself, loading the index and probing the attribute

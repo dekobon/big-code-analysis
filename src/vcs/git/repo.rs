@@ -117,6 +117,57 @@ fn map_discover_error(root: &Path, error: &gix::Error) -> Error {
     Error::OpenRepository(error.to_string())
 }
 
+/// The rename tracking the walk, `vcs commit` and per-function blame
+/// hand gix: `None` when `follow_renames` is off, else gix's defaults
+/// with `diff.renameLimit` applied the way git applies it (#1814).
+///
+/// `follow_renames` stays the switch — `diff.renames` is deliberately
+/// not read, so a `renames = false` in a user's `~/.gitconfig` cannot
+/// silently drop the rename edges every `bca` run has recorded — and the
+/// limit is the one knob the option set does not carry. gix's own
+/// reading of it (`gix::diff::new_rewrites`) is unfiltered, the accessor
+/// class GHSA-q54r-jf2p-rfr2 was about, and gix treats a limit of `0`
+/// as *unlimited*, so a reduced-trust `.git/config` could set it and
+/// turn the bounded similarity pass into an uncapped one. The read here
+/// goes through [`gix::config::section::is_trusted`] instead: a no-op
+/// for a fully trusted repository, whose local sections carry its
+/// trust, and the section filter gix itself installs under reduced
+/// trust otherwise. What that filter bounds is exactly the
+/// repository-local and worktree sections of a reduced-trust open; it
+/// admits every other source gix loads — `GIT_CONFIG_*`, the user and
+/// system files, and an include a trusted file makes — whatever owns
+/// them, as gix does. A trusted `0` is honoured as unlimited, as git
+/// and gix both document it, and unlimited means every remaining
+/// deletion diffed against every remaining addition with no ceiling at
+/// all, the ≥100k-change check cap gix keeps for a finite limit
+/// included. A finite limit is a step, not a gradient: a commit whose
+/// remaining pairs exceed limit² skips the similarity pass outright
+/// rather than doing part of it.
+///
+/// A value that does not parse as an unsigned integer falls back to the
+/// default — bca's own leniency, not git's — since the limit is a
+/// performance knob and the walk must not refuse a repository `git`
+/// opens over one.
+pub(crate) fn rewrites(
+    repo: &gix::Repository,
+    follow_renames: bool,
+) -> Option<gix::diff::Rewrites> {
+    use gix::config::tree::Diff;
+    follow_renames.then(|| {
+        let default = gix::diff::Rewrites::default();
+        let limit = Diff::RENAME_LIMIT
+            .try_into_usize(
+                repo.config_snapshot()
+                    .plumbing()
+                    .integer_filter(Diff::RENAME_LIMIT, gix::config::section::is_trusted),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(default.limit);
+        gix::diff::Rewrites { limit, ..default }
+    })
+}
+
 /// Enumerate the in-scope tracked text files at `target_tree`, mapping
 /// each repository-relative path to its line count (SLOC).
 ///
@@ -207,3 +258,7 @@ pub(crate) fn bstr_to_path(location: &bstr::BStr) -> Result<PathBuf, Error> {
         .map(std::borrow::Cow::into_owned)
         .map_err(|_| Error::Diff(format!("path {location:?} is not valid UTF-8")))
 }
+
+#[cfg(test)]
+#[path = "repo_tests.rs"]
+mod tests;

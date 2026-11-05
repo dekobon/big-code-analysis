@@ -26,6 +26,31 @@ for historical reference.
 
 ### Added
 
+- **`bca vcs` honours `diff.renameLimit`** (#1814). Rename tracking in
+  the history walk (`bca vcs`, `vcs trend`, `--vcs`), `vcs commit` and
+  per-function blame ran at gix's
+  default limit of 1,000 with no way to change it, and gix 0.90's
+  git-matching limit (see Changed) can make a single commit that moved
+  and edited hundreds of files each way cost up to a million blob
+  diffs. The repository's `diff.renameLimit` now applies as git applies
+  it: a commit whose remaining deletion × addition pairs exceed the
+  limit squared skips similarity matching outright (a step, not a
+  gradient), `0` lifts every ceiling — every remaining pair is diffed,
+  with no cap at any commit size — and a value that is not an unsigned
+  integer falls back to the default rather than refusing the
+  repository. The read goes through the trusted-section filter gix
+  installs under reduced trust — gix's own reading is unfiltered, the
+  accessor class GHSA-q54r-jf2p-rfr2 was about, and an untrusted `0`
+  would uncap the pass — so a repository-local value in a repository
+  owned by someone else is ignored. That filter bounds exactly the
+  repository's own sections: the user and system files, `GIT_CONFIG_*`
+  and what a trusted file includes are read as gix reads them,
+  whoever owns them, as git does. `--follow-renames`
+  stays the switch: `diff.renames` is deliberately not read, since a
+  `renames = false` in `~/.gitconfig` would silently drop the rename
+  edges every run has recorded; honouring it is a candidate for 3.0.
+  The resolved limit is a walk input of the history cache, so editing
+  it invalidates entries walked under the old value.
 - **`bca --version` reads the Mach-O and PE build ids** (#1777). `build
   id:` was `unavailable` off Linux because only the ELF reader existed;
   two bounded readers now sit beside it — the 16-byte `LC_UUID` of a
@@ -270,8 +295,8 @@ for historical reference.
   such a commit, the walk now diffs every remaining deletion against
   every remaining addition for it — up to 10⁶ blob diffs, the work
   git does for the same detection — where 0.89 skipped the commit.
-  `--no-follow-renames` is the only knob today; a `diff.renameLimit`
-  read is the follow-up if a cold walk proves slow.
+  The limit is the repository's to set: `diff.renameLimit` is honoured
+  (#1814, under Added), and `--no-follow-renames` turns the pass off.
   `VCS_SCHEMA_VERSION` is unchanged: the emitted shape did not move.
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
   four pre-migration sites it still held were Elixir's byte-less

@@ -18,6 +18,7 @@ const SAMPLE_INPUTS: WalkInputDigests = WalkInputDigests {
     diff_config: 0x0ddb_a11c_0ffe_e000,
     diff_attributes: 0xa77c_1b07_d1ff_5e7e,
     shallow_boundary: 0x5a11_0bad_c0de_ba5e,
+    rename_limit: Some(1000),
 };
 
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
@@ -190,6 +191,37 @@ fn fingerprint_changes_with_the_shallow_boundary_digest() {
         base,
         fingerprint(&options, deepened),
         "a shallow-boundary change must change the fingerprint"
+    );
+}
+
+#[test]
+fn fingerprint_changes_with_the_rename_limit() {
+    // The rename limit is the fifth walk input outside `Options`
+    // (#1814): `diff.renameLimit` decides which commits the similarity
+    // pass runs on, so a limit edit under an unchanged `follow_renames`
+    // changes the rename edges a walk records, and the option
+    // fingerprint alone cannot see it. `None` is the effective state
+    // with renames off — no pass runs — so it is one value, distinct
+    // from every limit, rather than a digest of a key nobody read.
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_INPUTS);
+    let raised = WalkInputDigests {
+        rename_limit: Some(5000),
+        ..SAMPLE_INPUTS
+    };
+    let off = WalkInputDigests {
+        rename_limit: None,
+        ..SAMPLE_INPUTS
+    };
+    assert_ne!(
+        base,
+        fingerprint(&options, raised),
+        "a rename-limit change must change the fingerprint"
+    );
+    assert_ne!(
+        base,
+        fingerprint(&options, off),
+        "renames off must fingerprint differently from any limit"
     );
 }
 

@@ -100,7 +100,10 @@ type TouchedFiles = Vec<(PathBuf, u64)>;
 /// The shallow boundary is the fourth input read here, for
 /// [`shallow_boundary_digest`](Self::shallow_boundary_digest), so that
 /// deepening a clone that stays shallow — which moves neither `HEAD` nor
-/// `is_shallow()` — still retires the entry walked at the old depth.
+/// `is_shallow()` — still retires the entry walked at the old depth; the
+/// rename limit is the fifth, read once by
+/// [`repo::rewrites`](super::repo::rewrites) so the walk and the stamp
+/// agree on it (#1814).
 /// Unlike the mailmap, the diff platform and the attribute files, it is
 /// not the only read: gix's
 /// `rev_walk` calls `shallow_commits` itself when the traversal starts, to
@@ -144,13 +147,19 @@ pub(super) struct WalkContext<'a> {
     /// The shallow boundary (`.git/shallow`) as gix read it when this
     /// context was opened; `None` for a clone with full history.
     shallow: Option<gix::shallow::Commits>,
+    /// The rename tracking every diff in this walk runs under, resolved
+    /// once from the repository's trusted `diff.renameLimit` by
+    /// [`repo::rewrites`](super::repo::rewrites); `None` when the
+    /// options turn renames off.
+    rewrites: Option<Rewrites>,
     /// Reference time in Unix seconds: `--as-of`, else the wall clock.
     pub(super) now: i64,
 }
 
 impl<'a> WalkContext<'a> {
     /// Open the inputs for one build, reading the mailmap, the diff
-    /// configuration and the attribute files exactly once.
+    /// configuration, the attribute files and the rename limit exactly
+    /// once.
     ///
     /// # Errors
     ///
@@ -201,6 +210,7 @@ impl<'a> WalkContext<'a> {
             shallow: repo
                 .shallow_commits()
                 .map_err(|e| Error::OpenRepository(e.to_string()))?,
+            rewrites: super::repo::rewrites(repo, options.follow_renames),
             now,
         })
     }
@@ -214,8 +224,9 @@ impl<'a> WalkContext<'a> {
 
     /// The digests of the walk inputs the repository supplies outside
     /// [`Options`], for [`cache::fingerprint`](crate::vcs::cache::fingerprint).
-    /// All four come from the snapshot, platform, index and shallow
-    /// boundary this context was opened with, never from a second read.
+    /// All five come from the snapshot, platform, index, shallow
+    /// boundary and rename limit this context was opened with, never
+    /// from a second read.
     #[must_use]
     pub(super) fn input_digests(&self) -> WalkInputDigests {
         WalkInputDigests {
@@ -223,6 +234,11 @@ impl<'a> WalkContext<'a> {
             diff_config: self.diff_config_digest(),
             diff_attributes: self.diff_attributes_digest(),
             shallow_boundary: self.shallow_boundary_digest(),
+            // Widened so the term hashes the same on every pointer width,
+            // as the sibling `u64` digests do.
+            rename_limit: self
+                .rewrites
+                .map(|rewrites| u64::try_from(rewrites.limit).unwrap_or(u64::MAX)),
         }
     }
 
@@ -674,7 +690,7 @@ pub(crate) fn collect_events(
     };
     let resolver = ParticipantResolver::new(&walk.mailmap, bots.as_ref());
 
-    let rewrites = options.follow_renames.then(Rewrites::default);
+    let rewrites = walk.rewrites;
     // Take every diff through the context's platform so the churn
     // recorded here was produced under the configuration
     // `diff_config_digest` stamps the entry with. The walk fills and

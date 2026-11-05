@@ -83,6 +83,7 @@ fn the_walk_resolves_identities_through_the_captured_snapshot() {
         diff,
         diff_attributes,
         shallow: None,
+        rewrites: repo::rewrites(&repo, options.follow_renames),
         now,
     };
     assert_ne!(

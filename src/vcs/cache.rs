@@ -308,10 +308,11 @@ fn parse_entry(bytes: &[u8]) -> Option<HistoryCache> {
 /// Each is input the way an option is — it decides what the walk records
 /// — while a change to it moves neither `HEAD` (the entry key) nor any
 /// option field, so each has to enter [`fingerprint`] on its own. The
-/// backend's `WalkContext` produces all four from the one mailmap
+/// backend's `WalkContext` produces all five from the one mailmap
 /// snapshot, the one diff platform (with the one index and the one read
-/// of each attribute file its attribute stack is built from) and the one
-/// shallow-file read its walk was opened with.
+/// of each attribute file its attribute stack is built from), the one
+/// shallow-file read and the one config read of the rename limit its
+/// walk was opened with.
 /// The walk consumes the first three, so for them an entry's stamp and
 /// its events cannot come from two reads (issue #1409); gix's walk
 /// re-reads the shallow file, and `WalkContext` says why that pair heals
@@ -334,6 +335,14 @@ pub(crate) struct WalkInputDigests {
     /// The shallow boundary, the set of commits `.git/shallow` lists, or
     /// the digest of no boundary for a clone with full history.
     pub shallow_boundary: u64,
+    /// The rename limit the walk's similarity pass ran under —
+    /// `diff.renameLimit` read through the trusted-section filter, else
+    /// gix's default — or `None` when `follow_renames` is off and no
+    /// pass runs, so toggling the limit with renames off retires nothing
+    /// (#1814). The effective state, not the raw key: a limit edit under
+    /// an unchanged `follow_renames` changes which rename edges a walk
+    /// records, which the option fingerprint alone cannot see.
+    pub rename_limit: Option<u64>,
 }
 
 /// A stable 64-bit fingerprint of everything that changes *which commits

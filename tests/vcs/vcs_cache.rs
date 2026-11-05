@@ -822,6 +822,119 @@ fn a_reordered_info_attributes_is_not_served_from_a_stale_entry() {
     );
 }
 
+/// A repository whose tip moves *and edits* two files in one commit, so
+/// pairing them is the similarity pass's to do and `diff.renameLimit`
+/// decides whether it runs: four permutations, which `1` (one squared)
+/// refuses and the default of a thousand accepts (#1814). A followed
+/// rename re-homes `a.rs`'s commit onto `x.rs` through the alias chain,
+/// so the new path reads two commits; an unfollowed one is an addition
+/// at the tip and reads one.
+fn build_edited_move_repo() -> Repo {
+    let repo = Repo::init();
+    repo.write("a.rs", "fn a() {}\nfn a2() {}\nfn a3() {}\nfn a4() {}\n");
+    repo.write("b.rs", "fn b() {}\nfn b2() {}\nfn b3() {}\nfn b4() {}\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 2 * DAY,
+        "feat: add a and b",
+    );
+    repo.git(&["rm", "-q", "a.rs", "b.rs"]);
+    repo.write(
+        "x.rs",
+        "fn a() {}\nfn a2() {}\nfn a3() {}\nfn a4() {}\nfn a5() {}\n",
+    );
+    repo.write(
+        "y.rs",
+        "fn b() {}\nfn b2() {}\nfn b3() {}\nfn b4() {}\nfn b5() {}\n",
+    );
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - DAY,
+        "refactor: move a and b",
+    );
+    // Pinned locally: the walk opens through `gix::discover`, which reads
+    // the host's global config, and a `renameLimit` there would decide
+    // the positive control.
+    repo.git(&["config", "diff.renameLimit", DEFAULT_RENAME_LIMIT]);
+    repo
+}
+
+/// gix's default `diff.renameLimit`, as a config value.
+const DEFAULT_RENAME_LIMIT: &str = "1000";
+
+#[test]
+fn a_rename_limit_edit_is_not_served_from_a_stale_entry() {
+    // `diff.renameLimit` is read from the repository, not from `Options`,
+    // so the option fingerprint cannot see it move; the resolved limit
+    // is a walk input of its own (#1814). The emptied-events technique
+    // of the sibling tests makes a wrongly served entry observable: a
+    // stale hit replays nothing and every file reads zero commits.
+    let repo = build_edited_move_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        (commits_long(&primed, "x.rs"), churn_long(&primed, "x.rs")),
+        (2, 5),
+        "at the default limit the edited move is a rename, so `x.rs` inherits \
+         `a.rs`'s commit and its four-line creation beside its own one-line edit"
+    );
+    empty_entry_events(cache_dir.path());
+
+    repo.git(&["config", "diff.renameLimit", "1"]);
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        (commits_long(&fresh, "x.rs"), churn_long(&fresh, "x.rs")),
+        (1, 5),
+        "at a limit of one the move is an addition: one commit, the whole file \
+         as churn, or the limit changes nothing observable"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a `diff.renameLimit` edit must invalidate the entry rather than \
+         replay its emptied events"
+    );
+    assert_eq!(
+        count_entries(cache_dir.path()),
+        1,
+        "same `HEAD`, so the re-walk overwrites the stale entry under its key \
+         rather than leaving two"
+    );
+
+    // The splice direction: an entry walked under one limit must not be
+    // the base a later `HEAD` splices onto under another. Restore the
+    // default, which fingerprints differently from the limit-one entry
+    // just persisted, then advance `HEAD` so the run below looks for a
+    // splice base rather than a pure hit.
+    repo.git(&["config", "diff.renameLimit", DEFAULT_RENAME_LIMIT]);
+    repo.write("z.rs", "fn z() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - DAY / 2, "feat: add z");
+    let spliced = build_history_index_cached(repo.path(), &opts(), &cfg).expect("spliced");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        (commits_long(&fresh, "x.rs"), churn_long(&fresh, "x.rs")),
+        (2, 5),
+        "back at the default the rename is followed again"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&spliced),
+        "the limit-one entry must not be the splice base for a default-limit walk"
+    );
+    assert_eq!(
+        count_entries(cache_dir.path()),
+        2,
+        "the limit-one entry fingerprints differently, so it is neither a \
+         splice base nor superseded (a splice removes the ancestor it consumed)"
+    );
+}
+
 #[test]
 fn a_diff_driver_algorithm_change_is_not_served_from_a_stale_entry() {
     // A `diff.<driver>.algorithm` overrides `diff.algorithm` for the paths

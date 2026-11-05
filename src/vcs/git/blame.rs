@@ -207,6 +207,11 @@ pub struct PerFunctionBlame {
     recent_boundary: i64,
     /// Pre-compiled bot filter, `Some` only when bot exclusion is on.
     bots: Option<BotFilter>,
+    /// The rename tracking every blame runs under, resolved once from the
+    /// repository's trusted `diff.renameLimit` by
+    /// [`repo::rewrites`](super::repo::rewrites); `None` when the options
+    /// turn renames off.
+    rewrites: Option<gix::diff::Rewrites>,
 }
 
 // The engine is stored in the CLI's `Config` and shared read-only across
@@ -269,6 +274,7 @@ impl PerFunctionBlame {
             .then(|| BotFilter::new(&options.bot_pattern))
             .transpose()?;
 
+        let rewrites = repo::rewrites(&repo, options.follow_renames);
         let now = options.as_of.unwrap_or_else(super::current_unix_seconds);
         let long_boundary = window_boundary(now, options.long_window_secs);
         let recent_boundary = window_boundary(now, options.recent_window_secs);
@@ -282,6 +288,7 @@ impl PerFunctionBlame {
             long_boundary,
             recent_boundary,
             bots,
+            rewrites,
         })
     }
 
@@ -556,10 +563,7 @@ impl PerFunctionBlame {
             diff_algorithm: None,
             ranges: gix::blame::BlameRanges::WholeFile,
             since: None,
-            rewrites: self
-                .options
-                .follow_renames
-                .then(gix::diff::Rewrites::default),
+            rewrites: self.rewrites,
         }
     }
 }
