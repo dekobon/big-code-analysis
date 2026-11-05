@@ -1602,11 +1602,12 @@ for historical reference.
 
 - `loc` (C, C++, Mozcpp, Objective-C, Ruby, Elixir): a bare
   `\`-continuation row counts as the line it joins — code, or comment
-  where the next row is one — instead of blank, in its enclosing
-  function as well as the file, as it already did for Bash, Tcl and
-  iRules (#1801). That includes a bare row between a `#define` name or
-  parameter list and its body. A bare row inside a Ruby `%w[]` or
-  regex, or an Elixir string or sigil, still counts as blank (#1816).
+  where that row holds only comment text — instead of blank, in its
+  enclosing function as well as the file, as it already did for Bash,
+  Tcl and iRules (#1801). That includes a bare row between a `#define`
+  name or parameter list and its body. A bare row inside a Ruby `%w[]`
+  or regex, or an Elixir string or sigil, still counts as blank
+  (#1816).
 
 ### Security
 

@@ -373,8 +373,9 @@ const ROWS_AROUND_A_GAP_ROW: usize = 2;
 //
 // A bare row that continues no row before it starts a logical line, and
 // is what that line becomes once spliced: a comment where the row it joins
-// opens one (`\` + `# note` is one comment line to bash and tclsh), blank
-// where that row is empty or EOF (`\` + an empty row), and code otherwise.
+// holds only comment text (`\` + `# note` is one comment line to bash and
+// tclsh), blank where that row is empty or EOF (`\` + an empty row), and
+// code otherwise, a C-family `/* c */ int z;` included.
 // The joined row is the first after the run of bare rows, and since only
 // padding precedes its first token, that token is the gap's next child.
 //
@@ -486,6 +487,16 @@ impl RowShape {
     fn is_bare(self) -> bool {
         matches!(self, Self::Backslash | Self::BackslashCr)
     }
+}
+
+// The offset of the first byte at or after `at` that is not a space or tab.
+fn past_horizontal_space(code: &[u8], at: usize) -> usize {
+    let rest = code.get(at..).unwrap_or_default();
+    at.saturating_add(
+        rest.iter()
+            .take_while(|&&byte| matches!(byte, b' ' | b'\t'))
+            .count(),
+    )
 }
 
 // How many of a node's children before a gap `GapScan` keeps for the
@@ -607,22 +618,17 @@ impl<'a> GapScan<'_, 'a> {
 
     // What the logical line a run of bare rows starts at byte `row_start`
     // becomes, read off the first row after the run: blank when that row
-    // is empty or the file ends, a comment when the gap's `next` child
-    // opening it is a comment, code otherwise.
+    // is empty or the file ends, a comment when it holds only comment
+    // text, code otherwise.
     fn spliced_into(&self, row_start: usize, next: Option<tree_sitter::Node<'a>>) -> BareRow {
         let mut at = row_start;
         loop {
-            let rest = self.code.get(at..).unwrap_or_default();
-            let indent = rest
-                .iter()
-                .take_while(|&&byte| matches!(byte, b' ' | b'\t'))
-                .count();
-            let first = at.saturating_add(indent);
-            match rest.get(indent..).unwrap_or_default() {
+            let first = past_horizontal_space(self.code, at);
+            match self.code.get(first..).unwrap_or_default() {
                 [b'\\', b'\n', ..] => at = first.saturating_add(2),
                 [b'\\', b'\r', b'\n', ..] => at = first.saturating_add(3),
                 [] | [b'\n', ..] | [b'\r', b'\n', ..] => return BareRow::Blank,
-                _ if next.is_some_and(|child| self.opens_comment(child, first)) => {
+                _ if next.is_some_and(|child| self.opens_comment_only_row(child, first)) => {
                     return BareRow::Comment;
                 }
                 _ => return BareRow::Code,
@@ -631,18 +637,29 @@ impl<'a> GapScan<'_, 'a> {
     }
 
     // Whether `child`, or a first descendant of it, is a comment starting
-    // at byte `first`. Each node is asked for one gap's run at most, so
-    // the descent stays linear in the file. In every tree seen so far the
-    // comment is `child` itself; the descent runs (Tcl's `puts a` + `\`
-    // + `# c`, #1808, descends into a word) but has not yet found a
-    // comment below a node, and is kept because a grammar may wrap one.
-    fn opens_comment(&self, child: tree_sitter::Node<'a>, first: usize) -> bool {
+    // at byte `first` that leaves nothing else on its row: it runs past
+    // the row, or only spaces follow it. A `#` or `//` comment always
+    // reaches the row's end; a C-family block comment can leave code there
+    // (`\` + `/* c */ int z = 1;` is one code line once spliced). A second
+    // comment or a `\` after the first counts as code too, a C-family-only
+    // spelling no fixture has needed. Each node is asked for one gap's run
+    // at most, so the descent stays linear in the file. In every tree seen
+    // so far the comment is `child` itself; the descent runs (Tcl's
+    // `puts a` + `\` + `# c`, #1808, descends into a word) but has not yet
+    // found a comment below a node, and is kept because a grammar may wrap
+    // one.
+    fn opens_comment_only_row(&self, child: tree_sitter::Node<'a>, first: usize) -> bool {
         let mut node = Some(child);
         while let Some(current) = node
             && current.start_byte() == first
         {
             if current.kind_id() == self.comments.kind {
-                return true;
+                let after = past_horizontal_space(self.code, current.end_byte());
+                return current.end_position().row > current.start_position().row
+                    || matches!(
+                        self.code.get(after..).unwrap_or_default(),
+                        [] | [b'\n', ..] | [b'\r', b'\n', ..]
+                    );
             }
             node = current.child(0);
         }

@@ -8927,6 +8927,11 @@ EOF
         // A bare row that continues nothing joins the comment after it,
         // which is the whole logical line once spliced.
         (b"\\\n// note\nint z = 1;\n", (3, 1, 2, 0), 1),
+        // A block comment can leave code on the row it opens, and then the
+        // spliced line is code; one running past that row leaves it
+        // comment-only.
+        (b"\\\n/* c */ int z = 1;\n", (2, 2, 1, 0), 1),
+        (b"\\\n/* a\nb */ int z = 1;\n", (3, 1, 3, 0), 1),
         // The bare row is padding in `preproc_def` *before* `preproc_arg`,
         // which starts on the last row, so the `PreprocArg` interior
         // credit (#1423) never reached it.
