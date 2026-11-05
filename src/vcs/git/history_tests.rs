@@ -467,13 +467,20 @@ fn the_hand_built_stack_resolves_diff_as_gix_s_does() {
 /// working directory captured at open, and only then runs the
 /// existence check `optional` adds; `trusted_path` runs that check
 /// unanchored, against whatever the process's directory is at *read*
-/// time. The two agree while the process stays where the repository
-/// was opened, which the lib tests cannot leave (a `chdir` needs a
-/// process-wide lock they do not share), so the row pins that the
-/// capture's answer *is* gix's anchored one: the path is absolute, is
-/// under [`gix::Repository::current_dir`], and the bytes were read
-/// from there. Verified by revert: reading the slot through
-/// `trusted_path` leaves it relative and fails the absolute row.
+/// time. The two disagree only once the process has left the
+/// directory the repository was opened from, which the lib tests
+/// cannot do (a `chdir` needs a process-wide lock they do not share)
+/// and which no production path does either — `bca diff`'s `with_cwd`
+/// is the one `set_current_dir` in the tree and opens no repository.
+/// So the row pins what can be pinned in-process: the capture's
+/// answer *is* gix's anchored one — absolute, under
+/// [`gix::Repository::current_dir`], read from there — and the user
+/// slot was obtained by asking gix. Verified by revert of the
+/// selector alone: reading the slot through `trusted_path` with no
+/// anchoring leaves it relative and fails the absolute row. The
+/// anchoring-order defect itself, which the pre-fix capture had and
+/// this fixture cannot reach, is covered by inspection of
+/// `trusted_file_path_with_base` against `user_attributes_path`.
 /// The `info/attributes` row pins the anchoring gix applies to its
 /// own path; the system row pins only what the permissions withhold —
 /// the on side is `the_hand_built_capture_selects_the_system_file_gix_selects`.
@@ -482,13 +489,19 @@ fn the_hand_built_capture_selects_the_user_file_gix_selects() {
     let dir = tempfile::tempdir().expect("temp dir");
     let scratch = gix::init(dir.path()).expect("init repository");
     stage_tree(&scratch, tree_of(&scratch, &[("a.rs", b"fn a() {}\n")]));
-    // Relative to the opening directory, which is the test process's;
-    // a name no sibling test and no checkout can plausibly hold.
-    let name = format!("bca-optional-attributes-{}", std::process::id());
-    let cwd = std::env::current_dir().expect("cwd");
-    let file = cwd.join(&name);
-    std::fs::write(&file, b"*.rs diff=user\n").expect("write user file");
-    let _cleanup = RemoveOnDrop(file.clone());
+    // Relative to the opening directory, which is the test process's:
+    // a fresh name there, removed on drop.
+    let file = tempfile::Builder::new()
+        .prefix("bca-optional-attributes-")
+        .tempfile_in(std::env::current_dir().expect("cwd"))
+        .expect("plant the optional file");
+    std::fs::write(file.path(), b"*.rs diff=user\n").expect("write user file");
+    let name = file
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("tempfile names are ASCII")
+        .to_owned();
     append_config(
         dir.path(),
         &format!("[core]\n\tattributesFile = :(optional){name}\n"),
@@ -549,8 +562,14 @@ fn the_hand_built_capture_selects_the_user_file_gix_selects() {
 /// fixed `/` — whether or not the file exists, and the capture read
 /// under the open's own permissions, as `WalkContext::open` reads it,
 /// must put that same path in its system slot and leave the user slot
-/// for what gix lists after it. Unix only: on Windows the prefix comes
-/// from the git installation, which a CI host need not have.
+/// for what gix lists after it. The capture's own slot is resolved
+/// through an `env` that answers nothing, so a `GIT_ATTR_NOSYSTEM` on
+/// the host cannot withhold it — gix ignores the variable under the
+/// isolated environment permissions, and the row must too; that the
+/// user slot stays empty under that same variable is the second
+/// thing the row pins, since the set-aside reads it as gix does.
+/// Unix only: on Windows the prefix comes from the git installation,
+/// which a CI host need not have.
 #[test]
 #[cfg(unix)]
 fn the_hand_built_capture_selects_the_system_file_gix_selects() {
@@ -568,7 +587,7 @@ fn the_hand_built_capture_selects_the_system_file_gix_selects() {
     let by_gix = repo.attribute_global_paths().expect("gix's selected paths");
     let by_hand = AttributeSources::read(
         &repo,
-        &mut gix::path::env::var,
+        &mut |_| None,
         repo.open_options().permissions.attributes,
     )
     .expect("attribute files");
@@ -591,15 +610,35 @@ fn the_hand_built_capture_selects_the_system_file_gix_selects() {
         user.path, None,
         "the capture must not mistake gix's system entry for the user file"
     );
-}
 
-/// Removes a file the test planted outside its temp directory.
-struct RemoveOnDrop(PathBuf);
-
-impl Drop for RemoveOnDrop {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
+    // A user file configured *at* the system location is listed twice
+    // by gix and is still the user file: the set-aside is positional,
+    // not an equality over the whole list.
+    append_config(
+        dir.path(),
+        "[core]\n\tattributesFile = /etc/gitattributes\n",
+    );
+    let repo = gix::open_opts(
+        dir.path(),
+        gix::open::Options::isolated().permissions(permissions),
+    )
+    .expect("reopen");
+    assert_eq!(
+        repo.attribute_global_paths().expect("gix's selected paths"),
+        [system.clone(), system.clone()],
+        "gix lists the system file and then the identical configured user file"
+    );
+    let by_hand = AttributeSources::read(
+        &repo,
+        &mut |_| None,
+        repo.open_options().permissions.attributes,
+    )
+    .expect("attribute files");
+    assert_eq!(
+        by_hand.files[1].path.as_deref(),
+        Some(system.as_path()),
+        "the configured user file survives being the system path"
+    );
 }
 
 /// Regression for the first review finding on the single-read design

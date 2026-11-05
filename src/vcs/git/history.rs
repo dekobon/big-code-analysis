@@ -571,12 +571,18 @@ fn gix_treats_as_missing(err: &std::io::Error) -> bool {
 /// installation file (never — every preset turns it off), the system
 /// file, then `core.attributesFile` or the XDG default, each present
 /// only when selected, every one anchored to
-/// [`gix::Repository::current_dir`]. The user file is whatever is left
-/// once the system entry — gix's own location, which `env` cannot have
-/// withheld — is set aside. Asking gix rather than `trusted_path` is
-/// what gets an `:(optional)` spelling right: gix anchors the path
-/// before the existence check `optional` adds, where `trusted_path`
-/// checks it against the process's directory at read time.
+/// [`gix::Repository::current_dir`]. The user file is the entry after
+/// the system one, when gix selected a system file, else the first —
+/// a positional read, so a user file configured *at* the system
+/// location is still the user file. Whether gix selected a system
+/// file is decided the way gix decides it: the open's
+/// `attributes.system` permission and `GIT_ATTR_NOSYSTEM` read under
+/// the open's *environment* permissions, which an isolated open
+/// denies — `env`, the test seam, is deliberately not consulted here.
+/// Asking gix rather than `trusted_path` is what gets an
+/// `:(optional)` spelling right: gix anchors the path before the
+/// existence check `optional` adds, where `trusted_path` checks it
+/// against the process's directory at read time.
 ///
 /// # Errors
 ///
@@ -588,21 +594,32 @@ fn user_attributes_path(
 ) -> gix::Result<Option<PathBuf>> {
     use gix::attrs::Source;
     let base = repo.current_dir();
-    let gix_system = Source::System
-        .storage_location(&mut gix::path::env::var)
+    let open_permissions = &repo.open_options().permissions;
+    let mut gix_env = |name: &str| {
+        open_permissions
+            .env
+            .git_prefix
+            .check_opt(name)
+            .and_then(gix::path::env::var)
+    };
+    let gix_system = open_permissions
+        .attributes
+        .system
+        .then(|| Source::System.storage_location(&mut gix_env))
+        .flatten()
         .map(|path| base.join(path));
-    let selected = repo
-        .attribute_global_paths()?
-        .into_iter()
-        .find(|path| Some(path) != gix_system.as_ref())
-        .or_else(|| {
-            permissions
-                .git
-                .then(|| Source::Git.storage_location(env))
-                .flatten()
-                .map(|path| base.join(path))
-        });
-    Ok(selected)
+    let selected = repo.attribute_global_paths()?;
+    let user = match (selected.first(), gix_system) {
+        (Some(first), Some(system)) if *first == system => selected.get(1),
+        (first, _) => first,
+    };
+    Ok(user.cloned().or_else(|| {
+        permissions
+            .git
+            .then(|| Source::Git.storage_location(env))
+            .flatten()
+            .map(|path| base.join(path))
+    }))
 }
 
 /// One attribute file gix loads from outside the index: where it was
