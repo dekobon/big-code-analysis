@@ -38,6 +38,59 @@ pub fn owners_covered(
     }
 }
 
+/// A role-table harness's answers for one node, with its slots' names,
+/// that prints as the names of the true slots (`{BRANCH, BRANCH_LEAF}`),
+/// so a failing `check` names the slot that differs instead of leaving
+/// its reader to count `[bool; N]` columns. The array type ties the
+/// names to the slots, so a harness whose list drifts in length does not
+/// compile.
+#[derive(PartialEq)]
+pub struct Labelled<const N: usize>(pub [bool; N], pub &'static [&'static str; N]);
+
+impl<const N: usize> std::fmt::Debug for Labelled<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut set = f.debug_set();
+        for (name, on) in self.1.iter().zip(self.0) {
+            if on {
+                set.entry(&format_args!("{name}"));
+            }
+        }
+        set.finish()
+    }
+}
+
+/// Declares a role-table harness's slots: a `pub(super) const` per name,
+/// numbered by position, and `NAMES`, each slot's name by index, so a
+/// slot and the name [`Labelled`] prints for it cannot disagree. Test-only:
+/// the harnesses compile under `cfg(test)` alone, not `test-support`.
+#[cfg(test)]
+macro_rules! slots {
+    ($($name:ident),+ $(,)?) => {
+        /// Each slot's name, indexed by slot.
+        pub(super) const NAMES: [&str; [$(stringify!($name)),+].len()] =
+            [$(stringify!($name)),+];
+        $crate::test_support::slots!(@at 0; $($name),+);
+    };
+    (@at $index:expr; $name:ident $(, $rest:ident)*) => {
+        pub(super) const $name: usize = $index;
+        $crate::test_support::slots!(@at $index + 1; $($rest),*);
+    };
+    (@at $index:expr;) => {};
+}
+#[cfg(test)]
+pub(crate) use slots;
+
+#[cfg(test)]
+#[test]
+fn labelled_prints_the_true_slots_by_name() {
+    const NAMES: [&str; 3] = ["FIRST", "SECOND", "THIRD"];
+    assert_eq!(
+        format!("{:?}", Labelled([true, false, true], &NAMES)),
+        "{FIRST, THIRD}"
+    );
+    assert_eq!(format!("{:?}", Labelled([false; 3], &NAMES)), "{}");
+}
+
 /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
 /// exactly as `big_code_analysis::spaces::compute::metrics_inner` does,
 /// and hands each node to `check` together with that chain.
