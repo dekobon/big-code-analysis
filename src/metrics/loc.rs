@@ -8998,12 +8998,22 @@ EOF
         // to `/* c */`.
         (b"int a;\n/* c */ \\\n\\\n// d\nint b;\n", (5, 2, 3, 0), 1),
         (b"/* c */ \\\n\\\n\nint z;\n", (4, 1, 2, 1), 2),
+        // Still a row of comments alone when indented: read past the
+        // comment to the code that ended a row earlier.
+        (b"int a;\n  /* c */ \\\n\\\n\nint b;\n", (5, 2, 2, 1), 2),
         // A row that itself continues the directive is code to the bare
         // row after it, comment or not.
         (
             b"#define FOO \\\n  /* c */ \\\n  \\\n  1\n",
             (4, 3, 1, 0),
             1,
+        ),
+        // The `1` it joins makes that bare row code either way; joining an
+        // empty row, only the row it continues can make this one code.
+        (
+            b"int x = 1 + \\\n  /* c */ \\\n\\\n\n  2;\n",
+            (5, 3, 1, 1),
+            2,
         ),
         // Controls: the bare row is inside a node, and an arm older than
         // #1801 credits it. The first `//` comment spans all three rows.
