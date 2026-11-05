@@ -309,12 +309,13 @@ repos:
         entry: python3 utils/check-rumdl-lockstep.py
         pass_filenames: false
 
-      # Self-tests for the rumdl-lockstep gate. Runs on edits to the
-      # script or its test file.
+      # Self-tests for the rumdl-lockstep gate. Runs on the gate's own
+      # inputs as well as the script and its test file: the tests read
+      # the real pin sites and assert the committed baselines' bytes.
       - id: check-rumdl-lockstep-test
         name: check-rumdl-lockstep-test
         language: system
-        files: '^utils/check-rumdl-lockstep(-test)?\.py$'
+        files: '^(mise\.toml|Dockerfile|\.github/workflows/ci\.yml|\.rumdl-lockstep-baseline\.txt|\.actionlint-lockstep-baseline\.txt|utils/check-rumdl-lockstep(-test)?\.py)$'
         entry: python3 -m unittest -q utils/check-rumdl-lockstep-test.py
         pass_filenames: false
 
