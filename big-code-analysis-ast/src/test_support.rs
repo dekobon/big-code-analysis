@@ -43,10 +43,15 @@ pub fn owners_covered(
 /// so a failing `check` names the slot that differs instead of leaving
 /// its reader to count `[bool; N]` columns. The array type ties the
 /// names to the slots, so a harness whose list drifts in length does not
-/// compile.
+/// compile. Test-only, like [`slots!`]: no dependent crate reads it.
+#[cfg(test)]
 #[derive(PartialEq)]
-pub struct Labelled<const N: usize>(pub [bool; N], pub &'static [&'static str; N]);
+pub(crate) struct Labelled<const N: usize>(
+    pub(crate) [bool; N],
+    pub(crate) &'static [&'static str; N],
+);
 
+#[cfg(test)]
 impl<const N: usize> std::fmt::Debug for Labelled<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut set = f.debug_set();
