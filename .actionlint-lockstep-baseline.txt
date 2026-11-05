@@ -1,5 +1,5 @@
 # actionlint lockstep baseline: the actionlint release and its x86_64
-# tarball SHA256 that check-rumdl-lockstep.py last accepted (#1799).
+# artifact SHA256 that check-rumdl-lockstep.py last accepted (#1799).
 # Maintained by `python3 utils/check-rumdl-lockstep.py --update`; see the
 # script's docstring.
 #

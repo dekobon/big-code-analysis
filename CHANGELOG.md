@@ -274,9 +274,11 @@ for historical reference.
   verifies only the amd64 tarball.
 
 - **`make check-rumdl-lockstep` also gates the checkmake pin** (#1820).
-  The `Dockerfile`'s checkmake block takes the actionlint shape (one
-  `URL` / `SHA256` line per arch arm), so the gate holds
-  `CHECKMAKE_VERSION` and the amd64 hash to the CI lint job's pin;
+  The `Dockerfile`'s checkmake block takes the rumdl/actionlint shape
+  (one `<arch variable>="…"; SHA256="…"` line per arch arm, here with
+  the whole `URL` as the variable since its two arms download from
+  different repositories), so the gate holds `CHECKMAKE_VERSION` and
+  the amd64 hash to the CI lint job's pin;
   `.checkmake-lockstep-baseline.txt` records the accepted pair.
 
 ### Changed

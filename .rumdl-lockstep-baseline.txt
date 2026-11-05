@@ -1,4 +1,4 @@
-# rumdl lockstep baseline: the rumdl release and its x86_64 tarball
+# rumdl lockstep baseline: the rumdl release and its x86_64 artifact
 # SHA256 that check-rumdl-lockstep.py last accepted (#1779).
 # Maintained by `python3 utils/check-rumdl-lockstep.py --update`; see the
 # script's docstring.

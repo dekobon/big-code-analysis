@@ -74,9 +74,11 @@ python = "3.12"
 "pipx:ruff" = "latest"
 """
 
-# The rumdl step sits between two siblings with identically shaped env
-# maps, and the comment above each checked step spells its key after a
-# `#`; rumdl's also expands `${RUMDL_VERSION}` the way the real one does.
+# The rumdl step sits between siblings with identically shaped env maps.
+# Each checked step carries a `# <TOOL>_VERSION:` comment above it and
+# expands `${<TOOL>_VERSION}` in its `run:`, the way the real ones do, so
+# the `^\s*NAME:` anchor is shown skipping a `# NAME:` line for every
+# row; `foolint` is the unchecked decoy.
 CI_SAMPLE = f"""\
 jobs:
   lint:
@@ -99,6 +101,7 @@ jobs:
         run: |
           url="https://example.invalid/v${{RUMDL_VERSION}}/rumdl-v${{RUMDL_VERSION}}-x86_64-unknown-linux-gnu.tar.gz"
           echo "${{RUMDL_SHA256}}  /tmp/rumdl.tgz" | sha256sum -c -
+      # CHECKMAKE_VERSION: bump with the Dockerfile.
       - name: Install checkmake
         env:
           CHECKMAKE_VERSION: "0.2.2"
@@ -301,9 +304,11 @@ class DockerShaTest(unittest.TestCase):
         self.assertEqual(
             GATE.read_docker_x86_64_sha(DOCKER_SAMPLE, GATE.CHECKMAKE), CM_SHA
         )
+
+    def test_a_variable_extending_the_version_name_is_not_a_block(self) -> None:
         # A second heredoc interpolating a variable whose name *extends*
-        # `CHECKMAKE_VERSION` is not a checkmake block either. Only the
-        # `\b` in the reader's version reference says so: without it
+        # `CHECKMAKE_VERSION` is not a checkmake block. Only the `\b` in
+        # the reader's version reference says so: without it
         # `${CHECKMAKE_VERSION_FORK}` matches, two blocks are found and
         # the reader hard-errors. (The sample's own fork variable,
         # `${CHECKMAKE_FORK_VERSION}`, is a different prefix and needs
@@ -319,6 +324,27 @@ class DockerShaTest(unittest.TestCase):
             GATE.read_docker_x86_64_sha(DOCKER_SAMPLE + extended_name, GATE.CHECKMAKE),
             CM_SHA,
         )
+
+    def test_a_prefixed_sha256_assignment_on_the_anchor_line_is_not_read(self) -> None:
+        # Only a bare `SHA256=` is the arm's hash: a `<TOOL>_SHA256=`
+        # assignment on the same line is some other variable, and the
+        # `\b` in the Dockerfile hash regex is what rejects it. The decoy
+        # comes first, since `search` returns the earliest match: without
+        # the `\b` it is the hash read, and the assertion sees `OTHER_SHA`.
+        amd = (
+            f'    amd64) CHECKMAKE_SHA256="{OTHER_SHA}"; '
+            'URL="https://example.invalid/${CHECKMAKE_VERSION}/'
+            'checkmake-${CHECKMAKE_VERSION}.linux.amd64"; '
+            f'SHA256="{CM_SHA}" ;;\n'
+        )
+        docker = DOCKER_SAMPLE.replace(
+            '    amd64) URL="https://example.invalid/${CHECKMAKE_VERSION}/'
+            'checkmake-${CHECKMAKE_VERSION}.linux.amd64"; '
+            f'SHA256="{CM_SHA}" ;;\n',
+            amd,
+        )
+        self.assertNotEqual(docker, DOCKER_SAMPLE)
+        self.assertEqual(GATE.read_docker_x86_64_sha(docker, GATE.CHECKMAKE), CM_SHA)
 
     def test_reordered_arms_still_resolve_to_the_triple(self) -> None:
         amd = f'    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="{X86_SHA}" ;;\n'

@@ -293,17 +293,18 @@ EOF
 
 # ---------------------------------------------------------------------------
 # checkmake (Makefile linter) — SHA256-verified release binary. amd64 uses
-# the exact CI pin (mrtazz/checkmake 0.2.2); arm64 uses the checkmake/
-# checkmake fork (see CHECKMAKE_FORK_VERSION note below). Any other arch
+# the exact CI pin (mrtazz/checkmake at CHECKMAKE_VERSION); arm64 uses the
+# checkmake/checkmake fork (see CHECKMAKE_FORK_VERSION below). Any other arch
 # continues without it (`make makefile-check` becomes the one missing gate).
 # `make check-rumdl-lockstep` holds CHECKMAKE_VERSION and the amd64 hash
 # to the CI lint job's pin (#1820).
 # ---------------------------------------------------------------------------
 RUN <<'EOF'
 set -eux
-# mrtazz/checkmake 0.2.2 (the CI pin) ships an amd64 Linux binary only. On
-# arm64, fall back to the maintained checkmake/checkmake fork (v0.3.2), which
-# publishes arm64 builds and uses the same rules + .checkmake.ini format.
+# mrtazz/checkmake (the CI pin, CHECKMAKE_VERSION) ships an amd64 Linux
+# binary only. On arm64, fall back to the maintained checkmake/checkmake
+# fork, which publishes arm64 builds and uses the same rules and
+# .checkmake.ini format.
 CHECKMAKE_FORK_VERSION="0.3.2"
 case $(dpkg --print-architecture) in
     amd64) URL="https://github.com/mrtazz/checkmake/releases/download/${CHECKMAKE_VERSION}/checkmake-${CHECKMAKE_VERSION}.linux.amd64"; SHA256="bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5" ;;

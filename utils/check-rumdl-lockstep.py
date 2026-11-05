@@ -57,7 +57,7 @@ hash still agrees with itself. Each tool's baseline
 ``.checkmake-lockstep-baseline.txt``)
 records the version and amd64 SHA256 the gate last accepted, and the
 gate fails by name when the version has moved but the hash has not, or
-the hash has moved but the version has not (a release's tarball does not
+the hash has moved but the version has not (a release's artifact does not
 change). A bump that moves both fails too, until ``--update`` records
 the new pair in the same commit: a record left at the old release would
 check the *next* bump against the wrong hash, and a passing run's note
@@ -68,10 +68,26 @@ rewrites only the baselines whose pair moved, and refuses when none did.
 **Why these three, not every pin the Dockerfile header mirrors from
 ``ci.yml``.** taplo, shfmt and shellcheck reach CI through
 ``taiki-e/install-action``, which carries no SHA256 to compare.
-checkmake joined once its block took the actionlint shape — one
-``URL="…"; SHA256="…"`` line per arch arm — in place of the inline
-``echo "<sha>  /tmp/checkmake" | sha256sum --check`` the Dockerfile
-reader could not anchor on (#1820).
+checkmake joined once its block took the rumdl/actionlint shape — one
+``<arch variable>="…"; SHA256="…"`` line per arch arm, here with the
+whole ``URL`` as the variable since its two arms download from different
+repositories — in place of the inline ``echo "<sha>  /tmp/checkmake" |
+sha256sum --check`` the Dockerfile reader could not anchor on (#1820).
+
+**Adding a tool.** Four edits and a bootstrap, in this order: the CI
+step's ``<TOOL>_VERSION`` / ``<TOOL>_SHA256`` env keys; the Dockerfile's
+``ENV <TOOL>_VERSION`` and a heredoc ``RUN`` block in the shape above,
+whose download URL names ``${<TOOL>_VERSION}``; a ``Pin`` row in ``PINS``
+with a comment above it saying what its ``amd64_anchor`` is; the new
+baseline name in both ``files:`` regexes of ``.pre-commit-config.yaml``
+and in the Makefile help, comment and echo. Then seed the baseline —
+``--update`` refuses a missing file on purpose, so that a typo in a
+baseline path reads as an error rather than as a fresh start — with a
+stale record, ``0.0.1`` and any 64 hex digits, and run ``--update``,
+which rewrites it from the template; commit what it wrote. The
+self-tests' ``CI_SAMPLE`` and ``DOCKER_SAMPLE`` need the tool's sites,
+``_NEXT`` its next release, and ``HAND_<TOOL>_BASELINE`` a hand-written
+record; the tests that iterate ``PINS`` then cover the row.
 
 ``mise.toml`` is parsed with ``tomllib``. ``ci.yml`` and the
 ``Dockerfile`` are parsed by line, because PyYAML is not in the
@@ -81,7 +97,7 @@ hook. Each read is anchored to a shape that occurs exactly once and
 hard-errors on anything else — no match, two matches, a malformed hash —
 because a version gate that silently passes on input it does not
 recognise is the bug being fixed, not a lenient version of the fix. A
-hard error on one tool's inputs still reports the other tool's drift.
+hard error on one tool's inputs still reports the other tools' drift.
 
 Exit status: 0 when the pins agree (or ``--update`` recorded a new pair),
 1 on drift, on a refused ``--update`` or on an input the gate cannot
@@ -135,12 +151,15 @@ class Pin:
     # `ENV`, and its `${...}` expansion is what marks the tool's RUN block.
     version_var: str
     sha256_var: str
-    # A substring naming the amd64 arm of the tool's Dockerfile `case`:
-    # the value the arm feeds the download URL, not the `amd64)` label,
-    # so an arm spelled `x86_64)` or reordered still resolves to the
-    # hash of the tarball CI verifies.
+    # A substring that only the amd64 arm's line of the tool's Dockerfile
+    # `case` carries, taken from what that arm feeds the download URL — a
+    # target triple, an arch-variable assignment, or the asset suffix of
+    # a whole URL — rather than the `amd64)` label, so an arm spelled
+    # `x86_64)` or reordered still resolves to the hash of the artifact
+    # CI verifies. The reader hard-errors unless exactly one line in the
+    # block carries it beside a `SHA256=`.
     amd64_anchor: str
-    # How messages name that tarball.
+    # How messages name that artifact.
     artifact: str
     baseline: pathlib.Path
     # The issue that added the row, cited by its messages.
@@ -193,7 +212,7 @@ PINS = (RUMDL, ACTIONLINT, CHECKMAKE)
 # setting each record to a stale version and hash and running `--update`,
 # which refuses a run where nothing moved.
 _BASELINE_HEADER = (
-    "{tool} lockstep baseline: the {tool} release and its x86_64 tarball "
+    "{tool} lockstep baseline: the {tool} release and its x86_64 artifact "
     "SHA256 that check-rumdl-lockstep.py last accepted ({issue}).",
     "Maintained by `python3 utils/check-rumdl-lockstep.py --update`; see the "
     "script's docstring.",
@@ -458,7 +477,7 @@ def evaluate(pin: Pin, texts: dict[pathlib.Path, str]) -> Verdict:
         problems.append(
             f"  {DOCKERFILE}: {pin.artifact} SHA256 {docker_sha}\n"
             f"    differs from {CI_WORKFLOW} {pin.sha256_var} {ci_sha}.\n"
-            f"    Both verify the same tarball; one hash was not updated."
+            f"    Both verify the same artifact; one hash was not updated."
         )
 
     if problems:
@@ -491,7 +510,7 @@ def evaluate(pin: Pin, texts: dict[pathlib.Path, str]) -> Verdict:
             verdict,
             invalid=f"error: the {pin.artifact} hash changed but {pin.tool} is "
             f"still {ci_version};\n"
-            f"  a release's tarball does not change, so either the version or "
+            f"  a release's artifact does not change, so either the version or "
             f"the hash in {CI_WORKFLOW} and the {DOCKERFILE} is wrong.\n"
             f"  ({pin.baseline} records SHA256 {base_sha[:12]}... for "
             f"{base_version}; see {pin.issue}.)",
@@ -562,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
     unreadable: list[str] = []
     for pin in PINS:
         # The tools share no values, so an input one of them cannot read
-        # must not hide what the other's pins already say.
+        # must not hide what the other tools' pins already say.
         try:
             verdicts.append(evaluate(pin, texts))
         except SystemExit as exc:

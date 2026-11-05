@@ -130,8 +130,9 @@ either way:
 
 Images build on `linux/amd64` and `linux/arm64`. `checkmake` is the one
 tool without a single cross-arch source: amd64 uses the exact CI pin
-(`mrtazz/checkmake` 0.2.2, amd64-only upstream), and arm64 falls back to the
-maintained `checkmake/checkmake` fork (v0.3.2, same rules and
+(`mrtazz/checkmake` at the `CHECKMAKE_VERSION` pin, amd64-only upstream),
+and arm64 falls back to the maintained `checkmake/checkmake` fork
+(`CHECKMAKE_FORK_VERSION`, same rules and
 `.checkmake.ini` format). On any other architecture the build continues
 without it and `make makefile-check` is the single unavailable gate.
 

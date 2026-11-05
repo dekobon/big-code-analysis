@@ -792,7 +792,7 @@ jobs:
       # checkmake is not in taiki-e/install-action's manifest; fetch the
       # pinned upstream release binary directly. The SHA256 below comes
       # from the upstream `checksums.txt` published alongside the
-      # 0.2.2 release. Bump CHECKMAKE_SHA256 in lockstep with
+      # pinned release. Bump CHECKMAKE_SHA256 in lockstep with
       # `CHECKMAKE_VERSION` (and with the `Dockerfile`'s
       # `CHECKMAKE_VERSION` + amd64 SHA256); `make check-rumdl-lockstep`
       # fails when they disagree (#1820).
