@@ -19,7 +19,14 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "^4.0", features = ["derive"] }
-askama = "^0.16"
+# The four `#[template(path = …)]` derives need only `derive` and `std`
+# (`std` carries `alloc`, which `render()` needs). askama's default set
+# also enables `config`, an `askama.toml` reader this crate has no file
+# for, and that feature alone pulls `basic-toml` — archived upstream and
+# flagged unmaintained as RUSTSEC-2026-0374. Keep the narrow set even
+# after askama swaps its TOML parser (askama-rs/askama#771): restoring
+# unused defaults buys nothing and re-widens the lockfile.
+askama = { version = "^0.16", default-features = false, features = ["derive", "std"] }
 
 # NOTE: enums/ is excluded from the workspace (see ../Cargo.toml
 # [workspace].exclude), so these pins cannot inherit from
