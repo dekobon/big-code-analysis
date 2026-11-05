@@ -773,8 +773,10 @@ jobs:
       # actionlint 1.7.12's prebuilt binary is not yet in
       # taiki-e/install-action's manifest, and cargo-binstall has no
       # fallback for it. Fetch the upstream release tarball directly,
-      # mirroring the checkmake step below. Bump SHA256 in lockstep
-      # with `ACTIONLINT_VERSION`.
+      # mirroring the checkmake step below. Bump ACTIONLINT_SHA256 in
+      # lockstep with `ACTIONLINT_VERSION` (and with the `Dockerfile`'s
+      # `ACTIONLINT_VERSION` + per-arch SHA256 table); `make
+      # check-rumdl-lockstep` fails when they disagree (#1799).
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: "1.7.12"
@@ -1029,7 +1031,9 @@ jobs:
       # the `Install rumdl` step above and the Dockerfile must pin one
       # rumdl version, and the Dockerfile's x86_64 hash must equal
       # `RUMDL_SHA256`. Comments were the whole mechanism before, and
-      # #1653's bump nearly left the Dockerfile behind.
+      # #1653's bump nearly left the Dockerfile behind. The same gate
+      # holds the `Install actionlint` step and the Dockerfile to one
+      # actionlint version and amd64 hash (#1799).
       - name: check-rumdl-lockstep (explicit)
         run: python3 utils/check-rumdl-lockstep.py
       - name: check-rumdl-lockstep self-tests (explicit)

@@ -97,7 +97,7 @@ and `cargo run -p big-code-analysis-web --`.
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
-  `check-rumdl-lockstep.py`,
+  `check-rumdl-lockstep.py` (the rumdl and actionlint pins),
   `check-publish-metadata.py`, `check-test-lang-gates.py`,
   `check-role-census.py`, `check-role-coverage.py`,
   `check-role-bypass.py` (the three role-table gates, all reading

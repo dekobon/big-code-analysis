@@ -1,0 +1,13 @@
+# actionlint lockstep baseline: the actionlint release and its x86_64
+# tarball SHA256 that check-rumdl-lockstep.py last accepted (#1799).
+# Maintained by `python3 utils/check-rumdl-lockstep.py --update`; see the
+# script's docstring.
+#
+# The gate fails when the version pinned in ci.yml and the Dockerfile has
+# moved but the hash in ci.yml and the Dockerfile is still the one
+# recorded here: the bump kept the old release's hash. A bump that pastes
+# the new release's hash into both files fails too, until `--update`
+# records the new pair; commit this file with that bump.
+#
+# One record: `<version> <sha256>`.
+1.7.12 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

@@ -43,7 +43,9 @@ ENV PATH=/usr/local/cargo/bin:/home/dev/.local/bin:/usr/local/bin:$PATH
 # Toolchain / release pins. Keep these in lockstep with the sources noted:
 #   RUST_VERSION       -> Cargo.toml workspace.package.rust-version
 #   NODE_MAJOR         -> NodeSource line (>= 22.6 required by codegraph)
-#   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job
+#   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job; for RUMDL and
+#                         ACTIONLINT `make check-rumdl-lockstep` fails when
+#                         the version or the amd64 SHA256 disagree
 #   BINSTALL/UV        -> no CI counterpart; bump by hand together with
 #                         the per-arch SHA256 tables in their RUN blocks
 ENV RUST_VERSION=1.94.0
@@ -271,6 +273,8 @@ EOF
 
 # ---------------------------------------------------------------------------
 # actionlint (GitHub Actions linter) — SHA256-verified release tarball.
+# `make check-rumdl-lockstep` holds ACTIONLINT_VERSION and the amd64 hash
+# to the CI lint job's pin (#1799).
 # ---------------------------------------------------------------------------
 RUN <<'EOF'
 set -eux

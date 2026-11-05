@@ -298,12 +298,14 @@ repos:
       # rumdl version lockstep (#1779). mise.toml, the CI lint job and
       # the Dockerfile each pin rumdl, and the Dockerfile's x86_64 hash
       # must equal CI's. #1653's bump nearly left the Dockerfile behind.
-      # .rumdl-lockstep-baseline.txt records the last accepted version and
-      # hash, so a bump that keeps the old hash fails too.
+      # The same gate holds actionlint's CI and Dockerfile pins together
+      # (#1799). .rumdl-lockstep-baseline.txt and
+      # .actionlint-lockstep-baseline.txt record each tool's last accepted
+      # version and hash, so a bump that keeps the old hash fails too.
       - id: check-rumdl-lockstep
         name: check-rumdl-lockstep
         language: system
-        files: '^(mise\.toml|Dockerfile|\.github/workflows/ci\.yml|\.rumdl-lockstep-baseline\.txt|utils/check-rumdl-lockstep\.py)$'
+        files: '^(mise\.toml|Dockerfile|\.github/workflows/ci\.yml|\.rumdl-lockstep-baseline\.txt|\.actionlint-lockstep-baseline\.txt|utils/check-rumdl-lockstep\.py)$'
         entry: python3 utils/check-rumdl-lockstep.py
         pass_filenames: false
 
