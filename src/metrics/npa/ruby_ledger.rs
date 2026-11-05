@@ -140,9 +140,13 @@ impl<K: Hash + Eq> RubyLedger<K> {
 /// Each level of a nested keyword chain re-files every name it is
 /// handed and passes them all up, so `D` nested `private(public(…))`
 /// around `W` symbols is `D × W` lookups on an input of size `D + W`
-/// (batch perf audit: 16,000 × 16,000 took 20 s). The semantics
-/// require each governing level to act, real code nests two deep, and
-/// no probe reads the shape; recorded, not restructured.
+/// (batch perf audit: 16,000 × 16,000 took 20 s). `npm` paid this
+/// before #1399; `npa` did not — its consumer gathered nothing, so the
+/// same chain around an `attr_accessor` was `O(D + W)` and is `D × W`
+/// since the attribute ledger (4,000 × 4,000: 57 ms before, 470 ms
+/// after). The semantics require each governing level to act, real
+/// code nests two deep, and no probe reads the shape; recorded, not
+/// restructured.
 pub(crate) fn ruby_leave_visibility_call<N: Copy>(
     call: RubyOpenCall<Vec<N>>,
     outer: Option<&mut RubyOpenCall<Vec<N>>>,

@@ -526,10 +526,14 @@
 //! `no_chain` gate that climbs with `Node::parent` (the signature
 //! proves no chain parameter, not no ancestry read — the derived
 //! suite's `no_chain_rows_answer_alike_under_the_empty_chain` compares
-//! every `!CHAIN_GATED` row under the real chain and the empty one,
-//! and cannot see a read whose answer agrees, lesson 114), a
-//! `callable_when` or payer gate (no chain-less forward reads them),
-//! and a text gate under the wrong keyword. So the derived suite still
+//! every `!CHAIN_GATED` row under the real chain and the empty one and
+//! counts the `Node::parent` climbs either side makes, so a climb is
+//! reported whatever it answers — but only on the owner candidates the
+//! corpus spells: a `no_chain` owner no fixture reaches is neither
+//! compared nor counted, and `make role-coverage-claimed` lists the
+//! claimed kinds with no corpus occurrence), a `callable_when` or payer
+//! gate (no chain-less forward reads them), and a text gate under the
+//! wrong keyword. So the derived suite still
 //! compares every forward on every corpus candidate, and a known
 //! disagreement is a named
 //! `KNOWN_DISAGREEMENTS` entry that must still occur (a stale entry

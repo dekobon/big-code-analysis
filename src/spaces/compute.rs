@@ -104,10 +104,9 @@ fn compute_averages(state: &mut State, selected: MetricSet) {
     // that includes NArgs and these divisors reflect the real counts.
     // As defense-in-depth, each `average` accessor additionally guards
     // its divisor with `.max(1)`, so even a zero divisor degrades to
-    // `sum / 1` rather than `inf`/`NaN` (#428). Cognitive and Nexits
-    // used to take `nom.total()` here too; since #1284 they count the
-    // function spaces they fold in `compute_minmax`, the one population
-    // their `min` / `max` also read.
+    // `sum / 1` rather than `inf`/`NaN` (#428). Cognitive, Cyclomatic
+    // and Nexits take nothing from here since #1284: each folds its own
+    // `metrics::FunctionPopulation` in `compute_minmax`.
     if selected.contains(Metric::Nargs) {
         let nom_functions = state.space.metrics.nom.functions_sum() as usize;
         let nom_closures = state.space.metrics.nom.closures_sum() as usize;

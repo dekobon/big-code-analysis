@@ -331,9 +331,11 @@ for historical reference.
   and `//=` now add nothing (they were folded into the boolean sequence
   since #230, #239, #246 and #249). Cyclomatic complexity still counts
   each as a decision. In the same change PHP's `break N` / `continue N`
-  pays a flat +1 for any explicit level, as Appendix B §B1 lists `break
-  NUMBER` / `continue NUMBER`; a bare `break;` / `continue;` stays +0.
-  Values move for any input using these constructs (#1800, #1765).
+  and Bash's `break n` / `continue n` pay a flat +1 for any explicit
+  level, as Appendix B §B1 lists `break NUMBER` / `continue NUMBER`; a
+  bare `break` / `continue` stays +0. Bash's is a plain `command` with
+  no jump kind and is read by its leading word. Values move for any
+  input using these constructs (#1800, #1765).
 - **A row gate may be declared `no_chain`** (#1793): `gated_by f
   no_chain`, `text_gated_by f no_chain` and `opens_by f no_chain` give
   the gate the signature `fn(&Node, &[u8])` and call it with two

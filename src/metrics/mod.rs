@@ -181,7 +181,19 @@ impl PopulationValue for usize {
 /// `min <= average <= max` holds by construction (#1284). One `fold`
 /// per function space, one `merge` per child; the all-space `sum` the
 /// metrics also publish is kept apart, in the metric's own field. An
-/// empty population has no `min`, and reports `0` for it.
+/// empty population has no `min`, and reports `0` for it (#428).
+///
+/// This is the one place the rule is spelled in the tree; the book's
+/// "Aggregate population" section under Cyclomatic Complexity is the
+/// user-facing definition and the accessors link here. What it
+/// replaced: the numerator and extrema folded every space while the
+/// divisor counted functions, so `fn f() {}` reported cyclomatic
+/// `average 2.0` against `min 1, max 1` and the unit's own `0` pinned
+/// file-level cognitive `min`; and cognitive / nexits divided by
+/// `nom.total()`, which counts a closure that opens no space (a Python
+/// `lambda`, whose increments are part of the enclosing function's
+/// own value), so a function holding one could report `average 7.0`
+/// against `min 14, max 14`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct FunctionPopulation<T: PopulationValue> {
     sum: T,

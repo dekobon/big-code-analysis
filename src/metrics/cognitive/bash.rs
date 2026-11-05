@@ -39,6 +39,19 @@ const RUN_COMPARISONS: [u16; 4] = [
     Bash::EQTILDE as u16,
 ];
 
+/// Whether a `command` is `break` or `continue` with a level argument
+/// (`break 2`), by the text of its `name` field and a named child
+/// after it. A comment extra is not an argument.
+fn bash_jump_with_level(node: &Node<'_>, code: &[u8]) -> bool {
+    let Some(name) = node.child_by_field_name("name") else {
+        return false;
+    };
+    matches!(name.utf8_text(code), Some("break" | "continue"))
+        && node
+            .children_after(&name)
+            .any(|c| c.is_named() && !crate::roles::bash::comment::lists_kind(c.kind_id()))
+}
+
 /// The comparison runs the walk is inside, innermost last. A run member
 /// is a comparison or an intervening unary test; each records its span
 /// and the end of the outermost member of its run, inherited when its
@@ -142,6 +155,18 @@ impl Cognitive for BashCode {
             }
             _ if else_if::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 increment_branch_extension(stats);
+            }
+            // `break n` / `continue n`, B1's `break NUMBER` /
+            // `continue NUMBER`: +1 whenever a level is written, `break 1`
+            // included, the reading PHP's `break N` takes (#1765). Bash
+            // has no jump kind — the builtin parses as a `command` like
+            // any other (grammar-dispatch §9) — so the word is read off
+            // the `name` field and the level is a named child after it;
+            // a bare `break` / `continue` adds +0.
+            // role-bypass: allow(Call) — the leading word of the command, a naming step; the
+            // row owns every command
+            Command if bash_jump_with_level(node, code) => {
+                increment_by_one(stats);
             }
             // `&&` / `||` appear in two places: as direct children of
             // `Bash::List` (command level: `cmd && cmd`) and as direct

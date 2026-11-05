@@ -83,17 +83,9 @@ impl Stats {
         self.functions.max() as u64
     }
 
-    /// Returns the average `NExit` per function.
-    ///
-    /// Numerator and divisor both read the
-    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
-    /// the population [`Stats::nexits_min`] and [`Stats::nexits_max`]
-    /// fold over, so `min <= average <= max` holds on every space
-    /// (#1284). A closure that opens no space (a Python `lambda`) is not
-    /// a divisor unit; before #1284 the divisor was `nom.total()`, which
-    /// counts one. The divisor is guarded with `.max(1)` via the shared
-    /// `average` helper, so a subtree with no function space reports
-    /// `0.0` (#428).
+    /// Returns the average `NExit` per function: the function-space
+    /// population [`Stats::nexits_min`] and [`Stats::nexits_max`] also
+    /// read, `0.0` where it is empty (`FunctionPopulation`, #1284).
     #[must_use]
     pub fn nexits_average(&self) -> f64 {
         self.functions.average()

@@ -1111,10 +1111,12 @@ mod php {
     // is absent, so a DocBlock in a closure or arrow body answers for
     // no body kind here — the Checker's body-child test is pinned
     // separately below. The `define()` statement is a target under its
-    // callee gate, in its bare and `\`-qualified spellings; `defined()`,
-    // `DEFINE()`, a namespace-qualified `define` and an assigned one
-    // are not (#1646).
-    pub(super) const SOURCE: &[u8] = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n/** d */\ndefine('X', 1);\n\\define('Y', 2);\ndefined('X');\nDEFINE('Z', 3);\nFoo\\define('W', 4);\n$v = define('V', 5);\n";
+    // callee gate, in its bare and `\`-qualified spellings and through
+    // grouping parentheses, which PHP-Parser drops; `defined()`,
+    // `DEFINE()`, a namespace-qualified `define`, an assigned one and
+    // an imported alias (`use function Vendor\make as define;`, which
+    // only `NameResolver` would re-spell) are not (#1646).
+    pub(super) const SOURCE: &[u8] = b"<?php\n/** file */\n/** c */\nclass C {\n    /** p */\n    public $p;\n    /** k */\n    const K = 1;\n    /**/\n    /**no space*/\n    // line\n    # hash\n    /* block */\n    /** m */\n    function m() { $f = function () { /** in closure */ }; $g = fn() => /** in arrow */ 1; }\n}\ninterface I { const J = 2; }\ntrait T { }\nenum E { /** case */ case A; }\n/** f */\nfunction f() { }\n/** d */\ndefine('X', 1);\n\\define('Y', 2);\ndefined('X');\nDEFINE('Z', 3);\nFoo\\define('W', 4);\n$v = define('V', 5);\n(define('P', 6));\n((define('Q', 7)));\nuse function Vendor\\make as define;\ndefine('R', 8);\n";
 
     #[test]
     fn rows_answer_the_table() {
@@ -1171,6 +1173,9 @@ mod php {
             ("expression_statement", "DEFINE('Z', 3);", NONE),
             ("expression_statement", "Foo\\define('W', 4);", NONE),
             ("expression_statement", "$v = define('V', 5);", NONE),
+            ("expression_statement", "(define('P', 6));", TARGET),
+            ("expression_statement", "((define('Q', 7)));", TARGET),
+            ("expression_statement", "define('R', 8);", TARGET),
         ];
         check::<PhpCode>(
             source,

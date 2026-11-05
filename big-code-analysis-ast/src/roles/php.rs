@@ -22,12 +22,33 @@ crate::roles::byte_gate!(opens_with_docblock_marker, phpdoc);
 /// run, which leaves an unqualified `define` as is, resolves `\define`
 /// to a `FullyQualified` printing as `define`, and prefixes a
 /// qualified or `namespace\` name with its namespace. Read from the
-/// subtree alone: the call's `function` child is a bare `name` spelling
-/// `define`, or a `qualified_name` spelling `\define` (PHP allows no
-/// whitespace inside a name).
+/// subtree alone: the statement's expression — through any grouping
+/// parentheses, which PHP-Parser drops, so `(define('X', 1));` is the
+/// same `Expression` holding a `FuncCall` to phpDocumentor — is a call
+/// whose `function` child is a bare `name` spelling `define`, or a
+/// `qualified_name` spelling `\define` (PHP allows no whitespace
+/// inside a name). An imported alias (`use function Vendor\make as
+/// define;`) is resolved by `NameResolver` and not by this gate, which
+/// reads no `use` declarations: that spelling, and the reverse `use
+/// function define as make;`, read as written (#1646).
 fn is_define_call(node: &Node<'_>, code: &[u8]) -> bool {
-    node.children()
-        .find(|child| child.kind_id() == Php::FunctionCallExpression)
+    let mut expression = node.children().find(|child| {
+        matches!(
+            child.kind_id().into(),
+            Php::FunctionCallExpression | Php::ParenthesizedExpression
+        )
+    });
+    while let Some(parenthesized) =
+        expression.filter(|e| e.kind_id() == Php::ParenthesizedExpression as u16)
+    {
+        expression = parenthesized.children().find(|child| {
+            matches!(
+                child.kind_id().into(),
+                Php::FunctionCallExpression | Php::ParenthesizedExpression
+            )
+        });
+    }
+    expression
         .and_then(|call| call.child_by_field_name("function"))
         .is_some_and(|callee| match callee.kind_id().into() {
             Php::Name => node_bytes(&callee, code) == b"define",

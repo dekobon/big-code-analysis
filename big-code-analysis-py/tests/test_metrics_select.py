@@ -278,9 +278,11 @@ def test_dotted_id_selects_its_family() -> None:
 
 @pytest.mark.parametrize("name", ["cognitive", "nargs", "nexits"])
 def test_per_function_averages_pull_nom(name: str) -> None:
-    """``cognitive``, ``nargs`` and ``nexits`` average over ``nom``'s count.
+    """``cognitive``, ``nargs`` and ``nexits`` pull ``nom`` in.
 
-    So each pulls ``nom`` in, as the book's dependency table says.
+    ``nargs`` divides by ``nom``'s counts; ``cognitive`` and ``nexits``
+    count their own function spaces since #1284 and keep the dependency
+    for output shape, as the book's dependency table says.
     """
     result = bca.analyze(FIXTURES / "hello.py", metrics=[name])
     assert result is not None

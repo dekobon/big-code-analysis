@@ -112,18 +112,10 @@ impl Stats {
         self.cyclomatic_sum as u64
     }
 
-    /// Returns the average standard cyclomatic complexity per function.
-    ///
-    /// Numerator and divisor both read the
-    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
-    /// the same population [`Stats::cyclomatic_min`] and
-    /// [`Stats::cyclomatic_max`] fold over, so `min <= average <= max`
-    /// holds on every space (#1284). Before that the numerator was
-    /// [`Stats::cyclomatic_sum`], whose unit and container base values
-    /// had no divisor unit to match, and `fn f() {}` reported
-    /// `average 2.0` against `min 1, max 1`. The divisor is guarded
-    /// with `.max(1)` via the shared `average` helper, so a subtree with
-    /// no function space reports `0.0`.
+    /// Returns the average standard cyclomatic complexity per function:
+    /// the function-space population [`Stats::cyclomatic_min`] and
+    /// [`Stats::cyclomatic_max`] also read, `0.0` where it is empty
+    /// (`FunctionPopulation`, #1284).
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
         self.functions.average()

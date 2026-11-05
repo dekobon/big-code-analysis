@@ -146,15 +146,13 @@ role_table! {
         pays [QMARK under ConditionalExpression]
         project "operator"
     }
-    // Two structural forms, each one decision (#436, #1459): the null
-    // coalescing `a ?? b`, a `binary_expression` (either alias) owned
-    // through its `operator` field and paid at the `??` token; and the
-    // conditional access `a?.b` / `a?[0]`, a
-    // `conditional_access_expression` that pays for itself — its
-    // operator is the same bare `?` the ternary and two type
-    // productions spell (#1275), and one node is one `?`, so the node is
-    // the payer and the token bills through the byte-less arm as it
-    // did. The compound `??=` is an `assignment_expression`, not a
+    // Two structural forms (#436, #1459): the null coalescing `a ?? b`,
+    // a `binary_expression` (either alias) owned through its `operator`
+    // field with the `??` token as its payer; and the conditional
+    // access `a?.b` / `a?[0]`, a `conditional_access_expression` that
+    // pays for itself — its operator is the same bare `?` the ternary
+    // and two type productions spell (#1275), and one node is one `?`.
+    // The compound `??=` is an `assignment_expression`, not a
     // `binary_expression` (#236). Which consumer reads which token is
     // each consumer's to say (`src/metrics/{abc,cyclomatic}/csharp.rs`).
     NullSafe {

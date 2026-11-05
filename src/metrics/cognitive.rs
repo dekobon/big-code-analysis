@@ -55,7 +55,7 @@ use crate::*;
 // coalescing payers were folded into the boolean sequence (#230, #239,
 // #246, #249), for parity with cyclomatic, which still pays them as
 // decisions. B1's `break NUMBER` / `continue NUMBER` is PHP's `break 2;`
-// and scores +1 for any explicit argument (#1765).
+// and Bash's `break 2`, each +1 for any explicit level (#1765).
 
 // No language scores the specification's recursion increment (B1, "each
 // method in a recursion cycle"), and this is a decision rather than a gap:
@@ -129,20 +129,10 @@ impl Stats {
         self.functions.max() as u64
     }
 
-    /// Returns the average `Cognitive Complexity` per function.
-    ///
-    /// Numerator and divisor both read the
-    /// [`SpaceKind::Function`][crate::SpaceKind] spaces of the subtree,
-    /// the population [`Stats::cognitive_min`] and
-    /// [`Stats::cognitive_max`] fold over, so `min <= average <= max`
-    /// holds on every space (#1284). A closure that opens no space (a
-    /// Python `lambda`) is not a divisor unit: its increments are part
-    /// of the enclosing function's own value. Before #1284 the divisor
-    /// was `nom.total()`, which counts such closures, and a function
-    /// holding one lambda could report `average 7.0` against
-    /// `min 14, max 14`. The divisor is guarded with `.max(1)` via the
-    /// shared `average` helper, so a subtree with no function space
-    /// reports `0.0` (#428).
+    /// Returns the average `Cognitive Complexity` per function: the
+    /// function-space population [`Stats::cognitive_min`] and
+    /// [`Stats::cognitive_max`] also read, `0.0` where it is empty
+    /// (`FunctionPopulation`, #1284).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
         self.functions.average()
@@ -6452,6 +6442,55 @@ fn ie(x: bool) -> i32 {
                   "average": 1.0,
                   "min": 1,
                   "max": 1
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_jump_pays_for_any_explicit_level_1765() {
+        // Bash's `break n` / `continue n` are B1's `break NUMBER` /
+        // `continue NUMBER`, the same reading PHP's `break N` took under
+        // #1765: +1 for any written level, `continue 1` included, +0 for
+        // the bare word. The builtin is a `command` like any other, so
+        // the arm reads the leading word (grammar-dispatch §9).
+        // expected: for(+1) + for(+2 nested) + break 2(+1) + while(+1) +
+        // continue 1(+1) + while(+1) + bare break(+0) = 7; was 5 on
+        // main, where both levelled jumps scored +0. Cyclomatic is the
+        // fixture's second axis: 6 with the jumps and 6 with them
+        // replaced by `:` (measured on main), the jumps being no
+        // decisions — so the cognitive `sum` is what they move, and a
+        // fixture that lost them would read 5 there, not 7.
+        check_cognitive_and_cyclomatic::<BashParser>(
+            "f() {
+                 for i in 1 2; do            # +1
+                     for j in 1 2; do        # +2
+                         break 2             # +1
+                     done
+                 done
+                 while true; do              # +1
+                     continue 1              # +1
+                 done
+                 until false; do             # +1
+                     break                   # +0
+                 done
+             }",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 7);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 7,
+                  "value": 0,
+                  "average": 7.0,
+                  "min": 7,
+                  "max": 7
                 }
                 "#
                 );

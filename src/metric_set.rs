@@ -99,11 +99,12 @@ impl Metric {
             // closure counts sourced from Nom (see
             // `spaces::compute_averages`); without Nom the divisor would
             // be the `Stats` default (zero), producing inf/NaN averages
-            // (#428). Cognitive and Nexits count their own function
-            // spaces since #1284 and read nothing from Nom, but keep the
-            // declaration: dropping it would remove the `nom` block from
-            // a `cognitive`- or `nexits`-only selection, an output-shape
-            // change that is a separate decision from the value fix.
+            // (#428). Cognitive and Nexits fold their own
+            // `metrics::FunctionPopulation` since #1284 and read nothing
+            // from Nom, but keep the declaration: dropping it would
+            // remove the `nom` block from a `cognitive`- or
+            // `nexits`-only selection, an output-shape change that is a
+            // separate decision from the value fix.
             Self::Cognitive | Self::Nexits | Self::Nargs => &[Self::Nom],
             _ => &[],
         }

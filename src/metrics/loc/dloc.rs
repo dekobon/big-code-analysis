@@ -2056,6 +2056,22 @@ mod tests {
                     0,
                     1,
                 ),
+                // PHP-Parser drops grouping parentheses, so phpDocumentor
+                // sees the same `Expression` holding a `FuncCall`.
+                (
+                    "above a parenthesised define()",
+                    b"<?php\nfunction z() {}\n/** d */\n((define('X', 1)));\n",
+                    1,
+                    1,
+                ),
+                // The gate reads no `use` declarations: an alias that only
+                // `NameResolver` would re-spell reads as written.
+                (
+                    "above a define() aliased from another function",
+                    b"<?php\nuse function Vendor\\make as define;\nfunction z() {}\n/** d */\ndefine('X', 1);\n",
+                    1,
+                    1,
+                ),
                 (
                     "after a define()'s arguments",
                     b"<?php\nfunction z() {}\ndefine('X', 1) /** t */;\n",

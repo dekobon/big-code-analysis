@@ -165,14 +165,14 @@ role_table! {
     // claiming `Identifier` as a payer would claim every name.
     EagerLogical { owns [InfixExpression(text_gated_by eager_infix no_chain)] }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
-    // Two structural forms, each one decision per token (#436): the
-    // elvis `a ?: b`, a `binary_expression` owned through its `operator`
-    // field, and the safe navigation `a?.b`, whose `?.` sits in a
+    // Two structural forms (#436): the elvis `a ?: b`, a
+    // `binary_expression` owned through its `operator` field, and the
+    // safe navigation `a?.b`, whose `?.` sits in a
     // `navigation_expression` beside the plain `.`, so the owner is
     // gated on holding one. Which of the two each consumer scores is
     // the consumer's to say (`src/metrics/{abc,cyclomatic}/kotlin.rs`).
-    // The not-null assertion `!!` throws rather than branches, and is
-    // no decision to any consumer.
+    // The not-null assertion `!!` is a postfix on its operand, not a
+    // navigation, and is on no row.
     NullSafe {
         owns [
             BinaryExpression(holds_payer),

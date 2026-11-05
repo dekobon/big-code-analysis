@@ -3006,7 +3006,7 @@ mod nameless_construct_spaces {
     /// both — the `Lambda` space plus a phantom zero-metric anonymous
     /// Function nested inside it. The phantom inflated every
     /// space-count consumer: per-space threshold evaluation, the
-    /// `function_spaces` average divisor (pinning per-file `min` at 0),
+    /// per-function average divisor (pinning per-file `min` at 0),
     /// and the ops tree. Each stabby form must open exactly one space.
     #[test]
     #[cfg(feature = "ruby")]

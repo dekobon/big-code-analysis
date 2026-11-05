@@ -394,9 +394,11 @@ since adopted it.
 ### Per-language deviations {#cognitive-per-language-deviations}
 
 What follows is where the implementation and the paper's Appendix B
-part, or where the paper has nothing to say. Null coalescing and
-PHP's `break N` are *not* on this list since #1800 and #1765: both
-follow the paper now (see the two paragraphs above).
+part, or where the paper has nothing to say. Null coalescing is
+*not* on this list since #1800: it follows the paper now (see the
+paragraph above). The numbered `break N` / `continue N` of PHP and
+Bash is listed below only because the paper's §B1 names it and a
+reader may not expect a level to count as a label.
 
 - **No language** scores the recursion increment (B1): the metric
   walk resolves no calls, so a function calling itself costs nothing
@@ -449,11 +451,13 @@ follow the paper now (see the two paragraphs above).
   levels up happened to be a closure. Python cannot express the shape
   at all: a `def` is a statement and a lambda body is a single
   expression.
-- **PHP** scores `break N` / `continue N`, its only non-default jump
-  argument, at a flat `+1` for any explicit level, `break 1;`
-  included — §B1's `break NUMBER` / `continue NUMBER`, and what
-  sonar-php does. A bare `break;` / `continue;` adds nothing. Before
-  #1765 the numeric form scored `+0` as a structured loop-level exit.
+- **PHP and Bash** score `break N` / `continue N`, the only
+  non-default jump argument either has, at a flat `+1` for any
+  explicit level, `break 1` included — §B1's `break NUMBER` /
+  `continue NUMBER`, and what sonar-php does. A bare `break` /
+  `continue` adds nothing. Before #1765 the numeric form scored `+0`
+  in both as a structured loop-level exit; Bash's parses as a plain
+  `command`, so it is read by its leading word.
 - **Rust**'s `let`-`else` (`let Some(a) = y else { continue };`)
   postdates the specification. It is scored as the `if let` it
   replaces: `+1` plus the current nesting, with everything under it,
@@ -568,8 +572,8 @@ Two things are deliberately *not* in that population:
 - **Containers and the file unit.** Each still contributes its own
   `value` — base 1 for cyclomatic, its module-level decisions for all
   three — to `sum`, which is what [MI](#maintainability-index-mi) and
-  [WMC](#wmc) read, but not to the per-function fields. Until 2.4 the
-  numerator and the extrema folded every space while the divisor
+  [WMC](#wmc) read, but not to the per-function fields. Before #1284
+  the numerator and the extrema folded every space while the divisor
   counted functions only, so a file holding one branch-free function
   reported cyclomatic `average 2.0` against `min 1, max 1`, and the
   unit's own `0` pinned file-level cognitive `min` at `0` whatever the
@@ -577,7 +581,7 @@ Two things are deliberately *not* in that population:
 - **Closures that open no space.** A Python `lambda` is counted by
   [NOM](#nom) but has no space of its own: its decisions are part of
   the enclosing function's `value`, so that function is the one
-  population member they belong to. Until 2.4 cognitive and NExits
+  population member they belong to. Before #1284 cognitive and NExits
   divided by `nom`'s total instead, and a function holding one lambda
   could report `average 7.0` against `min 14, max 14`.
 
