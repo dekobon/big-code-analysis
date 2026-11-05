@@ -264,6 +264,15 @@ for historical reference.
   the pre-commit hooks (which also run on an edit to the baseline) and
   the CI lint job.
 
+- **`make check-rumdl-lockstep` also gates the actionlint pin**
+  (#1799). The CI lint job's `ACTIONLINT_VERSION` /
+  `ACTIONLINT_SHA256` and the `Dockerfile`'s version and amd64 SHA256
+  must agree, against `.actionlint-lockstep-baseline.txt` exactly as
+  rumdl is checked against its own baseline. `--update` writes nothing
+  unless every tool's live pair is valid, and rewrites only the
+  baselines that moved. The arm64 hash is not compared, since CI
+  verifies only the amd64 tarball.
+
 ### Changed
 
 - **The agent-feedback recipe documents the OpenCode V2 install**
@@ -1589,8 +1598,15 @@ for historical reference.
   empty, code otherwise. Where CRLF line endings
   reach the parser unchanged (the library's `analyze`, Python's
   `Ast.parse`; `bca` converts them first), the Tcl and iRules grammars
-  still lex such a row as a word (#1802). The C family, Ruby and Elixir
-  splice the row the same way and still count it as blank (#1801).
+  still lex such a row as a word (#1802).
+
+- `loc` (C, C++, Mozcpp, Objective-C, Ruby, Elixir): a bare
+  `\`-continuation row counts as the line it joins — code, or comment
+  where the next row is one — instead of blank, in its enclosing
+  function as well as the file, as it already did for Bash, Tcl and
+  iRules (#1801). That includes a bare row between a `#define` name or
+  parameter list and its body. A bare row inside a Ruby `%w[]` or
+  regex, or an Elixir string or sigil, still counts as blank (#1816).
 
 ### Security
 
