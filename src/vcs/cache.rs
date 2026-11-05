@@ -93,15 +93,21 @@ use super::stats::VCS_SCHEMA_VERSION;
 ///
 /// Version 3: `gix` 0.89 → 0.90 changed what the walk records for an
 /// unchanged configuration. `gix-diff` 0.70 applies the rename limit
-/// per side, as git's `diff.renameLimit` does, where 0.69 compared the
-/// source×destination product against the unsquared limit — so a
-/// commit reshuffling more than ~32 files each way, which 0.69 left
-/// un-tracked, now has its renames followed, and the rename edges a
-/// recorded event carries differ. `gix-traverse` 0.64 also keeps a
+/// as git's `diff.renameLimit` does — similarity matching runs while
+/// the deletions × additions left after exact-content matching stay
+/// within limit² — where 0.69 compared that product against the
+/// unsquared limit, so a commit that moved *and edited* more than ~32
+/// files each way, which 0.69 left un-tracked, now has its renames
+/// followed, and the rename edges a recorded event carries differ.
+/// `gix-traverse` 0.64 also keeps a
 /// commit whose commit-graph parents are corrupt where 0.63 dropped it
-/// and its ancestry. The fingerprint hashes `follow_renames`, not the
-/// limit's meaning, so an entry walked under 0.89 would otherwise
-/// replay as if it had been walked under 0.90.
+/// and its ancestry, and `gix` 0.90 honours `refs/replace/*` by default
+/// where 0.89 read `core.useReplaceRefs` with its polarity inverted, so
+/// a walk over a repository carrying replacements now sees the
+/// replacement objects. The fingerprint hashes `follow_renames`, not
+/// the limit's meaning, and nothing about the refs, so an entry walked
+/// under 0.89 would otherwise replay as if it had been walked under
+/// 0.90.
 pub const CACHE_SCHEMA_VERSION: u32 = 3;
 
 /// Front-end control over the persistent cache for one build.

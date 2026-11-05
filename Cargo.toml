@@ -205,8 +205,9 @@ csv.workspace = true
 # `gix` is the pure-Rust git implementation backing the `vcs-git`
 # backend (issue #328). The feature set is deliberately minimal:
 # `max-performance` (threads plus the static and dynamic pack LRU
-# caches — gix 0.90 removed the `max-performance-safe` alias once
-# every build used pure-Rust `zlib-rs`, so no C toolchain and no
+# caches; gix always inflates with pure-Rust `zlib-rs`, which is why
+# 0.90 dropped `max-performance-safe` — the name 0.89's
+# `max-performance` was itself an alias of — so no C toolchain and no
 # `unsafe` opt-in is involved), `blob-diff` (line churn), `mailmap`
 # (identity canonicalisation), `revision` (rev-walk + revspec
 # parsing), `blame` (per-function line→commit attribution, issue

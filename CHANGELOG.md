@@ -244,22 +244,34 @@ for historical reference.
   both equalities and the recipe's `.claude/settings.json` example to
   the file the repository runs.
 - `gix` 0.89 → 0.90 (see Security below). 0.90 removed the
-  `max-performance-safe` feature, a deprecated alias of
-  `max-performance` since every build switched to pure-Rust `zlib-rs`;
-  the manifest names `max-performance` now, with the same expansion
-  (threads plus the pack LRU caches, no C toolchain, no `unsafe`
-  opt-in). No source change was needed for the `gix::Result`
-  migration; no `gix` type appears in a public signature, so
-  `STABILITY.md` is unaffected.
+  `max-performance-safe` feature — deprecated in 0.89, where
+  `max-performance` had become an alias of it, because gix always
+  inflates with pure-Rust `zlib-rs`; the manifest names
+  `max-performance` now, with the same expansion (threads plus the
+  pack LRU caches, no C toolchain, no `unsafe` opt-in). No source
+  change was needed for the `gix::Result` migration; no `gix` type
+  appears in a public signature, so `STABILITY.md` is unaffected.
 - `CACHE_SCHEMA_VERSION` 2 → 3: `gix-diff` 0.70 applies the rename
-  limit per side as git does, where 0.69 compared the source ×
-  destination product against the unsquared limit, so a commit
-  reshuffling more than ~32 files each way now has its renames
-  followed; `gix-traverse` 0.64 keeps a commit whose commit-graph
-  parents are corrupt where 0.63 dropped it with its ancestry. The
-  fingerprint hashes `follow_renames`, not the limit's meaning, so an
-  event log walked under 0.89 would otherwise replay as if walked
-  under 0.90. Costs one cold walk per cached repository.
+  limit as git's `diff.renameLimit` does — similarity matching runs
+  while deletions × additions left after exact-content matching stay
+  within limit², 1,000,000 under the default `Rewrites` — where 0.69
+  compared that product against the unsquared 1,000, so a commit
+  that moved *and edited* more than ~32 files each way now has its
+  renames followed; `gix-traverse` 0.64 keeps a commit whose
+  commit-graph parents are corrupt where 0.63 dropped it with its
+  ancestry; and `gix` 0.90 honours `refs/replace/*` by default, where
+  0.89 read `core.useReplaceRefs` with its polarity inverted, so a
+  walk over a repository carrying replacements now sees the
+  replacement objects. The fingerprint hashes `follow_renames`, not
+  the limit's meaning, and nothing about the refs, so an event log
+  walked under 0.89 would otherwise replay as if walked under 0.90.
+  Costs one cold walk per cached repository.
+  The same fix is the one cost of this bump: on a history holding
+  such a commit, the walk now diffs every remaining deletion against
+  every remaining addition for it — up to 10⁶ blob diffs, the work
+  git does for the same detection — where 0.89 skipped the commit.
+  `--no-follow-renames` is the only knob today; a `diff.renameLimit`
+  read is the follow-up if a cold walk proves slow.
   `VCS_SCHEMA_VERSION` is unchanged: the emitted shape did not move.
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
   four pre-migration sites it still held were Elixir's byte-less
@@ -951,40 +963,6 @@ for historical reference.
   spelling of a path reached by overlapping seeds is printed (the
   first-named seed's).
 
-### Security
-
-- Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving
-  `gix` 0.89.0 → 0.90.0, with the rest of the gitoxide family
-  advancing to its latest compatible release in step (52 lockfile
-  entries, no other crate touched). In 0.88–0.89 `protect_options()`
-  read `core.protectHFS`, `core.protectNTFS` and
-  `gitoxide.core.protectWindows` through the unfiltered `boolean()`
-  accessor, so a repository-local `.git/config` of *reduced* trust —
-  one owned by another user, which `gix::discover` opens with the
-  section filter rather than refusing — could switch off the `.git`
-  path-confusion checks that run when gix builds an index from a tree.
-  `bca` reaches that function whenever the configured index is absent
-  and `HEAD` is born — an ordinary bare repository, or a worktree with
-  no `.git/index` — through the in-memory `HEAD` index the history
-  walk, `bca vcs trend`, `bca vcs commit` and per-function blame build
-  for virtual `.gitattributes` resolution. None of those paths checks
-  out, merges, edits a tree or writes an index, so the consequence
-  here was a crafted entry that should have failed the open passing
-  into attribute resolution, not a file on disk. 0.90 reads all three
-  keys through `boolean_filter`, including the early `protectWindows`
-  read for the reference store.
-- The hand-built attribute capture (`AttributeSources::read`, #1760)
-  now anchors every path to the working directory captured when the
-  repository was opened, as gix 0.90's `attribute_global_paths` does.
-  It read a relative `core.attributesFile` against the process's
-  working directory at *read* time, so a `chdir` between open and walk
-  hashed and resolved a different file from the one gix's own platform
-  used. Low severity — the setting is read through the trusted-section
-  filter, so a reduced-trust config cannot set it — and a parity test
-  now asks `gix::Repository::attribute_global_paths` directly which
-  files the capture should select, which is the per-bump re-check the
-  digest's doc comment has always asked for.
-
 ### Deprecated
 
 - `FromPathError::Unreadable`: superseded by `Skipped(SkipReason)`;
@@ -1468,6 +1446,47 @@ for historical reference.
   `Ast.parse`; `bca` converts them first), the Tcl and iRules grammars
   still lex such a row as a word (#1802). The C family, Ruby and Elixir
   splice the row the same way and still count it as blank (#1801).
+
+### Security
+
+- Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving
+  `gix` 0.89.0 → 0.90.0, with the rest of the gitoxide family
+  advancing to its latest compatible release in step: 52 gitoxide
+  package versions moved, no other package version or checksum did,
+  and no package entered or left the lockfile. Five entries (`errno`,
+  `rustls`, `tempfile`, `winapi-util`, `gix-zlib`) had a dependency
+  edge re-pointed between two `windows-sys` / `getrandom` versions
+  the lockfile already carried. In 0.88–0.89 `protect_options()`
+  read `core.protectHFS`, `core.protectNTFS` and
+  `gitoxide.core.protectWindows` through the unfiltered `boolean()`
+  accessor, so a repository-local `.git/config` of *reduced* trust —
+  one owned by another user, which `gix::discover` opens with the
+  section filter rather than refusing — could switch off the `.git`
+  path-confusion checks that run when gix builds an index from a tree.
+  `bca` reaches that function whenever the configured index is absent
+  and `HEAD` is born — an ordinary bare repository, or a worktree with
+  no `.git/index` — through the in-memory `HEAD` index the history
+  walk, `bca vcs trend`, `bca vcs commit` and per-function blame build
+  for virtual `.gitattributes` resolution. None of those paths checks
+  out, merges, edits a tree or writes an index, so the consequence
+  here was a crafted entry that should have failed the open passing
+  into attribute resolution, not a file on disk. 0.90 reads all three
+  keys through `boolean_filter`, including the early `protectWindows`
+  read for the reference store.
+- The hand-built attribute capture (`AttributeSources::read`, #1760)
+  now takes the user attribute file from
+  `gix::Repository::attribute_global_paths`, new in gix 0.90, and
+  anchors every other path to the working directory captured when the
+  repository was opened, as gix does. It read `core.attributesFile`
+  through `Snapshot::trusted_path`, which leaves the path relative and
+  runs an `:(optional)` spelling's existence check against the
+  process's working directory at *read* time, so a `chdir` between
+  open and walk hashed and resolved a different file from the one
+  gix's own platform used — or dropped an optional one gix kept. Low
+  severity: the setting is read through the trusted-section filter,
+  so a reduced-trust config cannot set it. The parity test the
+  digest's doc comment asks of every gix bump now pins the capture's
+  user file to gix's own selection.
 
 ## [2.4.0] - 2026-10-21
 

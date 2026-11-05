@@ -459,36 +459,50 @@ fn the_hand_built_stack_resolves_diff_as_gix_s_does() {
     );
 }
 
-/// The capture selects the same files gix 0.90's own build selects,
-/// asked of gix directly: [`gix::Repository::attribute_global_paths`]
-/// returns the system and user paths in gix's order, whether or not
-/// the files exist, and `info/attributes` is `common_dir` joined by
-/// hand as its doc instructs. This is the check the digest's doc asks
-/// of every gix bump — that `AttributeSources::read` still names the
-/// sources gix reads — made mechanical. Two things a resolved-state
-/// parity cannot show: `permissions.system` with a system file (the
-/// `/etc/gitattributes` location cannot be planted), and a relative
-/// `core.attributesFile` anchored to the opening directory rather
-/// than the process's — the row below does both through the path
-/// list rather than through the files' contents. No `chdir` is
-/// staged between open and read: that would need a process-wide
-/// lock the lib tests do not share, and the anchor assertion is the
-/// whole of what gix does (`current_dir.join(path)`), so the
-/// unanchored path is what fails it. Verified by revert, and by a
-/// fixture perturbation: an absolute `core.attributesFile` fails the
-/// opening-directory row, so the row depends on the relative spelling.
+/// The capture selects the user file gix 0.90's own build selects —
+/// the one [`gix::Repository::attribute_global_paths`] returns — on the
+/// spelling where asking gix and asking `Snapshot::trusted_path` can
+/// give different answers: an `:(optional)` relative
+/// `core.attributesFile`. gix interpolates the path, anchors it to the
+/// working directory captured at open, and only then runs the
+/// existence check `optional` adds; `trusted_path` runs that check
+/// unanchored, against whatever the process's directory is at *read*
+/// time. The two agree while the process stays where the repository
+/// was opened, which the lib tests cannot leave (a `chdir` needs a
+/// process-wide lock they do not share), so the row pins that the
+/// capture's answer *is* gix's anchored one: the path is absolute, is
+/// under [`gix::Repository::current_dir`], and the bytes were read
+/// from there. Verified by revert: reading the slot through
+/// `trusted_path` leaves it relative and fails the absolute row.
+/// The `info/attributes` row pins the anchoring gix applies to its
+/// own path; the system row pins only what the permissions withhold —
+/// the on side is `the_hand_built_capture_selects_the_system_file_gix_selects`.
 #[test]
-fn the_hand_built_capture_selects_the_paths_gix_selects() {
+fn the_hand_built_capture_selects_the_user_file_gix_selects() {
     let dir = tempfile::tempdir().expect("temp dir");
     let scratch = gix::init(dir.path()).expect("init repository");
     stage_tree(&scratch, tree_of(&scratch, &[("a.rs", b"fn a() {}\n")]));
+    // Relative to the opening directory, which is the test process's;
+    // a name no sibling test and no checkout can plausibly hold.
+    let name = format!("bca-optional-attributes-{}", std::process::id());
+    let cwd = std::env::current_dir().expect("cwd");
+    let file = cwd.join(&name);
+    std::fs::write(&file, b"*.rs diff=user\n").expect("write user file");
+    let _cleanup = RemoveOnDrop(file.clone());
     append_config(
         dir.path(),
-        "[core]\n\tattributesFile = ../relative/attributes\n",
+        &format!("[core]\n\tattributesFile = :(optional){name}\n"),
     );
     let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).expect("open");
-
     let by_gix = repo.attribute_global_paths().expect("gix's selected paths");
+    let expected = repo.current_dir().join(&name);
+    assert_eq!(
+        by_gix,
+        std::slice::from_ref(&expected),
+        "gix must select the optional file by the opening directory, or the \
+         parity below is with the wrong oracle"
+    );
+
     let by_hand = AttributeSources::read(
         &repo,
         &mut gix::path::env::var,
@@ -497,24 +511,24 @@ fn the_hand_built_capture_selects_the_paths_gix_selects() {
     .expect("attribute files");
     let [system, user, info] = by_hand.files;
     assert_eq!(
+        user.path.as_deref(),
+        Some(expected.as_path()),
+        "the capture must select the optional file gix selects, anchored to \
+         the opening directory"
+    );
+    assert!(
+        user.path.as_deref().is_some_and(Path::is_absolute),
+        "the user path must be absolute: a relative one is checked against \
+         wherever the process is at read time"
+    );
+    assert_eq!(
+        user.bytes.as_deref(),
+        Some(&b"*.rs diff=user\n"[..]),
+        "and read from there"
+    );
+    assert_eq!(
         system.path, None,
         "an isolated open withholds the system file"
-    );
-    let user = user.path.expect("core.attributesFile is set");
-    assert!(
-        user.is_absolute(),
-        "a relative `core.attributesFile` must be anchored at read time: {}",
-        user.display()
-    );
-    assert_eq!(
-        user,
-        repo.current_dir().join("../relative/attributes"),
-        "the anchor must be the directory the repository was opened from"
-    );
-    assert_eq!(
-        by_gix,
-        [user],
-        "gix's own selection must be the capture's user path and nothing else"
     );
     assert_eq!(
         info.path,
@@ -526,6 +540,66 @@ fn the_hand_built_capture_selects_the_paths_gix_selects() {
         ),
         "`info/attributes` is anchored the way gix anchors its own"
     );
+}
+
+/// The on side of the `permissions.system` gate, which the row above
+/// can only show off: a repository opened with `system: true` under
+/// otherwise isolated permissions makes gix list the system location
+/// — `/etc/gitattributes` on Unix, where `system_prefix()` is the
+/// fixed `/` — whether or not the file exists, and the capture read
+/// under the open's own permissions, as `WalkContext::open` reads it,
+/// must put that same path in its system slot and leave the user slot
+/// for what gix lists after it. Unix only: on Windows the prefix comes
+/// from the git installation, which a CI host need not have.
+#[test]
+#[cfg(unix)]
+fn the_hand_built_capture_selects_the_system_file_gix_selects() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let scratch = gix::init(dir.path()).expect("init repository");
+    stage_tree(&scratch, tree_of(&scratch, &[("a.rs", b"fn a() {}\n")]));
+    let mut permissions = gix::open::Permissions::isolated();
+    permissions.attributes.system = true;
+    let repo = gix::open_opts(
+        dir.path(),
+        gix::open::Options::isolated().permissions(permissions),
+    )
+    .expect("open");
+
+    let by_gix = repo.attribute_global_paths().expect("gix's selected paths");
+    let by_hand = AttributeSources::read(
+        &repo,
+        &mut gix::path::env::var,
+        repo.open_options().permissions.attributes,
+    )
+    .expect("attribute files");
+    let [system, user, _info] = by_hand.files;
+    let system = system
+        .path
+        .expect("`system: true` selects the system location");
+    assert_eq!(
+        system,
+        Path::new("/etc/gitattributes"),
+        "the system slot is gix's fixed Unix location, which anchoring leaves as is"
+    );
+    assert_eq!(
+        by_gix,
+        std::slice::from_ref(&system),
+        "gix lists the system file and, with no `core.attributesFile` and no \
+         XDG permission, nothing after it"
+    );
+    assert_eq!(
+        user.path, None,
+        "the capture must not mistake gix's system entry for the user file"
+    );
+}
+
+/// Removes a file the test planted outside its temp directory.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// Regression for the first review finding on the single-read design

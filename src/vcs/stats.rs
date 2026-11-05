@@ -11,7 +11,10 @@ use super::score::{self, RISK_SCORE_VERSION, ScoreInput};
 
 /// Output-shape version for the `vcs` block. Bump on any change to the
 /// serialized field set. `2` added the change- and co-change-entropy
-/// fields (issue #330).
+/// fields (issue #330). Not for a change in what the walk *records*
+/// under an unchanged shape — a gitoxide bump that moves rename or
+/// traversal semantics — which is
+/// [`CACHE_SCHEMA_VERSION`](super::cache::CACHE_SCHEMA_VERSION)'s.
 pub const VCS_SCHEMA_VERSION: u32 = 2;
 
 /// Per-file change-history metrics.

@@ -64,7 +64,10 @@ use super::stats::Stats;
 ///   mid-rank scaling, or normalization.
 ///
 /// `2` added the change- and co-change-entropy terms to both formulas
-/// (issue #330).
+/// (issue #330). A change to the *events* a score is computed from —
+/// what the walk records under an unchanged configuration — is
+/// [`CACHE_SCHEMA_VERSION`](super::cache::CACHE_SCHEMA_VERSION)'s, not
+/// this constant's.
 pub const RISK_SCORE_VERSION: u32 = 2;
 
 /// RHEL4 high-developer-count threshold (~16× vulnerability likelihood).

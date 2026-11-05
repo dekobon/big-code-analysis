@@ -183,7 +183,7 @@ impl<'a> WalkContext<'a> {
         let sources = AttributeSources::read(
             repo,
             &mut gix::path::env::var,
-            gix::open::permissions::Attributes::all(),
+            repo.open_options().permissions.attributes,
         )
         .map_err(diff_err)?;
         let ignore_case = ignore_case(repo);
@@ -451,19 +451,13 @@ impl<'a> WalkContext<'a> {
     /// and withholds the system file and the XDG default exactly as
     /// `attribute_global_paths` does under the same value, so the
     /// stack and the digest see the files gix's build would have, and
-    /// no others. What it cannot do is read those permissions off the
-    /// open: they are not reachable through the public API, so
-    /// [`open`](Self::open) hard-codes `Attributes::all()`. That is the
-    /// value every `bca` open carries — `repo::open` goes through
-    /// `gix::discover`, whose default trust mapping applies
-    /// `Permissions::all()` to a fully trusted repository and
-    /// `Permissions::secure()` to one of reduced trust, and both
-    /// presets set the attribute permissions to `Attributes::all()` —
-    /// so production is exact. A context opened over an
-    /// `Options::isolated()` repository, which only the tests do, reads
-    /// the two files gix would skip; the stack is built from the same
-    /// capture, so the walk still resolves under exactly the files the
-    /// digest hashes, and the mismatch can only cost a cold walk. The
+    /// no others. [`open`](Self::open) reads that value off the open
+    /// itself (`gix::Repository::open_options`), so a context over an
+    /// `Options::isolated()` repository — which only the tests build —
+    /// withholds what gix's own build withholds, the same as one over
+    /// the `Permissions::all()` / `Permissions::secure()` open
+    /// `repo::open` produces through `gix::discover`, both of which set
+    /// the attribute permissions to `Attributes::all()`. The
     /// installation's file is never loaded by either.
     ///
     /// The residual risk is the list itself. [`AttributeSources`] names
@@ -472,10 +466,10 @@ impl<'a> WalkContext<'a> {
     /// source kind would leave it outside both the capture and this
     /// digest, and that fails toward *staleness*: an edit to the new
     /// source would hit. A gix bump must re-check that function against
-    /// [`AttributeSources::read`] — `repository/attributes.rs` exposes
-    /// it as [`gix::Repository::attribute_global_paths`], so
-    /// `the_hand_built_capture_selects_the_paths_gix_selects` asks gix
-    /// directly which the two still agree.
+    /// [`AttributeSources::read`] — which since gix 0.90 asks it
+    /// directly, through [`gix::Repository::attribute_global_paths`],
+    /// for the user file, and whose parity tests ask gix which paths
+    /// it selected.
     #[must_use]
     pub(super) fn diff_attributes_digest(&self) -> u64 {
         self.diff_attributes
@@ -569,6 +563,48 @@ fn gix_treats_as_missing(err: &std::io::Error) -> bool {
     ) || (cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
+/// The user attribute file gix selected for `repo`, or the XDG default
+/// resolved through `env` when `permissions.git` allows one and the
+/// open's own permissions did not.
+///
+/// gix's selection is [`gix::Repository::attribute_global_paths`]: the
+/// installation file (never — every preset turns it off), the system
+/// file, then `core.attributesFile` or the XDG default, each present
+/// only when selected, every one anchored to
+/// [`gix::Repository::current_dir`]. The user file is whatever is left
+/// once the system entry — gix's own location, which `env` cannot have
+/// withheld — is set aside. Asking gix rather than `trusted_path` is
+/// what gets an `:(optional)` spelling right: gix anchors the path
+/// before the existence check `optional` adds, where `trusted_path`
+/// checks it against the process's directory at read time.
+///
+/// # Errors
+///
+/// Fails when `core.attributesFile` is set but cannot be interpolated.
+fn user_attributes_path(
+    repo: &gix::Repository,
+    env: &mut dyn FnMut(&str) -> Option<OsString>,
+    permissions: gix::open::permissions::Attributes,
+) -> gix::Result<Option<PathBuf>> {
+    use gix::attrs::Source;
+    let base = repo.current_dir();
+    let gix_system = Source::System
+        .storage_location(&mut gix::path::env::var)
+        .map(|path| base.join(path));
+    let selected = repo
+        .attribute_global_paths()?
+        .into_iter()
+        .find(|path| Some(path) != gix_system.as_ref())
+        .or_else(|| {
+            permissions
+                .git
+                .then(|| Source::Git.storage_location(env))
+                .flatten()
+                .map(|path| base.join(path))
+        });
+    Ok(selected)
+}
+
 /// One attribute file gix loads from outside the index: where it was
 /// looked for, and its bytes if it was there.
 struct AttributeSource {
@@ -615,10 +651,10 @@ impl AttributeSources {
     /// so gix never loads it either, and resolving its location would
     /// run the `git` binary.
     ///
-    /// The user file is `core.attributesFile` when set — read through
-    /// `trusted_path`, as gix reads it, so the same section filter and
-    /// interpolation apply — else the XDG default. The XDG and system
-    /// locations are resolved through
+    /// The user file is the one gix selected ([`user_attributes_path`]):
+    /// `core.attributesFile` when set, else the XDG default — resolved
+    /// through `env` when `permissions.git` allows it and the open's
+    /// own permissions did not. The XDG and system locations come from
     /// [`gix::attrs::Source::storage_location`] with `env`, which
     /// production passes as [`gix::path::env::var`]: the resolver gix's
     /// own `make_source_env` wraps, whose `HOME` falls back to the
@@ -647,29 +683,19 @@ impl AttributeSources {
         env: &mut dyn FnMut(&str) -> Option<OsString>,
         permissions: gix::open::permissions::Attributes,
     ) -> gix::Result<Self> {
-        use gix::attrs::Source;
-        let user = match repo
-            .config_snapshot()
-            .trusted_path(gix::config::tree::Core::ATTRIBUTES_FILE)?
-        {
-            Some(configured) => Some(configured),
-            None if permissions.git => Source::Git.storage_location(env),
-            None => None,
-        };
+        let base = repo.current_dir();
         let system = permissions
             .system
-            .then(|| Source::System.storage_location(env))
-            .flatten();
-        let base = repo.current_dir();
+            .then(|| gix::attrs::Source::System.storage_location(env))
+            .flatten()
+            .map(|path| base.join(path));
+        let user = user_attributes_path(repo, env, permissions)?;
         let mut files = [
             system,
             user,
-            Some(repo.common_dir().join("info").join("attributes")),
+            Some(base.join(repo.common_dir()).join("info").join("attributes")),
         ]
-        .map(|path| AttributeSource {
-            path: path.map(|path| base.join(path)),
-            bytes: None,
-        });
+        .map(|path| AttributeSource { path, bytes: None });
         for file in &mut files {
             file.bytes = match file.path.as_deref().map(std::fs::read) {
                 Some(Ok(bytes)) => Some(bytes),

@@ -70,9 +70,10 @@
 //!   that one file's per-function blocks while keeping its file-level
 //!   block, so an unblameable file never aborts the walk. The defect was
 //!   last confirmed upstream on 2026-06-08 (`gix` 0.84 / `gix-blame`
-//!   0.14) and has not been re-checked against the `gix` 0.89 /
-//!   `gix-blame` 0.19 pinned now; real code does not trigger it (verified
-//!   on this repository's own 200-plus-commit files).
+//!   0.14) and has not been re-checked against the `gix` 0.90 /
+//!   `gix-blame` 0.20 pinned now (`gix-blame` 0.19 → 0.20 changed no
+//!   source line); real code does not trigger it (verified on this
+//!   repository's own 200-plus-commit files).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
