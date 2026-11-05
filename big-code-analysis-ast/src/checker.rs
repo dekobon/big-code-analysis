@@ -1028,6 +1028,47 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
     rust_outer_attr_marks_test(node, code, ancestors) || rust_inner_attr_marks_test(node, code)
 }
 
+/// Whether a sibling of kind `kind` belongs to the outer-attribute run
+/// around it rather than ending it: an `#[…]` row, or a comment of
+/// either kind (#1647).
+///
+/// rustc reads a `//` or `/* */` comment as no token at all, so an
+/// attribute above one still decorates the item below it, and it reads
+/// an outer doc comment as a `#[doc]` attribute, so that is a row of the
+/// run outright. Either way the item compiles only under the `cfg` the
+/// run carries, and the comment is part of what the prune removes with
+/// it. The comment kinds are the `Comment` and `DocComment` rows of
+/// `roles/rust.rs`, read gates aside: an inner doc comment (`//!`) in
+/// this position is rustc's error E0753, and a comment is a comment to
+/// the run whichever marker it carries.
+fn rust_attribute_run_member(kind: u16) -> bool {
+    kind == Rust::AttributeItem as u16
+        || crate::roles::rust::comment::lists_kind(kind)
+        || crate::roles::rust::doc_comment::lists_kind(kind)
+}
+
+/// Whether `node` is a row a run is *opened* from, so that the hook
+/// reads the run when it stands on it: an `#[…]` row, or an outer doc
+/// comment (`///`, `/** */`), which is a `#[doc]` attribute to rustc and
+/// decorates the item below it like any other (#1647).
+///
+/// A plain comment is a member of a run it sits inside
+/// ([`rust_attribute_run_member`]) but opens none: `// note` above
+/// `#[cfg(test)]` is not an attribute of the item, and stays. Nor does
+/// an inner doc comment, which documents the item *around* it — a
+/// crate's `//!` header above its first `#[cfg(test)]` item is not that
+/// item's. So the hook answers `RETAIN` for either in `O(1)`, and a
+/// plain comment inside a run is answered by the reach of the row that
+/// opened it, which the walk always visits first. Reading the run
+/// backward from every plain comment instead would make a long stretch
+/// of `//` rows — each its own `line_comment` sibling — quadratic in
+/// itself.
+fn rust_attribute_run_start(node: &Node, code: &[u8]) -> bool {
+    node.kind_id() == Rust::AttributeItem
+        || (<RustCode as Checker>::is_doc_comment(node, code)
+            && !rust::rust_inner_doc(crate::lang_helpers::doc_comment::node_bytes(node, code)))
+}
+
 /// The item kinds the `exclude_tests` prune removes, given a test-only
 /// verdict.
 ///
@@ -1087,27 +1128,31 @@ fn rust_attribute_run_verdict<'a>(
     // `item` is `node`'s sibling, so the chain that describes one
     // describes the other — parent and depth alike. Its verdict is
     // asked of the hook itself, which cannot recurse here because `item`
-    // is never an `AttributeItem`, so the run's verdict is the item's
-    // own by construction rather than by a second spelling of it.
+    // is never a run member — neither an `AttributeItem` nor a comment,
+    // so never a run start — and the run's verdict is the item's own by
+    // construction rather than by a second spelling of it.
     let skipped = RustCode::should_skip_subtree(&item, code, ancestors).is_skipped();
-    // Everything strictly between `node` and `item` is an
-    // `AttributeItem` — that is what `rust_attributed_item` searched
-    // for — so the reach holds for the run's remaining members. It
-    // holds for *their* descendants too, which the walk visits whenever
-    // the run is retained: an attribute's children are the `#`, `[`,
-    // `]` tokens and the `attribute` body, whose path, argument token
-    // tree and literal or macro-call value nest no `rust_prunable_item`
-    // and no `AttributeItem`, so `RETAIN` is their answer as well. A
-    // `value` that nests an item, such as a block, is the exception:
-    // rustc accepts one only for a proc macro to consume, and a
-    // `#[cfg(test)]` item inside it is kept. The reach holds for `item`
-    // too, since `skipped` is its own verdict, so the walk need not ask
-    // about it again (#1783).
+    // Everything strictly between `node` and `item` is a run member —
+    // an `AttributeItem` or a comment, which is what
+    // `rust_attributed_item` searched past — so the reach holds for the
+    // run's remaining members: they all decorate `item`, and go or stay
+    // with it (#1647). It holds for *their* descendants too, which the
+    // walk visits whenever the run is retained: an attribute's children
+    // are the `#`, `[`, `]` tokens and the `attribute` body, whose path,
+    // argument token tree and literal or macro-call value nest no
+    // `rust_prunable_item` and no run member, and a comment's are its
+    // delimiter, marker and `doc_comment` tokens, so `RETAIN` is their
+    // answer as well. A `value` that nests an item, such as a block, is
+    // the exception: rustc accepts one only for a proc macro to consume,
+    // and a `#[cfg(test)]` item inside it is kept. The reach holds for
+    // `item` too, since `skipped` is its own verdict, so the walk need
+    // not ask about it again (#1783).
     SubtreeSkip::of(skipped).covering_through_node(&item)
 }
 
 /// The item an outer-attribute run decorates: the first sibling after
-/// `node` that is not itself an `AttributeItem`.
+/// `node` that is not itself a run member — an `AttributeItem` or a
+/// comment ([`rust_attribute_run_member`]).
 ///
 /// Read through [`Ancestors::siblings_after`], at the cost
 /// [`rust_outer_attr_marks_test`] describes for the run itself.
@@ -1127,16 +1172,19 @@ fn rust_attribute_run_verdict<'a>(
 fn rust_attributed_item<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<Node<'a>> {
     ancestors
         .siblings_after(node)
-        .find(|sibling| sibling.kind_id() != Rust::AttributeItem)
+        .find(|sibling| !rust_attribute_run_member(sibling.kind_id()))
 }
 
 // The tree-sitter Rust grammar exposes outer attributes (`#[...]`) as
 // `AttributeItem` siblings *before* the decorated item, so what marks
 // `node` test-only is the run of attributes immediately preceding it —
-// a non-attribute sibling (another item, a comment) ends the run. This
+// a sibling that is neither an attribute nor a comment (another item)
+// ends the run, and a comment of either kind is read past (#1647). This
 // scan covers every item kind, including `mod_item`, so
 // `#[cfg(test)] mod tests` (an outer attribute on the module) is caught
 // here while `mod tests { #![cfg(test)] }` is caught by the inner scan.
+// A comment member is asked like an attribute: its text never has the
+// `#[…]` shape `rust_attribute_body` requires, so it marks nothing.
 //
 // The run is read backward from `node` through `ancestors`, which locates
 // `node` by a search rather than a pass from the parent's first child,
@@ -1158,8 +1206,8 @@ fn rust_outer_attr_marks_test<'a>(
 ) -> bool {
     ancestors
         .siblings_before(node)
-        .take_while(|sibling| sibling.kind_id() == Rust::AttributeItem)
-        .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#"))
+        .take_while(|sibling| rust_attribute_run_member(sibling.kind_id()))
+        .any(|member| rust_attribute_node_marks_test(&member, code, "#"))
 }
 
 /// Reads the same run backward from `node` with the raw sibling
@@ -1170,8 +1218,8 @@ fn rust_outer_attr_marks_test<'a>(
 #[cfg(all(test, feature = "rust"))]
 fn rust_attribute_run_before(node: &Node, code: &[u8]) -> bool {
     std::iter::successors(node.previous_sibling(), Node::previous_sibling)
-        .take_while(|sibling| sibling.kind_id() == Rust::AttributeItem)
-        .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#"))
+        .take_while(|sibling| rust_attribute_run_member(sibling.kind_id()))
+        .any(|member| rust_attribute_node_marks_test(&member, code, "#"))
 }
 
 /// [`rust_attributed_item`]'s oracle, for the same reason: the raw
@@ -1179,7 +1227,7 @@ fn rust_attribute_run_before(node: &Node, code: &[u8]) -> bool {
 #[cfg(all(test, feature = "rust"))]
 fn rust_attributed_item_raw<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     std::iter::successors(node.next_sibling(), Node::next_sibling)
-        .find(|sibling| sibling.kind_id() != Rust::AttributeItem)
+        .find(|sibling| !rust_attribute_run_member(sibling.kind_id()))
 }
 
 // `mod_item` additionally accepts inner attributes (`#![cfg(test)]`).
@@ -1737,14 +1785,20 @@ mod tests {
              #[cfg(all(test, feature = \"x\"))]\nfn c() {}\n\
              #[cfg(not(test))]\nfn d() {}\n",
             // A run whose marker is not the attribute adjacent to the
-            // item, the same run reversed, and one where an
-            // intervening comment ends the run. Both orders matter:
-            // only the second distinguishes a scan that stops at the
-            // node it was asked about from one that reads the whole
-            // run, since the query node here is itself an attribute.
+            // item, the same run reversed, and one an intervening
+            // comment of each kind is read past (#1647). Both orders
+            // matter: only the second distinguishes a scan that stops
+            // at the node it was asked about from one that reads the
+            // whole run, since the query node here is itself an
+            // attribute.
             "#[cfg(test)]\n#[allow(dead_code)]\nfn a() {}\n\
              #[allow(dead_code)]\n#[cfg(test)]\nfn b() {}\n\
-             #[cfg(test)]\n// break\nfn c() {}\n",
+             #[cfg(test)]\n// plain\nfn c() {}\n\
+             #[cfg(test)]\n/* block */\nfn d() {}\n\
+             #[cfg(test)]\n/// doc\nfn e() {}\n\
+             /// doc\n#[cfg(test)]\nfn g() {}\n\
+             #[allow(dead_code)]\n// plain\n#[cfg(test)]\nmod h {}\n\
+             // plain\n#[cfg(not(test))]\n// plain\nfn i() {}\n",
             // Nested modules, inner attributes, and an attributed item
             // inside a function body — parents other than the root.
             "mod outer {\n#![cfg(test)]\nmod inner {\n#[test]\nfn a() {}\n}\n}\n\
@@ -1852,11 +1906,18 @@ mod tests {
                       #[inline]\n#[allow(dead_code)]\n#[must_use]\n\
                       fn f() -> i32 {\n#[cfg(test)]\nfn inner() {}\n1\n}\n\
                       mod m {\n#[cfg(test)]\nfn e() {}\n}\n\
-                      #[inline]\n#[allow(dead_code)]\n";
+                      // kept\n#[cfg(test)]\n// pruned\n/* pruned */\nfn g() {}\n\
+                      /// pruned\n// pruned\n#[cfg(test)]\n/// pruned\nfn h() {}\n\
+                      // kept\n/// kept\nfn i() {}\n\
+                      //! kept\n#[cfg(test)]\nfn j() {}\n\
+                      #[cfg(test)]\n// kept\nuse std::io;\n\
+                      #[inline]\n#[allow(dead_code)]\n// kept\n";
         let code = source.as_bytes();
-        // Spelled out rather than reused from the production predicate:
-        // the point is to pin which kinds the prune considers, so
-        // borrowing `rust_prunable_item` would assert nothing.
+        // Spelled out rather than reused from the production predicates:
+        // the point is to pin which kinds the prune considers, and
+        // which rows it reads as one run, so borrowing
+        // `rust_prunable_item` or `rust_attribute_run_member` would
+        // assert nothing.
         let is_item = |node: &Node| {
             matches!(
                 node.kind_id().into(),
@@ -1867,6 +1928,31 @@ mod tests {
                     | Rust::ConstItem
                     | Rust::StaticItem
             )
+        };
+        let is_member = |node: &Node| {
+            matches!(
+                node.kind_id().into(),
+                Rust::AttributeItem | Rust::LineComment | Rust::BlockComment
+            )
+        };
+        // What opens a run: an attribute, or a comment carrying the
+        // grammar's `doc_comment` child whose text is not the inner
+        // `//!` / `/*!` form (#1647).
+        let opens_run = |node: &Node| {
+            node.kind_id() == Rust::AttributeItem
+                || (is_member(node)
+                    && node.is_child(Rust::DocComment as u16)
+                    && !code[node.start_byte()..].starts_with(b"//!")
+                    && !code[node.start_byte()..].starts_with(b"/*!"))
+        };
+        // A member is the run's when it opens one, or some member of the
+        // unbroken stretch before it does.
+        let in_run = |node: &Node| {
+            is_member(node)
+                && (opens_run(node)
+                    || std::iter::successors(node.previous_sibling(), Node::previous_sibling)
+                        .take_while(is_member)
+                        .any(|member| opens_run(&member)))
         };
         let is_test_only = |node: &Node| {
             rust_attribute_run_before(node, code) || rust_inner_attr_marks_test(node, code)
@@ -1881,7 +1967,7 @@ mod tests {
         let mut reach = SubtreeSkip::RETAIN;
         let (mut pruned_through, mut members, mut decorated) = (0_usize, 0_usize, 0_usize);
         let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
-            let reference = if node.kind_id() == Rust::AttributeItem {
+            let reference = if in_run(node) {
                 rust_attributed_item_raw(node)
                     .is_some_and(|item| is_item(&item) && is_test_only(&item))
             } else {
@@ -1889,21 +1975,32 @@ mod tests {
             };
             let verdict = RustCode::should_skip_subtree(node, code, Ancestors::known(chain));
             let skipped = verdict.is_skipped();
+            // A plain comment inside a run is the one member the hook
+            // never answers for directly: it is `RETAIN` in `O(1)`, and
+            // the row that opened the run has answered for it through
+            // the reach, which the replay checks below (#1647).
+            let answered_by_the_reach = in_run(node) && !opens_run(node);
             assert_eq!(
                 skipped,
-                reference,
+                reference && !answered_by_the_reach,
                 "prune decision moved on {} at row {}",
                 node.kind(),
                 node.start_row(),
             );
             if node.start_byte() >= pruned_through {
-                if reach.answers_for(node) {
+                assert!(
+                    reach.answers_for(node) || !answered_by_the_reach,
+                    "no reach answered for the {} at row {}, which the hook leaves to one",
+                    node.kind(),
+                    node.start_row(),
+                );
+                // What the walker prunes on: the reach where it answers,
+                // the hook's own verdict otherwise.
+                let effective = if reach.answers_for(node) {
                     // Either the item a run decorates, or a run member or
                     // one of its descendants.
-                    let ends_a_run = node.kind_id() != Rust::AttributeItem
-                        && node
-                            .previous_sibling()
-                            .is_some_and(|s| s.kind_id() == Rust::AttributeItem);
+                    let ends_a_run =
+                        !is_member(node) && node.previous_sibling().is_some_and(|s| is_member(&s));
                     if ends_a_run {
                         decorated += 1;
                     } else {
@@ -1917,23 +2014,28 @@ mod tests {
                         node.kind(),
                         node.start_row(),
                     );
+                    reach.is_skipped()
                 } else {
                     reach = verdict;
-                }
-                if skipped {
+                    skipped
+                };
+                if effective {
                     pruned_through = pruned_through.max(node.end_byte());
+                    pruned += 1;
                 }
             }
-            pruned += usize::from(skipped);
         });
         assert!(visited > 0, "fixture must have nodes to compare");
         // Every run that decorates an item answers for that item by
         // identity (#1783), so the replay checks each such claim against
-        // the item's own verdict. Eight runs end at an item: `mod tests`,
-        // `static S`, `fn b`, the `use`, `fn d`, `fn f`, and the nested
-        // `fn inner` and `fn e`. A reach that stopped at the item's start
+        // the item's own verdict. Thirteen runs end at an item: `mod
+        // tests`, `static S`, `fn b`, the `use std::fmt`, `fn d`,
+        // `fn f`, the nested `fn inner` and `fn e`, and the five runs
+        // with a comment in them — `fn g`, `fn h`, `fn i` (whose `///`
+        // opens a run with no attribute in it), `fn j` and the
+        // `use std::io` (#1647). A reach that stopped at the item's start
         // byte, as before #1783, reads 0 here.
-        assert_eq!(decorated, 8, "a run's verdict did not answer for its item");
+        assert_eq!(decorated, 13, "a run's verdict did not answer for its item");
         // Both halves of the reach have to fire, or the assertion above
         // is decoration: a run whose members are pruned (`fn d`'s two
         // rows) and one whose members are kept (`fn f`'s three, plus
@@ -1959,20 +2061,27 @@ mod tests {
             "only {members} run members were answered by a reach; the fixture \
              must carry runs long enough for the walker to reuse one"
         );
-        // Six test-only items — `mod tests`, `mod inner`, `fn b`,
-        // `fn d`, `fn inner` and `fn e` — plus the six `#[…]` rows that
-        // mark five of them (`fn d` carries two, `mod inner` an inner
-        // attribute that its own subtree covers). The `fn a` inside
-        // `mod tests` is test code too, but nothing marks it, so its own
-        // verdict keeps it and only its pruned parent removes it.
-        // Neither `#[allow(dead_code)]` on the production `static`, nor
-        // `#[cfg(test)]` on the `use`, nor the trailing run that
-        // decorates nothing, is the prune's to take. A hook that pruned
-        // everything would satisfy the equality above only if the oracle
-        // agreed; this pins the count the fixture was written for.
+        // Nine test-only items — `mod tests`, `mod inner`, `fn b`,
+        // `fn d`, `fn inner`, `fn e`, `fn g`, `fn h` and `fn j` — plus
+        // the nine `#[…]` rows that mark eight of them (`fn d` carries
+        // two, `mod inner` an inner attribute that its own subtree
+        // covers), plus the five comment rows inside those runs: the
+        // two under `fn g`'s attribute and the three around `fn h`'s
+        // (#1647). The `fn a` inside `mod tests` is test code too, but
+        // nothing marks it, so its own verdict keeps it and only its
+        // pruned parent removes it. Neither `#[allow(dead_code)]` on the
+        // production `static`, nor `#[cfg(test)]` on either `use` and the
+        // comment under the second, nor the plain `// kept` rows above
+        // `fn g` and `fn i`, nor the `//! kept` above `fn j` — an inner
+        // doc comment documents the file, not the item below it — nor
+        // the trailing run that decorates nothing, is the prune's to
+        // take. A hook that pruned everything would satisfy the equality
+        // above only if the oracle agreed; this pins the count the
+        // fixture was written for.
         assert_eq!(
-            pruned, 12,
-            "expected the test-only items and the attributes marking them"
+            pruned, 23,
+            "expected the test-only items, the attributes marking them and the \
+             comments among those"
         );
     }
 

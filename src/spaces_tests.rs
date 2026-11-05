@@ -1508,6 +1508,160 @@ impl Foo {
             "`fn t` goes; `fn a` / `fn b` / `fn c` stay"
         );
     }
+
+    /// The `(sloc, ploc, cloc, dloc, blank)` of `source` under
+    /// `exclude_tests`, plus the names of the spaces under the unit.
+    fn pruned_shape(source: &str) -> ((u64, u64, u64, u64, u64), Vec<String>) {
+        let pruned = analyse(source, true);
+        let loc = &pruned.metrics.loc;
+        (
+            (loc.sloc(), loc.ploc(), loc.cloc(), loc.dloc(), loc.blank()),
+            pruned
+                .spaces
+                .iter()
+                .map(|s| s.name.clone().unwrap_or_default())
+                .collect(),
+        )
+    }
+
+    // #1647. A comment between `#[cfg(test)]` and the item it decorates
+    // ended the attribute run, so the item stayed and the run's rows
+    // with it. rustc reads `//` and `/* */` as no token, and `///` as a
+    // `#[doc]` attribute of the same run, so the item compiles only
+    // under `cfg(test)` either way and goes with its comments. Every
+    // row here read `sloc 6` and two spaces before the fix, against the
+    // `sloc 1` of the comment-free `fn keep() {}\n#[cfg(test)]\nfn t`.
+    #[test]
+    fn a_comment_inside_a_test_attribute_run_is_pruned_with_the_item() {
+        let base = "fn keep() {}\n#[cfg(test)]\nfn t() {\n    let x = 1;\n}\n";
+        let expected = ((1, 1, 0, 0, 0), vec!["keep".to_owned()]);
+        assert_eq!(pruned_shape(base), expected, "the comment-free twin");
+        for source in [
+            "fn keep() {}\n#[cfg(test)]\n// plain comment\nmod t {\n    fn a() {}\n}\n",
+            "fn keep() {}\n#[cfg(test)]\n/* block */\nfn t() {\n    let x = 1;\n}\n",
+            "fn keep() {}\n#[cfg(test)]\n/// doc\nfn t() {\n    let x = 1;\n}\n",
+            // `#[test]` opens the same run as `#[cfg(test)]`.
+            "fn keep() {}\n#[test]\n// c\nfn t() {\n    let x = 1;\n}\n",
+            // A comment between two stacked attributes: the marker is
+            // past it, so a scan that stopped at the comment would read
+            // only `#[allow(dead_code)]` and keep `mod t`.
+            "fn keep() {}\n#[allow(dead_code)]\n// c\n#[cfg(test)]\nmod t {\n    fn a() {}\n}\n",
+            // An outer doc comment above the attribute is an attribute of
+            // the item to rustc, and documents a pruned item to a reader,
+            // so its row goes too — the one row the issue's `cloc 1 dloc
+            // 1` before the fix left behind.
+            "fn keep() {}\n/// doc\n#[cfg(test)]\nfn t() {\n    let x = 1;\n}\n",
+            "fn keep() {}\n/// doc\n// plain\n#[cfg(test)]\nfn t() {\n    let x = 1;\n}\n",
+        ] {
+            assert_eq!(pruned_shape(source), expected, "{source:?}");
+            // The attribute alone would prune the same, so the comment
+            // is anchored on the axis only it contributes: without it
+            // the unpruned reading has no comment row at all.
+            let unpruned = analyse(source, false);
+            assert!(
+                unpruned.spaces.len() == 2 && unpruned.metrics.loc.cloc() >= 1,
+                "{source:?}: the unpruned reading must hold `fn t` and a comment \
+                 row, or the fixture proves nothing"
+            );
+        }
+    }
+
+    // The other half of #1647: a comment is transparent to the run, and
+    // nothing more. It must not widen *which* attributes mark a test, nor
+    // which rows a run that marks none takes.
+    #[test]
+    fn a_comment_inside_a_run_does_not_widen_what_the_run_prunes() {
+        for (source, shape) in [
+            // `#[cfg(not(test))]` and a feature gate mark production
+            // code, comment or no comment.
+            (
+                "fn keep() {}\n#[cfg(not(test))]\n// c\nfn t() {\n    let x = 1;\n}\n\
+                 #[cfg(feature = \"x\")]\n// c\nfn u() {\n    let y = 1;\n}\n",
+                ((11, 9, 2, 0, 0), vec!["keep", "t", "u"]),
+            ),
+            // A run ending on an item the prune does not remove keeps
+            // every row, the comment included.
+            (
+                "fn keep() {}\n#[cfg(test)]\n// c\nuse std::fmt;\nfn after() {}\n",
+                ((5, 4, 1, 0, 0), vec!["keep", "after"]),
+            ),
+            // A plain comment *above* the attribute is no attribute of
+            // the item: it stays, as before.
+            (
+                "// plain above\n#[cfg(test)]\nfn t() {}\nfn keep() {}\n",
+                ((2, 1, 1, 0, 0), vec!["keep"]),
+            ),
+            // An inner doc comment documents the file, not the item
+            // below it, so a crate header above the first test item
+            // stays.
+            (
+                "//! crate doc\n#[cfg(test)]\nfn t() {}\nfn keep() {}\n",
+                ((2, 1, 1, 1, 0), vec!["keep"]),
+            ),
+            // `#![cfg(test)]` at file scope is an inner attribute of the
+            // file, not an outer attribute run on `fn t`: nothing is
+            // pruned, with or without the comment.
+            (
+                "#![cfg(test)]\n// c\nfn t() {}\nfn keep() {}\n",
+                ((4, 3, 1, 0, 0), vec!["t", "keep"]),
+            ),
+            // An inner `#![cfg(test)]` module with a comment under it:
+            // the module's own prune already covers both.
+            (
+                "mod m {\n    #![cfg(test)]\n    // c\n    fn a() {}\n}\nfn keep() {}\n",
+                ((1, 1, 0, 0, 0), vec!["keep"]),
+            ),
+            // Documented production items: a `///` opens a run with no
+            // attribute in it, which prunes nothing.
+            (
+                "/// doc of struct\nstruct S;\n/// doc of keep\nfn keep() {}\n",
+                ((4, 2, 2, 2, 0), vec!["keep"]),
+            ),
+        ] {
+            let names: Vec<String> = shape.1.iter().map(|&s| s.to_owned()).collect();
+            assert_eq!(pruned_shape(source), (shape.0, names), "{source:?}");
+        }
+    }
+
+    // #1647: an attribute run that trails off the file into a comment
+    // with no item after it. The lookahead runs off the end of the
+    // parent, so nothing is pruned and nothing is attributed to an item
+    // that is not there. Verbatim, because the ordinary harness appends
+    // a newline and cannot put a comment at EOF (`src/test_support.rs`).
+    #[test]
+    fn a_trailing_run_ending_in_a_comment_at_eof_prunes_nothing() {
+        use crate::LANG;
+        use crate::test_support::metrics_verbatim;
+
+        for source in [
+            &b"fn keep() {}\n#[cfg(test)]\n// trailing"[..],
+            b"fn keep() {}\n#[cfg(test)]\n/* trailing */",
+            b"fn keep() {}\n#[cfg(test)]\n/// trailing",
+        ] {
+            let pruned = metrics_verbatim(
+                LANG::Rust,
+                source,
+                MetricsOptions::default().with_exclude_tests(true),
+            );
+            let unpruned = metrics_verbatim(LANG::Rust, source, MetricsOptions::default());
+            assert_eq!(
+                (pruned.loc.sloc(), pruned.loc.ploc(), pruned.loc.cloc()),
+                (3, 2, 1),
+                "{}",
+                String::from_utf8_lossy(source)
+            );
+            assert_eq!(
+                (
+                    unpruned.loc.sloc(),
+                    unpruned.loc.ploc(),
+                    unpruned.loc.cloc()
+                ),
+                (3, 2, 1),
+                "{}: nothing here is the prune's to take",
+                String::from_utf8_lossy(source)
+            );
+        }
+    }
 }
 
 // Non-Rust languages must ignore `exclude_tests = true` because

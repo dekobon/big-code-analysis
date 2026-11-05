@@ -167,6 +167,7 @@ Read it as follows.
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
 | `nom/deep-one-attribute-items` | Rust | depth | the same diagonal with many one-attribute items on one deep parent (#1447) | linear |
+| `nom/deep-doc-comment-run` | Rust | depth | the same diagonal with the run spelled as doc and plain comment rows (#1647) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
@@ -472,6 +473,20 @@ and the repository's own Rust did not move off 0.64 s. What the probe
 prices is the removed pass from the first child, not the cache: its
 body is a grammar `repeat()`, where the byte seek is logarithmic too.
 The cache is what keeps a flat `ERROR` parent linear.
+
+`nom/deep-doc-comment-run` is the same diagonal with the run spelled
+as comment rows: `3 * depth` pairs of an outer doc comment and a plain
+comment above one `#[cfg(test)] fn t`. Since #1647 a comment inside an
+attribute run is part of it — rustc attaches a `///` as `#[doc]` and
+reads `//` as no token, so the item is test-only either way — and an
+outer doc comment opens a run the way an attribute does, so each `///`
+row is a place the hook reads the run from. The first row's verdict
+answers for the rest through the reach; with the reach removed the
+shape fits 1.86 (4.3 / 15.5 / 56.2 ms at depths 500 / 1 000 / 2 000),
+with it 1.08 (0.6 / 1.2 / 2.6 ms). The plain rows are what the hook
+answers `RETAIN` for in `O(1)` when no reach covers them, which is
+what keeps a long stretch of `//` rows outside any run from being
+quadratic in itself.
 
 The unit suite pins the reading only in part.
 `the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_parent`

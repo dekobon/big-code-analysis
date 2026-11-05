@@ -23,7 +23,7 @@ fn rust_inner_doc_opens_body(function: &Node, body: &Node) -> bool {
 
 /// An inner doc comment, `//!` or `/*! */`: one that documents the item
 /// enclosing it rather than the one after it.
-fn rust_inner_doc(bytes: &[u8]) -> bool {
+pub(super) fn rust_inner_doc(bytes: &[u8]) -> bool {
     bytes.starts_with(b"//!") || bytes.starts_with(b"/*!")
 }
 
@@ -187,10 +187,12 @@ impl Checker for RustCode {
     /// `trait`, `const`, or `static` item marked test-only by an
     /// outer or inner attribute (`#[test]`, `#[cfg(test)]`,
     /// `#[tokio::test]`, `#![cfg(test)]`, …), or is one of the
-    /// `#[…]` siblings that mark it. The metric walk (`metrics_inner`
-    /// in the root crate's `spaces::compute`) only consults this hook
-    /// when the caller opts in via `MetricsOptions::exclude_tests`,
-    /// so a default `MetricsOptions` leaves every subtree in.
+    /// `#[…]` siblings that mark it, or a comment among them — an
+    /// outer doc comment above the run, or a comment of any kind
+    /// inside it (#1647). The metric walk (`metrics_inner` in the
+    /// root crate's `spaces::compute`) only consults this hook when
+    /// the caller opts in via `MetricsOptions::exclude_tests`, so a
+    /// default `MetricsOptions` leaves every subtree in.
     fn should_skip_subtree<'a>(
         node: &Node<'a>,
         code: &[u8],
@@ -217,7 +219,13 @@ impl Checker for RustCode {
         // (#1446). It is the decorated item's verdict too, which it
         // names, so the walker does not ask about that item either
         // (#1783).
-        if node.kind_id() == Rust::AttributeItem {
+        //
+        // An outer doc comment opens a run the same way, being a
+        // `#[doc]` attribute to rustc, and a plain comment inside a
+        // run is a member the reach answers for; a plain comment
+        // outside one, or an inner doc comment, is not the run's and
+        // is answered here in `O(1)` (#1647, `rust_attribute_run_start`).
+        if rust_attribute_run_start(node, code) {
             return rust_attribute_run_verdict(node, code, ancestors);
         }
         SubtreeSkip::RETAIN

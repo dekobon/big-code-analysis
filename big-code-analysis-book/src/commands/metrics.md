@@ -181,6 +181,15 @@ understands the following Rust attribute shapes:
   (any path ending in `::test`)
 - `#![cfg(test)]` on `mod` items (inner attribute form)
 
+A pruned item takes its whole attribute run with it: every `#[…]`
+row above it, any `//` or `/* */` comment among those rows (rustc
+reads a comment as no token, so the attribute still applies), and the
+`///` doc comments above or among them (rustc reads each as a `#[doc]`
+attribute of the same item). A plain comment *above* the first
+attribute is not part of the run and stays, as does a `//!` inner doc
+comment, which documents the enclosing file or module rather than the
+item below it.
+
 Languages without a `Checker::should_skip_subtree` override ignore the
 flag; only Rust applies the pruning today. The default remains off so
 existing metric numbers stay byte-identical for users who do not opt

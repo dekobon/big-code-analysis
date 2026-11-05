@@ -508,6 +508,34 @@ pub fn nested_fns_with_one_attribute_items(depth: usize) -> String {
     )
 }
 
+/// Rust: `depth` nested `fn f`, then `3 * depth` outer doc comments
+/// and a plain comment each, above one `#[cfg(test)] fn t` in the
+/// innermost body.
+///
+/// [`nested_fns_with_attribute_run`] with the run spelled as comments:
+/// since #1647 an outer doc comment opens a run like an attribute, and
+/// a plain comment inside one is a member of it. Each `///` row is
+/// therefore a place the prune hook reads the run from, forward to the
+/// item and back, and every row of it decorates the same `fn t`; the
+/// verdict the first row reaches is what answers for the rest. Without
+/// that reach each doc row re-reads the run, `O(run)` work `run`
+/// times, which is #1446's diagonal over again on comment rows. The
+/// plain rows between are what the reach answers for in `O(1)` — the
+/// hook keeps them out of the run reading on purpose, so a stretch of
+/// `//` rows is never quadratic in itself.
+///
+/// The reading is `nom.total()`, the `depth` retained wrappers, for the
+/// reason [`nested_fns_with_attribute_run`] gives.
+#[must_use]
+pub fn nested_fns_with_doc_comment_run(depth: usize) -> String {
+    format!(
+        "{}{}#[cfg(test)]\nfn t() {{}}\nlet x = 1;\n{}",
+        "fn f() {\n".repeat(depth),
+        "/// d\n// p\n".repeat(3 * depth),
+        "}\n".repeat(depth),
+    )
+}
+
 /// Rust: `fn p() {}\n#[cfg(test)]\nmod m {}\n` repeated at file scope.
 ///
 /// The shape [`nested_attributed_fns`] and [`wide_attributed_fns`]
@@ -2713,6 +2741,31 @@ pub const PROBES: &[Probe] = &[
                     stays as the long-run axis of the diagonal.",
     },
     Probe {
+        name: "nom/deep-doc-comment-run",
+        lang: LANG::Rust,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_fns_with_doc_comment_run,
+        sizes: ATTRIBUTE_RUN_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1647: `nom/deep-attribute-run` with the run spelled as \
+                    `3 * depth` pairs of an outer doc comment and a plain \
+                    comment above one `#[cfg(test)] fn t`. A comment is \
+                    read as part of the run now — rustc attaches a `///` \
+                    as `#[doc]` and reads `//` as no token — so each doc \
+                    row opens the run like an attribute and the first \
+                    one's verdict answers for the rest through \
+                    `SubtreeSkip`'s reach. With the reach removed \
+                    (`covering_through_node` dropped from \
+                    `rust_attribute_run_verdict`) the shape fits 1.86 \
+                    (4.3 / 15.5 / 56.2 ms); with it, 1.08 (0.6 / 1.2 / \
+                    2.6 ms).",
+    },
+    Probe {
         name: "nom/deep-one-attribute-items",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -2867,7 +2920,7 @@ pub const PROBES: &[Probe] = &[
         lang: LANG::Rust,
         axis: Axis::Width,
         workload: Workload::Metrics {
-            exclude_tests: false,
+            exclude_tests: true,
             selection: &[Metric::Loc],
             reading: |m| m.loc.dloc(),
         },
@@ -2878,7 +2931,13 @@ pub const PROBES: &[Probe] = &[
                     it to the item; the stretch's members alternate with \
                     attributes, so each comment that asks for its target \
                     must stop at the next comment rather than scan to the \
-                    item. Every doc comment is a doc row.",
+                    item. Every doc comment is a doc row. The flag is on \
+                    because the whole stretch is one attribute run to the \
+                    prune since #1647 — a doc comment opens it and a \
+                    `#[test]` in place of `#[inline]` would take every \
+                    row — so the hook reads the run once from its first \
+                    doc row here too; `#[inline]` prunes nothing, and the \
+                    reading is unchanged.",
     },
     Probe {
         name: "loc/csharp-dangling-docs",
