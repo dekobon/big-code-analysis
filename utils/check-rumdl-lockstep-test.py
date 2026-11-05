@@ -301,19 +301,22 @@ class DockerShaTest(unittest.TestCase):
         self.assertEqual(
             GATE.read_docker_x86_64_sha(DOCKER_SAMPLE, GATE.CHECKMAKE), CM_SHA
         )
-        # A second heredoc that interpolates only the fork variable is
-        # not a checkmake block: `${CHECKMAKE_VERSION` is not a prefix of
-        # `${CHECKMAKE_FORK_VERSION}` (the `\b` in the reader plays no
-        # part here), so exactly one block is still found.
-        fork_only = (
+        # A second heredoc interpolating a variable whose name *extends*
+        # `CHECKMAKE_VERSION` is not a checkmake block either. Only the
+        # `\b` in the reader's version reference says so: without it
+        # `${CHECKMAKE_VERSION_FORK}` matches, two blocks are found and
+        # the reader hard-errors. (The sample's own fork variable,
+        # `${CHECKMAKE_FORK_VERSION}`, is a different prefix and needs
+        # no `\b`; `test_no_tool_block_is_a_hard_error` pins that one.)
+        extended_name = (
             "\nRUN <<'EOF'\n"
-            'CHECKMAKE_FORK_VERSION="0.4.0"\n'
-            'echo "fork v${CHECKMAKE_FORK_VERSION} linux.amd64"; '
+            'CHECKMAKE_VERSION_FORK="0.4.0"\n'
+            'echo "fork v${CHECKMAKE_VERSION_FORK} linux.amd64"; '
             f'SHA256="{OTHER_SHA}"\n'
             "EOF\n"
         )
         self.assertEqual(
-            GATE.read_docker_x86_64_sha(DOCKER_SAMPLE + fork_only, GATE.CHECKMAKE),
+            GATE.read_docker_x86_64_sha(DOCKER_SAMPLE + extended_name, GATE.CHECKMAKE),
             CM_SHA,
         )
 
@@ -619,7 +622,11 @@ class MainTest(RepoCase):
         # image build verifies it.
         for arm_sha in (ARM_SHA, AL_ARM_SHA, CM_ARM_SHA):
             with self.subTest(arm_sha=arm_sha[:1]):
-                self._repo(docker=DOCKER_SAMPLE.replace(arm_sha, "e" * 64))
+                docker = DOCKER_SAMPLE.replace(arm_sha, "e" * 64)
+                # A hash the sample no longer carries replaces nothing,
+                # and an unchanged fixture passes for no reason.
+                self.assertNotEqual(docker, DOCKER_SAMPLE)
+                self._repo(docker=docker)
                 code, _, err = self._run()
                 self.assertEqual(code, 0, err)
 
