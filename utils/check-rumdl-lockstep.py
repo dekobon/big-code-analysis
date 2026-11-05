@@ -79,15 +79,21 @@ step's ``<TOOL>_VERSION`` / ``<TOOL>_SHA256`` env keys; the Dockerfile's
 ``ENV <TOOL>_VERSION`` and a heredoc ``RUN`` block in the shape above,
 whose download URL names ``${<TOOL>_VERSION}``; a ``Pin`` row in ``PINS``
 with a comment above it saying what its ``amd64_anchor`` is; the new
-baseline name in both ``files:`` regexes of ``.pre-commit-config.yaml``
-and in the Makefile help, comment and echo. Then seed the baseline —
-``--update`` refuses a missing file on purpose, so that a typo in a
-baseline path reads as an error rather than as a fresh start — with a
-stale record, ``0.0.1`` and any 64 hex digits, and run ``--update``,
-which rewrites it from the template; commit what it wrote. The
-self-tests' ``CI_SAMPLE`` and ``DOCKER_SAMPLE`` need the tool's sites,
-``_NEXT`` its next release, and ``HAND_<TOOL>_BASELINE`` a hand-written
-record; the tests that iterate ``PINS`` then cover the row.
+baseline's file name in both ``files:`` regexes of
+``.pre-commit-config.yaml``, and the tool's name in the Makefile help,
+comment and echo. Then seed the baseline — ``--update`` refuses a
+missing file on purpose, so that a typo in a baseline path reads as an
+error rather than as a fresh start — with a stale record, ``0.0.1`` and
+any 64 hex digits, and run ``--update``, which rewrites it from the
+template; commit what it wrote. In the self-tests, ``CI_SAMPLE`` and
+``DOCKER_SAMPLE`` need the tool's sites, ``_NEXT`` its next release and
+``HAND_<TOOL>_BASELINE`` a hand-written record, and ``RepoCase._repo``
+a ``<tool>_baseline`` keyword with its default and write (the
+malformed-baseline test derives that name from every row); the tests
+that assert a fixed tool count or one case per tool —
+``test_an_aligned_tree_passes``, ``test_the_arm64_hash_is_not_compared``,
+the ``*_only_bump`` tests, ``test_clean_tree_passes`` — grow a row. The
+tests that iterate ``PINS`` then cover the rest.
 
 ``mise.toml`` is parsed with ``tomllib``. ``ci.yml`` and the
 ``Dockerfile`` are parsed by line, because PyYAML is not in the
