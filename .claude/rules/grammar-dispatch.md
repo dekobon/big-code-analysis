@@ -462,6 +462,11 @@ one is the audit table for the other twenty. Build that table in the
 issue, land the sibling fixes in one commit so the symmetry is visible
 to a reviewer, and anchor any known-wrong-but-unfixed case with an
 inline `FIXME(#NNN)` so the gap stays in CI rather than in a tracker.
+Build it by dumping the construct in each sibling grammar, not by
+`rg`-ing for a kind name: a §9 construct has no kind to find, which is
+how #1765's PHP `break N` fix recorded "no other grammar has a
+numeric-level jump" while Bash's `break n` — a plain `command` — scored
++0 as any other command until the whole-branch review dumped it.
 
 A `LANG` variant that owns **no file extension** (`mozcpp`) gets no
 integration-snapshot coverage at all, because nothing routes to it —

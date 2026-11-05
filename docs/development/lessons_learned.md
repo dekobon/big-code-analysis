@@ -5098,6 +5098,22 @@ own lookups and return the same answer the chain would. The probe is
 a gate reading its parent disagrees with the walk under it, and the
 perturbation fails. The test's doc names what it still cannot see.
 
+**The read counter the entry asks for, and the call site it missed**
+(#1793). The `no_chain` backstop compares every unchained row's
+`owns_kind` under the walk's chain and under `Ancestors::known(&[])`,
+and its first draft reported a `no_chain` gate perturbed to read
+`node.parent().is_some()` as UNCAUGHT — true under every chain, so the
+comparison could not move. `Node::parent` now records
+`node_resolved_parent_lookups`, the counter `previous_sibling` already
+had, and the test asserts it did not move while the rows were asked,
+so a climb is reported whatever it answers. The checkpoint review then
+found the counters bracketed `owns_kind` but not the `opens_space` fold
+that follows it, and an `opens_by … no_chain` fn is reached only by the
+latter: a climb added to Kotlin's `class_or_interface` escaped both
+halves until the fold was bracketed too. A counter sees what runs
+between its two reads; list every call site the dropped input could
+reach before placing them.
+
 ---
 
 ## 115. Sharing the rule left the list at every caller; sharing the list leaves the judgement

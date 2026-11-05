@@ -278,8 +278,9 @@ nothing when the fixture starts from the default-constructed value.
 state a reset produces and exactly the value `+=` and `=` agree on — so
 the assertion holds whether or not the line under test exists.
 
-This is not a hypothetical failure mode. Both instances below shipped in
-the *same* test during #1086, and both were measured, not guessed:
+This is not a hypothetical failure mode. The first two instances below
+shipped in the *same* test during #1086, the third in the batch that
+fixed #1284; each was measured, not guessed:
 
 - **A reset asserted from a default fixture** (#1086). The test built
   `Stats::default()`, called `increase_nesting`, and asserted
@@ -293,6 +294,14 @@ the *same* test during #1086, and both were measured, not guessed:
   `increment`'s `stats.structural += stats.nesting + 1` is
   indistinguishable from a plain `=`. Seeding `structural: 5` and
   asserting `13` made the `+=`-to-`=` perturbation fail.
+- **A restricted fold asserted on fixtures whose excluded members score
+  zero** (#1284). Cognitive's and nexits' `average` / `min` / `max`
+  moved onto the function-space population, and an invariant sweep
+  over eleven fixtures passed with the numerator perturbed back to the
+  all-space sum: no unit or container in any fixture carried its own
+  control flow, so the two sums were equal on every one. The fixtures
+  now carry module-level flow and the sweep asserts, per metric, that
+  the two populations differed somewhere.
 
 The tell is that the expected value equals the default. When you write
 `assert_eq!(x.field, 0)` or compare against `Default::default()` after
@@ -300,7 +309,10 @@ calling something that is *supposed* to zero it, stop: either seed a
 distinguishable value first, or accept that the assertion is decoration.
 
 **Lesson:** pick fixture values that differ from both the default and
-each other, so the assertion can only pass for the intended reason. Then
+each other, so the assertion can only pass for the intended reason —
+and, for a fold over a sub-population, give the *excluded* members a
+non-zero contribution, or the restricted and unrestricted folds agree
+on every fixture. Then
 confirm it by perturbing the exact production line the assertion names —
 per the sections above, a test that cannot fail is worse than no test,
 because it reads as coverage.

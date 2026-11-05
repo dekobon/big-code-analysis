@@ -1133,6 +1133,13 @@ Treat the pinned version as fixed:
   gh issue create --title "Title" --label "bug" --body-file "$body"
   ```
 
+  **Long bodies.** The host's outbound proxy has rejected some comments
+  of a few kilobytes that carried tables, with `gh` reporting a failure
+  and nothing posted (#1399, #1646 — each records the rejected comment
+  and the gist that took the same bytes). Put a long record in a gist
+  (`gh gist create`) and link it from a short comment, and re-read the
+  issue to confirm the comment landed before relying on it.
+
 - **Re-verify a deferred issue's premises before building on them.**
   A deferral records the code as it stood when the issue was filed,
   and both halves age: the measurement it rests on may never have
