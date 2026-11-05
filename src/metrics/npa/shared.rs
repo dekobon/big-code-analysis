@@ -124,61 +124,66 @@ pub(crate) fn ruby_call_argument_list<'a>(call: &Node<'a>) -> Option<Node<'a>> {
         .find(|c| matches!(c.kind_id().into(), ArgumentList | ArgumentList2))
 }
 
-// How many attributes / methods one argument to an `attr_*` or
-// visibility macro names. A `%i[a b]` word array is one argument naming
-// several; every other symbol spelling names exactly one. `HashKeySymbol`
-// (`a:`) reaches no argument list at the pinned grammar — it is only ever
-// a `pair` or `keyword_pattern` key — but is kept as a defensive arm
+// The names one argument of an `attr_*` or visibility call spells, one
+// entry per name: a symbol or a string names one, a `%i[a b]` word
+// array names each of its elements, and every other argument shape — a
+// splat (`private *SYMS`), a bare identifier (`private foo`), a nested
+// call (`private send(:x)`) — names nothing this walk can resolve
+// (#1399). An entry is `None` where the name is spelled but not
+// resolvable (`:"get_#{suffix}"`): `npa` still counts that attribute,
+// and neither consumer can re-file it. `HashKeySymbol` (`a:`) reaches
+// no argument list at the pinned grammar — it is only ever a `pair` or
+// `keyword_pattern` key — but is kept as a defensive arm
 // (grammar-dispatch rule 2), pinned by
 // `ruby_hash_key_symbol_declares_no_attribute`.
-fn ruby_symbol_argument_count(arg: &Node) -> usize {
+pub(crate) fn ruby_argument_names<'a>(
+    argument: &Node<'a>,
+    source: &'a [u8],
+) -> Vec<Option<&'a str>> {
     use Ruby::*;
 
-    // role-bypass: allow(StringLit) — how many names a symbol argument spells; the
-    // row owns the symbol kinds as literals, a different question
-    match arg.kind_id().into() {
-        SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol => 1,
-        SymbolArray => arg
+    // role-bypass: allow(StringLit) — how many names an argument spells; the
+    // row owns the symbol and string kinds as literals, a different question
+    match argument.kind_id().into() {
+        SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol | String => {
+            vec![ruby_name_argument(argument, source)]
+        }
+        SymbolArray => argument
             .children()
             // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
             .filter(|c| matches!(c.kind_id().into(), BareSymbol))
-            .count(),
-        _ => 0,
+            .map(|element| ruby_name_argument(&element, source))
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
-// Counts the number of symbol arguments passed to an `attr_accessor` /
-// `attr_reader` / `attr_writer` macro `Call` node. `attr_accessor :a,
-// :b, :c` exposes three attributes; an `attr_*` call with no arguments
-// is ill-formed Ruby but defensively returns zero rather than one.
-pub(crate) fn ruby_attr_macro_symbol_count(call: &Node) -> usize {
-    ruby_call_named_arguments(call)
-        .map(|arg| ruby_symbol_argument_count(&arg))
-        .sum()
-}
-
-// The method name a `:foo` argument to `private` / `public` / … names.
-// `simple_symbol` carries the whole literal including the leading colon
-// (`:ok?`, `:==`); `delimited_symbol` (`:"val="`) and the `bare_symbol`
-// elements of a `%i[…]` array both wrap their text in a `string_content`
-// child. A `%i[…]` array names several methods rather than one, so its
-// callers expand it into these elements first. Every other argument
-// shape — a splat (`private *SYMS`), a bare identifier (`private foo`),
-// a string (`private "foo"`) — names nothing this walk can resolve and
-// yields `None` (#1399).
+// The method name a `:foo` or `"foo"` argument to `private` / `public` /
+// `attr_reader` / … names — `private "foo"` and `attr_reader "foo"` are
+// each what the symbol spelling is (#1399). `simple_symbol` carries the
+// whole literal including the leading colon (`:ok?`, `:==`);
+// `delimited_symbol` (`:"val="`), a `string` and the `bare_symbol`
+// elements of a `%i[…]` array wrap their text in a `string_content`
+// child. A `%i[…]` array names several methods rather than one, so
+// `ruby_argument_names` expands it into these elements first. Every
+// other argument shape names nothing this walk can resolve and yields
+// `None`.
 //
-// A delimited symbol is resolvable only when `string_content` is its
-// *whole* content: `:"get_#{suffix}"` also carries an `interpolation`
-// child, and returning the literal half of it would name — and demote —
-// a different method called `get_`.
-pub(crate) fn ruby_symbol_name<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+// A delimited symbol or a string is resolvable only when
+// `string_content` is its *whole* content: `:"get_#{suffix}"` also
+// carries an `interpolation` child, and returning the literal half of
+// it would name — and demote — a different method called `get_`. A
+// `"b\n"` carries an `escape_sequence` beside the content and names a
+// method Ruby cannot find either (measured: `NameError`), and `""`
+// carries no content at all.
+pub(crate) fn ruby_name_argument<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     // Which symbol spelling names a method, read from the bytes; not
     // whether the node is a literal, which the `StringLit` row owns.
     match node.kind_id().into() {
         // role-bypass: allow(StringLit) — the `:name` spelling
         Ruby::SimpleSymbol => node.utf8_text(source)?.strip_prefix(':'),
-        // role-bypass: allow(StringLit) — the delimited and bare spellings
-        Ruby::DelimitedSymbol | Ruby::BareSymbol => {
+        // role-bypass: allow(StringLit) — the delimited, string and bare spellings
+        Ruby::DelimitedSymbol | Ruby::String | Ruby::BareSymbol => {
             let mut content = node.children().filter(Node::is_named);
             let first = content.next()?;
             (first.kind_id() == Ruby::StringContent as u16 && content.next().is_none())
@@ -341,20 +346,50 @@ fn ruby_callee_name<'a>(call: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     call.child_by_field_name("method")?.utf8_text(source)
 }
 
-// Whether a Ruby `Call` node invokes the `attr_*` macro family on the
-// enclosing class. Each macro takes a list of attribute symbols and
-// synthesises the matching reader / writer / accessor methods.
-pub(crate) fn ruby_is_attr_macro(call: &Node, source: &[u8]) -> bool {
-    matches!(
-        ruby_callee_name(call, source),
-        Some("attr_accessor" | "attr_reader" | "attr_writer")
-    )
+// The two methods an `attr_*` macro can generate for one name: the
+// reader `b` and the writer `b=`. A visibility call names each on its
+// own — `private :b` reaches the reader only, `private :b=` the writer
+// — so a re-file is keyed by the pair, and `split` reads which of the
+// two a spelled name is.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum RubyAccessor {
+    Reader,
+    Writer,
+}
+
+impl RubyAccessor {
+    /// Which accessor `name` spells, with the attribute's own name: `b=`
+    /// is the writer of `b`, anything else the reader of itself.
+    pub(crate) fn split(name: &str) -> (&str, Self) {
+        match name.strip_suffix('=') {
+            Some(stem) => (stem, Self::Writer),
+            None => (name, Self::Reader),
+        }
+    }
+}
+
+// Which accessors a Ruby `Call` node generates, when it invokes the
+// `attr_*` macro family on the enclosing class: each macro takes a list
+// of attribute names and synthesises the reader, the writer, or both for
+// every one. `None` for any other call.
+pub(crate) fn ruby_attr_macro_accessors(
+    call: &Node,
+    source: &[u8],
+) -> Option<&'static [RubyAccessor]> {
+    use RubyAccessor::*;
+
+    match ruby_callee_name(call, source)? {
+        "attr_accessor" => Some(&[Reader, Writer]),
+        "attr_reader" => Some(&[Reader]),
+        "attr_writer" => Some(&[Writer]),
+        _ => None,
+    }
 }
 
 // Books `count` attributes against the class tallies, all of them
 // public or none. Kept as a helper so the declaration shapes one
-// walker recognises — Ruby's three, the C++ family's two — cannot
-// disagree on the rule.
+// walker recognises — the C++ family's two — cannot disagree on the
+// rule; Ruby's walker tallies its ledger once the body is read.
 pub(crate) fn add_attributes(stats: &mut Stats, count: usize, public: bool) {
     stats.class_na += count;
     if public {

@@ -278,11 +278,6 @@ impl<'a, 'chain> RubyBodyState<'a, 'chain> {
         state.read_body(body, consumer);
     }
 
-    /// The source the body was parsed from.
-    pub(crate) fn code(&self) -> &'a [u8] {
-        self.code
-    }
-
     /// The body-wide visibility flag where the walk stands.
     pub(crate) fn visibility(&self) -> RubyVisibility {
         self.visibility

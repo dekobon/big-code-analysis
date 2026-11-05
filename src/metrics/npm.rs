@@ -3013,6 +3013,28 @@ class C {
 
     #[cfg(feature = "ruby")]
     #[test]
+    fn ruby_string_argument_names_a_method() {
+        // `private "a"` is `private :a` (#1399 §3; measured on ruby
+        // 3.0.2: `a` and `b` private), in either quote. A string that is
+        // not one plain literal names nothing — `"c#{x}"` carries an
+        // `interpolation` beside its content, exactly as the delimited
+        // symbol `ruby_interpolated_symbol_names_nothing` rejects — so
+        // `c` stays public. Before #1399 the string spelling demoted
+        // nothing: npm = 3.
+        //
+        // expected: nm = 3, npm = 1 (`c`).
+        check_metrics::<RubyParser>(
+            "class S\n  def a\n    1\n  end\n  def b\n    2\n  end\n  def c\n    3\n  end\n  private \"a\", 'b'\n  private \"c#{x}\"\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
     fn ruby_protected_wrapping_call_is_not_public() {
         // `protected` is a third state: `Npm` counts *public* methods,
         // so a protected one lands in `nm` and not in `npm`, in the

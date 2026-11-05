@@ -385,9 +385,11 @@ macro_rules! impl_npa_java_like {
 }
 
 mod ruby_body;
+mod ruby_ledger;
 mod shared;
 pub(crate) use python::python_unwrap_function;
 pub(crate) use ruby_body::{RubyBodyConsumer, RubyBodyShape, RubyBodyState, RubyOpenCall};
+pub(crate) use ruby_ledger::{RubyLedger, ruby_is_auto_private, ruby_leave_visibility_call};
 pub(crate) use shared::*;
 
 // Reached by the per-language submodules through `use super::*`.
@@ -3823,6 +3825,299 @@ mod tests {
                 assert_eq!(metric.npm.class_nm_sum(), 4);
                 assert_eq!(metric.npa.class_npa_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 2);
+            },
+        );
+    }
+
+    // --- Ruby attributes a later visibility call names (#1399) ----------
+    //
+    // An attribute is public iff any accessor it generated is public
+    // (the rule `npa/ruby.rs` states). `private :b` names the reader
+    // `b` alone and `private :b=` the writer, each re-filed through the
+    // ledger `npm` re-files its methods with (`npa/ruby_ledger.rs`).
+    // Every expectation was measured on ruby 3.0.2 with
+    // `public_instance_methods(false)` and its siblings; the oracle
+    // script and its output are recorded on #1399. Before #1399 the
+    // symbol form re-filed no attribute, so every class here read npa =
+    // na; the one that keeps that value does so by the rule.
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_private_symbol_after_attr_accessor_keeps_the_writer_public() {
+        // The issue's own fixture. Measured: `b` private, `b=` public —
+        // the writer is untouched, so by the rule the attribute is
+        // public. Same value as before #1399 (na = 1, npa = 1), now by
+        // the fold rather than by omission: folding with "every
+        // accessor" instead of "any" reads 0 here. Deleting the `private
+        // :b` line cannot move this test — the rule makes the two
+        // fixtures read alike — so the fold perturbation is its only
+        // anchor (recorded on #1399).
+        //
+        // expected: na = 1, npa = 1.
+        check_metrics::<RubyParser>(
+            "class A1\n  attr_accessor :b\n  private :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_private_symbol_after_attr_reader_demotes_the_attribute() {
+        // The value that moves. `attr_reader :b` generates the reader
+        // only, and `private :b` names it (measured: `b` private, nothing
+        // public), so no accessor is left public. Before #1399: na = 1,
+        // npa = 1 (`bca metrics` at 52d9a34d). Deleting the `private :b`
+        // line restores 1.
+        //
+        // expected: na = 1, npa = 0.
+        check_metrics::<RubyParser>(
+            "class A2\n  attr_reader :b\n  private :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_private_symbol_names_the_reader_not_the_writer() {
+        // `private :b` names the reader `b`, which `attr_writer :b` never
+        // generated — Ruby raises `NameError` there (measured) and
+        // leaves `b=` public — so re-filing `b` finds no accessor and
+        // the attribute stays public; `private :b=` names the writer
+        // and demotes it; `private :b, :b=` names both of an accessor's
+        // and demotes it; `private :b=` under `attr_accessor :b` leaves
+        // the reader public. Measured per class: A3 public `[b=]`; A4
+        // private `[b=]`; A5 private `[b, b=]`; A18 public `[b]`,
+        // private `[b=]`. Keying the ledger by the bare name — reading
+        // `:b=` as `b` — would demote A3 and promote A4.
+        //
+        // expected: A3 na 1 / npa 1; A4 1 / 0; A5 1 / 0; A18 1 / 1.
+        check_func_space::<RubyParser, _>(
+            "class A3\n  attr_writer :b\n  private :b\nend\nclass A4\n  attr_writer :b\n  private :b=\nend\nclass A5\n  attr_accessor :b\n  private :b, :b=\nend\nclass A18\n  attr_accessor :b\n  private :b=\nend\n",
+            "foo.rb",
+            |func_space| {
+                for (class, na, npa) in [("A3", 1, 1), ("A4", 1, 0), ("A5", 1, 0), ("A18", 1, 1)] {
+                    let npa_stats = &child_space(&func_space, class).metrics.npa;
+                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
+                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
+                }
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attr_initialize_reader_is_auto_private() {
+        // The reader of `attr_reader :initialize` is one of the names
+        // Ruby makes private as it is defined (#1400), as `def
+        // initialize` is; the writer is not, so `attr_accessor
+        // :initialize` keeps a public `initialize=` and counts public
+        // by the rule. The rule loses to a keyword naming the macro
+        // (`public attr_reader :initialize`) and to a later `public
+        // :initialize`, but not to a class-method keyword, which names
+        // no instance accessor (`private_class_method attr_reader
+        // :initialize` leaves the reader auto-private, measured), and
+        // does not reach a singleton class. Measured per class: A6
+        // public `[initialize=]`, private `[initialize]`; A6r and P
+        // private `[initialize]`; A6w public `[initialize=]`; S2 and
+        // S3 public `[initialize]`; S1's singleton class public
+        // `[initialize]`.
+        //
+        // expected: A6 na 1 / npa 1; A6r 1 / 0; A6w 1 / 1; S2 1 / 1;
+        // S3 1 / 1; P 1 / 0; S1 1 / 1 (the `class << self` body is
+        // S1's child space, and its attribute is booked on S1).
+        check_func_space::<RubyParser, _>(
+            "class A6\n  attr_accessor :initialize\nend\nclass A6r\n  attr_reader :initialize\nend\nclass A6w\n  attr_writer :initialize\nend\nclass S2\n  public attr_reader :initialize\nend\nclass S3\n  attr_reader :initialize\n  public :initialize\nend\nclass P\n  private_class_method attr_reader :initialize\nend\nclass S1\n  class << self\n    attr_reader :initialize\n  end\nend\n",
+            "foo.rb",
+            |func_space| {
+                for (class, npa) in [
+                    ("A6", 1),
+                    ("A6r", 0),
+                    ("A6w", 1),
+                    ("S2", 1),
+                    ("S3", 1),
+                    ("P", 0),
+                    ("S1", 1),
+                ] {
+                    let npa_stats = &child_space(&func_space, class).metrics.npa;
+                    assert_eq!(npa_stats.class_na_sum(), 1, "{class} na");
+                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
+                }
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_symbol_refiles_an_attribute_in_either_direction() {
+        // `public :b` after `private :b` re-files the reader back;
+        // `protected :b` is non-public, as it is for `npm`; and `public
+        // :b` promotes an attribute declared under a `private` flag —
+        // the flag is seeded first so the assertion cannot pass by a
+        // one-way demotion (measured: A7 and A12 public `[b]`, A8
+        // protected `[b]`). `private :a, :b` names two of three readers
+        // (measured: A9 public `[c]`).
+        //
+        // expected: A7 na 1 / npa 1; A8 1 / 0; A12 1 / 1; A9 3 / 1.
+        check_func_space::<RubyParser, _>(
+            "class A7\n  attr_reader :b\n  private :b\n  public :b\nend\nclass A8\n  attr_reader :b\n  protected :b\nend\nclass A12\n  private\n  attr_reader :b\n  public :b\nend\nclass A9\n  attr_reader :a, :b, :c\n  private :a, :b\nend\n",
+            "foo.rb",
+            |func_space| {
+                for (class, na, npa) in [("A7", 1, 1), ("A8", 1, 0), ("A12", 1, 1), ("A9", 3, 1)] {
+                    let npa_stats = &child_space(&func_space, class).metrics.npa;
+                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
+                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
+                }
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_symbol_refiles_the_attributes_declared_before_it() {
+        // Ruby's `private :b` reaches back over the body and only over
+        // the body: an `attr_reader :b` written after it is a fresh,
+        // public definition (measured: T public `[b]`). The walk counts
+        // declarations, not the method table, so both count and the
+        // second keeps its own bit — as `npm`'s
+        // `ruby_visibility_refiles_every_declaration_of_a_name_in_order`.
+        //
+        // expected: na = 2, npa = 1.
+        check_metrics::<RubyParser>(
+            "class T\n  attr_reader :b\n  private :b\n  attr_reader :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_private_is_the_visibility_call_only_by_its_bytes() {
+        // The call is told from a local or a method of the same name by
+        // the identifier bytes (grammar-dispatch rule 10), and each
+        // spelling of the word here is a different thing: `private = 1`
+        // binds a local, which shadows the bare word — the later bare
+        // `private` is that local, so `d` stays public — while
+        // `private(:b)` with an argument list is still the `Module`
+        // method, local or not (measured: L public `[a, c, d, private]`,
+        // private `[b]`); and `def private` declares an ordinary method
+        // named `private`, which `npm` counts and `npa` ignores.
+        //
+        // expected: na = 4 (a, b, c, d), npa = 3; nm = 1, npm = 1.
+        check_metrics_with_npm::<RubyParser>(
+            "class L\n  attr_reader :a, :b, :c\n  private = 1\n  private(:b)\n  private\n  attr_reader :d\n  def private; end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_visibility_call_with_unresolvable_arguments_changes_no_attribute() {
+        // The `npa` twin of `npm`'s
+        // `ruby_visibility_call_with_unresolvable_arguments_changes_nothing`
+        // (#1399 §2, unmodelled by decision): a splat (`private *SYMS`),
+        // a bare identifier (`private foo`), a nested call (`private
+        // send(:name_of, :a)`), the empty delimited symbol (`private
+        // :""`) and an interpolated string (`private "#{x}"`) name
+        // accessors this walk cannot resolve, so none re-files `a`.
+        //
+        // expected: na = 1, npa = 1.
+        check_metrics::<RubyParser>(
+            "class N\n  attr_reader :a\n  private *SYMS\n  private foo\n  private send(:name_of, :a)\n  private :\"\"\n  private \"#{x}\"\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_string_argument_names_an_accessor() {
+        // `private "b"` is `private :b` (#1399 §3; measured: A10 private
+        // `[b]`), in either quote, and `attr_reader "f"` is `attr_reader
+        // :f` (measured: public `[f]`) — the macro and the keyword read
+        // an argument's names through one helper, so the string spelling
+        // declares where it re-files (before #1399 it declared nothing).
+        // A string that is not one plain literal names nothing: `"d#{x}"`
+        // carries an `interpolation`, `"e\n"` an `escape_sequence` beside
+        // its content — Ruby raises `NameError` on it (measured) — so `d`
+        // and `e` stay public.
+        //
+        // expected: na = 5 (b, c, d, e, f), npa = 3 (d, e, f).
+        check_metrics::<RubyParser>(
+            "class A10\n  attr_reader :b, :c, :d, :e\n  attr_reader \"f\"\n  private \"b\", 'c'\n  private \"d#{x}\"\n  private \"e\\n\"\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_nested_visibility_calls_compose_over_an_attr_macro() {
+        // `private public attr_accessor :x` on ruby 3.1+: `attr_accessor`
+        // returns `[:x, :x=]` (3.0+), `public` declares both public and
+        // returns its argument, and the outer `private` demotes what it
+        // is handed — the names the macro passed up through `public`.
+        // The ordinary call in `private memoize attr_reader :y` forwards
+        // nothing, so `y` takes the inner keyword's absence: public, the
+        // gap `npa/ruby.rs` records. 3.0.2 raises `TypeError` on the
+        // nested call, as for `npm`'s
+        // `ruby_nested_visibility_calls_compose`; the 3.1 source is
+        // `set_visibility` in `vm_method.c`.
+        //
+        // expected: na = 2 (x, y), npa = 1 (y).
+        check_metrics::<RubyParser>(
+            "class N\n  private public attr_accessor :x\n  private memoize attr_reader :y\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_attribute_and_method_walks_agree_on_the_symbol_form() {
+        // Grammar-dispatch rule 7's parity for the retroactive form: one
+        // `attr_reader` beside one `def` under each keyword's symbol
+        // spelling — `private :ra, :ma`, `public "rb", "mb"` promoting
+        // out of a `private` flag, `protected :rc, :mc` demoting out of
+        // a `public` one — so the two walks re-file the same names the
+        // same way, and each pair's re-file crosses the flag it was
+        // declared under. Measured: `ma` / `ra` private, `mb` / `rb`
+        // public, `mc` / `rc` protected.
+        //
+        // expected: na = nm = 3, npa = npm = 1.
+        check_metrics_with_npm::<RubyParser>(
+            "class Par\n  attr_reader :ra\n  def ma; end\n  private :ra, :ma\n  private\n  attr_reader :rb\n  def mb; end\n  public \"rb\", \"mb\"\n  public\n  attr_reader :rc\n  def mc; end\n  protected :rc, :mc\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
