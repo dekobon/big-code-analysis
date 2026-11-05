@@ -120,12 +120,10 @@ role_table! {
     // `operator` field, and the nullsafe access `$o?->p` / call
     // `$o?->m()`, whose `?->` sits in the
     // `nullsafe_member_access_expression` (two aliased ids) or
-    // `nullsafe_member_call_expression`. Cyclomatic pays each token
-    // once per textual operator, across both nullsafe kinds and in a
-    // chain; ABC pays neither — a nullsafe call is a branch as every
-    // call is. The compound `??=` is an
+    // `nullsafe_member_call_expression`. The compound `??=` is an
     // `augmented_assignment_expression`, not a `binary_expression`
-    // (#236): the consumers' own, recorded here.
+    // (#236). Which tokens each consumer scores is the consumer's to
+    // say (`src/metrics/{abc,cyclomatic}/php.rs`).
     NullSafe {
         owns [
             BinaryExpression(holds_payer),

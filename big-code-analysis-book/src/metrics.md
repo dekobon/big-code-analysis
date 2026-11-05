@@ -582,7 +582,12 @@ Two things are deliberately *not* in that population:
   could report `average 7.0` against `min 14, max 14`.
 
 The same three fields on `cognitive` and `nexits` follow this rule;
-`sum` on all three keeps its all-spaces meaning. The other metrics'
+`sum` on all three keeps its all-spaces meaning. [NArgs](#nargs) keeps
+its own two channels — `function_args_average` and
+`closure_args_average` divide each channel's argument total by the
+number of functions or closures [NOM](#nom) counts, spaceless lambdas
+included, and `average` divides the combined total by their sum — so
+it does not follow the function-space population rule (#1809). The remaining metrics'
 `*_average` / `*_min` / `*_max` fields are per-space averages over
 every space in the subtree, as their sections say.
 

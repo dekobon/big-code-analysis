@@ -1259,10 +1259,14 @@ fn corpus_every_known_disagreement_is_still_met() {
 /// `Ancestors::unknown()`, which rebuilds the parent and answers
 /// exactly through the climb it exists to price (lesson 114).
 ///
-/// Verified to discriminate both ways (recorded on #1793): a
-/// `no_chain` gate reading `node.parent().is_some()` — true under
-/// every chain — fails the counter half, and one reading
-/// `node.parent()`'s kind fails the comparison half too.
+/// Verified to discriminate (recorded on #1793): a `no_chain` gate
+/// reading `node.parent().is_some()` — true under every chain — fails
+/// the counter half. The comparison half can only see a gate whose
+/// answer *depends on which chain it was handed*; a climb through
+/// `Node::parent` reads the same tree under either chain and so never
+/// moves it, which is why the counters bracket both `owns_kind` and
+/// the `opens_space` fold (an `opens_by … no_chain` fn is reached only
+/// by the latter).
 /// What the chain backstop found on one language: the per-gate
 /// findings, deduplicated by `(role, kind)` since one climbing gate
 /// answers on every candidate of its kind.
@@ -1289,6 +1293,12 @@ impl ChainProbe {
         let empty = Ancestors::known(&[]);
         let kind = node.kind_id();
         let mut owner_of_unchained = false;
+        let climbed = |p: usize, s: usize| {
+            (
+                crate::node::node_resolved_parent_lookups::observed() - p,
+                crate::node::node_resolved_sibling_lookups::observed() - s,
+            )
+        };
         for row in unchained {
             if !row.owners.contains(&kind) {
                 continue;
@@ -1296,12 +1306,6 @@ impl ChainProbe {
             owner_of_unchained = true;
             self.asked += 1;
             let at = format!("{} {} on `{}`", table.name, row.role, node.kind());
-            let climbed = |p: usize, s: usize| {
-                (
-                    crate::node::node_resolved_parent_lookups::observed() - p,
-                    crate::node::node_resolved_sibling_lookups::observed() - s,
-                )
-            };
             let (p, s) = climbed(0, 0);
             let real = (row.owns_kind)(kind, node, code, ancestors);
             let rootless = (row.owns_kind)(kind, node, code, empty);
@@ -1328,8 +1332,17 @@ impl ChainProbe {
                 && r.owners.contains(&kind)
         });
         if owner_of_unchained && !chained_opener {
+            let (p, s) = climbed(0, 0);
             let real = (table.opens_space)(node, code, ancestors);
             let rootless = (table.opens_space)(node, code, empty);
+            let (parents, siblings) = climbed(p, s);
+            if (parents, siblings) != (0, 0) {
+                self.climbs.insert(format!(
+                    "{} opens_space on `{}`: {parents} parent and {siblings} sibling climb(s)",
+                    table.name,
+                    node.kind()
+                ));
+            }
             if real != rootless {
                 self.disagreements.insert(format!(
                     "{} opens_space on `{}`: {real:?} with the chain, {rootless:?} without",

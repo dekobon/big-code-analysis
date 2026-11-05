@@ -164,11 +164,10 @@ role_table! {
         project "operator"
     }
     // The defined-or `a // b`, a `binary_expression` owning it through
-    // the `//` among its tokens: a short-circuit decision — cyclomatic
-    // pays the token, and ABC walks its chain's operands as it walks an
-    // `||`'s (Rule 9). The compound `//=` is a distinct operator token
-    // of the same `binary_expression` (#249): the consumers' own,
-    // recorded here. Perl has no optional navigation.
+    // the `//` among its tokens. The compound `//=` is a distinct
+    // operator token of the same `binary_expression` (#249). Perl has
+    // no optional navigation. How each consumer scores the token is the
+    // consumer's to say (`src/metrics/{abc,cyclomatic}/perl.rs`).
     NullSafe {
         owns [BinaryExpression(holds_payer)]
         pays [SLASHSLASH]

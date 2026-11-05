@@ -154,13 +154,9 @@ role_table! {
     // operator is the same bare `?` the ternary and two type
     // productions spell (#1275), and one node is one `?`, so the node is
     // the payer and the token bills through the byte-less arm as it
-    // did. Which consumer reads which: cyclomatic pays `??` at the token
-    // and the access at the node; ABC pays both as conditions, which
-    // keeps ABC level with C#'s own cyclomatic on a safe-navigation
-    // chain — a C#-internal agreement no sibling shares (`a?.b?.c` is 0
-    // ABC conditions in the JS family, Kotlin and Groovy). The compound
-    // `??=` is an `assignment_expression`, not a `binary_expression`
-    // (#236): the consumers' own, recorded here.
+    // did. The compound `??=` is an `assignment_expression`, not a
+    // `binary_expression` (#236). Which consumer reads which token is
+    // each consumer's to say (`src/metrics/{abc,cyclomatic}/csharp.rs`).
     NullSafe {
         owns [
             BinaryExpression(holds_payer),
