@@ -395,6 +395,28 @@ pub fn elixir_unclosed_spliced_comments(width: usize) -> String {
     "fn ->\n# c \\\n\\\n# d\n".repeat(width)
 }
 
+/// Python: one run of `width` rows holding only `\`, joining a comment
+/// row, then a retained `x = 1`.
+///
+/// Python keeps each `\` + newline as a `line_continuation` node — all
+/// `width` of them siblings under `module` — so `loc` meets the run one
+/// node at a time, and the run is one logical line (#1819). Its head
+/// classifies and credits the whole run; every later node answers in
+/// O(1) from its own bytes. Classifying at every node reads the rest of
+/// the run each time, which is quadratic in its length. The `x = 1` is
+/// what keeps the reading off the construct under test.
+#[must_use]
+pub fn python_long_bare_run_to_comment(width: usize) -> String {
+    format!("{}# note\nx = 1\n", "\\\n".repeat(width))
+}
+
+/// [`python_long_bare_run_to_comment`] joining an empty row instead,
+/// the run's Blank class.
+#[must_use]
+pub fn python_long_bare_run_to_blank(width: usize) -> String {
+    format!("{}\nx = 1\n", "\\\n".repeat(width))
+}
+
 /// C: `width` units of a `{` that never closes, each followed by a row
 /// holding only `\` and a row holding two block comments.
 ///
@@ -2618,6 +2640,45 @@ pub const PROBES: &[Probe] = &[
                     half of them the bare ones.",
     },
     Probe {
+        name: "loc/python-long-bare-run",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_long_bare_run_to_comment,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1819: Python keeps each bare `\\` row as a \
+                    `line_continuation` node, and a run of them is one \
+                    logical line credited by its head alone; a later node \
+                    of the run returns in O(1) from its own bytes. \
+                    Classifying at every node, which reads the rest of the \
+                    run each time, measured 2.00 against 1.33. \
+                    The reading is the comment rows: the run and the row \
+                    it joins.",
+    },
+    Probe {
+        name: "loc/python-long-bare-run-blank",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.blank(),
+        },
+        render: python_long_bare_run_to_blank,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1819: `loc/python-long-bare-run` with the run joining \
+                    an empty row, the Blank class, whose head reads no \
+                    sibling at all. Classifying at every node measured \
+                    1.99 against 1.31. The reading is the \
+                    blank rows: the run and the empty row.",
+    },
+    Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -4460,6 +4521,35 @@ mod tests {
                     .walk(&ast, probe.workload.options())
                     .expect("metrics walk");
                 assert_eq!(reading, (rows_per_unit * size) as u64, "{name} at {size}");
+            }
+        }
+    }
+
+    /// The two `loc/python-long-bare-run*` probes (#1819) read their
+    /// run: the `size` bare rows and the one row they join, `size + 1`,
+    /// where a run credited as code — the pre-#1819 reading, or a head
+    /// that stopped crediting its tail — reads 1 or less.
+    #[test]
+    fn python_bare_run_probes_read_their_run() {
+        for name in ["loc/python-long-bare-run", "loc/python-long-bare-run-blank"] {
+            let probe = PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"));
+            for size in [3, probe.sizes[0]] {
+                let ast = parse(probe, size);
+                let root = ast.as_tree_sitter().root_node();
+                assert!(!root.has_error(), "{name}: the shape parses cleanly");
+                assert_eq!(
+                    count_kind(&ast, "line_continuation"),
+                    size,
+                    "{name}: one node per row"
+                );
+                let reading = probe
+                    .workload
+                    .walk(&ast, probe.workload.options())
+                    .expect("metrics walk");
+                assert_eq!(reading, size as u64 + 1, "{name} at {size}");
             }
         }
     }

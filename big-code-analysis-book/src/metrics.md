@@ -1163,6 +1163,12 @@ after a comment
 ([#1802](https://github.com/dekobon/big-code-analysis/issues/1802)).
 `bca`, the web server and the Python bindings' `analyze`,
 `analyze_source` and `Ast.from_path` convert line endings to LF first.
+Python's grammar keeps the `\` as a node, and the same rule applies to
+it: a Python `#` comment never continues, so `# c \` followed by a bare
+row joins the row after it, and a `\` that ends a bare-string statement
+counts nothing, the string's rows being CLOC already; a bare row before
+a bare string stays blank, because the grammar's scanner drops that `\`
+([#1825](https://github.com/dekobon/big-code-analysis/issues/1825)).
 
 Documentation rows are comment rows that are also reported on their
 own as DLOC (`loc.dloc`), so CLOC can be read with or without them.

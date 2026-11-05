@@ -1614,6 +1614,14 @@ for historical reference.
   symbol or command, or an Elixir string, sigil or quoted atom still
   counts as blank (#1816).
 
+- `loc` (Python): a `\`-continuation row holding only the backslash
+  counts as the logical line it starts — comment where that line holds
+  only a comment, blank where it joins an empty row — instead of always
+  code, as CPython's tokenizer reads it; a `\` ending a bare-string
+  statement no longer credits the string's row to PLOC (#1819). A bare
+  row before a bare string still counts as blank: the grammar's scanner
+  drops that `\` before any node sees it (#1825).
+
 ### Security
 
 - Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving

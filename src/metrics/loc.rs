@@ -8552,6 +8552,7 @@ EOF
         feature = "irules",
         feature = "mozcpp",
         feature = "objc",
+        feature = "python",
         feature = "ruby",
         feature = "tcl"
     ))]
@@ -8565,6 +8566,7 @@ EOF
         feature = "irules",
         feature = "mozcpp",
         feature = "objc",
+        feature = "python",
         feature = "ruby",
         feature = "tcl"
     ))]
@@ -8586,6 +8588,7 @@ EOF
         feature = "irules",
         feature = "mozcpp",
         feature = "objc",
+        feature = "python",
         feature = "ruby",
         feature = "tcl"
     ))]
@@ -8629,6 +8632,7 @@ EOF
         feature = "c",
         feature = "elixir",
         feature = "irules",
+        feature = "python",
         feature = "ruby",
         feature = "tcl"
     ))]
@@ -9197,6 +9201,208 @@ EOF
                 (b"x = :\"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
             ],
         );
+    }
+
+    /// #1819: Python keeps `\` + newline as a `line_continuation` node,
+    /// and the catch-all made every row holding only the `\` code. It is
+    /// the logical line it belongs to, as CPython's tokenizer reads it:
+    /// the code it continues, or, after a row ending in no `\` outside a
+    /// comment, what the line it starts becomes. Every fixture `compile()`s
+    /// under CPython 3.14.3; the token stream named per row is
+    /// `python3 -m tokenize`'s.
+    ///
+    /// expected: the third element is `blank` before #1819, and each
+    /// non-control row's pre-fix tuple is given beside it. Perturbations
+    /// (`utils/perturb.py`, `--workspace --no-fail-fast`, each the only
+    /// failures): deleting the arm fails this test, the four nested ones
+    /// below and the bench's `python_bare_run_probes_read_their_run`, and
+    /// no control row; Blank→Code fails the rows joining an empty row
+    /// (here, the nested-comment test and the bench test); dropping the
+    /// comment test fails the rows joining a comment (here, every nested
+    /// test and the bench test); always classifying forward fails only
+    /// the `x = 1 \` control here; reading `start_byte + 2` for the row
+    /// end fails only the CRLF row here; dropping the head test fails
+    /// the run rows here and the bench test; making every node read its
+    /// run to the joined row fails nothing — the values are the head's —
+    /// and takes `loc/python-long-bare-run` from 1.33 to 2.00.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_continuation_rows_are_the_line_they_join() {
+        assert_continuation_fixtures(
+            crate::LANG::Python,
+            &[
+                // `COMMENT NL NAME OP NUMBER NEWLINE`: the bare row starts
+                // the comment's line. Pre-fix (3, 2, 1, 0).
+                (b"\\\n# note\nx = 1\n", (3, 1, 2, 0), 0),
+                // `NL NAME …`: it joins an empty row. Pre-fix (3, 2, 0, 1).
+                (b"\\\n\nx = 1\n", (3, 1, 0, 2), 1),
+                // `COMMENT NL …` with the comment indented. Pre-fix
+                // (3, 2, 1, 0).
+                (b"\\\n  # indented\nx = 1\n", (3, 1, 2, 0), 0),
+                // A run of two bare rows is one logical line, credited by
+                // its head. Pre-fix (4, 3, 1, 0) and (4, 3, 0, 1).
+                (b"\\\n\\\n# note\nx=1\n", (4, 1, 3, 0), 0),
+                (b"\\\n\\\n\nx = 1\n", (4, 1, 0, 3), 1),
+                // `COMMENT NL COMMENT NL NAME …`: a `#` comment swallows
+                // its `\`, so the bare row starts the second comment's
+                // line. Pre-fix (4, 2, 2, 0).
+                (b"# c \\\n\\\n# d\nx=1\n", (4, 1, 3, 0), 0),
+                // `NAME OP NUMBER COMMENT NEWLINE NL NAME …`: the `\` is
+                // the trailing comment's text, and the bare row joins the
+                // empty row. Pre-fix (4, 3, 1, 1).
+                (b"x = 1 # c \\\n\\\n\ny = 2\n", (4, 2, 1, 2), 1),
+                // `NAME OP NUMBER OP NL COMMENT NL NUMBER OP NEWLINE`: the
+                // node is an `argument_list` child, and joins the comment
+                // row. Pre-fix (4, 3, 1, 0).
+                (b"foo(1,\n\\\n# c\n2)\n", (4, 2, 2, 0), 0),
+                // `STRING NEWLINE NAME …`: the `\` after a bare-string
+                // statement is not bare, and credits nothing, where the
+                // catch-all credited the string's comment row to PLOC too.
+                // The twin joining code is a SyntaxError, so this is the
+                // only valid spelling. Pre-fix (3, 2, 1, 1).
+                (b"\"\"\"doc\"\"\" \\\n\nx=1\n", (3, 1, 1, 1), 1),
+                // CRLF: the token takes `\r\n`, so the node ends on the
+                // next row as the LF one does. Pre-fix (3, 2, 1, 0).
+                (b"\\\r\n# note\r\nx = 1\r\n", (3, 1, 2, 0), 0),
+                // Controls: a bare row continuing code is code, as before.
+                (b"x = 1 + \\\n\\\n  2\n", (3, 3, 0, 0), 0),
+                (b"# c \\\n\\\nx = 1\n", (3, 2, 1, 0), 0),
+                // The run's head is the non-bare `\` after `x = 1`, so the
+                // bare row is that statement's code, not the empty row.
+                (b"x = 1 \\\n\\\n\ny = 2\n", (4, 3, 0, 1), 1),
+                (b"\\\nx = 1\n", (2, 2, 0, 0), 0),
+                (b"foo(1,\n\\\n2)\n", (3, 3, 0, 0), 0),
+                // Inside a string the `\` + newline is an `escape_sequence`.
+                (b"s = \"\"\"a\n\\\nb\"\"\"\n", (3, 3, 0, 0), 0),
+                // FIXME(#1825): (3, 1, 2, 0), the string's comment row. The
+                // external scanner eats a `\` before a string start as
+                // indentation padding, so no node exists and `module`
+                // starts at row 2.
+                (b"\\\n\"\"\"doc\"\"\"\nx = 1\n", (3, 1, 1, 1), 1),
+            ],
+        );
+    }
+
+    /// A bare row inside a `def` is credited to the function's space,
+    /// through the `function_definition` the node is a child of.
+    ///
+    /// expected: `NAME NAME OP OP OP NEWLINE COMMENT NL INDENT NAME NUMBER
+    /// NEWLINE DEDENT` — the bare row starts the comment's line. Pre-fix
+    /// the unit and `f` both read (4, 3, 1, 0).
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_continuation_row_in_a_function_is_its_comment() {
+        assert_nested_continuation(
+            crate::LANG::Python,
+            b"def f():\n    \\\n    # note\n    return 1\n",
+            (4, 2, 2, 0),
+        );
+    }
+
+    /// The `\` the bare row continues is comment text nested inside the
+    /// sibling before the node — the `def`'s block's trailing comment —
+    /// and inside a `decorator`, so the comment lookup must descend into
+    /// the sibling that contains the byte rather than read its kind.
+    /// Perturbation: reading the sibling's own kind fails exactly this
+    /// test.
+    ///
+    /// expected: `… NAME COMMENT NEWLINE NL DEDENT NAME …` — the bare row
+    /// joins the empty row and is blank, outside `f`; pre-fix the unit
+    /// read (5, 4, 1, 1) and `f` (2, 2, 1, 0). `OP NAME COMMENT NEWLINE
+    /// COMMENT NL NAME …` — the bare row starts `# note`'s line; pre-fix
+    /// the unit read (5, 4, 2, 0) and `f` (2, 2, 0, 0).
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_row_after_a_nested_comments_backslash_starts_a_line() {
+        for (source, unit, f) in [
+            (
+                &b"def f():\n    pass # c \\\n\\\n\nx=1\n"[..],
+                (5, 3, 1, 2),
+                (2, 2, 1, 0),
+            ),
+            (
+                b"@dec # c \\\n\\\n# note\ndef f():\n    pass\n",
+                (5, 3, 3, 0),
+                (2, 2, 0, 0),
+            ),
+        ] {
+            let space = space_verbatim(
+                crate::LANG::Python,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            );
+            let text = String::from_utf8_lossy(source);
+            assert_eq!(space.spaces.len(), 1, "{text:?}: one nested space");
+            assert_eq!(loc_rows(&space.metrics.loc), unit, "{text:?}: unit");
+            assert_eq!(loc_rows(&space.spaces[0].metrics.loc), f, "{text:?}: f");
+        }
+    }
+
+    /// A bare row under an `if_statement`, joining a comment before an
+    /// empty row: the comment is the line's whole text, and the empty row
+    /// stays blank.
+    ///
+    /// expected: `NAME NAME OP NEWLINE COMMENT NL NL INDENT NAME NEWLINE
+    /// DEDENT`. Pre-fix (5, 3, 1, 1).
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_row_in_an_if_header_is_its_comment() {
+        assert_continuation_fixtures(
+            crate::LANG::Python,
+            &[(b"if x:\n    \\\n    # note\n\n    pass\n", (5, 2, 2, 1), 1)],
+        );
+    }
+
+    /// Two bare rows under two parents, `class_definition` and
+    /// `function_definition`, each credited to the space it sits in.
+    ///
+    /// expected: `NAME NAME OP NEWLINE COMMENT NL INDENT NAME NAME OP NAME
+    /// OP OP NEWLINE INDENT NAME NUMBER NEWLINE DEDENT DEDENT` — the
+    /// class's bare row starts `# note`'s line, the method's continues
+    /// into `return 1`. Pre-fix the unit and `C` read (6, 5, 1, 0) and `m`
+    /// (3, 3, 0, 0).
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_rows_under_two_parents_credit_their_spaces() {
+        let source =
+            b"class C:\n    \\\n    # note\n    def m(self):\n        \\\n        return 1\n";
+        let unit = space_verbatim(
+            crate::LANG::Python,
+            source,
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        );
+        assert_eq!(loc_rows(&unit.metrics.loc), (6, 4, 2, 0), "unit");
+        let class = &unit.spaces[0];
+        assert_eq!(class.name.as_deref(), Some("C"));
+        assert_eq!(loc_rows(&class.metrics.loc), (6, 4, 2, 0), "C");
+        let method = &class.spaces[0];
+        assert_eq!(method.name.as_deref(), Some("m"));
+        assert_eq!(loc_rows(&method.metrics.loc), (3, 3, 0, 0), "m");
+    }
+
+    /// A bare row between two `def`s is a `module` child, so the file
+    /// counts it and neither function does, as in the Bash twin above.
+    ///
+    /// expected: `… DEDENT NAME NAME …` — the bare row joins `def g():`,
+    /// code, as before. Unchanged by #1819.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_continuation_row_between_functions_is_code() {
+        let unit = space_verbatim(
+            crate::LANG::Python,
+            b"def f():\n    pass\n\\\ndef g():\n    pass\n",
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        );
+        assert_eq!(loc_rows(&unit.metrics.loc), (5, 5, 0, 0), "unit");
+        assert_eq!(unit.spaces.len(), 2);
+        for space in &unit.spaces {
+            assert_eq!(
+                loc_rows(&space.metrics.loc),
+                (2, 2, 0, 0),
+                "{:?}",
+                space.name
+            );
+        }
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the

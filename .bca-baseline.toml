@@ -1251,6 +1251,12 @@ value = 5.0
 
 [[entry]]
 path = "src/metrics/loc/shared.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 546.0
+
+[[entry]]
+path = "src/metrics/loc/shared.rs"
 qualified = "credit_bare_continuation_rows"
 metric = "nargs"
 value = 5.0

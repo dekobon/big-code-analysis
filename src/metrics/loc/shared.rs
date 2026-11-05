@@ -416,6 +416,11 @@ const ROWS_AROUND_A_GAP_ROW: usize = 2;
 // after one is padding. Bash, Ruby and Elixir never continue a comment
 // — `echo a # c \` + `\` + `echo b` runs `echo b` — so there a bare row
 // after a comment starts a logical line.
+//
+// Python's grammar keeps the `\` as a `line_continuation` node instead of
+// splicing it, so there the same rule is applied per node, by the
+// `LineContinuation` arm of `python.rs` through
+// [`credit_python_line_continuation`] (#1819).
 #[inline]
 pub(crate) fn credit_bare_continuation_rows<'a>(
     node: &Node<'a>,
@@ -443,6 +448,155 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
     };
     scan.scan(node);
 }
+
+// Credits a Python `line_continuation` node's row, when it holds nothing
+// but the `\`, as the logical line it belongs to (#1819).
+//
+// tree-sitter-python keeps the `\` + newline as an `extra` node — `\r\n`
+// included, so the row is read from `node.end_byte()` — where the
+// grammars above splice it away, and the catch-all made every such row
+// code. CPython reads it as the splicing lexers do: a bare row continuing
+// a statement is that statement's code; one continuing nothing starts a
+// logical line and is what that line becomes, a comment where its first
+// token is a `#` comment (which runs to the row's end, so nothing can
+// follow it), blank where it joins an empty row. A `#` comment swallows a
+// `\` at its end, so a bare row after `# c \` starts a line of its own.
+//
+// A run of bare rows is one logical line, so the node on its first row
+// classifies and credits the whole run, and every later node in it
+// returns at once: consecutive extras between two tokens attach to the
+// same parent, so the head's `stats` is the right space for every row.
+// A node with code before its `\` credits nothing — the code's own
+// tokens cover the row — which is the one observable change for a `\`
+// ending a bare-string statement: that row is the string's comment row
+// and was also code. `loc/python-long-bare-run` prices the run.
+#[inline]
+pub(crate) fn credit_python_line_continuation<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    let Some(first) = python_bare_run_head(node, code) else {
+        return;
+    };
+    // The node ends on the row after its own, and every byte from there
+    // to `first` is a `\` splice or horizontal space, so the newlines
+    // among them count the run's further rows. When the joined row is
+    // empty, `first` is its newline, which is after the last bare row's.
+    let start = node.start_row();
+    // The run is a few bytes per row; a `bytecount` dependency buys nothing.
+    #[allow(clippy::naive_bytecount)]
+    let further = code
+        .get(node.end_byte()..first)
+        .unwrap_or_default()
+        .iter()
+        .filter(|&&byte| byte == b'\n')
+        .count();
+    let last = start.saturating_add(further);
+    match classify_python_run(node, code, ancestors, first) {
+        BareRow::Comment => add_only_comment_lines(stats, start, last),
+        // No `check_comment_ends_on_code_line`: nothing but `\` is on
+        // these rows.
+        BareRow::Code => stats.ploc.lines.insert_range(start, last),
+        BareRow::Blank => {}
+    }
+}
+
+// Where the run of bare `\` rows headed by `node` goes on — the first
+// byte of its logical line's next token, or of the row end where it
+// joins an empty row — when `node` is a `line_continuation` holding its
+// row alone and heads a run: the row before it does not end in a `\`
+// that is itself alone on its row. `None` for a node with code before
+// it and for a later row of a run, each in O(1): only the head reads
+// the run.
+fn python_bare_run_head(node: &Node, code: &[u8]) -> Option<usize> {
+    let row_start = bare_row_start(code, node.start_byte())?;
+    let continues_a_bare_row = continuing_backslash(code, row_start)
+        .is_some_and(|last| bare_row_start(code, last).is_some());
+    (!continues_a_bare_row).then(|| past_line_padding(code, node.end_byte()))
+}
+
+// The first byte of the row holding byte `at`, when only horizontal
+// space precedes `at` on it.
+fn bare_row_start(code: &[u8], at: usize) -> Option<usize> {
+    let row_start = code
+        .get(..at)
+        .and_then(|before| before.iter().rposition(|&byte| byte == b'\n'))
+        .map_or(0, |newline| newline.saturating_add(1));
+    (past_horizontal_space(code, row_start) == at).then_some(row_start)
+}
+
+// What the run headed by `node` is: the code it continues when the row
+// before it ends in a `\` outside a comment — the non-bare
+// `line_continuation` of a statement — or else what the logical line it
+// starts becomes, read off the token at `first`, where the line goes on.
+fn classify_python_run<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    first: usize,
+) -> BareRow {
+    let continued = bare_row_start(code, node.start_byte())
+        .and_then(|row_start| continuing_backslash(code, row_start));
+    match continued {
+        Some(last) if !python_backslash_in_comment(node, last, ancestors) => BareRow::Code,
+        _ if at_row_end(code, first) => BareRow::Blank,
+        _ if python_joins_comment(node, code, first, ancestors) => BareRow::Comment,
+        _ => BareRow::Code,
+    }
+}
+
+// Whether byte `last`, the `\` ending the row before `node`'s, is inside
+// a comment. The comment may be the sibling before `node` or nested in
+// it (a `def`'s last statement's trailing comment, a `decorator`'s), so
+// the sibling containing `last` is asked for its descendant at that
+// byte, as `GapScan::holder_of` does; the parent stands in only when no
+// sibling contains it. Never the root: `descendant_for_byte_range` scans
+// each level's children from the first.
+fn python_backslash_in_comment<'a>(
+    node: &Node<'a>,
+    last: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let contains = |holder: &Node<'a>| holder.start_byte() <= last && last < holder.end_byte();
+    ancestors
+        .siblings_before(node)
+        .next()
+        .filter(contains)
+        .or_else(|| ancestors.parent(node).filter(contains))
+        .and_then(|holder| {
+            holder
+                .as_tree_sitter()
+                .descendant_for_byte_range(last, last.saturating_add(1))
+        })
+        .is_some_and(|covering| PYTHON_COMMENTS.lists(covering))
+}
+
+// Whether the token at byte `first`, where the run headed by `node` goes
+// on, opens a comment-only line: the first sibling after the run is asked
+// as a gap's next child is. A `#` comment is the rest of its row, so the
+// line ends with it.
+fn python_joins_comment<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    first: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    // #1601 would lift this skip into Ancestors.
+    ancestors
+        .siblings_after(node)
+        .find(|sibling| sibling.kind_id() != Python::LineContinuation as u16)
+        .is_some_and(|joined| {
+            opens_comment_only_line(code, PYTHON_COMMENTS, &joined.cursor(), first)
+        })
+}
+
+// Python's `#` comment, which swallows a `\` at its end.
+const PYTHON_COMMENTS: BareRowComments = BareRowComments {
+    is_comment: crate::roles::python::comment::lists_kind,
+    continued: false,
+};
 
 // The grammar's comment row, as its `lists_kind`, and whether a `\` ending
 // a comment row carries the comment onto the next row (Tcl, iRules and

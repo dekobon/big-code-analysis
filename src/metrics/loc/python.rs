@@ -144,6 +144,10 @@ impl Loc for PythonCode {
             | ExpressionStatement => {
                 stats.lloc.count_logical_line();
             }
+            // The grammar keeps `\` + newline as a node where the splicing
+            // grammars drop it: a row holding only the `\` is the logical
+            // line it belongs to, not code by default (#1819).
+            LineContinuation => credit_python_line_continuation(node, code, ancestors, stats),
             _ => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
