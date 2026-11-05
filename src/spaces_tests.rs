@@ -1618,8 +1618,9 @@ impl Foo {
                 ((4, 2, 2, 2, 0), vec!["keep"]),
             ),
         ] {
-            let names: Vec<String> = shape.1.iter().map(|&s| s.to_owned()).collect();
-            assert_eq!(pruned_shape(source), (shape.0, names), "{source:?}");
+            let (loc, names) = pruned_shape(source);
+            assert_eq!(loc, shape.0, "{source:?}");
+            assert_eq!(names, shape.1, "{source:?}");
         }
     }
 

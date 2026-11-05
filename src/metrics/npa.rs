@@ -3672,6 +3672,17 @@ mod tests {
         );
     }
 
+    /// Asserts each named class's `na` and `npa` sums; the Ruby
+    /// re-filing tests (#1399) read several classes off one fixture.
+    #[cfg(feature = "ruby")]
+    fn assert_class_npa(func_space: &FuncSpace, expected: &[(&str, u64, u64)]) {
+        for &(class, na, npa) in expected {
+            let npa_stats = &child_space(func_space, class).metrics.npa;
+            assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
+            assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
+        }
+    }
+
     #[cfg(feature = "ruby")]
     #[test]
     fn ruby_bare_keyword_in_an_expression_or_argument_is_the_attribute_marker() {
@@ -3690,13 +3701,7 @@ mod tests {
         check_func_space::<RubyParser, _>(
             "class U\n  attr_reader :before\n  x = private\n  attr_reader :after_assign\n  y = public\n  attr_reader :after_second\nend\nclass E1\n  foo(private = 1)\n  x = private\n  attr_reader :m\nend\nclass E2\n  attr_reader :a\n  foo(private)\n  attr_reader :d\nend\n",
             "foo.rb",
-            |func_space| {
-                for (class, na, npa) in [("U", 3, 2), ("E1", 1, 1), ("E2", 2, 1)] {
-                    let npa_stats = &child_space(&func_space, class).metrics.npa;
-                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
-                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
-                }
-            },
+            |func_space| assert_class_npa(&func_space, &[("U", 3, 2), ("E1", 1, 1), ("E2", 2, 1)]),
         );
     }
 
@@ -3903,11 +3908,10 @@ mod tests {
             "class A3\n  attr_writer :b\n  private :b\nend\nclass A4\n  attr_writer :b\n  private :b=\nend\nclass A5\n  attr_accessor :b\n  private :b, :b=\nend\nclass A18\n  attr_accessor :b\n  private :b=\nend\n",
             "foo.rb",
             |func_space| {
-                for (class, na, npa) in [("A3", 1, 1), ("A4", 1, 0), ("A5", 1, 0), ("A18", 1, 1)] {
-                    let npa_stats = &child_space(&func_space, class).metrics.npa;
-                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
-                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
-                }
+                assert_class_npa(
+                    &func_space,
+                    &[("A3", 1, 1), ("A4", 1, 0), ("A5", 1, 0), ("A18", 1, 1)],
+                );
             },
         );
     }
@@ -3937,19 +3941,18 @@ mod tests {
             "class A6\n  attr_accessor :initialize\nend\nclass A6r\n  attr_reader :initialize\nend\nclass A6w\n  attr_writer :initialize\nend\nclass S2\n  public attr_reader :initialize\nend\nclass S3\n  attr_reader :initialize\n  public :initialize\nend\nclass P\n  private_class_method attr_reader :initialize\nend\nclass S1\n  class << self\n    attr_reader :initialize\n  end\nend\n",
             "foo.rb",
             |func_space| {
-                for (class, npa) in [
-                    ("A6", 1),
-                    ("A6r", 0),
-                    ("A6w", 1),
-                    ("S2", 1),
-                    ("S3", 1),
-                    ("P", 0),
-                    ("S1", 1),
-                ] {
-                    let npa_stats = &child_space(&func_space, class).metrics.npa;
-                    assert_eq!(npa_stats.class_na_sum(), 1, "{class} na");
-                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
-                }
+                assert_class_npa(
+                    &func_space,
+                    &[
+                        ("A6", 1, 1),
+                        ("A6r", 1, 0),
+                        ("A6w", 1, 1),
+                        ("S2", 1, 1),
+                        ("S3", 1, 1),
+                        ("P", 1, 0),
+                        ("S1", 1, 1),
+                    ],
+                );
             },
         );
     }
@@ -3970,11 +3973,10 @@ mod tests {
             "class A7\n  attr_reader :b\n  private :b\n  public :b\nend\nclass A8\n  attr_reader :b\n  protected :b\nend\nclass A12\n  private\n  attr_reader :b\n  public :b\nend\nclass A9\n  attr_reader :a, :b, :c\n  private :a, :b\nend\n",
             "foo.rb",
             |func_space| {
-                for (class, na, npa) in [("A7", 1, 1), ("A8", 1, 0), ("A12", 1, 1), ("A9", 3, 1)] {
-                    let npa_stats = &child_space(&func_space, class).metrics.npa;
-                    assert_eq!(npa_stats.class_na_sum(), na, "{class} na");
-                    assert_eq!(npa_stats.class_npa_sum(), npa, "{class} npa");
-                }
+                assert_class_npa(
+                    &func_space,
+                    &[("A7", 1, 1), ("A8", 1, 0), ("A12", 1, 1), ("A9", 3, 1)],
+                );
             },
         );
     }

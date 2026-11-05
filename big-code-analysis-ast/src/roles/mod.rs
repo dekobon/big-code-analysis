@@ -1790,10 +1790,10 @@ macro_rules! role_table {
     // still compiles and still matches some orders, and no production row
     // need spell a losing one; `dsl_gates` declares the word in each
     // position so the pin, not a row, finds it.
-    (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt text_gated_by $f:ident $($r:tt)*) => {
-        true
-    };
-    (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer text_gated_by $f:ident $($r:tt)*) => {
+    // A detector emits `true` and re-emits nothing, so the optional
+    // `holds_payer` is a literal `$()?` here; the folds below cannot do
+    // the same, since a literal-only repetition cannot be re-emitted.
+    (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt $(holds_payer)? text_gated_by $f:ident $($r:tt)*) => {
         true
     };
     // `CHAIN_GATED` reads a gate or `opens_by` *without* `no_chain` off
@@ -1819,16 +1819,10 @@ macro_rules! role_table {
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens_by $f:ident no_chain $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g $p [by $f no_chain] $c $($r)*)
     };
-    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt gated_by $f:ident $($r:tt)*) => {
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt $(holds_payer)? gated_by $f:ident $($r:tt)*) => {
         true
     };
-    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt text_gated_by $f:ident $($r:tt)*) => {
-        true
-    };
-    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer gated_by $f:ident $($r:tt)*) => {
-        true
-    };
-    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer text_gated_by $f:ident $($r:tt)*) => {
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt $(holds_payer)? text_gated_by $f:ident $($r:tt)*) => {
         true
     };
     (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt opens_by $f:ident $($r:tt)*) => {

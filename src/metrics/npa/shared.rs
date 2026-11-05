@@ -144,42 +144,21 @@ pub(crate) fn ruby_argument_names<'a>(
 
     // role-bypass: allow(StringLit) — how many names an argument spells; the
     // row owns the symbol and string kinds as literals, a different question
-    match argument.kind_id().into() {
+    let (one, array) = match argument.kind_id().into() {
         SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol | String => {
-            RubyArgumentNames::One(ruby_name_argument(argument, source))
+            (Some(ruby_name_argument(argument, source)), None)
         }
-        SymbolArray => RubyArgumentNames::Array(argument.children(), source),
-        _ => RubyArgumentNames::None,
-    }
-}
-
-// The three shapes [`ruby_argument_names`] answers with, as one
-// iterator so no caller allocates for a single symbol. `One` yields its
-// entry — resolvable or not — once, then becomes `None`.
-enum RubyArgumentNames<'a> {
-    None,
-    One(Option<&'a str>),
-    Array(crate::node::Children<'a>, &'a [u8]),
-}
-
-impl<'a> Iterator for RubyArgumentNames<'a> {
-    type Item = Option<&'a str>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::None => None,
-            Self::One(name) => {
-                let name = *name;
-                *self = Self::None;
-                Some(name)
-            }
-            Self::Array(elements, source) => {
-                // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
-                let element = elements.find(|c| matches!(c.kind_id().into(), Ruby::BareSymbol))?;
-                Some(ruby_name_argument(&element, source))
-            }
-        }
-    }
+        SymbolArray => (None, Some(argument.children())),
+        _ => (None, None),
+    };
+    one.into_iter().chain(
+        array
+            .into_iter()
+            .flatten()
+            // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
+            .filter(|c| matches!(c.kind_id().into(), BareSymbol))
+            .map(move |element| ruby_name_argument(&element, source)),
+    )
 }
 
 // The method name a `:foo` or `"foo"` argument to `private` / `public` /
@@ -200,7 +179,7 @@ impl<'a> Iterator for RubyArgumentNames<'a> {
 // `"b\n"` carries an `escape_sequence` beside the content and names a
 // method Ruby cannot find either (measured: `NameError`), and `""`
 // carries no content at all.
-pub(crate) fn ruby_name_argument<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+fn ruby_name_argument<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     // Which symbol spelling names a method, read from the bytes; not
     // whether the node is a literal, which the `StringLit` row owns.
     match node.kind_id().into() {
