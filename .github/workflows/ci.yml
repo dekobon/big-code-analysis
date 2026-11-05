@@ -792,7 +792,10 @@ jobs:
       # checkmake is not in taiki-e/install-action's manifest; fetch the
       # pinned upstream release binary directly. The SHA256 below comes
       # from the upstream `checksums.txt` published alongside the
-      # 0.2.2 release; bump it in lockstep with the version pin.
+      # 0.2.2 release. Bump CHECKMAKE_SHA256 in lockstep with
+      # `CHECKMAKE_VERSION` (and with the `Dockerfile`'s
+      # `CHECKMAKE_VERSION` + amd64 SHA256); `make check-rumdl-lockstep`
+      # fails when they disagree (#1820).
       - name: Install checkmake
         env:
           CHECKMAKE_VERSION: "0.2.2"
@@ -1032,8 +1035,9 @@ jobs:
       # rumdl version, and the Dockerfile's x86_64 hash must equal
       # `RUMDL_SHA256`. Comments were the whole mechanism before, and
       # #1653's bump nearly left the Dockerfile behind. The same gate
-      # holds the `Install actionlint` step and the Dockerfile to one
-      # actionlint version and amd64 hash (#1799).
+      # holds the `Install actionlint` (#1799) and `Install checkmake`
+      # (#1820) steps and the Dockerfile to one version and amd64 hash
+      # each.
       - name: check-rumdl-lockstep (explicit)
         run: python3 utils/check-rumdl-lockstep.py
       - name: check-rumdl-lockstep self-tests (explicit)

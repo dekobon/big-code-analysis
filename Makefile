@@ -162,7 +162,7 @@ help:
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-ruff-lockstep                  Assert the ruff-pre-commit rev, uv.lock, and the requirements export agree"
 	@echo "  check-ruff-lockstep-test             Self-tests for the check-ruff-lockstep gate"
-	@echo "  check-rumdl-lockstep                 Assert mise.toml, ci.yml and the Dockerfile agree on the rumdl and actionlint pins"
+	@echo "  check-rumdl-lockstep                 Assert mise.toml, ci.yml and the Dockerfile agree on the rumdl, actionlint and checkmake pins"
 	@echo "  check-rumdl-lockstep-test            Self-tests for the check-rumdl-lockstep gate"
 	@echo "  check-publish-metadata               Assert every publishable crate carries the metadata crates.io needs"
 	@echo "  check-publish-metadata-test          Self-tests for the check-publish-metadata gate"
@@ -739,11 +739,12 @@ check-ruff-lockstep-test:
 # bump nearly left the Dockerfile behind, which would have linted the
 # container on a different rumdl than CI. Also checks the Dockerfile's
 # x86_64 hash equals CI's, since both verify the same tarball. The same
-# checks hold actionlint's CI ACTIONLINT_VERSION / ACTIONLINT_SHA256 to
-# the Dockerfile (#1799); mise.toml pins no actionlint. Static lint — no
-# network, no cargo.
+# checks hold actionlint's CI ACTIONLINT_VERSION / ACTIONLINT_SHA256
+# (#1799) and checkmake's CHECKMAKE_VERSION / CHECKMAKE_SHA256 (#1820)
+# to the Dockerfile; mise.toml pins neither. Static lint — no network,
+# no cargo.
 check-rumdl-lockstep:
-	@echo "Checking rumdl and actionlint version lockstep..."
+	@echo "Checking rumdl, actionlint and checkmake version lockstep..."
 	@python3 $(BASE_DIR)utils/check-rumdl-lockstep.py
 
 # Self-tests for the rumdl-lockstep gate, kept separate for the same

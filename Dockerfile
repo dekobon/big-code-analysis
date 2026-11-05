@@ -43,9 +43,9 @@ ENV PATH=/usr/local/cargo/bin:/home/dev/.local/bin:/usr/local/bin:$PATH
 # Toolchain / release pins. Keep these in lockstep with the sources noted:
 #   RUST_VERSION       -> Cargo.toml workspace.package.rust-version
 #   NODE_MAJOR         -> NodeSource line (>= 22.6 required by codegraph)
-#   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job; for RUMDL and
-#                         ACTIONLINT `make check-rumdl-lockstep` fails when
-#                         the version or the amd64 SHA256 disagree
+#   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job; for RUMDL,
+#                         CHECKMAKE and ACTIONLINT `make check-rumdl-lockstep`
+#                         fails when the version or the amd64 SHA256 disagree
 #   BINSTALL/UV        -> no CI counterpart; bump by hand together with
 #                         the per-arch SHA256 tables in their RUN blocks
 ENV RUST_VERSION=1.94.0
@@ -294,8 +294,10 @@ EOF
 # ---------------------------------------------------------------------------
 # checkmake (Makefile linter) — SHA256-verified release binary. amd64 uses
 # the exact CI pin (mrtazz/checkmake 0.2.2); arm64 uses the checkmake/
-# checkmake fork (see CHECKMAKE_FORK_VERSION note above). Any other arch
+# checkmake fork (see CHECKMAKE_FORK_VERSION note below). Any other arch
 # continues without it (`make makefile-check` becomes the one missing gate).
+# `make check-rumdl-lockstep` holds CHECKMAKE_VERSION and the amd64 hash
+# to the CI lint job's pin (#1820).
 # ---------------------------------------------------------------------------
 RUN <<'EOF'
 set -eux
@@ -304,23 +306,15 @@ set -eux
 # publishes arm64 builds and uses the same rules + .checkmake.ini format.
 CHECKMAKE_FORK_VERSION="0.3.2"
 case $(dpkg --print-architecture) in
-    amd64)
-        wget --quiet -O /tmp/checkmake "https://github.com/mrtazz/checkmake/releases/download/${CHECKMAKE_VERSION}/checkmake-${CHECKMAKE_VERSION}.linux.amd64"
-        echo "bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5  /tmp/checkmake" | sha256sum --check
-        ;;
-    arm64)
-        wget --quiet -O /tmp/checkmake "https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_FORK_VERSION}/checkmake-v${CHECKMAKE_FORK_VERSION}.linux.arm64"
-        echo "409167c4abb99407bd232c3bbd351b8a39df57997feafde5a08bddffb0f2dcb4  /tmp/checkmake" | sha256sum --check
-        ;;
-    *)
-        echo "WARNING: no checkmake build for $(dpkg --print-architecture); skipping (make makefile-check will be unavailable)"
-        ;;
+    amd64) URL="https://github.com/mrtazz/checkmake/releases/download/${CHECKMAKE_VERSION}/checkmake-${CHECKMAKE_VERSION}.linux.amd64"; SHA256="bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5" ;;
+    arm64) URL="https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_FORK_VERSION}/checkmake-v${CHECKMAKE_FORK_VERSION}.linux.arm64"; SHA256="409167c4abb99407bd232c3bbd351b8a39df57997feafde5a08bddffb0f2dcb4" ;;
+    *)     echo "WARNING: no checkmake build for $(dpkg --print-architecture); skipping (make makefile-check will be unavailable)"; exit 0 ;;
 esac
-if [ -f /tmp/checkmake ]; then
-    install -m 0755 /tmp/checkmake /usr/local/bin/checkmake
-    rm -f /tmp/checkmake
-    checkmake --version
-fi
+wget --quiet -O /tmp/checkmake "${URL}"
+echo "${SHA256}  /tmp/checkmake" | sha256sum --check
+install -m 0755 /tmp/checkmake /usr/local/bin/checkmake
+rm -f /tmp/checkmake
+checkmake --version
 EOF
 
 # ---------------------------------------------------------------------------

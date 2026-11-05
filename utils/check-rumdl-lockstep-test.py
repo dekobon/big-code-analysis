@@ -4,14 +4,14 @@
 Three kinds of test, matching the check-ruff-lockstep-test.py pattern:
 
 * Unit tests against synthetic file contents, weighted toward the shapes
-  a line-oriented read can get wrong — the other row's identically
-  shaped pin (rumdl and actionlint are each the other's decoy), a
-  ``${RUMDL_VERSION}`` expansion that is not a key, the arm64 hash
-  sitting beside the amd64 one — and toward the malformed inputs on
+  a line-oriented read can get wrong — the other rows' identically
+  shaped pins (rumdl, actionlint and checkmake are each the others'
+  decoys), a ``${RUMDL_VERSION}`` expansion that is not a key, the arm64
+  hash sitting beside the amd64 one — and toward the malformed inputs on
   which a version gate must fail loudly rather than pass.
 * ``main()`` tests over a synthetic repository root, covering each drift
   branch and the file it names, and ``--update``'s all-or-nothing write
-  across the two baselines.
+  across the three baselines.
 * A smoke test running the real gate against the real repository,
   asserting a clean tree reports OK.
 
@@ -54,13 +54,16 @@ GATE = _load_module()
 
 X86_SHA = "a" * 64
 ARM_SHA = "b" * 64
-# An unchecked tool's hash, deliberately equal in shape: the gate must
-# not reach it however the files are ordered.
+# An unchecked tool's hash (the fictitious `foolint` step), deliberately
+# equal in shape: the gate must not reach it however the files are
+# ordered.
 OTHER_SHA = "c" * 64
-# actionlint's, distinct from rumdl's so a read that crossed blocks
-# returns a value the assertion can tell apart.
+# actionlint's and checkmake's, distinct from rumdl's and each other's so
+# a read that crossed blocks returns a value the assertion can tell apart.
 AL_SHA = "1" * 64
 AL_ARM_SHA = "2" * 64
+CM_SHA = "4" * 64
+CM_ARM_SHA = "5" * 64
 
 MISE_SAMPLE = """\
 [tools]
@@ -99,18 +102,28 @@ jobs:
       - name: Install checkmake
         env:
           CHECKMAKE_VERSION: "0.2.2"
-          CHECKMAKE_SHA256: "{OTHER_SHA}"
+          CHECKMAKE_SHA256: "{CM_SHA}"
+        run: |
+          url="https://example.invalid/${{CHECKMAKE_VERSION}}/checkmake-${{CHECKMAKE_VERSION}}.linux.amd64"
+          echo "${{CHECKMAKE_SHA256}}  /tmp/checkmake" | sha256sum -c -
+      - name: Install foolint
+        env:
+          FOOLINT_VERSION: "9.9.9"
+          FOOLINT_SHA256: "{OTHER_SHA}"
         run: echo
 """
 
-# Two heredoc RUN blocks of the same `case` shape, actionlint first and
-# rumdl second, so the block selection — not position — decides which
-# hash each row reads.
+# Three heredoc RUN blocks of the same `case` shape — actionlint, rumdl,
+# then checkmake — so the block selection, not position, decides which
+# hash each row reads. checkmake's arms set whole URLs, and its arm64 arm
+# names a fork version (`0.4.0`, deliberately not rumdl's `0.3.2`, which
+# `_bumped` rewrites wherever it appears) rather than `${CHECKMAKE_VERSION}`.
 DOCKER_SAMPLE = f"""\
 FROM debian:trixie
 # Toolchain / release pins.
 #   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job
 ENV RUMDL_VERSION=0.3.2
+ENV CHECKMAKE_VERSION=0.2.2
 ENV ACTIONLINT_VERSION=1.7.12
 
 RUN <<'EOF'
@@ -132,6 +145,19 @@ case $(dpkg --print-architecture) in
 esac
 wget -O /tmp/rumdl.tgz "https://example.invalid/v${{RUMDL_VERSION}}/rumdl-v${{RUMDL_VERSION}}-${{TRIPLE}}.tar.gz"
 echo "${{SHA256}}  /tmp/rumdl.tgz" | sha256sum --check
+EOF
+
+# checkmake (Makefile linter)
+RUN <<'EOF'
+set -eux
+CHECKMAKE_FORK_VERSION="0.4.0"
+case $(dpkg --print-architecture) in
+    amd64) URL="https://example.invalid/${{CHECKMAKE_VERSION}}/checkmake-${{CHECKMAKE_VERSION}}.linux.amd64"; SHA256="{CM_SHA}" ;;
+    arm64) URL="https://example.invalid/fork/v${{CHECKMAKE_FORK_VERSION}}/checkmake-v${{CHECKMAKE_FORK_VERSION}}.linux.arm64"; SHA256="{CM_ARM_SHA}" ;;
+    *)     echo "WARNING: no checkmake build; skipping"; exit 0 ;;
+esac
+wget -O /tmp/checkmake "${{URL}}"
+echo "${{SHA256}}  /tmp/checkmake" | sha256sum --check
 EOF
 """
 
@@ -174,6 +200,12 @@ class CiPinTest(unittest.TestCase):
         # The step before rumdl's, with its key spelled in a comment too.
         self.assertEqual(
             GATE.read_ci_pin(CI_SAMPLE, GATE.ACTIONLINT), ("1.7.12", AL_SHA)
+        )
+
+    def test_the_checkmake_step_env_is_returned(self) -> None:
+        # The step after rumdl's, directly above the unchecked decoy.
+        self.assertEqual(
+            GATE.read_ci_pin(CI_SAMPLE, GATE.CHECKMAKE), ("0.2.2", CM_SHA)
         )
 
     def test_an_unquoted_or_commented_value_is_read(self) -> None:
@@ -220,6 +252,11 @@ class DockerVersionTest(unittest.TestCase):
             GATE.read_docker_version(DOCKER_SAMPLE, GATE.ACTIONLINT), "1.7.12"
         )
 
+    def test_the_checkmake_env_line_is_returned(self) -> None:
+        self.assertEqual(
+            GATE.read_docker_version(DOCKER_SAMPLE, GATE.CHECKMAKE), "0.2.2"
+        )
+
     def test_the_legacy_space_form_is_read(self) -> None:
         text = DOCKER_SAMPLE.replace(
             "ENV RUMDL_VERSION=0.3.2", "ENV RUMDL_VERSION 0.3.2"
@@ -257,6 +294,29 @@ class DockerShaTest(unittest.TestCase):
             GATE.read_docker_x86_64_sha(DOCKER_SAMPLE, GATE.ACTIONLINT), AL_SHA
         )
 
+    def test_the_amd64_arm_of_the_checkmake_block_is_returned(self) -> None:
+        # The last block, whose arm64 arm interpolates a *different*
+        # variable (`${CHECKMAKE_FORK_VERSION}`): only the amd64 arm names
+        # `linux.amd64`, so the fork's hash beside it is not read.
+        self.assertEqual(
+            GATE.read_docker_x86_64_sha(DOCKER_SAMPLE, GATE.CHECKMAKE), CM_SHA
+        )
+        # A second heredoc that interpolates only the fork variable is
+        # not a checkmake block: `${CHECKMAKE_VERSION` is not a prefix of
+        # `${CHECKMAKE_FORK_VERSION}` (the `\b` in the reader plays no
+        # part here), so exactly one block is still found.
+        fork_only = (
+            "\nRUN <<'EOF'\n"
+            'CHECKMAKE_FORK_VERSION="0.4.0"\n'
+            'echo "fork v${CHECKMAKE_FORK_VERSION} linux.amd64"; '
+            f'SHA256="{OTHER_SHA}"\n'
+            "EOF\n"
+        )
+        self.assertEqual(
+            GATE.read_docker_x86_64_sha(DOCKER_SAMPLE + fork_only, GATE.CHECKMAKE),
+            CM_SHA,
+        )
+
     def test_reordered_arms_still_resolve_to_the_triple(self) -> None:
         amd = f'    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="{X86_SHA}" ;;\n'
         arm = f'    arm64) TRIPLE="aarch64-unknown-linux-gnu"; SHA256="{ARM_SHA}" ;;\n'
@@ -278,6 +338,9 @@ class DockerShaTest(unittest.TestCase):
         cases = {
             GATE.RUMDL: DOCKER_SAMPLE.replace("${RUMDL_VERSION}", "0.3.2"),
             GATE.ACTIONLINT: DOCKER_SAMPLE.replace("${ACTIONLINT_VERSION}", "1.7.12"),
+            # The arm64 arm's `${CHECKMAKE_FORK_VERSION}` stays and must
+            # not count as the block's version reference.
+            GATE.CHECKMAKE: DOCKER_SAMPLE.replace("${CHECKMAKE_VERSION}", "0.2.2"),
         }
         for pin, text in cases.items():
             with self.subTest(tool=pin.tool):
@@ -295,6 +358,7 @@ class DockerShaTest(unittest.TestCase):
             GATE.ACTIONLINT: DOCKER_SAMPLE.replace(
                 'ACTIONLINT_ARCH="amd64"', 'ACTIONLINT_ARCH="x"'
             ),
+            GATE.CHECKMAKE: DOCKER_SAMPLE.replace("linux.amd64", "linux.x"),
         }
         for pin, text in cases.items():
             with self.subTest(tool=pin.tool):
@@ -311,10 +375,11 @@ class DockerShaTest(unittest.TestCase):
 
     def test_an_unterminated_heredoc_yields_no_block(self) -> None:
         # The closing `EOF` is the only thing that delimits a block; a
-        # body that never closes must not be read as one.
+        # body that never closes must not be read as one. The last block
+        # in the sample, whose `EOF` this drops, is checkmake's.
         text = DOCKER_SAMPLE.rsplit("EOF", 1)[0]
         with self.assertRaises(SystemExit) as caught:
-            GATE.read_docker_x86_64_sha(text, GATE.RUMDL)
+            GATE.read_docker_x86_64_sha(text, GATE.CHECKMAKE)
         self.assertIn("found 0", str(caught.exception))
 
     def test_a_malformed_hash_is_a_hard_error(self) -> None:
@@ -354,9 +419,11 @@ class DriftedTest(unittest.TestCase):
 # hash in ci.yml and the Dockerfile.
 NEW_SHA = "d" * 64
 NEW_AL_SHA = "3" * 64
+NEW_CM_SHA = "6" * 64
 _NEXT = {
     "rumdl": ("0.3.2", "0.3.3", X86_SHA, NEW_SHA),
     "actionlint": ("1.7.12", "1.7.13", AL_SHA, NEW_AL_SHA),
+    "checkmake": ("0.2.2", "0.2.3", CM_SHA, NEW_CM_SHA),
 }
 HONEST, STALE = "honest", "stale"
 
@@ -380,6 +447,7 @@ def _bumped(**kinds: str) -> dict[str, str]:
 # `--update` rewrote no longer reads byte for byte as one it left alone.
 HAND_RUMDL_BASELINE = f"# hand-written header\n0.3.2 {X86_SHA}\n"
 HAND_AL_BASELINE = f"# hand-written header\n1.7.12 {AL_SHA}\n"
+HAND_CM_BASELINE = f"# hand-written header\n0.2.2 {CM_SHA}\n"
 
 
 class RepoCase(unittest.TestCase):
@@ -392,6 +460,7 @@ class RepoCase(unittest.TestCase):
         docker: str = DOCKER_SAMPLE,
         rumdl_baseline: str | None = None,
         actionlint_baseline: str | None = None,
+        checkmake_baseline: str | None = None,
     ) -> None:
         root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         (root / GATE.CI_WORKFLOW).parent.mkdir(parents=True)
@@ -402,8 +471,11 @@ class RepoCase(unittest.TestCase):
             rumdl_baseline = GATE.format_baseline(GATE.RUMDL, "0.3.2", X86_SHA)
         if actionlint_baseline is None:
             actionlint_baseline = GATE.format_baseline(GATE.ACTIONLINT, "1.7.12", AL_SHA)
+        if checkmake_baseline is None:
+            checkmake_baseline = GATE.format_baseline(GATE.CHECKMAKE, "0.2.2", CM_SHA)
         (root / GATE.RUMDL.baseline).write_text(rumdl_baseline, encoding="utf-8")
         (root / GATE.ACTIONLINT.baseline).write_text(actionlint_baseline, encoding="utf-8")
+        (root / GATE.CHECKMAKE.baseline).write_text(checkmake_baseline, encoding="utf-8")
         self.enterContext(mock.patch.object(GATE, "REPO_ROOT", root))
 
     def _run(self, *argv: str) -> tuple[int, str, str]:
@@ -413,7 +485,7 @@ class RepoCase(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     def _baselines(self) -> dict[str, bytes]:
-        """Both baseline files' bytes, keyed by tool."""
+        """Every baseline file's bytes, keyed by tool."""
         return {
             pin.tool: (GATE.REPO_ROOT / pin.baseline).read_bytes() for pin in GATE.PINS
         }
@@ -441,7 +513,7 @@ class MainTest(RepoCase):
         # actionlint does not have, is the drift this gate exists to
         # report.
         lines = out.splitlines()
-        self.assertEqual(len(lines), 2, out)
+        self.assertEqual(len(lines), 3, out)
         self.assertTrue(lines[0].startswith("rumdl lockstep OK (rumdl 0.3.2,"), out)
         self.assertIn("3 sites checked", lines[0])
         self.assertTrue(
@@ -449,6 +521,11 @@ class MainTest(RepoCase):
         )
         self.assertIn(f"linux_amd64 SHA256 {AL_SHA[:12]}...", lines[1])
         self.assertIn("2 sites checked", lines[1])
+        self.assertTrue(
+            lines[2].startswith("checkmake lockstep OK (checkmake 0.2.2,"), out
+        )
+        self.assertIn(f"linux.amd64 SHA256 {CM_SHA[:12]}...", lines[2])
+        self.assertIn("2 sites checked", lines[2])
 
     def test_an_actionlint_only_drift_names_the_dockerfile(self) -> None:
         cases = {
@@ -540,7 +617,7 @@ class MainTest(RepoCase):
     def test_the_arm64_hash_is_not_compared(self) -> None:
         # CI verifies amd64 only, so no offline counterpart exists; the
         # image build verifies it.
-        for arm_sha in (ARM_SHA, AL_ARM_SHA):
+        for arm_sha in (ARM_SHA, AL_ARM_SHA, CM_ARM_SHA):
             with self.subTest(arm_sha=arm_sha[:1]):
                 self._repo(docker=DOCKER_SAMPLE.replace(arm_sha, "e" * 64))
                 code, _, err = self._run()
@@ -557,20 +634,22 @@ class MainTest(RepoCase):
         self.assertIn("d" * 64, err)
 
     def test_every_tool_is_reported_in_one_run(self) -> None:
-        # One tool's failure must not hide the other's.
+        # One tool's failure must not hide the others'.
         self._repo(
             mise=MISE_SAMPLE.replace("0.3.2", "0.3.1"),
             ci=CI_SAMPLE.replace(AL_SHA, NEW_AL_SHA),
+            docker=DOCKER_SAMPLE.replace(CM_SHA, NEW_CM_SHA),
         )
         code, out, err = self._run()
         self.assertEqual(code, 1)
-        self.assertEqual(out, "", "a failing run prints no OK line for either tool")
+        self.assertEqual(out, "", "a failing run prints no OK line for any tool")
         self.assertIn("error: rumdl pin declarations disagree:", err)
         self.assertIn("error: actionlint pin declarations disagree:", err)
+        self.assertIn("error: checkmake pin declarations disagree:", err)
 
     def test_an_unreadable_input_does_not_hide_the_other_tools_drift(self) -> None:
         # A hard error on one tool's inputs is still a hard error, but it
-        # carries the other tool's drift with it, in either order.
+        # carries another tool's drift with it, whichever comes first.
         cases = {
             "actionlint unreadable": (
                 {"mise": MISE_SAMPLE.replace("0.3.2", "0.3.1"), "actionlint_baseline": "# x\n"},
@@ -580,6 +659,16 @@ class MainTest(RepoCase):
             "rumdl unreadable": (
                 {"ci": CI_SAMPLE.replace(AL_SHA, NEW_AL_SHA), "rumdl_baseline": "# x\n"},
                 "error: actionlint pin declarations disagree:",
+                GATE.RUMDL,
+            ),
+            "checkmake unreadable": (
+                {"ci": CI_SAMPLE.replace(AL_SHA, NEW_AL_SHA), "checkmake_baseline": "# x\n"},
+                "error: actionlint pin declarations disagree:",
+                GATE.CHECKMAKE,
+            ),
+            "rumdl unreadable, checkmake drifted": (
+                {"docker": DOCKER_SAMPLE.replace(CM_SHA, NEW_CM_SHA), "rumdl_baseline": "# x\n"},
+                "error: checkmake pin declarations disagree:",
                 GATE.RUMDL,
             ),
         }
@@ -646,6 +735,17 @@ class BaselineTest(RepoCase):
         )
         self.assertIn(f"({GATE.ACTIONLINT.baseline} records actionlint 1.7.12", err)
 
+    def test_a_stale_checkmake_bump_fails_by_name(self) -> None:
+        self._repo(**_bumped(checkmake=STALE))
+        code, out, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn(
+            "checkmake version bumped to 0.2.3 but the linux.amd64 hash is still 0.2.2's",
+            err,
+        )
+        self.assertIn(f"({GATE.CHECKMAKE.baseline} records checkmake 0.2.2", err)
+
     def test_an_honest_bump_fails_until_recorded(self) -> None:
         # Both moved, but the record is still 0.3.2's: left that way, the
         # next bump would be checked against the wrong release's hash.
@@ -660,10 +760,15 @@ class BaselineTest(RepoCase):
         )
 
     def test_update_records_an_honest_bump(self) -> None:
-        # rumdl only: actionlint's unchanged pair is not an error, and its
-        # baseline is left byte for byte as it was. It starts hand-written,
-        # since the template's bytes are also what a rewrite would leave.
-        self._repo(**_bumped(rumdl=HONEST), actionlint_baseline=HAND_AL_BASELINE)
+        # rumdl only: the other tools' unchanged pairs are not an error, and
+        # their baselines are left byte for byte as they were. They start
+        # hand-written, since the template's bytes are also what a rewrite
+        # would leave.
+        self._repo(
+            **_bumped(rumdl=HONEST),
+            actionlint_baseline=HAND_AL_BASELINE,
+            checkmake_baseline=HAND_CM_BASELINE,
+        )
         before = self._baselines()
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
@@ -674,12 +779,17 @@ class BaselineTest(RepoCase):
         )
         self.assertEqual(self._recorded(GATE.RUMDL), ("0.3.3", NEW_SHA))
         self.assertEqual(self._baselines()["actionlint"], before["actionlint"])
+        self.assertEqual(self._baselines()["checkmake"], before["checkmake"])
         # The next run checks against the new pair and has nothing to say.
         code, out, err = self._run()
         self.assertEqual((code, err), (0, ""))
 
     def test_update_records_an_actionlint_only_bump(self) -> None:
-        self._repo(**_bumped(actionlint=HONEST), rumdl_baseline=HAND_RUMDL_BASELINE)
+        self._repo(
+            **_bumped(actionlint=HONEST),
+            rumdl_baseline=HAND_RUMDL_BASELINE,
+            checkmake_baseline=HAND_CM_BASELINE,
+        )
         before = self._baselines()
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
@@ -690,17 +800,40 @@ class BaselineTest(RepoCase):
         )
         self.assertEqual(self._recorded(GATE.ACTIONLINT), ("1.7.13", NEW_AL_SHA))
         self.assertEqual(self._baselines()["rumdl"], before["rumdl"])
+        self.assertEqual(self._baselines()["checkmake"], before["checkmake"])
         code, out, err = self._run()
         self.assertEqual((code, err), (0, ""))
 
-    def test_update_records_both_bumps(self) -> None:
-        self._repo(**_bumped(rumdl=HONEST, actionlint=HONEST))
+    def test_update_records_a_checkmake_only_bump(self) -> None:
+        self._repo(
+            **_bumped(checkmake=HONEST),
+            rumdl_baseline=HAND_RUMDL_BASELINE,
+            actionlint_baseline=HAND_AL_BASELINE,
+        )
+        before = self._baselines()
+        code, out, err = self._run("--update")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(
+            out,
+            f"checkmake lockstep: recorded checkmake 0.2.3, linux.amd64 SHA256 "
+            f"{NEW_CM_SHA[:12]}... in {GATE.CHECKMAKE.baseline}.\n",
+        )
+        self.assertEqual(self._recorded(GATE.CHECKMAKE), ("0.2.3", NEW_CM_SHA))
+        self.assertEqual(self._baselines()["rumdl"], before["rumdl"])
+        self.assertEqual(self._baselines()["actionlint"], before["actionlint"])
+        code, out, err = self._run()
+        self.assertEqual((code, err), (0, ""))
+
+    def test_update_records_every_bump(self) -> None:
+        self._repo(**_bumped(rumdl=HONEST, actionlint=HONEST, checkmake=HONEST))
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
         self.assertIn("recorded rumdl 0.3.3", out)
         self.assertIn("recorded actionlint 1.7.13", out)
+        self.assertIn("recorded checkmake 0.2.3", out)
         self.assertEqual(self._recorded(GATE.RUMDL), ("0.3.3", NEW_SHA))
         self.assertEqual(self._recorded(GATE.ACTIONLINT), ("1.7.13", NEW_AL_SHA))
+        self.assertEqual(self._recorded(GATE.CHECKMAKE), ("0.2.3", NEW_CM_SHA))
         code, out, err = self._run()
         self.assertEqual((code, err), (0, ""))
 
@@ -714,17 +847,22 @@ class BaselineTest(RepoCase):
         )
 
     def test_update_writes_nothing_while_any_tool_is_invalid(self) -> None:
-        # In each case the other tool moved honestly, so a gate that wrote
-        # the valid half would change its baseline: the bytes of both
-        # must survive. The two halves fail differently — a stale hash,
-        # and versions that disagree across files — so both invalid paths
-        # are covered.
+        # In each case another tool moved honestly, so a gate that wrote
+        # the valid part would change its baseline: the bytes of all three
+        # must survive. The halves fail differently — a stale hash, and
+        # versions or hashes that disagree across files — so each invalid
+        # path is covered.
         honest_rumdl = _bumped(rumdl=HONEST)
         cases = {
             "rumdl invalid": (_bumped(rumdl=STALE, actionlint=HONEST), "rumdl", "actionlint"),
             "actionlint invalid": (
                 {**honest_rumdl, "ci": _bumped(rumdl=HONEST, actionlint=HONEST)["ci"]},
                 "actionlint",
+                "rumdl",
+            ),
+            "checkmake invalid": (
+                {**honest_rumdl, "docker": honest_rumdl["docker"].replace(CM_SHA, NEW_CM_SHA)},
+                "checkmake",
                 "rumdl",
             ),
         }
@@ -748,6 +886,7 @@ class BaselineTest(RepoCase):
         self.assertIn("nothing to update", err)
         self.assertIn(f"{GATE.RUMDL.baseline} already records rumdl 0.3.2", err)
         self.assertIn(f"{GATE.ACTIONLINT.baseline} already records actionlint 1.7.12", err)
+        self.assertIn(f"{GATE.CHECKMAKE.baseline} already records checkmake 0.2.2", err)
         self.assertEqual(self._baselines(), before)
 
     def test_a_new_hash_without_a_bump_fails(self) -> None:
@@ -761,6 +900,11 @@ class BaselineTest(RepoCase):
                 AL_SHA,
                 NEW_AL_SHA,
                 "the linux_amd64 hash changed but actionlint is still 1.7.12",
+            ),
+            "checkmake": (
+                CM_SHA,
+                NEW_CM_SHA,
+                "the linux.amd64 hash changed but checkmake is still 0.2.2",
             ),
         }
         for tool, (old, new, message) in cases.items():
@@ -792,7 +936,7 @@ class BaselineTest(RepoCase):
     def test_update_from_older_records_writes_the_committed_files(self) -> None:
         # The real mise.toml, ci.yml and Dockerfile, with each baseline one
         # (fictitious) release behind: `--update` must then write exactly
-        # the committed bytes, header included, for both tools.
+        # the committed bytes, header included, for every tool.
         real = {
             name: (REPO_ROOT / path).read_text(encoding="utf-8")
             for name, path in (
@@ -805,10 +949,11 @@ class BaselineTest(RepoCase):
             **real,
             rumdl_baseline=GATE.format_baseline(GATE.RUMDL, "0.0.1", "9" * 64),
             actionlint_baseline=GATE.format_baseline(GATE.ACTIONLINT, "0.0.1", "8" * 64),
+            checkmake_baseline=GATE.format_baseline(GATE.CHECKMAKE, "0.0.1", "7" * 64),
         )
         code, out, err = self._run("--update")
         self.assertEqual(code, 0, err)
-        self.assertEqual(len(out.splitlines()), 2, out)
+        self.assertEqual(len(out.splitlines()), 3, out)
         for pin in GATE.PINS:
             with self.subTest(tool=pin.tool):
                 self.assertEqual(
@@ -827,11 +972,13 @@ class RealRepositoryTest(unittest.TestCase):
             cwd=REPO_ROOT,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        rumdl, actionlint = result.stdout.splitlines()
+        rumdl, actionlint, checkmake = result.stdout.splitlines()
         self.assertTrue(rumdl.startswith("rumdl lockstep OK"), result.stdout)
         self.assertIn("3 sites checked", rumdl)
         self.assertTrue(actionlint.startswith("actionlint lockstep OK"), result.stdout)
         self.assertIn("2 sites checked", actionlint)
+        self.assertTrue(checkmake.startswith("checkmake lockstep OK"), result.stdout)
+        self.assertIn("2 sites checked", checkmake)
 
     def test_it_runs_from_an_unrelated_cwd(self) -> None:
         # `REPO_ROOT` is derived from the script's own location, so the

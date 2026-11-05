@@ -273,6 +273,12 @@ for historical reference.
   baselines that moved. The arm64 hash is not compared, since CI
   verifies only the amd64 tarball.
 
+- **`make check-rumdl-lockstep` also gates the checkmake pin** (#1820).
+  The `Dockerfile`'s checkmake block takes the actionlint shape (one
+  `URL` / `SHA256` line per arch arm), so the gate holds
+  `CHECKMAKE_VERSION` and the amd64 hash to the CI lint job's pin;
+  `.checkmake-lockstep-baseline.txt` records the accepted pair.
+
 ### Changed
 
 - **The agent-feedback recipe documents the OpenCode V2 install**

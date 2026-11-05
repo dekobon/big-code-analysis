@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """check-rumdl-lockstep
 
-rumdl and actionlint are installed from pinned, SHA256-verified release
-tarballs both by CI and in the dev container, and only comments kept the
-two sides' pins in step. Each row of ``PINS`` is one of them.
+rumdl, actionlint and checkmake are installed from pinned, SHA256-verified
+release artifacts both by CI and in the dev container, and only comments
+kept the two sides' pins in step. Each row of ``PINS`` is one of them.
 
 **rumdl** lints this repository's Markdown and is pinned in three files:
 
@@ -19,6 +19,13 @@ the same job's ``ACTIONLINT_VERSION`` / ``ACTIONLINT_SHA256``, and
 ``ENV ACTIONLINT_VERSION`` plus the ``case`` in its ``RUN`` block
 (#1799). ``mise.toml`` declares no actionlint.
 
+**checkmake** lints the Makefile and is pinned the same way as actionlint:
+``CHECKMAKE_VERSION`` / ``CHECKMAKE_SHA256`` in the job, and
+``ENV CHECKMAKE_VERSION`` plus the ``case`` in its ``RUN`` block (#1820).
+Only its amd64 arm installs CI's pin (mrtazz/checkmake); the arm64 arm
+installs a different fork, which is no obstacle since no arm64 hash is
+compared.
+
 #1653 shows the cost. Its work list named ``mise.toml`` and ``ci.yml``
 and left out the ``Dockerfile``, which the bump caught only by grepping.
 Had it been missed, the container would lint on a different rumdl than
@@ -29,22 +36,25 @@ Three invariants are checked for each tool.
 
 **Its versions are equal.** There is no natural anchor — no file is
 derived from another — so a disagreement names the file that differs
-from the others, or every file when no two agree; for actionlint's two
-sites that is both. Every value is printed either way, so the reader
-sees the whole table rather than a verdict about which side is "right".
+from the others, or every file when no two agree; for actionlint's and
+checkmake's two sites that is both. Every value is printed either way,
+so the reader sees the whole table rather than a verdict about which
+side is "right".
 
 **The Dockerfile's amd64 SHA256 equals ``ci.yml``'s.** Both verify the
-same tarball — ``rumdl-v<version>-x86_64-unknown-linux-gnu.tar.gz``,
-``actionlint_<version>_linux_amd64.tar.gz`` — so they must match byte
-for byte. This catches a version bump that pasted only one hash,
-offline. The arm64 hashes are deliberately not compared: CI downloads
-and verifies amd64 only, so they have no counterpart to compare against,
-and the image build's ``sha256sum --check`` already covers them.
+same artifact — ``rumdl-v<version>-x86_64-unknown-linux-gnu.tar.gz``,
+``actionlint_<version>_linux_amd64.tar.gz``,
+``checkmake-<version>.linux.amd64`` — so they must match byte for byte.
+This catches a version bump that pasted only one hash, offline. The
+arm64 hashes are deliberately not compared: CI downloads and verifies
+amd64 only, so they have no counterpart to compare against, and the
+image build's ``sha256sum --check`` already covers them.
 
 **A version bump moves the hash too.** The two checks above pass a bump
 that changed every version and left both hashes alone, because the stale
 hash still agrees with itself. Each tool's baseline
-(``.rumdl-lockstep-baseline.txt``, ``.actionlint-lockstep-baseline.txt``)
+(``.rumdl-lockstep-baseline.txt``, ``.actionlint-lockstep-baseline.txt``,
+``.checkmake-lockstep-baseline.txt``)
 records the version and amd64 SHA256 the gate last accepted, and the
 gate fails by name when the version has moved but the hash has not, or
 the hash has moved but the version has not (a release's tarball does not
@@ -55,14 +65,13 @@ is read by no one. ``--update`` validates every tool before it writes
 anything: it records nothing while any tool's pins are inconsistent,
 rewrites only the baselines whose pair moved, and refuses when none did.
 
-**Why these two, not every pin the Dockerfile header mirrors from
+**Why these three, not every pin the Dockerfile header mirrors from
 ``ci.yml``.** taplo, shfmt and shellcheck reach CI through
 ``taiki-e/install-action``, which carries no SHA256 to compare.
-checkmake's amd64 arm does install CI's pin, but its block verifies an
-inline hash (``echo "<sha>  /tmp/checkmake" | sha256sum --check``)
-rather than the ``SHA256="…"`` assignment the Dockerfile reader anchors
-on, so it is left out until that block takes the same shape. Its arm64
-arm's different fork is no obstacle, since no arm64 hash is compared.
+checkmake joined once its block took the actionlint shape — one
+``URL="…"; SHA256="…"`` line per arch arm — in place of the inline
+``echo "<sha>  /tmp/checkmake" | sha256sum --check`` the Dockerfile
+reader could not anchor on (#1820).
 
 ``mise.toml`` is parsed with ``tomllib``. ``ci.yml`` and the
 ``Dockerfile`` are parsed by line, because PyYAML is not in the
@@ -78,8 +87,8 @@ Exit status: 0 when the pins agree (or ``--update`` recorded a new pair),
 1 on drift, on a refused ``--update`` or on an input the gate cannot
 read, 2 when ``tomllib`` is unavailable.
 
-See `#1779` and `#1799`, and ``check-ruff-lockstep.py`` (#1230) for the
-sibling gate this one is modelled on.
+See `#1779`, `#1799` and `#1820`, and ``check-ruff-lockstep.py`` (#1230)
+for the sibling gate this one is modelled on.
 """
 
 from __future__ import annotations
@@ -161,13 +170,26 @@ ACTIONLINT = Pin(
     baseline=pathlib.Path(".actionlint-lockstep-baseline.txt"),
     issue="#1799",
 )
-PINS = (RUMDL, ACTIONLINT)
+# Each arm sets its whole URL, since amd64 (mrtazz, `${CHECKMAKE_VERSION}`)
+# and arm64 (the checkmake/checkmake fork) download different templates;
+# `linux.amd64` is the mrtazz asset suffix the amd64 URL ends in, which is
+# what CI's URL ends in too.
+CHECKMAKE = Pin(
+    tool="checkmake",
+    version_var="CHECKMAKE_VERSION",
+    sha256_var="CHECKMAKE_SHA256",
+    amd64_anchor="linux.amd64",
+    artifact="linux.amd64",
+    baseline=pathlib.Path(".checkmake-lockstep-baseline.txt"),
+    issue="#1820",
+)
+PINS = (RUMDL, ACTIONLINT, CHECKMAKE)
 
 # One template for every baseline's header, a paragraph per entry and
 # "" for a bare `#` line. It is filled rather than spelled per tool so the
 # baselines cannot drift apart in wording; `_BASELINE_WIDTH` is the
 # column the rumdl baseline was first wrapped at, which reproduces its
-# committed bytes. After editing the template, rewrite both files by
+# committed bytes. After editing the template, rewrite every baseline by
 # setting each record to a stale version and hash and running `--update`,
 # which refuses a run where nothing moved.
 _BASELINE_HEADER = (
@@ -522,8 +544,8 @@ def update(verdicts: list[Verdict]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Check that mise.toml, ci.yml and the Dockerfile pin one rumdl "
-            "and one actionlint release."
+            "Check that mise.toml, ci.yml and the Dockerfile pin one rumdl, "
+            "one actionlint and one checkmake release."
         )
     )
     parser.add_argument(
