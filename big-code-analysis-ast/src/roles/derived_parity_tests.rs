@@ -1239,37 +1239,9 @@ fn corpus_every_known_disagreement_is_still_met() {
     );
 }
 
-/// The behavioural backstop for `no_chain` (#1793): on every row whose
-/// `CHAIN_GATED` is false, every owner candidate of the corpus answers
-/// `owns_kind` the same under the walk's real chain and under
-/// `Ancestors::known(&[])` — the chain that says the node is the root
-/// — and so does the table's `opens_space` fold, which `owns_kind`
-/// never reaches for an `opens_by` owner. `CHAIN_GATED = false` proves
-/// at build time that no such gate *takes* a chain; it cannot see one
-/// that climbs with `Node::parent` from its two arguments. The
-/// comparison sees a climb whose answer differs between the two
-/// chains; a climb whose answer agrees on every candidate (lesson 114)
-/// — `parent().is_some()`, say, true under both — is what the two
-/// climb counters see: `node_resolved_parent_lookups` and
-/// `node_resolved_sibling_lookups` must not move while the unchained
-/// rows are asked, so any `Node::parent` / `Node::previous_sibling`
-/// a marked gate reaches is reported whatever it answers. What neither
-/// half sees is a climb through some other tree walk the counters do
-/// not cover, which stays a review item on a marked gate. Never
-/// `Ancestors::unknown()`, which rebuilds the parent and answers
-/// exactly through the climb it exists to price (lesson 114).
-///
-/// Verified to discriminate (recorded on #1793): a `no_chain` gate
-/// reading `node.parent().is_some()` — true under every chain — fails
-/// the counter half. The comparison half can only see a gate whose
-/// answer *depends on which chain it was handed*; a climb through
-/// `Node::parent` reads the same tree under either chain and so never
-/// moves it, which is why the counters bracket both `owns_kind` and
-/// the `opens_space` fold (an `opens_by … no_chain` fn is reached only
-/// by the latter).
-/// What the chain backstop found on one language: the per-gate
-/// findings, deduplicated by `(role, kind)` since one climbing gate
-/// answers on every candidate of its kind.
+/// What the chain backstop found across every probed table: the
+/// per-gate findings, deduplicated by `(role, kind)` since one climbing
+/// gate answers on every candidate of its kind.
 #[derive(Default)]
 struct ChainProbe {
     asked: usize,
@@ -1354,6 +1326,34 @@ impl ChainProbe {
     }
 }
 
+/// The behavioural backstop for `no_chain` (#1793): on every row whose
+/// `CHAIN_GATED` is false, every owner candidate of the corpus answers
+/// `owns_kind` the same under the walk's real chain and under
+/// `Ancestors::known(&[])` — the chain that says the node is the root
+/// — and so does the table's `opens_space` fold, which `owns_kind`
+/// never reaches for an `opens_by` owner. `CHAIN_GATED = false` proves
+/// at build time that no such gate *takes* a chain; it cannot see one
+/// that climbs with `Node::parent` from its two arguments. The
+/// comparison sees a climb whose answer differs between the two
+/// chains; a climb whose answer agrees on every candidate (lesson 114)
+/// — `parent().is_some()`, say, true under both — is what the two
+/// climb counters see: `node_resolved_parent_lookups` and
+/// `node_resolved_sibling_lookups` must not move while the unchained
+/// rows are asked, so any `Node::parent` / `Node::previous_sibling`
+/// a marked gate reaches is reported whatever it answers. What neither
+/// half sees is a climb through some other tree walk the counters do
+/// not cover, which stays a review item on a marked gate. Never
+/// `Ancestors::unknown()`, which rebuilds the parent and answers
+/// exactly through the climb it exists to price (lesson 114).
+///
+/// Verified to discriminate (recorded on #1793): a `no_chain` gate
+/// reading `node.parent().is_some()` — true under every chain — fails
+/// the counter half. The comparison half can only see a gate whose
+/// answer *depends on which chain it was handed*; a climb through
+/// `Node::parent` reads the same tree under either chain and so never
+/// moves it, which is why the counters bracket both `owns_kind` and
+/// the `opens_space` fold (an `opens_by … no_chain` fn is reached only
+/// by the latter).
 #[test]
 fn no_chain_rows_answer_alike_under_the_empty_chain() {
     let mut probe = ChainProbe::default();

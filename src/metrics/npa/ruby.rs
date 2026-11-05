@@ -131,9 +131,10 @@ impl<'a> RubyAttributes<'a> {
         declared
     }
 
-    // Counts what one statement or argument declares. `keyword` is the
-    // visibility call `node` is an argument of, if it is one. Answers
-    // the accessor names declared, for `argument` to hand the call.
+    // Records what one statement or argument declares into the ledger;
+    // `tally` counts. `keyword` is the visibility call `node` is an
+    // argument of, if it is one. Answers the accessor names declared,
+    // for `argument` to hand the call.
     fn read(
         &mut self,
         node: &Node<'a>,
@@ -184,7 +185,7 @@ impl<'a> RubyAttributes<'a> {
         let public = self
             .attributes
             .iter()
-            .filter(|slots| accessors[(*slots).clone()].contains(&true))
+            .filter(|slots| accessors[slots.start..slots.end].contains(&true))
             .count();
         (self.attributes.len(), public)
     }
@@ -219,7 +220,6 @@ impl<'a> RubyBodyConsumer<'a> for RubyAttributes<'a> {
         if shape == RubyBodyShape::Leaf {
             names.extend(
                 ruby_argument_names(argument, self.code)
-                    .into_iter()
                     .flatten()
                     .map(RubyAccessor::split),
             );

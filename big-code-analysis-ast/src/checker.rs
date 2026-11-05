@@ -116,6 +116,29 @@ macro_rules! impl_byte_gated_row_predicate {
     };
 }
 
+// The byte-less `is_func_space` of a language whose space tree is its
+// `FuncOpener` and `Container` rows (#1696): forwards with no bytes and
+// a known-empty chain, which is exact only while neither row reads
+// either — the build asserts both flags of both rows (#1793). Ruby's
+// opener is chain-gated by design and keeps a hand-written forward
+// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`);
+// Elixir overrides both spellings. Per-language rationale — which
+// rows, why they read nothing — sits above the invocation.
+macro_rules! impl_byte_less_func_space {
+    ($roles:ident) => {
+        fn is_func_space(node: &Node) -> bool {
+            const _: () = assert!(
+                !$crate::roles::$roles::func_opener::TEXT_GATED
+                    && !$crate::roles::$roles::func_opener::CHAIN_GATED
+                    && !$crate::roles::$roles::container::TEXT_GATED
+                    && !$crate::roles::$roles::container::CHAIN_GATED,
+                "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+            );
+            Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
+        }
+    };
+}
+
 // The two predicates `impl_byte_gated_row_predicate!` emits, by name.
 macro_rules! impl_doc_comment_from_row {
     ($roles:ident) => {

@@ -78,16 +78,7 @@ impl Checker for CsharpCode {
     // labels them. The rows read no bytes and no chain (the accessor
     // gate reads the node's children), so the byte-less spelling
     // forwards with none and answers the same.
-    fn is_func_space(node: &Node) -> bool {
-        const _: () = assert!(
-            !crate::roles::csharp::func_opener::TEXT_GATED
-                && !crate::roles::csharp::func_opener::CHAIN_GATED
-                && !crate::roles::csharp::container::TEXT_GATED
-                && !crate::roles::csharp::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_func_space!(csharp);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,

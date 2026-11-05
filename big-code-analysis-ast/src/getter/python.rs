@@ -35,16 +35,7 @@ impl Getter for PythonCode {
     // The mapping is the `opens` annotations of `roles/python.rs`
     // (#1696); the rows read no bytes and no chain, so the byte-less
     // spelling forwards with none.
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        const _: () = assert!(
-            !crate::roles::python::func_opener::TEXT_GATED
-                && !crate::roles::python::func_opener::CHAIN_GATED
-                && !crate::roles::python::container::TEXT_GATED
-                && !crate::roles::python::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_space_kind!(python);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,

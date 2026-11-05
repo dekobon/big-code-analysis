@@ -94,14 +94,18 @@ pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
 /// the same line — the scanner's quoted-text rule is `"\""[^"\n]*"\""`,
 /// so an unclosed `"` is one character and the command after it is read
 /// (#1646) — an escaped `\\` / `@@`, a fence, an HTML comment or a
-/// `<![CDATA[` section ([`delimited_end`]), or a format block
-/// ([`format_block_end`]).
+/// `<![CDATA[` section ([`delimited_end`]; the comment is the one of
+/// the three that is not a plain open/close pair, since a `-->` whose
+/// `>` follows a third `-` does not close it), or a format block
+/// ([`format_block_end`]). The
+/// fence is asked before the span so ```` ``` ```` is never read as a
+/// backtick span opened on an empty one.
 fn literal_end(s: &[u8], at: usize) -> Option<usize> {
     let rest = &s[at..];
-    if let Some(span) = rest
-        .strip_prefix(b"`")
-        .filter(|_| !rest.starts_with(b"```"))
-    {
+    if let Some(end) = delimited_end(s, at) {
+        return Some(end);
+    }
+    if let Some(span) = rest.strip_prefix(b"`") {
         return code_span_close(span).map(|close| at + close + 2);
     }
     if let Some(quoted) = rest.strip_prefix(b"\"") {
@@ -110,7 +114,7 @@ fn literal_end(s: &[u8], at: usize) -> Option<usize> {
     if matches!(rest, [b'@', b'@', ..] | [b'\\', b'\\', ..]) {
         return Some(at + 2);
     }
-    delimited_end(s, at).or_else(|| format_block_end(s, at))
+    format_block_end(s, at)
 }
 
 /// Where a literal that runs to a closing delimiter or the end of the

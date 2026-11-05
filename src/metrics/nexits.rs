@@ -21,38 +21,22 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::FunctionPopulation;
 use crate::*;
 
 /// The `NExit` metric.
 ///
 /// This metric counts the number of possible exit points
 /// from a function/method.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
     exit: usize,
     exit_sum: usize,
-    /// Sum of the own values of the function spaces in this subtree,
-    /// and their count: numerator and divisor of
-    /// [`Stats::nexits_average`], folded by the same predicate as
-    /// `exit_min` / `exit_max` (#1284).
-    exit_function_sum: usize,
-    function_spaces: usize,
-    exit_min: usize,
-    exit_max: usize,
-}
-
-impl Default for Stats {
-    fn default() -> Self {
-        Self {
-            exit: 0,
-            exit_sum: 0,
-            exit_function_sum: 0,
-            function_spaces: 0,
-            exit_min: usize::MAX,
-            exit_max: 0,
-        }
-    }
+    /// The function spaces of this subtree: numerator, divisor and
+    /// extrema of `average` / `min` / `max`, folded by one predicate
+    /// (#1284).
+    functions: FunctionPopulation<usize>,
 }
 
 impl fmt::Display for Stats {
@@ -71,11 +55,8 @@ impl fmt::Display for Stats {
 impl Stats {
     /// Merges a second `NExit` metric into the first one
     pub fn merge(&mut self, other: &Stats) {
-        self.exit_max = self.exit_max.max(other.exit_max);
-        self.exit_min = self.exit_min.min(other.exit_min);
         self.exit_sum += other.exit_sum;
-        self.exit_function_sum += other.exit_function_sum;
-        self.function_spaces += other.function_spaces;
+        self.functions.merge(&other.functions);
     }
 
     /// Returns the `NExit` metric value
@@ -90,24 +71,16 @@ impl Stats {
         self.exit_sum as u64
     }
     /// Returns the minimum `NExit` of a single function space in the
-    /// subtree.
-    ///
-    /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
-    /// into `exit_min` to `0`, so a subtree with no function space
-    /// serializes to a meaningful number rather than `1.8446744e19`.
+    /// subtree; `0` where there is none.
     #[must_use]
     pub fn nexits_min(&self) -> u64 {
-        if self.exit_min == usize::MAX {
-            0
-        } else {
-            self.exit_min as u64
-        }
+        self.functions.min() as u64
     }
     /// Returns the maximum `NExit` of a single function space in the
     /// subtree; `0` where there is none.
     #[must_use]
     pub fn nexits_max(&self) -> u64 {
-        self.exit_max as u64
+        self.functions.max() as u64
     }
 
     /// Returns the average `NExit` per function.
@@ -123,7 +96,7 @@ impl Stats {
     /// `0.0` (#428).
     #[must_use]
     pub fn nexits_average(&self) -> f64 {
-        crate::metrics::average(self.exit_function_sum as f64, self.function_spaces)
+        self.functions.average()
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -136,10 +109,7 @@ impl Stats {
     pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
         if is_function {
-            self.function_spaces += 1;
-            self.exit_function_sum += self.exit;
-            self.exit_max = self.exit_max.max(self.exit);
-            self.exit_min = self.exit_min.min(self.exit);
+            self.functions.fold(self.exit);
         }
     }
 }

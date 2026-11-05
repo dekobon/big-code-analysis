@@ -139,22 +139,46 @@ pub(crate) fn ruby_call_argument_list<'a>(call: &Node<'a>) -> Option<Node<'a>> {
 pub(crate) fn ruby_argument_names<'a>(
     argument: &Node<'a>,
     source: &'a [u8],
-) -> Vec<Option<&'a str>> {
+) -> impl Iterator<Item = Option<&'a str>> + use<'a> {
     use Ruby::*;
 
     // role-bypass: allow(StringLit) — how many names an argument spells; the
     // row owns the symbol and string kinds as literals, a different question
     match argument.kind_id().into() {
         SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol | String => {
-            vec![ruby_name_argument(argument, source)]
+            RubyArgumentNames::One(ruby_name_argument(argument, source))
         }
-        SymbolArray => argument
-            .children()
-            // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
-            .filter(|c| matches!(c.kind_id().into(), BareSymbol))
-            .map(|element| ruby_name_argument(&element, source))
-            .collect(),
-        _ => Vec::new(),
+        SymbolArray => RubyArgumentNames::Array(argument.children(), source),
+        _ => RubyArgumentNames::None,
+    }
+}
+
+// The three shapes [`ruby_argument_names`] answers with, as one
+// iterator so no caller allocates for a single symbol. `One` yields its
+// entry — resolvable or not — once, then becomes `None`.
+enum RubyArgumentNames<'a> {
+    None,
+    One(Option<&'a str>),
+    Array(crate::node::Children<'a>, &'a [u8]),
+}
+
+impl<'a> Iterator for RubyArgumentNames<'a> {
+    type Item = Option<&'a str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::None => None,
+            Self::One(name) => {
+                let name = *name;
+                *self = Self::None;
+                Some(name)
+            }
+            Self::Array(elements, source) => {
+                // role-bypass: allow(StringLit) — the array's element kind the row `wraps`
+                let element = elements.find(|c| matches!(c.kind_id().into(), Ruby::BareSymbol))?;
+                Some(ruby_name_argument(&element, source))
+            }
+        }
     }
 }
 

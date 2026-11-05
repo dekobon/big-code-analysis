@@ -14,16 +14,7 @@ impl Checker for PerlCode {
     // `FuncOpener` and `Container` rows are what the walk promotes and
     // `opens_space` labels. The rows read no bytes and no chain, so the
     // byte-less spelling forwards with none and answers the same.
-    fn is_func_space(node: &Node) -> bool {
-        const _: () = assert!(
-            !crate::roles::perl::func_opener::TEXT_GATED
-                && !crate::roles::perl::func_opener::CHAIN_GATED
-                && !crate::roles::perl::container::TEXT_GATED
-                && !crate::roles::perl::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_func_space!(perl);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,

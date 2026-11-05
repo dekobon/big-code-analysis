@@ -21,16 +21,7 @@ impl Getter for TypescriptCode {
     // binding gates read the chain, but none of them decides an
     // `opens`, so the byte-less spelling forwards with no chain and
     // answers the same.
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        const _: () = assert!(
-            !crate::roles::typescript::func_opener::TEXT_GATED
-                && !crate::roles::typescript::func_opener::CHAIN_GATED
-                && !crate::roles::typescript::container::TEXT_GATED
-                && !crate::roles::typescript::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_space_kind!(typescript);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,

@@ -29,7 +29,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::lang_helpers::python::{python_is_lambda, python_lambdas_below_statement_boundary};
 use crate::macros::implement_metric_trait;
-use crate::metrics::ConstraintReach;
+use crate::metrics::{ConstraintReach, FunctionPopulation};
 use crate::*;
 
 // `§B1` / `B2` / `B3` here and in the per-language modules cite Appendix B
@@ -69,40 +69,19 @@ use crate::*;
 // deviation for users.
 
 /// The `Cognitive Complexity` metric.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
     structural: usize,
     structural_sum: usize,
-    /// Sum of the own values of the function spaces in this subtree,
-    /// and their count: numerator and divisor of
-    /// [`Stats::cognitive_average`], folded by the same predicate as
-    /// `structural_min` / `structural_max` (#1284).
-    structural_function_sum: usize,
-    function_spaces: usize,
-    structural_min: usize,
-    structural_max: usize,
+    /// The function spaces of this subtree: numerator, divisor and
+    /// extrema of `average` / `min` / `max`, folded by one predicate
+    /// (#1284).
+    functions: FunctionPopulation<usize>,
     nesting: usize,
     boolean_seq: BoolSequence,
     constraint: ConstraintReach,
     bash_runs: bash::ComparisonRuns,
-}
-
-impl Default for Stats {
-    fn default() -> Self {
-        Self {
-            structural: 0,
-            structural_sum: 0,
-            structural_function_sum: 0,
-            function_spaces: 0,
-            structural_min: usize::MAX,
-            structural_max: 0,
-            nesting: 0,
-            boolean_seq: BoolSequence::default(),
-            constraint: ConstraintReach::default(),
-            bash_runs: bash::ComparisonRuns::default(),
-        }
-    }
 }
 
 impl fmt::Display for Stats {
@@ -121,11 +100,8 @@ impl fmt::Display for Stats {
 impl Stats {
     /// Merges a second `Cognitive Complexity` metric into the first one
     pub fn merge(&mut self, other: &Stats) {
-        self.structural_min = self.structural_min.min(other.structural_min);
-        self.structural_max = self.structural_max.max(other.structural_max);
         self.structural_sum += other.structural_sum;
-        self.structural_function_sum += other.structural_function_sum;
-        self.function_spaces += other.function_spaces;
+        self.functions.merge(&other.functions);
     }
 
     /// Returns the `Cognitive Complexity` metric value
@@ -141,24 +117,16 @@ impl Stats {
     }
 
     /// Returns the minimum `Cognitive Complexity` of a single function
-    /// space in the subtree.
-    ///
-    /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
-    /// into `structural_min` to `0`, so a subtree with no function space
-    /// serializes to a meaningful number rather than `1.8446744e19`.
+    /// space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cognitive_min(&self) -> u64 {
-        if self.structural_min == usize::MAX {
-            0
-        } else {
-            self.structural_min as u64
-        }
+        self.functions.min() as u64
     }
     /// Returns the maximum `Cognitive Complexity` of a single function
     /// space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cognitive_max(&self) -> u64 {
-        self.structural_max as u64
+        self.functions.max() as u64
     }
 
     /// Returns the average `Cognitive Complexity` per function.
@@ -177,7 +145,7 @@ impl Stats {
     /// reports `0.0` (#428).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
-        crate::metrics::average(self.structural_function_sum as f64, self.function_spaces)
+        self.functions.average()
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -190,10 +158,7 @@ impl Stats {
     pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
         if is_function {
-            self.function_spaces += 1;
-            self.structural_function_sum += self.structural;
-            self.structural_min = self.structural_min.min(self.structural);
-            self.structural_max = self.structural_max.max(self.structural);
+            self.functions.fold(self.structural);
         }
     }
 }
@@ -823,10 +788,10 @@ mod tests {
         assert!(ran > 0);
     }
 
-    /// A `Stats::default()` that never sees an
-    /// observation must not leak the `usize::MAX` sentinel for
-    /// `structural_min`. The getter collapses the sentinel to `0.0`
-    /// so JSON never emits `1.8446744e19`.
+    /// A `Stats::default()` that never sees an observation must not
+    /// leak the `usize::MAX` sentinel an empty population's `min`
+    /// starts from; the getter reports `0` so JSON never emits
+    /// `1.8446744e19`.
     #[test]
     fn cognitive_empty_file_min_is_zero() {
         let stats = Stats::default();

@@ -13,7 +13,7 @@
 //! write, and `resolved` applies it: a body of `W` `private def m`
 //! re-files `W` times at one lookup each where a position scan was `W²`
 //! (0.32 s against 0.18 s on `main` at 32,000; #1401 review).
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(clippy::wildcard_imports)]
 
 use super::*;
 use std::collections::HashMap;

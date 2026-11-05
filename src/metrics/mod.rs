@@ -157,6 +157,103 @@ pub(crate) fn average(sum: f64, count: usize) -> f64 {
     sum / count.max(1) as f64
 }
 
+/// A value a [`FunctionPopulation`] folds: the metric's own-value type,
+/// with the sentinel an empty population's `min` starts from.
+pub(crate) trait PopulationValue: Copy + PartialOrd {
+    const ZERO: Self;
+    const MAX: Self;
+    fn to_f64(self) -> f64;
+}
+
+impl PopulationValue for f64 {
+    const ZERO: Self = 0.;
+    const MAX: Self = f64::MAX;
+    fn to_f64(self) -> f64 {
+        self
+    }
+}
+
+impl PopulationValue for usize {
+    const ZERO: Self = 0;
+    const MAX: Self = usize::MAX;
+    #[allow(clippy::cast_precision_loss)]
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+
+/// The per-function aggregate of one metric: numerator, divisor and
+/// extrema folded over the same population — the
+/// [`SpaceKind::Function`][crate::SpaceKind] spaces of a subtree — so
+/// `min <= average <= max` holds by construction (#1284). One `fold`
+/// per function space, one `merge` per child; the all-space `sum` the
+/// metrics also publish is kept apart, in the metric's own field.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FunctionPopulation<T: PopulationValue> {
+    sum: T,
+    count: usize,
+    min: T,
+    max: T,
+}
+
+impl<T: PopulationValue> Default for FunctionPopulation<T> {
+    fn default() -> Self {
+        Self {
+            sum: T::ZERO,
+            count: 0,
+            min: T::MAX,
+            max: T::ZERO,
+        }
+    }
+}
+
+impl<T: PopulationValue + std::ops::AddAssign> FunctionPopulation<T> {
+    /// Folds one function space's own value.
+    #[inline]
+    pub(crate) fn fold(&mut self, own: T) {
+        self.sum += own;
+        self.count += 1;
+        if own < self.min {
+            self.min = own;
+        }
+        if own > self.max {
+            self.max = own;
+        }
+    }
+
+    /// Merges a child subtree's population into this one.
+    #[inline]
+    pub(crate) fn merge(&mut self, other: &Self) {
+        self.sum += other.sum;
+        self.count += other.count;
+        if other.min < self.min {
+            self.min = other.min;
+        }
+        if other.max > self.max {
+            self.max = other.max;
+        }
+    }
+
+    /// `sum / count`, `0.0` for an empty population (#428).
+    #[inline]
+    pub(crate) fn average(&self) -> f64 {
+        average(self.sum.to_f64(), self.count)
+    }
+
+    /// The smallest own value, or `ZERO` for an empty population — the
+    /// sentinel `MAX` an empty `min` starts from never serializes.
+    #[inline]
+    pub(crate) fn min(&self) -> T {
+        if self.count == 0 { T::ZERO } else { self.min }
+    }
+
+    /// The largest own value, `ZERO` for an empty population.
+    #[inline]
+    pub(crate) fn max(&self) -> T {
+        self.max
+    }
+}
+
 /// How far the C++ `requires` clause or `requires` expression the walk
 /// is inside reaches, so `cyclomatic`, `cognitive` and `abc` can leave
 /// it unscored in `O(1)` per node.

@@ -54,16 +54,7 @@ impl Getter for JavaCode {
     // never promoted one, and before #1696 this answered `Function` for
     // a node it was never asked about. Java's rows read no bytes and no
     // chain, so the byte-less spelling forwards with none.
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        const _: () = assert!(
-            !crate::roles::java::func_opener::TEXT_GATED
-                && !crate::roles::java::func_opener::CHAIN_GATED
-                && !crate::roles::java::container::TEXT_GATED
-                && !crate::roles::java::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_space_kind!(java);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,

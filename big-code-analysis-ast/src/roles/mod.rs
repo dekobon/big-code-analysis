@@ -2602,11 +2602,6 @@ mod tests {
         true
     }
 
-    /// `class_or_interface` in the `no_chain` shape.
-    pub(super) fn class_or_interface_no_chain(node: &Node<'_>, code: &[u8]) -> crate::SpaceKind {
-        class_or_interface(node, code, Ancestors::known(&[]))
-    }
-
     // An `always` that counts its calls, so a test can assert which
     // emitted predicates reach an owner's gate and which do not.
     crate::observation::counter!(recording_gate_calls, cfg(test));
@@ -2786,6 +2781,11 @@ mod tests {
         } else {
             crate::SpaceKind::Class
         }
+    }
+
+    /// `class_or_interface` in the `no_chain` shape.
+    pub(super) fn class_or_interface_no_chain(node: &Node<'_>, code: &[u8]) -> crate::SpaceKind {
+        class_or_interface(node, code, Ancestors::known(&[]))
     }
 
     // A fragment splices its kinds into the row in list order, before

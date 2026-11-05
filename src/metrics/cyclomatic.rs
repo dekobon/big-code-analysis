@@ -21,7 +21,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
-use crate::metrics::ConstraintReach;
+use crate::metrics::{ConstraintReach, FunctionPopulation};
 use crate::*;
 
 /// The `Cyclomatic` metric.
@@ -30,35 +30,26 @@ use crate::*;
 pub struct Stats {
     cyclomatic_sum: f64,
     cyclomatic: f64,
-    /// Sum of the own values of the [`SpaceKind::Function`][crate::SpaceKind]
-    /// spaces in this subtree: the numerator of [`Stats::cyclomatic_average`].
+    /// The [`SpaceKind::Function`][crate::SpaceKind] spaces of this
+    /// subtree: numerator, divisor and extrema of the standard
+    /// `average` / `min` / `max`, folded by one predicate.
     ///
     /// Kept apart from `cyclomatic_sum`, which also folds the base value
     /// every container and the file unit contribute: those spaces are
     /// not in the population `average`/`min`/`max` describe, and folding
     /// them into the numerator but not the divisor is what put
     /// `fn f() {}` at `average 2.0` against `min 1, max 1` (#1284).
-    cyclomatic_function_sum: f64,
-    /// Number of function/closure spaces in this subtree: the divisor of
-    /// the cyclomatic averages, and the population `cyclomatic_min` /
-    /// `cyclomatic_max` fold over.
-    ///
-    /// Bumped by [`Stats::compute_minmax`] for a
-    /// [`SpaceKind::Function`][crate::SpaceKind] space, then summed
-    /// across child spaces in [`Stats::merge`]. Sourced from the space
-    /// kind rather than from `nom`, so the averages are correct even
-    /// when `Nom` is not selected (#512), and so a closure that opens no
-    /// space (a Python `lambda`, which `nom` counts) is not a divisor
-    /// unit: its decisions fold into the enclosing function's own value,
-    /// so that function is the one population member they belong to.
-    function_spaces: usize,
-    cyclomatic_max: f64,
-    cyclomatic_min: f64,
+    /// The count is sourced from the space kind rather than from `nom`,
+    /// so the averages are correct even when `Nom` is not selected
+    /// (#512), and so a closure that opens no space (a Python `lambda`,
+    /// which `nom` counts) is not a divisor unit: its decisions fold
+    /// into the enclosing function's own value, so that function is the
+    /// one population member they belong to.
+    functions: FunctionPopulation<f64>,
     cyclomatic_modified_sum: f64,
     cyclomatic_modified: f64,
-    cyclomatic_modified_function_sum: f64,
-    cyclomatic_modified_max: f64,
-    cyclomatic_modified_min: f64,
+    /// The same population for the modified variant.
+    modified_functions: FunctionPopulation<f64>,
     constraint: ConstraintReach,
 }
 
@@ -67,15 +58,10 @@ impl Default for Stats {
         Self {
             cyclomatic_sum: 0.,
             cyclomatic: 1.,
-            cyclomatic_function_sum: 0.,
-            function_spaces: 0,
-            cyclomatic_max: 0.,
-            cyclomatic_min: f64::MAX,
+            functions: FunctionPopulation::default(),
             cyclomatic_modified_sum: 0.,
             cyclomatic_modified: 1.,
-            cyclomatic_modified_function_sum: 0.,
-            cyclomatic_modified_max: 0.,
-            cyclomatic_modified_min: f64::MAX,
+            modified_functions: FunctionPopulation::default(),
             constraint: ConstraintReach::default(),
         }
     }
@@ -102,20 +88,10 @@ impl fmt::Display for Stats {
 impl Stats {
     /// Merges a second `Cyclomatic` metric into the first one
     pub fn merge(&mut self, other: &Stats) {
-        self.cyclomatic_max = self.cyclomatic_max.max(other.cyclomatic_max);
-        self.cyclomatic_min = self.cyclomatic_min.min(other.cyclomatic_min);
         self.cyclomatic_sum += other.cyclomatic_sum;
-        self.cyclomatic_function_sum += other.cyclomatic_function_sum;
-        self.function_spaces += other.function_spaces;
-
-        self.cyclomatic_modified_max = self
-            .cyclomatic_modified_max
-            .max(other.cyclomatic_modified_max);
-        self.cyclomatic_modified_min = self
-            .cyclomatic_modified_min
-            .min(other.cyclomatic_modified_min);
+        self.functions.merge(&other.functions);
         self.cyclomatic_modified_sum += other.cyclomatic_modified_sum;
-        self.cyclomatic_modified_function_sum += other.cyclomatic_modified_function_sum;
+        self.modified_functions.merge(&other.modified_functions);
     }
 
     /// Returns the `Cyclomatic` metric value for the current space.
@@ -150,30 +126,21 @@ impl Stats {
     /// no function space reports `0.0`.
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_function_sum, self.function_spaces)
+        self.functions.average()
     }
 
     /// Returns the maximum standard cyclomatic complexity of a single
     /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_max(&self) -> u64 {
-        self.cyclomatic_max as u64
+        self.functions.max() as u64
     }
 
     /// Returns the minimum standard cyclomatic complexity of a single
-    /// function space in the subtree.
-    ///
-    /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
-    /// into `cyclomatic_min` to `0`, so a subtree with no function space
-    /// serializes to a meaningful number rather than `1.7976931e308`.
-    #[allow(clippy::float_cmp)]
+    /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_min(&self) -> u64 {
-        if self.cyclomatic_min == f64::MAX {
-            0
-        } else {
-            self.cyclomatic_min as u64
-        }
+        self.functions.min() as u64
     }
 
     /// Returns the modified cyclomatic complexity for the current space.
@@ -203,28 +170,21 @@ impl Stats {
     /// [`Stats::cyclomatic_average`].
     #[must_use]
     pub fn cyclomatic_modified_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_modified_function_sum, self.function_spaces)
+        self.modified_functions.average()
     }
 
     /// Returns the maximum modified cyclomatic complexity of a single
     /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_modified_max(&self) -> u64 {
-        self.cyclomatic_modified_max as u64
+        self.modified_functions.max() as u64
     }
 
     /// Returns the minimum modified cyclomatic complexity of a single
-    /// function space in the subtree.
-    ///
-    /// Same `f64::MAX` sentinel collapse as `cyclomatic_min`.
-    #[allow(clippy::float_cmp)]
+    /// function space in the subtree; `0` where there is none.
     #[must_use]
     pub fn cyclomatic_modified_min(&self) -> u64 {
-        if self.cyclomatic_modified_min == f64::MAX {
-            0
-        } else {
-            self.cyclomatic_modified_min as u64
-        }
+        self.modified_functions.min() as u64
     }
 
     #[inline]
@@ -245,15 +205,8 @@ impl Stats {
     pub(crate) fn compute_minmax(&mut self, is_function: bool) {
         self.compute_sum();
         if is_function {
-            self.function_spaces += 1;
-            self.cyclomatic_function_sum += self.cyclomatic;
-            self.cyclomatic_max = self.cyclomatic_max.max(self.cyclomatic);
-            self.cyclomatic_min = self.cyclomatic_min.min(self.cyclomatic);
-            self.cyclomatic_modified_function_sum += self.cyclomatic_modified;
-            self.cyclomatic_modified_max =
-                self.cyclomatic_modified_max.max(self.cyclomatic_modified);
-            self.cyclomatic_modified_min =
-                self.cyclomatic_modified_min.min(self.cyclomatic_modified);
+            self.functions.fold(self.cyclomatic);
+            self.modified_functions.fold(self.cyclomatic_modified);
         }
     }
 }

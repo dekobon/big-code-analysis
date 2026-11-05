@@ -35,16 +35,7 @@ impl Checker for MozjsCode {
     // the rows' gates answer off the chain (#1188). The byte-less
     // `is_func_space` is the legacy wrapper: no `opens` here is gated,
     // so it answers the same with no chain.
-    fn is_func_space(node: &Node) -> bool {
-        const _: () = assert!(
-            !crate::roles::mozjs::func_opener::TEXT_GATED
-                && !crate::roles::mozjs::func_opener::CHAIN_GATED
-                && !crate::roles::mozjs::container::TEXT_GATED
-                && !crate::roles::mozjs::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_func_space!(mozjs);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,

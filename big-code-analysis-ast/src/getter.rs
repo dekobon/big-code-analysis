@@ -71,6 +71,27 @@ macro_rules! get_operator {
     };
 }
 
+// The byte-less `get_space_kind` of a language whose space tree is its
+// `FuncOpener` and `Container` rows (#1696), the Getter half of
+// `checker.rs`'s `impl_byte_less_func_space!`: forwards with no bytes
+// and a known-empty chain, which the build asserts neither row reads
+// (#1793). Ruby and Elixir keep hand-written spellings for the reasons
+// given there.
+macro_rules! impl_byte_less_space_kind {
+    ($roles:ident) => {
+        fn get_space_kind(node: &Node) -> SpaceKind {
+            const _: () = assert!(
+                !$crate::roles::$roles::func_opener::TEXT_GATED
+                    && !$crate::roles::$roles::func_opener::CHAIN_GATED
+                    && !$crate::roles::$roles::container::TEXT_GATED
+                    && !$crate::roles::$roles::container::CHAIN_GATED,
+                "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+            );
+            Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
+        }
+    };
+}
+
 /// Emits a [`Getter::get_keyword_role`] from the language's `Modifier`,
 /// `DeclKeyword` and `Primitive` rows. A modifier or declaration
 /// keyword is an operator everywhere; a primitive is the operator the

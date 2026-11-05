@@ -137,11 +137,7 @@ impl<'a> RubyBodyConsumer<'a> for RubyMethodLedger<'a> {
             }
             RubyBodyShape::Call | RubyBodyShape::Wrapper => {}
             RubyBodyShape::Leaf => {
-                names.extend(
-                    ruby_argument_names(argument, self.code)
-                        .into_iter()
-                        .flatten(),
-                );
+                names.extend(ruby_argument_names(argument, self.code).flatten());
             }
         }
     }

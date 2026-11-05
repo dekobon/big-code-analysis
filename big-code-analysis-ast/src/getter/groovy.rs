@@ -58,16 +58,7 @@ impl Getter for GroovyCode {
     // The mapping is the `opens` annotations of `roles/groovy.rs`
     // (#1696); the byte-less spelling forwards with no bytes and no
     // chain, as the old one read neither.
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        const _: () = assert!(
-            !crate::roles::groovy::func_opener::TEXT_GATED
-                && !crate::roles::groovy::func_opener::CHAIN_GATED
-                && !crate::roles::groovy::container::TEXT_GATED
-                && !crate::roles::groovy::container::CHAIN_GATED,
-            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
-        );
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
+    impl_byte_less_space_kind!(groovy);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
