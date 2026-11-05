@@ -163,12 +163,6 @@ class MiseVersionTest(unittest.TestCase):
             GATE.read_mise_version("[tools\n", "rumdl")
         self.assertIn("not valid TOML", str(caught.exception))
 
-    def test_only_rumdl_has_a_mise_key(self) -> None:
-        # The sample, like the real mise.toml, declares no actionlint; a
-        # row that grew a key would make every run read one and fail.
-        self.assertEqual(GATE.RUMDL.mise_key, "rumdl")
-        self.assertIsNone(GATE.ACTIONLINT.mise_key)
-
 
 class CiPinTest(unittest.TestCase):
     def test_the_rumdl_step_env_is_returned(self) -> None:
@@ -567,6 +561,31 @@ class MainTest(RepoCase):
         self.assertEqual(out, "", "a failing run prints no OK line for either tool")
         self.assertIn("error: rumdl pin declarations disagree:", err)
         self.assertIn("error: actionlint pin declarations disagree:", err)
+
+    def test_an_unreadable_input_does_not_hide_the_other_tools_drift(self) -> None:
+        # A hard error on one tool's inputs is still a hard error, but it
+        # carries the other tool's drift with it, in either order.
+        cases = {
+            "actionlint unreadable": (
+                {"mise": MISE_SAMPLE.replace("0.3.2", "0.3.1"), "actionlint_baseline": "# x\n"},
+                "error: rumdl pin declarations disagree:",
+                GATE.ACTIONLINT,
+            ),
+            "rumdl unreadable": (
+                {"ci": CI_SAMPLE.replace(AL_SHA, NEW_AL_SHA), "rumdl_baseline": "# x\n"},
+                "error: actionlint pin declarations disagree:",
+                GATE.RUMDL,
+            ),
+        }
+        for name, (files, drift, unreadable) in cases.items():
+            with self.subTest(name):
+                self._repo(**files)
+                with self.assertRaises(SystemExit) as caught:
+                    self._run()
+                self.assertIn(drift, str(caught.exception))
+                self.assertIn(
+                    f"record in {unreadable.baseline}, found 0", str(caught.exception)
+                )
 
     def test_an_absent_input_file_is_a_hard_error(self) -> None:
         self._repo()

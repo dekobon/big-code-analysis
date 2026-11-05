@@ -58,9 +58,11 @@ rewrites only the baselines whose pair moved, and refuses when none did.
 **Why these two, not every pin the Dockerfile header mirrors from
 ``ci.yml``.** taplo, shfmt and shellcheck reach CI through
 ``taiki-e/install-action``, which carries no SHA256 to compare.
-checkmake's arm64 container path installs a different fork at a
-different version from CI's, so "the container matches CI" is false for
-it by design.
+checkmake's amd64 arm does install CI's pin, but its block verifies an
+inline hash (``echo "<sha>  /tmp/checkmake" | sha256sum --check``)
+rather than the ``SHA256="…"`` assignment the Dockerfile reader anchors
+on, so it is left out until that block takes the same shape. Its arm64
+arm's different fork is no obstacle, since no arm64 hash is compared.
 
 ``mise.toml`` is parsed with ``tomllib``. ``ci.yml`` and the
 ``Dockerfile`` are parsed by line, because PyYAML is not in the
@@ -69,7 +71,8 @@ contributor's bare ``python3`` and as a ``language: system`` pre-commit
 hook. Each read is anchored to a shape that occurs exactly once and
 hard-errors on anything else — no match, two matches, a malformed hash —
 because a version gate that silently passes on input it does not
-recognise is the bug being fixed, not a lenient version of the fix.
+recognise is the bug being fixed, not a lenient version of the fix. A
+hard error on one tool's inputs still reports the other tool's drift.
 
 Exit status: 0 when the pins agree (or ``--update`` recorded a new pair),
 1 on drift, on a refused ``--update`` or on an input the gate cannot
@@ -164,7 +167,9 @@ PINS = (RUMDL, ACTIONLINT)
 # "" for a bare `#` line. It is filled rather than spelled per tool so the
 # baselines cannot drift apart in wording; `_BASELINE_WIDTH` is the
 # column the rumdl baseline was first wrapped at, which reproduces its
-# committed bytes.
+# committed bytes. After editing the template, rewrite both files by
+# setting each record to a stale version and hash and running `--update`,
+# which refuses a run where nothing moved.
 _BASELINE_HEADER = (
     "{tool} lockstep baseline: the {tool} release and its x86_64 tarball "
     "SHA256 that check-rumdl-lockstep.py last accepted ({issue}).",
@@ -531,7 +536,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     texts = {path: read_repo_file(path) for path in (MISE_TOML, CI_WORKFLOW, DOCKERFILE)}
-    verdicts = [evaluate(pin, texts) for pin in PINS]
+    verdicts: list[Verdict] = []
+    unreadable: list[str] = []
+    for pin in PINS:
+        # The tools share no values, so an input one of them cannot read
+        # must not hide what the other's pins already say.
+        try:
+            verdicts.append(evaluate(pin, texts))
+        except SystemExit as exc:
+            unreadable.append(str(exc))
+    if unreadable:
+        reported = [
+            message
+            for verdict in verdicts
+            # An unrecorded pair is what `--update` was asked to record.
+            for message in (verdict.invalid, None if args.update else verdict.unrecorded)
+            if message
+        ]
+        raise SystemExit("\n".join(reported + unreadable))
 
     if args.update:
         return update(verdicts)
