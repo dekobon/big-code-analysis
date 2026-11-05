@@ -559,7 +559,7 @@ fn python_backslash_in_comment<'a>(
     last: usize,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let contains = |holder: &Node<'a>| holder.start_byte() <= last && last < holder.end_byte();
+    let contains = |holder: &Node<'a>| holder.as_tree_sitter().byte_range().contains(&last);
     ancestors
         .siblings_before(node)
         .next()
