@@ -705,6 +705,17 @@ running by hand; the refresh duty in "Baseline-refresh discipline" is
 what keeps the job quiet. See
 [`docs/development/baseline_freshness.md`](docs/development/baseline_freshness.md).
 
+**Advisories** is the fifth
+(`.github/workflows/deny-advisories.yml`, #1815): `cargo-deny check
+advisories` against `main`'s lockfile every Monday. The `deny` job in
+`ci.yml` runs the same check — plus bans, licences and sources, which
+do not age — on push, pull request and dispatch, never on a schedule,
+so between pushes an advisory is seen by Dependabot or Scorecard or not
+at all; a RUSTSEC `unsound` / `unmaintained` entry has no Dependabot
+path. A red run is the signal and no issue is filed. The fix is the
+same as for a red `deny` job: move the lockfile past the advisory, or
+add a documented `ignore` to `deny.toml`.
+
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.
 

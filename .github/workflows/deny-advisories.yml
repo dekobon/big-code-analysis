@@ -1,0 +1,52 @@
+name: Advisories
+
+# Weekly `cargo-deny check advisories` against the default branch's
+# lockfile (#1815).
+#
+# The `deny` job in ci.yml runs on push and pull request only, so an
+# advisory published between pushes is seen only by Dependabot or the
+# Scorecard job. Dependabot covers GHSA-listed advisories; a RUSTSEC
+# `unsound` or `unmaintained` entry — the class `deny.toml`'s
+# `unsound = "all"` was added for after RUSTSEC-2026-0306 slipped
+# through — has no Dependabot path at all, and a quiet week on `main`
+# leaves it invisible until the next unrelated push.
+#
+# Advisories only: `yanked = "deny"` is an `[advisories]` setting, so
+# yanks are covered; bans, licences and sources do not age between
+# pushes. A red run is the signal — no issue is filed, since that would
+# need `issues: write` and dedupe logic for a one-line check.
+#
+# Its own workflow rather than a `schedule:` on ci.yml, which would run
+# the whole matrix weekly.
+
+on:
+  schedule:
+    # 07:00 UTC every Monday. A Monday can fall on a quarterly
+    # out-of-band job's day; the check is a ten-minute read, so that
+    # costs nothing worth scheduling around.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per ref, so a dispatch on a branch cannot cancel a scheduled run on
+  # the default branch.
+  group: deny-advisories-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advisories:
+    name: cargo-deny advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories

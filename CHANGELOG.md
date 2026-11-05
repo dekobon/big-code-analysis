@@ -26,6 +26,16 @@ for historical reference.
 
 ### Added
 
+- **A weekly `cargo-deny check advisories` run** against `main`'s
+  lockfile (`.github/workflows/deny-advisories.yml`, #1815). The
+  `deny` job in `ci.yml` runs on push and pull request only, so an
+  advisory published between pushes was seen by Dependabot or the
+  Scorecard job or not at all — and a RUSTSEC `unsound` or
+  `unmaintained` entry, the class `deny.toml`'s `unsound = "all"` was
+  added for after RUSTSEC-2026-0306, has no Dependabot path. Advisories
+  only (yanks are an `[advisories]` setting; bans, licences and sources
+  do not age), Mondays 07:00 UTC, a red run as the signal and no issue
+  filed.
 - **`bca vcs` honours `diff.renameLimit`** (#1814). Rename tracking in
   the history walk (`bca vcs`, `vcs trend`, `--vcs`), `vcs commit` and
   per-function blame ran at gix's
