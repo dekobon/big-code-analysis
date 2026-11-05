@@ -661,13 +661,15 @@ impl AttributeSources {
             .then(|| Source::System.storage_location(env))
             .flatten();
         let base = repo.current_dir();
-        let paths = [
+        let mut files = [
             system,
             user,
             Some(repo.common_dir().join("info").join("attributes")),
         ]
-        .map(|path| path.map(|path| base.join(path)));
-        let mut files = paths.map(|path| AttributeSource { path, bytes: None });
+        .map(|path| AttributeSource {
+            path: path.map(|path| base.join(path)),
+            bytes: None,
+        });
         for file in &mut files {
             file.bytes = match file.path.as_deref().map(std::fs::read) {
                 Some(Ok(bytes)) => Some(bytes),

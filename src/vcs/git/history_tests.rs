@@ -470,7 +470,13 @@ fn the_hand_built_stack_resolves_diff_as_gix_s_does() {
 /// `/etc/gitattributes` location cannot be planted), and a relative
 /// `core.attributesFile` anchored to the opening directory rather
 /// than the process's — the row below does both through the path
-/// list rather than through the files' contents.
+/// list rather than through the files' contents. No `chdir` is
+/// staged between open and read: that would need a process-wide
+/// lock the lib tests do not share, and the anchor assertion is the
+/// whole of what gix does (`current_dir.join(path)`), so the
+/// unanchored path is what fails it. Verified by revert, and by a
+/// fixture perturbation: an absolute `core.attributesFile` fails the
+/// opening-directory row, so the row depends on the relative spelling.
 #[test]
 fn the_hand_built_capture_selects_the_paths_gix_selects() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -511,14 +517,13 @@ fn the_hand_built_capture_selects_the_paths_gix_selects() {
         "gix's own selection must be the capture's user path and nothing else"
     );
     assert_eq!(
-        info.path.as_deref(),
+        info.path,
         Some(
             repo.current_dir()
                 .join(repo.common_dir())
                 .join("info")
                 .join("attributes")
-        )
-        .as_deref(),
+        ),
         "`info/attributes` is anchored the way gix anchors its own"
     );
 }
