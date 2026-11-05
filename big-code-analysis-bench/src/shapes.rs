@@ -4433,10 +4433,11 @@ mod tests {
         }
     }
 
-    /// The three #1445 bare-row probes read their bare rows: each unit's
-    /// reading counts the `\`-only row as well as the row it continues,
-    /// so a shape that lost the bare row reads `1 × size` (Tcl, comment
-    /// rows) or `4 × size` (Bash, code rows) instead. The timing bound
+    /// The bare-row probes (#1445, #1801) read their bare rows: each unit's
+    /// reading counts the `\`-only row with the rows around it, so a shape
+    /// that lost the bare row reads one row per unit fewer — `1 × size`
+    /// for the Tcl and C comment rows, `2 × size` for Elixir's, `4 × size`
+    /// for Bash's code rows. The timing bound
     /// cannot tell — the shape would still grow — and nor can
     /// `probe_workload_is_exercised` or the growth check.
     #[test]
