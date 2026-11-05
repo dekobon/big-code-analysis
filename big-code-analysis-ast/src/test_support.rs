@@ -68,7 +68,11 @@ impl<const N: usize> std::fmt::Debug for Labelled<N> {
 /// numbered by position, and `NAMES`, each slot's name by index, so a
 /// slot and the name [`Labelled`] prints for it cannot disagree. Test-only:
 /// the harnesses compile under `cfg(test)` alone, not `test-support`.
+// Both harnesses are gated per language, so a build with none of theirs
+// (`--no-default-features`) invokes this nowhere. The crate root relaxes
+// `dead_code` and `unused_imports` for partial builds the same way.
 #[cfg(test)]
+#[cfg_attr(not(feature = "all-languages"), allow(unused_macros))]
 macro_rules! slots {
     ($($name:ident),+ $(,)?) => {
         /// Each slot's name, indexed by slot.
