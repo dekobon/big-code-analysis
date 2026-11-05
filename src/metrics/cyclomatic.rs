@@ -115,7 +115,7 @@ impl Stats {
     /// Returns the average standard cyclomatic complexity per function:
     /// the function-space population [`Stats::cyclomatic_min`] and
     /// [`Stats::cyclomatic_max`] also read, `0.0` where it is empty
-    /// (`FunctionPopulation`, #1284).
+    /// (the book's *Aggregate population*, #1284).
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
         self.functions.average()

@@ -132,7 +132,7 @@ impl Stats {
     /// Returns the average `Cognitive Complexity` per function: the
     /// function-space population [`Stats::cognitive_min`] and
     /// [`Stats::cognitive_max`] also read, `0.0` where it is empty
-    /// (`FunctionPopulation`, #1284).
+    /// (the book's *Aggregate population*, #1284).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
         self.functions.average()
@@ -6457,13 +6457,17 @@ fn ie(x: bool) -> i32 {
         // #1765: +1 for any written level, `continue 1` included, +0 for
         // the bare word. The builtin is a `command` like any other, so
         // the arm reads the leading word (grammar-dispatch §9).
+        // The option terminator `--` is no level: `break --` is the bare
+        // jump, `break -- 2` a levelled one.
         // expected: for(+1) + for(+2 nested) + break 2(+1) + while(+1) +
-        // continue 1(+1) + while(+1) + bare break(+0) = 7; was 5 on
-        // main, where both levelled jumps scored +0. Cyclomatic is the
-        // fixture's second axis: 6 with the jumps and 6 with them
-        // replaced by `:` (measured on main), the jumps being no
-        // decisions — so the cognitive `sum` is what they move, and a
-        // fixture that lost them would read 5 there, not 7.
+        // continue 1(+1) + until(+1) + bare break(+0) + for(+1) +
+        // break --(+0) + for(+1) + break -- 2(+1) = 10; was 7 on main,
+        // where the three levelled jumps scored +0. Cyclomatic is the
+        // fixture's second axis: unit 1 + function 1 + six loops = 8
+        // with the jumps and with them replaced by `:` (measured on
+        // main), the jumps being no decisions — so the cognitive `sum`
+        // is what they move, and a fixture that lost them would read 7
+        // there, not 10.
         check_cognitive_and_cyclomatic::<BashParser>(
             "f() {
                  for i in 1 2; do            # +1
@@ -6477,23 +6481,51 @@ fn ie(x: bool) -> i32 {
                  until false; do             # +1
                      break                   # +0
                  done
+                 for i in 1; do              # +1
+                     break --                # +0
+                 done
+                 for i in 1; do              # +1
+                     break -- 2              # +1
+                 done
              }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 7);
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_sum(), 10);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 8);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 7,
+                  "sum": 10,
                   "value": 0,
-                  "average": 7.0,
-                  "min": 7,
-                  "max": 7
+                  "average": 10.0,
+                  "min": 10,
+                  "max": 10
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_jump_reading_is_syntactic_1765() {
+        // A function the script defines under the builtin's name is
+        // legal outside POSIX mode and is read as the builtin: the walk
+        // resolves no names, the limit every leading-word reading
+        // shares. Pinned so the gap is a stated one, not an oversight.
+        // expected: `break 2` inside `f` is read as a levelled jump
+        // (+1) though it calls the function; the definition itself
+        // opens a space and scores 0.
+        check_metrics::<BashParser>(
+            "break() { printf '%s' \"$1\"; }
+             f() {
+                 break 2                     # +1, read as the builtin
+             }",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }

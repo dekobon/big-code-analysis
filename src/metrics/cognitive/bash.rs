@@ -41,7 +41,12 @@ const RUN_COMPARISONS: [u16; 4] = [
 
 /// Whether a `command` is `break` or `continue` with a level argument
 /// (`break 2`), by the text of its `name` field and a named child
-/// after it. A comment extra is not an argument.
+/// after it. A comment extra is not an argument, nor is the option
+/// terminator `--` (`break --` takes the default level; `break -- 2`
+/// writes one). Syntactic: a function the script defines under the
+/// builtin's name (`break() { …; }`, legal outside POSIX mode) is read
+/// as the builtin, since the walk resolves no names — the limit every
+/// leading-word reading here shares (grammar-dispatch §9).
 fn bash_jump_with_level(node: &Node<'_>, code: &[u8]) -> bool {
     let Some(name) = node.child_by_field_name("name") else {
         return false;
@@ -49,7 +54,8 @@ fn bash_jump_with_level(node: &Node<'_>, code: &[u8]) -> bool {
     matches!(name.utf8_text(code), Some("break" | "continue"))
         && node
             .children_after(&name)
-            .any(|c| c.is_named() && !crate::roles::bash::comment::lists_kind(c.kind_id()))
+            .filter(|c| c.is_named() && !crate::roles::bash::comment::lists_kind(c.kind_id()))
+            .any(|c| c.utf8_text(code) != Some("--"))
 }
 
 /// The comparison runs the walk is inside, innermost last. A run member

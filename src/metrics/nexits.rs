@@ -85,7 +85,7 @@ impl Stats {
 
     /// Returns the average `NExit` per function: the function-space
     /// population [`Stats::nexits_min`] and [`Stats::nexits_max`] also
-    /// read, `0.0` where it is empty (`FunctionPopulation`, #1284).
+    /// read, `0.0` where it is empty (the book's *Aggregate population*, #1284).
     #[must_use]
     pub fn nexits_average(&self) -> f64 {
         self.functions.average()
