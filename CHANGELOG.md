@@ -1522,6 +1522,21 @@ for historical reference.
   so a reduced-trust config cannot set it. The parity test the
   digest's doc comment asks of every gix bump now pins the capture's
   user file to gix's own selection.
+- Cleared RUSTSEC-2026-0374 (Scorecard code-scanning alert 776,
+  `basic-toml` unmaintained) by narrowing the `askama` dependency of
+  the workspace-excluded `enums/` codegen helper to
+  `default-features = false, features = ["derive", "std"]`. The crate
+  was reached only through askama's default `config` feature — an
+  `askama.toml` reader `enums/` has no file for — and only in
+  `enums/Cargo.lock`: it never entered the root, `fuzz/` or any
+  vendored-grammar lockfile, so no shipped binary, the library or the
+  Python wheel ever linked it. `basic-toml` and `glob` left the
+  lockfile, seven dependency edges with them; no retained package
+  version or checksum moved. All four generator modes (`rust`,
+  `c_macros`, `go`, `json`) produce byte-identical output before and
+  after. The upstream replacement (askama-rs/askama#771) is merged but
+  unreleased; the narrow feature set stays regardless, since the
+  defaults it drops are unused here.
 
 ## [2.4.0] - 2026-10-21
 
