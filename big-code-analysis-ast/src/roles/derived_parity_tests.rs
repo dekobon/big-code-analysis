@@ -1057,15 +1057,18 @@ fn forwards_on<'a, C: Checker + crate::Getter>(
 /// forward and kind: each a context the forward drops and the row
 /// reads. Pinned in both directions — an entry that stops disagreeing
 /// fails as stale — so a tolerance cannot widen silently. A forward
-/// with a build-time `!TEXT_GATED` pin has no entry here; its row
-/// reads no bytes, and this is the pin it lacks for the chain.
+/// with a build-time `!TEXT_GATED` / `!CHAIN_GATED` pin has no entry
+/// here; its row takes neither of what it drops (#1793), and
+/// `no_chain_rows_answer_alike_under_the_empty_chain` is the
+/// behavioural half of the chain pin.
 const KNOWN_DISAGREEMENTS: &[(&str, &str, &str, &str)] = &[
     // The byte-less `is_func_space` / `get_space_kind` forward with
     // `&[], Ancestors::known(&[])`, which is exact only where no
     // opener's gate reads the chain or the bytes. Ruby's `block` /
     // `do_block` under a stabby lambda is the chain case
     // (`ruby_byte_less_spellings_stay_the_kind_table`), which no
-    // fixture here spells; Elixir is the bytes case.
+    // fixture here spells, and the one forward with no build-time
+    // pin; Elixir is the bytes case, and overrides rather than forwards.
     (
         "Elixir",
         "is_func_space",
@@ -1233,6 +1236,159 @@ fn corpus_every_known_disagreement_is_still_met() {
         stale.is_empty(),
         "KNOWN_DISAGREEMENTS entries the corpus no longer shows:\n{}",
         stale.join("\n")
+    );
+}
+
+/// The behavioural backstop for `no_chain` (#1793): on every row whose
+/// `CHAIN_GATED` is false, every owner candidate of the corpus answers
+/// `owns_kind` the same under the walk's real chain and under
+/// `Ancestors::known(&[])` — the chain that says the node is the root
+/// — and so does the table's `opens_space` fold, which `owns_kind`
+/// never reaches for an `opens_by` owner. `CHAIN_GATED = false` proves
+/// at build time that no such gate *takes* a chain; it cannot see one
+/// that climbs with `Node::parent` from its two arguments. The
+/// comparison sees a climb whose answer differs between the two
+/// chains; a climb whose answer agrees on every candidate (lesson 114)
+/// — `parent().is_some()`, say, true under both — is what the two
+/// climb counters see: `node_resolved_parent_lookups` and
+/// `node_resolved_sibling_lookups` must not move while the unchained
+/// rows are asked, so any `Node::parent` / `Node::previous_sibling`
+/// a marked gate reaches is reported whatever it answers. What neither
+/// half sees is a climb through some other tree walk the counters do
+/// not cover, which stays a review item on a marked gate. Never
+/// `Ancestors::unknown()`, which rebuilds the parent and answers
+/// exactly through the climb it exists to price (lesson 114).
+///
+/// Verified to discriminate both ways (recorded on #1793): a
+/// `no_chain` gate reading `node.parent().is_some()` — true under
+/// every chain — fails the counter half, and one reading
+/// `node.parent()`'s kind fails the comparison half too.
+/// What the chain backstop found on one language: the per-gate
+/// findings, deduplicated by `(role, kind)` since one climbing gate
+/// answers on every candidate of its kind.
+#[derive(Default)]
+struct ChainProbe {
+    asked: usize,
+    disagreements: BTreeSet<String>,
+    climbs: BTreeSet<String>,
+}
+
+impl ChainProbe {
+    /// Asks every unchained row that owns `node`'s kind under the real
+    /// chain and the empty one, then the `opens_space` fold where no
+    /// chain-gated opener owns the kind.
+    fn probe<'a>(
+        &mut self,
+        table: &LanguageTable,
+        rows: &[RowView],
+        unchained: &[DeclaredRow],
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) {
+        let empty = Ancestors::known(&[]);
+        let kind = node.kind_id();
+        let mut owner_of_unchained = false;
+        for row in unchained {
+            if !row.owners.contains(&kind) {
+                continue;
+            }
+            owner_of_unchained = true;
+            self.asked += 1;
+            let at = format!("{} {} on `{}`", table.name, row.role, node.kind());
+            let climbed = |p: usize, s: usize| {
+                (
+                    crate::node::node_resolved_parent_lookups::observed() - p,
+                    crate::node::node_resolved_sibling_lookups::observed() - s,
+                )
+            };
+            let (p, s) = climbed(0, 0);
+            let real = (row.owns_kind)(kind, node, code, ancestors);
+            let rootless = (row.owns_kind)(kind, node, code, empty);
+            let (parents, siblings) = climbed(p, s);
+            if (parents, siblings) != (0, 0) {
+                self.climbs.insert(format!(
+                    "{at}: {parents} parent and {siblings} sibling climb(s)"
+                ));
+            }
+            if real != rootless {
+                self.disagreements.insert(format!(
+                    "{at}: owns {real} with the chain, {rootless} without"
+                ));
+            }
+        }
+        // The fold reads every row's `opens` / `opens_by`, so it is
+        // compared only where every space-opening row of the node's
+        // kind is unchained: Ruby's `block` is a chain-gated opener and
+        // disagrees by design
+        // (`ruby_byte_less_spellings_stay_the_kind_table`).
+        let chained_opener = rows.iter().filter_map(RowView::declared).any(|r| {
+            r.chain_gated
+                && matches!(r.role, "FuncOpener" | "Container")
+                && r.owners.contains(&kind)
+        });
+        if owner_of_unchained && !chained_opener {
+            let real = (table.opens_space)(node, code, ancestors);
+            let rootless = (table.opens_space)(node, code, empty);
+            if real != rootless {
+                self.disagreements.insert(format!(
+                    "{} opens_space on `{}`: {real:?} with the chain, {rootless:?} without",
+                    table.name,
+                    node.kind()
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn no_chain_rows_answer_alike_under_the_empty_chain() {
+    let mut probe = ChainProbe::default();
+    let mut rows_asked = 0;
+    for table in crate::roles::tables() {
+        if !table.lang.is_enabled() {
+            continue;
+        }
+        let rows = (table.rows)();
+        let unchained: Vec<DeclaredRow> = rows
+            .iter()
+            .filter_map(RowView::declared)
+            .filter(|r| !r.chain_gated)
+            .copied()
+            .collect();
+        rows_asked += unchained.len();
+        for source in sources_for(table.lang) {
+            let code = source.bytes.as_slice();
+            with_code_tag!(table.lang, |C| {
+                for_each_node_with_sibling_cache::<C>(code, |node, ancestors| {
+                    if node.start_byte() != node.end_byte() {
+                        probe.probe(table, &rows, &unchained, node, code, ancestors);
+                    }
+                });
+            });
+        }
+    }
+    assert!(
+        rows_asked > 0,
+        "no `!CHAIN_GATED` row in any enabled language"
+    );
+    assert!(
+        probe.asked > 0,
+        "no owner candidate of a `!CHAIN_GATED` row in the corpus"
+    );
+    assert!(
+        probe.disagreements.is_empty(),
+        "a `!CHAIN_GATED` row answers differently without its chain — a `no_chain` gate climbs:\n{}",
+        probe
+            .disagreements
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(
+        probe.climbs.is_empty(),
+        "a `!CHAIN_GATED` row climbed with `Node::parent` / `Node::previous_sibling` while asked:\n{}",
+        probe.climbs.into_iter().collect::<Vec<_>>().join("\n")
     );
 }
 

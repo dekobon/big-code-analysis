@@ -27,7 +27,7 @@ tcl_family_string_gates!(
 
 /// Whether a `command` is `return` or `error`, by the text of its `name`
 /// field with a leading `::` stripped. Invalid UTF-8 reads as no match.
-fn return_or_error<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn return_or_error(node: &Node<'_>, code: &[u8]) -> bool {
     node.child_by_field_name("name").is_some_and(|name| {
         matches!(
             name.utf8_text(code)
@@ -109,7 +109,7 @@ role_table! {
     // matched: TMOS iRules runs a Tcl 8.4-derived interpreter with no
     // such builtin. iRules flow commands (`event disable`, `reject`,
     // `drop`) stay uncounted (#1270).
-    Exit { owns [Command(text_gated_by return_or_error)] }
+    Exit { owns [Command(text_gated_by return_or_error no_chain)] }
     Modifier { absent "Tcl has no modifier keywords" }
     // Tcl's keywords (`Proc`, `Namespace2`, `Set2`, `Global2`) plus
     // `when`, which opens an event handler — the F5 construct the

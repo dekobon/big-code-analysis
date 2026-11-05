@@ -15,18 +15,14 @@ use crate::{Ancestors, Node, Perl};
 /// Whether a POD block is documentation rather than a `=begin comment`
 /// region — Perl's idiom for commenting code out, which perldoc skips —
 /// read from the bytes.
-fn pod_documents<'a>(node: &Node<'a>, code: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn pod_documents(node: &Node<'_>, code: &[u8]) -> bool {
     !pod_comment_region(node_bytes(node, code))
 }
 
 /// Whether an expression holds one of the `ShortCircuit` payers among
 /// its tokens, with an `and` counted only where it is the operator and
 /// not an auto-quoted key (see `applied_and`).
-fn short_circuit_operator<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn short_circuit_operator(node: &Node<'_>, _code: &[u8]) -> bool {
     node.children().any(|token| {
         let kind = token.kind_id();
         if kind == Perl::And as u16 {
@@ -140,8 +136,8 @@ role_table! {
     // is `EagerLogical`'s: it does not short-circuit (#1536).
     ShortCircuit {
         owns [
-            BinaryExpression(gated_by short_circuit_operator),
-            UnaryExpression(gated_by short_circuit_operator),
+            BinaryExpression(gated_by short_circuit_operator no_chain),
+            UnaryExpression(gated_by short_circuit_operator no_chain),
         ]
         pays [AMPAMP, PIPEPIPE, Or, And gated_by applied_and]
         project "operator"
@@ -262,7 +258,7 @@ role_table! {
     // `is_comment` is the two kind tables as one, which keeps a comment
     // region a comment (#1699).
     Comment { owns [Comments] }
-    DocComment { owns [PodStatement(text_gated_by pod_documents)] }
+    DocComment { owns [PodStatement(text_gated_by pod_documents no_chain)] }
     Docstring { absent "Perl documents with POD, not string literals" }
     // perldoc extracts POD wherever it sits, attached to nothing —
     // there is no `DocBinding` and no declaration a block binds to.

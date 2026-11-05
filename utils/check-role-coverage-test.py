@@ -667,18 +667,46 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(
             rt.dump_table(table, self.t.languages / "language_java.rs"),
             "lang Java\n"
-            "Call rows owners=[5] payers=[] wraps=[] excluded=[] mode=split\n"
-            "Branch rows owners=[1] payers=[2] wraps=[] excluded=[] mode=split\n"
-            "Container rows owners=[6] payers=[] wraps=[] excluded=[] mode=never\n",
+            "Call rows owners=[5] payers=[] wraps=[] excluded=[] mode=split text_gated=false chain_gated=false\n"
+            "Branch rows owners=[1] payers=[2] wraps=[] excluded=[] mode=split text_gated=false chain_gated=false\n"
+            "Container rows owners=[6] payers=[] wraps=[] excluded=[] mode=never text_gated=false chain_gated=false\n",
         )
         self.t.table("    Call { owns [MethodInvocation] }\n    Branch { pending R07 }\n    Container { absent \"none\" }\n")
         table = rt.parse_table(self.t.roles / "java.rs")
         self.assertEqual(
             rt.dump_table(table, self.t.languages / "language_java.rs"),
             "lang Java\n"
-            "Call rows owners=[5] payers=[] wraps=[] excluded=[] mode=owners\n"
+            "Call rows owners=[5] payers=[] wraps=[] excluded=[] mode=owners text_gated=false chain_gated=false\n"
             "Branch pending R07\n"
             "Container absent none\n",
+        )
+
+    def test_the_canonical_dump_names_each_context_flag(self) -> None:
+        # The two flags after the mode (#1793): `text_gated` from the
+        # keyword, `chain_gated` from the absence of `no_chain` on a
+        # gate or `opens_by` — each fn marked on its own, so a two-fn
+        # owner reads by its unmarked fn whichever is written first.
+        # One row per text × chain combination, then the two-fn pairs.
+        self.t.table(
+            "    Call { owns [MethodInvocation(text_gated_by f no_chain)] }\n"
+            "    Branch { owns [Identifier(text_gated_by f)] }\n"
+            "    Container { owns [Volatile(gated_by g no_chain opens_by h no_chain)] }\n"
+            "    Loop { owns [LT(gated_by g)] }\n"
+            "    FuncOpener { owns [LT2(opens_by h gated_by g no_chain)] }\n"
+            "    Exit { owns [Hidden(gated_by g opens_by h no_chain)] }\n"
+            "    Catch { owns [End(holds_payer gated_by g no_chain)] pays [LT] }\n"
+        )
+        table = rt.parse_table(self.t.roles / "java.rs")
+        self.assertEqual(
+            rt.dump_table(table, self.t.languages / "language_java.rs"),
+            "lang Java\n"
+            "Call rows owners=[5] payers=[] wraps=[] excluded=[] mode=owners text_gated=true chain_gated=false\n"
+            "Branch rows owners=[1] payers=[] wraps=[] excluded=[] mode=owners text_gated=true chain_gated=true\n"
+            "Container rows owners=[6] payers=[] wraps=[] excluded=[] mode=owners text_gated=false chain_gated=false\n"
+            "Loop rows owners=[2] payers=[] wraps=[] excluded=[] mode=owners text_gated=false chain_gated=true\n"
+            "FuncOpener rows owners=[3] payers=[] wraps=[] excluded=[] mode=owners text_gated=false chain_gated=true\n"
+            "Exit rows owners=[4] payers=[] wraps=[] excluded=[] mode=owners text_gated=false chain_gated=true\n"
+            "Catch rows owners=[0] payers=[2] wraps=[] excluded=[] mode=split text_gated=false chain_gated=false\n",
         )
 
 

@@ -37,7 +37,7 @@ fn package_takes_the_file_doc<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestor
 
 /// Whether an `object_creation_expression` carries a `class_body`, which
 /// makes it an anonymous class rather than a plain `new Foo()` (#463).
-fn has_class_body<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
     java_anonymous_class_body(node).is_some()
 }
 
@@ -186,7 +186,7 @@ role_table! {
             RecordDeclaration(opens Class),
             InterfaceDeclaration(opens Interface),
             AnnotationTypeDeclaration(opens Interface),
-            ObjectCreationExpression(opens Class gated_by has_class_body),
+            ObjectCreationExpression(opens Class gated_by has_class_body no_chain),
         ]
     }
 
@@ -318,8 +318,8 @@ role_table! {
     Comment { owns [LineComment, BlockComment] }
     DocComment {
         owns [
-            LineComment(text_gated_by opens_with_javadoc_marker),
-            BlockComment(text_gated_by opens_with_javadoc_marker),
+            LineComment(text_gated_by opens_with_javadoc_marker no_chain),
+            BlockComment(text_gated_by opens_with_javadoc_marker no_chain),
         ]
     }
     Docstring { absent "Java documents with comments, not string literals" }

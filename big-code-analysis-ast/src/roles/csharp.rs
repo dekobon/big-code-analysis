@@ -21,7 +21,7 @@ use crate::{Ancestors, Csharp, Node};
 /// form defers to its `accessor_declaration` children, which open
 /// theirs (#464, #472; lesson 65: gate, never delete — the childless
 /// form relied on the kind being listed at all).
-fn has_no_accessors<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_no_accessors(node: &Node<'_>, _code: &[u8]) -> bool {
     !csharp_member_has_accessors(node)
 }
 
@@ -37,11 +37,7 @@ fn has_no_accessors<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a,
 /// wraps a keyword leaf the row already owns and is nothing itself. A
 /// grammar bump that aliases another spelling lands here unclaimed
 /// rather than billed as whichever word happened to be last.
-fn aliases_a_modifier_keyword<'a>(
-    node: &Node<'a>,
-    code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn aliases_a_modifier_keyword(node: &Node<'_>, code: &[u8]) -> bool {
     csharp_is_aliased_modifier(node)
         && matches!(
             node_text(code, node),
@@ -230,7 +226,7 @@ role_table! {
         owns [
             Public, Private, Protected, Internal, Static, Abstract, Virtual, Override, Sealed,
             Partial, Readonly, Const, Extern, Unsafe, Volatile, Async, Required, File, Fixed,
-            Implicit, Explicit, Modifier(text_gated_by aliases_a_modifier_keyword),
+            Implicit, Explicit, Modifier(text_gated_by aliases_a_modifier_keyword no_chain),
         ]
     }
     // The declaration and namespace keywords, each its leaf under an
@@ -263,8 +259,8 @@ role_table! {
             AccessorDeclaration(callable opens Function),
             OperatorDeclaration(callable opens Function),
             ConversionOperatorDeclaration(callable opens Function),
-            IndexerDeclaration(callable opens Function gated_by has_no_accessors),
-            PropertyDeclaration(callable opens Function gated_by has_no_accessors),
+            IndexerDeclaration(callable opens Function gated_by has_no_accessors no_chain),
+            PropertyDeclaration(callable opens Function gated_by has_no_accessors no_chain),
             LambdaExpression(opens Function),
             AnonymousMethodExpression(opens Function),
         ]
@@ -289,7 +285,7 @@ role_table! {
     // The one comment kind, a `DocComment` owner under the marker gate
     // (#1699).
     Comment { owns [Comment] }
-    DocComment { owns [Comment(text_gated_by opens_with_xml_doc_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_xml_doc_marker no_chain)] }
     Docstring { absent "C# documents with `///` comments, not string literals" }
     // The members `DocumentationCommentCompiler` writes: a type, a
     // delegate, a member and an enum member. A namespace (block or

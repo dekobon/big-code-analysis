@@ -7,6 +7,13 @@ impl Getter for MozjsCode {
     // The mapping is the `opens` annotations of `roles/mozjs.rs` (#1696);
     // see `getter/javascript.rs`.
     fn get_space_kind(node: &Node) -> SpaceKind {
+        const _: () = assert!(
+            !crate::roles::mozjs::func_opener::TEXT_GATED
+                && !crate::roles::mozjs::func_opener::CHAIN_GATED
+                && !crate::roles::mozjs::container::TEXT_GATED
+                && !crate::roles::mozjs::container::CHAIN_GATED,
+            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+        );
         Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 

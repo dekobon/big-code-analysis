@@ -45,6 +45,20 @@ crate::observation::counter!(
     cfg(any(test, feature = "test-support"))
 );
 
+// Parent lookups that climbed from the node, on this thread.
+//
+// [`Node::parent`] answers what a chain's `last()` does, so a row gate
+// declared `no_chain` — two arguments, no chain to read — that climbs
+// with it answers identically under any chain its caller held, and no
+// comparison of the row's answers can see the climb (#1793). The
+// counter is what makes one a test failure: the derived suite asks
+// every `!CHAIN_GATED` row of every corpus candidate and asserts this
+// and the sibling counter above stay still.
+crate::observation::counter!(
+    node_resolved_parent_lookups,
+    cfg(any(test, feature = "test-support"))
+);
+
 // Child scans that built their own `TreeCursor`, on this thread.
 //
 // [`Node::children_with`] yields exactly what [`Node::children`] yields
@@ -320,6 +334,7 @@ impl<'a> Node<'a> {
     /// of a `dump`, and tests. `rg '\.parent\(\)' src/` re-checks that.
     #[inline]
     pub fn parent(&self) -> Option<Node<'a>> {
+        node_resolved_parent_lookups::record();
         self.0.parent().map(Node)
     }
 

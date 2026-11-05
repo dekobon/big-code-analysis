@@ -414,7 +414,7 @@ role_table! {
     // as one, which is what keeps the empty `/**/` a comment (#697,
     // #1699).
     Comment { owns [LineComment, BlockComment] }
-    DocComment { owns [GroovydocComment(text_gated_by opens_with_groovydoc_marker)] }
+    DocComment { owns [GroovydocComment(text_gated_by opens_with_groovydoc_marker no_chain)] }
     Docstring { absent "Groovy documents with comments, not string literals" }
     // The nodes `AstBuilder` hands to `GroovydocManager::handle`: a
     // type, a method or constructor, a field or property, an enum

@@ -44,7 +44,7 @@ fn is_exit_command<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_
 
 /// A `try` with at least one `on error` / `trap` handler: an `arguments`
 /// child followed by a body (`tcl_try_handler_bodies`).
-fn has_handler<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_handler(node: &Node<'_>, _code: &[u8]) -> bool {
     tcl_try_handler_bodies(node).next().is_some()
 }
 
@@ -112,7 +112,7 @@ role_table! {
     // groups the grammar spells as flat `arguments` + body pairs with no
     // handler node (#1266): the `try` owns a decision only when it has
     // one, and the consumers count the handlers themselves.
-    Catch { owns [Catch, Try(gated_by has_handler)] }
+    Catch { owns [Catch, Try(gated_by has_handler no_chain)] }
     // The grammar gives `elseif` a node of its own, a direct child of the
     // `if`, so the clause *is* the else-if and pays for itself.
     ElseIf { owns [Elseif(pays_itself)] pays [] }

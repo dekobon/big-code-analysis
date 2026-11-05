@@ -368,6 +368,67 @@ class CensusTests(unittest.TestCase):
             with self.assertRaises(rt.RoleTableError):
                 rt.parse_table(self.t.roles / "java.rs")
 
+    def test_no_chain_is_read_per_fn_and_only_after_a_gate_or_opens_by(self) -> None:
+        # `no_chain` trails the fn it certifies (#1793): a gate's or an
+        # `opens_by`'s, recorded apart so a two-fn owner keeps which one
+        # was marked in either order; `chain_gated` is the OR the macro
+        # emits. Anywhere else — bare, after `callable_when`, after
+        # `pays_itself_when`, on a payer — it matches no rule in Rust and
+        # is an error here.
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    Container { owns [A(gated_by g no_chain), B(text_gated_by g no_chain), "
+            "C(holds_payer text_gated_by g no_chain), D(opens_by h no_chain), "
+            "E(opens_by h no_chain gated_by g no_chain), F(gated_by g no_chain opens_by h no_chain), "
+            "G(opens_by h gated_by g no_chain), H(gated_by g no_chain opens_by h), "
+            "I(opens_by h no_chain gated_by g), J(gated_by g opens_by h no_chain), "
+            "K(gated_by g), L(opens Function callable text_gated_by g no_chain), M] }\n"
+            "    Modifier { absent \"none\" }\n    Exit { pending R07 }\n",
+        )
+        self.t.write("python", PY_FULL)
+        row = rt.parse_table(self.t.roles / "java.rs").rows["Container"]
+        self.assertEqual(
+            [(o.kind, o.gate, o.text_gated, o.gate_no_chain, o.opens_by, o.opens_by_no_chain, o.chain_gated) for o in row.owners],
+            [
+                ("A", "g", False, True, None, False, False),
+                ("B", "g", True, True, None, False, False),
+                ("C", "g", True, True, None, False, False),
+                ("D", None, False, False, "h", True, False),
+                ("E", "g", False, True, "h", True, False),
+                ("F", "g", False, True, "h", True, False),
+                ("G", "g", False, True, "h", False, True),
+                ("H", "g", False, True, "h", False, True),
+                ("I", "g", False, False, "h", True, True),
+                ("J", "g", False, False, "h", True, True),
+                ("K", "g", False, False, None, False, True),
+                ("L", "g", True, True, None, False, False),
+                ("M", None, False, False, None, False, False),
+            ],
+        )
+        self.assertTrue(row.text_gated)
+        self.assertTrue(row.chain_gated)
+        for bad in (
+            "A(no_chain)",
+            "A(no_chain gated_by g)",
+            "A(callable_when w no_chain)",
+            "A(pays_itself_when w no_chain)",
+            "A(opens Function no_chain)",
+            "A(gated_by g no_chain no_chain)",
+        ):
+            self.t.write(
+                "java",
+                f"    lang: Java;\n    Container {{ owns [{bad}] }}\n",
+            )
+            with self.assertRaises(rt.RoleTableError, msg=bad):
+                rt.parse_table(self.t.roles / "java.rs")
+        self.t.write(
+            "java",
+            "    lang: Java;\n    Call { owns [A] pays [EQEQ gated_by g no_chain] }\n",
+        )
+        with self.assertRaises(rt.RoleTableError, msg="payer"):
+            rt.parse_table(self.t.roles / "java.rs")
+
     def test_holds_payer_and_under_are_read(self) -> None:
         # `holds_payer` on an owner and `under P` / `under [P, Q]` on a
         # payer (#1695) — the second inside a fragment, whose `]` must not

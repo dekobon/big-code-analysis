@@ -95,16 +95,22 @@ macro_rules! impl_comment_from_rows {
 // that reads the row under its gate (#1699). The predicate carries the
 // bytes a `text_gated_by` marker test reads and no chain, so the row is
 // asked with a *known-empty* chain: exact while every gate of the row
-// reads the node's own bytes or children (a marker, Rust's
-// `doc_comment` child), which `roles/doc_tests/mod.rs` pins by reading
-// each predicate beside its row asked with the real chain, on a nested
-// fixture per language; `Ancestors::unknown()` would instead climb
-// `Node::parent` at `O(depth)` and mask a future chain-reading gate by
-// answering it. Per-language rationale — which marker the tool reads,
-// which kinds can carry one — sits on the row.
+// takes no chain, which the build asserts through the row's
+// `CHAIN_GATED` (#1793) — a gate of these rows is declared `no_chain`
+// and has no chain parameter — and which `roles/doc_tests/mod.rs` pins
+// behaviourally by reading each predicate beside its row asked with
+// the real chain, on a nested fixture per language.
+// `Ancestors::unknown()` would instead climb `Node::parent` at
+// `O(depth)` and mask a future chain-reading gate by answering it.
+// Per-language rationale — which marker the tool reads, which kinds
+// can carry one — sits on the row.
 macro_rules! impl_byte_gated_row_predicate {
     ($roles:ident, $row:ident, $method:ident) => {
         fn $method(node: &Node, code: &[u8]) -> bool {
+            const _: () = assert!(
+                !$crate::roles::$roles::$row::CHAIN_GATED,
+                "the row reads the chain; the byte-only predicate cannot forward a known-empty one"
+            );
             $crate::roles::$roles::$row::owns(node, code, Ancestors::known(&[]))
         }
     };

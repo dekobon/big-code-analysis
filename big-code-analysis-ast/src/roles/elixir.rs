@@ -113,7 +113,7 @@ fn is_decision_clause<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a,
 /// read from the *token's* ancestor chain by the payer gate below; the
 /// owner is the operator by kind, which is what the root's guard walker
 /// reaches from the token.
-fn is_when_operator<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_when_operator(node: &Node<'_>, _code: &[u8]) -> bool {
     elixir_is_when_operator(node)
 }
 
@@ -214,9 +214,9 @@ role_table! {
     // reads it at the wrapper — ABC and cyclomatic both count the token.
     Guard {
         owns [
-            BinaryOperator(gated_by is_when_operator),
-            BinaryOperator2(gated_by is_when_operator),
-            BinaryOperator3(gated_by is_when_operator),
+            BinaryOperator(gated_by is_when_operator no_chain),
+            BinaryOperator2(gated_by is_when_operator no_chain),
+            BinaryOperator3(gated_by is_when_operator no_chain),
         ]
         pays [When gated_by is_guard]
         project "operator"

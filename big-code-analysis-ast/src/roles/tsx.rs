@@ -121,7 +121,7 @@ role_table! {
     // are excluded: the wrapper is the one operator, and listing a
     // child too billed one source token twice (#1261).
     Primitive {
-        owns [PredefinedType(gated_by names_a_type_not_void)]
+        owns [PredefinedType(gated_by names_a_type_not_void no_chain)]
         excludes [
             Any "the `predefined_type` wrapper is the operator; its keyword child is the same token",
             Number2 "the `predefined_type` wrapper is the operator; its keyword child is the same token",
@@ -157,7 +157,7 @@ role_table! {
     // `<!-- -->` `html_comment` (#697); only the first can open with the
     // TSDoc block marker (#1699).
     Comment { owns [Comment, HtmlComment] }
-    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker no_chain)] }
     Docstring { absent "TypeScript documents with TSDoc comments, not string literals" }
     // What tsc and TypeDoc document: JSDoc's declarations without its
     // assignment statements (which tsc does not declare), plus

@@ -28,7 +28,7 @@ fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
 /// Whether a `let_declaration` is `let PAT = e else { … }`: it carries
 /// the `alternative` field. Read by field, not by the `else` token the
 /// `if` expression also emits.
-fn has_alternative<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_alternative(node: &Node<'_>, _code: &[u8]) -> bool {
     node.child_by_field_name("alternative").is_some()
 }
 
@@ -53,7 +53,7 @@ fn not_in_type_syntax<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
 }
 
 /// Whether a `match_pattern` carries a guard: its `condition` field.
-fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_guard(node: &Node<'_>, _code: &[u8]) -> bool {
     node.child_by_field_name("condition").is_some()
 }
 
@@ -62,7 +62,7 @@ fn has_guard<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -
 /// leaves `////` and `/**/` without, so the bytes are never consulted. A
 /// plain comment has at most its two delimiters as children, so the
 /// count spares every one of them the cursor the child scan allocates.
-fn has_doc_marker_child<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn has_doc_marker_child(node: &Node<'_>, _: &[u8]) -> bool {
     node.child_count() > 2 && node.is_child(Rust::DocComment as u16)
 }
 
@@ -131,7 +131,7 @@ role_table! {
     // wherever it is written, so the guard pays as an `if` does; ABC
     // walks the field as a boolean slot.
     Guard {
-        owns [MatchPattern(gated_by has_guard)]
+        owns [MatchPattern(gated_by has_guard no_chain)]
         pays [If under MatchPattern]
     }
     // Rust counts keyword tokens (#284), so each row below pays at its
@@ -144,7 +144,7 @@ role_table! {
     // `else` token the `if` expression also emits; it has no keyword of
     // its own to pay at, so the node pays (`pays_itself`).
     Branch {
-        owns [IfExpression, LetDeclaration(pays_itself gated_by has_alternative)]
+        owns [IfExpression, LetDeclaration(pays_itself gated_by has_alternative no_chain)]
         pays [If]
     }
     // The `match` expression, the modified tier's container; its arms
@@ -221,8 +221,8 @@ role_table! {
     Comment { owns [LineComment, BlockComment] }
     DocComment {
         owns [
-            LineComment(gated_by has_doc_marker_child),
-            BlockComment(gated_by has_doc_marker_child),
+            LineComment(gated_by has_doc_marker_child no_chain),
+            BlockComment(gated_by has_doc_marker_child no_chain),
         ]
     }
     Docstring { absent "Rust documents with `///` comments, not string literals" }

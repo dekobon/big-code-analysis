@@ -13,7 +13,7 @@ use crate::{Ancestors, Bash, Node};
 /// Whether a `case_item` is a decision arm rather than the `*)`
 /// catch-all: exactly one `value` field spelling `*` (lesson 11, #469).
 /// `a|b)` and `*|b)` are not bare and still count.
-fn is_decision_item<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_decision_item(node: &Node<'_>, code: &[u8]) -> bool {
     !bash_case_item_is_bare_wildcard(node, code)
 }
 
@@ -35,7 +35,7 @@ fn is_test_connective<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a,
 
 /// Whether a `binary_expression`'s `operator` field is one of the
 /// `Comparison` payers, with a `test_operator` read for its bytes.
-fn comparison_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn comparison_operator(node: &Node<'_>, code: &[u8]) -> bool {
     comparison::project(node).is_some_and(|op| {
         comparison::PAYERS.contains(&op.kind_id())
             && (op.kind_id() != Bash::TestOperator as u16
@@ -45,7 +45,7 @@ fn comparison_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'
 
 /// Whether a `binary_expression`'s `operator` field is a short-circuit
 /// payer, with a `test_operator` read for its bytes.
-fn short_circuit_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn short_circuit_operator(node: &Node<'_>, code: &[u8]) -> bool {
     short_circuit::project(node).is_some_and(|op| {
         let kind = op.kind_id();
         if kind == Bash::TestOperator as u16 {
@@ -58,7 +58,7 @@ fn short_circuit_operator<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestor
 
 /// Whether a `command` is the `return` or `exit` builtin, by the text of
 /// its `name` field. Invalid UTF-8 reads as no match.
-fn return_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn return_or_exit(node: &Node<'_>, code: &[u8]) -> bool {
     node.child_by_field_name("name")
         .is_some_and(|name| matches!(name.utf8_text(code), Some("return" | "exit")))
 }
@@ -98,11 +98,11 @@ role_table! {
     // ABC consumer counts it from the test, as its own extra.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator),
-            BinaryExpression2(gated_by comparison_operator),
-            BinaryExpression3(gated_by comparison_operator),
-            BinaryExpression4(gated_by comparison_operator),
-            BinaryExpression5(gated_by comparison_operator),
+            BinaryExpression(gated_by comparison_operator no_chain),
+            BinaryExpression2(gated_by comparison_operator no_chain),
+            BinaryExpression3(gated_by comparison_operator no_chain),
+            BinaryExpression4(gated_by comparison_operator no_chain),
+            BinaryExpression5(gated_by comparison_operator no_chain),
         ]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ, EQTILDE,
@@ -128,11 +128,11 @@ role_table! {
     ShortCircuit {
         owns [
             List,
-            BinaryExpression(gated_by short_circuit_operator),
-            BinaryExpression2(gated_by short_circuit_operator),
-            BinaryExpression3(gated_by short_circuit_operator),
-            BinaryExpression4(gated_by short_circuit_operator),
-            BinaryExpression5(gated_by short_circuit_operator),
+            BinaryExpression(gated_by short_circuit_operator no_chain),
+            BinaryExpression2(gated_by short_circuit_operator no_chain),
+            BinaryExpression3(gated_by short_circuit_operator no_chain),
+            BinaryExpression4(gated_by short_circuit_operator no_chain),
+            BinaryExpression5(gated_by short_circuit_operator no_chain),
         ]
         pays [AMPAMP, PIPEPIPE, TestOperator text_gated_by is_test_connective]
         project "operator"
@@ -175,7 +175,7 @@ role_table! {
     // as the keywords they are — unless its sole pattern is `*`, the
     // catch-all (lesson 11, #469), which only the bytes tell.
     CaseArm {
-        owns [CaseItem(text_gated_by is_decision_item), CaseItem2(text_gated_by is_decision_item)]
+        owns [CaseItem(text_gated_by is_decision_item no_chain), CaseItem2(text_gated_by is_decision_item no_chain)]
     }
     Guard { absent "Bash has no guard clause; a `case` pattern is a glob, not a condition" }
     // Bash counts statement nodes, so every row here is plain (#1697).
@@ -192,7 +192,7 @@ role_table! {
     // Bash has no `return_statement` node: `return` and `exit` are
     // ordinary builtins parsed as a `command` whose `name` field is a
     // `command_name`, told by text.
-    Exit { owns [Command(text_gated_by return_or_exit)] }
+    Exit { owns [Command(text_gated_by return_or_exit no_chain)] }
     Modifier { absent "Bash declares with builtins (`local`, `readonly`), which are commands, not \
          modifier keywords" }
     // The declaration builtins the grammar gives a kind of their own:

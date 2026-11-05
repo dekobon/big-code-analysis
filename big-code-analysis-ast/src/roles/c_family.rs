@@ -242,11 +242,7 @@ macro_rules! cpp_family_gates {
         /// Whether a `struct` / `class` specifier carries a `body` field
         /// — a definition rather than a forward declaration or a
         /// parameter type (#1555).
-        fn has_body<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn has_body(node: &$crate::Node<'_>, _code: &[u8]) -> bool {
             $crate::checker::cpp_specifier_has_body(node)
         }
     };
@@ -279,8 +275,8 @@ macro_rules! cpp_family_containers {
         $crate::role_table!(@owners $cont [$($acc)*
             TranslationUnit(opens Unit),
             NamespaceDefinition(opens Namespace),
-            StructSpecifier(opens Struct gated_by has_body),
-            ClassSpecifier(opens Class gated_by has_body),
+            StructSpecifier(opens Struct gated_by has_body no_chain),
+            ClassSpecifier(opens Class gated_by has_body no_chain),
         ] $($rest)*);
     };
 }
@@ -400,12 +396,12 @@ macro_rules! c_family_doc_entries {
             PreprocFunctionDef,
             LinkageSpecification,
             Enumerator,
-            StructSpecifier(gated_by has_body),
-            UnionSpecifier(gated_by has_body),
-            EnumSpecifier(gated_by has_body),
-            FieldDeclaration(gated_by field_declares),
-            ExpressionStatement(gated_by is_macro_call_statement),
-            ExpressionStatement2(gated_by is_macro_call_statement),
+            StructSpecifier(gated_by has_body no_chain),
+            UnionSpecifier(gated_by has_body no_chain),
+            EnumSpecifier(gated_by has_body no_chain),
+            FieldDeclaration(gated_by field_declares no_chain),
+            ExpressionStatement(gated_by is_macro_call_statement no_chain),
+            ExpressionStatement2(gated_by is_macro_call_statement no_chain),
         ] $($rest)*);
     };
 }
@@ -442,7 +438,7 @@ macro_rules! cpp_doc_entries {
             AliasDeclaration,
             FriendDeclaration,
             TemplateDeclaration,
-            ClassSpecifier(gated_by has_body),
+            ClassSpecifier(gated_by has_body no_chain),
         ] $($rest)*);
     };
 }
@@ -521,7 +517,7 @@ macro_rules! c_family_doc_gates {
         /// Whether a `struct` / `union` / `enum` specifier carries a
         /// `body` field: a definition Doxygen documents, not a forward
         /// declaration or a parameter type.
-        fn has_body<'a>(node: &$crate::Node<'a>, _: &[u8], _: $crate::Ancestors<'a, '_>) -> bool {
+        fn has_body(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             $crate::checker::cpp_specifier_has_body(node)
         }
 
@@ -538,11 +534,7 @@ macro_rules! c_family_doc_gates {
         /// Whether a `field_declaration` declares a member: one with a
         /// declarator, or whose type is not a bodiless specifier —
         /// `struct In;` in a class body declares none.
-        fn field_declares<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn field_declares(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             $crate::roles::c_family::field_declaration_declares(node)
         }
 
@@ -552,11 +544,7 @@ macro_rules! c_family_doc_gates {
         /// in a `.h` read as C++, that Doxygen's own scanner reads as the
         /// entry it is. The empty statement and one whose `;` the grammar
         /// invented (`FOO`, `42`, `@end`) are read past.
-        fn is_macro_call_statement<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn is_macro_call_statement(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             $crate::lang_helpers::doxygen::statement_is_macro_call(node)
         }
 

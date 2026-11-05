@@ -11,7 +11,11 @@ impl Getter for RubyCode {
     // declines it (#1257). It forwards with a *known-empty* chain — the
     // node read as if it were the root, so the parent gate sees no
     // lambda — and not `Ancestors::unknown()`, which climbs through
-    // `Node::parent` and would answer the gated result.
+    // `Node::parent` and would answer the gated result. No `!CHAIN_GATED`
+    // assertion, unlike every other language's forward (#1793): the row
+    // is chain-gated by design, and
+    // `ruby_byte_less_spellings_stay_the_kind_table` pins the
+    // disagreement by value.
     fn get_space_kind(node: &Node) -> SpaceKind {
         Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }

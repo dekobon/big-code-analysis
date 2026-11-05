@@ -14,7 +14,7 @@ use crate::{Ancestors, Lua, LuaCode, Node};
 /// Whether an assignment names one plain or dotted target (`x = 1`,
 /// `M.x = 1`): LDoc's `get_fun_name` stops at `,`, `<` and `[`, so
 /// `local a, b = …`, `local x <const> = …` and `M[1] = …` name no item.
-fn assigns_one_name<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn assigns_one_name(node: &Node<'_>, _: &[u8]) -> bool {
     // The grammar always emits the `variable_list` first, empty when
     // recovery had to invent the target (`= 1` on its own).
     node.child(0).is_some_and(|targets| {
@@ -35,18 +35,18 @@ fn is_dotted_name(node: &Node) -> bool {
 
 /// Whether a `local` declaration assigns one name (`local x = 1`, not
 /// a bare `local x`).
-fn declares_one_name<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn declares_one_name(node: &Node<'_>, code: &[u8]) -> bool {
     node.children().any(|child| {
         matches!(
             child.kind_id().into(),
             Lua::AssignmentStatement | Lua::AssignmentStatement2
-        ) && assigns_one_name(&child, code, ancestors)
+        ) && assigns_one_name(&child, code)
     })
 }
 
 /// Whether a table field has a name (`new = function … end`): the
 /// bracket form starts with `[` and a positional field has no `=`.
-fn field_has_a_name<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn field_has_a_name(node: &Node<'_>, _: &[u8]) -> bool {
     node.child(0)
         .is_some_and(|name| name.kind_id() == Lua::Identifier)
         && node.child(1).is_some_and(|eq| eq.kind_id() == Lua::EQ)
@@ -54,7 +54,7 @@ fn field_has_a_name<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool
 
 /// Whether a `return` returns a function or a table — the module
 /// shapes LDoc documents as an item, not an exit.
-fn returns_a_function_or_table<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn returns_a_function_or_table(node: &Node<'_>, _: &[u8]) -> bool {
     node.children()
         .find(|child| {
             matches!(
@@ -95,7 +95,7 @@ fn opens_an_ldoc_block_where_ldoc_reads<'a>(
 
 /// Whether a `function_call` is `error(…)` or `os.exit(…)`, by the text
 /// of its `name` field. Invalid UTF-8 reads as no match.
-fn error_or_os_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn error_or_os_exit(node: &Node<'_>, code: &[u8]) -> bool {
     node.child_by_field_name("name")
         .is_some_and(|name| matches!(name.utf8_text(code), Some("error" | "os.exit")))
 }
@@ -145,7 +145,7 @@ role_table! {
     // `name` field spells the callee — `error` a bare identifier,
     // `os.exit` a `dot_index_expression` — told by text, so a user `foo()`
     // or `myError()` is not counted.
-    Exit { owns [ReturnStatement, FunctionCall(text_gated_by error_or_os_exit)] }
+    Exit { owns [ReturnStatement, FunctionCall(text_gated_by error_or_os_exit no_chain)] }
     Modifier { absent "Lua has no modifier keywords; `local` is a declaration" }
     // `local` and `function`, each a leaf under an unlisted
     // `function_declaration` / `variable_declaration` / `function_definition`.
@@ -188,12 +188,12 @@ role_table! {
             FunctionDeclaration,
             FunctionDeclaration2,
             FunctionDeclaration3,
-            AssignmentStatement(gated_by assigns_one_name),
-            AssignmentStatement2(gated_by assigns_one_name),
-            VariableDeclaration(gated_by declares_one_name),
-            VariableDeclaration2(gated_by declares_one_name),
-            Field(gated_by field_has_a_name),
-            ReturnStatement(gated_by returns_a_function_or_table),
+            AssignmentStatement(gated_by assigns_one_name no_chain),
+            AssignmentStatement2(gated_by assigns_one_name no_chain),
+            VariableDeclaration(gated_by declares_one_name no_chain),
+            VariableDeclaration2(gated_by declares_one_name no_chain),
+            Field(gated_by field_has_a_name no_chain),
+            ReturnStatement(gated_by returns_a_function_or_table no_chain),
         ]
     }
     // The opener candidate: a `---` comment where LDoc reads one. The

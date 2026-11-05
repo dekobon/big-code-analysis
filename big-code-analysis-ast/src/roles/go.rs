@@ -70,7 +70,7 @@ fn parent_is_if<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
 /// Whether a `call_expression` is the built-in `panic(…)`: its
 /// `function` field is a bare `identifier` spelling `panic`. Invalid
 /// UTF-8 in the callee reads as no match.
-fn calls_panic<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn calls_panic(node: &Node<'_>, code: &[u8]) -> bool {
     node.child_by_field_name("function")
         .is_some_and(|f| f.kind_id() == Go::Identifier as u16 && f.utf8_text(code) == Some("panic"))
 }
@@ -134,7 +134,7 @@ role_table! {
     // `function` field is the bare identifier `panic` — not a
     // `selector_expression`, so a package-qualified `foo.panic()` is a
     // user function and stays uncounted.
-    Exit { owns [ReturnStatement, CallExpression(text_gated_by calls_panic)] }
+    Exit { owns [ReturnStatement, CallExpression(text_gated_by calls_panic no_chain)] }
     Modifier { absent "Go has no modifier keywords; visibility is the identifier's case" }
     // Each the leaf of an unlisted `*_declaration`; `package` and
     // `import` bill, as C# bills `using`. `map` and `chan` are type
@@ -198,6 +198,6 @@ role_table! {
     DocRunOpener { absent "a go/doc comment documents by its position above a declaration, never by its own content" }
     // A go/doc directive (`//go:generate`, `//line`, `//export`) is a
     // member of a doc run that is not documentation text.
-    DocRunDirective { owns [Comment(text_gated_by is_go_directive)] }
+    DocRunDirective { owns [Comment(text_gated_by is_go_directive no_chain)] }
     HoldsDocInBody { absent "go/doc reads no comment inside a function body; nothing beyond the function withholds one" }
 }

@@ -176,7 +176,20 @@
 //! - `gated_by f` makes the kind own the construct only when
 //!   `f(node, code, ancestors)` says so; `text_gated_by f` is the same
 //!   with a name that says the gate reads source bytes. Both emit only
-//!   the with-code spelling (see "Reading a row").
+//!   the with-code spelling (see "Reading a row"). Either may be
+//!   followed by `no_chain` — `gated_by has_body no_chain`,
+//!   `text_gated_by opens_with_javadoc_marker no_chain` — which
+//!   declares that `f` takes no chain: its signature is then
+//!   `fn(&Node, &[u8]) -> bool` and the row calls it with two
+//!   arguments, so a marked gate cannot read the chain by
+//!   construction (#1793). `no_chain` proves "no chain parameter",
+//!   not "subtree-only": a two-argument gate can still call
+//!   `Node::parent`, which the derived suite's backstop
+//!   (`no_chain_rows_answer_alike_under_the_empty_chain`) is for.
+//!   The two axes are independent — Java's doc-marker gates read
+//!   bytes and no chain, Groovy's `spells_var` both — so
+//!   `TEXT_GATED` comes from the keyword and `CHAIN_GATED` from the
+//!   absence of the modifier.
 //! - `pays_itself` marks a kind the grammar gives no token for, so the
 //!   owner is also the payer; `pays_itself_when f` one the grammar gives
 //!   a token in some spellings and none in others, so the owner pays
@@ -191,7 +204,13 @@
 //!   the `SpaceKind` a named `fn(&Node, &[u8], Ancestors) -> SpaceKind`
 //!   answers for a kind that spells two containers at once (Kotlin's
 //!   `class_declaration` is a class or an interface by its keyword
-//!   token) — `Unknown` meaning it opens none.
+//!   token) — `Unknown` meaning it opens none. `opens_by f no_chain`
+//!   takes the modifier as a gate does, with the two-argument
+//!   signature. Only a `FuncOpener` or `Container` row may carry
+//!   `opens` / `opens_by`: the `opens_space` fold scans every row, and
+//!   the byte-less space forwards assert over exactly those two rows'
+//!   flags, so an opener on a third role would bypass them — the macro
+//!   rejects it (#1793).
 //! - `callable` marks a `FuncOpener` owner that is a *named function* —
 //!   what `Checker::is_func` answers — beside openers that are not
 //!   (Java's `static { … }` opens a `Function` space and is nobody's
@@ -313,9 +332,21 @@
 //!   `text_gated_by` is carried as `gated_by`, and a gate that reads
 //!   bytes under a plain `gated_by`, `callable_when`, `pays_itself_when`
 //!   or `opens_by` is not flagged — the keyword is the declaration, and
-//!   a gate named under the wrong keyword is the author's error. There
-//!   is no chain-reading twin at all (#1793), which is why the forwards
-//!   are a manual check.
+//!   a gate named under the wrong keyword is the author's error.
+//! - `CHAIN_GATED`: whether any owner carries a `gated_by` /
+//!   `text_gated_by` gate or an `opens_by` fn *without* `no_chain`
+//!   (#1793), so a forward that hands the row a known-empty chain
+//!   asserts at build time that no gate it reaches can take the chain.
+//!   It covers the `owns` / `pays_at_wrapper` projections and the
+//!   `opens_space` fold — the ones a chain-less forward reads — and
+//!   not `callable_when`, `pays_itself_when` or a payer's gate, which
+//!   only `is_callable` and `pays_at_leaf` consult and no chain-less
+//!   forward reads; those three reject the modifier, so `false` here
+//!   never means "nothing on this row reads ancestry". Unlike
+//!   `TEXT_GATED` it is not an author's word: a marked gate has no
+//!   chain parameter, so the compiler holds the flag to the fn.
+//!   Both flags are in `canonical()`, so the Python reader is held to
+//!   both.
 //!
 //! And once per table: `opens_space(node, code, ancestors) -> SpaceKind`,
 //! folded over every `opens` entry on every row, so the kinds a
@@ -362,7 +393,9 @@
 //!   gate is dropped. The chain-less pair disagrees with the walk
 //!   wherever a gate reads what it drops — Elixir's text-gated `call`
 //!   openers, Ruby's `block` — and the derived parity suite pins each
-//!   such disagreement by name (`KNOWN_DISAGREEMENTS`).
+//!   such disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
+//!   language's pair asserts `!TEXT_GATED && !CHAIN_GATED` on its
+//!   `FuncOpener` and `Container` rows at build time (#1793).
 //! - **Ask several rows of one node through the `_kind` projections**,
 //!   reading `kind_id()` once.
 //! - **A consumer's policy over a row is the consumer's.** Which
@@ -482,8 +515,18 @@
 //! chain-less forward answers the same under any context until the day
 //! a gate reads what it drops (lesson 103), and that day it answers
 //! `false` silently. `TEXT_GATED` pins the declared owner byte gates at
-//! build time and nothing else; nothing pins the chain (#1793), so the derived suite compares every forward
-//! on every corpus candidate, and a known disagreement is a named
+//! build time and `CHAIN_GATED` the owner gates and `opens_by` fns
+//! that take a chain (#1793) — each forward asserts exactly the flags
+//! of what it drops, on the rows it reads. What neither sees: a
+//! `no_chain` gate that climbs with `Node::parent` (the signature
+//! proves no chain parameter, not no ancestry read — the derived
+//! suite's `no_chain_rows_answer_alike_under_the_empty_chain` compares
+//! every `!CHAIN_GATED` row under the real chain and the empty one,
+//! and cannot see a read whose answer agrees, lesson 114), a
+//! `callable_when` or payer gate (no chain-less forward reads them),
+//! and a text gate under the wrong keyword. So the derived suite still
+//! compares every forward on every corpus candidate, and a known
+//! disagreement is a named
 //! `KNOWN_DISAGREEMENTS` entry that must still occur (a stale entry
 //! fails too), never a tolerance. The check, when adding a chain- or
 //! byte-reading gate to a row: list every forward of that row
@@ -578,15 +621,16 @@
 // emission profile — which #1701 deferred to #1792.
 #![allow(dead_code)]
 
-/// Emits a `text_gated_by` gate that reads the node's bytes through one
-/// of `lang_helpers::doc_comment`'s marker tests (#1699): `$name` is the
-/// gate the row names, `$test` the byte predicate. Per language because
-/// the gate fn resolves at the row; what each marker means to its tool
-/// is the `//` comment above the invocation (a `///` on a macro call
-/// is an unused doc comment).
+/// Emits a `text_gated_by … no_chain` gate that reads the node's bytes
+/// through one of `lang_helpers::doc_comment`'s marker tests (#1699):
+/// `$name` is the gate the row names, `$test` the byte predicate. The
+/// two-argument signature is the `no_chain` shape (#1793). Per language
+/// because the gate fn resolves at the row; what each marker means to
+/// its tool is the `//` comment above the invocation (a `///` on a
+/// macro call is an unused doc comment).
 macro_rules! byte_gate {
     ($name:ident, $test:path) => {
-        fn $name<'a>(node: &$crate::Node<'a>, code: &[u8], _: $crate::Ancestors<'a, '_>) -> bool {
+        fn $name(node: &$crate::Node<'_>, code: &[u8]) -> bool {
             $test($crate::lang_helpers::doc_comment::node_bytes(node, code))
         }
     };
@@ -813,6 +857,8 @@ pub struct DeclaredRow {
     pub excluded: &'static [(u16, &'static str)],
     /// `TEXT_GATED`.
     pub text_gated: bool,
+    /// `CHAIN_GATED`.
+    pub chain_gated: bool,
     /// `PAYS_NEVER`.
     pub pays_never: bool,
     /// `MODE`.
@@ -1023,12 +1069,65 @@ impl RowView {
 /// # fn main() {}
 /// ```
 ///
+/// A `no_chain` gate has no chain parameter, so one declared with the
+/// three-argument signature is a type error (#1793):
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::{Ancestors, Java, Node};
+/// fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+/// role_table! {
+///     lang: Java;
+///     Exit { owns [ReturnStatement(gated_by always no_chain)] }
+/// }
+/// # fn main() {}
+/// ```
+///
+/// `callable_when`, `pays_itself_when` and a payer's gate take no
+/// `no_chain` — nothing that drops the chain reads them — so the
+/// modifier matches no rule there:
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::{Java, Node};
+/// fn always(_: &Node<'_>, _: &[u8]) -> bool { true }
+/// role_table! {
+///     lang: Java;
+///     FuncOpener { owns [LambdaExpression(opens Function callable_when always no_chain)] }
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::{Java, Node};
+/// fn always(_: &Node<'_>, _: &[u8]) -> bool { true }
+/// role_table! {
+///     lang: Java;
+///     Comparison { owns [BinaryExpression] pays [EQEQ gated_by always no_chain] }
+/// }
+/// # fn main() {}
+/// ```
+///
+/// Only a `FuncOpener` or `Container` row may open a space (#1793):
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::Java;
+/// role_table! {
+///     lang: Java;
+///     StringLit { owns [StringLiteral(opens Function)] }
+/// }
+/// # fn main() {}
+/// ```
+///
 /// The valid shapes compile:
 ///
 /// ```
 /// # #[macro_use] extern crate big_code_analysis_ast;
 /// # use big_code_analysis_ast::{Ancestors, Java, Node, SpaceKind};
 /// fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+/// fn has_body(_: &Node<'_>, _: &[u8]) -> bool { true }
 /// role_table! {
 ///     lang: Java;
 ///     Exit { owns [ReturnStatement, ThrowStatement] }
@@ -1038,7 +1137,9 @@ impl RowView {
 ///         project "operator"
 ///         excludes [QMARK "type syntax"]
 ///     }
-///     Container { owns [ClassDeclaration(opens Class), Program(opens Unit)] }
+///     Container {
+///         owns [ClassDeclaration(opens Class gated_by has_body no_chain), Program(opens Unit)]
+///     }
 ///     FuncOpener {
 ///         owns [MethodDeclaration(callable opens Function), StaticInitializer(opens Function)]
 ///     }
@@ -1051,6 +1152,7 @@ impl RowView {
 /// assert_eq!(func_opener::OWNERS.len(), 2);
 /// assert_eq!(comparison::PAYERS, &[Java::EQEQ as u16, Java::LT as u16]);
 /// assert_eq!((exit::PAYS_NEVER, guard::PAYS_NEVER), (false, true));
+/// assert_eq!((comparison::CHAIN_GATED, container::CHAIN_GATED), (true, false));
 /// # }
 /// ```
 #[macro_export]
@@ -1117,6 +1219,8 @@ macro_rules! role_table {
             pub const LEAF_KINDS: &[u16] = &[];
             /// An absent construct reads nothing.
             pub const TEXT_GATED: bool = false;
+            /// An absent construct reads no chain either.
+            pub const CHAIN_GATED: bool = false;
             $crate::role_table!(@absent_predicate owns);
             $crate::role_table!(@absent_predicate pays_at_leaf);
             $crate::role_table!(@absent_predicate pays_at_wrapper);
@@ -1313,11 +1417,12 @@ macro_rules! role_table {
 
             /// This row in the canonical form `utils/role_tables.py` emits:
             /// `<Role> rows owners=[ids] payers=[ids] wraps=[ids]
-            /// excluded=[id=why;…] mode=<owners|split|never>`, kinds as
-            /// ids so the two sides compare without naming variants, and
-            /// the mode last. The Python reader is a second implementation
-            /// of the DSL; the differential test in `roles/mod.rs` holds it
-            /// to this.
+            /// excluded=[id=why;…] mode=<owners|split|never>
+            /// text_gated=<bool> chain_gated=<bool>`, kinds as ids so the
+            /// two sides compare without naming variants, the mode after
+            /// the lists, and the two context flags last (#1793). The
+            /// Python reader is a second implementation of the DSL; the
+            /// differential test in `roles/mod.rs` holds it to this.
             #[cfg(test)]
             pub(crate) fn canonical() -> String {
                 let ids = |kinds: &[u16]| {
@@ -1329,13 +1434,16 @@ macro_rules! role_table {
                     .collect::<Vec<_>>()
                     .join(";");
                 format!(
-                    "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] mode={}",
+                    "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] mode={} \
+                     text_gated={} chain_gated={}",
                     stringify!($role),
                     ids(OWNERS),
                     ids(PAYERS),
                     ids(WRAPS),
                     excluded,
-                    stringify!($mode)
+                    stringify!($mode),
+                    TEXT_GATED,
+                    CHAIN_GATED
                 )
             }
 
@@ -1357,6 +1465,15 @@ macro_rules! role_table {
                         && !$crate::roles::kinds_overlap(&excluded, PAYERS),
                     "a kind this row excludes is also one it owns or pays for"
                 );
+            };
+            // Only the two space-tree roles may open a space: the
+            // byte-less space forwards assert `!CHAIN_GATED` on exactly
+            // those two rows, and `opens_space` folds over every row
+            // (#1793).
+            const _: () = {
+                $( $crate::role_table!(
+                    @scan opens_role [$role] [] $owner [] [] [] [] $($($owner_attr)*)?
+                ); )*
             };
 
             /// Whether `node` owns the construct.
@@ -1457,6 +1574,18 @@ macro_rules! role_table {
             /// fails the day it does not, instead of missing the owner.
             pub const TEXT_GATED: bool = false $( || $crate::role_table!(
                 @scan text_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
+            ) )*;
+
+            /// Whether any owner carries a `gated_by` / `text_gated_by`
+            /// gate or an `opens_by` fn that is *not* marked `no_chain`
+            /// — the row may read the chain it is handed through
+            /// [`owns`], [`pays_at_wrapper`] or the table's `opens_space`
+            /// fold. A forward that hands the row a known-empty chain
+            /// pins that this stays `false` (#1793). It says nothing of
+            /// `callable_when`, `pays_itself_when` or a payer's gate,
+            /// which only [`is_callable`] and [`pays_at_leaf`] read.
+            pub const CHAIN_GATED: bool = false $( || $crate::role_table!(
+                @scan chain_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
             ) )*;
 
             /// Every kind [`pays_at_leaf_kind`] can answer `true` for,
@@ -1588,6 +1717,7 @@ macro_rules! role_table {
                     wraps: WRAPS,
                     excluded: EXCLUDED,
                     text_gated: TEXT_GATED,
+                    chain_gated: CHAIN_GATED,
                     pays_never: PAYS_NEVER,
                     mode: MODE,
                     pays_at_wrapper,
@@ -1634,6 +1764,15 @@ macro_rules! role_table {
     // `$done`. A second gate, a second `pays_itself`, a second `opens` or
     // a second `callable` finds its slot already filled and matches no
     // rule, so it fails to expand.
+    //
+    // A gate slot holds `[g]` for a gate with a chain parameter and
+    // `[g no_chain]` for one declared without it (#1793): the clause
+    // emitters below call the first with three arguments and the second
+    // with two, so a `no_chain` gate cannot be given the chain by
+    // construction. `opens_by f no_chain` is carried as `[by f no_chain]`
+    // the same way. `callable_when`, `pays_itself_when` and a payer's gate
+    // take no `no_chain`: nothing that drops the chain reads them, and a
+    // mark no consumer asserts would be a claim nothing checks.
 
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@$d $m $ctx $k $g $p $s $c)
@@ -1652,6 +1791,44 @@ macro_rules! role_table {
     (@scan text_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer text_gated_by $f:ident $($r:tt)*) => {
         true
     };
+    // `CHAIN_GATED` reads a gate or `opens_by` *without* `no_chain` off
+    // the list. The marked folds sit above the detectors so a marked fn
+    // is consumed, modifier and all, before a detector can see its
+    // keyword — a detector matching `gated_by $f $($r)*` would otherwise
+    // read `gated_by f no_chain` as chain-reading, since the modifier is
+    // just the head of `$r` (the review's `rustc` probe, #1793). The
+    // unmarked detectors then sit above the ordinary folds for the same
+    // reason `text_gated_kind` does.
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer gated_by $g:ident no_chain $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g no_chain] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer text_gated_by $g:ident no_chain $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g no_chain] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt gated_by $g:ident no_chain $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [$g no_chain] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt text_gated_by $g:ident no_chain $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [$g no_chain] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt [] $c:tt opens_by $f:ident no_chain $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k $g $p [by $f no_chain] $c $($r)*)
+    };
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt gated_by $f:ident $($r:tt)*) => {
+        true
+    };
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt text_gated_by $f:ident $($r:tt)*) => {
+        true
+    };
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer gated_by $f:ident $($r:tt)*) => {
+        true
+    };
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt holds_payer text_gated_by $f:ident $($r:tt)*) => {
+        true
+    };
+    (@scan chain_gated_kind $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt opens_by $f:ident $($r:tt)*) => {
+        true
+    };
     // `holds_payer` is a gate of its own, carried in the gate slot as
     // `[holds_payer]` or, with a gate beside it, `[holds_payer g]`.
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt holds_payer gated_by $g:ident $($r:tt)*) => {
@@ -1665,6 +1842,9 @@ macro_rules! role_table {
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [$g:ident no_chain] $p:tt $s:tt $c:tt holds_payer $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [holds_payer $g no_chain] $p $s $c $($r)*)
     };
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt gated_by $g:ident $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*)
@@ -1693,18 +1873,37 @@ macro_rules! role_table {
 
     // ---- the scan's terminals ----------------------------------------------
 
-    // In `owns`: the owner's clause, gated or not.
-    (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@clause_payer $ctx $k $(gated_by $g)?);
+    // In `owns`: the owner's clause, gated or not. A gate slot is
+    // `[g]` or `[g no_chain]`, carried into the clause as
+    // `gated_by g` / `gated_by g no_chain`.
+    (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
+        $crate::role_table!(@clause_payer $ctx $k $(gated_by $g $($nc)?)?);
     };
-    (@owner_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    (@owner_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
+        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
     };
     // In `TEXT_GATED`: whether the owner's gate reads the bytes. The scan
     // folds `text_gated_by` and `gated_by` into one gate slot, so the
     // word is read off the attribute list before the fold.
     (@text_gated_kind [] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         false
+    };
+    // In `CHAIN_GATED`: every gate and `opens_by` the owner carries was
+    // consumed with its `no_chain`, or the owner carries none.
+    (@chain_gated_kind [] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        false
+    };
+    // The opener-role check: an owner with a filled space slot sits on
+    // a `FuncOpener` or `Container` row, or the table fails to compile.
+    (@opens_role [$role:ident] [] $k:ident $g:tt $p:tt [] $c:tt) => {};
+    (@opens_role [FuncOpener] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {};
+    (@opens_role [Container] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {};
+    (@opens_role [$role:ident] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        compile_error!(concat!(
+            "`opens` / `opens_by` on a `",
+            stringify!($role),
+            "` row: only `FuncOpener` and `Container` open a space (#1793)"
+        ));
     };
     // In `LEAF_KINDS`: `Some(kind)` for an owner that can pay at the
     // leaf under the row's mode — every owner on a plain row, the
@@ -1722,7 +1921,7 @@ macro_rules! role_table {
     // `some_kinds` drops the `None`s at compile time.
     // In `HOLDS_PAYER`: `Some(kind)` for an owner whose gate slot holds
     // `holds_payer`, with or without a gate beside it.
-    (@holds_payer_kind [] [$l:ident] $k:ident [holds_payer $($g:ident)?] $p:tt $s:tt $c:tt) => {
+    (@holds_payer_kind [] [$l:ident] $k:ident [holds_payer $($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
         Some($l::$k as u16)
     };
     (@holds_payer_kind [] [$l:ident] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
@@ -1738,11 +1937,11 @@ macro_rules! role_table {
     // a `callable_when w` owner's under its gate *and* `w`; an owner
     // without either mark emits nothing.
     (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt []) => {};
-    (@callable_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt [callable]) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    (@callable_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt [callable]) => {
+        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
     };
-    (@callable_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt $s:tt [callable $w:ident]) => {
-        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g)?);
+    (@callable_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt [callable $w:ident]) => {
+        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g $($nc)?)?);
     };
     // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate,
     // and a `pays_itself_when w` owner under its gate *and* `w` — the
@@ -1753,11 +1952,11 @@ macro_rules! role_table {
     // already pays, and under `pays never` it would contradict the row
     // — so the other two modes reject it.
     (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt $c:tt) => {};
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself] $s:tt $c:tt) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g)?);
+    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] [pays_itself] $s:tt $c:tt) => {
+        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
     };
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident)?] [pays_itself $w:ident] $s:tt $c:tt) => {
-        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g)?);
+    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] [pays_itself $w:ident] $s:tt $c:tt) => {
+        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g $($nc)?)?);
     };
     (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt $c:tt) => {
         compile_error!("`pays_itself` contradicts `pays never`: the row says nothing pays");
@@ -1769,11 +1968,11 @@ macro_rules! role_table {
     };
     // In `opens_space`: an `opens K` owner returns its kind, under its gate.
     (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [] $c:tt) => {};
-    (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [by $f:ident] $c:tt) => {
-        $crate::role_table!(@space_clause_by $ctx $k $f $(gated_by $g)?);
+    (@opens_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
+        $crate::role_table!(@space_clause_by $ctx $k [$f $($fnc)?] $(gated_by $g $($nc)?)?);
     };
-    (@opens_done [] $ctx:tt $k:ident [$($g:ident)?] $p:tt [$s:ident] $c:tt) => {
-        $crate::role_table!(@space_clause $ctx $k $s $(gated_by $g)?);
+    (@opens_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt [$s:ident] $c:tt) => {
+        $crate::role_table!(@space_clause $ctx $k $s $(gated_by $g $($nc)?)?);
     };
 
     // ---- the `opens_space` fold -------------------------------------------
@@ -1792,14 +1991,30 @@ macro_rules! role_table {
     // read is an FFI call the optimiser cannot hoist, and one read per
     // clause blocked the bitmap codegen a `matches!` gets.
 
+    //
+    // A gate call is rendered by `@gate`: three arguments for a gate
+    // with a chain parameter, two for one declared `no_chain` (#1793),
+    // so the chain is unobtainable by a marked gate by construction —
+    // the proof is the signature, not the row.
+
+    (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [$g:ident]) => {
+        $g($n, $c, $a)
+    };
+    (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [$g:ident no_chain]) => {
+        $g($n, $c)
+    };
+
     (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident) => {
         if $kind == $l::$k as u16 {
             return true;
         }
     };
-    (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident gated_by $g:ident) => {
+    (@clause $ctx:tt $k:ident gated_by $g:ident $($nc:ident)?) => {
+        $crate::role_table!(@clause_gated $ctx $k [$g $($nc)?]);
+    };
+    (@clause_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $g:tt) => {
         if $kind == $l::$k as u16 {
-            return $g($n, $c, $a);
+            return $crate::role_table!(@gate [$l $kind $n $c $a] $g);
         }
     };
     // A payer `under [P, Q]`: its parent is one of the listed kinds.
@@ -1818,9 +2033,12 @@ macro_rules! role_table {
             return project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
         }
     };
-    (@clause_payer [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident gated_by $g:ident) => {
+    (@clause_payer $ctx:tt $k:ident gated_by $g:ident $($nc:ident)?) => {
+        $crate::role_table!(@clause_payer_gated $ctx $k [$g $($nc)?]);
+    };
+    (@clause_payer_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $g:tt) => {
         if $kind == $l::$k as u16 {
-            return $g($n, $c, $a)
+            return $crate::role_table!(@gate [$l $kind $n $c $a] $g)
                 && project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
         }
     };
@@ -1829,11 +2047,12 @@ macro_rules! role_table {
             return $w($n, $c, $a);
         }
     };
-    (@clause_when
-        [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident gated_by $g:ident
-    ) => {
+    (@clause_when $ctx:tt $k:ident $w:ident gated_by $g:ident $($nc:ident)?) => {
+        $crate::role_table!(@clause_when_gated $ctx $k $w [$g $($nc)?]);
+    };
+    (@clause_when_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident $g:tt) => {
         if $kind == $l::$k as u16 {
-            return $g($n, $c, $a) && $w($n, $c, $a);
+            return $crate::role_table!(@gate [$l $kind $n $c $a] $g) && $w($n, $c, $a);
         }
     };
     (@space_clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident) => {
@@ -1841,24 +2060,27 @@ macro_rules! role_table {
             return $crate::SpaceKind::$s;
         }
     };
-    // An `opens_by f` owner: `f` answers the kind, `Unknown` for none.
-    (@space_clause_by [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:ident) => {
-        if $kind == $l::$k as u16 {
-            return $f($n, $c, $a);
-        }
+    (@space_clause $ctx:tt $k:ident $s:ident gated_by $g:ident $($nc:ident)?) => {
+        $crate::role_table!(@space_clause_gated $ctx $k $s [$g $($nc)?]);
     };
-    (@space_clause_by
-        [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:ident gated_by $g:ident
-    ) => {
-        if $kind == $l::$k as u16 && $g($n, $c, $a) {
-            return $f($n, $c, $a);
-        }
-    };
-    (@space_clause
-        [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident gated_by $g:ident
-    ) => {
-        if $kind == $l::$k as u16 && $g($n, $c, $a) {
+    (@space_clause_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident $g:tt) => {
+        if $kind == $l::$k as u16 && $crate::role_table!(@gate [$l $kind $n $c $a] $g) {
             return $crate::SpaceKind::$s;
+        }
+    };
+    // An `opens_by f` owner: `f` answers the kind, `Unknown` for none;
+    // `f` takes the `no_chain` mark like a gate.
+    (@space_clause_by [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:tt) => {
+        if $kind == $l::$k as u16 {
+            return $crate::role_table!(@gate [$l $kind $n $c $a] $f);
+        }
+    };
+    (@space_clause_by $ctx:tt $k:ident $f:tt gated_by $g:ident $($nc:ident)?) => {
+        $crate::role_table!(@space_clause_by_gated $ctx $k $f [$g $($nc)?]);
+    };
+    (@space_clause_by_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:tt $g:tt) => {
+        if $kind == $l::$k as u16 && $crate::role_table!(@gate [$l $kind $n $c $a] $g) {
+            return $crate::role_table!(@gate [$l $kind $n $c $a] $f);
         }
     };
 
@@ -2309,13 +2531,16 @@ mod tests {
                             .collect::<Vec<_>>()
                             .join(";");
                         format!(
-                            "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] mode={}",
+                            "{} rows owners=[{}] payers=[{}] wraps=[{}] excluded=[{}] mode={} \
+                             text_gated={} chain_gated={}",
                             r.role,
                             ids(r.owners),
                             ids(r.payers),
                             ids(r.wraps),
                             excluded,
-                            r.mode
+                            r.mode,
+                            r.text_gated,
+                            r.chain_gated
                         )
                     }
                 };
@@ -2367,6 +2592,16 @@ mod tests {
         true
     }
 
+    /// `always` in the `no_chain` shape: no chain parameter (#1793).
+    fn always_no_chain(_: &Node<'_>, _: &[u8]) -> bool {
+        true
+    }
+
+    /// `class_or_interface` in the `no_chain` shape.
+    pub(super) fn class_or_interface_no_chain(node: &Node<'_>, code: &[u8]) -> crate::SpaceKind {
+        class_or_interface(node, code, Ancestors::known(&[]))
+    }
+
     // An `always` that counts its calls, so a test can assert which
     // emitted predicates reach an owner's gate and which do not.
     crate::observation::counter!(recording_gate_calls, cfg(test));
@@ -2401,11 +2636,13 @@ mod tests {
     // in the `under [..]` list, so a walk that read only the first
     // alternative would miss it; and a `pays never` row, the shape no
     // production table declares since #1695, kept here so its two
-    // projections stay pinned. The `Member`, `Call` and `StringLit`
+    // projections stay pinned. The `Member`, `Call` and `FuncOpener`
     // rows spell `text_gated_by` in every position an attribute list
     // can put it — alone, after `holds_payer`, and after the fold has
-    // consumed an `opens` and a `callable` — so `TEXT_GATED` is pinned
-    // to read the word wherever it sits.
+    // consumed an `opens` and a `callable` (the `FuncOpener`'s
+    // `RecordDeclaration`, since only an opener row may carry `opens`,
+    // #1793) — so `TEXT_GATED` is pinned to read the word wherever it
+    // sits.
     mod dsl_gates {
         use super::{always, class_or_interface, never, recording};
         use crate::Java;
@@ -2452,6 +2689,7 @@ mod tests {
                     ConstructorDeclaration(opens Function gated_by never callable),
                     LambdaExpression(opens Function callable_when never),
                     CompactConstructorDeclaration(opens Function callable_when always),
+                    RecordDeclaration(opens Function callable text_gated_by always),
                 ]
             }
             Container { owns [ClassDeclaration(opens_by class_or_interface)] }
@@ -2460,7 +2698,70 @@ mod tests {
                 owns [MethodInvocation(holds_payer text_gated_by always)]
                 pays [LPAREN]
             }
-            StringLit { owns [StringLiteral(opens Function callable text_gated_by always)] }
+        }
+    }
+
+    // `no_chain` in every position the attribute list can put it
+    // (#1793), every row reading `false`: the `Member` row is the one
+    // shape a `holds_payer` gate takes the modifier in, `Exit` the
+    // plain gate alone and before `pays_itself`, `Catch` the text gate
+    // alone, `Container` the two-fn owner with both fns marked in both
+    // orders, `FuncOpener` the text gate after the fold has consumed an
+    // `opens` and a `callable`. `Loop` and `Branch` are the unmarked
+    // controls, read `true`. Each marked fn is also a compile-time
+    // proof of its own consumption: it has no chain parameter, so a
+    // scan that handed it three arguments would not build.
+    mod dsl_no_chain {
+        use super::{always, always_no_chain, class_or_interface_no_chain};
+        use crate::Java;
+
+        role_table! {
+            lang: Java;
+            Container {
+                owns [
+                    ClassDeclaration(opens_by class_or_interface_no_chain no_chain gated_by always_no_chain no_chain),
+                    InterfaceDeclaration(gated_by always_no_chain no_chain opens_by class_or_interface_no_chain no_chain),
+                ]
+            }
+            FuncOpener {
+                owns [LambdaExpression(opens Function callable text_gated_by always_no_chain no_chain)]
+            }
+            Member { owns [FieldDeclaration(holds_payer text_gated_by always_no_chain no_chain)] pays [EQEQ] }
+            Exit {
+                owns [ReturnStatement(gated_by always_no_chain no_chain), ThrowStatement(gated_by always_no_chain no_chain pays_itself)]
+                pays [Return]
+            }
+            Catch { owns [CatchClause(text_gated_by always_no_chain no_chain)] }
+            Loop { owns [WhileStatement(holds_payer gated_by always)] pays [While] }
+            Branch { owns [IfStatement(text_gated_by always)] }
+        }
+    }
+
+    // The two-fn owner with exactly one fn unmarked (#1793): four
+    // shapes — which fn, and which is written first — one per row so
+    // each is pinned `true` on its own, since a row's `CHAIN_GATED` is
+    // an OR over its owners. A reader that recorded one owner-level
+    // flag, or read only the last fn, would get one order of each pair
+    // wrong; the Python reader's self-test spells the same four.
+    mod dsl_two_fn_gate_marked {
+        use super::{always_no_chain, class_or_interface};
+        use crate::Java;
+
+        role_table! {
+            lang: Java;
+            Container { owns [ClassDeclaration(opens_by class_or_interface gated_by always_no_chain no_chain)] }
+            FuncOpener { owns [EnumDeclaration(gated_by always_no_chain no_chain opens_by class_or_interface)] }
+        }
+    }
+
+    mod dsl_two_fn_opens_by_marked {
+        use super::{always, class_or_interface_no_chain};
+        use crate::Java;
+
+        role_table! {
+            lang: Java;
+            Container { owns [ClassDeclaration(opens_by class_or_interface_no_chain no_chain gated_by always)] }
+            FuncOpener { owns [EnumDeclaration(gated_by always opens_by class_or_interface_no_chain no_chain)] }
         }
     }
 
@@ -2512,7 +2813,9 @@ mod tests {
         role_table! {
             lang: Java;
             FuncOpener { owns [..jvm_openers!(), StaticInitializer(opens Function)] }
-            Exit { owns [..jvm_openers!()] pays [ReturnStatement] }
+            // A `Container` row, not `Exit`: only the two space-tree
+            // roles may splice an `opens` fragment (#1793).
+            Container { owns [..jvm_openers!()] pays [ReturnStatement] }
             Comparison { owns [BinaryExpression] pays [..equality_tokens!(), LT gated_by never] }
             // A `pending` row, which no production table declares at
             // this close: the enumeration's third shape, pinned here
@@ -2560,7 +2863,7 @@ mod tests {
         // plain: owners
         assert_eq!(dsl_gates::guard::LEAF_KINDS, &[] as &[u16], "pays never");
         assert_eq!(
-            spliced::exit::LEAF_KINDS,
+            spliced::container::LEAF_KINDS,
             &[Java::ReturnStatement as u16],
             "split, no self-payers"
         );
@@ -2601,13 +2904,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            spliced::exit::OWNERS,
+            spliced::container::OWNERS,
             &[
                 Java::MethodDeclaration as u16,
                 Java::ConstructorDeclaration as u16
             ]
         );
-        assert_eq!(spliced::exit::PAYERS, &[Java::ReturnStatement as u16]);
+        assert_eq!(spliced::container::PAYERS, &[Java::ReturnStatement as u16]);
         assert_eq!(
             spliced::comparison::PAYERS,
             &[Java::EQEQ as u16, Java::BANGEQ as u16, Java::LT as u16]
@@ -2801,7 +3104,8 @@ mod tests {
         assert!(!else_if::lists_kind(Java::ForStatement as u16));
         assert_eq!(
             else_if::canonical(),
-            "ElseIf rows owners=[206,205,190] payers=[] wraps=[] excluded=[] mode=split"
+            "ElseIf rows owners=[206,205,190] payers=[] wraps=[] excluded=[] mode=split \
+             text_gated=false chain_gated=true"
         );
     }
 
@@ -2812,14 +3116,18 @@ mod tests {
     /// The mode is the one encoding of the fact — the former
     /// `pays_never=` field was a projection of it that no gate read, and
     /// a fourth mode would have printed `false` on both sides while
-    /// saying nothing. It is the last field; `mode_of` relies on that.
+    /// saying nothing. The two context flags follow it (#1793);
+    /// `mode_of` reads the field between.
     #[test]
     fn canonical_names_each_paying_mode() {
         use dsl_gates::{comparison, else_if, guard, member};
         let mode_of = |row: String| {
-            let (_, mode) = row
+            let (_, tail) = row
                 .rsplit_once(" mode=")
-                .expect("every declared row ends in its mode");
+                .expect("every declared row carries its mode");
+            let (mode, _) = tail
+                .split_once(' ')
+                .expect("the context flags follow the mode");
             mode.to_owned()
         };
         assert_eq!(
@@ -2833,7 +3141,8 @@ mod tests {
         );
         assert_eq!(
             member::canonical(),
-            "Member rows owners=[249] payers=[] wraps=[] excluded=[] mode=owners"
+            "Member rows owners=[249] payers=[] wraps=[] excluded=[] mode=owners \
+             text_gated=true chain_gated=true"
         );
     }
 
@@ -2869,7 +3178,7 @@ mod tests {
         let four: Vec<&str> = spliced::rows().iter().map(RowView::role).collect();
         assert_eq!(
             four,
-            ["FuncOpener", "Exit", "Comparison", "Guard"],
+            ["FuncOpener", "Container", "Comparison", "Guard"],
             "declaration order"
         );
         let pending = spliced::rows().into_iter().nth(3).expect("four rows");
@@ -2978,12 +3287,231 @@ mod tests {
             ("after holds_payer", dsl_gates::call::TEXT_GATED),
             (
                 "after opens and callable",
-                dsl_gates::string_lit::TEXT_GATED,
+                dsl_gates::func_opener::TEXT_GATED,
             ),
             ("gated_by, not text", dsl_gates::short_circuit::TEXT_GATED),
         ];
         for (order, text_gated) in synthetic {
             assert_eq!(*text_gated, *order != "gated_by, not text", "{order}");
+        }
+        // `no_chain` leaves the byte axis alone: a marked text gate is
+        // still text-gated, a marked plain gate still is not.
+        let marked: &[(&str, bool, bool)] = &[
+            (
+                "text_gated_by … no_chain",
+                dsl_no_chain::catch::TEXT_GATED,
+                true,
+            ),
+            (
+                "holds_payer text_gated_by … no_chain",
+                dsl_no_chain::member::TEXT_GATED,
+                true,
+            ),
+            ("gated_by … no_chain", dsl_no_chain::exit::TEXT_GATED, false),
+        ];
+        for (order, got, want) in marked {
+            assert_eq!(got, want, "{order}");
+        }
+    }
+
+    /// The four text × chain combinations, each pinned on a production
+    /// row that spells it (#1793): `TEXT_GATED` comes from the keyword
+    /// and `CHAIN_GATED` from the absence of `no_chain`, so the two are
+    /// independent. The JS `FuncOpener` row is the `callable_when`
+    /// case: it reads the chain and is outside `CHAIN_GATED`.
+    #[test]
+    fn text_and_chain_flags_are_independent_on_the_production_rows() {
+        use crate::roles::{groovy, java, javascript, kotlin, ruby};
+        type Flags = (bool, bool);
+        let rows: &[(&str, Flags, Flags)] = &[
+            (
+                "java DocComment `text_gated_by opens_with_javadoc_marker no_chain`: bytes, no chain",
+                (
+                    java::doc_comment::TEXT_GATED,
+                    java::doc_comment::CHAIN_GATED,
+                ),
+                (true, false),
+            ),
+            (
+                "groovy DeclKeyword `text_gated_by spells_var`: bytes and chain",
+                (
+                    groovy::decl_keyword::TEXT_GATED,
+                    groovy::decl_keyword::CHAIN_GATED,
+                ),
+                (true, true),
+            ),
+            (
+                "java Container `gated_by has_class_body no_chain`: neither",
+                (java::container::TEXT_GATED, java::container::CHAIN_GATED),
+                (false, false),
+            ),
+            (
+                "ruby FuncOpener `gated_by not_a_lambda_body`: chain, no bytes",
+                (
+                    ruby::func_opener::TEXT_GATED,
+                    ruby::func_opener::CHAIN_GATED,
+                ),
+                (false, true),
+            ),
+            (
+                "kotlin Container `opens_by class_or_interface no_chain`",
+                (
+                    kotlin::container::TEXT_GATED,
+                    kotlin::container::CHAIN_GATED,
+                ),
+                (false, false),
+            ),
+            (
+                "javascript FuncOpener: `callable_when` reads the chain and is not covered",
+                (
+                    javascript::func_opener::TEXT_GATED,
+                    javascript::func_opener::CHAIN_GATED,
+                ),
+                (false, false),
+            ),
+            (
+                "java NullSafe, absent",
+                (java::null_safe::TEXT_GATED, java::null_safe::CHAIN_GATED),
+                (false, false),
+            ),
+            (
+                "java Exit, kind-only",
+                (java::exit::TEXT_GATED, java::exit::CHAIN_GATED),
+                (false, false),
+            ),
+        ];
+        for (row, got, want) in rows {
+            assert_eq!(got, want, "{row}");
+        }
+    }
+
+    /// `CHAIN_GATED` is true exactly when an owner's `gated_by` /
+    /// `text_gated_by` gate or `opens_by` fn lacks `no_chain` (#1793):
+    /// false for every marked shape in every attribute position, false
+    /// for a kind-only or `callable_when`-only row, and — the two-fn
+    /// owner — an OR over the owner's gate and `opens_by`, each marked
+    /// on its own, so the unmarked fn decides whichever is written
+    /// first. Read on the synthetic tables that spell each shape.
+    #[test]
+    fn chain_gated_is_true_exactly_for_rows_whose_owner_fns_take_the_chain() {
+        let synthetic: &[(&str, bool, bool)] = &[
+            (
+                "gated_by alone, and before pays_itself",
+                dsl_no_chain::exit::CHAIN_GATED,
+                false,
+            ),
+            (
+                "text_gated_by after opens and callable",
+                dsl_no_chain::func_opener::CHAIN_GATED,
+                false,
+            ),
+            (
+                "holds_payer text_gated_by",
+                dsl_no_chain::member::CHAIN_GATED,
+                false,
+            ),
+            (
+                "text_gated_by alone",
+                dsl_no_chain::catch::CHAIN_GATED,
+                false,
+            ),
+            (
+                "both fns marked, both orders",
+                dsl_no_chain::container::CHAIN_GATED,
+                false,
+            ),
+            (
+                "holds_payer gated_by, unmarked",
+                dsl_no_chain::r#loop::CHAIN_GATED,
+                true,
+            ),
+            (
+                "text_gated_by, unmarked",
+                dsl_no_chain::branch::CHAIN_GATED,
+                true,
+            ),
+            (
+                "opens_by unmarked, written first",
+                dsl_two_fn_gate_marked::container::CHAIN_GATED,
+                true,
+            ),
+            (
+                "opens_by unmarked, written second",
+                dsl_two_fn_gate_marked::func_opener::CHAIN_GATED,
+                true,
+            ),
+            (
+                "gate unmarked, written second",
+                dsl_two_fn_opens_by_marked::container::CHAIN_GATED,
+                true,
+            ),
+            (
+                "gate unmarked, written first",
+                dsl_two_fn_opens_by_marked::func_opener::CHAIN_GATED,
+                true,
+            ),
+            (
+                "gated_by unmarked on the proof table",
+                dsl_gates::ternary::CHAIN_GATED,
+                true,
+            ),
+            (
+                "opens_by unmarked on the proof table",
+                dsl_gates::container::CHAIN_GATED,
+                true,
+            ),
+            (
+                "callable_when and a gated callable: the gate, not the when",
+                dsl_gates::func_opener::CHAIN_GATED,
+                true,
+            ),
+            ("kind-only owners", dsl_gates::guard::CHAIN_GATED, false),
+        ];
+        for (order, got, want) in synthetic {
+            assert_eq!(got, want, "{order}");
+        }
+    }
+
+    /// `callable_when` is outside `CHAIN_GATED` on purpose: the JS
+    /// family's `FuncOpener` rows carry a chain-reading
+    /// `callable_when bound_function` beside an `opens_space` fold that
+    /// never calls it, and the byte-less space forward of each asserts
+    /// `!CHAIN_GATED` on that row. Pinned on the production row, so a
+    /// future fold of `callable_when` into the flag fails here and not
+    /// as a compile error in four `Checker` impls.
+    #[test]
+    fn callable_when_is_outside_chain_gated() {
+        use crate::roles::{javascript, mozjs, tsx, typescript};
+        for (lang, chain_gated, callable) in [
+            (
+                "javascript",
+                javascript::func_opener::CHAIN_GATED,
+                javascript::func_opener::CALLABLE.len(),
+            ),
+            (
+                "mozjs",
+                mozjs::func_opener::CHAIN_GATED,
+                mozjs::func_opener::CALLABLE.len(),
+            ),
+            (
+                "tsx",
+                tsx::func_opener::CHAIN_GATED,
+                tsx::func_opener::CALLABLE.len(),
+            ),
+            (
+                "typescript",
+                typescript::func_opener::CHAIN_GATED,
+                typescript::func_opener::CALLABLE.len(),
+            ),
+        ] {
+            assert!(
+                callable >= 6,
+                "{lang}: the `callable_when` owners are declared"
+            );
+            assert!(
+                !chain_gated,
+                "{lang}: `callable_when` is not a chain gate of the row"
+            );
         }
     }
 
@@ -3012,13 +3540,15 @@ mod tests {
                 seen.push((node.kind(), owns, callable, space));
             }
         });
-        // The constructor is declared (five owners) and gated away on
+        // The constructor is declared (six owners) and gated away on
         // every predicate, so it is absent here rather than listed. The
         // class is the table's `Container` row (`opens_by`), not an
-        // opener: it labels and neither owns nor is callable here.
+        // opener: it labels and neither owns nor is callable here. The
+        // record is the `TEXT_GATED` position probe under `always`.
         assert_eq!(
             seen,
             [
+                ("record_declaration", true, true, SpaceKind::Function),
                 (
                     "compact_constructor_declaration",
                     true,
@@ -3031,7 +3561,7 @@ mod tests {
                 ("static_initializer", true, false, SpaceKind::Function),
             ]
         );
-        assert_eq!(func_opener::OWNERS.len(), 5);
+        assert_eq!(func_opener::OWNERS.len(), 6);
         // The declared list, gates aside: the gated-away constructor and
         // the never-callable lambda are both in it.
         assert_eq!(
@@ -3041,6 +3571,7 @@ mod tests {
                 Java::ConstructorDeclaration as u16,
                 Java::LambdaExpression as u16,
                 Java::CompactConstructorDeclaration as u16,
+                Java::RecordDeclaration as u16,
             ]
         );
         assert_eq!(dsl_gates::guard::CALLABLE, &[] as &[u16]);
@@ -3119,7 +3650,8 @@ mod tests {
         assert_eq!(seen, [(true, false, false, false)]);
         assert_eq!(
             guard::canonical(),
-            "Guard rows owners=[184] payers=[] wraps=[] excluded=[] mode=never"
+            "Guard rows owners=[184] payers=[] wraps=[] excluded=[] mode=never \
+             text_gated=false chain_gated=false"
         );
     }
 }

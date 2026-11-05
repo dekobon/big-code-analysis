@@ -21,7 +21,7 @@ c_family_doc_gates!(with_has_body ObjcCode);
 /// Whether an `implementation_definition` is one Doxygen documents —
 /// not a `@synthesize` / `@dynamic` property implementation, which
 /// declares nothing of its own.
-fn implementation_is_not_a_property<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn implementation_is_not_a_property(node: &Node<'_>, _: &[u8]) -> bool {
     node.child(0)
         .is_some_and(|d| d.kind_id() != Objc::PropertyImplementation as u16)
 }
@@ -192,7 +192,7 @@ role_table! {
     // The one comment kind, a `DocComment` owner under Doxygen's marker
     // gate (#1699).
     Comment { owns [Comment] }
-    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker no_chain)] }
     Docstring { absent "Objective-C documents with comments, not string literals" }
     // What Doxygen documents from a doc block before it: the entries of
     // `roles/c_family.rs`'s fragment
@@ -216,7 +216,7 @@ role_table! {
             MethodDeclaration,
             MethodDefinition,
             InstanceVariable,
-            ImplementationDefinition(gated_by implementation_is_not_a_property),
+            ImplementationDefinition(gated_by implementation_is_not_a_property no_chain),
             ..objc_doc_conditionals!(),
         ]
     }

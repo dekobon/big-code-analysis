@@ -236,7 +236,7 @@ role_table! {
     // The one comment kind, a `DocComment` owner under the DocBlock
     // marker gate (#1699).
     Comment { owns [Comment] }
-    DocComment { owns [Comment(text_gated_by opens_with_docblock_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_docblock_marker no_chain)] }
     Docstring { absent "PHP documents with PHPDoc comments, not string literals" }
     // The structural elements phpDocumentor's reflection builds: a
     // class, interface, trait or enum, a function or method, a

@@ -30,7 +30,7 @@ fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>)
 
 /// Whether a `case … in` arm is a decision: its pattern is not a bare
 /// `_`, or it carries an `if` / `unless` guard (#977; lesson 11).
-fn is_decision_in_clause<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_decision_in_clause(node: &Node<'_>, code: &[u8]) -> bool {
     ruby_in_clause_counts(node, code)
 }
 
@@ -59,7 +59,7 @@ fn is_assignment_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<
 /// the `Kernel` constant as receiver. The callee is read before the
 /// receiver: every call has a `method` and the text test rejects nearly
 /// all of them. Invalid UTF-8 reads as no match.
-fn kernel_raise_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn kernel_raise_or_exit(node: &Node<'_>, code: &[u8]) -> bool {
     node.child_by_field_name("method").is_some_and(|method| {
         method.kind_id() == Ruby::Identifier as u16
             && matches!(method.utf8_text(code), Some("raise" | "exit" | "exit!"))
@@ -71,14 +71,14 @@ fn kernel_raise_or_exit<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<
 /// Whether an `alias` names a method: `Alias` is the `alias new old`
 /// statement, which YARD's alias handler documents; a global-variable
 /// alias (`alias $new $old`) names no method, and YARD takes none.
-fn alias_names_a_method<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn alias_names_a_method(node: &Node<'_>, _: &[u8]) -> bool {
     node.child_by_field_name("name")
         .is_none_or(|name| name.kind_id() != Ruby::GlobalVariable as u16)
 }
 
 /// Whether a `class << X` opens on a constant: YARD registers a class for
 /// `class << Const`, but nothing for `class << self` or another object.
-fn singleton_of_a_constant<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn singleton_of_a_constant(node: &Node<'_>, _: &[u8]) -> bool {
     node.child_by_field_name("value").is_some_and(|value| {
         matches!(
             value.kind_id().into(),
@@ -90,7 +90,7 @@ fn singleton_of_a_constant<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) 
 /// Whether an assignment binds what YARD's constant or class-variable
 /// handler documents — `MAX = 10`, the scoped `Foo::BAR = 1`, `@@count
 /// = 0` — and not a local or an instance variable.
-fn binds_a_constant_or_class_variable<'a>(node: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn binds_a_constant_or_class_variable(node: &Node<'_>, _: &[u8]) -> bool {
     node.child_by_field_name("left").is_some_and(|left| {
         // role-bypass: allow(Member) — which assignment YARD documents,
         // not whether the target is a container's member
@@ -104,7 +104,7 @@ fn binds_a_constant_or_class_variable<'a>(node: &Node<'a>, _: &[u8], _: Ancestor
 /// Whether a call is one YARD documents from the comment run above it:
 /// an `attr*` macro, `alias_method`, or a visibility-wrapped `def` —
 /// told by the method name's bytes.
-fn yard_documented_call<'a>(node: &Node<'a>, code: &[u8], _: Ancestors<'a, '_>) -> bool {
+fn yard_documented_call(node: &Node<'_>, code: &[u8]) -> bool {
     ruby_documented_call(node, code)
 }
 
@@ -237,7 +237,7 @@ role_table! {
     // `_` with no guard, the pattern match's default arm (#977). The
     // `else` of either is the fallback and pays nothing (lesson 11).
     CaseArm {
-        owns [When, InClause(text_gated_by is_decision_in_clause)]
+        owns [When, InClause(text_gated_by is_decision_in_clause no_chain)]
         excludes [
             Else "the fallback arm of a `case`, no decision (lesson 11); an `if`'s `else` is `Branch`'s",
             When2 "the arm's keyword, billed as such; the arm pays",
@@ -277,10 +277,10 @@ role_table! {
     Exit {
         owns [
             Return, Return2,
-            Call(text_gated_by kernel_raise_or_exit),
-            Call2(text_gated_by kernel_raise_or_exit),
-            Call3(text_gated_by kernel_raise_or_exit),
-            Call4(text_gated_by kernel_raise_or_exit),
+            Call(text_gated_by kernel_raise_or_exit no_chain),
+            Call2(text_gated_by kernel_raise_or_exit no_chain),
+            Call3(text_gated_by kernel_raise_or_exit no_chain),
+            Call4(text_gated_by kernel_raise_or_exit no_chain),
         ]
     }
     Modifier { absent "Ruby's `private` / `protected` are method calls read by name in the \
@@ -360,14 +360,14 @@ role_table! {
             SingletonMethod,
             Class,
             Module,
-            Alias(gated_by alias_names_a_method),
-            SingletonClass(gated_by singleton_of_a_constant),
-            Assignment(gated_by binds_a_constant_or_class_variable),
-            Assignment2(gated_by binds_a_constant_or_class_variable),
-            Call(text_gated_by yard_documented_call),
-            Call2(text_gated_by yard_documented_call),
-            Call3(text_gated_by yard_documented_call),
-            Call4(text_gated_by yard_documented_call),
+            Alias(gated_by alias_names_a_method no_chain),
+            SingletonClass(gated_by singleton_of_a_constant no_chain),
+            Assignment(gated_by binds_a_constant_or_class_variable no_chain),
+            Assignment2(gated_by binds_a_constant_or_class_variable no_chain),
+            Call(text_gated_by yard_documented_call no_chain),
+            Call2(text_gated_by yard_documented_call no_chain),
+            Call3(text_gated_by yard_documented_call no_chain),
+            Call4(text_gated_by yard_documented_call no_chain),
         ]
     }
     // RDoc's `##` and YARD's `@!` directive blocks document a method
@@ -376,6 +376,6 @@ role_table! {
     DocRunOpener { owns [Comment(text_gated_by opens_a_directive_block_where_yard_reads)] }
     // A shebang or a magic comment: a run member that is not
     // documentation text.
-    DocRunDirective { owns [Comment(text_gated_by is_magic_comment)] }
+    DocRunDirective { owns [Comment(text_gated_by is_magic_comment no_chain)] }
     HoldsDocInBody { absent "YARD reads a comment run by scope, which the Checker folds; nothing beyond the `def` withholds one" }
 }

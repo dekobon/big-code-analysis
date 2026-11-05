@@ -263,11 +263,7 @@ macro_rules! ts_family_gates {
             })
         }
 
-        fn names_a_type_not_void<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            _ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn names_a_type_not_void(node: &$crate::Node<'_>, _code: &[u8]) -> bool {
             !node
                 .child(0)
                 .is_some_and(|child| child.kind_id() == $lang::Void as u16)
@@ -382,8 +378,8 @@ macro_rules! js_family_doc_targets {
             MethodDefinition,
             Pair,
             ShorthandPropertyIdentifier,
-            VariableDeclaration(gated_by first_declarator_binds_a_name),
-            LexicalDeclaration(gated_by first_declarator_binds_a_name),
+            VariableDeclaration(gated_by first_declarator_binds_a_name no_chain),
+            LexicalDeclaration(gated_by first_declarator_binds_a_name no_chain),
         ] $($rest)*);
     };
 }
@@ -406,11 +402,7 @@ macro_rules! js_family_doc_gates {
         /// Whether a `var` / `let` / `const` declaration's first
         /// declarator binds a plain identifier — what JSDoc and tsc
         /// name; a destructuring declaration documents no binding.
-        fn first_declarator_binds_a_name<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn first_declarator_binds_a_name(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             node.children()
                 .find(|c| c.kind_id() == $lang::VariableDeclarator as u16)
                 .and_then(|d| d.child_by_field_name("name"))
@@ -425,19 +417,11 @@ macro_rules! js_family_doc_gates {
 /// before it) — but never to a destructuring pattern.
 macro_rules! js_doc_gates {
     ($lang:ident) => {
-        fn export_declares<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn export_declares(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             !node.is_child($lang::ExportClause as u16)
         }
 
-        fn assigns_to_a_name_or_member<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn assigns_to_a_name_or_member(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             use $lang::*;
             let mut expr = node.child(0);
             while let Some(e) = expr.filter(|e| e.kind_id() == ParenthesizedExpression) {
@@ -488,7 +472,7 @@ macro_rules! ts_family_doc_targets {
             OptionalParameter,
             OptionalParameter2,
             ExportStatement(gated_by export_declares_to_tsc),
-            ExpressionStatement(gated_by using_declares),
+            ExpressionStatement(gated_by using_declares no_chain),
             PropertyIdentifier(gated_by under_enum_body),
             ComputedPropertyName(gated_by under_enum_body),
         ] $($rest)*);
@@ -539,11 +523,7 @@ macro_rules! ts_doc_gates {
         /// using`; tsc declares `x` as it does for `const x = f()`. An
         /// `internal_module` statement (`namespace N { }` after a
         /// modifier) is a declaration too.
-        fn using_declares<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            _: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn using_declares(node: &$crate::Node<'_>, _: &[u8]) -> bool {
             use $lang::*;
             node.child(0).is_some_and(|e| {
                 if e.kind_id() == InternalModule {

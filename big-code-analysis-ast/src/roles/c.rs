@@ -99,7 +99,7 @@ role_table! {
     // The one comment kind, a `DocComment` owner under Doxygen's marker
     // gate (#1699).
     Comment { owns [Comment] }
-    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_doxygen_marker no_chain)] }
     Docstring { absent "C documents with comments, not string literals" }
     // What Doxygen documents from a doc block before it: the entries of
     // `roles/c_family.rs`'s fragment, and every

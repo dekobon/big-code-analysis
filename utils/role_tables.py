@@ -12,8 +12,9 @@ must not require a Rust build. That makes it a second implementation of
 the DSL's meaning, which is kept honest two ways — ``--dump`` renders a
 table in a canonical text form that a Rust test in ``roles/mod.rs``
 compares against the compiled ``OWNERS`` / ``PAYERS`` / ``WRAPS`` /
-``EXCLUDED`` / ``ABSENT`` / ``PENDING`` constants and the row's paying
-mode (``owners`` / ``split`` / ``never``, #1745), and the reader fails
+``EXCLUDED`` / ``ABSENT`` / ``PENDING`` constants, the row's paying
+mode (``owners`` / ``split`` / ``never``, #1745) and its two context
+flags (``TEXT_GATED`` / ``CHAIN_GATED``, #1793), and the reader fails
 closed: any row shape it does not recognise is an error, never a row it
 silently reads as empty.
 
@@ -260,11 +261,16 @@ class Owner:
     kind: str
     gate: str | None = None
     text_gated: bool = False
+    # `gated_by f no_chain` / `text_gated_by f no_chain`: the gate takes
+    # no chain parameter (#1793). Recorded per fn, not per owner: an
+    # owner can carry a gate and an `opens_by`, each marked on its own.
+    gate_no_chain: bool = False
     pays_itself: bool = False
     # `opens K`: the `SpaceKind` the owner opens; `opens_by f`: the fn
     # that says which kind, or none (#1696). At most one of the two.
     opens: str | None = None
     opens_by: str | None = None
+    opens_by_no_chain: bool = False
     # `holds_payer`: the owner's projection lands on one of the row's
     # payers (#1695); a gate may sit beside it.
     holds_payer: bool = False
@@ -273,6 +279,15 @@ class Owner:
     # the gate under which it is one (#1696).
     callable: bool = False
     callable_when: str | None = None
+
+    @property
+    def chain_gated(self) -> bool:
+        """Whether this owner's gate or `opens_by` fn takes the chain —
+        the macro's per-owner term of `CHAIN_GATED` (#1793), which
+        reads neither `callable_when` nor `pays_itself_when`."""
+        return (self.gate is not None and not self.gate_no_chain) or (
+            self.opens_by is not None and not self.opens_by_no_chain
+        )
 
 
 @dataclass(frozen=True)
@@ -308,6 +323,17 @@ class Row:
             + [p.kind for p in self.payers]
             + list(self.wraps)
         )
+
+    @property
+    def text_gated(self) -> bool:
+        """The macro's `TEXT_GATED`: any owner is `text_gated_by`."""
+        return any(o.text_gated for o in self.owners)
+
+    @property
+    def chain_gated(self) -> bool:
+        """The macro's `CHAIN_GATED`: any owner's gate or `opens_by`
+        fn lacks `no_chain` (#1793)."""
+        return any(o.chain_gated for o in self.owners)
 
 
 @dataclass
@@ -379,13 +405,22 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
     kind = m.group(1)
     gate = None
     text_gated = False
+    gate_no_chain = False
     pays_itself = False
     opens = None
     opens_by = None
+    opens_by_no_chain = False
     holds_payer = False
     callable_ = False
     callable_when = None
     attrs = (m.group(3) or "").split()
+
+    def no_chain_after(i: int) -> bool:
+        # `no_chain` is a trailing modifier on the fn it follows (#1793);
+        # the macro accepts it only after a gate or `opens_by`, so a
+        # bare one reaching the main loop is reported as unknown there.
+        return i < len(attrs) and attrs[i] == "no_chain"
+
     i = 0
     while i < len(attrs):
         a = attrs[i]
@@ -400,6 +435,9 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
             gate = attrs[i + 1]
             text_gated = a == "text_gated_by"
             i += 2
+            if no_chain_after(i):
+                gate_no_chain = True
+                i += 1
         elif a == "pays_itself":
             if pays_itself:
                 raise RoleTableError(f"{path}:{line}: `{kind}` repeats `pays_itself`")
@@ -415,9 +453,13 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated `{a}`")
             if a == "opens":
                 opens = attrs[i + 1]
+                i += 2
             else:
                 opens_by = attrs[i + 1]
-            i += 2
+                i += 2
+                if no_chain_after(i):
+                    opens_by_no_chain = True
+                    i += 1
         elif a == "callable":
             if callable_:
                 raise RoleTableError(f"{path}:{line}: `{kind}` repeats `callable`")
@@ -432,7 +474,17 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
         else:
             raise RoleTableError(f"{path}:{line}: unknown owner attribute `{a}` on `{kind}`")
     return Owner(
-        kind, gate, text_gated, pays_itself, opens, opens_by, holds_payer, callable_, callable_when
+        kind,
+        gate,
+        text_gated,
+        gate_no_chain,
+        pays_itself,
+        opens,
+        opens_by,
+        opens_by_no_chain,
+        holds_payer,
+        callable_,
+        callable_when,
     )
 
 
@@ -790,15 +842,17 @@ def parse_enum(path: pathlib.Path) -> tuple[str, list[Kind], int]:
 def dump_table(table: Table, enum_path: pathlib.Path) -> str:
     """One line per declared row, in declaration order::
 
-        <Role> rows owners=[ids] payers=[ids] wraps=[ids] excluded=[id=why;...] mode=<owners|split|never>
+        <Role> rows owners=[ids] payers=[ids] wraps=[ids] excluded=[id=why;...] mode=<owners|split|never> text_gated=<bool> chain_gated=<bool>
         <Role> absent <reason>
         <Role> pending <package>
 
     Kinds are rendered as ids so the Rust side can compare against its
-    ``u16`` constants without naming variants. The mode is the last
-    field and the one encoding of how the row pays (#1745); the Rust
-    ``canonical()`` emits the same line, and the differential test in
-    ``roles/mod.rs`` compares the two byte for byte."""
+    ``u16`` constants without naming variants. The mode is the one
+    encoding of how the row pays (#1745), and the two flags after it
+    are the row's ``TEXT_GATED`` / ``CHAIN_GATED`` (#1793), spelled as
+    Rust's ``true`` / ``false``; the Rust ``canonical()`` emits the same
+    line, and the differential test in ``roles/mod.rs`` compares the
+    two byte for byte."""
     _, kinds, _ = parse_enum(enum_path)
     by_variant = {k.variant: k.id for k in kinds}
     lines = [f"lang {table.lang}"]
@@ -814,9 +868,11 @@ def dump_table(table: Table, enum_path: pathlib.Path) -> str:
             payers = ids([p.kind for p in row.payers])
             wraps = ids(row.wraps)
             excluded = ";".join(f"{by_variant[k]}={r}" for k, r in row.excludes)
+            flag = {True: "true", False: "false"}
             lines.append(
                 f"{role} rows owners=[{owners}] payers=[{payers}] wraps=[{wraps}] "
-                f"excluded=[{excluded}] mode={row.pays_mode}"
+                f"excluded=[{excluded}] mode={row.pays_mode} "
+                f"text_gated={flag[row.text_gated]} chain_gated={flag[row.chain_gated]}"
             )
     return "\n".join(lines) + "\n"
 

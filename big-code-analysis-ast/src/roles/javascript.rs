@@ -120,7 +120,7 @@ role_table! {
     // `<!-- -->` `html_comment` (#697); only the first can open with the
     // tool's block marker (#1699).
     Comment { owns [Comment, HtmlComment] }
-    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker)] }
+    DocComment { owns [Comment(text_gated_by opens_with_doc_block_marker no_chain)] }
     Docstring { absent "JavaScript documents with JSDoc comments, not string literals" }
     // What JSDoc's `astnode.getInfo` names: the family fragment, plus an
     // export other than a bare `export { … }` list and an expression
@@ -130,10 +130,10 @@ role_table! {
     DocTarget {
         owns [
             ..js_family_doc_targets!(),
-            UsingDeclaration(gated_by first_declarator_binds_a_name),
+            UsingDeclaration(gated_by first_declarator_binds_a_name no_chain),
             FieldDefinition,
-            ExportStatement(gated_by export_declares),
-            ExpressionStatement(gated_by assigns_to_a_name_or_member),
+            ExportStatement(gated_by export_declares no_chain),
+            ExpressionStatement(gated_by assigns_to_a_name_or_member no_chain),
         ]
     }
     DocRunOpener { absent "JSDoc attaches every doc comment to a declaration or a named symbol; none documents by its own content" }

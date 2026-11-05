@@ -55,6 +55,13 @@ impl Checker for JavaCode {
     // legacy wrappers: Java's rows read no bytes and no chain, so they
     // answer identically with none.
     fn is_func_space(node: &Node) -> bool {
+        const _: () = assert!(
+            !crate::roles::java::func_opener::TEXT_GATED
+                && !crate::roles::java::func_opener::CHAIN_GATED
+                && !crate::roles::java::container::TEXT_GATED
+                && !crate::roles::java::container::CHAIN_GATED,
+            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+        );
         Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 

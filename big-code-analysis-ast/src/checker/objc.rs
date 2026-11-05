@@ -29,6 +29,13 @@ impl Checker for ObjcCode {
     // closure and no space, as the C++ lambda. The rows read no bytes
     // and no chain, so the byte-less spelling forwards with none.
     fn is_func_space(node: &Node) -> bool {
+        const _: () = assert!(
+            !crate::roles::objc::func_opener::TEXT_GATED
+                && !crate::roles::objc::func_opener::CHAIN_GATED
+                && !crate::roles::objc::container::TEXT_GATED
+                && !crate::roles::objc::container::CHAIN_GATED,
+            "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+        );
         Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
 

@@ -79,7 +79,7 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// child that is not a comment. The name is all that is read: a user
 /// `infix fun and` on another type, or `Int.and`, spells the same call,
 /// which no syntax can tell from `Boolean.and`.
-fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn eager_infix(node: &Node<'_>, code: &[u8]) -> bool {
     node.children()
         .filter(|child| !child.as_tree_sitter().is_extra())
         .nth(1)
@@ -90,7 +90,7 @@ fn eager_infix<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) 
 
 /// Whether a `when_entry` is a case-style arm rather than the `else ->`
 /// fallback, which has no `condition` field (lesson 11, #469).
-fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_case_entry(node: &Node<'_>, _code: &[u8]) -> bool {
     !kotlin_when_entry_is_else(node)
 }
 
@@ -98,11 +98,7 @@ fn is_case_entry<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_
 /// and interfaces under one node with the discriminating keyword as a
 /// direct child token, so an `interface` token makes it `Interface`
 /// and anything else `Class`.
-fn class_or_interface<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    _ancestors: Ancestors<'a, '_>,
-) -> crate::SpaceKind {
+fn class_or_interface(node: &Node<'_>, _code: &[u8]) -> crate::SpaceKind {
     if node.first_child(|id| id == Kotlin::Interface).is_some() {
         crate::SpaceKind::Interface
     } else {
@@ -167,7 +163,7 @@ role_table! {
     // and keeps billing — the row records the construct and nothing
     // reads it to count (#1695). Owner-only and text-gated, since
     // claiming `Identifier` as a payer would claim every name.
-    EagerLogical { owns [InfixExpression(text_gated_by eager_infix)] }
+    EagerLogical { owns [InfixExpression(text_gated_by eager_infix no_chain)] }
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
     // Two structural forms, each one decision per token (#436): the
     // elvis `a ?: b`, a `binary_expression` owned through its `operator`
@@ -192,7 +188,7 @@ role_table! {
     // unless it is the `else ->` fallback, told by the absence of a
     // `condition` field (lesson 11, #469). A subject-ful entry's `is` /
     // `in` tests are the entry's, not the `Comparison` row's.
-    CaseArm { owns [WhenEntry(gated_by is_case_entry)] }
+    CaseArm { owns [WhenEntry(gated_by is_case_entry no_chain)] }
     Guard { absent "Kotlin 2.x's `when` guards are not in the pinned grammar; `if` is an expression" }
     // Kotlin counts expression / statement nodes, so every row here is
     // plain (#1697).
@@ -288,7 +284,7 @@ role_table! {
     Container {
         owns [
             SourceFile(opens Unit),
-            ClassDeclaration(opens_by class_or_interface),
+            ClassDeclaration(opens_by class_or_interface no_chain),
             ObjectDeclaration(opens Class),
             CompanionObject(opens Class),
             ObjectLiteral(opens Class),
@@ -300,7 +296,7 @@ role_table! {
     // The two comment kinds; KDoc has no line form, so only the block
     // comment is a `DocComment` owner, under the marker gate (#1699).
     Comment { owns [LineComment, BlockComment] }
-    DocComment { owns [BlockComment(text_gated_by opens_with_kdoc_marker)] }
+    DocComment { owns [BlockComment(text_gated_by opens_with_kdoc_marker no_chain)] }
     Docstring { absent "Kotlin documents with KDoc comments, not string literals" }
     // The declarations Dokka documents. The package directive binds no
     // comment (`BindFirstShebangWithWhitespaceOnly`), an import none,
