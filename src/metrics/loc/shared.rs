@@ -495,7 +495,12 @@ impl RowShape {
 // The control characters every splicing grammar skips within a row
 // alongside space and tab: the C family's and Ruby's `\s`, and Bash's and
 // Tcl's, are ASCII and take both. Elixir skips neither, but lexes each as
-// a token of its own, which no gap holds.
+// a token of its own, which no gap holds. bash itself does not skip them:
+// its blanks are space and tab, so either is a word character. A row
+// holding one before its `\` is code to bash as it is here. A bare row
+// joining a row that one starts reads here as what the rest of that row
+// makes it, but to bash it joins a command named by the control character,
+// which no working script runs, so the difference is left alone.
 const VERTICAL_TAB: u8 = 0x0b;
 const FORM_FEED: u8 = 0x0c;
 

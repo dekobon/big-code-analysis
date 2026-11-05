@@ -1608,8 +1608,8 @@ for historical reference.
   blank, in its enclosing function as well as the file, as it already
   did for Bash, Tcl and iRules (#1801). That includes a bare row between
   a `#define` name or parameter list and its body, one continuing the
-  last statement of a Ruby or Elixir body, and one indented by a
-  vertical tab or form feed, in Bash, Tcl and iRules too. A bare row
+  last statement of a Ruby or Elixir body, and one holding a vertical
+  tab or form feed before its `\`, in Bash, Tcl and iRules too. A bare row
   inside a C-family character literal, a Ruby `%w[]`, regex, quoted
   symbol or command, or an Elixir string, sigil or quoted atom still
   counts as blank (#1816).

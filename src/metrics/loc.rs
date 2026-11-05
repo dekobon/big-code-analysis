@@ -8674,6 +8674,10 @@ EOF
                 (b"echo a | \\\n\\\n  grep b\n", (3, 3, 0, 0), 1),
                 (b"echo a | \\\n  \\\n  grep b\n", (3, 3, 0, 0), 1),
                 (b"echo a | \\\n\t\\\n  grep b\n", (3, 3, 0, 0), 1),
+                // A form feed is no blank to bash but a word character,
+                // which the `\` continues (`echo` prints `a`, `\fecho` and
+                // `b`): the row is code all the same.
+                (b"echo a \\\n\x0c\\\necho b\n", (3, 3, 0, 0), 1),
                 // Before the root's first token, which is where its span
                 // begins, so only the root's leading padding holds it.
                 (b"\\\necho a\n", (2, 2, 0, 0), 1),
@@ -8797,6 +8801,12 @@ EOF
                 (b"puts [list a \\\n\\\n  b]\n", (3, 3, 0, 0), 1),
                 // An indented bare row is still bare (`tclsh` prints `a b`).
                 (b"puts [list a \\\n   \\\n  b]\n", (3, 3, 0, 0), 1),
+                // A vertical tab or form feed is space to `tclsh` too: it
+                // may indent the bare row (`a b`), a row holding only one
+                // is empty (`a`, `b`), and one may indent a comment.
+                (b"puts [list a \\\n\x0c\\\n  b]\n", (3, 3, 0, 0), 1),
+                (b"puts a\n\\\n\x0b\nputs b\n", (4, 2, 0, 2), 2),
+                (b"\\\n\x0c# note\nputs done\n", (3, 1, 2, 0), 1),
                 (b"\\\nputs a\n", (2, 2, 0, 0), 1),
                 // A bare row that continues nothing is the line it joins: a
                 // comment, which may itself continue, or an empty line.
@@ -8877,6 +8887,9 @@ EOF
             crate::LANG::Irules,
             &[
                 (b"set a [list a \\\n\\\n  b]\n", (3, 3, 0, 0), 1),
+                // Space to the shared lexer, as in Tcl.
+                (b"set a [list a \\\n\x0c\\\n  b]\n", (3, 3, 0, 0), 1),
+                (b"set a 1\n\\\n\x0b\nset b 2\n", (4, 2, 0, 2), 2),
                 // The line a bare row that continues nothing joins, as in Tcl.
                 (b"\\\n# note\nset a 1\n", (3, 1, 2, 0), 1),
                 (b"\\\n\nset a 1\n", (3, 1, 0, 2), 2),
