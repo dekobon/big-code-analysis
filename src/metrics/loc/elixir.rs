@@ -47,7 +47,7 @@ impl Loc for ElixirCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: E::Comment as u16,
+                is_comment: crate::roles::elixir::comment::lists_kind,
                 continued: false,
             },
         );

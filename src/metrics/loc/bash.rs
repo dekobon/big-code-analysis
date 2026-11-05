@@ -30,7 +30,7 @@ impl Loc for BashCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Bash::Comment as u16,
+                is_comment: crate::roles::bash::comment::lists_kind,
                 continued: false,
             },
         );

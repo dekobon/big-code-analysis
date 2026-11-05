@@ -31,7 +31,7 @@ impl Loc for MozcppCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Mozcpp::Comment as u16,
+                is_comment: crate::roles::mozcpp::comment::lists_kind,
                 continued: true,
             },
         );

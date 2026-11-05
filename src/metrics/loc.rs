@@ -8624,7 +8624,14 @@ EOF
     /// that contains it and not only to the file (#1445): `Loc::compute`
     /// writes into the current space's `Stats`, and the unit sees nested
     /// rows only through `Stats::merge`.
-    #[cfg(any(feature = "bash", feature = "c", feature = "irules", feature = "tcl"))]
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "elixir",
+        feature = "irules",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
     #[track_caller]
     fn assert_nested_continuation(lang: crate::LANG, source: &[u8], expected: LocRows) {
         let space = space_verbatim(
@@ -8679,6 +8686,19 @@ EOF
                 // emits as adjacent siblings with no token between: the
                 // row is in the root's own padding, outside both spaces.
                 (b"f() { :; }\n\\\ng() { :; }\n", (3, 3, 0, 0), 1),
+                // The bare row continuing an `else` clause's or a `case`
+                // item's last command, before a blank row: the clause runs
+                // on past its last child to the `\n` that ends it.
+                (
+                    b"if true; then\n  :\nelse\n  echo a \\\n\\\n\nfi\n",
+                    (7, 6, 0, 1),
+                    2,
+                ),
+                (
+                    b"case x in\n  x)\n    echo a \\\n\\\n\nesac\n",
+                    (6, 5, 0, 1),
+                    2,
+                ),
                 // Controls. A blank row between continuations stays blank:
                 // only a row spelled `\` is credited.
                 (b"echo a \\\n\n\\\necho b\n", (4, 3, 0, 1), 2),
@@ -8904,16 +8924,16 @@ EOF
 
     /// #1801's fixtures for the four C-family grammars, each of which lists
     /// `\s|\\\r?\n` among its extras, so a bare `\` row in padding has no
-    /// node, as in Bash. Every LF fixture and the CRLF twin pass `gcc -x
-    /// c`, `g++ -x c++` and `clang -x objective-c` with `-fsyntax-only`.
+    /// node, as in Bash. Every fixture passes `gcc -x c`, `g++ -x c++` and
+    /// `clang -x objective-c` with `-fsyntax-only`.
     ///
     /// expected: translation phase 2 splices each `\` + newline before
-    /// anything else is read, so a bare row in padding is the code it
-    /// continues, and one that continues nothing is the line it joins. The
+    /// anything else is read, so a bare row in padding is its logical line:
+    /// the code it continues, or what a line with no code yet becomes. The
     /// third element is `blank` before #1801, when the bare row read blank
     /// and nothing else differed: each non-control row's earlier tuple is
     /// the expected one with that row moved back to `blank`, out of
-    /// `ploc`, or out of `cloc` for the row that joins `// note`.
+    /// `ploc`, or out of `cloc` for a row that joins a comment.
     ///
     /// No fixture can tell `continued: true` from `false` here: the `//`
     /// token takes a trailing `\` with the row it continues, and `/* … */`
@@ -8932,6 +8952,19 @@ EOF
         // comment-only.
         (b"\\\n/* c */ int z = 1;\n", (2, 2, 1, 0), 1),
         (b"\\\n/* a\nb */ int z = 1;\n", (3, 1, 3, 0), 1),
+        // A second comment, or a `\` that carries the line on to an empty
+        // row, leaves it comment-only; code after them does not.
+        (b"\\\n/* a */ /* b */\nint z;\n", (3, 1, 2, 0), 1),
+        (b"\\\n/* a */ // b\nint z = 1;\n", (3, 1, 2, 0), 1),
+        (b"\\\n/* a */ \\\n\nint z = 1;\n", (4, 1, 2, 1), 2),
+        (b"\\\n/* a */ /* b */ int z;\n", (2, 2, 1, 0), 1),
+        (b"\\\r\n/* c */\r\nint z = 1;\r\n", (3, 1, 2, 0), 1),
+        // A vertical tab or form feed is padding to `\s` as a space is: it
+        // may indent the bare row, and a row holding only one is empty.
+        (b"int x = 1 + \\\n\x0c\\\n2;\n", (3, 3, 0, 0), 1),
+        (b"\\\n\x0c\nint z = 1;\n", (3, 1, 0, 2), 2),
+        (b"\\\n\x0b\nint z = 1;\n", (3, 1, 0, 2), 2),
+        (b"\\\n/* c */\x0c\nint z = 1;\n", (3, 1, 2, 0), 1),
         // The bare row is padding in `preproc_def` *before* `preproc_arg`,
         // which starts on the last row, so the `PreprocArg` interior
         // credit (#1423) never reached it.
@@ -8946,6 +8979,19 @@ EOF
         // `int z = 1;`; the `\` is no token, so the comment row stays
         // comment-only.
         (b"/* c */ \\\n\\\nint z = 1;\n", (3, 2, 1, 0), 1),
+        // A row of comments alone before its `\` starts a line with no
+        // code, which the rows after it decide: `gcc -E -C -P` keeps
+        // `/* c */ // d` as one comment line, and an empty row adds nothing
+        // to `/* c */`.
+        (b"int a;\n/* c */ \\\n\\\n// d\nint b;\n", (5, 2, 3, 0), 1),
+        (b"/* c */ \\\n\\\n\nint z;\n", (4, 1, 2, 1), 2),
+        // A row that itself continues the directive is code to the bare
+        // row after it, comment or not.
+        (
+            b"#define FOO \\\n  /* c */ \\\n  \\\n  1\n",
+            (4, 3, 1, 0),
+            1,
+        ),
         // Controls: the bare row is inside a node, and an arm older than
         // #1801 credits it. The first `//` comment spans all three rows.
         (b"// c \\\n\\\nint y = 2;\nint z = 3;\n", (4, 1, 3, 0), 0),
@@ -8955,6 +9001,10 @@ EOF
         // `gcc -E` defines `X` as empty: the comment runs through both
         // continued rows, `int z = 1;` included, and its node spans them.
         (b"#define X // c \\\n\\\nint z = 1;\n", (3, 1, 3, 0), 0),
+        // FIXME(#1816): (3, 3, 0, 0). No arm routes `char_literal`, and the
+        // `escape_sequence` spanning the bare row starts on the row above
+        // it.
+        (b"char c = '\\\n\\\na';\n", (3, 2, 0, 1), 1),
     ];
 
     #[cfg(feature = "c")]
@@ -9019,17 +9069,67 @@ EOF
                 (b"# c \\\n\\\nputs 1\n", (3, 2, 1, 0), 1),
                 (b"# c \\\n\\\n\nx = 2\n", (4, 1, 1, 2), 2),
                 (b"\\\n# note\nputs 1\n", (3, 1, 2, 0), 1),
-                // Controls: inside a literal `\` + newline is an
+                // A header's trailing comment is a child of the `if` or
+                // `while`, and the `then` or `do` holding the body starts
+                // after it, so the bare row's gap is in a node the comment
+                // is outside: its `\` is still comment text, and the bare
+                // row starts a line of its own.
+                (b"if x # c \\\n\\\n\n  y\nend\n", (5, 3, 1, 2), 2),
+                (b"while x # c \\\n\\\n\n  y\nend\n", (5, 3, 1, 2), 2),
+                // The bare row continuing a body's last statement, before a
+                // blank row: `then` runs on past its last child to a hidden
+                // line break, so the row is in `then`'s trailing padding.
+                (b"if true\n  p 1 \\\n\\\n\nend\n", (5, 4, 0, 1), 2),
+                // A vertical tab or form feed is padding to `\s`.
+                (b"x = 1 + \\\n\x0c\\\n  2\n", (3, 3, 0, 0), 1),
+                (b"\\\n\x0c\nx = 1\n", (3, 1, 0, 2), 2),
+                // Controls: inside these literals `\` + newline is an
                 // `escape_sequence` node, so the row is not padding, and
                 // the heredoc and string arms credit it.
                 (b"x = <<~EOS\n  a\n\\\n  b\nEOS\n", (5, 5, 0, 0), 0),
                 (b"x = \"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 0),
-                // FIXME(#1816): (3, 3, 0, 0). No arm routes `string_array`
-                // or `regex`, and the `escape_sequence` spanning the bare
-                // row starts on the row above it.
+                // FIXME(#1816): (3, 3, 0, 0). No arm routes `string_array`,
+                // and `%w[]` holds no `escape_sequence`: `\` + newline stays
+                // in the word's `string_content`, which starts on the row
+                // above the bare row.
                 (b"x = %w[a\\\n\\\nb]\n", (3, 2, 0, 1), 1),
+                // FIXME(#1816): (3, 3, 0, 0). No arm routes `regex`, a quoted
+                // symbol (`delimited_symbol`) or a command (`subshell`), and
+                // the `escape_sequence` spanning the bare row starts on the
+                // row above it.
                 (b"x = /ab\\\n\\\ncd/\n", (3, 2, 0, 1), 1),
+                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
+                (b"x = `ab\\\n\\\ncd`\n", (3, 2, 0, 1), 1),
             ],
+        );
+    }
+
+    /// A bare row continuing the last statement of a method's body is the
+    /// method's code: the `body_statement` runs on past its last child to
+    /// a hidden line break, so the row sits in its trailing padding.
+    ///
+    /// expected: every row but the blank one is code; with only the root's
+    /// trailing padding scanned, the unit and the method both read
+    /// `(5, 3, 0, 2)`.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_bare_row_continuing_a_bodys_last_statement_is_its_code() {
+        assert_nested_continuation(
+            crate::LANG::Ruby,
+            b"def f\n  p 1 \\\n\\\n\nend\n",
+            (5, 4, 0, 1),
+        );
+    }
+
+    /// The Elixir twin of the Ruby test above, for an anonymous function's
+    /// stab-clause `body`.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_bare_row_continuing_a_bodys_last_statement_is_its_code() {
+        assert_nested_continuation(
+            crate::LANG::Elixir,
+            b"fn ->\n  x = 2 \\\n\\\n\nend\n",
+            (5, 4, 0, 1),
         );
     }
 
@@ -9054,14 +9154,24 @@ EOF
                 (b"x = 1 + \\\r\n\\\r\n  2\r\n", (3, 3, 0, 0), 1),
                 (b"# c \\\n\\\nx = 1\n", (3, 2, 1, 0), 1),
                 (b"\\\n# note\nx = 1\n", (3, 1, 2, 0), 1),
+                // The bare row continuing a clause body's last statement,
+                // before a blank row: the `body` runs on past its last child
+                // to the hidden line breaks before `end`.
+                (
+                    b"case 1 do\n  1 ->\n    x = 2 \\\n\\\n\nend\n",
+                    (6, 5, 0, 1),
+                    2,
+                ),
                 // Control: the bare row is inside a heredoc's
                 // `quoted_content`, which its arm credits.
                 (b"x = \"\"\"\nab\n\\\ncd\n\"\"\"\n", (5, 5, 0, 0), 0),
                 // FIXME(#1816): (3, 3, 0, 0). The bare row is inside an
                 // `escape_sequence` leaf that starts on the row above it,
-                // and the leaf-gated catch-all credits only that row.
+                // and the leaf-gated catch-all credits only that row. A
+                // quoted atom holds the same leaf.
                 (b"x = \"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
                 (b"x = ~s(ab\\\n\\\ncd)\n", (3, 2, 0, 1), 1),
+                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
             ],
         );
     }

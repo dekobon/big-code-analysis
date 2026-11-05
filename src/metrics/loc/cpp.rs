@@ -31,7 +31,7 @@ impl Loc for CppCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Cpp::Comment as u16,
+                is_comment: crate::roles::cpp::comment::lists_kind,
                 continued: true,
             },
         );

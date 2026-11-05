@@ -31,7 +31,7 @@ impl Loc for RubyCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: R::Comment as u16,
+                is_comment: crate::roles::ruby::comment::lists_kind,
                 continued: false,
             },
         );

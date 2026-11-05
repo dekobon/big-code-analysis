@@ -1592,8 +1592,10 @@ for historical reference.
 - `loc` (Bash, Tcl, iRules): a line-continuation row holding only the
   `\` counts as code instead of blank, or as comment where it continues
   a Tcl or iRules comment (`# note \`), in its enclosing function, proc
-  or event handler as well as the file (#1445). One that continues
-  nothing counts as the line it starts once joined to the next row: a
+  or event handler as well as the file (#1445), the last command of a
+  Bash `else` or `elif` clause or `;;`-less `case` item included. One
+  that continues nothing counts as the line it starts once joined to
+  the next row: a
   comment where that row is one (`\` + `# note`), blank where it is
   empty, code otherwise. Where CRLF line endings
   reach the parser unchanged (the library's `analyze`, Python's
@@ -1601,13 +1603,16 @@ for historical reference.
   still lex such a row as a word (#1802).
 
 - `loc` (C, C++, Mozcpp, Objective-C, Ruby, Elixir): a bare
-  `\`-continuation row counts as the line it joins — code, or comment
-  where that row holds only comment text — instead of blank, in its
-  enclosing function as well as the file, as it already did for Bash,
-  Tcl and iRules (#1801). That includes a bare row between a `#define`
-  name or parameter list and its body. A bare row inside a Ruby `%w[]`
-  or regex, or an Elixir string or sigil, still counts as blank
-  (#1816).
+  `\`-continuation row counts as the logical line it belongs to — code,
+  or comment where that line holds only comment text — instead of
+  blank, in its enclosing function as well as the file, as it already
+  did for Bash, Tcl and iRules (#1801). That includes a bare row between
+  a `#define` name or parameter list and its body, one continuing the
+  last statement of a Ruby or Elixir body, and one indented by a
+  vertical tab or form feed, in Bash, Tcl and iRules too. A bare row
+  inside a C-family character literal, a Ruby `%w[]`, regex, quoted
+  symbol or command, or an Elixir string, sigil or quoted atom still
+  counts as blank (#1816).
 
 ### Security
 

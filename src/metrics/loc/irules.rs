@@ -28,7 +28,7 @@ impl Loc for IrulesCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Irules::Comment as u16,
+                is_comment: crate::roles::irules::comment::lists_kind,
                 continued: true,
             },
         );

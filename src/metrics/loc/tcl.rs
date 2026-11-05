@@ -28,7 +28,7 @@ impl Loc for TclCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Tcl::Comment as u16,
+                is_comment: crate::roles::tcl::comment::lists_kind,
                 continued: true,
             },
         );

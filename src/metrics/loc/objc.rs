@@ -31,7 +31,7 @@ impl Loc for ObjcCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: Objc::Comment as u16,
+                is_comment: crate::roles::objc::comment::lists_kind,
                 continued: true,
             },
         );

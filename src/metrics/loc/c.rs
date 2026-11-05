@@ -31,7 +31,7 @@ impl Loc for CCode {
             ancestors,
             stats,
             BareRowComments {
-                kind: C::Comment as u16,
+                is_comment: crate::roles::c::comment::lists_kind,
                 continued: true,
             },
         );

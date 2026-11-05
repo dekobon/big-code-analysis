@@ -1147,10 +1147,15 @@ the bytes between nodes. Each one counts as PLOC, the code it
 continues. The exception is a row that continues a Tcl or iRules
 comment (`# note \`), which counts as CLOC; one that continues a
 C-family `//` comment is part of that comment's own node and counts as
-CLOC with it. A row that continues nothing starts a line and counts as
-what that line becomes: CLOC when the row it joins holds only comment
-text, blank when that row is empty, PLOC otherwise, as for
-`/* c */ int z = 1;`.
+CLOC with it, and one that continues a row holding only C-family block
+comments (`/* c */ \`) counts as what the rest of that line makes it. A
+row that continues nothing starts a line and counts as what that line
+becomes: CLOC when the line holds only comment text, blank when the row
+it joins is empty, PLOC otherwise, as for `/* c */ int z = 1;`. A bare
+row inside a literal is part of the literal, which should make it PLOC,
+but a C-family character literal, a Ruby `%w[]`, regex, quoted symbol
+or command, and an Elixir string, sigil or quoted atom still leave it
+blank ([#1816](https://github.com/dekobon/big-code-analysis/issues/1816)).
 Where CRLF line endings reach the parser unchanged, through the
 library's own `analyze` or Python's `Ast.parse`, the Tcl and iRules
 grammars lex the bare row as a word, so there it counts as PLOC even
