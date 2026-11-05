@@ -24,8 +24,9 @@ use crate::vcs::git::tests::{append_config, stage_tree, tree_of};
 /// selector alone: reading the slot through `trusted_path` with no
 /// anchoring leaves it relative and fails the absolute row. The
 /// anchoring-order defect itself, which the pre-fix capture had and
-/// this fixture cannot reach, is covered by inspection of
-/// `trusted_file_path_with_base` against `user_attributes_path`.
+/// this fixture cannot reach, is
+/// [`the_capture_anchors_an_optional_user_file_to_the_opening_directory`]'s,
+/// from a child process that can move away.
 /// The `info/attributes` row pins the anchoring gix applies to its
 /// own path; the system row pins only what the permissions withhold —
 /// the on side is `the_hand_built_capture_selects_the_system_file_gix_selects`.
@@ -245,4 +246,144 @@ fn the_user_attributes_file_is_resolved_through_the_injected_environment() {
          the file above was reached through `XDG_CONFIG_HOME`, not by another \
          route"
     );
+}
+
+/// The environment variable the parent of
+/// [`the_capture_anchors_an_optional_user_file_to_the_opening_directory`]
+/// sets so its child half runs; the child bails without it, and is
+/// `#[ignore]`d so no harness runs it on its own.
+const CHILD_MARKER: &str = "BCA_ATTRIBUTES_ANCHOR_CHILD";
+/// The repository directory the child opens, and the directory it moves
+/// to before reading.
+const CHILD_REPO: &str = "BCA_ATTRIBUTES_ANCHOR_REPO";
+const CHILD_AWAY: &str = "BCA_ATTRIBUTES_ANCHOR_AWAY";
+/// What the child prints once every assertion has held.
+const CHILD_SENTINEL: &str =
+    "attributes-anchor-child: optional user file read from the opening directory";
+
+/// The anchoring *order* the in-process rows cannot reach: an
+/// `:(optional)` relative `core.attributesFile` whose file exists under
+/// the directory the repository was opened from and not under the
+/// directory the process has moved to by the time the capture reads.
+/// gix anchors the path to the opening directory before the existence
+/// check `optional` adds; `Snapshot::trusted_path` runs that check
+/// against wherever the process is, unanchored. The capture must give
+/// gix's answer (#1813).
+///
+/// A `chdir` is process-wide, so the test runs its reading half in a
+/// child process: this test binary again, started *in* the repository
+/// directory (gix captures the process directory at open, not the
+/// repository's), filtered to the `#[ignore]`d child below, which
+/// opens the repository, moves away, reads, and prints
+/// [`CHILD_SENTINEL`]. The parent asserts the exit status, the
+/// sentinel, and libtest's own `1 passed`, so a misspelled child name
+/// reads as `0 passed` rather than as a vacuous pass. Verified by
+/// revert: a capture that reads the slot through `trusted_path` checks
+/// `away/<name>`, finds nothing, falls back to `None`, and the child's
+/// first assertion fails.
+#[test]
+fn the_capture_anchors_an_optional_user_file_to_the_opening_directory() {
+    let repo_dir = tempfile::tempdir().expect("temp dir");
+    let away = tempfile::tempdir().expect("temp dir");
+    let scratch = gix::init(repo_dir.path()).expect("init repository");
+    stage_tree(&scratch, tree_of(&scratch, &[("a.rs", b"fn a() {}\n")]));
+    std::fs::write(repo_dir.path().join("attributes"), b"*.rs diff=user\n")
+        .expect("write user file");
+    append_config(
+        repo_dir.path(),
+        "[core]\n\tattributesFile = :(optional)attributes\n",
+    );
+
+    // `module_path!()` carries the crate name; libtest's names do not.
+    let child = format!(
+        "{}::the_capture_reads_the_optional_user_file_after_moving_away",
+        module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .expect("the test module is nested under the crate root")
+    );
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            &child,
+            "--include-ignored",
+            "--no-capture",
+            "--format",
+            "pretty",
+        ])
+        .current_dir(repo_dir.path())
+        .env(CHILD_MARKER, "1")
+        .env(CHILD_REPO, repo_dir.path())
+        .env(CHILD_AWAY, away.path())
+        .output()
+        .expect("spawn the child half");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the child half must pass; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains(CHILD_SENTINEL),
+        "the child must have reached its sentinel; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("test result: ok. 1 passed"),
+        "exactly one test must have run in the child, or the filter missed it; stdout:\n{stdout}"
+    );
+}
+
+/// The child half of
+/// [`the_capture_anchors_an_optional_user_file_to_the_opening_directory`];
+/// see there. Ignored so only the parent's filtered spawn runs it.
+#[test]
+#[ignore = "child half of the subprocess anchoring test; run by its parent"]
+fn the_capture_reads_the_optional_user_file_after_moving_away() {
+    assert!(
+        std::env::var_os(CHILD_MARKER).is_some(),
+        "this is the child half of \
+         `the_capture_anchors_an_optional_user_file_to_the_opening_directory`; \
+         run that test instead of including ignored tests here"
+    );
+    let repo_dir = std::env::var_os(CHILD_REPO).expect("parent sets the repository directory");
+    let away = std::env::var_os(CHILD_AWAY).expect("parent sets the away directory");
+    // By identity, not spelling: `current_dir` resolves a symlinked
+    // `TMPDIR` where the parent's `tempdir` path keeps the link.
+    assert_eq!(
+        std::env::current_dir()
+            .expect("cwd")
+            .canonicalize()
+            .expect("canonical cwd"),
+        Path::new(&repo_dir)
+            .canonicalize()
+            .expect("canonical repository directory"),
+        "the parent must start the child in the repository directory"
+    );
+    let repo = gix::open_opts(&repo_dir, gix::open::Options::isolated()).expect("open");
+    std::env::set_current_dir(&away).expect("move away from the opening directory");
+
+    let expected = repo.current_dir().join("attributes");
+    let by_hand = AttributeSources::read(
+        &repo,
+        &mut gix::path::env::var,
+        gix::open::permissions::Attributes::isolated(),
+    )
+    .expect("attribute files");
+    let user = &by_hand.files[1];
+    assert_eq!(
+        user.path.as_deref(),
+        Some(expected.as_path()),
+        "the optional user file must be the one under the opening directory, \
+         not dropped for being absent under the process's directory"
+    );
+    assert_eq!(
+        user.bytes.as_deref(),
+        Some(&b"*.rs diff=user\n"[..]),
+        "and its bytes must have been read from there"
+    );
+    assert_eq!(
+        repo.attribute_global_paths().expect("gix's selected paths"),
+        std::slice::from_ref(&expected),
+        "gix itself selects the same file from the same place"
+    );
+    println!("{CHILD_SENTINEL}");
 }
