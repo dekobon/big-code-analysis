@@ -4528,7 +4528,12 @@ mod tests {
     /// The two `loc/python-long-bare-run*` probes (#1819) read their
     /// run: the `size` bare rows and the one row they join, `size + 1`,
     /// where a run credited as code — the pre-#1819 reading, or a head
-    /// that stopped crediting its tail — reads 1 or less.
+    /// that stopped crediting its tail — reads 1 or less. The retained
+    /// `x = 1` reaches neither `cloc` nor `blank`, so nothing but the
+    /// construct can supply the reading. The head-only design itself —
+    /// a later node of the run re-reading it — moves no value here or in
+    /// the `loc` suite, since the classification is idempotent; the
+    /// scaling bench's exponent is its only guard.
     #[test]
     fn python_bare_run_probes_read_their_run() {
         for name in ["loc/python-long-bare-run", "loc/python-long-bare-run-blank"] {

@@ -9222,9 +9222,13 @@ EOF
     /// test and the bench test); always classifying forward fails only
     /// the `x = 1 \` control here; reading `start_byte + 2` for the row
     /// end fails only the CRLF row here; dropping the head test fails
-    /// the run rows here and the bench test; making every node read its
-    /// run to the joined row fails nothing — the values are the head's —
-    /// and takes `loc/python-long-bare-run` from 1.33 to 2.00.
+    /// the run rows here and the bench test; reading a non-bare `\` node
+    /// as a run head fails only the `x = 1 \` + `# c` row here; making
+    /// every node read its run to the joined row fails nothing — the
+    /// values are the head's — and takes `loc/python-long-bare-run` from
+    /// 1.33 to 2.00. Reading `start_byte + 2` for the *newline count*
+    /// alone also fails nothing: on CRLF it over-counts one row, and the
+    /// row it then credits is the joined one, already of the run's class.
     #[cfg(feature = "python")]
     #[test]
     fn python_bare_continuation_rows_are_the_line_they_join() {
@@ -9272,12 +9276,21 @@ EOF
                 (b"x = 1 \\\n\\\n\ny = 2\n", (4, 3, 0, 1), 1),
                 (b"\\\nx = 1\n", (2, 2, 0, 0), 0),
                 (b"foo(1,\n\\\n2)\n", (3, 3, 0, 0), 0),
+                // `NAME OP NUMBER COMMENT NEWLINE NAME …`: a non-bare `\`
+                // node joining a comment row credits nothing — its own
+                // row is the statement's, and the comment credits its
+                // row itself. Reading such a node as a run head would
+                // credit `# c` to PLOC too: (3, 2, 2, 0).
+                (b"x = 1 \\\n# c\ny = 2\n", (3, 2, 1, 0), 0),
                 // Inside a string the `\` + newline is an `escape_sequence`.
                 (b"s = \"\"\"a\n\\\nb\"\"\"\n", (3, 3, 0, 0), 0),
-                // FIXME(#1825): (3, 1, 2, 0), the string's comment row. The
-                // external scanner eats a `\` before a string start as
-                // indentation padding, so no node exists and `module`
-                // starts at row 2.
+                // FIXME(#1825): pins the wrong value. `COMMENT NL STRING
+                // NEWLINE …` reads (3, 1, 2, 0), the bare row being the
+                // string's comment row, but the external scanner eats a
+                // `\` before a string start as indentation padding, so no
+                // `line_continuation` exists and `module` starts at row 2:
+                // nothing reaches the arm, and the row stays blank. Locked
+                // as-is so a grammar fix shows up here (lesson 23).
                 (b"\\\n\"\"\"doc\"\"\"\nx = 1\n", (3, 1, 1, 1), 1),
             ],
         );
@@ -9304,7 +9317,14 @@ EOF
     /// and inside a `decorator`, so the comment lookup must descend into
     /// the sibling that contains the byte rather than read its kind.
     /// Perturbation: reading the sibling's own kind fails exactly this
-    /// test.
+    /// test. The lookup's two halves are not separately observable: a
+    /// `#` comment runs to its row's end, so its `\` is the last byte of
+    /// the comment and of every node ending with it, and the parent
+    /// spans it too. Narrowing the sibling's range by one byte, dropping
+    /// the sibling filter, or dropping the parent fallback each fails
+    /// nothing on its own, the other half answering; the narrowing with
+    /// the fallback dropped, or no lookup at all, fails this test and the
+    /// `x = 1 # c \` and `# c \` rows above.
     ///
     /// expected: `… NAME COMMENT NEWLINE NL DEDENT NAME …` — the bare row
     /// joins the empty row and is blank, outside `f`; pre-fix the unit
