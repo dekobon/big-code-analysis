@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::path::Path;
+
 use super::*;
 
 #[test]
@@ -41,6 +44,53 @@ fn current_unix_seconds_is_a_recent_wall_clock() {
     // this, exercising the happy `duration_since(UNIX_EPOCH)` path.
     const JAN_1_2020: i64 = 1_577_836_800;
     assert!(current_unix_seconds() > JAN_1_2020);
+}
+
+/// A tree of `files` as `(name, contents)`, every one a regular blob.
+pub(super) fn tree_of(repo: &gix::Repository, files: &[(&str, &[u8])]) -> gix::ObjectId {
+    let mut entries: Vec<gix::objs::tree::Entry> = files
+        .iter()
+        .map(|(name, contents)| gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: (*name).into(),
+            oid: repo.write_blob(contents).expect("write blob").detach(),
+        })
+        .collect();
+    entries.sort();
+    repo.write_object(&gix::objs::Tree { entries })
+        .expect("write tree")
+        .detach()
+}
+
+/// Write `tree` as the repository's `.git/index`, the way `git add`
+/// stages it, so the next context reads its `.gitattributes` blobs from
+/// the staged index rather than from one built off `HEAD`.
+pub(super) fn stage_tree(repo: &gix::Repository, tree: gix::ObjectId) {
+    repo.index_from_tree(&tree)
+        .expect("index from tree")
+        .write(gix::index::write::Options::default())
+        .expect("write index");
+}
+
+/// Append `section` to the repository's own config file.
+pub(super) fn append_config(dir: &Path, section: &str) {
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(dir.join(".git").join("config"))
+        .expect("open config")
+        .write_all(section.as_bytes())
+        .expect("append config");
+}
+
+/// `path` as a git config value: forward slashes only, since a
+/// backslash in a value is an escape and gix's parser rejects an
+/// unknown one — the Windows leg failed to open every repository whose
+/// `core.attributesFile` was written as a native temp path (#1771 has
+/// the CLI fixtures' copy of this).
+pub(super) fn config_path(path: &Path) -> String {
+    path.to_str()
+        .expect("temp path is valid UTF-8")
+        .replace('\\', "/")
 }
 
 /// A one-file tree naming `blob`, which the ODB need not contain. The

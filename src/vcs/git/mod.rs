@@ -12,6 +12,7 @@
 //! Per-function attribution (issue #329) is a separate, blame-based
 //! path: see [`PerFunctionBlame`].
 
+mod attributes;
 mod blame;
 mod cached;
 mod diff_parse;

@@ -1545,18 +1545,6 @@ value = 74116.87497554444
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 528.0
-
-[[entry]]
-path = "src/vcs/git/history.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1236.0
-
-[[entry]]
-path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "halstead.effort"
 value = 50110.02743044424
@@ -1575,7 +1563,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L1176>"
+qualified = "diff_collect::<anon@L849>"
 metric = "nexits"
 value = 6.0
 
