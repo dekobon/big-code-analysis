@@ -28,9 +28,8 @@ impl Checker for TypescriptCode {
         crate::lang_helpers::doc_comment::tsdoc_module,
         tsdoc_target,
         // role-bypass: allow(DocTarget) — the parameter subset of the targets before
-        // which a doc comment after code on its row still documents: a binding
-        // policy over the row, not membership (no `Parameter` row exists to read;
-        // #1701)
+        // which a doc comment after code on its row still documents: consumer
+        // policy over the row, not membership (no `Parameter` row, by decision #1796)
         |target| matches!(
             target.kind_id().into(),
             Typescript::RequiredParameter

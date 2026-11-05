@@ -171,6 +171,10 @@ role_table! {
     // context the Checker composes, not a gate here; the row answers
     // the candidate. Most targets are outside the space-tree rows —
     // the parity exceptions `roles/doc_tests/parity.rs` records.
+    // The row owns the four parameter kinds through the shared
+    // fragment and exposes no parameter-only subset, by decision
+    // #1796: the Checker's after-code subset is its own `allow`, and a
+    // `Parameter` role waits for a second consumer.
     DocTarget {
         owns [
             ..js_family_doc_targets!(),
