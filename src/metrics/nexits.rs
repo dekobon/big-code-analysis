@@ -791,7 +791,11 @@ mod tests {
                  return bar(foo(a))(a)",
             "foo.py",
             |metric| {
-                // 2 functions + 2 lambdas = 4
+                // expected: `f` and `foo` return once each, so sum 2 and
+                // average 1.0 over the two function spaces; the two
+                // lambdas open no space, so they are no divisor units
+                // (#1284; was 2 / 4 = 0.5 over `nom.total()`).
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"

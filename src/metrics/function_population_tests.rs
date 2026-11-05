@@ -340,7 +340,11 @@ fn no_function_space_reports_zero_aggregates() {
 /// arithmetic mean of the `Function` spaces' own values re-derived from
 /// the tree. Each fixture mixes containers, named functions and the
 /// closure form the language has, so the invariant is asked where the
-/// two populations used to differ.
+/// two populations used to differ. Cyclomatic's unit base 1 makes every
+/// fixture such a place; cognitive and nexits need a non-function space
+/// with a decision or an exit of its own, which only module-level flow
+/// supplies — the Python and JavaScript fixtures carry one, and the
+/// per-metric counters in the test fail if that is ever trimmed.
 struct Fixture {
     lang: LANG,
     source: &'static str,
@@ -355,12 +359,12 @@ const FIXTURES: &[Fixture] = &[
     #[cfg(feature = "python")]
     Fixture {
         lang: LANG::Python,
-        source: "class C:\n    def m(self, xs):\n        if xs:\n            return [x for x in xs if x]\n        return list(map(lambda y: y if y else 0, xs))\n\ndef f():\n    return 1\n",
+        source: "import sys\nif len(sys.argv) < 2:\n    raise SystemExit(1)\n\nclass C:\n    def m(self, xs):\n        if xs:\n            return [x for x in xs if x]\n        return list(map(lambda y: y if y else 0, xs))\n\ndef f():\n    return 1\n",
     },
     #[cfg(feature = "javascript")]
     Fixture {
         lang: LANG::Javascript,
-        source: "class A {\n    static { if (true) { } }\n    m(x) { return x ? () => { if (x) return 1; return 2; } : null; }\n}\nfunction f() {}\n",
+        source: "if (typeof A === 'undefined') throw new Error('x');\nclass A {\n    static { if (true) { } }\n    m(x) { return x ? () => { if (x) return 1; return 2; } : null; }\n}\nfunction f() {}\n",
     },
     #[cfg(feature = "java")]
     Fixture {
@@ -460,43 +464,67 @@ fn assert_population(lang: LANG, space: &FuncSpace, name: &str, agg: Aggregate, 
 fn average_lies_within_min_and_max_on_every_space() {
     assert_fixtures_present(FIXTURES);
     let mut function_spaces_seen = 0;
-    let mut populations_differed = 0;
+    // Per metric, the spaces whose all-space sum exceeds their functions'
+    // own values: the ones the old fold would have read differently. A
+    // metric with none is one the sweep could not tell the function-only
+    // numerator from `sum` on, however many spaces it visited.
+    let mut populations_differed = [0usize; 3];
     for fixture in FIXTURES {
         let root = analyse(fixture.lang, fixture.source);
         let mut all = Vec::new();
         flatten(&root, &mut all);
         for space in all {
-            let own = population(space, |s| s.metrics.cyclomatic.cyclomatic());
-            function_spaces_seen += own.len();
-            // A space whose all-space sum exceeds its functions' own
-            // values is one the old fold would have read differently.
-            if cyclomatic(space).0 > own.iter().sum::<u64>() {
-                populations_differed += 1;
+            let aggregates: [(&str, Aggregate, Vec<u64>); 3] = [
+                (
+                    "cyclomatic",
+                    cyclomatic(space),
+                    population(space, |s| s.metrics.cyclomatic.cyclomatic()),
+                ),
+                (
+                    "cognitive",
+                    cognitive(space),
+                    population(space, |s| s.metrics.cognitive.cognitive()),
+                ),
+                (
+                    "nexits",
+                    nexits(space),
+                    population(space, |s| s.metrics.nexits.nexits()),
+                ),
+            ];
+            function_spaces_seen += aggregates[0].2.len();
+            for (differed, (name, agg, own)) in populations_differed.iter_mut().zip(&aggregates) {
+                if agg.0 > own.iter().sum::<u64>() {
+                    *differed += 1;
+                }
+                assert_population(fixture.lang, space, name, *agg, own);
             }
-            assert_population(fixture.lang, space, "cyclomatic", cyclomatic(space), &own);
-            assert_population(
-                fixture.lang,
-                space,
-                "cognitive",
-                cognitive(space),
-                &population(space, |s| s.metrics.cognitive.cognitive()),
-            );
-            assert_population(
-                fixture.lang,
-                space,
-                "nexits",
-                nexits(space),
-                &population(space, |s| s.metrics.nexits.nexits()),
-            );
         }
     }
     assert!(function_spaces_seen > 0, "no function space in any fixture");
-    // Every fixture's unit carries a base 1 no function supplies, so the
-    // count is at least the fixture count; a fixture that stopped
-    // having one would make the invariant vacuous for its language.
+    // Every fixture's unit carries a cyclomatic base 1 no function
+    // supplies, so that count is at least the fixture count; a fixture
+    // that stopped having one would make the invariant vacuous for its
+    // language. Cognitive and nexits differ only where a non-function
+    // space scores on its own, which the module-level `if` / `raise` /
+    // `throw` of the Python and JavaScript fixtures supply.
+    let [cyclomatic_differed, cognitive_differed, nexits_differed] = populations_differed;
     assert!(
-        populations_differed >= FIXTURES.len(),
-        "{populations_differed} of {} fixtures asked the invariant where the populations differ",
+        cyclomatic_differed >= FIXTURES.len(),
+        "{cyclomatic_differed} of {} fixtures asked the cyclomatic invariant where the populations differ",
         FIXTURES.len()
+    );
+    let module_flow_fixtures = FIXTURES
+        .iter()
+        .filter(|f| matches!(f.lang, LANG::Python | LANG::Javascript))
+        .count();
+    assert!(
+        cognitive_differed >= module_flow_fixtures,
+        "{cognitive_differed} spaces asked the cognitive invariant where the populations differ, \
+         {module_flow_fixtures} fixtures carry module-level flow"
+    );
+    assert!(
+        nexits_differed >= module_flow_fixtures,
+        "{nexits_differed} spaces asked the nexits invariant where the populations differ, \
+         {module_flow_fixtures} fixtures carry module-level flow"
     );
 }

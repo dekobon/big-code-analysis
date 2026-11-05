@@ -3966,16 +3966,30 @@ mod tests {
         // the flag is seeded first so the assertion cannot pass by a
         // one-way demotion (measured: A7 and A12 public `[b]`, A8
         // protected `[b]`). `private :a, :b` names two of three readers
-        // (measured: A9 public `[c]`).
+        // (measured: A9 public `[c]`). The class-method pair names the
+        // singleton family and reaches no accessor: `private_class_method
+        // :b` beside `def self.b` leaves the reader public, and
+        // `public_class_method :b` under a `private` flag leaves it
+        // private (measured on ruby 3.0.2: G public `[b]`, H private
+        // `[b]`) — dropping the `targets_singleton` guard in
+        // `leave_call` moves both.
         //
-        // expected: A7 na 1 / npa 1; A8 1 / 0; A12 1 / 1; A9 3 / 1.
+        // expected: A7 na 1 / npa 1; A8 1 / 0; A12 1 / 1; A9 3 / 1;
+        // G 1 / 1; H 1 / 0.
         check_func_space::<RubyParser, _>(
-            "class A7\n  attr_reader :b\n  private :b\n  public :b\nend\nclass A8\n  attr_reader :b\n  protected :b\nend\nclass A12\n  private\n  attr_reader :b\n  public :b\nend\nclass A9\n  attr_reader :a, :b, :c\n  private :a, :b\nend\n",
+            "class A7\n  attr_reader :b\n  private :b\n  public :b\nend\nclass A8\n  attr_reader :b\n  protected :b\nend\nclass A12\n  private\n  attr_reader :b\n  public :b\nend\nclass A9\n  attr_reader :a, :b, :c\n  private :a, :b\nend\nclass G\n  attr_reader :b\n  def self.b; end\n  private_class_method :b\nend\nclass H\n  private\n  attr_reader :b\n  def self.b; end\n  public_class_method :b\nend\n",
             "foo.rb",
             |func_space| {
                 assert_class_npa(
                     &func_space,
-                    &[("A7", 1, 1), ("A8", 1, 0), ("A12", 1, 1), ("A9", 3, 1)],
+                    &[
+                        ("A7", 1, 1),
+                        ("A8", 1, 0),
+                        ("A12", 1, 1),
+                        ("A9", 3, 1),
+                        ("G", 1, 1),
+                        ("H", 1, 0),
+                    ],
                 );
             },
         );

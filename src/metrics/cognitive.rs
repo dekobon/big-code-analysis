@@ -3485,8 +3485,10 @@ mod tests {
         // by one — so an `if` directly inside a top-level lambda is +2 charged
         // to the enclosing function (Cpp lambdas are not split into a separate
         // FuncSpace by `getter.rs`, so the `if` is not double-counted).
-        // The lambda *is* counted as a closure by NoM, so the cognitive
-        // average is sum / (1 function + 1 closure) = 2 / 2 = 1.0.
+        // The lambda *is* counted as a closure by NoM, but it opens no
+        // space, so it is no population member: `f` is the one function
+        // space and average = min = max = 2 (#1284; was 2 / 2 = 1.0 over
+        // `nom.total()`).
         check_metrics::<CppParser>(
             "int f(const std::vector<int>& v) {
                  auto pred = [](int x) {
@@ -3899,7 +3901,12 @@ mod tests {
                  return bar(foo(a))(a)",
             "foo.py",
             |metric| {
-                // 2 functions + 2 lambdas = 4
+                // expected: `f` scores 3 (the lambda chain) and `foo` 2,
+                // so sum 5 and average 2.5 over the two function spaces,
+                // min 2, max 3. The two lambdas open no space, so they
+                // are no divisor units (#1284; was 5 / 4 = 1.25 over
+                // `nom.total()`).
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
