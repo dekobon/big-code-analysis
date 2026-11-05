@@ -381,6 +381,34 @@ pub fn tcl_unclosed_continued_comments(width: usize) -> String {
     "proc p {} {\n# c \\\n\\\n\n".repeat(width)
 }
 
+/// Elixir: `width` units of an `fn ->` that never closes, each holding a
+/// comment ending in `\`, a row holding only `\`, and a comment after it.
+///
+/// Elixir never continues a comment, so each bare row starts a logical
+/// line and is what the row it joins becomes once spliced (#1801), read
+/// off the gap's next child. The unclosed `fn`s leave every unit a direct
+/// child of one flat root `ERROR`, which tree-sitter never balances, so
+/// finding that comment from the gap's owner instead costs the root's
+/// width per bare row.
+#[must_use]
+pub fn elixir_unclosed_spliced_comments(width: usize) -> String {
+    "fn ->\n# c \\\n\\\n# d\n".repeat(width)
+}
+
+/// C: `width` units of a `{` that never closes, each followed by a row
+/// holding only `\` and a row holding two block comments.
+///
+/// Each bare row joins a comment-only row, which takes reading both
+/// comments (#1801). The unclosed braces leave every unit a direct child
+/// of one flat root `ERROR`, so reaching the second comment with
+/// `next_sibling`, which scans the parent's children from the first,
+/// costs the root's width per bare row; the gap scan steps a copy of its
+/// own cursor instead.
+#[must_use]
+pub fn c_unclosed_spliced_comments(width: usize) -> String {
+    "{\n\\\n/* a */ /* b */\n".repeat(width)
+}
+
 /// JavaScript: `function f() { function f() { … 1; … } }`.
 ///
 /// The linear control for [`nested_arrows`]: one function per nesting
@@ -2547,6 +2575,49 @@ pub const PROBES: &[Probe] = &[
                     rows, half of them the bare ones.",
     },
     Probe {
+        name: "loc/elixir-unclosed-spliced-comments",
+        lang: LANG::Elixir,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: elixir_unclosed_spliced_comments,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1801 review: Elixir never continues a comment, so a \
+                    bare `\\` row after `# c \\` starts a logical line that \
+                    `spliced_into` classifies by the comment it joins, read \
+                    off the gap's next child under the flat root `ERROR` \
+                    the unclosed `fn`s leave. Looking that comment up from \
+                    the gap's owner instead measured 1.95 / 2.00 against \
+                    0.94 / 0.96 (dev `bca` end to end at these sizes). The \
+                    reading is the comment rows, a third of them the bare \
+                    ones.",
+    },
+    Probe {
+        name: "loc/c-unclosed-spliced-comments",
+        lang: LANG::C,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: c_unclosed_spliced_comments,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1801 review: a bare row joining `/* a */ /* b */` is a \
+                    comment only once both comments are read, and the \
+                    second is a sibling of the first under the flat root \
+                    `ERROR` the unclosed braces leave. The gap scan steps a \
+                    copy of its own cursor to it; `next_sibling` instead \
+                    measured 1.91 / 1.97 against 0.91 / 0.95 (dev `bca` end \
+                    to end at these sizes). The reading is the comment rows, \
+                    half of them the bare ones.",
+    },
+    Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -3978,6 +4049,8 @@ mod tests {
         // The flat root `ERROR` is the shape: its unclosed openers are
         // what keep tree-sitter from balancing the root's children.
         "loc/tcl-unclosed-continued-comments",
+        "loc/elixir-unclosed-spliced-comments",
+        "loc/c-unclosed-spliced-comments",
     ];
 
     /// Probes whose shape recovers *inside* a command rather than at
@@ -4372,6 +4445,8 @@ mod tests {
             ("loc/bash-nested-continued-fn", 5),
             ("loc/tcl-wide-continued-comment", 2),
             ("loc/tcl-unclosed-continued-comments", 2),
+            ("loc/elixir-unclosed-spliced-comments", 3),
+            ("loc/c-unclosed-spliced-comments", 2),
         ] {
             let probe = PROBES
                 .iter()
