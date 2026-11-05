@@ -267,7 +267,7 @@ role_table! {
     // perldoc extracts POD from a sub body too
     // (`DOC_COMMENTS_IN_FUNCTION_BODIES`), so no ancestor withholds
     // one: nothing to name here.
-    HoldsDocInBody { absent "perldoc reads POD in any body; no kind withholds it" }
+    DocBodyResidual { absent "perldoc reads POD in any body; no kind withholds it" }
 }
 
 #[cfg(test)]

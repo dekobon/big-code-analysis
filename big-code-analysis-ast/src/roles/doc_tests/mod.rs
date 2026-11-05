@@ -1,5 +1,5 @@
 //! The seven documentation rows — `Comment`, `DocComment`, `Docstring`,
-//! `DocTarget`, `DocRunOpener`, `DocRunDirective`, `HoldsDocInBody` —
+//! `DocTarget`, `DocRunOpener`, `DocRunDirective`, `DocBodyResidual` —
 //! pinned independently of the `Checker` predicates that read them
 //! (#1699): for each language, a fixture spelling every owner kind and
 //! both alternatives of every gate, and a hand-written table of what
@@ -197,7 +197,7 @@ macro_rules! answers {
                 doc_target::owns_kind(kind, node, code, ancestors),
                 doc_run_opener::owns_kind(kind, node, code, ancestors),
                 doc_run_directive::owns_kind(kind, node, code, ancestors),
-                holds_doc_in_body::owns_kind(kind, node, code, ancestors),
+                doc_body_residual::owns_kind(kind, node, code, ancestors),
                 <$checker>::is_comment(node),
                 <$checker>::is_doc_comment(node, code),
                 <$checker>::is_doc_run_directive(node, code),
@@ -242,7 +242,7 @@ macro_rules! declared {
             doc_target::OWNERS,
             doc_run_opener::OWNERS,
             doc_run_directive::OWNERS,
-            holds_doc_in_body::OWNERS,
+            doc_body_residual::OWNERS,
         ]
     }};
 }
@@ -601,8 +601,8 @@ mod elixir {
 
 // The marker languages: a `Comment` row, a `DocComment` row under a
 // byte gate, a `DocTarget` row, and where the Checker names kinds
-// beyond the callables, a `HoldsDocInBody` row. Each fixture carries
-// every target kind, each `HoldsDocInBody` kind with a doc comment in
+// beyond the callables, a `DocBodyResidual` row. Each fixture carries
+// every target kind, each `DocBodyResidual` kind with a doc comment in
 // it, and the marker's edges — the empty `/**/`, a `/***`, a `///`.
 
 #[cfg(feature = "java")]
@@ -614,7 +614,7 @@ mod java {
     const BODY: Answers = at(&[HOLDS_IN_BODY]);
 
     // Every target kind, the package gate's three cases, every
-    // `HoldsDocInBody` kind holding a doc comment, and the marker's
+    // `DocBodyResidual` kind holding a doc comment, and the marker's
     // edges. The package rule: `package a;` has a package after it, so
     // it documents; `package b;` has a class after it, so it does not;
     // `package c;` at the end has nothing, so it does. The `/**/` is a
@@ -823,7 +823,7 @@ mod kotlin {
 
     const BODY: Answers = at(&[HOLDS_IN_BODY]);
 
-    // Every target kind, the three `HoldsDocInBody` kinds each holding a
+    // Every target kind, the three `DocBodyResidual` kinds each holding a
     // KDoc (a `val` must be `var` for a setter; the fixture keeps `val`
     // and the grammar still parses the accessor), a KDoc in a lambda (a `Closure` owner, not a row entry), and
     // the marker's edges: `/**/` is no KDoc; a line comment never is.
@@ -940,7 +940,7 @@ mod csharp {
     use super::*;
     use crate::{Csharp, CsharpCode};
 
-    /// A property or indexer: a target, and a `HoldsDocInBody` owner in
+    /// A property or indexer: a target, and a `DocBodyResidual` owner in
     /// every form (bodied, expression-bodied, with an accessor list).
     const TARGET_BODY: Answers = at(&[DOC_TARGET, HOLDS_IN_BODY]);
 
@@ -1107,7 +1107,7 @@ mod php {
 
     // Every target kind and the marker's edges: `/**/` and `/**no
     // space*/` are no DocBlock (PHP's scanner wants whitespace after
-    // the marker); `#` and `//` and `/* */` never are. `HoldsDocInBody`
+    // the marker); `#` and `//` and `/* */` never are. `DocBodyResidual`
     // is absent, so a DocBlock in a closure or arrow body answers for
     // no body kind here — the Checker's body-child test is pinned
     // separately below.
@@ -1161,7 +1161,7 @@ mod php {
         );
     }
 
-    /// With no `HoldsDocInBody` row, the Checker's body test is the
+    /// With no `DocBodyResidual` row, the Checker's body test is the
     /// body-child test alone: a function holds a comment under its
     /// `compound_statement`, an arrow under its last child, and neither
     /// under a parameter list.
@@ -1193,7 +1193,7 @@ mod php {
                 ("arrow_function", false, true)
             ]
         );
-        assert_eq!(crate::roles::php::holds_doc_in_body::OWNERS, &[] as &[u16]);
+        assert_eq!(crate::roles::php::doc_body_residual::OWNERS, &[] as &[u16]);
     }
 }
 
@@ -1708,7 +1708,7 @@ mod ruby {
 // The JS family: the `Comment` row holds both the `comment` and the
 // Annex-B `html_comment`, only the first a `DocComment` under the
 // tool's block marker; `DocTarget` is what JSDoc (JavaScript, Mozjs) or
-// tsc (TypeScript, TSX) documents. `HoldsDocInBody` is absent — the
+// tsc (TypeScript, TSX) documents. `DocBodyResidual` is absent — the
 // override is the body-child test alone — and a doc comment in a body
 // stays documentation (`DOC_COMMENTS_IN_FUNCTION_BODIES`, #1597).
 

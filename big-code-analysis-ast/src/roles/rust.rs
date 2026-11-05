@@ -265,5 +265,5 @@ role_table! {
     // nested in a body, so the trait default holds, and the one
     // exception — an inner `//!` opening a function's body is that
     // function's own doc — is `Checker::doc_comment_opens_body`.
-    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the trait default" }
+    DocBodyResidual { absent "only the callables and closures hold a doc comment in a body; the trait default" }
 }

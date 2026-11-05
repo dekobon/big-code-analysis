@@ -48,7 +48,7 @@ impl Checker for CsharpCode {
     // The `DocTarget` row of `roles/csharp.rs` (#1699).
     impl_doc_target_from_row!(csharp);
 
-    // The `HoldsDocInBody` row of `roles/csharp.rs` — a property or
+    // The `DocBodyResidual` row of `roles/csharp.rs` — a property or
     // indexer, which holds every doc comment in it but those in its
     // accessor list — read *before* the callable test, whose accessor
     // search would rescan every comment in the list or the header for
@@ -58,7 +58,7 @@ impl Checker for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        if holds_doc_in_body_kind!(csharp, ancestor, ancestors) {
+        if doc_body_residual_kind!(csharp, ancestor, ancestors) {
             return below.kind_id() != Csharp::AccessorList;
         }
         Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)

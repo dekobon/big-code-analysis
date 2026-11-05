@@ -34,7 +34,7 @@ impl Checker for GroovyCode {
     // The `DocTarget` row of `roles/groovy.rs` (#1699).
     impl_doc_target_from_row!(groovy);
 
-    // The callables and the closure, then the `HoldsDocInBody` row of
+    // The callables and the closure, then the `DocBodyResidual` row of
     // `roles/groovy.rs` — `static { … }` (#1699).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
@@ -43,7 +43,7 @@ impl Checker for GroovyCode {
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || holds_doc_in_body_kind!(groovy, ancestor, ancestors)
+            || doc_body_residual_kind!(groovy, ancestor, ancestors)
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,

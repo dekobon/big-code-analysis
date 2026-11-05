@@ -77,7 +77,7 @@ else_if_prev_sibling_gate!(Java, Else);
 /// `Switch` owner's child — a structural fact about the construct the
 /// row recognises, pinned by
 /// `switch_body_is_the_owners_child_and_not_the_switch_rows`, not an
-/// owner of that row. The kind is claimed by `HoldsDocInBody` (a
+/// owner of that row. The kind is claimed by `DocBodyResidual` (a
 /// `switch_block` holds a doc comment, #1699), which is a different
 /// question. Which consumer opens a level here (cognitive, so a ternary
 /// or lambda in the switch's *subject* does not inherit one, #1697) is
@@ -253,7 +253,7 @@ role_table! {
     // arms' container, where cognitive opens its nesting level so a
     // ternary or lambda in the *subject* does not inherit one (#1697:
     // moving the level to this owner drifted) — is the owner's child,
-    // not this row's: `HoldsDocInBody` claims the kind, for the doc
+    // not this row's: `DocBodyResidual` claims the kind, for the doc
     // comment its body can hold, and cognitive names it as the body of
     // the construct this row recognises (`is_switch_body_kind`, #1701).
     Switch { owns [SwitchExpression] pays [Switch] }
@@ -361,7 +361,7 @@ role_table! {
     // in each no more than one in a method body. The full answer is
     // `func_opener::is_callable ∪ closure::owns ∪` this row, composed
     // in `checker/java.rs`.
-    HoldsDocInBody { owns [StaticInitializer, Block, SwitchBlock] }
+    DocBodyResidual { owns [StaticInitializer, Block, SwitchBlock] }
 }
 
 #[cfg(test)]

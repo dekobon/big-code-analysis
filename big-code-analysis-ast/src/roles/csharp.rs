@@ -320,5 +320,5 @@ role_table! {
     // them in *every* form, and the Checker reads it before the
     // callable test so the accessor search is never run per comment
     // (#1612). Which child is the accessor list is the Checker's.
-    HoldsDocInBody { owns [IndexerDeclaration, PropertyDeclaration] }
+    DocBodyResidual { owns [IndexerDeclaration, PropertyDeclaration] }
 }

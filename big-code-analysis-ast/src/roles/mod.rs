@@ -59,7 +59,7 @@
 //! | `DocTarget` | a declaration a doc comment attaches to, as a candidate (see below) |
 //! | `DocRunOpener` | a comment whose own content makes its run documentation (see below) |
 //! | `DocRunDirective` | a member of a doc run that is *not* documentation (see below) |
-//! | `HoldsDocInBody` | a kind beyond the callables and closures whose body holds a doc comment (see below) |
+//! | `DocBodyResidual` | a kind beyond `FuncOpener` and `Closure` whose body holds a doc comment (see below) |
 //!
 //! Some of those need more than a line, because a short reading of the
 //! word files different kinds from the contract it names:
@@ -104,15 +104,20 @@
 //!   doc run that is not documentation text and is not billed as such,
 //!   such as `//go:generate` or a Ruby shebang or magic comment. It is
 //!   not a markup directive like `@param`.
-//! - `HoldsDocInBody` is the *residual* of
-//!   `Checker::holds_doc_comment_in_body`: the kinds, other than the
-//!   callables and closures, in whose body the language's documentation
-//!   tool reads a doc comment — Java's `static { … }`, bare `block` and `switch_block`, Kotlin's
-//!   accessors and `init`, C#'s property and indexer in every form. The
-//!   full answer an adapter composes is `func_opener::is_callable ∪
-//!   closure::owns ∪ holds_doc_in_body::owns`, then the language's
-//!   body-child test (`checker/<lang>.rs`), which no kind spells. A
-//!   class body is never one. (The residual-by-name shape is #1797's.)
+//! - `DocBodyResidual` is the *residual* of
+//!   `Checker::holds_doc_comment_in_body`: the kinds beyond the
+//!   `FuncOpener` and `Closure` rows in whose body the language's
+//!   documentation tool reads a doc comment — Java's `static { … }`,
+//!   bare `block` and `switch_block`, Kotlin's accessors and `init`,
+//!   C#'s property and indexer in every form. The row is deliberately
+//!   not the full set: the adapter composes `func_opener::is_callable ∪
+//!   closure::owns ∪ doc_body_residual::owns`, then the language's
+//!   body-child test (`checker/<lang>.rs`), which no kind spells. So a
+//!   kind that moves between `FuncOpener` or `Closure` and this row
+//!   changes nothing the Checker answers; only a kind on none of the
+//!   three does (#1797 named the residual; `holds_doc_comment_in_body
+//!   ⇒ is_func ∨ is_closure ∨ row` in `derived_parity_tests.rs` pins the
+//!   composition). A class body is never one.
 //!
 //! The seven documentation roles are what a language's doc-comment
 //! adapter (`checker/<lang>.rs`, the per-language half of the
@@ -407,7 +412,7 @@
 //!   lives as a named `fn` beside the table (`is_switch_body_kind` in
 //!   `roles/java.rs` and `roles/groovy.rs`), with a row test pinning
 //!   the parent/child relation, and the kind either claimed by whichever
-//!   row holds it for its own reason (Java's `HoldsDocInBody`) or
+//!   row holds it for its own reason (Java's `DocBodyResidual`) or
 //!   recorded under `excludes` on the owner's row (Groovy). A DSL `body`
 //!   attribute would be the declared form if a third grammar needs it
 //!   (#1701).
@@ -2118,7 +2123,7 @@ macro_rules! role_table {
     (@canonical DocTarget) => { doc_target::canonical() };
     (@canonical DocRunOpener) => { doc_run_opener::canonical() };
     (@canonical DocRunDirective) => { doc_run_directive::canonical() };
-    (@canonical HoldsDocInBody) => { holds_doc_in_body::canonical() };
+    (@canonical DocBodyResidual) => { doc_body_residual::canonical() };
 
     (@view Call) => { call::view() };
     (@view StringLit) => { string_lit::view() };
@@ -2148,7 +2153,7 @@ macro_rules! role_table {
     (@view DocTarget) => { doc_target::view() };
     (@view DocRunOpener) => { doc_run_opener::view() };
     (@view DocRunDirective) => { doc_run_directive::view() };
-    (@view HoldsDocInBody) => { holds_doc_in_body::view() };
+    (@view DocBodyResidual) => { doc_body_residual::view() };
 
     (@named Call { $($b:tt)* }) => {
         /// This language's `Call` row.
@@ -2262,9 +2267,9 @@ macro_rules! role_table {
         /// This language's `DocRunDirective` row.
         pub mod doc_run_directive { $($b)* }
     };
-    (@named HoldsDocInBody { $($b:tt)* }) => {
-        /// This language's `HoldsDocInBody` row.
-        pub mod holds_doc_in_body { $($b)* }
+    (@named DocBodyResidual { $($b:tt)* }) => {
+        /// This language's `DocBodyResidual` row.
+        pub mod doc_body_residual { $($b)* }
     };
 }
 
@@ -2384,7 +2389,7 @@ pub(crate) const ROLES: &[&str] = &[
     "DocTarget",
     "DocRunOpener",
     "DocRunDirective",
-    "HoldsDocInBody",
+    "DocBodyResidual",
 ];
 
 #[cfg(test)]

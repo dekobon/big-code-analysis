@@ -136,5 +136,5 @@ role_table! {
     }
     DocRunOpener { absent "Doxygen attaches every block to an entry or the file; none documents by its own content" }
     DocRunDirective { absent "Doxygen reads no directive comment" }
-    HoldsDocInBody { absent "Doxygen reads every block in a body as the function's in-body description; nothing withholds one" }
+    DocBodyResidual { absent "Doxygen reads every block in a body as the function's in-body description; nothing withholds one" }
 }

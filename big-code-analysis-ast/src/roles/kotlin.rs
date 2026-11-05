@@ -326,7 +326,7 @@ role_table! {
     // lambda literal is a `Closure` owner; that it holds a doc comment
     // *without* a body-child test is the Checker's refinement, not a
     // row entry.
-    HoldsDocInBody { owns [Getter, Setter, AnonymousInitializer] }
+    DocBodyResidual { owns [Getter, Setter, AnonymousInitializer] }
 }
 
 #[cfg(test)]

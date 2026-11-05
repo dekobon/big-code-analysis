@@ -263,7 +263,7 @@ role_table! {
     // Nothing beyond the callables and the closures: which child is the
     // body — a `compound_statement`, or an arrow function's expression —
     // is the Checker's body-child test, not a kind.
-    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
+    DocBodyResidual { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }
 
 #[cfg(test)]

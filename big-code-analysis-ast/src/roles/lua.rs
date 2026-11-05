@@ -200,5 +200,5 @@ role_table! {
     // Checker decides the rest of the run's content.
     DocRunOpener { owns [Comment(text_gated_by opens_an_ldoc_block_where_ldoc_reads)] }
     DocRunDirective { absent "LDoc reads no directive comment" }
-    HoldsDocInBody { absent "only the functions hold an LDoc block in a body; the trait default" }
+    DocBodyResidual { absent "only the functions hold an LDoc block in a body; the trait default" }
 }

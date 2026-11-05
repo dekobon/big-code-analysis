@@ -120,7 +120,7 @@ impl Checker for PhpCode {
         below: &Node<'a>,
     ) -> bool {
         // role-bypass: allow(FuncOpener, Closure) — which child of an opener is
-        // its body, not whether the node opens a space; `HoldsDocInBody` is
+        // its body, not whether the node opens a space; `DocBodyResidual` is
         // absent for PHP because nothing beyond the openers holds one
         match ancestor.kind_id().into() {
             Php::FunctionDefinition | Php::MethodDeclaration | Php::AnonymousFunction => {

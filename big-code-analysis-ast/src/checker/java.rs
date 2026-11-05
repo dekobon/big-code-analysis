@@ -33,7 +33,7 @@ impl Checker for JavaCode {
     // (#1446) on the row, reading the node's own chain.
     impl_doc_target_from_row!(java);
 
-    // The callables and the lambda, then the `HoldsDocInBody` row of
+    // The callables and the lambda, then the `DocBodyResidual` row of
     // `roles/java.rs` — `static { … }`, a bare `block`, a
     // `switch_block` (#1699). The whole node counts: javac binds a doc
     // comment only before a declaration's first token.
@@ -44,7 +44,7 @@ impl Checker for JavaCode {
     ) -> bool {
         Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || holds_doc_in_body_kind!(java, ancestor, ancestors)
+            || doc_body_residual_kind!(java, ancestor, ancestors)
     }
 
     // The space tree is declared in `roles/java.rs` (#1696): the

@@ -199,5 +199,5 @@ role_table! {
     // A go/doc directive (`//go:generate`, `//line`, `//export`) is a
     // member of a doc run that is not documentation text.
     DocRunDirective { owns [Comment(text_gated_by is_go_directive no_chain)] }
-    HoldsDocInBody { absent "go/doc reads no comment inside a function body; nothing beyond the function withholds one" }
+    DocBodyResidual { absent "go/doc reads no comment inside a function body; nothing beyond the function withholds one" }
 }

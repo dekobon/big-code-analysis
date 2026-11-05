@@ -142,5 +142,5 @@ role_table! {
     // documentation (`DOC_COMMENTS_IN_FUNCTION_BODIES`, #1597), and which
     // child is the body — a statement block, an arrow's expression — is
     // the Checker's body-child test, not a kind.
-    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
+    DocBodyResidual { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }

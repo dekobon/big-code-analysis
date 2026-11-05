@@ -158,10 +158,10 @@ else_if_prev_sibling_gate!(Groovy, Else);
 /// the `Switch` row records the kind under `excludes`, and
 /// `is_else_if_is_the_row_and_the_switch_body_is_the_owners_child`
 /// pins the parent/child relation (#1701). Java's twin is instead
-/// claimed by its `HoldsDocInBody` row, because javadoc reads a doc
+/// claimed by its `DocBodyResidual` row, because javadoc reads a doc
 /// comment inside a `switch_block` in a field initializer; whether
 /// Groovydoc does the same was not measured in #1699, so this
-/// language's `HoldsDocInBody` row does not list the kind and the
+/// language's `DocBodyResidual` row does not list the kind and the
 /// exclusion here is a coverage-accounting fact, not a Groovydoc
 /// one. Deciding it is the row-membership question #1797 holds.
 #[inline]
@@ -438,7 +438,7 @@ role_table! {
     // Beyond the callables and the closure: a `static { … }` initializer
     // opens a function space without being a callee, and Groovydoc
     // reads a doc comment in it no more than one in a method body.
-    HoldsDocInBody { owns [StaticInitializer] }
+    DocBodyResidual { owns [StaticInitializer] }
 }
 
 #[cfg(test)]

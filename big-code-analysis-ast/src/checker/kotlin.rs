@@ -36,7 +36,7 @@ impl Checker for KotlinCode {
                 // the modifier list, which hold a KDoc in a signature
                 // without being targets themselves.
                 crate::roles::kotlin::doc_target::lists_kind(kind)
-                    // role-bypass: allow(FuncOpener, HoldsDocInBody) — a KDoc *inside* one
+                    // role-bypass: allow(FuncOpener, DocBodyResidual) — a KDoc *inside* one
                     // of these is in its signature; where a declaration's children end
                     // is a binding question, not membership
                     || matches!(
@@ -80,7 +80,7 @@ impl Checker for KotlinCode {
         }
         (Self::is_func(ancestor, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || holds_doc_in_body_kind!(kotlin, ancestor, ancestors))
+            || doc_body_residual_kind!(kotlin, ancestor, ancestors))
             && matches!(below.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
     }
 

@@ -255,7 +255,7 @@ role_table! {
     DocTarget { absent "a docstring's target is read by position in the `Docstring` gate, never as a kind" }
     DocRunOpener { absent "a docstring is a string statement, not a comment run" }
     DocRunDirective { absent "a docstring is a string statement, not a comment run" }
-    HoldsDocInBody { absent "no comment is documentation; nothing withholds one" }
+    DocBodyResidual { absent "no comment is documentation; nothing withholds one" }
 }
 
 #[cfg(test)]

@@ -65,6 +65,6 @@ role_table! {
          it must not strip; it emits no such construct" }
     DocRunDirective { absent "the comment-stripping pass parses only comments and the string \
          literals it must not strip; it emits no such construct" }
-    HoldsDocInBody { absent "the comment-stripping pass parses only comments and the string \
+    DocBodyResidual { absent "the comment-stripping pass parses only comments and the string \
          literals it must not strip; it emits no such construct" }
 }

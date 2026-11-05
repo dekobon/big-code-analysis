@@ -377,5 +377,5 @@ role_table! {
     // A shebang or a magic comment: a run member that is not
     // documentation text.
     DocRunDirective { owns [Comment(text_gated_by is_magic_comment no_chain)] }
-    HoldsDocInBody { absent "YARD reads a comment run by scope, which the Checker folds; nothing beyond the `def` withholds one" }
+    DocBodyResidual { absent "YARD reads a comment run by scope, which the Checker folds; nothing beyond the `def` withholds one" }
 }

@@ -184,5 +184,5 @@ role_table! {
     }
     DocRunOpener { absent "TSDoc attaches every doc comment to a declaration or the module; none documents by its own content" }
     DocRunDirective { absent "TSDoc reads no directive comment" }
-    HoldsDocInBody { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
+    DocBodyResidual { absent "only the callables and closures hold a doc comment in a body; the body-child test is the Checker's" }
 }

@@ -142,5 +142,5 @@ role_table! {
     DocTarget { absent "no comment is recognised as documentation, so nothing is its target" }
     DocRunOpener { absent "no comment-run convention (Ruff!) is recognised" }
     DocRunDirective { absent "no comment-run convention (Ruff!) is recognised" }
-    HoldsDocInBody { absent "no kind holds documentation in a body beyond the procedure" }
+    DocBodyResidual { absent "no kind holds documentation in a body beyond the procedure" }
 }

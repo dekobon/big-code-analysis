@@ -217,7 +217,7 @@ role_table! {
     DocTarget { absent "no comment is recognised as documentation, so nothing is its target" }
     DocRunOpener { absent "no comment-run convention (shdoc) is recognised" }
     DocRunDirective { absent "no comment-run convention (shdoc) is recognised" }
-    HoldsDocInBody { absent "no kind holds documentation in a body beyond the function" }
+    DocBodyResidual { absent "no kind holds documentation in a body beyond the function" }
 }
 
 #[cfg(test)]

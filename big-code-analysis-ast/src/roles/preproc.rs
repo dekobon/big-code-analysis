@@ -65,6 +65,6 @@ role_table! {
          literals they carry; it emits no such construct" }
     DocRunDirective { absent "the preprocessor pass parses only directives, comments and the \
          string literals they carry; it emits no such construct" }
-    HoldsDocInBody { absent "the preprocessor pass parses only directives, comments and the string \
+    DocBodyResidual { absent "the preprocessor pass parses only directives, comments and the string \
          literals they carry; it emits no such construct" }
 }

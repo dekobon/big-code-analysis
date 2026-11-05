@@ -260,7 +260,7 @@ role_table! {
     DocTarget { absent "a `@doc` attribute names its target by position; extraction owned by #1676" }
     DocRunOpener { absent "ExDoc reads `@doc` attributes, never a comment run" }
     DocRunDirective { absent "ExDoc reads `@doc` attributes, never a comment run" }
-    HoldsDocInBody { absent "no kind holds documentation in a body beyond the definition" }
+    DocBodyResidual { absent "no kind holds documentation in a body beyond the definition" }
 }
 
 #[cfg(test)]

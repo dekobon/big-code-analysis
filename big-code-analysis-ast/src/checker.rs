@@ -128,20 +128,20 @@ macro_rules! impl_doc_run_directive_from_row {
     };
 }
 
-// The `HoldsDocInBody` row of a language, read inside its hand-written
+// The `DocBodyResidual` row of a language, read inside its hand-written
 // `holds_doc_comment_in_body` for the kinds it names beyond the
 // callables and closures (#1699): asked with `ancestors`, the chain the
 // trait hands in (the ancestor's own), and no bytes — exact while no
 // such row reads bytes, which the build asserts. An expression rather
 // than an emitted method, so the per-language branch order and the
 // body-child test stay visible in `checker/<lang>.rs`.
-macro_rules! holds_doc_in_body_kind {
+macro_rules! doc_body_residual_kind {
     ($roles:ident, $ancestor:expr, $ancestors:expr) => {{
         const _: () = assert!(
-            !$crate::roles::$roles::holds_doc_in_body::TEXT_GATED,
-            "the `HoldsDocInBody` row reads bytes; the body test cannot forward with `&[]`"
+            !$crate::roles::$roles::doc_body_residual::TEXT_GATED,
+            "the `DocBodyResidual` row reads bytes; the body test cannot forward with `&[]`"
         );
-        $crate::roles::$roles::holds_doc_in_body::owns($ancestor, &[], $ancestors)
+        $crate::roles::$roles::doc_body_residual::owns($ancestor, &[], $ancestors)
     }};
 }
 
@@ -904,7 +904,7 @@ pub fn csharp_accessor_count(node: &Node) -> usize {
 }
 
 // Each accessor search a C# member's gate runs. The search is the cost
-// the doc-comment body test avoids by reading the `HoldsDocInBody` row
+// the doc-comment body test avoids by reading the `DocBodyResidual` row
 // *before* the callable test (#1612): no verdict can see the order, so
 // the count is what pins it (`csharp_body_test_reads_the_row_before_the_accessor_search`).
 crate::observation::counter!(csharp_accessor_searches);

@@ -863,7 +863,7 @@ struct ForwardRows {
     branch: Option<DeclaredRow>,
     else_if: Option<DeclaredRow>,
     closure: Option<DeclaredRow>,
-    holds_doc_in_body: Option<DeclaredRow>,
+    doc_body_residual: Option<DeclaredRow>,
     doc_comment: Option<DeclaredRow>,
     doc_run_directive: Option<DeclaredRow>,
     comment: Option<DeclaredRow>,
@@ -880,7 +880,7 @@ impl ForwardRows {
             branch: row("Branch"),
             else_if: row("ElseIf"),
             closure: row("Closure"),
-            holds_doc_in_body: row("HoldsDocInBody"),
+            doc_body_residual: row("DocBodyResidual"),
             doc_comment: row("DocComment"),
             doc_run_directive: row("DocRunDirective"),
             comment: row("Comment"),
@@ -937,18 +937,18 @@ fn forwards_on<'a, C: Checker + crate::Getter>(
         owns(&rows.closure),
     );
     // The body-holding residual: every hand-written adapter composes
-    // `is_func ∨ is_closure ∨ holds_doc_in_body::owns` with a body-child
+    // `is_func ∨ is_closure ∨ doc_body_residual::owns` with a body-child
     // test on `below` that no row spells, so the forward is compared
     // against the composition *without* the child test on the one
     // side it can be — a node the forward admits for some child is one
     // the composition admits. The row half is what the `&[]` forward
-    // in `holds_doc_in_body_kind!` drops; the chain is the real one.
+    // in `doc_body_residual_kind!` drops; the chain is the real one.
     let holds_for_any_child = node
         .children()
         .any(|below| C::holds_doc_comment_in_body(node, ancestors, &below));
     let composition = C::is_func(node, ancestors)
         || C::is_closure(node, ancestors)
-        || owns(&rows.holds_doc_in_body);
+        || owns(&rows.doc_body_residual);
     push(
         "holds_doc_comment_in_body ⇒ is_func ∨ is_closure ∨ row",
         holds_for_any_child,
@@ -957,10 +957,10 @@ fn forwards_on<'a, C: Checker + crate::Getter>(
     // And the direction the body-child test cannot defeat: a row owner
     // the adapter admits for *no* child is a row the adapter stopped
     // reading, since every such kind has a body child by the row's
-    // definition (`HoldsDocInBody` is the residual of bodies).
-    let row_owner = owns(&rows.holds_doc_in_body);
+    // definition (`DocBodyResidual` is the residual of bodies).
+    let row_owner = owns(&rows.doc_body_residual);
     push(
-        "HoldsDocInBody row ⇒ holds_doc_comment_in_body for some child",
+        "DocBodyResidual row ⇒ holds_doc_comment_in_body for some child",
         row_owner,
         row_owner && holds_for_any_child,
     );

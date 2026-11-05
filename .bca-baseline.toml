@@ -377,7 +377,7 @@ value = 929.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2236.0
+value = 2241.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
