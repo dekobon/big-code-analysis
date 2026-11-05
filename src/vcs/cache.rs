@@ -90,7 +90,19 @@ use super::stats::VCS_SCHEMA_VERSION;
 /// otherwise replay with its excluded set intact — the same input
 /// answering differently depending on whether the cache was warm. The
 /// bump forces one benign cold walk.
-pub const CACHE_SCHEMA_VERSION: u32 = 2;
+///
+/// Version 3: `gix` 0.89 → 0.90 changed what the walk records for an
+/// unchanged configuration. `gix-diff` 0.70 applies the rename limit
+/// per side, as git's `diff.renameLimit` does, where 0.69 compared the
+/// source×destination product against the unsquared limit — so a
+/// commit reshuffling more than ~32 files each way, which 0.69 left
+/// un-tracked, now has its renames followed, and the rename edges a
+/// recorded event carries differ. `gix-traverse` 0.64 also keeps a
+/// commit whose commit-graph parents are corrupt where 0.63 dropped it
+/// and its ancestry. The fingerprint hashes `follow_renames`, not the
+/// limit's meaning, so an entry walked under 0.89 would otherwise
+/// replay as if it had been walked under 0.90.
+pub const CACHE_SCHEMA_VERSION: u32 = 3;
 
 /// Front-end control over the persistent cache for one build.
 ///

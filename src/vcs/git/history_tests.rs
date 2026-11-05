@@ -459,8 +459,72 @@ fn the_hand_built_stack_resolves_diff_as_gix_s_does() {
     );
 }
 
+/// The capture selects the same files gix 0.90's own build selects,
+/// asked of gix directly: [`gix::Repository::attribute_global_paths`]
+/// returns the system and user paths in gix's order, whether or not
+/// the files exist, and `info/attributes` is `common_dir` joined by
+/// hand as its doc instructs. This is the check the digest's doc asks
+/// of every gix bump — that `AttributeSources::read` still names the
+/// sources gix reads — made mechanical. Two things a resolved-state
+/// parity cannot show: `permissions.system` with a system file (the
+/// `/etc/gitattributes` location cannot be planted), and a relative
+/// `core.attributesFile` anchored to the opening directory rather
+/// than the process's — the row below does both through the path
+/// list rather than through the files' contents.
+#[test]
+fn the_hand_built_capture_selects_the_paths_gix_selects() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let scratch = gix::init(dir.path()).expect("init repository");
+    stage_tree(&scratch, tree_of(&scratch, &[("a.rs", b"fn a() {}\n")]));
+    append_config(
+        dir.path(),
+        "[core]\n\tattributesFile = ../relative/attributes\n",
+    );
+    let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).expect("open");
+
+    let by_gix = repo.attribute_global_paths().expect("gix's selected paths");
+    let by_hand = AttributeSources::read(
+        &repo,
+        &mut gix::path::env::var,
+        gix::open::permissions::Attributes::isolated(),
+    )
+    .expect("attribute files");
+    let [system, user, info] = by_hand.files;
+    assert_eq!(
+        system.path, None,
+        "an isolated open withholds the system file"
+    );
+    let user = user.path.expect("core.attributesFile is set");
+    assert!(
+        user.is_absolute(),
+        "a relative `core.attributesFile` must be anchored at read time: {}",
+        user.display()
+    );
+    assert_eq!(
+        user,
+        repo.current_dir().join("../relative/attributes"),
+        "the anchor must be the directory the repository was opened from"
+    );
+    assert_eq!(
+        by_gix,
+        [user],
+        "gix's own selection must be the capture's user path and nothing else"
+    );
+    assert_eq!(
+        info.path.as_deref(),
+        Some(
+            repo.current_dir()
+                .join(repo.common_dir())
+                .join("info")
+                .join("attributes")
+        )
+        .as_deref(),
+        "`info/attributes` is anchored the way gix anchors its own"
+    );
+}
+
 /// Regression for the first review finding on the single-read design
-/// of #1760. gix's `assemble_attribute_globals` loads the system file
+/// of #1760. gix's `attribute_global_paths` loads the system file
 /// only under `permissions.attributes.system` and the XDG default only
 /// under `.git`, both off for an `Options::isolated()` open; the first
 /// shape of the capture read both unconditionally, so on a host whose

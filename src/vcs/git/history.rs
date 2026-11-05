@@ -449,7 +449,7 @@ impl<'a> WalkContext<'a> {
     /// [`AttributeSources::read`] takes the
     /// [`Attributes`](gix::open::permissions::Attributes) permissions
     /// and withholds the system file and the XDG default exactly as
-    /// `assemble_attribute_globals` does under the same value, so the
+    /// `attribute_global_paths` does under the same value, so the
     /// stack and the digest see the files gix's build would have, and
     /// no others. What it cannot do is read those permissions off the
     /// open: they are not reachable through the public API, so
@@ -467,12 +467,15 @@ impl<'a> WalkContext<'a> {
     /// installation's file is never loaded by either.
     ///
     /// The residual risk is the list itself. [`AttributeSources`] names
-    /// the sources gix 0.89's `assemble_attribute_globals` and
+    /// the sources gix 0.90's `attribute_global_paths` and
     /// `Attributes::push_directory` read; a gix release that adds a
     /// source kind would leave it outside both the capture and this
     /// digest, and that fails toward *staleness*: an edit to the new
     /// source would hit. A gix bump must re-check that function against
-    /// [`AttributeSources::read`].
+    /// [`AttributeSources::read`] — `repository/attributes.rs` exposes
+    /// it as [`gix::Repository::attribute_global_paths`], so
+    /// `the_hand_built_capture_selects_the_paths_gix_selects` asks gix
+    /// directly which the two still agree.
     #[must_use]
     pub(super) fn diff_attributes_digest(&self) -> u64 {
         self.diff_attributes
@@ -584,8 +587,8 @@ struct AttributeSource {
 ///
 /// Both consumers — the platform's attribute stack and the digest — are
 /// built from one capture, so the walk can only resolve under the bytes
-/// the entry is stamped with. Written out against gix 0.89's
-/// `assemble_attribute_globals` (the system and user files, in that
+/// the entry is stamped with. Written out against gix 0.90's
+/// `attribute_global_paths` (the system and user files, in that
 /// order — never the installation's, which every permission preset
 /// turns off) and `Attributes::push_directory`
 /// (`info/attributes`), so a source gix adds must be added here;
@@ -606,16 +609,16 @@ impl AttributeSources {
     /// Read the three sources once, under the permissions gix's own
     /// build applies: the system file only when `permissions.system`,
     /// the XDG default only when `permissions.git`, as
-    /// `assemble_attribute_globals` gates them. `core.attributesFile`
+    /// `attribute_global_paths` gates them. `core.attributesFile`
     /// is consulted regardless, as it is there. The installation's
     /// file is never read: every gix preset sets `git_binary: false`,
     /// so gix never loads it either, and resolving its location would
     /// run the `git` binary.
     ///
     /// The user file is `core.attributesFile` when set — read through
-    /// `trusted_path`, as gix reads it, so the same interpolation
-    /// applies — else the XDG default. The XDG and system locations are
-    /// resolved through
+    /// `trusted_path`, as gix reads it, so the same section filter and
+    /// interpolation apply — else the XDG default. The XDG and system
+    /// locations are resolved through
     /// [`gix::attrs::Source::storage_location`] with `env`, which
     /// production passes as [`gix::path::env::var`]: the resolver gix's
     /// own `make_source_env` wraps, whose `HOME` falls back to the
@@ -625,6 +628,14 @@ impl AttributeSources {
     /// loaded it. `GIT_ATTR_NOSYSTEM` drops the system file here as it
     /// does there. A location that cannot be resolved, or that the
     /// permissions withhold, is captured as absent.
+    ///
+    /// Every path is anchored to [`gix::Repository::current_dir`] — the
+    /// working directory captured when the repository was opened — as
+    /// gix 0.90 anchors its own. A relative `core.attributesFile` or a
+    /// relative repository path otherwise resolved against whatever the
+    /// process's working directory was at *read* time, so a `chdir`
+    /// between open and walk made this capture read a different file
+    /// from the one gix's platform resolves.
     ///
     /// # Errors
     ///
@@ -649,11 +660,13 @@ impl AttributeSources {
             .system
             .then(|| Source::System.storage_location(env))
             .flatten();
+        let base = repo.current_dir();
         let paths = [
             system,
             user,
             Some(repo.common_dir().join("info").join("attributes")),
-        ];
+        ]
+        .map(|path| path.map(|path| base.join(path)));
         let mut files = paths.map(|path| AttributeSource { path, bytes: None });
         for file in &mut files {
             file.bytes = match file.path.as_deref().map(std::fs::read) {

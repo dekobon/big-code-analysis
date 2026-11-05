@@ -204,16 +204,19 @@ crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 csv.workspace = true
 # `gix` is the pure-Rust git implementation backing the `vcs-git`
 # backend (issue #328). The feature set is deliberately minimal:
-# `max-performance-safe` (zlib-ng without `unsafe`), `blob-diff` (line
-# churn), `mailmap` (identity canonicalisation), `revision` (rev-walk +
-# revspec parsing), `blame` (per-function line→commit attribution,
-# issue #329). `index` is listed defensively — `revision`/`mailmap`
-# enable it transitively today, so it is pinned to survive a future gix
-# refactor that decouples them (the walk itself is tree-to-tree and does
-# not read the index/worktree). `sha1` (see below). Gated behind
+# `max-performance` (threads plus the static and dynamic pack LRU
+# caches — gix 0.90 removed the `max-performance-safe` alias once
+# every build used pure-Rust `zlib-rs`, so no C toolchain and no
+# `unsafe` opt-in is involved), `blob-diff` (line churn), `mailmap`
+# (identity canonicalisation), `revision` (rev-walk + revspec
+# parsing), `blame` (per-function line→commit attribution, issue
+# #329). `index` is listed defensively — `revision`/`mailmap` enable
+# it transitively today, so it is pinned to survive a future gix
+# refactor that decouples them (the walk itself is tree-to-tree and
+# does not read the index/worktree). `sha1` (see below). Gated behind
 # `vcs-git`.
-gix = { version = "^0.89", default-features = false, features = [
-  "max-performance-safe",
+gix = { version = "^0.90", default-features = false, features = [
+  "max-performance",
   "blob-diff",
   "mailmap",
   "revision",

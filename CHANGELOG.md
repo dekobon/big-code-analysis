@@ -243,6 +243,24 @@ for historical reference.
   repository's additions listed after it; `make plugin-test` pins
   both equalities and the recipe's `.claude/settings.json` example to
   the file the repository runs.
+- `gix` 0.89 → 0.90 (see Security below). 0.90 removed the
+  `max-performance-safe` feature, a deprecated alias of
+  `max-performance` since every build switched to pure-Rust `zlib-rs`;
+  the manifest names `max-performance` now, with the same expansion
+  (threads plus the pack LRU caches, no C toolchain, no `unsafe`
+  opt-in). No source change was needed for the `gix::Result`
+  migration; no `gix` type appears in a public signature, so
+  `STABILITY.md` is unaffected.
+- `CACHE_SCHEMA_VERSION` 2 → 3: `gix-diff` 0.70 applies the rename
+  limit per side as git does, where 0.69 compared the source ×
+  destination product against the unsquared limit, so a commit
+  reshuffling more than ~32 files each way now has its renames
+  followed; `gix-traverse` 0.64 keeps a commit whose commit-graph
+  parents are corrupt where 0.63 dropped it with its ancestry. The
+  fingerprint hashes `follow_renames`, not the limit's meaning, so an
+  event log walked under 0.89 would otherwise replay as if walked
+  under 0.90. Costs one cold walk per cached repository.
+  `VCS_SCHEMA_VERSION` is unchanged: the emitted shape did not move.
 - **The role-bypass baseline is empty** (#1701, part of #1690). The
   four pre-migration sites it still held were Elixir's byte-less
   `is_func_space` and `get_space_kind`, which list `source` and
@@ -932,6 +950,40 @@ for historical reference.
   The `--report-skipped` listing is byte-identical, including which
   spelling of a path reached by overlapping seeds is printed (the
   first-named seed's).
+
+### Security
+
+- Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving
+  `gix` 0.89.0 → 0.90.0, with the rest of the gitoxide family
+  advancing to its latest compatible release in step (52 lockfile
+  entries, no other crate touched). In 0.88–0.89 `protect_options()`
+  read `core.protectHFS`, `core.protectNTFS` and
+  `gitoxide.core.protectWindows` through the unfiltered `boolean()`
+  accessor, so a repository-local `.git/config` of *reduced* trust —
+  one owned by another user, which `gix::discover` opens with the
+  section filter rather than refusing — could switch off the `.git`
+  path-confusion checks that run when gix builds an index from a tree.
+  `bca` reaches that function whenever the configured index is absent
+  and `HEAD` is born — an ordinary bare repository, or a worktree with
+  no `.git/index` — through the in-memory `HEAD` index the history
+  walk, `bca vcs trend`, `bca vcs commit` and per-function blame build
+  for virtual `.gitattributes` resolution. None of those paths checks
+  out, merges, edits a tree or writes an index, so the consequence
+  here was a crafted entry that should have failed the open passing
+  into attribute resolution, not a file on disk. 0.90 reads all three
+  keys through `boolean_filter`, including the early `protectWindows`
+  read for the reference store.
+- The hand-built attribute capture (`AttributeSources::read`, #1760)
+  now anchors every path to the working directory captured when the
+  repository was opened, as gix 0.90's `attribute_global_paths` does.
+  It read a relative `core.attributesFile` against the process's
+  working directory at *read* time, so a `chdir` between open and walk
+  hashed and resolved a different file from the one gix's own platform
+  used. Low severity — the setting is read through the trusted-section
+  filter, so a reduced-trust config cannot set it — and a parity test
+  now asks `gix::Repository::attribute_global_paths` directly which
+  files the capture should select, which is the per-bump re-check the
+  digest's doc comment has always asked for.
 
 ### Deprecated
 
