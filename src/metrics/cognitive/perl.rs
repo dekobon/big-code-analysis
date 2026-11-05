@@ -17,17 +17,19 @@ use super::*;
 /// `unary_expression`'s) short-circuit operator children into the
 /// boolean-sequence counter: the `ShortCircuit` row's payers, read
 /// through the row so an auto-quoted `and` key (#1539) is left out by
-/// its `applied_and` gate, the `NullSafe` row's defined-or `//`, and
-/// the three compound short-circuit assignments (`&&=`, `||=`, `//=`),
-/// which the rows exclude as the consumers' own. The grammar exposes
-/// each `op=` as a distinct operator token inside the same
-/// `binary_expression`, so they fold into the same predicate (issue
-/// #249). The word forms `and` / `or` are keyed to their symbols (see
-/// [`compute_booleans_keyed`]); `//` and each compound assignment keep
-/// keys of their own. Which payers share a key is this consumer's
-/// reading of the rows.
+/// its `applied_and` gate, and the two compound short-circuit
+/// assignments (`&&=`, `||=`), which the row excludes as the
+/// consumers' own. The grammar exposes each `op=` as a distinct
+/// operator token inside the same `binary_expression`, so they fold
+/// into the same predicate (issue #249). The word forms `and` / `or`
+/// are keyed to their symbols (see [`compute_booleans_keyed`]); each
+/// compound assignment keeps a key of its own. The `NullSafe` row's
+/// defined-or `//` and its compound `//=` are not read: the paper
+/// ignores null coalescing (the module header of `cognitive.rs`,
+/// #1800). Which payers share a key is this consumer's reading of the
+/// row.
 fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
-    use crate::roles::perl::{null_safe, short_circuit};
+    use crate::roles::perl::short_circuit;
     // Each child's parent is `node`, which is all the row's `applied_and`
     // gate reads.
     let chain = [*node];
@@ -35,7 +37,7 @@ fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
     compute_booleans_by_node(node, node.end_byte(), stats, |child| {
         let kind = child.kind_id();
         // role-bypass: allow(ShortCircuit) — the sequence key the row's payers share, not
-        // membership: the rows are read first, and the `op=` keys are the consumers' own
+        // membership: the row is read first, and the `op=` keys are the consumers' own
         if short_circuit::pays_at_leaf_kind(kind, child, code, under_node) {
             return Some(match kind.into() {
                 Perl::And => Perl::AMPAMP as u16,
@@ -43,14 +45,7 @@ fn compute_perl_booleans(node: &Node, code: &[u8], stats: &mut Stats) {
                 _ => kind,
             });
         }
-        if null_safe::pays_at_leaf_kind(kind, child, code, under_node) {
-            return Some(kind);
-        }
-        matches!(
-            kind.into(),
-            Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ
-        )
-        .then_some(kind)
+        matches!(kind.into(), Perl::AMPAMPEQ | Perl::PIPEPIPEEQ).then_some(kind)
     });
 }
 
@@ -123,19 +118,19 @@ impl Cognitive for PerlCode {
             P::LoopControlStatement if node.is_child(P::Identifier as u16) => {
                 increment_by_one(stats);
             }
-            // The two kinds the `ShortCircuit` and `NullSafe` rows own
-            // through their operators — tree-sitter-perl files
-            // low-precedence `and` under `unary_expression` (with `not`),
-            // while `or` / `xor` are a `binary_expression`; without the
-            // second kind every `and` scored nothing here while
-            // cyclomatic and ABC counted it (#1530) — and that spell the
-            // compound forms the rows exclude as the consumers' own.
-            // Unguarded: `compute_perl_booleans` asks the rows of each
-            // child and folds nothing for a node holding no payer (an
-            // auto-quoted `and` key included, #1539), so a guard here
-            // would only scan the children a second time.
-            // role-bypass: allow(ShortCircuit, NullSafe) — the rows' owner kinds, read per child
-            // inside for the keys their payers share
+            // The two kinds the `ShortCircuit` row owns through its
+            // operators — tree-sitter-perl files low-precedence `and`
+            // under `unary_expression` (with `not`), while `or` / `xor`
+            // are a `binary_expression`; without the second kind every
+            // `and` scored nothing here while cyclomatic and ABC counted
+            // it (#1530) — and that spell the compound forms the row
+            // excludes as the consumers' own. Unguarded:
+            // `compute_perl_booleans` asks the row of each child and
+            // folds nothing for a node holding no payer (an auto-quoted
+            // `and` key included, #1539), so a guard here would only
+            // scan the children a second time.
+            // role-bypass: allow(ShortCircuit) — the row's owner kinds, read per child
+            // inside for the keys its payers share
             P::BinaryExpression | P::UnaryExpression => {
                 compute_perl_booleans(node, code, stats);
             }

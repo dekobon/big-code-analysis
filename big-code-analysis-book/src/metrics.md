@@ -353,8 +353,18 @@ where the cognitive load jumps, so the second operator earns its own
 token: where a language spells conjunction and disjunction both ways
 (C++, Ruby, PHP, Perl, Elixir, iRules), `a && b and c` is one
 sequence. Precedence still decides what nests where, so Ruby's
-`a || b and c` is `(a || b) and c` and scores two. `??` and Perl's
-`//` are operations of their own; `xor`, like `^`, is no sequence.
+`a || b and c` is `(a || b) and c` and scores two. `xor`, like `^`,
+is no sequence.
+
+The null-coalescing operators are not sequences either, or anything
+else: the paper's "Ignore shorthand" section (v1.7, page 6) sets
+them aside as a one-line spelling of `if (x == null) …`, and so does
+big-code-analysis. `??` in the JavaScript family, C# and PHP, the
+Elvis `?:` of Kotlin and Groovy, Perl's defined-or `//`, the compound
+`??=` / `//=` and every safe navigation (`?.`, `&.`, `?->`) score
+nothing. Until #1800 the coalescing operators were folded into the
+boolean sequence for parity with cyclomatic complexity, which still
+counts each of them as a decision.
 
 big-code-analysis exports the per-space structural score as `value`
 along with the subtree `sum` and a per-function `average`, `min` and
@@ -381,11 +391,20 @@ as the headline complexity number on hover, and several language
 servers and code-review platforms outside the Sonar ecosystem have
 since adopted it.
 
-### Per-language deviations
+### Per-language deviations {#cognitive-per-language-deviations}
+
+What follows is where the implementation and the paper's Appendix B
+part, or where the paper has nothing to say. Null coalescing and
+PHP's `break N` are *not* on this list since #1800 and #1765: both
+follow the paper now (see the two paragraphs above).
 
 - **No language** scores the recursion increment (B1): the metric
   walk resolves no calls, so a function calling itself costs nothing
   beyond its explicit control flow.
+- **Ruby**'s `redo` and `retry` add `+1` each. §B1's jump bullet
+  names only `goto` and a `break` / `continue` to a label or number;
+  these two are scored by analogy with it, as unstructured jumps with
+  no structured spelling.
 - **Elixir** does not score jump statements either. Elixir control
   flow (`if` / `unless` / `cond` / `case` / `with` / `receive`) is
   built from macro-shaped `Call` nodes rather than dedicated grammar
@@ -431,11 +450,10 @@ since adopted it.
   at all: a `def` is a statement and a lambda body is a single
   expression.
 - **PHP** scores `break N` / `continue N`, its only non-default jump
-  argument, at `+0`. The numeric form leaves N enclosing loops whose
-  nesting is already counted, so it is treated as a structured
-  loop-level exit; `goto label;` still adds `+1`. The paper's v1.7 §B1
-  lists a jump to a NUMBER as an increment, so this is a deliberate
-  deviation, and an undecided one: #1765 (item 2) tracks it.
+  argument, at a flat `+1` for any explicit level, `break 1;`
+  included — §B1's `break NUMBER` / `continue NUMBER`, and what
+  sonar-php does. A bare `break;` / `continue;` adds nothing. Before
+  #1765 the numeric form scored `+0` as a structured loop-level exit.
 - **Rust**'s `let`-`else` (`let Some(a) = y else { continue };`)
   postdates the specification. It is scored as the `if let` it
   replaces: `+1` plus the current nesting, with everything under it,

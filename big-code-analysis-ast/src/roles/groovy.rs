@@ -262,11 +262,10 @@ role_table! {
     // `a?.b` (`safe_navigation_expression` / `?.`), the safe chain
     // `a??.b` (`safe_chain_dot_expression` / `??.`) and the safe
     // subscript `a?[0]` (`safe_subscript_expression` / `?[`). Cyclomatic
-    // pays each token; cognitive folds the elvis into a boolean
-    // sequence and reads the others not at all; ABC pays the elvis token
-    // as a condition — once per token, the Kotlin reading, rather than
-    // the C / PHP short-ternary reading that also walks the left
-    // operand (grammar-dispatch §8) — and the navigations not at all.
+    // pays each token; ABC pays the elvis token as a condition — once
+    // per token, the Kotlin reading, rather than the C / PHP
+    // short-ternary reading that also walks the left operand
+    // (grammar-dispatch §8) — and the navigations not at all.
     NullSafe {
         owns [
             ElvisExpression(holds_payer),

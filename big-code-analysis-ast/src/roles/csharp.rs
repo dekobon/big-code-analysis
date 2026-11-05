@@ -159,12 +159,11 @@ role_table! {
     // productions spell (#1275), and one node is one `?`, so the node is
     // the payer and the token bills through the byte-less arm as it
     // did. Which consumer reads which: cyclomatic pays `??` at the token
-    // and the access at the node; cognitive folds `??` into a boolean
-    // sequence; ABC pays both as conditions, which keeps ABC level with
-    // C#'s own cyclomatic on a safe-navigation chain — a C#-internal
-    // agreement no sibling shares (`a?.b?.c` is 0 ABC conditions in the
-    // JS family, Kotlin and Groovy). The compound `??=` is an assignment
-    // to ABC, a sequence to cognitive and a decision to cyclomatic
+    // and the access at the node; ABC pays both as conditions, which
+    // keeps ABC level with C#'s own cyclomatic on a safe-navigation
+    // chain — a C#-internal agreement no sibling shares (`a?.b?.c` is 0
+    // ABC conditions in the JS family, Kotlin and Groovy). The compound
+    // `??=` is an `assignment_expression`, not a `binary_expression`
     // (#236): the consumers' own, recorded here.
     NullSafe {
         owns [
@@ -174,7 +173,7 @@ role_table! {
         ]
         pays [QMARKQMARK]
         project "operator"
-        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236)"]
+        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision cyclomatic pays as its own (#236)"]
     }
     // Two arm shapes. A statement `switch_section` owns a decision when
     // it holds a `case` label, and each `case` keyword pays — gated to

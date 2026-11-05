@@ -45,7 +45,7 @@ impl Cognitive for KotlinCode {
         // not branching a reader must hold, and the effort is the table's
         // vocabulary (#1695, #1697).
         use crate::roles::kotlin::{
-            branch, catch, closure, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
+            branch, catch, closure, else_if, func_opener, r#loop, short_circuit, switch,
         };
         use Kotlin::*;
 
@@ -92,19 +92,12 @@ impl Cognitive for KotlinCode {
             LabeledExpression if kotlin_is_labeled_jump(node, code) => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns, or one
-            // the `NullSafe` row owns through Kotlin's Elvis operator
-            // `?:`, a short-circuit nullish operator analogous to JS `??`
-            // that forms boolean sequences alongside `&&` / `||` per
-            // SonarSource Cognitive Complexity B1 (#1695). The row's
-            // other owner, a safe navigation, is no `binary_expression`
-            // and never reaches the key.
-            _ if short_circuit::owns_kind(kind, node, code, ancestors)
-                || null_safe::owns_kind(kind, node, code, ancestors) =>
-            {
-                compute_booleans_with(node, stats, |id| {
-                    short_circuit::PAYERS.contains(&id) || id == QMARKCOLON as u16
-                });
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            // The `NullSafe` row's Elvis `?:` is not read: the paper
+            // ignores null coalescing (the module header of
+            // `cognitive.rs`, #1800).
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             // Every owner of the `FuncOpener` row is a function boundary,
             // the property accessors and `init { … }` included, which open

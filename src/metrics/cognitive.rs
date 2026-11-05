@@ -46,9 +46,16 @@ use crate::*;
 //   B3 Nesting increments: if, ternary, switch, for, foreach, while,
 //      do while, catch. Nothing else pays for its depth, so a flat +1 is
 //      a B1 increment that B3 omits.
-// The paper's prose also ignores null-coalescing operators as shorthand,
-// so scoring `??` (#230), Elvis `?:` (#239, #246) and Perl's `//` as
-// boolean sequences is this crate's choice, not a B1 reading.
+// The paper's prose ("Ignore shorthand", v1.7 p. 6) also ignores the
+// null-coalescing operators as shorthand for `if (x == null) …`, and
+// since #1800 so does every language here: `??` (the JS family, C#,
+// PHP), Elvis `?:` (Kotlin, Groovy), Perl's defined-or `//` and their
+// compound forms `??=` / `//=` score nothing, as the safe navigations
+// (`?.`, `&.`, `?->`) always did. Before #1800 the `NullSafe` row's
+// coalescing payers were folded into the boolean sequence (#230, #239,
+// #246, #249), for parity with cyclomatic, which still pays them as
+// decisions. B1's `break NUMBER` / `continue NUMBER` is PHP's `break 2;`
+// and scores +1 for any explicit argument (#1765).
 
 // No language scores the specification's recursion increment (B1, "each
 // method in a recursion cycle"), and this is a decision rather than a gap:
@@ -255,9 +262,9 @@ fn compute_booleans_from(node: &Node, stats: &mut Stats, payers: &[u16]) {
 /// PHP, Perl) or strict-boolean operands (Elixir). Precedence only
 /// changes which operator nests under which, and the parse already
 /// carries that, so `a || b and c` is `(a || b) and c` and still
-/// switches operation. Operators that are a different operation
-/// (`??`, `//`) keep keys of their own (#1530); `xor`, like `^`, is no
-/// sequence operator at all (#1536).
+/// switches operation. `xor`, like `^`, is no sequence operator at all
+/// (#1536), and the null-coalescing operators (`??`, `//`) are no
+/// sequence either since #1800 (see the module header).
 fn compute_booleans_keyed<F: Fn(u16) -> Option<u16>>(
     node: &Node,
     stats: &mut Stats,
@@ -438,8 +445,7 @@ macro_rules! js_cognitive {
             nesting_map: &mut NestingMap,
         ) {
             use crate::roles::$roles::{
-                branch, catch, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
-                ternary,
+                branch, catch, else_if, func_opener, r#loop, short_circuit, switch, ternary,
             };
             use $lang::*;
             let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -487,29 +493,22 @@ macro_rules! js_cognitive {
                     // Reset the boolean sequence
                     stats.boolean_seq.reset();
                 }
-                // A `binary_expression` the `ShortCircuit` row owns, or
-                // one the `NullSafe` row owns through `??`, which
-                // short-circuits like `&&` / `||`, so a chain of `??`
-                // collapses to a single boolean-sequence increment under
-                // Sonar B1 (#1695). The row's other payer, the optional
-                // chain's `?.`, is no `binary_expression` operator and
-                // never reaches the key.
-                _ if short_circuit::owns_kind(kind, node, code, ancestors)
-                    || null_safe::owns_kind(kind, node, code, ancestors) =>
-                {
-                    compute_booleans_with(node, stats, |id| {
-                        short_circuit::PAYERS.contains(&id) || null_safe::PAYERS.contains(&id)
-                    });
+                // A `binary_expression` the `ShortCircuit` row owns
+                // (#1695). The `NullSafe` row's `??` is not read: the
+                // paper ignores null coalescing (module header, #1800).
+                _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                    compute_booleans_from(node, stats, short_circuit::PAYERS);
                 }
                 AugmentedAssignmentExpression => {
-                    // Compound short-circuit assignments `&&=`, `||=`,
-                    // `??=` are semantically `x = x op y` and each carries
-                    // one boolean-sequence decision, parallel to the
+                    // Compound short-circuit assignments `&&=` and `||=`
+                    // are semantically `x = x op y` and each carries one
+                    // boolean-sequence decision, parallel to the
                     // cyclomatic fix from #231. The operator token sits
                     // inside the augmented-assignment node rather than a
                     // `BinaryExpression`, so it needs its own arm (#236).
+                    // `??=` is null coalescing and scores nothing (#1800).
                     compute_booleans_with(node, stats, |id| {
-                        matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
+                        matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ)
                     });
                 }
                 // The arrow owns the lambda channel, bound or not, and is a
@@ -622,7 +621,9 @@ mod tests {
     check_func_space_only_shim!(check_func_space, Cognitive);
     // The Python-comprehension tests (#417/#421) assert the cyclomatic
     // count alongside the cognitive one, to show where the two metrics
-    // agree and where nesting makes them diverge. They are the only
+    // agree and where nesting makes them diverge, and the null-coalescing
+    // tests (#1800) read it as the proof the ignored operator is still
+    // in the fixture, since cyclomatic pays it. They are the only
     // cross-metric assertions here, so they get their own shim rather
     // than widening the module-wide selection.
     check_metrics_only_shim!(check_cognitive_and_cyclomatic, Cognitive, Cyclomatic);
@@ -5388,33 +5389,38 @@ fn ie(x: bool) -> i32 {
     #[cfg(feature = "perl")]
     #[test]
     fn perl_compound_short_circuit_assignment_249() {
-        // Regression for issue #249: `&&=`, `||=`, `//=` are compound
-        // short-circuit assignments (e.g. `$x //= 1` ≡ `$x = $x // 1`)
-        // and each carries one boolean-sequence decision. The grammar
+        // Regression for issue #249: `&&=` and `||=` are compound
+        // short-circuit assignments (`$x ||= 1` ≡ `$x = $x || 1`) and
+        // each carries one boolean-sequence decision. The grammar
         // exposes the operator token inside `binary_expression`, so the
         // existing arm picks them up once `compute_perl_booleans`
-        // recognises the three `*EQ` tokens.
-        check_metrics::<PerlParser>(
+        // recognises the `*EQ` tokens. `//=` is the defined-or's
+        // compound form, null coalescing ignored since #1800 (paper
+        // v1.7 p. 6, "Ignore shorthand"); it stays in the fixture so the
+        // predicate is pinned to exactly `&&=` / `||=`. expected: 2.
+        check_cognitive_and_cyclomatic::<PerlParser>(
             "sub f {
                  my ($x, $y, $z) = @_;
                  $x ||= 1; # +1 (||=)
                  $y &&= 2; # +1 (&&=)
-                 $z //= 3; # +1 (//=)
+                 $z //= 3; # +0 (null coalescing, ignored)
                  return $x;
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3);
-                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 3,
+                  "sum": 2,
                   "value": 0,
-                  "average": 3.0,
-                  "min": 3,
-                  "max": 3
+                  "average": 2.0,
+                  "min": 2,
+                  "max": 2
                 }
                 "#
                 );
@@ -8058,16 +8064,68 @@ end",
     #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nullish_coalescing_chain_230() {
-        // Regression for issue #230: `??` is a short-circuit operator and
-        // must form a boolean sequence. `a ?? b ?? c` is a single chain
-        // of identical operators and collapses to a single +1 under
-        // Sonar B1 (same rule as `&&` / `||`).
-        check_metrics::<JavascriptParser>(
+        // #230 scored `a ?? b ?? c` as one boolean sequence (+1); #1800
+        // follows the paper's "Ignore shorthand" (v1.7 p. 6), which
+        // ignores null-coalescing operators as shorthand for `if (a ==
+        // null) …`. expected: 0 — the chain is the function's only
+        // construct. Before #230 the same input scored 0 too, so the
+        // `||` twin below is what tells the arm's removal from an arm
+        // that never fired.
+        check_cognitive_and_cyclomatic::<JavascriptParser>(
             "function pick(a, b, c) {
-                 return a ?? b ?? c; // +1 (chain of ??)
+                 return a ?? b ?? c; // +0 (null coalescing, ignored)
              }",
             "foo.js",
             |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 0,
+                  "value": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#
+                );
+            },
+        );
+        // The twin: `||` is the sequence `??` no longer is.
+        check_metrics::<JavascriptParser>(
+            "function pick(a, b, c) {
+                 return a || b || c; // +1 (chain of ||)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_nullish_coalescing_with_if_230() {
+        // The example from #230's body, which that issue scored at
+        // if(+1) + ?? chain(+1) = 2. #1800 follows the paper's "Ignore
+        // shorthand" (v1.7 p. 6): null-coalescing operators score
+        // nothing. expected: if(+1) = 1, the value this input had before
+        // #230 as well.
+        check_cognitive_and_cyclomatic::<TypescriptParser>(
+            "function risky(x: string | null, fallback: string | null): string {
+                 if (x === \"y\") { // +1
+                     return x ?? fallback ?? \"unknown\"; // +0 (null coalescing, ignored)
+                 }
+                 return \"no\";
+             }",
+            "foo.ts",
+            |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
@@ -8079,43 +8137,6 @@ end",
                   "average": 1.0,
                   "min": 1,
                   "max": 1
-                }
-                "#
-                );
-            },
-        );
-    }
-
-    #[cfg(feature = "typescript")]
-    #[test]
-    fn typescript_nullish_coalescing_with_if_230() {
-        // Regression for issue #230: the example from the issue body.
-        // Boolean sequences pay a flat +1: Sonar B1's increment, with no
-        // nesting increment since B3 omits them (that `??` counts at all
-        // is this crate's choice; see the module header). So the issue
-        // body's stated total of 3 was wrong — the correct answer is
-        // if(+1) + ?? chain (+1) = 2. Previously the `??` chain was not
-        // counted at all (= 1).
-        check_metrics::<TypescriptParser>(
-            "function risky(x: string | null, fallback: string | null): string {
-                 if (x === \"y\") { // +1
-                     return x ?? fallback ?? \"unknown\"; // +1 (chain of ??)
-                 }
-                 return \"no\";
-             }",
-            "foo.ts",
-            |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
-                insta::assert_json_snapshot!(
-                    metric.cognitive,
-                    @r#"
-                {
-                  "sum": 2,
-                  "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
                 }
                 "#
                 );
@@ -8126,27 +8147,40 @@ end",
     #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nullish_coalescing_chain_230() {
-        // Regression for issue #230: TSX parity with JS/TS for `??`.
-        check_metrics::<TsxParser>(
+        // TSX parity with JS/TS for `??`: ignored since #1800 (paper
+        // v1.7 p. 6, "Ignore shorthand"). expected: 0, with the `||`
+        // twin at 1 so the row cannot pass on a dead arm.
+        check_cognitive_and_cyclomatic::<TsxParser>(
             "function pick(a: number | null, b: number | null, c: number): number {
-                 return a ?? b ?? c; // +1 (chain of ??)
+                 return a ?? b ?? c; // +0 (null coalescing, ignored)
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1);
-                assert_eq!(metric.cognitive.cognitive_max(), 1);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 1,
+                  "sum": 0,
                   "value": 0,
-                  "average": 1.0,
-                  "min": 1,
-                  "max": 1
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#
                 );
+            },
+        );
+        check_metrics::<TsxParser>(
+            "function pick(a: number | null, b: number | null, c: number): number {
+                 return a || b || c; // +1 (chain of ||)
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -8154,13 +8188,65 @@ end",
     #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nullish_coalescing_chain_230() {
-        // Regression for issue #230: Mozjs parity with JS for `??`.
-        check_metrics::<MozjsParser>(
+        // Mozjs parity with JS for `??`: ignored since #1800 (paper
+        // v1.7 p. 6, "Ignore shorthand"). expected: 0, with the `||`
+        // twin at 1 so the row cannot pass on a dead arm.
+        check_cognitive_and_cyclomatic::<MozjsParser>(
             "function pick(a, b, c) {
-                 return a ?? b ?? c; // +1 (chain of ??)
+                 return a ?? b ?? c; // +0 (null coalescing, ignored)
              }",
             "foo.js",
             |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 0,
+                  "value": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#
+                );
+            },
+        );
+        check_metrics::<MozjsParser>(
+            "function pick(a, b, c) {
+                 return a || b || c; // +1 (chain of ||)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_null_coalescing_cognitive_230() {
+        // #230 scored C#'s `??` chain as a boolean sequence (+1, total
+        // 2). #1800 follows the paper's "Ignore shorthand" (v1.7 p. 6):
+        // null-coalescing operators score nothing. expected: if(+1) = 1.
+        // The `||` twin of the same body scores 2, which is what tells
+        // the removed read from an arm that never fired.
+        check_cognitive_and_cyclomatic::<CsharpParser>(
+            "class C {
+                 string Risky(string x, string fallback) {
+                     if (x == \"y\") { // +1
+                         return x ?? fallback ?? \"unknown\"; // +0 (null coalescing, ignored)
+                     }
+                     return \"no\";
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
@@ -8177,41 +8263,18 @@ end",
                 );
             },
         );
-    }
-
-    #[cfg(feature = "csharp")]
-    #[test]
-    fn csharp_null_coalescing_cognitive_230() {
-        // Regression for issue #230: C# `??` must form a boolean sequence
-        // just like `&&` / `||`. Boolean sequences pay a flat +1: Sonar
-        // B1's increment, with no nesting increment since B3 omits them.
-        // if(+1) + ?? chain (+1) = 2. Previously the `??` chain
-        // contributed nothing and the function scored 1.
         check_metrics::<CsharpParser>(
             "class C {
-                 string Risky(string x, string fallback) {
-                     if (x == \"y\") { // +1
-                         return x ?? fallback ?? \"unknown\"; // +1 (chain of ??)
+                 bool Risky(bool x, bool fallback) {
+                     if (x == true) { // +1
+                         return x || fallback || false; // +1 (chain of ||)
                      }
-                     return \"no\";
+                     return false;
                  }
              }",
             "foo.cs",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
-                insta::assert_json_snapshot!(
-                    metric.cognitive,
-                    @r#"
-                {
-                  "sum": 2,
-                  "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
-                }
-                "#
-                );
             },
         );
     }
@@ -8219,41 +8282,182 @@ end",
     #[cfg(feature = "php")]
     #[test]
     fn php_null_coalescing_cognitive_230() {
-        // Regression for issue #230: PHP `??` must form a boolean sequence
-        // just like `&&` / `||`. Parallels the PHP cyclomatic
-        // null-coalescing handling. Boolean sequences pay a flat +1: Sonar
-        // B1's increment, with no nesting increment since B3 omits them.
-        // if(+1) + ?? chain (+1) = 2.
+        // #230 scored PHP's `??` chain as a boolean sequence (+1, total
+        // 2), for parity with PHP cyclomatic, which still pays it. #1800
+        // follows the paper's "Ignore shorthand" (v1.7 p. 6):
+        // null-coalescing operators score nothing. expected: if(+1) = 1.
+        // The `||` twin scores 2.
+        check_cognitive_and_cyclomatic::<PhpParser>(
+            "<?php
+            function risky($x, $fallback) {
+                if ($x === \"y\") { // +1
+                    return $x ?? $fallback ?? \"unknown\"; // +0 (null coalescing, ignored)
+                }
+                return \"no\";
+            }",
+            "foo.php",
+            |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 1,
+                  "value": 0,
+                  "average": 1.0,
+                  "min": 1,
+                  "max": 1
+                }
+                "#
+                );
+            },
+        );
         check_metrics::<PhpParser>(
             "<?php
             function risky($x, $fallback) {
                 if ($x === \"y\") { // +1
-                    return $x ?? $fallback ?? \"unknown\"; // +1 (chain of ??)
+                    return $x || $fallback || false; // +1 (chain of ||)
                 }
                 return \"no\";
             }",
             "foo.php",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
-                insta::assert_json_snapshot!(
-                    metric.cognitive,
-                    @r#"
-                {
-                  "sum": 2,
-                  "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
-                }
-                "#
-                );
+            },
+        );
+    }
+
+    // Safe navigation is the paper's own example of ignored shorthand
+    // (`a?.myObj`, v1.7 p. 6). No cognitive arm has ever read the
+    // `NullSafe` row's navigation payers (cyclomatic does), so each of
+    // these scored 0 before #1800 as well — measured on `main` for every
+    // row here before the coalescing reads were removed. expected: 0,
+    // each function holding only the navigation chain. Cyclomatic pays
+    // every `?.`, so its `max` (1 + the operators) is the second axis
+    // proving the chain parsed as navigation rather than as a plain
+    // access the assertion would also score 0 on.
+
+    #[cfg(feature = "javascript")]
+    #[test]
+    fn javascript_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<JavascriptParser>(
+            "function f(a) { return a?.b?.c?.(); }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "mozjs")]
+    #[test]
+    fn mozjs_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<MozjsParser>(
+            "function f(a) { return a?.b?.c?.(); }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<TypescriptParser>(
+            "function f(a: any): any { return a?.b?.c?.(); }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+        check_cognitive_and_cyclomatic::<TsxParser>(
+            "function f(a: any): any { return a?.b?.c?.(); }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<CsharpParser>(
+            "class C { int? F(C a) { return a?.b?.c; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_safe_navigation_is_ignored_1800() {
+        // The row's three navigations: `?.`, the safe chain `??.` and
+        // the safe subscript `?[`.
+        check_cognitive_and_cyclomatic::<GroovyParser>(
+            "def f(a) { return a?.b?.c }
+             def g(a) { return a??.b }
+             def h(a) { return a?[0] }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<KotlinParser>(
+            "fun f(a: A?): Int? = a?.b?.c",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<PhpParser>(
+            "<?php\nfunction f($a) { return $a?->b?->c(); }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_safe_navigation_is_ignored_1800() {
+        check_cognitive_and_cyclomatic::<RubyParser>(
+            "def f(a)\n  a&.b&.c\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
             },
         );
     }
 
     // Companions to `php_null_coalescing_cognitive_230`: the PHP
-    // cognitive operator set extends past `&&` / `||` / `??` to include
+    // cognitive operator set extends past `&&` / `||` to include
     // the word-form `and` / `or`, mirroring PHP cyclomatic. A chain of
     // identical word-form operators collapses to a single
     // boolean-sequence increment under Sonar B1, the same way `&&` /
@@ -8688,23 +8892,34 @@ end",
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_elvis_chain_246() {
-        // Regression for issue #246: Groovy's Elvis operator `?:` is
-        // a short-circuit nullish operator analogous to Kotlin's `?:`
-        // (#239) and JS `??`. `a ?: b ?: c` is a single chain of
-        // identical operators and collapses to a single +1 under
-        // SonarSource Cognitive Complexity B1 — the same rule applied
-        // to `&&` / `||`. Closed by swapping the prior amaanq grammar
-        // (which mis-parsed Elvis as `ternary_expression` + MISSING
-        // identifier) for `dekobon-tree-sitter-groovy`, which models
-        // Elvis as a distinct `elvis_expression` node.
+        // #246 scored Groovy's Elvis `?:` chain as a boolean sequence
+        // (+1), once `dekobon-tree-sitter-groovy` modelled it as a
+        // distinct `elvis_expression` (the prior amaanq grammar
+        // mis-parsed it as `ternary_expression` + MISSING identifier).
+        // #1800 follows the paper's "Ignore shorthand" (v1.7 p. 6): a
+        // null-coalescing operator scores nothing. expected: 0; the `||`
+        // twin scores 1, so the row cannot pass on a dead arm. The
+        // grammar fact still holds: the parse must stay an
+        // `elvis_expression`, or the ternary arm would nest it.
+        check_cognitive_and_cyclomatic::<GroovyParser>(
+            "def pick(a, b, c) {
+                return a ?: b ?: c // +0 (null coalescing, ignored)
+            }",
+            "foo.groovy",
+            |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+            },
+        );
         check_metrics::<GroovyParser>(
             "def pick(a, b, c) {
-                return a ?: b ?: c // +1 (Elvis chain)
+                return a || b || c // +1 (chain of ||)
             }",
             "foo.groovy",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 1);
-                assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
     }
@@ -8712,21 +8927,22 @@ end",
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_elvis_inside_if_246() {
-        // Regression for issue #246: Elvis chain inside an `if` body.
-        // Boolean sequences pay a flat +1: SonarSource B1's increment,
-        // with no nesting increment since B3 omits them.
-        // if(+1) + Elvis chain(+1) = 2.
-        check_metrics::<GroovyParser>(
+        // Elvis chain inside an `if` body, which #246 scored at if(+1)
+        // + chain(+1) = 2. Since #1800 the chain is ignored (paper v1.7
+        // p. 6, "Ignore shorthand"). expected: if(+1) = 1.
+        check_cognitive_and_cyclomatic::<GroovyParser>(
             "def f(a, b) {
                 if (a != null) { // +1
-                    return a ?: b ?: 'x' // +1 (Elvis chain)
+                    return a ?: b ?: 'x' // +0 (null coalescing, ignored)
                 }
                 return 'no'
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
     }
@@ -9159,16 +9375,59 @@ end",
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_elvis_chain_239() {
-        // Regression for issue #239: Kotlin's Elvis operator `?:` is a
-        // short-circuit nullish operator analogous to JS `??` and must
-        // form a boolean sequence. `a ?: b ?: c` is a single chain of
-        // identical operators and collapses to a single +1 under Sonar
-        // B1 (same rule as `&&` / `||`). Previously the Elvis chain was
-        // not counted at all (= 0).
-        check_metrics::<KotlinParser>(
-            "fun pick(a: String?, b: String?, c: String): String = a ?: b ?: c // +1 (Elvis chain)",
+        // #239 scored Kotlin's Elvis `?:` chain as a boolean sequence
+        // (+1). #1800 follows the paper's "Ignore shorthand" (v1.7
+        // p. 6): a null-coalescing operator scores nothing. expected: 0,
+        // the value this input had before #239; the `||` twin scores 1,
+        // so the row cannot pass on a dead arm.
+        check_cognitive_and_cyclomatic::<KotlinParser>(
+            "fun pick(a: String?, b: String?, c: String): String = a ?: b ?: c // +0 (ignored)",
             "foo.kt",
             |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 0,
+                  "value": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#
+                );
+            },
+        );
+        check_metrics::<KotlinParser>(
+            "fun pick(a: Boolean, b: Boolean, c: Boolean): Boolean = a || b || c // +1 (||)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_elvis_inside_if_239() {
+        // Elvis chain inside an `if` body, which #239 scored at if(+1)
+        // + chain(+1) = 2. Since #1800 the chain is ignored (paper v1.7
+        // p. 6, "Ignore shorthand"). expected: if(+1) = 1.
+        check_cognitive_and_cyclomatic::<KotlinParser>(
+            "fun f(a: String?, b: String?): String {
+                 if (a != null) { // +1
+                     return a ?: b ?: \"x\" // +0 (null coalescing, ignored)
+                 }
+                 return \"no\"
+             }",
+            "foo.kt",
+            |metric| {
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
@@ -9180,41 +9439,6 @@ end",
                   "average": 1.0,
                   "min": 1,
                   "max": 1
-                }
-                "#
-                );
-            },
-        );
-    }
-
-    #[cfg(feature = "kotlin")]
-    #[test]
-    fn kotlin_elvis_inside_if_239() {
-        // Regression for issue #239: Elvis chain inside an `if` body.
-        // Boolean sequences pay a flat +1: Sonar B1's increment, with no
-        // nesting increment since B3 omits them.
-        // if(+1) + ?: chain(+1) = 2. Previously the Elvis
-        // chain was not counted at all and the function scored 1.
-        check_metrics::<KotlinParser>(
-            "fun f(a: String?, b: String?): String {
-                 if (a != null) { // +1
-                     return a ?: b ?: \"x\" // +1 (Elvis chain)
-                 }
-                 return \"no\"
-             }",
-            "foo.kt",
-            |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
-                insta::assert_json_snapshot!(
-                    metric.cognitive,
-                    @r#"
-                {
-                  "sum": 2,
-                  "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
                 }
                 "#
                 );
@@ -9922,13 +10146,14 @@ end",
 
     #[cfg(feature = "php")]
     #[test]
-    fn php_numeric_break_not_counted() {
-        // PHP has no labeled break/continue; only the numeric level form
-        // `break N;` / `continue N;`, which exits N enclosing loops already
-        // accounted for by nesting. Per issue #435 the numeric form is a
-        // structured loop-level exit and adds +0. v1.7 §B1 increments a
-        // jump to a NUMBER, so this pins a deliberate, still undecided
-        // deviation, not the paper: #1765 (item 2) decides it.
+    fn php_numeric_break_counted_1765() {
+        // PHP has no labeled break/continue; its numeric level form
+        // `break N;` / `continue N;` is v1.7 §B1's `break NUMBER` /
+        // `continue NUMBER`, a flat +1 (B3 lists no nesting increment
+        // for a jump). #435 scored it +0 as a structured loop-level
+        // exit; #1765 (item 2) follows the paper. The expected total is
+        // taken from the arm's absence: the same input scored 6 on
+        // `main` before the flip.
         check_metrics::<PhpParser>(
             "<?php
             function f(int $n): int {
@@ -9943,13 +10168,63 @@ end",
             }",
             "foo.php",
             |metric| {
-                // for(+1) + while at depth 1 (+2) + if at depth 2 (+3) = 6;
-                // `break 2` adds +0.
-                assert_eq!(metric.cognitive.cognitive_sum(), 6);
-                assert_eq!(metric.cognitive.cognitive_max(), 6);
-                insta::assert_json_snapshot!(metric.cognitive);
+                // expected: for(+1) + while at depth 1 (+2) + if at depth
+                // 2 (+3) + `break 2` (+1, flat) = 7.
+                assert_eq!(metric.cognitive.cognitive_sum(), 7);
+                assert_eq!(metric.cognitive.cognitive_max(), 7);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 7,
+                  "value": 0,
+                  "average": 7.0,
+                  "min": 7,
+                  "max": 7
+                }
+                "#
+                );
             },
         );
+    }
+
+    /// `break` / `continue` with and without an explicit level, in one
+    /// loop each so the loop's +1 is the only other increment. B1 lists
+    /// `break NUMBER` / `continue NUMBER`, and sonar-php increments on
+    /// `tree.argument() != null`
+    /// (`php-frontend/src/main/java/org/sonar/php/metrics/CognitiveComplexityVisitor.java`,
+    /// `visitBreakStatement` / `visitContinueStatement`), so an explicit
+    /// `1` — the same jump as the bare form — pays too (#1765).
+    /// expected: bare 1 (the loop), explicit level 2 (loop + jump), for
+    /// both keywords; `break 2` under two loops 1 + 2 + 1 = 4.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_jump_pays_for_any_explicit_level_1765() {
+        for (body, expected) in [
+            ("for ($i = 0; $i < $n; $i++) { break; }", 1),
+            ("for ($i = 0; $i < $n; $i++) { break 1; }", 2),
+            (
+                "for ($i = 0; $i < $n; $i++) { while (true) { break 2; } }",
+                4,
+            ),
+            ("for ($i = 0; $i < $n; $i++) { continue; }", 1),
+            ("for ($i = 0; $i < $n; $i++) { continue 1; }", 2),
+            (
+                "for ($i = 0; $i < $n; $i++) { while (true) { continue 2; } }",
+                4,
+            ),
+            // A comment is a named extra the gate must not read as the
+            // argument.
+            ("for ($i = 0; $i < $n; $i++) { break /* out */; }", 1),
+        ] {
+            check_func_space::<PhpParser, _>(
+                &format!("<?php\nfunction f(int $n): int {{\n    {body}\n    return 0;\n}}"),
+                "foo.php",
+                |space| {
+                    assert_eq!(space.metrics.cognitive.cognitive_sum(), expected, "{body}");
+                },
+            );
+        }
     }
 
     // ----- Elixir -----
@@ -10783,30 +11058,35 @@ end",
     #[cfg(feature = "javascript")]
     #[test]
     fn javascript_compound_short_circuit_assignment_236() {
-        // Regression for issue #236: `&&=`, `||=`, `??=` are compound
-        // short-circuit assignments (e.g. `x ??= y` ≡ `x = x ?? y`)
-        // and each carries one boolean-sequence decision. Each lives
-        // inside its own `expression_statement`, so the boolean
-        // sequence resets between them and all three count.
-        check_metrics::<JavascriptParser>(
+        // Regression for issue #236: `&&=` and `||=` are compound
+        // short-circuit assignments (`x &&= y` ≡ `x = x && y`) and each
+        // carries one boolean-sequence decision. Each lives inside its
+        // own `expression_statement`, so the boolean sequence resets
+        // between them and both count. `??=` shares the arm but is
+        // null coalescing, ignored since #1800 (paper v1.7 p. 6,
+        // "Ignore shorthand"); it is kept in the fixture so the arm's
+        // predicate is pinned to exactly `&&=` / `||=`. expected: 2.
+        check_cognitive_and_cyclomatic::<JavascriptParser>(
             "function f(x) {
-                 x ??= 1; // +1 (??=)
+                 x ??= 1; // +0 (null coalescing, ignored)
                  x &&= 2; // +1 (&&=)
                  x ||= 3; // +1 (||=)
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3);
-                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 3,
+                  "sum": 2,
                   "value": 0,
-                  "average": 3.0,
-                  "min": 3,
-                  "max": 3
+                  "average": 2.0,
+                  "min": 2,
+                  "max": 2
                 }
                 "#
                 );
@@ -10818,26 +11098,28 @@ end",
     #[test]
     fn typescript_compound_short_circuit_assignment_236() {
         // Regression for issue #236: TS parity with JS for `&&=`,
-        // `||=`, `??=`.
-        check_metrics::<TypescriptParser>(
+        // `||=`; `??=` ignored since #1800. expected: 2.
+        check_cognitive_and_cyclomatic::<TypescriptParser>(
             "function f(x: number | null) {
-                 x ??= 1; // +1 (??=)
+                 x ??= 1; // +0 (null coalescing, ignored)
                  x &&= 2; // +1 (&&=)
                  x ||= 3; // +1 (||=)
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3);
-                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 3,
+                  "sum": 2,
                   "value": 0,
-                  "average": 3.0,
-                  "min": 3,
-                  "max": 3
+                  "average": 2.0,
+                  "min": 2,
+                  "max": 2
                 }
                 "#
                 );
@@ -10849,26 +11131,28 @@ end",
     #[test]
     fn tsx_compound_short_circuit_assignment_236() {
         // Regression for issue #236: TSX parity with JS/TS for `&&=`,
-        // `||=`, `??=`.
-        check_metrics::<TsxParser>(
+        // `||=`; `??=` ignored since #1800. expected: 2.
+        check_cognitive_and_cyclomatic::<TsxParser>(
             "function f(x: number | null) {
-                 x ??= 1; // +1 (??=)
+                 x ??= 1; // +0 (null coalescing, ignored)
                  x &&= 2; // +1 (&&=)
                  x ||= 3; // +1 (||=)
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3);
-                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 3,
+                  "sum": 2,
                   "value": 0,
-                  "average": 3.0,
-                  "min": 3,
-                  "max": 3
+                  "average": 2.0,
+                  "min": 2,
+                  "max": 2
                 }
                 "#
                 );
@@ -10880,27 +11164,29 @@ end",
     #[test]
     fn mozjs_compound_short_circuit_assignment_236() {
         // Regression for issue #236: Mozjs (SpiderMonkey-flavoured JS)
-        // shares the JS macro and must score `&&=` / `||=` / `??=`
-        // identically.
-        check_metrics::<MozjsParser>(
+        // shares the JS macro and must score `&&=` / `||=` identically;
+        // `??=` ignored since #1800. expected: 2.
+        check_cognitive_and_cyclomatic::<MozjsParser>(
             "function f(x) {
-                 x ??= 1; // +1 (??=)
+                 x ??= 1; // +0 (null coalescing, ignored)
                  x &&= 2; // +1 (&&=)
                  x ||= 3; // +1 (||=)
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3);
-                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 3,
+                  "sum": 2,
                   "value": 0,
-                  "average": 3.0,
-                  "min": 3,
-                  "max": 3
+                  "average": 2.0,
+                  "min": 2,
+                  "max": 2
                 }
                 "#
                 );
@@ -10911,32 +11197,33 @@ end",
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_compound_short_circuit_assignment_236() {
-        // Regression for issue #236: C#'s grammar only provides `??=`
-        // among the short-circuit assignments (no `&&=` / `||=`). The
-        // operator lives inside `assignment_expression` rather than a
-        // `BinaryExpression`, so without the #236 fix it was silently
-        // skipped.
-        check_metrics::<CsharpParser>(
+        // #236 scored C#'s `??=` (its only compound short-circuit
+        // assignment; no `&&=` / `||=`) as a sequence decision inside
+        // `assignment_expression`. #1800 follows the paper's "Ignore
+        // shorthand" (v1.7 p. 6): `??=` is `if (x == null) x = …` and
+        // scores nothing, as `??` does. expected: 0.
+        check_cognitive_and_cyclomatic::<CsharpParser>(
             "class C {
                  int? F(int? x) {
-                     x ??= 1; // +1 (??=)
-                     return x ?? 0;
+                     x ??= 1; // +0 (null coalescing, ignored)
+                     return x ?? 0; // +0 (null coalescing, ignored)
                  }
              }",
             "foo.cs",
             |metric| {
-                // Outer `??` chain (+1) + `??=` (+1) = 2 at function max.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 2,
+                  "sum": 0,
                   "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#
                 );
@@ -10947,30 +11234,32 @@ end",
     #[cfg(feature = "php")]
     #[test]
     fn php_compound_short_circuit_assignment_236() {
-        // Regression for issue #236: PHP's only compound short-circuit
-        // assignment is `??=` (no `&&=` / `||=`). It lives inside
-        // `augmented_assignment_expression` rather than a
-        // `BinaryExpression`, so without the #236 fix it was silently
-        // skipped.
-        check_metrics::<PhpParser>(
+        // #236 scored PHP's `??=` (its only compound short-circuit
+        // assignment; no `&&=` / `||=`) as a sequence decision inside
+        // `augmented_assignment_expression`. #1800 follows the paper's
+        // "Ignore shorthand" (v1.7 p. 6): `??=` scores nothing, as `??`
+        // does. expected: 0.
+        check_cognitive_and_cyclomatic::<PhpParser>(
             "<?php
             function f($x) {
-                $x ??= 1; // +1 (??=)
-                return $x ?? 0; // +1 (??)
+                $x ??= 1; // +0 (null coalescing, ignored)
+                return $x ?? 0; // +0 (null coalescing, ignored)
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
+                // The ignored operator is still in the fixture: cyclomatic pays it.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 2,
+                  "sum": 0,
                   "value": 0,
-                  "average": 2.0,
-                  "min": 2,
-                  "max": 2
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#
                 );

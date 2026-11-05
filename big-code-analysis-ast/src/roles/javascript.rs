@@ -64,18 +64,14 @@ role_table! {
     // its `operator` field, and the optional chain `a?.b` / `a?.[0]` /
     // `a?.()`, whose `?.` the JavaScript grammars emit as the bare
     // `optional_chain` token (no wrapper) — the TypeScript grammars wrap
-    // it, and their rows say so. Which consumer reads which: cyclomatic
-    // pays both tokens; cognitive folds `??` into a boolean sequence
-    // and reads `?.` not at all; ABC pays `??` as a condition and `?.`
-    // not at all (its `?.` is no boolean test). The compound `??=` is
-    // an assignment to ABC, a sequence to cognitive and a decision to
-    // cyclomatic (#236, #248): it stays the consumers' own, recorded
-    // here as considered.
+    // it, and their rows say so. The compound `??=` is an
+    // `augmented_assignment_expression`, not a `binary_expression`: it
+    // stays the consumers' own, recorded here as considered.
     NullSafe {
         owns [BinaryExpression(holds_payer)]
         pays [QMARKQMARK, OptionalChain]
         project "operator"
-        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236, #248)"]
+        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision cyclomatic pays as its own (#236, #248)"]
     }
     // A `switch_case` owns a decision and its `case` keyword pays; the
     // `switch_default` and its `default` keyword are the fallback and

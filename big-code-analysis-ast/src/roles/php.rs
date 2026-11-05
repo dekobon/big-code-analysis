@@ -122,11 +122,10 @@ role_table! {
     // `nullsafe_member_access_expression` (two aliased ids) or
     // `nullsafe_member_call_expression`. Cyclomatic pays each token
     // once per textual operator, across both nullsafe kinds and in a
-    // chain; cognitive folds `??` into a boolean sequence (an operation
-    // of its own, #1530) and reads `?->` not at all; ABC pays neither —
-    // a nullsafe call is a branch as every call is. The compound `??=`
-    // is an assignment to ABC, a sequence to cognitive and a decision to
-    // cyclomatic (#236): the consumers' own, recorded here.
+    // chain; ABC pays neither — a nullsafe call is a branch as every
+    // call is. The compound `??=` is an
+    // `augmented_assignment_expression`, not a `binary_expression`
+    // (#236): the consumers' own, recorded here.
     NullSafe {
         owns [
             BinaryExpression(holds_payer),
@@ -135,7 +134,7 @@ role_table! {
         ]
         pays [QMARKQMARK, QMARKDASHGT]
         project "operator"
-        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236)"]
+        excludes [QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision cyclomatic pays as its own (#236)"]
     }
     // A `case_statement` of a `switch` and a `match_conditional_expression`
     // of a `match` each own a decision and pay at the node (the `case`

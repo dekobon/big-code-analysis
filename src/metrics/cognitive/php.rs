@@ -26,7 +26,7 @@ impl Cognitive for PhpCode {
         // branching a reader must hold, and the effort is the table's vocabulary
         // (#1695, #1697).
         use crate::roles::php::{
-            branch, catch, closure, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
+            branch, catch, closure, comment, else_if, func_opener, r#loop, short_circuit, switch,
             ternary,
         };
         use Php::*;
@@ -75,47 +75,40 @@ impl Cognitive for PhpCode {
             // unstructured jump and adds +1 (matching C++/C#/Go/Perl/Lua
             // goto). PHP has no *labeled* `break`/`continue`; its only
             // non-default jump argument is the numeric level form
-            // `break N;` / `continue N;`, which breaks out of N enclosing
-            // loops. Those enclosing loops are already counted via nesting,
-            // so the numeric form is a structured loop-level exit and adds
-            // +0 — only `goto` is genuinely unstructured here. That +0 is a
-            // deliberate, still undecided deviation from v1.7 §B1, which
-            // lists a jump to a NUMBER as an increment: #1765 (item 2)
-            // decides it, so do not "fix" it from the citation alone.
+            // `break N;` / `continue N;`, B1's `break NUMBER` /
+            // `continue NUMBER`, which adds +1 whenever an argument is
+            // written — `break 1;` included, as sonar-php increments on
+            // `tree.argument() != null` (#1765). The grammar admits any
+            // expression there — the one named child a jump can hold
+            // beside the anonymous keyword and `;`, a comment extra
+            // aside — so the gate is a named, non-comment child, not
+            // the `integer` kind. A bare `break;` / `continue;` adds +0.
             GotoStatement => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns, or one
-            // the `NullSafe` row owns through PHP's null-coalescing `??`,
-            // which short-circuits like `&&` / `||` and the word-form
-            // `and` / `or` and so forms boolean sequences alongside them
-            // (#1695). The word forms are keyed to their symbols; `??` is
-            // an operation of its own (#1530). `xor` (the `EagerLogical`
-            // row's) evaluates both operands, so like `^` it is a value,
-            // not a sequence (#1536). Which payers share a key is this
-            // consumer's reading of the rows; the `NullSafe` row's other
-            // owners, the nullsafe accesses, are no `binary_expression`
-            // and never reach the key.
-            _ if short_circuit::owns_kind(kind, node, code, ancestors)
-                || null_safe::owns_kind(kind, node, code, ancestors) =>
+            BreakStatement | ContinueStatement
+                if node
+                    .children()
+                    .any(|c| c.is_named() && !comment::lists_kind(c.kind_id())) =>
             {
-                // role-bypass: allow(ShortCircuit, NullSafe) — the sequence key the rows' payers
+                increment_by_one(stats);
+            }
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            // The word forms are keyed to their symbols (#1530); `xor`
+            // (the `EagerLogical` row's) evaluates both operands, so
+            // like `^` it is a value, not a sequence (#1536). The
+            // `NullSafe` row's `??` and the compound `??=` are not read:
+            // the paper ignores null coalescing (the module header of
+            // `cognitive.rs`, #1800). PHP has no `&&=` / `||=`, so no
+            // assignment arm is left.
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                // role-bypass: allow(ShortCircuit) — the sequence key the row's payers
                 // share, not membership
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),
-                    QMARKQMARK => Some(id),
                     _ => None,
                 });
-            }
-            AugmentedAssignmentExpression => {
-                // PHP's `??=` is `x = x ?? y` and carries one boolean-
-                // sequence decision, parallel to the cyclomatic fix
-                // from #231. The token sits inside the augmented-
-                // assignment container rather than a `BinaryExpression`,
-                // so it needs its own arm (#236). PHP grammar has no
-                // `&&=` / `||=`.
-                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
             // A closure — the `Closure` row — charges the lambda channel
             // and does not reset nesting.

@@ -26,7 +26,7 @@ impl Cognitive for GroovyCode {
         // branching a reader must hold, and the effort is the table's vocabulary
         // (#1695, #1697).
         use crate::roles::groovy::{
-            branch, catch, closure, else_if, func_opener, is_switch_body_kind, r#loop, null_safe,
+            branch, catch, closure, else_if, func_opener, is_switch_body_kind, r#loop,
             short_circuit, ternary,
         };
         use Groovy::*;
@@ -75,24 +75,12 @@ impl Cognitive for GroovyCode {
                 increment_by_one(stats);
             }
             // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            // The `NullSafe` row's Elvis `?:` (a distinct
+            // `elvis_expression` under the dekobon grammar, #246) is not
+            // read: the paper ignores null coalescing (the module header
+            // of `cognitive.rs`, #1800).
             _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
                 compute_booleans_from(node, stats, short_circuit::PAYERS);
-            }
-            // Groovy's Elvis `?:` is a short-circuit nullish operator
-            // analogous to Kotlin's `?:` (#239) and JS `??`. Per
-            // SonarSource B1, a chain of identical short-circuit
-            // operators contributes a single boolean-sequence increment
-            // — the same rule as `&&` / `||`. The dekobon grammar
-            // models Elvis as a distinct `elvis_expression` node
-            // rather than a Java-shaped `ternary_expression` with a
-            // missing consequence (closes #246): the `NullSafe` row's
-            // owner whose payer is `?:`. The row's three safe
-            // navigations are no sequence, and their tokens never match
-            // the key.
-            // role-bypass: allow(NullSafe) — the sequence key, the one of the row's four payers
-            // that is a boolean operator
-            _ if null_safe::owns_kind(kind, node, code, ancestors) => {
-                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKCOLON));
             }
             // Groovy closures are first-class (`list.each { … }`,
             // `def c = { … }`); control flow nested inside one must pay

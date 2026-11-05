@@ -26,8 +26,7 @@ impl Cognitive for CsharpCode {
         // branching a reader must hold, and the effort is the table's vocabulary
         // (#1695, #1697).
         use crate::roles::csharp::{
-            branch, catch, closure, else_if, func_opener, r#loop, null_safe, short_circuit, switch,
-            ternary,
+            branch, catch, closure, else_if, func_opener, r#loop, short_circuit, switch, ternary,
         };
         use Csharp::*;
 
@@ -69,31 +68,13 @@ impl Cognitive for CsharpCode {
             GotoStatement => {
                 increment_by_one(stats);
             }
-            // A `binary_expression` the `ShortCircuit` row owns, or one
-            // the `NullSafe` row owns through C#'s null-coalescing `??`,
-            // which short-circuits like `&&` / `||` and forms boolean
-            // sequences alongside them (#1695). Mirrors the C# cyclomatic
-            // operator set; the row's other owner, a conditional access,
-            // is no `binary_expression` and never reaches the key.
-            _ if short_circuit::owns_kind(kind, node, code, ancestors)
-                || null_safe::owns_kind(kind, node, code, ancestors) =>
-            {
-                compute_booleans_with(node, stats, |id| {
-                    short_circuit::PAYERS.contains(&id) || id == QMARKQMARK as u16
-                });
-            }
-            // The `??=` arm: excluded on the `NullSafe` row as the
-            // consumers' own, a sequence decision here (#236).
-            AssignmentExpression => {
-                // C#'s compound null-coalescing assignment `??=` is
-                // semantically `x = x ?? y` and carries one boolean-
-                // sequence decision, parallel to the cyclomatic fix
-                // from #231. The operator token sits inside the
-                // `assignment_expression` node rather than a
-                // `BinaryExpression`, so it needs its own arm (#236).
-                // C# grammar does not provide `&&=` or `||=`, so only
-                // `??=` matters here.
-                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
+            // A `binary_expression` the `ShortCircuit` row owns (#1695).
+            // The `NullSafe` row's `??` and the compound `??=` are not
+            // read: the paper ignores null coalescing (the module header
+            // of `cognitive.rs`, #1800). C# has no `&&=` / `||=`, so no
+            // assignment arm is left.
+            _ if short_circuit::owns_kind(kind, node, code, ancestors) => {
+                compute_booleans_from(node, stats, short_circuit::PAYERS);
             }
             // A lambda or anonymous method — the `Closure` row — charges
             // the lambda channel and does not reset nesting.

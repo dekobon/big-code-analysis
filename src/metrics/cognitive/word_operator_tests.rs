@@ -11,10 +11,9 @@
 //!
 //! The rows that switch operation (`a || b and c`) stay at two
 //! sequences: precedence decides which operator nests under which, and
-//! the walk sees that through the parse. `??` and `//` are operations of
-//! their own and must not join an `&&` / `||` sequence. `xor` evaluates
-//! both operands, so it is a value like `^` and no sequence at all
-//! (#1536).
+//! the walk sees that through the parse. `xor` evaluates both operands,
+//! so it is a value like `^` and no sequence at all (#1536), and the
+//! null-coalescing `??` / `//` are ignored outright (#1800).
 
 use std::cell::Cell;
 
@@ -124,8 +123,9 @@ fn perl_word_operators_continue_their_symbol_sequence() {
         ("$a || $b || $c", "$a || $b or $c", 1, 1),
         ("($a || $b) && $c", "$a || $b and $c", 1, 2),
         ("!$a && $b", "not $a and $b", 1, 1),
-        // `//` is defined-or, an operation of its own.
-        ("$a // $b || $c", "$a // $b or $c", 1, 2),
+        // `//` is defined-or, null coalescing the paper ignores (#1800):
+        // only the `||` sequence scores.
+        ("$a // $b || $c", "$a // $b or $c", 1, 1),
     ];
     assert_rows::<PerlParser>("foo.pl", asg, &words, &rows);
 }

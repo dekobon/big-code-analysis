@@ -171,14 +171,13 @@ role_table! {
     Ternary { absent "Kotlin has no ternary operator; `if` is an expression" }
     // Two structural forms, each one decision per token (#436): the
     // elvis `a ?: b`, a `binary_expression` owned through its `operator`
-    // field — a short-circuit nullish operator, so cognitive folds it
-    // into the `&&` / `||` sequence and ABC pays its token as a
-    // condition (the Kotlin reading, one per token, which Groovy's elvis
-    // follows) — and the safe navigation `a?.b`, whose `?.` sits in a
-    // `navigation_expression` beside the plain `.`, so the owner is
-    // gated on holding one; cyclomatic pays both tokens, ABC and
-    // cognitive read `?.` not at all. The not-null assertion `!!` throws
-    // rather than branches, and is no decision to any consumer.
+    // field — a short-circuit nullish operator whose token ABC pays as
+    // a condition (the Kotlin reading, one per token, which Groovy's
+    // elvis follows) — and the safe navigation `a?.b`, whose `?.` sits
+    // in a `navigation_expression` beside the plain `.`, so the owner
+    // is gated on holding one; cyclomatic pays both tokens, ABC reads
+    // `?.` not at all. The not-null assertion `!!` throws rather than
+    // branches, and is no decision to any consumer.
     NullSafe {
         owns [
             BinaryExpression(holds_payer),

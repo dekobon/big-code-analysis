@@ -73,19 +73,16 @@ role_table! {
     // `a?.()`, whose `?.` the TypeScript grammars spell as a `?.` token
     // inside an `optional_chain` wrapper — the wrapper is excluded so a
     // chain pays once, at the token (the JavaScript grammars have no
-    // wrapper; their `optional_chain` *is* the token). Which consumer
-    // reads which: cyclomatic pays both tokens; cognitive folds `??`
-    // into a boolean sequence and reads `?.` not at all; ABC pays `??`
-    // as a condition and `?.` not at all. The compound `??=` is an
-    // assignment to ABC, a sequence to cognitive and a decision to
-    // cyclomatic (#236, #248): the consumers' own, recorded here.
+    // wrapper; their `optional_chain` *is* the token). The compound
+    // `??=` is an `augmented_assignment_expression`, not a
+    // `binary_expression`: the consumers' own, recorded here.
     NullSafe {
         owns [BinaryExpression(holds_payer)]
         pays [QMARKQMARK, QMARKDOT]
         project "operator"
         excludes [
             OptionalChain "the wrapper around the `?.` token, which pays once",
-            QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision the others pay as their own (#236, #248)",
+            QMARKQMARKEQ "the compound `??=`, an assignment ABC pays as one and a decision cyclomatic pays as its own (#236, #248)",
         ]
     }
     // A `switch_case` owns a decision and its `case` keyword pays; the

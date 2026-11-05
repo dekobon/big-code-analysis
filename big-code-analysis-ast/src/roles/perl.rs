@@ -169,16 +169,15 @@ role_table! {
     }
     // The defined-or `a // b`, a `binary_expression` owning it through
     // the `//` among its tokens: a short-circuit decision — cyclomatic
-    // pays the token, cognitive folds it into a sequence under a key of
-    // its own (#1530), and ABC walks its chain's operands as it walks an
-    // `||`'s (Rule 9). The compound `//=` is an assignment to ABC, a
-    // sequence to cognitive and a decision to cyclomatic (#249): the
-    // consumers' own, recorded here. Perl has no optional navigation.
+    // pays the token, and ABC walks its chain's operands as it walks an
+    // `||`'s (Rule 9). The compound `//=` is a distinct operator token
+    // of the same `binary_expression` (#249): the consumers' own,
+    // recorded here. Perl has no optional navigation.
     NullSafe {
         owns [BinaryExpression(holds_payer)]
         pays [SLASHSLASH]
         project "operator"
-        excludes [SLASHSLASHEQ "the compound `//=`, an assignment ABC pays as one and a decision the others pay as their own (#249)"]
+        excludes [SLASHSLASHEQ "the compound `//=`, an assignment ABC pays as one and a decision cyclomatic pays as its own (#249)"]
     }
     // A `when` statement (`given` / `when`, feature "switch") owns a
     // decision and pays at the node; its keyword bills as the keyword
