@@ -95,6 +95,53 @@ fn code_metrics_and_func_space_partial_eq() {
     assert_ne!(a1, b, "different source must yield unequal FuncSpace");
 }
 
+/// #1821: compute-side `loc::Stats ==` is same-source equality, not
+/// equality of reported values. The walk seeds a private per-file hint
+/// (`may_hold_bare_rows`, "could a bare `\`-continuation row exist")
+/// into every `loc::Stats`, and the derived `PartialEq` reads it, so
+/// two files whose rows all report the same can compare unequal when
+/// one holds a trailing `\` the other lacks. Pinned here as the
+/// decision taken in review rather than left incidental: hand-writing
+/// `PartialEq` to drop the bit was declined because `==` was already
+/// positional and walk-stateful before this field — `LineSet` compares
+/// row identities, so moving a blank row inside a function makes two
+/// spaces with identical counts `!=`, and #1533's `ConstraintReach` on
+/// `cyclomatic::Stats` is never reset, so `requires (true)` and
+/// `requires ( true)` already compare unequal at equal values. The wire
+/// projection and `Display` are the cross-input comparison; `bca diff`
+/// reads wire values.
+///
+/// The trailing `\` sits in a `//` comment, which Rust's `Loc` arm
+/// reads as one comment row either way, so every reported value is the
+/// same and only the hint differs. Discriminating power: with the field
+/// excluded from `==` (a temporary manual `PartialEq` over the other
+/// eight fields) the `assert_ne!` fails and nothing else in the crate's
+/// suites moves; with the hint seeded unconditionally `true` it fails
+/// beside the two `bare_row_scans` count tests in `loc::tests`.
+#[cfg(feature = "rust")]
+#[test]
+fn loc_stats_partial_eq_sees_the_bare_row_hint_the_wire_form_omits() {
+    const WITHOUT: &str = "// note\nfn f() {}\n";
+    const WITH: &str = "// note \\\nfn f() {}\n";
+    let without = analyze_rust(WITHOUT);
+    let with = analyze_rust(WITH);
+
+    assert_eq!(
+        without.to_wire().metrics.loc,
+        with.to_wire().metrics.loc,
+        "the wire `loc` reports the same rows for both"
+    );
+    assert_eq!(
+        without.metrics.loc.to_string(),
+        with.metrics.loc.to_string(),
+        "`Display` renders the same rows for both"
+    );
+    assert_ne!(
+        without.metrics.loc, with.metrics.loc,
+        "compute-side `loc::Stats` carries the per-file bare-row hint, which differs"
+    );
+}
+
 #[test]
 fn severity_orders_error_above_warning() {
     assert!(

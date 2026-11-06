@@ -445,9 +445,10 @@ pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
 // the external scanner takes as padding before a string start has no
 // node and never reaches this (#1825).
 //
-// A file with no row the scan could credit skips it at every node: the
-// walk seeds `Stats::bare_rows_possible` from `may_hold_bare_rows` over
-// the whole source once (#1821). The exit changes no output — `GapScan`
+// A file with no row the scan could credit skips it at every node, before
+// the per-node bails below: the walk seeds `Stats::bare_rows_possible`
+// from `may_hold_bare_rows` over the whole source once (#1821). The exit
+// changes no output — `GapScan`
 // writes `stats` only in `credit`, which runs only for a bare row — so
 // `bare_row_scans` is what a test observes.
 #[inline]

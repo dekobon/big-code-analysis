@@ -452,14 +452,22 @@ fn compute_per_node<'a, T: MetricSuite>(
 #[derive(Clone, Copy)]
 struct SpaceSeed {
     selected: MetricSet,
-    /// Whether `code` may hold a bare `\`-continuation row. Left at the
-    /// field's default (`true`) when `loc` is unselected, so an
-    /// unselected `loc` stays at `Default` — the contract
-    /// [`MetricsOptions::with_only`] states.
+    /// Whether `code` may hold a bare `\`-continuation row — one spelled
+    /// `\` + newline, `\` + CRLF, or a `\` or `\` + CR ending the file.
     bare_rows_possible: bool,
 }
 
 impl SpaceSeed {
+    /// The one constructor. `loc` unselected leaves the hint at the
+    /// field's default (`true`), so an unselected `loc` stays at
+    /// `Default` — the contract [`MetricsOptions::with_only`] states,
+    /// pinned by `an_unselected_loc_keeps_its_default_bare_row_hint`.
+    /// Otherwise one pass of [`loc::may_hold_bare_rows`] over the whole
+    /// source, for every grammar: the nine `Loc` impls that call the
+    /// scan are the ones that read it, and the fourteen that do not pay
+    /// the pass too — ~0.4 ns/byte, an upper bound of 0.6% per file
+    /// measured on `main` at #1821, below what gating it per grammar
+    /// would buy.
     fn for_walk(selected: MetricSet, code: &[u8]) -> Self {
         Self {
             selected,
@@ -467,9 +475,9 @@ impl SpaceSeed {
         }
     }
 
-    /// A [`FuncSpace`] for `node` carrying this seed. The hint is set
+    /// A [`FuncSpace`] for `node` carrying this seed. The hints are set
     /// after construction rather than passed in: [`FuncSpace::new`] is
-    /// at its `nargs` limit, and `loc` is the only metric that reads it.
+    /// at its `nargs` limit.
     fn new_space<'a, T: Getter>(
         self,
         node: &Node<'a>,
@@ -495,7 +503,8 @@ impl SpaceSeed {
 /// `blank = sloc - ploc - only_comment_lines >= 0`. A `Unit` root needs
 /// no wrapper, so nothing is pushed in that case.
 ///
-/// The frame's `loc` row span is *not* seeded here. The walk never visits
+/// The frame's `loc` row span is *not* seeded here (the bare-row hint
+/// is, through `seed`). The walk never visits
 /// this synthetic node, so before #1247 this was the one place that could
 /// give it one — a third copy of "where does the unit's row span start",
 /// and one that copied the measured start row the anchored reported span

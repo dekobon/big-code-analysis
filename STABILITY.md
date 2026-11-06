@@ -326,8 +326,13 @@ section.
   scores) preclude it. Comparing `Stats` from two analyses
   of the *same* deterministic source is exact-equal-safe (identical
   code path, identical `f64` bits); do not rely on cross-input float
-  equality. Adding `PartialEq` is additive: it only widens the
-  derived-trait set.
+  equality. More generally, `==` is same-source equality: a
+  compute-side `Stats` carries positional and walk state the wire
+  projection does not (`loc`'s `LineSet` rows, `cyclomatic`'s
+  constraint reach, `loc`'s per-file bare-row hint), so two inputs
+  with identical reported values need not compare equal — compare
+  `to_wire()` values or accessors for that. Adding `PartialEq` is
+  additive: it only widens the derived-trait set.
 
   **An empty Maintainability Index is an in-band `0.0` in 2.x.** A
   space with no code to measure (zero Halstead volume or a zero size

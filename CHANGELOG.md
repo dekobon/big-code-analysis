@@ -1637,10 +1637,29 @@ for historical reference.
   (`credit_bare_continuation_rows`) at every node, in every language
   that runs it (Bash, Tcl, iRules, C, C++, Mozcpp, Objective-C, Ruby,
   Elixir). One byte pass over the source decides it per walk, and the
-  output is identical: the scan writes nothing unless it finds a bare
-  row. Measured 4-9% of end-to-end `bca metrics` time on 220 KB C++
-  files with no such row (release, medians of 80 interleaved pairs).
-  (#1821)
+  output is byte-identical: the scan writes nothing unless it finds a
+  bare row (a CLI drift sweep over every view: 49,602 outputs, 0
+  differing). The issue's 4-9% of end-to-end `bca metrics` time is the
+  ceiling, measured on `10626c25` with the scan disabled outright (no
+  predicate cost) on two 220-230 KB DeepSpeech C++ files not in the
+  tree, one a byte-array table and one ordinary C++ (x86_64, release,
+  medians of 80 interleaved pairs). The shipped exit, measured on this
+  branch over the openfst headers in the corpus (aarch64, release,
+  40-80 interleaved pairs, medians, JSON byte-identical every pair):
+  +1.0%, +1.3% and +2.4% with `--metrics loc` and +2.1% with every
+  metric on 51-56 KB headers with no `\` row; +0.9% / +0.4% on a 2.5 MB
+  `pywrapfst.cc` stripped of its `\` rows; +0.1% / +2.1% on files that
+  keep them, so no regression where the scan still runs. The byte pass
+  itself costs ~0.37 ns/byte — 20 µs on 56 KB, 0.93 ms on 2.5 MB —
+  well under 1% of the walk. Adds a private field to the library's
+  `loc::Stats`; it is never serialized or merged, and `==` sees it, so
+  two `Stats` from the same source under the same options still
+  compare equal and an unselected `loc` still equals `Default` — but
+  two spaces with identical rows from files that differ on this hint
+  compare unequal: a trailing `\` anywhere in the file, in any
+  language, now also makes `loc::Stats ==` differ between two
+  otherwise-identical inputs, as row positions and #1533's constraint
+  reach already did. (#1821)
 
 ### Security
 

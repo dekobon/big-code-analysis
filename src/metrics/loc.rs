@@ -511,7 +511,12 @@ pub struct Stats {
     /// a `Stats` built outside the walk still scans. Kept in `PartialEq`
     /// on purpose: two spaces of one file always agree, and a walk with
     /// LOC unselected never writes it, so the unselected-metric contract
-    /// (`MetricsOptions::with_only`) holds by typed `==` too.
+    /// (`MetricsOptions::with_only`) holds by typed `==` too. Not an
+    /// output: `Display`, the wire shape and every accessor ignore it;
+    /// only `PartialEq` (and `Debug`) see it, so two spaces with
+    /// identical rows from files that differ on this hint compare
+    /// unequal (pinned by
+    /// `loc_stats_partial_eq_sees_the_bare_row_hint_the_wire_form_omits`).
     bare_rows_possible: bool,
 }
 
@@ -612,8 +617,8 @@ impl Stats {
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.blank_min = self.blank_min.min(other.blank_min);
         self.blank_max = self.blank_max.max(other.blank_max);
-        // `bare_rows_possible` is a per-file constant, equal in parent
-        // and child, so there is nothing to fold.
+        // `bare_rows_possible` is read only during the walk, and nothing
+        // reads it after, so there is nothing to fold.
     }
 
     /// Seeds the bare-row hint from the walk; see the field's doc.
@@ -9703,7 +9708,7 @@ EOF
 
     /// #1821: the four spellings of a row the bare-row scan can credit,
     /// each ending in `\` + newline, `\` + CRLF, or a `\` or `\` + CR at
-    /// EOF; and four that no clause matches. The predicate is a superset
+    /// EOF; and six that no clause matches. The predicate is a superset
     /// of the scan's row test — it does not look before the `\`, so a
     /// `\` + newline mid-row answers `true` and the scan decides — and
     /// only a subset would lose credits. `\` + space + newline is matched
@@ -9712,6 +9717,11 @@ EOF
     /// `false` row documents the predicate's reach rather than guarding
     /// an output: a clause that matched it would scan a file for nothing
     /// and fail this row, but would be wasteful, not wrong.
+    ///
+    /// Perturbed clause by clause: dropping the LF clause fails its four
+    /// `true` rows, the CRLF clause its one, the CR EOF clause its one,
+    /// both EOF clauses the two EOF rows; a bare `[b'\\', ..]` fails
+    /// every `false` row but the empty one.
     #[test]
     fn may_hold_bare_rows_matches_every_spelling_the_scan_credits() {
         for (code, expected) in [
@@ -9720,9 +9730,23 @@ EOF
             (b"x\n\\", true),
             (b"x\n\\\r", true),
             (b"a + \\\nb\n", true),
+            // Leading padding before the `\`: the scan's own row shape.
+            // Fails, with the two `true` rows around it, when the clause
+            // is gated to a `\` at a row's start.
+            (b"  \\\n", true),
+            // A `\` + LF inside a comment (or a string) matches too: the
+            // predicate is a superset by design, and the scan then runs
+            // and decides the row as before. Fails with the row above.
+            (b"// c \\\nint x;\n", true),
             (b"\\ \n", false),
             (b"a\\b\n", false),
             (b"\"a\\n\"\n", false),
+            // `\` + CR + CRLF, and `\` + CR mid-file: the CR clause
+            // reaches only EOF, and the CRLF clause needs the LF right
+            // after the CR. Both fail, and only they, when the CR clause
+            // is widened to `[b'\\', b'\r', ..]`.
+            (b"a \\\r\r\nb\n", false),
+            (b"a \\\rb\n", false),
             (b"", false),
         ] {
             assert_eq!(
@@ -9878,11 +9902,10 @@ EOF
     /// without the scan (measured on `d080ba7a` through the verbatim
     /// path; the CLI's reader appends a newline and reads the row blank):
     /// only the count tells the exit from the scan. Tcl's bare `\` at EOF
-    /// is credited by the scan alone
-    /// (`tcl_bare_continuation_rows_are_code_or_comment` records it blank
-    /// before #1445), so its value discriminates too; with a CR the Tcl
-    /// grammar lexes `\` + CR as an escaped character, a word (#1802),
-    /// so that spelling is C's alone here. The control holds a `\n`
+    /// is credited by the scan alone, so seeding `false` moves its value
+    /// to `(2, 1, 0, 1)` and the row discriminates by value too; with a
+    /// CR the Tcl grammar lexes `\` + CR as an escaped character, a word
+    /// (#1802), so that spelling is C's alone here. The control holds a `\n`
     /// escape inside a string, which no clause matches, so its scan is
     /// skipped and the rows are the same either way.
     #[cfg(any(feature = "c", feature = "tcl"))]
