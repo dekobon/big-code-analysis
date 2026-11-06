@@ -811,7 +811,7 @@ mod tests {
             .expect("recovery leaves an ERROR under the root");
         let nested = error
             .children()
-            .filter(|child| crate::lang_helpers::doxygen::preproc_conditional(child))
+            .filter(|child| crate::lang_helpers::doxygen::preproc_conditional::<CCode>(child))
             .count();
         assert_eq!(
             nested, 1,

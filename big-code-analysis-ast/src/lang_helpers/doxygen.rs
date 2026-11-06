@@ -253,15 +253,14 @@ fn doxygen_command(s: &[u8], at: usize) -> Option<&[u8]> {
     (!mail).then(|| &rest[..len])
 }
 
-/// A preprocessor conditional or one of its branches, in every C-family
-/// grammar and every alias of the rule: the nodes Doxygen's preprocessor
-/// reads through to the declarations inside.
+/// A preprocessor conditional or one of its branches, under any alias of
+/// the rule: the nodes Doxygen's preprocessor reads through to the
+/// declarations inside. Read by id from the dialect's `DocTarget`
+/// conditional owners ([`DoxygenRow::conditional_kind`]), since the four
+/// grammars number them differently (#1795).
 #[must_use]
-pub(crate) fn preproc_conditional(node: &Node) -> bool {
-    matches!(
-        node.kind(),
-        "preproc_if" | "preproc_ifdef" | "preproc_else" | "preproc_elif" | "preproc_elifdef"
-    )
+pub(crate) fn preproc_conditional<T: DoxygenRow>(node: &Node) -> bool {
+    T::conditional_kind(node.kind_id())
 }
 
 // Each conditional `conditional_declares` reads the children of. The memo
@@ -291,35 +290,71 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
     if let Some(answer) = memo.get(node) {
         return answer;
     }
-    // Post-order: a conditional is answered once its nested ones are.
-    let mut stack = vec![(*node, false)];
-    while let Some((conditional, expanded)) = stack.pop() {
-        if memo.get(&conditional).is_some() {
-            continue;
-        }
-        if expanded {
-            conditionals_read::record();
-            let parent = [conditional];
-            let below = chain_below(ancestors, &parent);
-            let declares = conditional.children().any(|child| {
-                if preproc_conditional(&child) {
-                    memo.get(&child) == Some(true)
-                } else {
-                    doxygen_entry::<T>(&child, below)
+    // Post-order: a conditional's answer is complete once each nested one
+    // has folded its own in. `answers[i]` holds the answer, so far, of the
+    // `i`th conditional read.
+    let mut answers = Vec::new();
+    let mut stack = vec![Visit::Read(*node, None)];
+    while let Some(visit) = stack.pop() {
+        match visit {
+            Visit::Read(conditional, outer) => {
+                conditionals_read::record();
+                let own = answers.len();
+                stack.push(Visit::Answer(conditional, outer, own));
+                answers.push(children_declare::<T>(
+                    &conditional,
+                    ancestors,
+                    memo,
+                    |nested| stack.push(Visit::Read(nested, Some(own))),
+                ));
+            }
+            Visit::Answer(conditional, outer, own) => {
+                memo.set(&conditional, answers[own]);
+                if let Some(outer) = outer {
+                    answers[outer] |= answers[own];
                 }
-            });
-            memo.set(&conditional, declares);
-            continue;
+            }
         }
-        stack.push((conditional, true));
-        stack.extend(
-            conditional
-                .children()
-                .filter(|child| preproc_conditional(child) && memo.get(child).is_none())
-                .map(|child| (child, false)),
-        );
     }
     memo.get(node) == Some(true)
+}
+
+/// A step of [`conditional_declares`]'s walk over a nest. The `Option` is
+/// the enclosing conditional's index in the walk's `answers`, `None` for
+/// the conditional asked about; an `Answer` carries its own index too.
+enum Visit<'a> {
+    /// Read the conditional's children ([`children_declare`]).
+    Read(Node<'a>, Option<usize>),
+    /// Store the conditional's answer, every nested one folded in by now,
+    /// and fold it into the enclosing conditional's.
+    Answer(Node<'a>, Option<usize>, usize),
+}
+
+/// Whether a child of `conditional` already answers
+/// [`conditional_declares`] for it: an entry, or a nested conditional
+/// the memo answers `true` for. Each nested conditional the memo has no
+/// answer for is handed to `defer`, so the walk reads it and folds its
+/// answer in later. Each child is classified once, here (#1795).
+fn children_declare<'a, T: DoxygenRow>(
+    conditional: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    memo: &NodeMemo,
+    mut defer: impl FnMut(Node<'a>),
+) -> bool {
+    let parent = [*conditional];
+    let below = chain_below(ancestors, &parent);
+    let mut declares = false;
+    for child in conditional.children() {
+        if T::conditional_kind(child.kind_id()) {
+            match memo.get(&child) {
+                Some(answer) => declares |= answer,
+                None => defer(child),
+            }
+        } else if !declares {
+            declares = non_conditional_entry::<T>(&child, below);
+        }
+    }
+    declares
 }
 
 /// The context a conditional's children are asked with: a chain of one
@@ -361,8 +396,8 @@ fn chain_below<'a, 'c>(
 /// the grammars read Apple's `typedef NS_ENUM(…) { … }` as one, and there
 /// each doc comment documents an enumerator.
 #[must_use]
-pub(crate) fn doxygen_container(node: &Node) -> bool {
-    preproc_conditional(node)
+pub(crate) fn doxygen_container<T: DoxygenRow>(node: &Node) -> bool {
+    preproc_conditional::<T>(node)
         || matches!(
             node.kind(),
             "translation_unit"
@@ -398,7 +433,7 @@ pub(crate) fn doxygen_skips<T: DoxygenRow>(node: &Node, ancestors: Ancestors) ->
         | ";" => true,
         "expression_statement" => !statement_is_macro_call(node),
         "ERROR" => no_entry_inside::<T>(node, ancestors),
-        _ => preproc_conditional(node) && !conditional_declares::<T>(node, ancestors),
+        _ => preproc_conditional::<T>(node) && !conditional_declares::<T>(node, ancestors),
     }
 }
 
@@ -470,14 +505,14 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// holding an entry. The conditional test comes *first*, so a
 /// conditional is no entry here whatever it holds and the row's
 /// `conditional_declares` gate is never reached through this fn —
-/// [`conditional_declares`]'s own post-order walk asks this of a
-/// conditional's non-conditional children only and reads its memo for
-/// the rest, so the two defences are independent and either alone
-/// keeps the walk from re-entering itself. Code the grammar could not parse,
-/// often behind a macro Doxygen's preprocessor would expand, is given
-/// the benefit of the doubt, as before #1613, rather than dropping the
-/// block on a parse failure; an error holding no entry is read past
-/// (`doxygen_skips`).
+/// [`conditional_declares`]'s own post-order walk asks the entry question
+/// ([`non_conditional_entry`]) of a conditional's non-conditional
+/// children only and reads its memo for the rest, so the two defences are
+/// independent and either alone keeps the walk from re-entering itself.
+/// Code the grammar could not parse, often behind a macro Doxygen's
+/// preprocessor would expand, is given the benefit of the doubt, as
+/// before #1613, rather than dropping the block on a parse failure; an
+/// error holding no entry is read past (`doxygen_skips`).
 ///
 /// The row is asked with no bytes, which is exact because no C-family
 /// `DocTarget` gate reads any — `impl_doxygen_row!` in
@@ -489,21 +524,33 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// hand-writes a byte-reading `is_doc_target` would otherwise slip past
 /// the row's assertion.
 fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
+    !preproc_conditional::<T>(node) && non_conditional_entry::<T>(node, ancestors)
+}
+
+/// [`doxygen_entry`] of a node its caller has already found is no
+/// conditional: the row, or a parse error holding an entry (an `ERROR`
+/// is never a conditional kind).
+fn non_conditional_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
     if node.is_error() {
         return !no_entry_inside::<T>(node, ancestors);
     }
-    !preproc_conditional(node) && T::doc_target_row(node, &[], ancestors)
+    T::doc_target_row(node, &[], ancestors)
 }
 
-/// The `DocTarget` row of a C-family dialect, as the one function the
-/// Doxygen helpers read targets through; implemented by
-/// `impl_doxygen_row!` (`checker/doxygen_doc_binding.rs`) beside the
-/// Checker that composes it. Only the row: no helper bounded on this
-/// reads a `Checker` method, so a `Checker` supertrait would be a bound
-/// nothing uses.
+/// The `DocTarget` row of a C-family dialect, and its conditional owners
+/// as a kind test, as the functions the Doxygen helpers read targets and
+/// conditionals through; implemented by `impl_doxygen_row!`
+/// (`checker/doxygen_doc_binding.rs`) beside the Checker that composes
+/// it. Not a `Checker` supertrait: of the helpers bounded on this, only
+/// [`doxygen_binds_forward`] reads a `Checker` method, and it names both
+/// bounds.
 pub(crate) trait DoxygenRow {
     /// The dialect's `doc_target::owns`.
     fn doc_target_row<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool;
+    /// The dialect's `is_preproc_conditional_kind`: the row's conditional
+    /// owners, gates aside, which `doc_target::lists_kind` cannot tell
+    /// from the entries it lists beside them.
+    fn conditional_kind(kind: u16) -> bool;
 }
 
 /// Whether a C-family doc comment binds to what follows it: one among a
@@ -512,7 +559,7 @@ pub(crate) trait DoxygenRow {
 /// The others keep the reading of where they sit: in a body, Doxygen's
 /// in-body description (#1609); in a declaration, that declaration's.
 #[must_use]
-pub(crate) fn doxygen_binds_forward<'a, T: Checker>(
+pub(crate) fn doxygen_binds_forward<'a, T: Checker + DoxygenRow>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
@@ -522,7 +569,7 @@ pub(crate) fn doxygen_binds_forward<'a, T: Checker>(
         && !doxygen_standalone(bytes)
         && ancestors
             .parent(comment)
-            .is_some_and(|parent| doxygen_container(&parent))
+            .is_some_and(|parent| doxygen_container::<T>(&parent))
         && outside_function_bodies::<T>(comment, ancestors)
 }
 
@@ -682,7 +729,7 @@ mod tests {
             let nest: Vec<_> = tree
                 .get_root()
                 .preorder()
-                .filter(preproc_conditional)
+                .filter(|node| preproc_conditional::<crate::langs::CCode>(node))
                 .collect();
             assert_eq!(nest.len(), DEPTH, "{bottom}");
 
@@ -715,12 +762,66 @@ mod tests {
         }
     }
 
+    /// Every conditional of each nest answers as its children say — an
+    /// entry, or a nested conditional that declares — asked outermost
+    /// first (each nested answer folded in by the walk), innermost first
+    /// (each one the memo's) and unmemoised. The shapes that tell a fold
+    /// from an overwrite: an entry before and after a nested conditional
+    /// declaring nothing, and a declaring one before a child that is no
+    /// entry (#1795). The answers are in preorder, by hand: the `#elif`
+    /// branch nests in the `#if` and the `#else` in the `#elif`.
+    #[cfg(feature = "c")]
+    #[test]
+    fn conditional_declares_folds_in_every_child() {
+        use crate::langs::CCode;
+        use crate::node::{FoldCache, Tree};
+        let shapes: &[(&str, &[bool])] = &[
+            (
+                "#ifdef A\nint x;\n#ifdef B\n#endif\n#endif\n",
+                &[true, false],
+            ),
+            (
+                "#ifdef A\n#ifdef B\n#endif\nint x;\n#endif\n",
+                &[true, false],
+            ),
+            (
+                "#ifdef A\n#ifdef B\nint x;\n#endif\n#include <y.h>\n#endif\n",
+                &[true, true],
+            ),
+            (
+                "#if A\n#ifdef B\n#endif\n#elif C\nint x;\n#else\n#ifdef D\n#endif\n#endif\n",
+                &[true, false, true, false, false],
+            ),
+        ];
+        for &(shape, answers) in shapes {
+            let tree = Tree::new::<CCode>(shape.as_bytes());
+            let nest: Vec<_> = tree
+                .get_root()
+                .preorder()
+                .filter(|node| preproc_conditional::<CCode>(node))
+                .zip(answers.iter().copied())
+                .collect();
+            assert_eq!(nest.len(), answers.len(), "{shape}");
+            for order in [nest.clone(), nest.iter().rev().copied().collect()] {
+                let cache = FoldCache::default();
+                let walk = Ancestors::known(&[]).with_folds(&cache);
+                for (level, declares) in &order {
+                    let row = level.start_row();
+                    let answer = conditional_declares::<CCode>(level, walk);
+                    assert_eq!(answer, *declares, "{shape}: row {row}");
+                    let answer = conditional_declares::<CCode>(level, Ancestors::known(&[]));
+                    assert_eq!(answer, *declares, "{shape}: row {row}, unmemoised");
+                }
+            }
+        }
+    }
+
     /// `doxygen_entry` must test `preproc_conditional` *before* reading
     /// the row: the row's conditional owners are gated by
     /// `conditional_declares`, so the other order would run that walk
     /// from inside an entry question about a conditional. Two defences
     /// keep the walk from re-entering itself — this order, and the
-    /// walk asking `doxygen_entry` of non-conditional children only —
+    /// walk asking the entry question of non-conditional children only —
     /// and when it had the first alone, reversing it cost `2^depth - 1`
     /// reads on the uncached path (4,095 at this depth) against `depth`.
     /// Pinned by count on the uncached path: asking the entry question
@@ -742,7 +843,7 @@ mod tests {
         let outermost = tree
             .get_root()
             .preorder()
-            .find(preproc_conditional)
+            .find(|node| preproc_conditional::<crate::langs::CCode>(node))
             .expect("a nest");
         // Both uncached contexts: a known chain, under which the walk
         // hands each child a one-entry chain, and no chain at all (a
@@ -792,6 +893,10 @@ mod tests {
                 );
                 ASKED.with(|asked| asked.set(asked.get() + 1));
                 false
+            }
+            // The fixture is C, so C's conditionals.
+            fn conditional_kind(kind: u16) -> bool {
+                <crate::langs::CCode as DoxygenRow>::conditional_kind(kind)
             }
         }
         let source = b"int ok;\nQ_OBJECT\nint after;\n";

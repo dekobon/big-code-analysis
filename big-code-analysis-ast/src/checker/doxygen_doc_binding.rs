@@ -34,8 +34,9 @@ macro_rules! impl_doxygen_doc_binding {
     };
 }
 
-// The row each dialect's Doxygen helpers read targets through; one impl
-// per dialect beside its `impl Checker`, which the macro above composes.
+// The row each dialect's Doxygen helpers read targets through, and its
+// conditional owners as a kind test; one impl per dialect beside its
+// `impl Checker`, which the macro above composes.
 macro_rules! impl_doxygen_row {
     ($code:ident, $roles:ident) => {
         impl $crate::lang_helpers::doxygen::DoxygenRow for $code {
@@ -47,6 +48,10 @@ macro_rules! impl_doxygen_row {
                     "a C-family `DocTarget` row reads bytes; `doxygen_entry` cannot forward with `&[]`"
                 );
                 $crate::roles::$roles::doc_target::owns(node, code, ancestors)
+            }
+
+            fn conditional_kind(kind: u16) -> bool {
+                $crate::roles::$roles::is_preproc_conditional_kind(kind)
             }
         }
     };

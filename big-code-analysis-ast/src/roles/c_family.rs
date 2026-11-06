@@ -504,6 +504,58 @@ macro_rules! objc_doc_conditionals {
     };
 }
 
+// The conditional owners again, as kind lists: `lang_helpers::doxygen`
+// asks "is this a conditional" of a doc comment's parent and siblings
+// and of every child of a conditional, which `doc_target::lists_kind`
+// cannot answer, as the row lists the entries beside the conditionals.
+// A fragment with a second arm sharing one list would need a callback
+// the `role_tables.py` fragment reader cannot follow, so the lists are
+// repeated here and `roles/doc_tests/doxygen.rs` holds each dialect's to
+// the conditional names over every runtime id (#1795).
+
+/// `is_preproc_conditional_kind` for a dialect, from its conditional ids.
+macro_rules! preproc_conditional_kind {
+    ($lang:ident [$($kind:ident),+ $(,)?]) => {
+        /// Whether `kind` is one of the dialect's preprocessor
+        /// conditionals or their branches — the conditional owners of the
+        /// `DocTarget` row, gates aside: the nodes Doxygen's preprocessor
+        /// reads through to the declarations inside. A projection of the
+        /// row's owners the row cannot hand out, as it lists the entries
+        /// beside them; read through `DoxygenRow::conditional_kind`.
+        #[inline]
+        #[must_use]
+        pub fn is_preproc_conditional_kind(kind: u16) -> bool {
+            $(kind == $crate::$lang::$kind as u16)||+
+        }
+    };
+}
+
+/// The ids of `c_family_doc_conditionals!`, for the C and C++ grammars.
+macro_rules! c_family_conditional_kinds {
+    ($lang:ident) => {
+        $crate::roles::c_family::preproc_conditional_kind!($lang [
+            PreprocIf, PreprocIf2, PreprocIf3, PreprocIf4,
+            PreprocIfdef, PreprocIfdef2, PreprocIfdef3, PreprocIfdef4,
+            PreprocElse, PreprocElse2, PreprocElse3, PreprocElse4,
+            PreprocElif, PreprocElif2, PreprocElif3, PreprocElif4,
+            PreprocElifdef, PreprocElifdef2, PreprocElifdef3, PreprocElifdef4,
+        ]);
+    };
+}
+
+/// The ids of `objc_doc_conditionals!`, for the Objective-C grammar.
+macro_rules! objc_conditional_kinds {
+    () => {
+        $crate::roles::c_family::preproc_conditional_kind!(Objc [
+            PreprocIf, PreprocIf2, PreprocIf3, PreprocIf4,
+            PreprocIfdef, PreprocIfdef2, PreprocIfdef3,
+            PreprocElse, PreprocElse2, PreprocElse3, PreprocElse4, PreprocElse5,
+            PreprocElif, PreprocElif2, PreprocElif3, PreprocElif4, PreprocElif5,
+            PreprocElifdef, PreprocElifdef2,
+        ]);
+    };
+}
+
 /// The gates the documentation rows read, per dialect because each
 /// table reads the dialect's kind ids and the gate fns resolve at the
 /// row; `$code` is the dialect's `Checker` tag the conditional memo is
@@ -577,6 +629,7 @@ pub(crate) fn field_declaration_declares(node: &crate::Node<'_>) -> bool {
 }
 
 pub(crate) use {
-    c_doc_declarations, c_family_doc_conditionals, c_family_doc_entries, c_family_doc_gates,
-    cpp_doc_entries, objc_doc_conditionals,
+    c_doc_declarations, c_family_conditional_kinds, c_family_doc_conditionals,
+    c_family_doc_entries, c_family_doc_gates, cpp_doc_entries, objc_conditional_kinds,
+    objc_doc_conditionals, preproc_conditional_kind,
 };

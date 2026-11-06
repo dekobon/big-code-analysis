@@ -10,13 +10,15 @@ use crate::roles::c_family::{
     c_doc_declarations, c_family_binary_owners, c_family_calls, c_family_comparison_payers,
     c_family_decl_keywords, c_family_doc_entries, c_family_doc_gates, c_family_loops,
     c_family_modifiers, c_family_primitives, c_family_short_circuit_payers, c_family_strings,
-    objc_doc_conditionals,
+    objc_conditional_kinds, objc_doc_conditionals,
 };
 use crate::roles::control_flow::else_if_parent_clause_gate;
 use crate::{Ancestors, Node, Objc};
 
 // The documentation gates, per dialect (#1699).
 c_family_doc_gates!(with_has_body ObjcCode);
+// The `DocTarget` row's conditional owners as a kind test (#1795).
+objc_conditional_kinds!();
 
 /// Whether an `implementation_definition` is one Doxygen documents —
 /// not a `@synthesize` / `@dynamic` property implementation, which

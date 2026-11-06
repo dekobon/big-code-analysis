@@ -12,16 +12,18 @@
 use crate::Mozcpp;
 use crate::role_table;
 use crate::roles::c_family::{
-    c_family_calls, c_family_decl_keywords, c_family_doc_conditionals, c_family_doc_entries,
-    c_family_doc_gates, c_family_modifiers, c_family_primitives, c_family_strings, cpp_doc_entries,
-    cpp_family_binary_owners, cpp_family_comparison_payers, cpp_family_containers,
-    cpp_family_exits, cpp_family_func_openers, cpp_family_gates, cpp_family_loops,
-    cpp_family_short_circuit_payers,
+    c_family_calls, c_family_conditional_kinds, c_family_decl_keywords, c_family_doc_conditionals,
+    c_family_doc_entries, c_family_doc_gates, c_family_modifiers, c_family_primitives,
+    c_family_strings, cpp_doc_entries, cpp_family_binary_owners, cpp_family_comparison_payers,
+    cpp_family_containers, cpp_family_exits, cpp_family_func_openers, cpp_family_gates,
+    cpp_family_loops, cpp_family_short_circuit_payers,
 };
 use crate::roles::control_flow::else_if_parent_clause_gate;
 
 // The documentation gates, per dialect (#1699).
 c_family_doc_gates!(MozcppCode);
+// The `DocTarget` row's conditional owners as a kind test (#1795).
+c_family_conditional_kinds!(Mozcpp);
 
 cpp_family_gates!(Mozcpp);
 // The chained `if` sits directly inside an `else_clause`; a nested one

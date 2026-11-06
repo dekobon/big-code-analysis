@@ -9,14 +9,16 @@ use crate::C;
 use crate::role_table;
 use crate::roles::c_family::{
     c_doc_declarations, c_family_binary_owners, c_family_calls, c_family_comparison_payers,
-    c_family_decl_keywords, c_family_doc_conditionals, c_family_doc_entries, c_family_doc_gates,
-    c_family_loops, c_family_modifiers, c_family_primitives, c_family_short_circuit_payers,
-    c_family_strings,
+    c_family_conditional_kinds, c_family_decl_keywords, c_family_doc_conditionals,
+    c_family_doc_entries, c_family_doc_gates, c_family_loops, c_family_modifiers,
+    c_family_primitives, c_family_short_circuit_payers, c_family_strings,
 };
 use crate::roles::control_flow::else_if_parent_clause_gate;
 
 // The documentation gates, per dialect (#1699).
 c_family_doc_gates!(with_has_body CCode);
+// The `DocTarget` row's conditional owners as a kind test (#1795).
+c_family_conditional_kinds!(C);
 
 // The chained `if` sits directly inside an `else_clause`; a nested one
 // under `else { … }` sits inside the compound statement (#1697).

@@ -15,8 +15,9 @@ use std::path::Path;
 
 /// The names `doxygen_entry` matched before #1699 (its `match
 /// node.kind()` arms, plus the specifier and field arms it gated),
-/// and the five conditional names `preproc_conditional` matches. A
-/// hand-pinned copy, not read from the rows, so this is an oracle.
+/// and the five conditional names `preproc_conditional` matched until
+/// #1795. A hand-pinned copy, not read from the rows, so this is an
+/// oracle.
 const OLD_ENTRY_NAMES: &[&str] = &[
     "declaration",
     "function_definition",
@@ -140,6 +141,59 @@ old_names_are_the_row!(
 );
 #[cfg(feature = "objc")]
 old_names_are_the_row!(objc_old_names_are_the_row, Objc, objc, OBJC_KIND_FLAGS);
+
+macro_rules! old_names_are_the_conditional_kinds {
+    ($name:ident, $lang:ident, $code:ident, $flags:ident) => {
+        /// The conditional kind test `preproc_conditional` reads through
+        /// the dialect's `DoxygenRow` binding (#1795) answers, over every
+        /// runtime id, exactly the ids the old conditional names denote:
+        /// every alias of the five rules and nothing else — the runtime
+        /// `ERROR` id and the enum's sentinel included.
+        #[test]
+        fn $name() {
+            use crate::lang_helpers::doxygen::DoxygenRow;
+            let conditional = <crate::$code as DoxygenRow>::conditional_kind;
+            let old = ids_named::<crate::$lang>(OLD_CONDITIONAL_NAMES, crate::$flags);
+            let new: BTreeSet<u16> = crate::$flags
+                .iter()
+                .map(|(id, ..)| *id)
+                .filter(|&id| conditional(id))
+                .collect();
+            assert_eq!(new, old);
+            assert!(!old.is_empty());
+            assert!(!conditional(u16::MAX) && !conditional(crate::$lang::Error as u16));
+        }
+    };
+}
+
+#[cfg(feature = "c")]
+old_names_are_the_conditional_kinds!(
+    c_old_names_are_the_conditional_kinds,
+    C,
+    CCode,
+    C_KIND_FLAGS
+);
+#[cfg(feature = "cpp")]
+old_names_are_the_conditional_kinds!(
+    cpp_old_names_are_the_conditional_kinds,
+    Cpp,
+    CppCode,
+    CPP_KIND_FLAGS
+);
+#[cfg(feature = "mozcpp")]
+old_names_are_the_conditional_kinds!(
+    mozcpp_old_names_are_the_conditional_kinds,
+    Mozcpp,
+    MozcppCode,
+    MOZCPP_KIND_FLAGS
+);
+#[cfg(feature = "objc")]
+old_names_are_the_conditional_kinds!(
+    objc_old_names_are_the_conditional_kinds,
+    Objc,
+    ObjcCode,
+    OBJC_KIND_FLAGS
+);
 
 // Every C entry kind with its gate's two sides, the three conditional
 // forms with and without an entry, a nested conditional, a macro call
