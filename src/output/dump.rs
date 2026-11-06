@@ -1003,7 +1003,11 @@ mod tests {
     /// leaves, and a non-UTF-8 literal
     /// written raw. Under the line filter too, which the two paths spell
     /// differently. The old path is the specification here, so the test
-    /// asks it rather than restating its output.
+    /// asks it rather than restating its output. It is rebuilt on the
+    /// writers `render_found` shares, though, so it pins what the two
+    /// paths decide differently (connector, filter, trailing white, the
+    /// pieces) and not the escapes themselves: those are
+    /// `found_render_colours_as_the_pre_fix_binary_did`'s.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_matches_the_per_match_dump_when_no_match_nests() {
@@ -1080,6 +1084,37 @@ mod tests {
         );
     }
 
+    /// The escapes `bca find --color always` prints, held to the binary
+    /// from before #1416 (built from 02150268) instead of to the
+    /// per-match oracle, which goes through the same writers as
+    /// `render_found` and moves with them. The `g(1)` line is that
+    /// binary's output verbatim. The `f(…)` line is its `f(g(1))` line
+    /// with the nested `g(1)` replaced by `…`, painted like the `: `
+    /// before it: white, then the snippet's intense red again for the
+    /// `)` after it. No other test renders a nested match in colour.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_colours_as_the_pre_fix_binary_did() {
+        let ast = parse_as(crate::LANG::Cpp, b"int a = f(g(1));\n");
+        let mut sink = Ansi::new(Vec::new());
+        render_found(&mut sink, &ast, &found(&ast, &["call_expression"]), ..)
+            .expect("render to memory");
+        assert_eq!(
+            String::from_utf8(sink.into_inner()).expect("utf-8 fixture"),
+            concat!(
+                "\x1b[0m\x1b[34m╰─ \x1b[0m\x1b[38;5;11m{call_expression:350} ",
+                "\x1b[0m\x1b[37mfrom \x1b[0m\x1b[32m(1, 9) ",
+                "\x1b[0m\x1b[37mto \x1b[0m\x1b[32m(1, 16) ",
+                "\x1b[0m\x1b[37m: \x1b[0m\x1b[38;5;9mf(",
+                "\x1b[0m\x1b[37m…\x1b[0m\x1b[38;5;9m) \n\x1b[0m\x1b[37m",
+                "\x1b[0m\x1b[34m╰─ \x1b[0m\x1b[38;5;11m{call_expression:350} ",
+                "\x1b[0m\x1b[37mfrom \x1b[0m\x1b[32m(1, 11) ",
+                "\x1b[0m\x1b[37mto \x1b[0m\x1b[32m(1, 15) ",
+                "\x1b[0m\x1b[37m: \x1b[0m\x1b[38;5;9mg(1) \n\x1b[0m\x1b[37m",
+            )
+        );
+    }
+
     /// The shape #1416 measured: one `braced_word` per brace level, so
     /// the per-match dump printed `depth²` bytes. Every level but the
     /// innermost now prints its braces around one `…`.
@@ -1100,11 +1135,13 @@ mod tests {
     /// The non-UTF-8 rule — raw bytes, no trailing space — is decided on
     /// the bytes a line prints, not on the span it elides: a line whose
     /// own pieces are text keeps its space though a nested match is not,
-    /// and the other way round.
+    /// and the other way round. One non-UTF-8 piece drops the space
+    /// wherever it falls: first on line `a`, last on line `c`, so a rule
+    /// that read either end alone fails one of them.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_decides_utf8_on_the_printed_pieces() {
-        let code = b"int a = f('\xff', g(1));\nint b = f(g('\xff'));\n";
+        let code = b"int a = f('\xff', g(1));\nint b = f(g('\xff'));\nint c = f(g(1), '\xff');\n";
         let ast = parse_as(crate::LANG::Cpp, code);
         let found = found(&ast, &["call_expression"]);
         let mut sink = NoColor::new(Vec::new());
@@ -1118,11 +1155,13 @@ mod tests {
             line[at + 3..].to_vec()
         };
         let elided = |before: &[u8], after: &[u8]| [before, ELIDED.as_bytes(), after].concat();
-        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines.len(), 6, "{lines:?}");
         assert_eq!(tail(lines[0]), elided(b"f('\xff', ", b")\n"));
         assert_eq!(tail(lines[1]), b"g(1) \n");
         assert_eq!(tail(lines[2]), elided(b"f(", b") \n"));
         assert_eq!(tail(lines[3]), b"g('\xff')\n");
+        assert_eq!(tail(lines[4]), elided(b"f(", b", '\xff')\n"));
+        assert_eq!(tail(lines[5]), b"g(1) \n");
     }
 
     /// Rendering every match asks no node for its parent. The per-match
@@ -1160,6 +1199,8 @@ mod tests {
     /// Under `-t all` every byte of a one-row file is printed exactly
     /// once: by the deepest match holding it, and by none around it.
     /// The per-match dump printed each byte once per match above it.
+    /// Read off the rendered lines, so the claim is about what the
+    /// render prints and not only about the pieces `own_text` offers it.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_prints_each_byte_of_one_row_once() {
@@ -1167,17 +1208,26 @@ mod tests {
         let ast = parse_as(crate::LANG::Cpp, code);
         let found = found(&ast, &["all"]);
         assert!(found.iter().all(|node| node.start_row() == node.end_row()));
-        let spans: Vec<Range<usize>> = found
-            .iter()
-            .map(|node| node.start_byte()..node.end_byte())
+        let rendered = found_text(&ast, &["all"]);
+        assert_eq!(rendered.lines().count(), found.len(), "{rendered}");
+        let mut printed: Vec<u8> = rendered
+            .lines()
+            .flat_map(|line| {
+                let (_, text) = line.split_once(" : ").expect("a one-row snippet");
+                let text = text.strip_suffix(' ').expect("a UTF-8 snippet's space");
+                text.split(ELIDED).flat_map(str::bytes)
+            })
             .collect();
-        let next = next_outside(&spans);
-        let printed: usize = (0..spans.len())
-            .flat_map(|at| own_text(&spans, &next, at))
-            .map(|piece| piece.len())
+        // The same bytes as the source, each once; sorted, since the
+        // render prints them in match order rather than source order.
+        printed.sort_unstable();
+        let mut source = code.to_vec();
+        source.sort_unstable();
+        assert_eq!(printed, source, "{rendered}");
+        let spanned: usize = found
+            .iter()
+            .map(|node| node.end_byte() - node.start_byte())
             .sum();
-        assert_eq!(printed, code.len());
-        let spanned: usize = spans.iter().map(ExactSizeIterator::len).sum();
         assert!(spanned > 3 * code.len(), "the fixture must nest: {spanned}");
     }
 
