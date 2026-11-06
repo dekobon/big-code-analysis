@@ -3240,6 +3240,38 @@ mod tests {
         assert_eq!(container::OWNERS, &[Java::ClassDeclaration as u16]);
     }
 
+    /// A node with no parent is under nothing (#1794): `under` rejects
+    /// it and `not_under` admits it, whatever the list. Every owner in
+    /// the fixture has a parent, so the test above cannot see this
+    /// clause; an empty known chain is the walk's record of the root.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_parent_list_reads_a_parentless_node_as_under_nothing() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_parent_gates::{branch, r#loop};
+        let source = PARENT_LIST_FIXTURE;
+        let none = Ancestors::known(&[]);
+        let (mut branches, mut loops) = (0, 0);
+        for_each_node_with_chain::<JavaCode>(source, |node, _| {
+            if node.kind_id() == Java::IfStatement as u16 {
+                assert!(
+                    !branch::owns(node, source, none),
+                    "`under` admitted a parentless `if`"
+                );
+                branches += 1;
+            }
+            if node.kind_id() == Java::WhileStatement as u16 {
+                assert!(
+                    r#loop::owns(node, source, none),
+                    "`not_under` rejected a parentless `while`"
+                );
+                loops += 1;
+            }
+        });
+        assert_eq!((branches, loops), (3, 2));
+    }
+
     /// A list beside `pays_itself` and `pays_itself_when` (#1794): the
     /// leaf pays where the list admits the owner and only there, and a
     /// `pays_itself_when` still asks its `when`.
