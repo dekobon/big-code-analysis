@@ -324,6 +324,20 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         answer
     }
 
+    /// [`memoised`](Self::memoised) on a [`NodeQuestion`], for the metric
+    /// crate's own per-node questions. `answer` must be a pure function
+    /// of `node` and the source for one walk: the memo hands every later
+    /// asker the first one's answer.
+    #[doc(hidden)]
+    pub fn memoised_answer(
+        self,
+        question: NodeQuestion,
+        node: &Node<'_>,
+        answer: impl FnOnce() -> bool,
+    ) -> bool {
+        self.memoised(question.memo_question(), node, answer)
+    }
+
     /// `classify(node)`'s discriminant under `slot`. When `node` is the
     /// one the walk is visiting ([`for_walk`](Self::for_walk)), the
     /// answer is read from the walk's word slot after the first ask and
@@ -930,14 +944,42 @@ pub(crate) enum MemoQuestion {
     /// it, and the scan is `O(siblings)` over what precedes the pairs,
     /// comments included (#1697 cost audit).
     KeywordsLeadTheirList,
+    /// [`NodeQuestion::BareStringParenthesisLine`].
+    BareStringParenthesisLine,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 8;
+    const COUNT: usize = 9;
 }
 
-const _: () = assert!(MemoQuestion::KeywordsLeadTheirList as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::BareStringParenthesisLine as usize + 1 == MemoQuestion::COUNT);
+
+/// The per-node questions the metric crate memoises through
+/// [`Ancestors::memoised_answer`], one per [`MemoQuestion`] memo of the
+/// walk's [`FoldCache`]. A subset of [`MemoQuestion`], as [`GateLane`]
+/// is of [`FoldLane`], so a caller outside this crate cannot name a memo
+/// another question owns.
+#[doc(hidden)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeQuestion {
+    /// Python: whether a bare `\` run that starts a logical line inside
+    /// a parenthesised bare string's parentheses is the string's line
+    /// with no code before the string on it. A function of the
+    /// parenthesis alone, asked once per run it holds; each ask climbed
+    /// from the run past every earlier run and comment in the
+    /// parenthesis, quadratic in them (fourth re-review of #1819).
+    BareStringParenthesisLine,
+}
+
+impl NodeQuestion {
+    const fn memo_question(self) -> MemoQuestion {
+        match self {
+            Self::BareStringParenthesisLine => MemoQuestion::BareStringParenthesisLine,
+        }
+    }
+}
 
 /// The per-depth states of the walk's memoised folds, for
 /// `Ancestors::fold_down` (#1597), the per-node memos for

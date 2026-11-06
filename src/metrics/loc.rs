@@ -9495,6 +9495,19 @@ EOF
                 // `x =`, code, so (3, 3, 0, 0); the scanner eats the `\`
                 // and the row stays blank. Locked as-is (lesson 19).
                 (b"x = \\\n\\\n'a'\n", (3, 2, 0, 1), 1),
+                // FIXME(#1830): pins the wrong value. `OP COMMENT NL
+                // STRING OP NEWLINE`, one `Expr(Constant)`: a
+                // parenthesised docstring whose `(` row ends in a `\`,
+                // with a bare row and a comment before the string. Both
+                // `line_continuation` nodes are in the tree (not #1825),
+                // but `unparenthesized_once` takes the parenthesis's
+                // first named non-comment child as its value — the first
+                // `\` — so the parentheses are not seen as the string's:
+                // their rows fall to the catch-all and the bare row is
+                // read forward into `# c`, three code rows. Every row is
+                // the string's (#415, #1610, #1819), so (4, 0, 4, 0).
+                // Locked as-is so the fix shows up here (lesson 19).
+                (b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 3, 2, 0), 0),
             ],
         );
     }

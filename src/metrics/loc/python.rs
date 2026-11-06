@@ -348,11 +348,11 @@ fn python_on_bare_strings_line<'a>(
     backslash: Option<usize>,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let line = match backslash {
-        Some(last) => python_backslash_after_bare_string(node, code, last, ancestors),
-        None => python_run_inside_bare_string_parentheses(node, ancestors),
-    };
-    line.is_some_and(|line| !python_code_before_string(node, code, &line, ancestors))
+    match backslash {
+        Some(last) => python_backslash_after_bare_string(node, code, last, ancestors)
+            .is_some_and(|line| !python_code_before_string(node, code, &line, ancestors)),
+        None => python_run_inside_bare_string_parentheses(node, code, ancestors),
+    }
 }
 
 // What the logical line the run headed by `node` starts becomes, read
@@ -395,36 +395,39 @@ fn python_bare_string_run<'a>(
     }
 }
 
-// The bare string statement whose parentheses the run headed by `node`
-// sits inside, after the string (#1610): the run's parent is one of the
-// statement's `parenthesized_expression`s, and the sibling before the
-// run past comments and splices is not that parenthesis's `(` — so the
-// string, a concatenation or an inner parenthesis, which stands as the
-// holder exactly as it does for a `\` ending the string's row
-// (`python_backslash_after_bare_string`'s `inside`), and the deepest
-// level is the holder's own. A run before the string has no node to
-// ask: the scanner eats a `\` before a string start (#1825).
+// Whether the run headed by `node` sits inside a bare string statement's
+// parentheses (#1610), after the string, with no code before the string
+// on its logical line. The run's parent is one of the statement's
+// `parenthesized_expression`s, and the answer is that parenthesis's
+// alone: every run it holds is on the string's line. So it is asked of
+// the parenthesis, memoised per parenthesis under the walk's cache, and
+// what it reads at the run's own level is nothing — before the string
+// there are only the string's `(` and comments, which
+// `python_code_among` skips, so the levels above the parenthesis
+// answer, climbed from it as `python_code_before_string` climbs from a
+// run. Reading the holder off the siblings before the run and climbing
+// from there walked every earlier run and comment in the parenthesis,
+// once per run, quadratic in the runs it holds (fourth re-review of
+// #1819; `loc/python-separated-bare-runs` prices it).
+//
+// The run is after the string whenever the parenthesis is the string's
+// at all: `python_is_bare_string_parenthesis` reads the statement's
+// value down each parenthesis's first named non-comment child, and a
+// `line_continuation` is named, so a run before the string rejects the
+// parenthesis (and so the string's own `(` and `)`, #1830 — a fix there
+// must hand this finder another O(1) way to tell the two apart).
 fn python_run_inside_bare_string_parentheses<'a>(
     node: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
-) -> Option<BareStringBackslash<'a>> {
-    let (parent, chain) = ancestors.iter(node).next()?;
-    if !python_is_bare_string_parenthesis(&parent, chain) {
-        return None;
-    }
-    ancestors
-        .siblings_before(node)
-        .find(|sibling| {
-            !matches!(
-                sibling.kind_id().into(),
-                Python::LineContinuation | Python::Comment
-            )
-        })
-        .filter(|holder| holder.kind_id() != Python::LPAREN)
-        .map(|holder| BareStringBackslash {
-            holder,
-            deepest: None,
-        })
+) -> bool {
+    let Some((parent, chain)) = ancestors.iter(node).next() else {
+        return false;
+    };
+    ancestors.memoised_answer(NodeQuestion::BareStringParenthesisLine, &parent, || {
+        python_is_bare_string_parenthesis(&parent, chain)
+            && !python_code_before_node(code, &parent, chain)
+    })
 }
 
 // What the line a run headed by `node` joins at `first` holds past the
@@ -475,12 +478,12 @@ fn python_token_row(token: &Node) -> BareRow {
 
 // A bare string statement's line that a run is on, as
 // `python_backslash_after_bare_string` finds it from the `\` ending the
-// statement's row, or `python_run_inside_bare_string_parentheses` from
-// the parentheses around the run: `holder` is the sibling before the run
-// whose last token the `\` follows, or the string the run's `)` closes,
-// and `deepest`, where the statement lies below the holder, the deepest
-// node on the descent to it that has siblings before it, with its parent
-// — the level whose tokens are nearest the statement.
+// statement's row: `holder` is the sibling before the run whose last
+// token the `\` follows — the string itself, a concatenation, a
+// parenthesis or the statement — and `deepest`, where the statement
+// lies below the holder, the deepest node on the descent to it that has
+// siblings before it, with its parent — the level whose tokens are
+// nearest the statement.
 struct BareStringBackslash<'a> {
     holder: Node<'a>,
     deepest: Option<(Node<'a>, Node<'a>)>,
@@ -569,13 +572,21 @@ fn python_code_before_string<'a>(
     }
     ancestors
         .iter(node)
-        .find_map(|(ancestor, chain)| {
-            python_code_among(
-                code,
-                chain.siblings_before(&ancestor),
-                &ancestor,
-                Some(chain),
-            )
+        .next()
+        .is_some_and(|(parent, chain)| python_code_before_node(code, &parent, chain))
+}
+
+// Whether code precedes `node` on its logical line: among its own
+// siblings, or at the deepest level above it that has a token before
+// its node. The levels `python_code_before_string` climbs from the
+// run's parent once the run's own level is read, and every level a
+// parenthesis's memoised answer reads — the parenthesis's inside, where
+// nothing before the string can be code, is never one of them.
+fn python_code_before_node<'a>(code: &[u8], node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    std::iter::once((*node, ancestors))
+        .chain(ancestors.iter(node))
+        .find_map(|(level, chain)| {
+            python_code_among(code, chain.siblings_before(&level), &level, Some(chain))
         })
         .unwrap_or(false)
 }

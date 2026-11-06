@@ -417,6 +417,24 @@ pub fn python_long_bare_run_to_blank(width: usize) -> String {
     format!("{}\nx = 1\n", "\\\n".repeat(width))
 }
 
+/// Python: `width` separate one-row bare `\` runs inside a parenthesised
+/// bare string's parentheses, each followed by an empty row, then the
+/// `)` and a retained `x = 1`.
+///
+/// The two `python_long_bare_run_*` shapes above are one run; here every
+/// `\` heads a run of its own, since the empty row between two ends the
+/// first, and every head asks whether it is on the string's line. That
+/// is a question about the `parenthesized_expression` all `width` runs
+/// share, answered once per parenthesis under the walk's cache
+/// (`NodeQuestion::BareStringParenthesisLine`). Finding the string from
+/// each run through the siblings before it instead reads every earlier
+/// run in the parenthesis, quadratic in `width` (fourth re-review of
+/// #1819). The `x = 1` keeps the reading off the construct under test.
+#[must_use]
+pub fn python_separated_bare_runs(width: usize) -> String {
+    format!("( \"\"\"doc\"\"\"\n{})\nx = 1\n", "\\\n\n".repeat(width))
+}
+
 /// C: `width` units of a `{` that never closes, each followed by a row
 /// holding only `\` and a row holding two block comments.
 ///
@@ -2683,6 +2701,32 @@ pub const PROBES: &[Probe] = &[
                     is the blank rows: the run and the empty row.",
     },
     Probe {
+        name: "loc/python-separated-bare-runs",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_separated_bare_runs,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Fourth re-review of #1819: `width` separate bare `\\` \
+                    runs inside one parenthesised bare string's parentheses, \
+                    each asking whether it is on the string's line. The \
+                    answer is the parenthesis's, memoised per parenthesis \
+                    under `NodeQuestion::BareStringParenthesisLine`; finding \
+                    the string from each run through the siblings before it \
+                    (117576c1) measured 2.05 against 1.26, and 1852f4e8 \
+                    before the finder, which read every such run forward, \
+                    1.32 — the walk over `width` extras under one \
+                    parenthesis, as `loc/python-long-bare-run` reads it. The \
+                    reading is the comment rows: the string's, the `)`'s and \
+                    the `width` bare rows, which the runs alone supply — a \
+                    run read forward makes its row blank, and 1852f4e8 read 2.",
+    },
+    Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -4560,6 +4604,43 @@ mod tests {
                     .expect("metrics walk");
                 assert_eq!(reading, size as u64 + 1, "{name} at {size}");
             }
+        }
+    }
+
+    /// `loc/python-separated-bare-runs` (fourth re-review of #1819)
+    /// reads its runs: `size` separate runs, one `line_continuation`
+    /// each, and the reading is the string's row, the `)`'s and the
+    /// `size` bare rows — `size + 2` comment rows, every one of the
+    /// `size` from the runs, which `GapScan`-style forward reading
+    /// would file as blank (each joins an empty row). The retained
+    /// `x = 1` reaches `cloc` on no reading. The scaling bench's
+    /// exponent is the only guard of the per-parenthesis memo itself,
+    /// since asking per run answers the same.
+    #[test]
+    fn python_separated_bare_runs_probe_reads_its_runs() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "loc/python-separated-bare-runs")
+            .expect("loc/python-separated-bare-runs is a probe");
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "the shape parses cleanly at {size}");
+            assert_eq!(
+                count_kind(&ast, "line_continuation"),
+                size,
+                "one node per run at {size}"
+            );
+            assert_eq!(
+                count_kind(&ast, "parenthesized_expression"),
+                1,
+                "every run shares one parenthesis at {size}"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            assert_eq!(reading, size as u64 + 2, "at {size}");
         }
     }
 

@@ -1622,7 +1622,14 @@ for historical reference.
   a bare row continuing it is a comment row, the string's rows being
   CLOC already (#1819). A bare row before any string literal still
   counts as blank: the grammar's scanner drops that `\` before any node
-  sees it (#1825).
+  sees it (#1825). A bare row inside a parenthesised docstring's
+  parentheses with an earlier bare row before the string reads the
+  parentheses as code (#1830). In `big-code-analysis-ast`, the walk's
+  `FoldCache` memoises one more per-node question, named through the
+  new `#[doc(hidden)]` `NodeQuestion` as `GateLane` names the fold
+  lanes, so the question a bare row inside a bare string's parentheses
+  asks is answered once per parenthesis rather than once per row;
+  `loc/python-separated-bare-runs` pins the shape.
 
 ### Security
 
