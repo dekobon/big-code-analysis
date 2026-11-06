@@ -9262,10 +9262,13 @@ EOF
                 // `STRING NEWLINE NAME …`: the `\` after a bare-string
                 // statement is not bare, and credits nothing, where the
                 // catch-all credited the string's comment row to PLOC too.
-                // The twin joining a string concatenates (no node, the
-                // `concatenated_string` eats the `\`; unchanged, the
-                // control below); the twin joining any other token is a
-                // SyntaxError. Pre-fix (3, 2, 1, 1).
+                // What the `\` can join: a string concatenates (no node,
+                // the `concatenated_string` eats the `\`; unchanged, the
+                // control below), a `;` starts another statement on the
+                // same logical line (code; the rows after the run below),
+                // a `)` closes the string's parentheses, a comment ends
+                // the line, and anything else is a SyntaxError. Pre-fix
+                // (3, 2, 1, 1).
                 (b"\"\"\"doc\"\"\" \\\n\nx=1\n", (3, 1, 1, 1), 1),
                 (b"\"\"\"doc\"\"\" \\\n\"more\"\nx = 1\n", (3, 1, 2, 0), 0),
                 // A bare run continuing a bare-string statement's `\` is
@@ -9291,10 +9294,61 @@ EOF
                 // statement is the sibling before the run. Pre-fix
                 // (4, 2, 1, 1).
                 (b"(\"\"\"doc\"\"\") \\\n\\\n\nx=1\n", (4, 1, 2, 1), 1),
-                // Controls: `STRING OP NAME NEWLINE` — a string with a
-                // token after it on its logical line is a tuple's value,
-                // code; `NAME NEWLINE …` — a bare statement that is no
-                // string continues code. Both unchanged.
+                // The run is the string's line only as far as the rows
+                // after it make it so (re-review of #1819, which found
+                // the run read as comment unconditionally). `STRING OP
+                // NAME OP NUMBER NEWLINE`: a `;` starts `x = 1` on the
+                // string's logical line, so the run continues into code,
+                // and the string's own row stays its comment row.
+                // Measured (3, 1, 2, 0) before the correction; (3, 2, 1, 0)
+                // before #1819. Perturbation (`utils/perturb.py`, `-p
+                // big-code-analysis -p big-code-analysis-bench --lib
+                // --no-fail-fast`): reading the run as comment whenever
+                // the `\` ends a bare string fails exactly this row and
+                // the `; # c` one below.
+                (b"\"\"\"doc\"\"\" \\\n\\\n; x = 1\n", (3, 2, 1, 0), 0),
+                // `NAME OP NUMBER OP STRING NEWLINE NL NAME …`: code
+                // precedes the string on its logical line, so the run is
+                // that code's, as after any statement, and the string's
+                // row is a code row carrying a comment. Measured
+                // (4, 2, 2, 1) before the correction; (4, 2, 2, 1) before
+                // #1819 too, by the catch-all. Perturbation: dropping the
+                // code-before-the-string check fails exactly this row and
+                // the `("""doc""" \` + `; y=2` one below.
+                (b"x=1; \"\"\"doc\"\"\" \\\n\\\n\ny=2\n", (4, 3, 1, 1), 1),
+                // `NAME OP NUMBER OP OP STRING OP NEWLINE …`: the code
+                // before the string sits above the parenthesis the run is
+                // inside, where the holder is the string itself, so the
+                // check climbs to the run's grandparent's siblings. The
+                // `)` row is the string's (#1610). Measured (4, 2, 3, 0)
+                // before the correction.
+                (b"x=1; (\"\"\"doc\"\"\" \\\n\\\n)\ny=2\n", (4, 3, 2, 0), 0),
+                // `STRING OP COMMENT NEWLINE`: the `;` starts a statement
+                // whose only text is a comment — an empty statement to
+                // CPython, so the run joins `; # c`, code with a comment
+                // on it. Measured (3, 1, 3, 0) before the correction.
+                (b"\"\"\"doc\"\"\" \\\n\\\n; # c\n", (3, 2, 2, 0), 0),
+                // `OP OP STRING OP OP NEWLINE …`: a doubly parenthesised
+                // bare string with the `\` after the inner `)`, so the
+                // sibling before the run is the inner
+                // `parenthesized_expression`, which the holder test reads
+                // through `python_is_bare_string_parenthesis`. The run
+                // joins the outer `)`, the string's row (#1610). Measured
+                // (4, 2, 2, 0) before the correction (the descent went
+                // through the inner `)` and found no statement).
+                // Perturbation: dropping the `ParenthesizedExpression`
+                // holder fails exactly this row. The twin with the `\`
+                // inside the inner parentheses read right already, its
+                // holder being the string: it is the control.
+                (b"((\"\"\"doc\"\"\") \\\n\\\n)\nx=1\n", (4, 1, 3, 0), 0),
+                (b"((\"\"\"doc\"\"\" \\\n\\\n))\nx=1\n", (4, 1, 3, 0), 0),
+                // Controls: `NAME OP NUMBER OP NAME OP NUMBER NEWLINE` —
+                // a `;` before the `\` with no string, plain code
+                // continuation; `STRING OP NAME NEWLINE` — a string with
+                // a token after it on its logical line is a tuple's
+                // value, code; `NAME NEWLINE …` — a bare statement that
+                // is no string continues code. All unchanged.
+                (b"x = 1; \\\n\\\ny = 2\n", (3, 3, 0, 0), 0),
                 (b"\"\"\"doc\"\"\" \\\n\\\n, x\n", (3, 3, 0, 0), 0),
                 (b"x \\\n\\\n\ny=1\n", (4, 3, 0, 1), 1),
                 // A run inside a multi-row f-string's interpolation joins a
@@ -9335,10 +9389,17 @@ EOF
                 (b"x = 1 \\\n# c\ny = 2\n", (3, 2, 1, 0), 0),
                 // Inside a string the `\` + newline is an `escape_sequence`.
                 (b"s = \"\"\"a\n\\\nb\"\"\"\n", (3, 3, 0, 0), 0),
-                // The `\` + NUL spelling of the token ends on its own row,
-                // and the comment after the NUL makes that row code and
-                // comment; the node credits nothing, since code follows
-                // it. Measured (3, 2, 1, 0) before and after #1819.
+                // The `\` + NUL spelling of the token ends on its own row
+                // — the one shape that reaches the arm's "node ends on
+                // its own row" branch, which is why the row is kept. The
+                // node is a run head whose `\` continues nothing, and the
+                // row holds only it before `# c`, so the arm credits the
+                // row as a comment on no code line — as it was before
+                // #1819, when the comment credited it itself. CPython
+                // rejects a NUL byte outright, so no tokenizer stream
+                // derives the value: it pins the recovery behaviour only
+                // (`.claude/rules/grammar-dispatch.md` §6). Measured
+                // (3, 2, 1, 0) before and after #1819.
                 (b"x=1\n\\\0# c\ny=2\n", (3, 2, 1, 0), 0),
                 // FIXME(#1825): pins the wrong value. `STRING NEWLINE NAME
                 // OP NUMBER NEWLINE`: the bare row is the string token's

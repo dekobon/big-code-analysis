@@ -212,6 +212,11 @@ fn add_sphinx_doc_comment<'a>(
 // tokens cover the row — which is the one observable change for a `\`
 // ending a bare-string statement: that row is the string's comment row
 // and was also code. `loc/python-long-bare-run` prices the run.
+//
+// Where the `\` ends a bare-string statement's row, the run is the
+// string's line and, with no code before the string on it, what the
+// rows after the run make it (`classify_python_run`): the comment the
+// string's rows are (#415) unless a `;` starts a statement there.
 #[inline]
 fn credit_python_line_continuation<'a>(
     node: &Node<'a>,
@@ -279,10 +284,12 @@ fn past_python_bare_run(node: &Node, code: &[u8]) -> Option<usize> {
 // `line_continuation` of a statement — or else what the logical line it
 // starts becomes, read off the token at `first`, where the line goes on.
 //
-// A `\` after a bare-string statement continues a line that holds no code
-// yet, the string's rows being comment rows (#415), so the run is what
-// the rows after it make it, a comment where they add none — as
-// `GapScan::classify` reads a C-family `/* … */` before a `\`.
+// A `\` after a bare-string statement continues that statement's logical
+// line, whose rows are comment rows (#415) — unless code precedes the
+// string on it (`x = 1; """doc""" \`), where the run is that code's as
+// after any statement. With none, the line holds no code yet and is what
+// the rows after the run make it, as `GapScan::classify` reads a C-family
+// `/* … */` before a `\` through `only_comments_before`.
 fn classify_python_run<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -298,16 +305,12 @@ fn classify_python_run<'a>(
         // The comment's `\` is its text, so the run starts a line of
         // its own.
         Some(_) if in_comment => forward_python_run(node, code, first, ancestors),
-        // The line holds the string, its parentheses and whatever the run
-        // joins — a `)`, a comment, a fragment, an empty row — and no
-        // code: a token after the string on its line makes it a value,
-        // not bare. So the run is comment rows, where `GapScan::classify`
-        // maps only a Blank forward reading to Comment: there the joined
-        // row can hold code, and here it cannot.
-        Some(last) if python_backslash_after_bare_string(node, code, last, ancestors) => {
-            BareRow::Comment
-        }
-        Some(_) => BareRow::Code,
+        Some(last) => match python_backslash_after_bare_string(node, code, last, ancestors) {
+            Some(line) if !python_code_before_string(node, code, &line, ancestors) => {
+                python_bare_string_run(node, code, first, ancestors)
+            }
+            _ => BareRow::Code,
+        },
         None => forward_python_run(node, code, first, ancestors),
     }
 }
@@ -330,47 +333,205 @@ fn forward_python_run<'a>(
     }
 }
 
-// Whether the `\` at byte `last`, the non-bare `line_continuation` the
-// run headed by `node` continues, ends a bare string statement's row —
-// a row of comment rows (#415) that the run then extends. The token
+// What a run continuing a bare string statement's line, with no code
+// before it, is: what the token at `first` makes that line. A comment
+// leaves it the string's; a `;` starts another statement on it, code; an
+// empty row leaves it as it is, the Blank reading `GapScan::classify`
+// maps to Comment too. A string there concatenates and takes the `\`
+// with it (no node); anything else is a SyntaxError — except the
+// string's own `)` (#1610), which no C-family line has: it closes the
+// string, and the line is what follows it.
+fn python_bare_string_run<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    first: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> BareRow {
+    match forward_python_run(node, code, first, ancestors) {
+        BareRow::Blank => BareRow::Comment,
+        BareRow::Code => python_past_string_parentheses(node, code, first, ancestors),
+        BareRow::Comment => BareRow::Comment,
+    }
+}
+
+// What the line a run headed by `node` joins at `first` holds past the
+// bare string's closing parentheses there, when the token at `first` is
+// one: a comment, or where they end the row, the string's own line;
+// code otherwise, the token at `first` included when it is no such
+// parenthesis. Each parenthesis is a sibling of the run or of one of its
+// ancestors — the run sits inside the innermost it closes — so the walk
+// steps up a level where one runs out, at most the 200 CPython nests.
+fn python_past_string_parentheses<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    first: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> BareRow {
+    let mut after = first;
+    let mut level = Some((*node, ancestors));
+    while let Some((at, chain)) = level {
+        let tokens = chain
+            .siblings_after(&at)
+            .filter(|sibling| sibling.kind_id() != Python::LineContinuation);
+        for sibling in tokens {
+            let closes = sibling.kind_id() == Python::RPAREN
+                && sibling.start_byte() == after
+                && python_is_bare_string_parenthesis(&sibling, chain);
+            if !closes {
+                return python_token_row(&sibling);
+            }
+            after = past_line_padding(code, sibling.end_byte());
+            if at_row_end(code, after) {
+                return BareRow::Comment;
+            }
+        }
+        level = chain.iter(&at).next();
+    }
+    BareRow::Code
+}
+
+// What a line whose next token is `token` is: a comment where `token` is
+// a `#` comment, which runs to the row's end, code otherwise.
+fn python_token_row(token: &Node) -> BareRow {
+    if PYTHON_COMMENTS.lists(token.as_tree_sitter()) {
+        BareRow::Comment
+    } else {
+        BareRow::Code
+    }
+}
+
+// A `\` ending a bare string statement's row, as
+// `python_backslash_after_bare_string` finds it: `holder` is the sibling
+// before the run whose last token the `\` follows, and `deepest`, where
+// the statement lies below the holder, the deepest node on the descent
+// to it that has siblings before it, with its parent — the level whose
+// tokens are nearest the statement.
+struct BareStringBackslash<'a> {
+    holder: Node<'a>,
+    deepest: Option<(Node<'a>, Node<'a>)>,
+}
+
+// The `\` at byte `last`, the non-bare `line_continuation` the run
+// headed by `node` continues, when it ends a bare string statement's row
+// — a row of comment rows (#415) that the run then extends. The token
 // before the `\` is the last of the sibling before the run: the string
-// itself when the `\` sits inside the parentheses of a parenthesised bare
-// string (`("""doc""" \` + `\` + `)`, #1610) or a concatenation's
-// fragment; otherwise the statement, or a `def` or `if` whose body ends
-// with it, which the descent along last children reaches, as it cannot
-// through a chain the walk has not built.
+// itself, a concatenation's fragment or an inner parenthesis when the
+// `\` sits inside the parentheses of a parenthesised bare string
+// (`("""doc""" \` + `\` + `)`, `(("""doc""") \`, #1610); otherwise the
+// statement, or a `def` or `if` whose body ends with it, which the
+// descent along last children reaches, as it cannot through a chain the
+// walk has not built.
 fn python_backslash_after_bare_string<'a>(
     node: &Node<'a>,
     code: &[u8],
     last: usize,
     ancestors: Ancestors<'a, '_>,
-) -> bool {
-    let Some(holder) = ancestors
+) -> Option<BareStringBackslash<'a>> {
+    let holder = ancestors
         .siblings_before(node)
         .find(|sibling| sibling.kind_id() != Python::LineContinuation as u16)
-        .filter(|holder| past_horizontal_space(code, holder.end_byte()) == last)
-    else {
-        return false;
+        .filter(|holder| past_horizontal_space(code, holder.end_byte()) == last)?;
+    // The holder shares the run's parent, so the run's chain is its own.
+    let inside = match holder.kind_id().into() {
+        Python::String | Python::ConcatenatedString => python_is_bare_string(&holder, ancestors),
+        Python::ParenthesizedExpression => python_is_bare_string_parenthesis(&holder, ancestors),
+        _ => false,
     };
-    if matches!(
-        holder.kind_id().into(),
-        Python::String | Python::ConcatenatedString
-    ) {
-        return python_is_bare_string(&holder, ancestors);
+    if inside {
+        return Some(BareStringBackslash {
+            holder,
+            deepest: None,
+        });
     }
-    let mut node = Some(holder);
-    while let Some(current) = node
-        && current.end_byte() == holder.end_byte()
-    {
+    let mut deepest = None;
+    let mut current = holder;
+    while current.end_byte() == holder.end_byte() {
         if python_is_bare_string_statement(&current) {
-            return true;
+            return Some(BareStringBackslash { holder, deepest });
         }
-        node = current
+        let Some(child) = current
             .child_count()
             .checked_sub(1)
-            .and_then(|index| current.child(index));
+            .and_then(|index| current.child(index))
+        else {
+            break;
+        };
+        if current.child_count() > 1 {
+            deepest = Some((current, child));
+        }
+        current = child;
     }
-    false
+    None
+}
+
+// Whether code precedes the bare string statement whose `\` `line`
+// records on its logical line, so the run is that code's — what
+// `GapScan::only_comments_before` asks of the row before a C-family bare
+// row. The nearest token before the statement decides, at the deepest
+// level that has one: the descent's, then the holder's (its siblings
+// before, continuing the run's), then each of the run's ancestors' among
+// its own siblings; a level with no token before its node leaves the
+// question to the one above, and the root answers no. Each level is a
+// seek among its siblings, so a run head costs its depth at most, and
+// one on a line that holds a token stops at the first level.
+fn python_code_before_string<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    line: &BareStringBackslash<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    if let Some((parent, child)) = line.deepest
+        && let Some(answer) = python_code_among(code, parent.children_before(&child), &child, None)
+    {
+        return answer;
+    }
+    let before_holder = ancestors
+        .siblings_before(node)
+        .skip_while(|sibling| sibling.id() != line.holder.id())
+        .skip(1);
+    if let Some(answer) = python_code_among(code, before_holder, &line.holder, Some(ancestors)) {
+        return answer;
+    }
+    ancestors
+        .iter(node)
+        .find_map(|(ancestor, chain)| {
+            python_code_among(
+                code,
+                chain.siblings_before(&ancestor),
+                &ancestor,
+                Some(chain),
+            )
+        })
+        .unwrap_or(false)
+}
+
+// Whether the nearest of `siblings` (nearest first) that is neither a
+// `\` splice nor the bare string's own parenthesis ends on `next`'s
+// logical line — only padding and splices between the two, a splice the
+// scanner eats before a string start (#1825) read like any other — and
+// so is code before the string; `None` when the level has no such
+// token. A `#` comment there ends at its newline, before `next`'s line,
+// and answers no as `only_comments_before` does for one that does not
+// cover the row's start. `parens` is the siblings' chain at a level
+// where one of them can be the string's parenthesis — the run sits
+// inside it, so the holder's level and above — and `None` on the descent
+// below the holder, which stops at the statement, above its parentheses.
+fn python_code_among<'a>(
+    code: &[u8],
+    siblings: impl Iterator<Item = Node<'a>>,
+    next: &Node<'a>,
+    parens: Option<Ancestors<'a, '_>>,
+) -> Option<bool> {
+    let mut tokens = siblings.skip_while(|sibling| match sibling.kind_id().into() {
+        Python::LineContinuation => true,
+        Python::LPAREN | Python::RPAREN => {
+            parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain))
+        }
+        _ => false,
+    });
+    tokens
+        .next()
+        .map(|token| past_line_padding(code, token.end_byte()) == next.start_byte())
 }
 
 // Whether `statement` is an `expression_statement` whose sole child is a
