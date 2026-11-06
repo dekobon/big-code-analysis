@@ -58,8 +58,9 @@ multiple-versions = "warn"
 wildcards = "deny"
 # `fuzz` takes `big-code-analysis` by path with no version, deliberately (see
 # `fuzz/Cargo.toml`), and cargo-deny reads that as a wildcard. This exempts a
-# path dependency only in a `publish = false` crate, plus path dev-deps, which
-# crates.io strips; a published crate's path dependency still needs a version.
+# path or git dependency only in a `publish = false` crate, plus path or git
+# dev-deps, which crates.io strips; a published crate's still needs a version.
+# A git source must also pass `[sources]` below, which denies unknown ones.
 allow-wildcard-paths = true
 # No `deny` entry for `h2 <0.4.16` (RUSTSEC-2026-0258): cargo-deny's graph
 # builder drops that crate before any check runs (`-L debug` logs
