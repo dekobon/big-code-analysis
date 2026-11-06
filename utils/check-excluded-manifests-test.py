@@ -551,7 +551,14 @@ class MainTest(unittest.TestCase):
     text were previously unexecuted by any test.
     """
 
-    def _repo(self, root_manifest: str, crates: dict[str, str]) -> pathlib.Path:
+    def _repo(
+        self,
+        root_manifest: str,
+        crates: dict[str, str],
+        tracked: set[str] | None = None,
+    ) -> pathlib.Path:
+        """A synthetic root; `tracked` is what git would list as tracked
+        lockfiles, by default one per crate, since the root is no repo."""
         root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         (root / "Cargo.toml").write_text(root_manifest, encoding="utf-8")
         for name, body in crates.items():
@@ -560,6 +567,11 @@ class MainTest(unittest.TestCase):
         self.enterContext(mock.patch.object(GATE, "REPO_ROOT", root))
         self.enterContext(
             mock.patch.object(GATE, "ROOT_MANIFEST", root / "Cargo.toml")
+        )
+        if tracked is None:
+            tracked = {f"{name}/Cargo.lock" for name in crates}
+        self.enterContext(
+            mock.patch.object(GATE, "tracked_lockfiles", lambda _root: tracked)
         )
         return root
 
@@ -577,6 +589,21 @@ class MainTest(unittest.TestCase):
         )
         code, err = self._run()
         self.assertEqual(code, 0, err)
+
+    def test_an_excluded_crate_without_a_tracked_lockfile_is_reported(self) -> None:
+        # The deny script counts the tracked lockfiles, so a new excluded
+        # crate with none leaves its count unchanged and its graph
+        # unaudited; only this gate starts from `exclude` (#1823).
+        self._repo(
+            '[workspace]\nexclude = ["a", "b"]\n',
+            {"a": excluded_crate(), "b": excluded_crate(name="b")},
+            tracked={"Cargo.lock", "a/Cargo.lock"},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("without a tracked Cargo.lock:\n  b/Cargo.lock\n", err)
+        self.assertNotIn("a/Cargo.lock", err)
+        self.assertIn("EXPECTED_LOCKFILES", err)
 
     def test_an_excluded_crate_without_a_lints_table_is_reported(self) -> None:
         self._repo(
@@ -660,6 +687,22 @@ class MainTest(unittest.TestCase):
 
 
 class RealRepositoryTest(unittest.TestCase):
+    def test_every_excluded_crate_tracks_a_lockfile(self) -> None:
+        # Asked of the live tree rather than a scratch repository: an
+        # inherited `GIT_DIR` (a hook, `git rebase --exec`) overrides
+        # `git -C`, and only for the live tree is that the same repository.
+        crates = GATE.read_excluded_crates(
+            (REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        )
+        tracked = GATE.tracked_lockfiles(REPO_ROOT)
+        self.assertGreater(len(crates), 0)
+        self.assertIn("Cargo.lock", tracked)
+        self.assertEqual(GATE.untracked_lockfiles(crates, tracked), [])
+        self.assertEqual(
+            GATE.untracked_lockfiles(crates, tracked - {"fuzz/Cargo.lock"}),
+            ["fuzz"],
+        )
+
     def test_clean_tree_passes(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SCRIPT_SRC)],

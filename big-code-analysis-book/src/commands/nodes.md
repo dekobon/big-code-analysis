@@ -42,7 +42,9 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
 ## Reading `find` output {#find-output}
 
 `find` prints a `== <path> ==` banner for each file with a match, then
-one line per match in source order:
+one line per match in source order. The banner is printed even when
+`--line-start` / `--line-end` leave none of the file's matches to
+print:
 
 ```text
 == src/main.rs ==
@@ -51,8 +53,9 @@ one line per match in source order:
 ╰─ {call_expression:256} from (1, 21) to (1, 25) : h(2)
 ```
 
-Each line gives the node type and its `kind_id`, then the 1-based
-`(row, column)` where the node starts and ends. A node that fits on
+Each line gives the node type and its `kind_id`, then two 1-based
+`(row, column)` pairs: the node's first column, and the column just
+past its end. A node that fits on
 one row ends with its source text; one that spans several rows prints
 none. When one match sits inside another on the same row, the inner
 match's text is printed on its own line and the outer match shows `…`

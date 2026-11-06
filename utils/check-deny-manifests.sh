@@ -9,7 +9,9 @@
 # The repository tracks eight lockfiles: the root workspace's and one per
 # `[workspace].exclude` crate (`enums`, `fuzz`, the five `tree-sitter-*`),
 # each of which roots its own workspace and resolves its own graph. A
-# cargo-deny run from the root reads only the first. Until #1823 the other
+# cargo-deny run from the root reads only the first — and, without
+# `--workspace`, only the part of it the root *package* reaches, since the
+# root manifest is a package as well as the workspace. Until #1823 the other
 # seven were read by the Scorecard job alone, on `main`, after merge:
 # RUSTSEC-2026-0374 sat in `enums/Cargo.lock` that way and passed every
 # PR's `deny` job (fixed by #1822).
@@ -26,11 +28,13 @@ set -euo pipefail
 # reads the tree it was invoked from whatever the caller's cwd.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# The root lockfile plus the seven excluded crates'. A lockfile that
-# appears or disappears fails the gate until this number is changed by
-# hand, so a ninth excluded crate cannot enter the tree unaudited — the
-# reasoning `utils/check-excluded-manifests.py` applies to the manifests
-# themselves (#1151, #1228).
+# The root lockfile plus the seven excluded crates'. A tracked lockfile
+# that appears or disappears fails the gate until this number is changed by
+# hand, so a new graph is a decision about `deny.toml` rather than a silent
+# addition. The other direction — an excluded crate whose lockfile is not
+# tracked, which this listing cannot see — is
+# `utils/check-excluded-manifests.py`'s, which requires one per
+# `[workspace].exclude` entry.
 EXPECTED_LOCKFILES=8
 
 # cargo-deny 0.20 moved `--config` from the `check` subcommand to the top
@@ -65,7 +69,7 @@ minor=${minor%%.*}
 if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]]; then
 	die "cannot read a version from '$version_line'"
 fi
-if [ "$major" -eq "$MIN_DENY_MAJOR" ] && [ "$minor" -lt "$MIN_DENY_MINOR" ]; then
+if ((major < MIN_DENY_MAJOR || (major == MIN_DENY_MAJOR && minor < MIN_DENY_MINOR))); then
 	die "cargo-deny $version is older than $MIN_DENY_MAJOR.$MIN_DENY_MINOR," \
 		"which this script's '--config' placement needs; install CI's pin:" \
 		"cargo install --locked cargo-deny@0.20.2"
@@ -74,8 +78,9 @@ fi
 # The tracked set, not the filesystem: corpora, `target/` and scratch
 # checkouts carry lockfiles nobody ships. `**/` also matches the root,
 # and the glob pathspec keeps `NotCargo.lock` out, which `*Cargo.lock`
-# would not.
-if ! listing=$(git -C "$ROOT" ls-files -- ':(glob)**/Cargo.lock'); then
+# would not. `--deduplicate` lists a conflicted lockfile once, not once
+# per merge stage.
+if ! listing=$(git -C "$ROOT" ls-files --deduplicate -- ':(glob)**/Cargo.lock'); then
 	die "git ls-files failed in $ROOT; this gate reads the tracked lockfiles"
 fi
 locks=()
@@ -92,7 +97,8 @@ if [ "${#locks[@]}" -ne "$EXPECTED_LOCKFILES" ]; then
 		printf '  %s\n' ${locks[@]+"${locks[@]}"}
 		echo "An excluded crate was added or removed. Run this script with every"
 		echo "check against the new set, then change EXPECTED_LOCKFILES in"
-		echo "utils/check-deny-manifests.sh to match."
+		echo "utils/check-deny-manifests.sh and CRATE_DIRS in"
+		echo "utils/check-deny-manifests-test.py to match."
 	} >&2
 	exit 1
 fi
@@ -103,8 +109,13 @@ for lock in "${locks[@]}"; do
 	echo "==> cargo-deny check $*: $manifest"
 	# `--locked` audits the committed lockfile rather than a graph cargo
 	# re-resolved on the way, and refuses to rewrite a tracked lockfile
-	# when the script runs in a working tree.
+	# when the script runs in a working tree. `--workspace` roots the graph
+	# at every member: the root manifest is also the `big-code-analysis`
+	# package, and handed a member cargo-deny roots the graph at it alone,
+	# which left the CLI, web, py, bench and xtask closures (155 of 374
+	# crates) unread. On the seven single-package graphs it changes nothing.
 	if ! cargo-deny --locked \
+		--workspace \
 		--manifest-path "$ROOT/$manifest" \
 		--config "$ROOT/deny.toml" \
 		check "$@"; then

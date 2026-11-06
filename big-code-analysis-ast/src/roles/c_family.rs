@@ -374,9 +374,9 @@ pub(crate) use {
 // strings equals the row — exactly. A preprocessor conditional holding
 // an entry in any branch at any depth is a target too, through the
 // post-order memo in `lang_helpers::doxygen::conditional_declares`,
-// which reads the rows back as "entry without conditionals"
-// (`doxygen_entry`) and must never be asked of a conditional from
-// inside its own walk. The `ERROR` node — an entry when it holds one
+// which reads the rows back as "entry without conditionals" and so
+// asks them of no conditional: each path to them there tests for one
+// first, on its own. The `ERROR` node — an entry when it holds one
 // — is the sentinel no row may own, and stays the Checker's clause.
 // ---------------------------------------------------------------------
 
@@ -523,7 +523,7 @@ macro_rules! preproc_conditional_kind {
         /// beside them; read through `DoxygenRow::conditional_kind`.
         #[inline]
         #[must_use]
-        pub fn is_preproc_conditional_kind(kind: u16) -> bool {
+        pub(crate) fn is_preproc_conditional_kind(kind: u16) -> bool {
             $(kind == $crate::$lang::$kind as u16)||+
         }
     };

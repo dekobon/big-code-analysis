@@ -722,8 +722,12 @@ Dependabot or Scorecard or not at all; a RUSTSEC `unsound` /
 and no issue is filed. The fix is the same as for a red `deny` job:
 move the lockfile past the advisory, or add a documented `ignore` to
 `deny.toml`, which is keyed by advisory id and so covers all eight
-graphs. A ninth lockfile fails the script until its
-`EXPECTED_LOCKFILES` is raised.
+graphs. The root's graph is rooted at every workspace member
+(`--workspace`), not at the `big-code-analysis` package alone. A ninth
+tracked lockfile fails the script until its `EXPECTED_LOCKFILES` and
+the self-test's `CRATE_DIRS` are raised; an excluded crate that tracks
+no lockfile fails `utils/check-excluded-manifests.py` instead, since
+the script cannot see a graph with nothing to list.
 
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.

@@ -98,7 +98,10 @@ text gates, `is_switch_body_kind`, Java's `has_class_body`, PHP's
 `continues_else_clause`, and the like). cargo-mutants mutates `fn`
 items it can see in the source, and anything inside a macro is a
 token tree it never visits: the `owns [...]` / `pays [...]` membership
-lists of a `role_table!` invocation, and equally every gate a macro
+lists of a `role_table!` invocation and the `under [...]` /
+`not_under [...]` parent lists on them — so a gate `fn` moved onto a
+row as such a list leaves this selection, as the four #1794 moved
+did — and equally every gate a macro
 *emits* — the thirteen `else_if_parent_clause_gate!` /
 `else_if_prev_sibling_gate!` invocations, and the gates the
 `js_family`, `c_family` and `tcl_family` fragments expand to.

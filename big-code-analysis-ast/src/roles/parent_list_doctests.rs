@@ -1,4 +1,4 @@
-//! The owner parent-list shapes `role_table!` rejects (#1794), each a
+//! The parent-list shapes `role_table!` rejects (#1794), each a
 //! `compile_fail` doctest that differs from the control below in one
 //! respect only. Kept off the macro's own doc so they do not count
 //! against `roles/mod.rs`: this module exists only under `cfg(doctest)`,
@@ -18,7 +18,7 @@
 //!     }
 //!     Comparison {
 //!         owns [BinaryExpression(holds_payer), InstanceofExpression(text_gated_by always)]
-//!         pays [EQEQ]
+//!         pays [EQEQ under [BinaryExpression]]
 //!     }
 //! }
 //! # fn main() {}
@@ -92,7 +92,8 @@
 //! # fn main() {}
 //! ```
 //!
-//! And a list names at least one kind:
+//! And a list names at least one kind, an owner's or a payer's — an
+//! empty one would claim the kind and never admit it:
 //!
 //! ```compile_fail
 //! # #[macro_use] extern crate big_code_analysis_ast;
@@ -100,6 +101,16 @@
 //! role_table! {
 //!     lang: Java;
 //!     Exit { owns [YieldStatement(not_under [])] }
+//! }
+//! # fn main() {}
+//! ```
+//!
+//! ```compile_fail
+//! # #[macro_use] extern crate big_code_analysis_ast;
+//! # use big_code_analysis_ast::Java;
+//! role_table! {
+//!     lang: Java;
+//!     Comparison { owns [BinaryExpression] pays [EQEQ under []] }
 //! }
 //! # fn main() {}
 //! ```

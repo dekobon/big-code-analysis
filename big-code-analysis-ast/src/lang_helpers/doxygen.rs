@@ -528,11 +528,11 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// `roles/c_family.rs`) less the conditional owners, plus a parse error
 /// holding an entry. The conditional test comes *first*, so a
 /// conditional is no entry here whatever it holds and the row's
-/// `conditional_declares` gate is never reached through this fn —
-/// [`conditional_declares`]'s own post-order walk asks the entry question
-/// ([`non_conditional_entry`]) of a conditional's non-conditional
-/// children only and reads its memo for the rest, so the two defences are
-/// independent and either alone keeps the walk from re-entering itself.
+/// [`conditional_declares`] gate is never reached through this fn. Each
+/// path to the row makes that test on its own, and neither covers the
+/// other: this fn's, which the walk reaches through an error's sole
+/// child ([`no_entry_inside`]), and [`children_declare`]'s, which asks
+/// [`non_conditional_entry`] of a conditional's other children only.
 /// Code the grammar could not parse, often behind a macro Doxygen's
 /// preprocessor would expand, is given the benefit of the doubt, as
 /// before #1613, rather than dropping the block on a parse failure; an
@@ -841,56 +841,60 @@ mod tests {
         }
     }
 
-    /// `doxygen_entry` must test `preproc_conditional` *before* reading
-    /// the row: the row's conditional owners are gated by
+    /// Each path to the row tests `preproc_conditional` *before* reading
+    /// it: the row's conditional owners are gated by
     /// `conditional_declares`, so the other order would run that walk
-    /// from inside an entry question about a conditional. Two defences
-    /// keep the walk from re-entering itself — this order, and the
-    /// walk asking the entry question of non-conditional children only —
-    /// and when it had the first alone, reversing it cost `2^depth - 1`
-    /// reads on the uncached path (4,095 at this depth) against `depth`.
-    /// Pinned by count on the uncached path: asking the entry question
-    /// of the outermost conditional must read **nothing** — it is no
-    /// entry whatever it holds, and the reversed order reads the nest
-    /// once — and asking `conditional_declares` of it reads each level
-    /// once (#1699).
+    /// from inside a question about a conditional. Pinned by count on the
+    /// uncached path, one assertion per path. The entry question
+    /// (`doxygen_entry`) of the outermost conditional reads **nothing** —
+    /// it is no entry whatever it holds, and the reversed order reads the
+    /// nest once. `conditional_declares` of it reads each level once,
+    /// where `children_declare` asking the row first costs `2^depth - 1`
+    /// (4,095 at this depth) on the nest declaring nothing; on the nest
+    /// with an entry each re-entered walk answers `true` and ends the
+    /// level, so that order reads `depth` there and only the other nest
+    /// tells (#1699, #1795).
     #[cfg(feature = "c")]
     #[test]
     fn doxygen_entry_never_reenters_the_conditional_walk() {
         use crate::node::Tree;
         const DEPTH: usize = 12;
-        let source = format!(
-            "{}int x;\n{}",
-            "#ifdef A\n".repeat(DEPTH),
-            "#endif\n".repeat(DEPTH)
-        );
-        let tree = Tree::new::<crate::langs::CCode>(source.as_bytes());
-        let outermost = tree
-            .get_root()
-            .preorder()
-            .find(|node| preproc_conditional::<crate::langs::CCode>(node))
-            .expect("a nest");
-        // Both uncached contexts: a known chain, under which the walk
-        // hands each child a one-entry chain, and no chain at all (a
-        // `find` / `count` consumer), under which the walk hands the
-        // climbing context through unchanged.
-        for uncached in [Ancestors::known(&[]), Ancestors::unknown()] {
-            let before = conditionals_read::observed();
-            assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
-            assert_eq!(
-                conditionals_read::observed() - before,
-                0,
-                "an entry question reads no nest"
+        for (bottom, declares) in [("int x;\n", true), ("#include <x.h>\n", false)] {
+            let source = format!(
+                "{}{bottom}{}",
+                "#ifdef A\n".repeat(DEPTH),
+                "#endif\n".repeat(DEPTH)
             );
-            let before = conditionals_read::observed();
-            assert!(conditional_declares::<crate::langs::CCode>(
-                &outermost, uncached
-            ));
-            assert_eq!(
-                conditionals_read::observed() - before,
-                DEPTH,
-                "one walk, each level once"
-            );
+            let tree = Tree::new::<crate::langs::CCode>(source.as_bytes());
+            let outermost = tree
+                .get_root()
+                .preorder()
+                .find(|node| preproc_conditional::<crate::langs::CCode>(node))
+                .expect("a nest");
+            // Both uncached contexts: a known chain, under which the walk
+            // hands each child a one-entry chain, and no chain at all (a
+            // `find` / `count` consumer), under which the walk hands the
+            // climbing context through unchanged.
+            for uncached in [Ancestors::known(&[]), Ancestors::unknown()] {
+                let before = conditionals_read::observed();
+                assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
+                assert_eq!(
+                    conditionals_read::observed() - before,
+                    0,
+                    "{bottom}: an entry question reads no nest"
+                );
+                let before = conditionals_read::observed();
+                assert_eq!(
+                    conditional_declares::<crate::langs::CCode>(&outermost, uncached),
+                    declares,
+                    "{bottom}"
+                );
+                assert_eq!(
+                    conditionals_read::observed() - before,
+                    DEPTH,
+                    "{bottom}: one walk, each level once"
+                );
+            }
         }
     }
 

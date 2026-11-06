@@ -320,7 +320,7 @@ role_table! {
     // with the control keywords. The `static` of `import static` sits
     // under the `import_declaration`, a directive that qualifies no
     // declaration; Java's row reads the same parent, and the reasoning
-    // (#1600) is on its `not_in_a_directive`.
+    // (#1600) is in the comment above it.
     Modifier {
         owns [
             Public, Private, Protected, Static(not_under [ImportDeclaration]), Abstract, Final,

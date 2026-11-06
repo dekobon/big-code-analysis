@@ -41,24 +41,6 @@ fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
     java_anonymous_class_body(node).is_some()
 }
 
-/// Whether a `static` qualifies a declaration rather than a directive:
-/// the `static` of `import static` and `requires static` bills nothing,
-/// because its own keyword — `import`, `requires` — bills nothing here.
-/// Java and Groovy bill no directive keyword at all (`package`,
-/// `import`, `module`, `requires`, `exports`, `transitive`), measured
-/// on a fixture of each; C# bills `using` and so `using static` in
-/// full. The two readings are each consistent and #1600 keeps both,
-/// recording C# as the outlier in the book's Halstead rules: dropping
-/// this guard would bill one directive word and no other.
-fn not_in_a_directive<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    !ancestors.parent(node).is_some_and(|p| {
-        matches!(
-            p.kind_id().into(),
-            Java::ImportDeclaration | Java::RequiresModifier
-        )
-    })
-}
-
 // `else if` is an `if_statement` whose previous sibling is the bare `else`
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
@@ -277,10 +259,18 @@ role_table! {
     // bills with the control keywords. `sealed` and `permits`
     // (`Permits2`; `Permits` is the clause) are contextual, and the
     // grammar parses each used as a name (`var sealed = 1`,
-    // `int permits`) as an `identifier`, so they need no gate.
+    // `int permits`) as an `identifier`, so they need no gate. The
+    // `static` of `import static` and `requires static` sits under an
+    // `import_declaration` / `requires_modifier`, a directive that
+    // qualifies no declaration. Java bills no directive word (`package`,
+    // `import`, `module`, `requires`, `exports`, `transitive`, measured
+    // on a fixture of each), so without the list this would be the one
+    // that bills; #1600 records C#, which bills `using static` in full,
+    // as the outlier in the book's Halstead rules.
     Modifier {
         owns [
-            Public, Private, Protected, Static(gated_by not_in_a_directive), Abstract, Final,
+            Public, Private, Protected, Static(not_under [ImportDeclaration, RequiresModifier]),
+            Abstract, Final,
             Native, Strictfp, Synchronized, Transient, Volatile, Sealed, NonDASHsealed, Permits2,
         ]
     }

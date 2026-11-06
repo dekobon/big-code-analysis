@@ -5,7 +5,7 @@ Invariants for the root manifest and for the crates listed in its
 ``[workspace] exclude`` array — the five vendored ``tree-sitter-*``
 grammars and the ``enums`` codegen helper.
 
-Three invariants are checked.
+Four invariants are checked.
 
 **Every excluded crate must root its own workspace.** ``exclude``
 denies workspace membership but does **not** terminate cargo's upward
@@ -38,6 +38,14 @@ as "fully linted" and is not (#1228). The five vendored
 *next* crate added to ``exclude`` forces the same decision instead of
 inheriting silence.
 
+**Every excluded crate must track its own ``Cargo.lock``.** Each roots
+its own workspace and resolves its own graph, and
+``utils/check-deny-manifests.sh`` audits exactly the tracked lockfiles
+(#1823). That script's count catches a tracked lockfile appearing or
+disappearing; a new excluded crate committed without one — or with one
+ignored — leaves the count unchanged and its graph unaudited, which
+only a check that starts from ``exclude`` can see.
+
 Manifests are parsed with ``tomllib`` rather than matched with regexes.
 The regex version of this gate silently skipped TOML literal strings
 (``tree-sitter-cpp = '0.23.4'`` read as no dependency at all), reported
@@ -52,6 +60,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 from typing import Any, Iterator
 
@@ -220,6 +229,22 @@ def missing_workspace_table(crates: list[str], root: pathlib.Path) -> list[str]:
     return offenders
 
 
+def tracked_lockfiles(root: pathlib.Path) -> set[str]:
+    """Return the repo-relative paths of every ``Cargo.lock`` git tracks."""
+    listing = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--deduplicate", "--", ":(glob)**/Cargo.lock"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return set(listing.splitlines())
+
+
+def untracked_lockfiles(crates: list[str], tracked: set[str]) -> list[str]:
+    """Return excluded crates whose ``Cargo.lock`` is not in ``tracked``."""
+    return [crate for crate in crates if f"{crate}/Cargo.lock" not in tracked]
+
+
 def workspace_lints(manifest: dict[str, Any]) -> dict[str, Any] | None:
     """Return a manifest's own ``[workspace.lints]``, or ``None``.
 
@@ -368,6 +393,19 @@ def _report_missing_workspace(offenders: list[str]) -> None:
     )
 
 
+def _report_untracked_lockfiles(offenders: list[str]) -> None:
+    print(
+        "error: excluded crates without a tracked Cargo.lock:\n"
+        + "\n".join(f"  {crate}/Cargo.lock" for crate in offenders)
+        + "\n\nEach excluded crate resolves its own graph, and the cargo-deny\n"
+        "jobs audit only the lockfiles git tracks (#1823), so this graph is\n"
+        "never audited. Generate and commit the lockfile, then raise\n"
+        "EXPECTED_LOCKFILES in utils/check-deny-manifests.sh and CRATE_DIRS\n"
+        "in utils/check-deny-manifests-test.py to match.",
+        file=sys.stderr,
+    )
+
+
 def _report_unlinted(offenders: list[tuple[str, str]]) -> None:
     print(
         "error: excluded crates not declaring their own lint set:\n"
@@ -403,6 +441,11 @@ def main() -> int:
     offenders = missing_workspace_table(crates, REPO_ROOT)
     if offenders:
         _report_missing_workspace(offenders)
+        return 1
+
+    untracked = untracked_lockfiles(crates, tracked_lockfiles(REPO_ROOT))
+    if untracked:
+        _report_untracked_lockfiles(untracked)
         return 1
 
     # Ordered after the workspace-table check so a crate with no manifest

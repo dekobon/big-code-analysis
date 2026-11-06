@@ -530,7 +530,8 @@ re-finalizes under any key without a re-walk).
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]`. These exist for macro plumbing
-  and may move at any time, including in patch bumps.
+  or for this workspace's own crates (the CLI, the bench) and may
+  move at any time, including in patch bumps.
 - **The `big-code-analysis-ast` crate.** Since #1376 the parse and
   classification layer lives in a separate published crate that this
   one pins at an exact `=X.Y.Z` version: the generated kind enums, the
@@ -968,7 +969,10 @@ consumes. Each terminal dump entry point also has a
 `dump_ops_with_color`, `dump_function_spans_with_color`) that takes a
 `ColorMode` (`Auto` / `Always` / `Never`); the bare forms retain their
 historical always-colored behavior. These were added in a minor bump
-(issue #605) and are part of the stable surface going forward.
+(issue #605) and are part of the stable surface going forward. The
+`bca find` renderer and its sink form (`dump_found_with_color`,
+`write_found`, #1416) are not: they are `#[doc(hidden)]`, re-exported
+for the CLI and the scaling bench.
 
 #### CSV columns
 

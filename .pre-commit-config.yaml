@@ -643,7 +643,7 @@ repos:
       - id: check-deny-manifests-test
         name: check-deny-manifests-test
         language: system
-        files: '^(utils/check-deny-manifests(\.sh|-test\.py)|\.github/workflows/(ci|deny-advisories)\.yml|([^/]+/)?Cargo\.lock)$'
+        files: '^(utils/check-deny-manifests(\.sh|-test\.py)|\.github/workflows/(ci|deny-advisories)\.yml|(.+/)?Cargo\.lock)$'
         entry: python3 -m unittest -q utils/check-deny-manifests-test.py
         pass_filenames: false
 

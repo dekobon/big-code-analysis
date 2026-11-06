@@ -192,7 +192,8 @@ deliberate double count is a visible choice at the consumer, never an
 accident on the row. The compound-operator case above is still the
 consumer's: the row owns `not in` and pays its token, and returning
 `Unknown` for the inner `not` *under* the compound is a parent guard
-in the classifier, which a row cannot spell.
+in the classifier, which a payer cannot spell: a payer takes
+`under [..]`, never `not_under` (#1794).
 
 ## 6. Narrow a dispatch set with a gate, never by deletion
 

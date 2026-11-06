@@ -1115,6 +1115,23 @@ mod tests {
         );
     }
 
+    /// The find renderer surfaces the sink's error at every write and
+    /// stops there, the elided line's pieces included: `f(g(1))` prints
+    /// `f(`, `…` and `)`, each coloured on its own, as the test above
+    /// shows.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_propagates_an_io_error_at_every_write() {
+        let ast = parse_as(crate::LANG::Cpp, b"int a = f(g(1));\n");
+        let matches = found(&ast, &["call_expression"]);
+        assert_eq!(matches.len(), 2);
+        // 20: two lines of several coloured pieces each; a floor under the
+        // real count, as in `every_write_position_propagates_an_io_error`.
+        assert_io_error_propagates_at_every_write(20, |sink| {
+            render_found(sink, &ast, &matches, ..)
+        });
+    }
+
     /// The shape #1416 measured: one `braced_word` per brace level, so
     /// the per-match dump printed `depth²` bytes. Every level but the
     /// innermost now prints its braces around one `…`.

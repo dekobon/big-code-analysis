@@ -140,8 +140,9 @@
 //! type-level cycle (`roles` → `checker` → `roles`) that is harmless
 //! exactly while the `Checker` methods it reaches read *other* rows, or
 //! read this one only through a projection that cannot re-enter the
-//! gate (`doxygen_entry` tests `preproc_conditional` first;
-//! `doxygen_entry_never_reenters_the_conditional_walk` pins it).
+//! gate (`doxygen_entry` and the walk's `children_declare` each test
+//! `preproc_conditional` first; `doxygen_entry_never_reenters_the_conditional_walk`
+//! pins both).
 //!
 //! # The row grammar
 //!
@@ -432,7 +433,11 @@
 //!   row holds it for its own reason (Java's `DocBodyResidual`) or
 //!   recorded under `excludes` on the owner's row (Groovy). A DSL `body`
 //!   attribute would be the declared form if a third grammar needs it
-//!   (#1701).
+//!   (#1701). A grammar-fact subset of a row's owners takes the same
+//!   form: `is_preproc_conditional_kind` (`roles/c_family.rs`) names the
+//!   C-family `DocTarget` row's conditional owners, held to their names
+//!   over every runtime id by `<dialect>_old_names_are_the_conditional_kinds`
+//!   (`roles/doc_tests/doxygen.rs`, #1795).
 //! - **A kind a row claims is not restated as classification inside the
 //!   consumer boundary** — the per-language dispatch files, their
 //!   dispatcher modules and macros (`utils/check-role-bypass.py`,
@@ -1391,7 +1396,7 @@ macro_rules! role_table {
     };
     // A payer's `under P` / `under [P, Q]` is carried as a bracketed
     // parent list, so the row body's payer pattern needs one shape.
-    (@owners $cont:tt [$($acc:tt)*] $k:ident under [ $($p:ident),* $(,)? ] $(, $($rest:tt)*)?) => {
+    (@owners $cont:tt [$($acc:tt)*] $k:ident under [ $($p:ident),+ $(,)? ] $(, $($rest:tt)*)?) => {
         $crate::role_table!(@owners $cont [$($acc)* $k under [$($p),*],] $($($rest)*)?);
     };
     (@owners $cont:tt [$($acc:tt)*] $k:ident under $p:ident $(, $($rest:tt)*)?) => {
@@ -1578,8 +1583,8 @@ macro_rules! role_table {
                 ancestors: Ancestors<'a, '_>,
             ) -> bool {
                 $( $crate::role_table!(
-                    @clause [$lang kind node code ancestors] $payer
-                        $(gated_by $payer_gate)? $(under [$($payer_parent),*])?
+                    @clause_gated [$lang kind node code ancestors] $payer
+                        [$($payer_gate)? $(under [$($payer_parent),*])?]
                 ); )*
                 $( $crate::role_table!(
                     @scan self_payer_done [$mode] [$lang kind node code ancestors] $owner
@@ -1921,11 +1926,13 @@ macro_rules! role_table {
     // In `owns`: the owner's clause, gated or not. The gate slot — `[]`,
     // `[g]`, `[g no_chain]`, `[under [..]]` or `[not_under [..]]` — is
     // handed to `@gate` whole, here and in every terminal below that
-    // emits a clause; an empty slot renders as `true`. Only
-    // `holds_payer` is read off the slot first, since it changes the
-    // clause rather than gating it.
+    // emits a clause; an empty slot renders as `true`. `holds_payer` is
+    // an `owns`-only mark, read off the slot first here since it changes
+    // the clause rather than gating it; any other terminal hands it to
+    // `@gate` as a gate name, so beside `callable`, `opens` or
+    // `pays_itself` it does not compile.
     (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@clause_payer $ctx $k $(gated_by $g $($nc)?)?);
+        $crate::role_table!(@clause_payer_gated $ctx $k [$($g $($nc)?)?]);
     };
     (@owner_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause_gated $ctx $k $g);
@@ -2073,33 +2080,13 @@ macro_rules! role_table {
         !$crate::role_table!(@gate [$l $kind $n $c $a] [under [$($p),*]])
     };
 
-    (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident) => {
-        if $kind == $l::$k as u16 {
-            return true;
-        }
-    };
-    (@clause $ctx:tt $k:ident gated_by $g:ident $($nc:ident)?) => {
-        $crate::role_table!(@clause_gated $ctx $k [$g $($nc)?]);
-    };
     (@clause_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $g:tt) => {
         if $kind == $l::$k as u16 {
             return $crate::role_table!(@gate [$l $kind $n $c $a] $g);
         }
     };
-    // A payer `under [P, Q]`: its parent is one of the listed kinds.
-    (@clause $ctx:tt $k:ident under [$($p:ident),*]) => {
-        $crate::role_table!(@clause_gated $ctx $k [under [$($p),*]]);
-    };
     // A `holds_payer` owner: its projection lands on one of the row's
     // payers, under its gate if it has one.
-    (@clause_payer [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident) => {
-        if $kind == $l::$k as u16 {
-            return project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
-        }
-    };
-    (@clause_payer $ctx:tt $k:ident gated_by $g:ident $($nc:ident)?) => {
-        $crate::role_table!(@clause_payer_gated $ctx $k [$g $($nc)?]);
-    };
     (@clause_payer_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $g:tt) => {
         if $kind == $l::$k as u16 {
             return $crate::role_table!(@gate [$l $kind $n $c $a] $g)

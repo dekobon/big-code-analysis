@@ -65,11 +65,22 @@ sys.exit(4 if manifest == os.environ.get("STUB_DENY_FAIL") else 0)
 """
 
 
-def _git_env() -> dict[str, str]:
-    """The caller's environment with its git configuration shut out."""
-    env = os.environ.copy()
+def _git_env(home: pathlib.Path) -> dict[str, str]:
+    """The caller's environment with its git state shut out.
+
+    Every inherited `GIT_*` variable goes, not just the configuration:
+    git exports `GIT_DIR` and `GIT_INDEX_FILE` to hooks and to `git rebase
+    --exec` children, and both override `git -C`. Inherited, they sent
+    this suite's `git init` and `git add` into the real repository — a
+    `core.bare = true` in its config and an index holding only the
+    fixtures. `HOME` and `XDG_CONFIG_HOME` point into the scratch tree so
+    a user-level ignore file cannot hide a fixture lockfile either.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["HOME"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
     return env
 
 
@@ -80,6 +91,9 @@ def _manifest_rel(crate_dir: str) -> str:
 class DenyManifestsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="bca-deny-manifests-"))
+        # Registered before anything else in `setUp` can fail, which
+        # `tearDown` would not be reached for.
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.repo = self.tmp / "repo"
         self.elsewhere = self.tmp / "elsewhere"
         self.elsewhere.mkdir()
@@ -90,7 +104,9 @@ class DenyManifestsTest(unittest.TestCase):
         stub = stub_dir / "cargo-deny"
         stub.write_text(STUB_SOURCE.format(python=sys.executable), encoding="utf-8")
         stub.chmod(0o755)
-        self.env = _git_env()
+        home = self.tmp / "home"
+        home.mkdir()
+        self.env = _git_env(home)
         self.env["PATH"] = f"{stub_dir}{os.pathsep}{self.env['PATH']}"
         self.env["STUB_DENY_LOG"] = str(self.log)
 
@@ -104,9 +120,6 @@ class DenyManifestsTest(unittest.TestCase):
             self._add_crate(crate_dir)
         self._git("init", "-q")
         self._git("add", "--", ".")
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     # --- helpers ---
 
@@ -173,6 +186,9 @@ class DenyManifestsTest(unittest.TestCase):
                 self.assertEqual(argv[config_at + 1], deny_toml)
                 self.assertLess(config_at, argv.index("check"))
                 self.assertIn("--locked", argv[: argv.index("check")])
+                # The root manifest is a package too; without this the
+                # root graph is the library's alone (#1823 review).
+                self.assertIn("--workspace", argv[: argv.index("check")])
 
     def test_checks_are_forwarded_not_hard_coded(self) -> None:
         # The weekly job asks for advisories alone. A script that ignored
@@ -249,6 +265,20 @@ class DenyManifestsTest(unittest.TestCase):
         self.assertIn("cargo-deny 0.19.4 is older than 0.20", result.stderr)
         self.assertEqual(self._invocations(), [])
 
+    def test_a_lower_major_than_the_floor_is_refused(self) -> None:
+        # The floor's major is 0 today, so no real version is below it;
+        # a copy with the floor raised to 1.20 asks the comparison what
+        # it will do the day it is, when a check that compared minors
+        # only within the floor's major would accept every 0.x.
+        text = self.script.read_text(encoding="utf-8")
+        raised = text.replace("MIN_DENY_MAJOR=0\n", "MIN_DENY_MAJOR=1\n")
+        self.assertNotEqual(raised, text, "the floor's major moved")
+        self.script.write_text(raised, encoding="utf-8")
+        result = self._run(*ALL_CHECKS, STUB_DENY_VERSION="0.25.0")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cargo-deny 0.25.0 is older than 1.20", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
     def test_cargo_deny_with_a_newer_major_is_accepted(self) -> None:
         # Pins the comparison itself: a check on the minor alone would
         # refuse 1.0.
@@ -291,23 +321,34 @@ class DenyManifestsTest(unittest.TestCase):
 class WorkflowWiringTest(unittest.TestCase):
     """Both `deny` jobs go through the script, on one cargo-deny."""
 
-    WORKFLOWS = ("ci.yml", "deny-advisories.yml")
+    # Each workflow and the checks its step must pass: the per-PR job all
+    # four, the weekly one the only check that ages.
+    WORKFLOWS = {
+        "ci.yml": set(ALL_CHECKS),
+        "deny-advisories.yml": {"advisories"},
+    }
     PIN = re.compile(r"cargo-deny@(\d+\.\d+\.\d+)")
     # A step's `run:` line, so a commented-out step or a mention in a
-    # comment does not count as a call.
-    RUN = re.compile(r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s", re.M)
+    # comment does not count as a call; the group is its arguments.
+    RUN = re.compile(
+        r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s+([^#\n]*)", re.M
+    )
 
     def test_both_workflows_call_the_script_on_one_pinned_cargo_deny(self) -> None:
         # A workflow left on `cargo-deny-action`, or one that stops calling
         # the script, audits the root lockfile alone again — the gap #1823
         # closed — and nothing else would notice.
         pins: dict[str, set[str]] = {}
-        for name in self.WORKFLOWS:
+        for name, checks in self.WORKFLOWS.items():
             text = (REPO_ROOT / ".github" / "workflows" / name).read_text(
                 encoding="utf-8"
             )
             with self.subTest(workflow=name):
-                self.assertRegex(text, self.RUN)
+                calls = self.RUN.findall(text)
+                self.assertEqual(len(calls), 1, calls)
+                # A step trimmed to `advisories` would still call the
+                # script and drop three checks from every PR.
+                self.assertEqual(set(calls[0].split()), checks)
                 self.assertNotIn("cargo-deny-action@", text)
                 pins[name] = set(self.PIN.findall(text))
                 self.assertEqual(len(pins[name]), 1, pins[name])
