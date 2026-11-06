@@ -1155,21 +1155,21 @@ fn rust_attribute_run_verdict<'a>(
     // so never a run start — and the run's verdict is the item's own by
     // construction rather than by a second spelling of it.
     let skipped = RustCode::should_skip_subtree(&item, code, ancestors).is_skipped();
-    // Everything strictly between `node` and `item` is a run member —
-    // an `AttributeItem` or a comment, which is what
-    // `rust_attributed_item` searched past — so the reach holds for the
-    // run's remaining members: they all decorate `item`, and go or stay
-    // with it (#1647). It holds for *their* descendants too, which the
-    // walk visits whenever the run is retained: an attribute's children
-    // are the `#`, `[`, `]` tokens and the `attribute` body, whose path,
-    // argument token tree and literal or macro-call value nest no
-    // `rust_prunable_item` and no run member, and a comment's are its
-    // delimiter, marker and `doc_comment` tokens, so `RETAIN` is their
-    // answer as well. A `value` that nests an item, such as a block, is
-    // the exception: rustc accepts one only for a proc macro to consume,
-    // and a `#[cfg(test)]` item inside it is kept. The reach holds for
-    // `item` too, since `skipped` is its own verdict, so the walk need
-    // not ask about it again (#1783).
+    // Everything strictly between `node` and `item` is a run member — an
+    // `AttributeItem` or a comment, which `rust_attributed_item` searched
+    // past — so the reach holds for the run's remaining members: they all
+    // decorate `item`, and go or stay with it (#1647). It holds for *their*
+    // descendants, which a retained run's walk visits, because an
+    // attribute's `#`, `[`, `]`, path, token-tree argument and literal or
+    // macro-call value nest no run member and no `rust_prunable_item`, and
+    // neither do a comment's delimiter, marker and `doc_comment` tokens. A
+    // `value` that nests an item, such as a block, is the exception: a
+    // `#[cfg(test)]` item inside it is kept. rustc rejects such a value
+    // (Reference `attributes.meta.literal-expr`), so it compiles only in
+    // code a false `cfg` strips or where an attribute macro consumes the
+    // attribute, never as a derive helper; neither occurs in this
+    // repository or serde (#1786). The reach holds for `item` too, since
+    // `skipped` is its own verdict, so the walk does not ask again (#1783).
     SubtreeSkip::of(skipped).covering_through_node(&item)
 }
 
