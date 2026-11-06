@@ -185,7 +185,7 @@ repos:
       - id: perturb-test
         name: perturb-test
         language: system
-        files: '^utils/perturb(-test)?\.py$'
+        files: '^utils/perturb(-test|_unittest_recorder)?\.py$'
         entry: python3 -B -m unittest -q utils/perturb-test.py
         pass_filenames: false
       - id: coverage-diff-test

@@ -2,15 +2,18 @@
 """Perturbation sweep driver (`.claude/rules/testing.md`, "Verify
 defensive refactor tests by reverting the production code").
 
-Applies one exact substitution to one production file, runs a cargo
-test command, records which tests fail, and restores the file from the
+Applies one exact substitution to one production file, runs a test
+command, records which tests fail, and restores the file from the
 in-memory copy in a `finally`. A perturbation that fails nothing is a
 finding; one whose anchor does not match is an error, never a silent
 no-op (lesson 94).
 
 manifest: {
   "cwd": <repo root>,
+  "runner": "cargo" (the default) | "unittest",
   "cargo": ["cargo", "test", "-p", ..., "--", <filters>...],
+     or, under any runner,
+  "command": [<argv>],
   "record": <results path under cwd; default perturb-results.json in
              the backup directory>,
   "cases": [{"name": ..., "file": <cwd-relative>, "old": ..., "new": ...,
@@ -21,12 +24,51 @@ manifest: {
 test that should discriminate this did". Without it `caught` means
 "some test failed", which a bench-harness probe tripping on a zero
 reading satisfies; a run with any `expect`-less case prints a note, and
-`failed` must be read for those.
+`failed` must be read for those. Names are spelled as each runner lists
+them: `cargo test -- --list` (a `#[should_panic]` test without the
+` - should panic` its progress line adds), and unittest's
+`module.Class.test`.
 
-The failure parser reads `cargo test` output only: the `test <name>
-... FAILED` lines and the `test result:` summary of each target. A
-`cargo nextest` argv prints neither, so every red run under it is
-`HARNESS-ERROR` — loud, but not a result.
+The cargo runner reads `cargo test` output only: each target's
+`failures:` list and `test result:` summary, which `-q` and `--format
+terse` print too. A `cargo nextest` argv prints neither, so every red
+run under it is `HARNESS-ERROR` — loud, but not a result. Under
+`--nocapture` a doctest's compile error is printed outside its captured
+section and reads as `BUILD-ERROR`.
+
+The unittest runner, for a Python subject such as the `utils/*-test.py`
+gates, takes `"command": ["python3", "-B", "-m", "unittest", ...]` (or
+`... -m unittest discover ...`). It:
+
+- parses the argv as unittest does, and refuses fail-fast in any
+  spelling (`-f`, `-vf`, `--failfast`, `--fail`), which hides every
+  guard after the first failure, and an interpreter option that ignores
+  the environment (`-E`, `-I`) or moves the bytecode cache (`-X
+  pycache_prefix`);
+- runs the suite once unperturbed and refuses one that is not green;
+- runs `-m perturb_unittest_recorder` in place of `-m unittest`: the same
+  `unittest.main`, which writes each outcome by `TestCase.id()` to a
+  file. That record is what is classified; the printed report is never
+  read, because a test can print anything — a ruled `FAIL:` header, a
+  nested unittest's report — and `-b` copies it into the report, where
+  no reading of the text can tell it from unittest's own. A failing
+  subtest counts against the test that holds it; an unexpected success
+  as a failure; a failing `setUpClass` / `setUpModule` against its class
+  or module id. An import or discovery failure, a run stopped early or
+  killed, one whose exit status is not unittest's own for its record,
+  or one that wrote no record, is `HARNESS-ERROR`, never `caught`: no
+  assertion caught it;
+- runs each test with no bytecode cache to read and writes none
+  (`PYTHONPYCACHEPREFIX` at an empty scratch directory, writes off), so
+  a `.pyc` left by a same-length mutant cannot be loaded for the next
+  one (#1562). Every run recompiles what it imports, the interpreter's
+  own start-up modules included: about 0.13 s per run against 0.05 s
+  with a warm cache, so a sweep costs roughly 0.15 s per case. That is
+  the price of the guarantee; `-B` alone is the cheap form #1562
+  rejects.
+
+Runs on Python 3.10 and later; the self-test skips what an older
+interpreter cannot show (unittest's 3.14 colour, 3.12's argparse).
 
 The refusals and classifications are the acceptance criteria of #1744
 and #1787, each one a failure the rules file has already paid for:
@@ -78,28 +120,47 @@ lints `utils/*.py` today (#1477); the self-test is the only gate.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
+import os
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 
 BUILD_ERROR_RE = re.compile(r"^error\[|could not compile", re.M)
-# A test name can hold spaces: a doctest's is `src/lib.rs - item (line 7)`
-# (#1831). Each pattern is anchored at both ends of its line, so the lazy
-# group cannot run past the line's own delimiter. The progress line is
-# the name: a `compile_fail` doctest's carries ` - compile fail`, which
-# its `----` header drops, so the headers are read only when no progress
-# line is (a `--format terse` run, say), never merged with them.
-FAILED_LINE_RE = re.compile(r"^test (.+?) \.\.\. FAILED$", re.M)
-FAILED_HEADER_RE = re.compile(r"^---- (.+?) stdout ----$", re.M)
-# A test's captured output runs from its `---- name stdout ----` header to
-# the next header or the `failures:` list after the last one. A doctest
-# that fails to compile prints its `error[E…]` there, which is a failing
-# test, not a build that never reached the tests.
-TEST_STDOUT_RE = re.compile(r"^---- .+? stdout ----$.*?(?=^---- |^failures:$|\Z)", re.M | re.S)
+# Each target's `failures:` list, which cargo ends with a blank line and
+# that target's `test result:`: the names cargo would accept back
+# (`--exact`, `--list`), one per indented line. The progress line is not
+# that: `#[should_panic]` and `compile_fail` tests add ` - should panic` /
+# ` - compile fail` there and nowhere else, and `-q` / `--format terse`
+# print no progress lines at all. A name can hold spaces: a doctest's is
+# `src/lib.rs - item (line 7)` (#1831).
+_FAILURES_LIST = r"^failures:\n((?: {4}\S[^\n]*\n)+)\ntest result: "
+FAILURES_LIST_RE = re.compile(_FAILURES_LIST, re.M)
+# A test's captured output: from its `---- name stdout ----` header to the
+# next such header, or to the `failures:` list after the last one. Both
+# ends are matched whole, header on one line and list up to its `test
+# result:`, because a test may print lines starting `---- `, a
+# `failures:` line, or `test x ... FAILED` itself. What a test printed is
+# not cargo's report: a doctest's own `error[E…]` is a failing test, not
+# a build that never reached the tests. A test that prints a whole target
+# report, list and `test result:` both, is cargo's shape exactly; no line
+# parser can tell the two apart.
+_HEADER = r"^---- [^\n]+ stdout ----$"
+TEST_STDOUT_RE = re.compile(rf"{_HEADER}.*?(?={_HEADER}|{_FAILURES_LIST}|\Z)", re.M | re.S)
 TEST_RESULT_RE = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed;", re.M)
+
+# The module a unittest sweep runs in place of `unittest` (see
+# `perturb_unittest_recorder.py`): unittest's own `main`, writing each
+# outcome by `TestCase.id()` to the file named in RECORD_ENV.
+UNITTEST_RECORDER = "perturb_unittest_recorder"
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+UNITTEST_RECORD_ENV = "PERTURB_UNITTEST_RECORD"
 
 CARGO_PROGRAMS = frozenset({"cargo", "cargo.exe"})
 # `t` is cargo's built-in alias for `test`.
@@ -258,8 +319,9 @@ def classify(returncode: int, output: str) -> tuple[str, set[str], str]:
     `HARNESS-ERROR` describe the harness: a disagreement between the
     parsed failure set and the exit status, or a run in which no test
     ran."""
-    failed = set(FAILED_LINE_RE.findall(output)) or set(FAILED_HEADER_RE.findall(output))
-    if BUILD_ERROR_RE.search(TEST_STDOUT_RE.sub("", output)):
+    report = TEST_STDOUT_RE.sub("", output)
+    failed = {name.strip() for block in FAILURES_LIST_RE.findall(report) for name in block.splitlines()}
+    if BUILD_ERROR_RE.search(report):
         return "BUILD-ERROR", failed, "the build failed"
     if (returncode != 0) != bool(failed):
         return "HARNESS-ERROR", failed, f"exit {returncode} disagrees with {len(failed)} parsed failure(s)"
@@ -271,9 +333,245 @@ def classify(returncode: int, output: str) -> tuple[str, set[str], str]:
     return ("caught" if failed else "UNCAUGHT"), failed, ""
 
 
-def run_tests(cwd: pathlib.Path, cargo: list[str]) -> tuple[int, str]:
-    r = subprocess.run(cargo, cwd=cwd, capture_output=True, text=True, errors="replace")
-    return r.returncode, r.stdout + r.stderr
+# Interpreter options that stop a run reading its environment (`-E`, `-I`)
+# or that point its bytecode cache elsewhere (`-X pycache_prefix`): each
+# undoes `unittest_env`'s isolation, so a mutant can run stale bytecode.
+PYTHON_ENV_FLAGS = frozenset("EI")
+
+
+def unittest_cli(discover: bool) -> argparse.ArgumentParser:
+    """unittest's own command line, as `python -m unittest [discover]`
+    parses it (`unittest/main.py`, `_getParentArgParser` and the main or
+    discovery parser on top): abbreviated long options (`--fail` for
+    `--failfast`), short-option clusters (`-vq`, `-kfoo`) and discovery's
+    three optional positionals between options are read as unittest
+    reads them. `--durations` is 3.12+; accepting it on an older host
+    only lets unittest refuse it, which the preflight reports."""
+    ap = argparse.ArgumentParser(add_help=False, allow_abbrev=True, exit_on_error=False)
+    ap.add_argument("-v", "--verbose", dest="verbosity", action="store_const", const=2)
+    ap.add_argument("-q", "--quiet", dest="verbosity", action="store_const", const=0)
+    ap.add_argument("--locals", action="store_true")
+    ap.add_argument("--durations", type=int)
+    ap.add_argument("-f", "--failfast", action="store_true")
+    ap.add_argument("-c", "--catch", action="store_true")
+    ap.add_argument("-b", "--buffer", action="store_true")
+    ap.add_argument("-k", action="append")
+    if discover:
+        ap.add_argument("-s", "--start-directory")
+        ap.add_argument("-p", "--pattern")
+        ap.add_argument("-t", "--top-level-directory")
+        for positional in ("start", "pattern_", "top"):
+            ap.add_argument(positional, nargs="?")
+    else:
+        ap.add_argument("tests", nargs="*")
+    return ap
+
+
+def python_argv_problem(interpreter: list[str]) -> str | None:
+    """Why the interpreter options before `-m` defeat the bytecode
+    isolation, or None."""
+    for at, tok in enumerate(interpreter):
+        if tok.startswith("--") or not tok.startswith("-"):
+            continue
+        # `-X` and `-W` take a value, attached or as the next token.
+        flags = tok[1:]
+        for i, letter in enumerate(flags):
+            if letter in PYTHON_ENV_FLAGS:
+                return f"`-{letter}` ignores the environment, and with it the private bytecode cache"
+            if letter in "XW":
+                value = flags[i + 1 :] or (interpreter[at + 1] if at + 1 < len(interpreter) else "")
+                if letter == "X" and value.startswith("pycache_prefix"):
+                    return "`-X pycache_prefix` overrides the private bytecode cache"
+                break
+    return None
+
+
+def unittest_argv_problem(command: list[str]) -> str | None:
+    """Why `command` cannot be a unittest sweep, or None.
+
+    It must run `python -m unittest`, which the runner swaps for its
+    recorder; must not stop at the first failure; and the interpreter must
+    read the environment `unittest_env` builds, which is how the recorder
+    is found and where its record goes."""
+    try:
+        at = command.index("-m")
+    except ValueError:
+        return "no `-m unittest`: the runner runs unittest under its recorder"
+    if command[at + 1 : at + 2] != ["unittest"]:
+        return "no `-m unittest`: the runner runs unittest under its recorder"
+    if (problem := python_argv_problem(command[1:at])) is not None:
+        return problem
+    args = command[at + 2 :]
+    discover = args[:1] == ["discover"]
+    # Before 3.12 `exit_on_error=False` does not cover unrecognized
+    # arguments, which still print usage and exit.
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            parsed = unittest_cli(discover).parse_args(args[1:] if discover else args)
+    except argparse.ArgumentError as error:
+        return f"unittest would reject the argv: {error}"
+    except SystemExit:
+        return f"unittest would reject the argv: {err.getvalue().strip().splitlines()[-1]}"
+    if parsed.failfast:
+        return "fail-fast stops at the first failure, so later guards read as dead"
+    return None
+
+
+# The record `perturb_unittest_recorder.py` writes, field by type.
+UNITTEST_RECORD_SHAPE = {"tests_run": int, "stopped": bool, "failed": list, "unexpected": list, "loader": list, "fixtures": list}
+
+
+def read_unittest_record(path: pathlib.Path) -> dict | str | None:
+    """The record at `path`: None when there is none, or why what is
+    there is not one. A run killed mid-write leaves a truncated file, and
+    a module shadowing the recorder (a subject's own
+    `perturb_unittest_recorder.py`, which `-m` finds on the cwd first)
+    could write anything to the path the environment names."""
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
+        return f"the record is not JSON ({err}): the run was killed mid-write, or something else wrote it"
+    if not isinstance(record, dict) or any(
+        not isinstance(record.get(key), kind) for key, kind in UNITTEST_RECORD_SHAPE.items()
+    ):
+        return f"the record has an unexpected shape ({sorted(record) if isinstance(record, dict) else type(record).__name__}): something else wrote it"
+    return record
+
+
+def classify_unittest(returncode: int, record: dict | str | None) -> tuple[str, set[str], str]:
+    """`classify` for a unittest run, given the outcome its recorder wrote
+    (`perturb_unittest_recorder.py`), None when it wrote none, or
+    `read_unittest_record`'s reason it could not be read. A failing
+    subtest counts against the test that holds it, so `failed` is a set
+    of test ids, `module.Class.test`; an unexpected success counts as a
+    failure, since unittest exits 1 on one."""
+    if record is None:
+        return "HARNESS-ERROR", set(), "no outcome recorded: the loader raised, or the run ended before its tests finished; no assertion caught it"
+    if isinstance(record, str):
+        return "HARNESS-ERROR", set(), record
+    failed = set(record["failed"]) | set(record["unexpected"]) | set(record["fixtures"])
+    if returncode < 0:
+        return "HARNESS-ERROR", failed, f"the run was killed by signal {-returncode}: its failures are a partial set"
+    if record["stopped"]:
+        return "HARNESS-ERROR", failed, "the run was stopped early (an interrupt, or fail-fast): its failures are a partial set"
+    if record["loader"]:
+        return "HARNESS-ERROR", failed, f"import or discovery failed ({', '.join(record['loader'])}): no assertion caught it"
+    if record["tests_run"] == 0:
+        if record["fixtures"]:
+            return "HARNESS-ERROR", failed, "a class or module fixture failed before any test ran"
+        return "HARNESS-ERROR", failed, "0 tests ran: the selection matched nothing"
+    # unittest exits 1 with a failure and 0 without; any other status is
+    # the process ending some other way after the record was written (an
+    # atexit hook or a thread calling os._exit), which is not a result.
+    if returncode != (1 if failed else 0):
+        return "HARNESS-ERROR", failed, f"exit {returncode} where unittest exits {1 if failed else 0} with {len(failed)} recorded failure(s)"
+    return ("caught" if failed else "UNCAUGHT"), failed, ""
+
+
+@dataclass(frozen=True)
+class Runner:
+    """What a sweep needs from one test runner."""
+
+    #: Why an argv cannot be swept, or None.
+    argv_problem: Callable[[list[str]], str | None]
+    #: The refusal message's preamble, before the argv problem.
+    refusal: str
+    #: An extra refusal line saying what to do, or "".
+    refusal_hint: str
+    #: Whether to run the suite once unperturbed and refuse a red one.
+    preflight: bool
+    #: Runs the manifest's argv in `cwd`, with a private scratch
+    #: directory, and returns (verdict, failed tests, harness detail, rc).
+    run: Callable[[pathlib.Path, list[str], pathlib.Path], tuple[str, set[str], str, int]]
+
+
+def run_cargo(cwd: pathlib.Path, argv: list[str], _scratch: pathlib.Path) -> tuple[str, set[str], str, int]:
+    r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace")
+    return (*classify(r.returncode, r.stdout + r.stderr), r.returncode)
+
+
+def unittest_env(scratch: pathlib.Path, record: pathlib.Path) -> dict[str, str]:
+    """A unittest run's environment: the recorder importable and told
+    where to write, no existing bytecode read and none written, no
+    colour. `-B` alone stops writes but still loads a `.pyc` whose
+    recorded size and mtime match, which a same-length edit restored
+    within the second leaves behind (#1562); an empty
+    `PYTHONPYCACHEPREFIX` hides every `.pyc`, the standard library's
+    included, so each run recompiles what it imports: about 0.13 s per
+    run against 0.05 s warm, the interpreter's own start-up being most
+    of it. The output is not read, so colour only keeps logs plain."""
+    path = os.environ.get("PYTHONPATH")
+    return {
+        **os.environ,
+        "PYTHONPATH": str(UTILS_DIR) + (os.pathsep + path if path else ""),
+        UNITTEST_RECORD_ENV: str(record),
+        "PYTHONPYCACHEPREFIX": str(scratch / "pycache"),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHON_COLORS": "0",
+        "NO_COLOR": "1",
+    }
+
+
+def run_unittest(cwd: pathlib.Path, argv: list[str], scratch: pathlib.Path) -> tuple[str, set[str], str, int]:
+    """Runs the manifest's `-m unittest` argv as `-m` the recorder, which
+    is unittest's own `main` writing its outcome to a file, and classifies
+    that record. The printed report is never read: a test can print
+    anything, `-b` copies it into the report, and no reading of the text
+    tells it from unittest's own."""
+    # The first `-m` is the one `unittest_argv_problem` accepted; a `-m`
+    # earlier than it would have been refused as an interpreter option.
+    at = argv.index("-m")
+    recorded = [*argv[: at + 1], UNITTEST_RECORDER, *argv[at + 2 :]]
+    # Its own directory, not the scratch one: that holds the sweep's
+    # backups, and an interrupted run's record should not sit among them.
+    with tempfile.TemporaryDirectory(prefix="bca-perturb-unittest.") as run_dir:
+        record_path = pathlib.Path(run_dir) / "record.json"
+        env = unittest_env(scratch, record_path)
+        r = subprocess.run(recorded, cwd=cwd, capture_output=True, text=True, errors="replace", env=env)
+        record = read_unittest_record(record_path)
+    return (*classify_unittest(r.returncode, record), r.returncode)
+
+
+RUNNERS = {
+    "cargo": Runner(
+        argv_problem=cargo_argv_problem,
+        refusal="the cargo argv can run several test targets without --no-fail-fast",
+        refusal_hint=(
+            "a failing target stops the run and every later target's guards read as dead; "
+            "add --no-fail-fast to the manifest's argv — perturb.py never adds it on your behalf"
+        ),
+        # Cargo sweeps have always skipped this run: a red suite already
+        # shows as every case failing the same tests.
+        preflight=False,
+        run=run_cargo,
+    ),
+    "unittest": Runner(
+        argv_problem=unittest_argv_problem,
+        refusal="the unittest argv",
+        refusal_hint="",
+        # A suite that is red before any perturbation would read every
+        # case as `caught`.
+        preflight=True,
+        run=run_unittest,
+    ),
+}
+
+
+def manifest_command(manifest: dict) -> tuple[str, list[str]] | str:
+    """The runner and argv a manifest names, or why it names none
+    unambiguously. `cargo` is the original key and implies the cargo
+    runner; `command` takes any runner."""
+    runner = manifest.get("runner", "cargo")
+    if runner not in RUNNERS:
+        return f"unknown runner {runner!r}; expected one of {sorted(RUNNERS)}"
+    if ("cargo" in manifest) == ("command" in manifest):
+        return "name the argv under exactly one of `cargo` and `command`"
+    if "cargo" in manifest and runner != "cargo":
+        return f"the `cargo` key is the cargo runner's; use `command` for {runner!r}"
+    return runner, list(manifest.get("command", manifest.get("cargo")))
 
 
 def anchor_problem(original: bytes, old: bytes, new: bytes) -> str | None:
@@ -289,15 +587,17 @@ def sweep(manifest: dict, backup_dir: pathlib.Path) -> tuple[list[dict], int]:
     """Runs every case; returns the results and the exit status (1 when
     any case is not a clean `caught`, or a harness problem occurred)."""
     cwd = pathlib.Path(manifest["cwd"]).resolve()
-    cargo = list(manifest["cargo"])
-    argv_problem = cargo_argv_problem(cargo)
+    chosen = manifest_command(manifest)
+    if isinstance(chosen, str):
+        print(f"refusing: {chosen}", file=sys.stderr)
+        return [], 2
+    name, argv = chosen
+    runner = RUNNERS[name]
+    argv_problem = runner.argv_problem(argv)
     if argv_problem is not None:
-        print(f"refusing: the cargo argv can run several test targets without --no-fail-fast: {argv_problem}", file=sys.stderr)
-        print(
-            "a failing target stops the run and every later target's guards read as dead; "
-            "add --no-fail-fast to the manifest's argv — perturb.py never adds it on your behalf",
-            file=sys.stderr,
-        )
+        print(f"refusing: {runner.refusal}: {argv_problem}", file=sys.stderr)
+        if runner.refusal_hint:
+            print(runner.refusal_hint, file=sys.stderr)
         return [], 2
     cases = manifest["cases"]
     files = sorted({case["file"] for case in cases})
@@ -311,6 +611,11 @@ def sweep(manifest: dict, backup_dir: pathlib.Path) -> tuple[list[dict], int]:
             file=sys.stderr,
         )
         return [], 2
+    if runner.preflight:
+        verdict, failed, detail, _rc = runner.run(cwd, argv, backup_dir)
+        if verdict != "UNCAUGHT":
+            print(f"refusing: the unperturbed suite is not green ({verdict}: {detail or sorted(failed)})", file=sys.stderr)
+            return [], 2
     backups: dict[pathlib.Path, bytes] = {}
     results: list[dict] = []
     rc_all = 0
@@ -333,10 +638,9 @@ def sweep(manifest: dict, backup_dir: pathlib.Path) -> tuple[list[dict], int]:
                 continue
             try:
                 path.write_bytes(original.replace(old, new))
-                rc, output = run_tests(cwd, cargo)
+                verdict, failed, detail, rc = runner.run(cwd, argv, backup_dir)
             finally:
                 path.write_bytes(original)
-            verdict, failed, detail = classify(rc, output)
             expect = set(case.get("expect", []))
             if not expect:
                 no_expect += 1

@@ -200,7 +200,9 @@ corrected under #1539.
 (to the second) and size both match. A same-length edit such as `min` →
 `max`, restored within the same second, therefore runs stale bytecode on
 the next import. In #1562 that produced "isolated test fails, full run
-passes" results that described the cache, not the code. Delete the
+passes" results that described the cache, not the code. For a `unittest`
+subject, `utils/perturb.py`'s `"runner": "unittest"` handles this: every
+run reads no existing `.pyc` and writes none. By hand, delete the
 module's `__pycache__` before the sweep, then run every step with
 `python3 -B` (or `PYTHONDONTWRITEBYTECODE=1`). `-B` stops new writes, but
 a `.pyc` written before the sweep is still read.
