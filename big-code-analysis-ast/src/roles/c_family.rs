@@ -504,14 +504,13 @@ macro_rules! objc_doc_conditionals {
     };
 }
 
-// The conditional owners again, as kind lists: `lang_helpers::doxygen`
-// asks "is this a conditional" of a doc comment's parent and siblings
-// and of every child of a conditional, which `doc_target::lists_kind`
-// cannot answer, as the row lists the entries beside the conditionals.
-// A fragment with a second arm sharing one list would need a callback
-// the `role_tables.py` fragment reader cannot follow, so the lists are
-// repeated here and `roles/doc_tests/doxygen.rs` holds each dialect's to
-// the conditional names over every runtime id (#1795).
+// The conditional owners again, as kind lists: the `DocTarget` row lists
+// its entries beside them, so `doc_target::lists_kind` cannot tell a
+// conditional from an entry. A fragment with a second arm sharing one
+// list would need a callback the `role_tables.py` fragment reader cannot
+// follow, so the lists are repeated here and `roles/doc_tests/doxygen.rs`
+// holds each dialect's to the conditional names over every runtime id
+// (#1795).
 
 /// `is_preproc_conditional_kind` for a dialect, from its conditional ids.
 macro_rules! preproc_conditional_kind {
@@ -530,7 +529,7 @@ macro_rules! preproc_conditional_kind {
     };
 }
 
-/// The ids of `c_family_doc_conditionals!`, for the C and C++ grammars.
+/// The ids of `c_family_doc_conditionals!`, for the C, C++ and Mozcpp grammars.
 macro_rules! c_family_conditional_kinds {
     ($lang:ident) => {
         $crate::roles::c_family::preproc_conditional_kind!($lang [

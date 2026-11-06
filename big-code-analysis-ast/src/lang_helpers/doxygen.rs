@@ -765,11 +765,12 @@ mod tests {
     /// Every conditional of each nest answers as its children say — an
     /// entry, or a nested conditional that declares — asked outermost
     /// first (each nested answer folded in by the walk), innermost first
-    /// (each one the memo's) and unmemoised. The shapes that tell a fold
-    /// from an overwrite: an entry before and after a nested conditional
-    /// declaring nothing, and a declaring one before a child that is no
-    /// entry (#1795). The answers are in preorder, by hand: the `#elif`
-    /// branch nests in the `#if` and the `#else` in the `#elif`.
+    /// (each one the memo's) and unmemoised. The first shape, an entry
+    /// before a nested conditional declaring nothing, is the one that
+    /// tells a fold from an overwrite at both fold sites (#1795); the
+    /// others pin the remaining orders. The answers are in preorder, by
+    /// hand: the `#elif` branch nests in the `#if` and the `#else` in the
+    /// `#elif`.
     #[cfg(feature = "c")]
     #[test]
     fn conditional_declares_folds_in_every_child() {
