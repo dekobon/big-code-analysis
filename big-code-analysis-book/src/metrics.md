@@ -1713,9 +1713,8 @@ things:
   [NOM](#nom) counts. `average` divides the combined total by their
   sum.
 
-Read the extrema per space and the averages per callable. The two
-disagree in the languages whose lambdas open no space, the second list
-under [What the threshold gate measures](#nargs-gate). There a
+The two disagree in the languages whose lambdas open no space, the
+second list under [What the threshold gate measures](#nargs-gate). There a
 lambda's parameters add to the enclosing function's own
 `closure_args`, one member of the extrema, while NOM counts the lambda
 as one closure of the divisor. A function holding several such lambdas
