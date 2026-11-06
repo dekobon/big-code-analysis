@@ -26,8 +26,9 @@ for historical reference.
 
 ### Added
 
-- **A weekly `cargo-deny check advisories` run** against `main`'s
-  lockfile (`.github/workflows/deny-advisories.yml`, #1815). The
+- **A weekly `cargo-deny check advisories` run** against every
+  lockfile `main` tracks (`.github/workflows/deny-advisories.yml`,
+  #1815; all eight since #1823, under Fixed). The
   `deny` job in `ci.yml` runs on push and pull request only, so an
   advisory published between pushes was seen by Dependabot or the
   Scorecard job or not at all — and a RUSTSEC `unsound` or
@@ -283,6 +284,44 @@ for historical reference.
 
 ### Changed
 
+- **`bca find` prints a nested match's text once** (#1416). A match
+  inside a single-row match prints `…` in the outer match's line, and
+  its own text on a line of its own: `f(g(1))` lists `f(…)` and
+  `g(1)` where it listed `f(g(1))` and `g(1)`. A match with no match
+  nested in it prints byte-identically to before, colour included.
+  The renderer is reached through two new `#[doc(hidden)]`
+  re-exports, `dump_found_with_color` and `write_found`, which exist
+  for the CLI and the scaling bench and are outside the stability
+  contract (`STABILITY.md`).
+- **A `role_table!` owner may carry a parent list** (#1794).
+  `K(under [P, ..])` admits the owner only under one of the listed
+  parent kinds and `K(not_under [P, ..])` only under none of them,
+  read from the walk's ancestor chain. A list fills the owner's one
+  gate slot, so it excludes `gated_by`, `text_gated_by` and
+  `holds_payer`; it must name a kind, as a payer's `under [..]` now
+  must too; it sets `CHAIN_GATED`; and it names kinds it tests rather
+  than claims, so the three role baselines are unchanged.
+  `utils/role_tables.py` reads both directions. Five gate fns move onto
+  their rows: Python's `under_case_clause`, the TypeScript family's
+  `under_enum_body`, Groovy's `not_in_an_import`, and Java's
+  `not_a_class_literal` and `not_in_a_directive`. cargo-mutants does
+  not visit a macro token tree, so the four that were plain fns are no
+  longer mutation-tested; each moved list was instead flipped and
+  dropped by `utils/perturb.py` and failed a named test. No output
+  changes: a drift-oracle sweep over the six languages, 7,028 outputs
+  in 14 views, found 0 differing for the first four, and the fifth
+  expands to the parent test its fn spelled.
+- **NArgs documents where its aggregates disagree** (#1809). The
+  extrema fold every space's own count, the file unit and containers
+  included, while the averages divide by the functions and closures
+  `nom` counts. A lambda that opens no space adds its parameters to
+  the enclosing function's `closure_args` yet is one closure of the
+  divisor, so `closure_args_average` can fall below
+  `closure_args_min`, and file-level `function_args_min` is always 0.
+  The `Stats` docs, a new NArgs aggregates subsection in the book and
+  the Python bindings' metric page now say so. The definition is
+  unchanged, since changing it moves integration snapshots; #1827
+  tracks the same shape in `loc`.
 - **The agent-feedback recipe documents the OpenCode V2 install**
   (#1811). The
   book had only the legacy V1 example and a pointer to the shipped V2
@@ -1078,6 +1117,36 @@ for historical reference.
 
 ### Fixed
 
+- **`bca find` renders nested matches in linear time** (#1416). Each
+  match was rendered by its own `dump_node_with_color` call, which
+  chose its connector by climbing from the root with `Node::parent`:
+  `O(depth)` per match, 98% of the 397 ms that 4,000 nested Tcl braces
+  took. Each single-row match also printed its whole span, so a match
+  nested k deep had its bytes printed k times: 16 MB of output for an
+  8 KB file. A file's matches now render in one pass, and that input
+  takes 5.8 ms against `count`'s 4.9 ms and prints 243 KB. `make
+  bench-scaling` prices it with the `find/tcl-nested-braces` probe
+  beside a `count` control.
+- **The `deny` CI job and the weekly advisories run audit all eight
+  lockfiles** (#1823). Both ran cargo-deny from the repository root
+  and so read only the root `Cargo.lock`. The seven
+  `[workspace].exclude` crates (`enums`, `fuzz` and the five vendored
+  `tree-sitter-*` grammars) each resolve a graph of their own, which
+  only Scorecard read, on `main`, after merge: RUSTSEC-2026-0374 sat in
+  `enums/Cargo.lock` that way until #1822.
+  `utils/check-deny-manifests.sh` now runs cargo-deny once per tracked
+  `Cargo.lock` against the root `deny.toml`, with `--locked`, and roots
+  the root's graph at every workspace member (`--workspace`; the
+  library package alone left 155 of 374 crates unread). It fails when
+  the tracked count is not eight, and `check-excluded-manifests.py`
+  fails an excluded crate that tracks no lockfile, so no graph enters
+  unaudited. Both jobs install cargo-deny 0.20.2 through the SHA-pinned
+  `taiki-e/install-action`, and the script refuses an older one, since
+  0.20 moved `--config` to the top level. The new graphs needed three
+  narrow fixes: `enums` states the repository's MPL-2.0, `fuzz`'s
+  `libfuzzer-sys` takes a crate-scoped NCSA exception, and
+  `allow-wildcard-paths` exempts `fuzz`'s version-less path
+  dependency, which it allows only in `publish = false` crates.
 - **`npa` / `npm` (C++, Mozcpp) read the two non-templated
   member-pointer spellings the grammars' error recovery misparses**
   (#1807). `int S::*getPd();` is a method returning a pointer to a data
@@ -1642,6 +1711,18 @@ for historical reference.
 
 ### Performance
 
+- The Doxygen documentation binding of C, C++, Mozcpp and
+  Objective-C reads preprocessor conditionals by kind id (#1795).
+  `preproc_conditional` compared five `kind()` strings, and
+  `conditional_declares` asked it up to three times of each
+  non-conditional child. Each dialect now tests its `DocTarget` row's
+  conditional owners with an `is_preproc_conditional_kind` beside its
+  table, held to the old names over every runtime id, and each child
+  is classified once. In `make bench-walk` the two nested-conditional
+  doc shapes run 24% and 12% faster in all 8 interleaved release
+  rounds; the real corpus slice is within noise (0.999). Output is
+  byte-identical: a drift-oracle sweep of 42,728 outputs over the four
+  dialects found 0 differing.
 - `loc`: a file with no `\`-continuation row skips the bare-row scan
   (`credit_bare_continuation_rows`) at every node, in every language
   that runs it (Bash, Tcl, iRules, C, C++, Mozcpp, Objective-C, Ruby,
