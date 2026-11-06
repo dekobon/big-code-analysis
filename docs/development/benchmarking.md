@@ -200,6 +200,8 @@ Read it as follows.
 | `loc/tcl-unclosed-continued-comments` | Tcl | width | the same lookup when an unclosed opener per unit leaves every unit a direct child of one flat `ERROR` (#1445) | linear |
 | `loc/elixir-unclosed-spliced-comments` | Elixir | width | the joined-row comment a bare row after a non-continuing comment is classified by, read off the gap's next child under one flat `ERROR` (#1801) | linear |
 | `loc/c-unclosed-spliced-comments` | C | width | the second comment of a comment-only joined row, reached by a copy of the gap scan's cursor under one flat `ERROR` (#1801) | linear |
+| `loc/python-long-bare-run` | Python | width | a run of bare `line_continuation` nodes classified and credited by its head alone, later nodes O(1) (#1819) | linear |
+| `loc/python-long-bare-run-blank` | Python | width | the Blank class of the same run, whose head reads no sibling (#1819) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |
 | `abc/perl-nested-signed-keys` | Perl | depth | the ABC value peel's `-and` / `-not` sign test, handed the `-`'s parent rather than a chain to climb (#1603) | linear |

@@ -8578,8 +8578,8 @@ EOF
     /// fixture's file-level `loc_rows` under `lang`, byte-for-byte:
     /// `check_metrics` would normalise away the CRLF and the missing final
     /// newline that some fixtures are about (`.claude/rules/testing.md`).
-    /// The credit reached Bash, Tcl and iRules in #1445 and the C family,
-    /// Ruby and Elixir in #1801.
+    /// The credit reached Bash, Tcl and iRules in #1445, the C family,
+    /// Ruby and Elixir in #1801, and Python in #1819.
     #[cfg(any(
         feature = "bash",
         feature = "c",
@@ -8607,7 +8607,7 @@ EOF
                 (measured != expected).then(|| {
                     format!(
                         "{:?}: measured {measured:?}, expected {expected:?} \
-                         (blank {blank_before} before the bare-row credit)",
+                         (blank {blank_before} before the fix)",
                         String::from_utf8_lossy(source)
                     )
                 })
@@ -9262,9 +9262,60 @@ EOF
                 // `STRING NEWLINE NAME …`: the `\` after a bare-string
                 // statement is not bare, and credits nothing, where the
                 // catch-all credited the string's comment row to PLOC too.
-                // The twin joining code is a SyntaxError, so this is the
-                // only valid spelling. Pre-fix (3, 2, 1, 1).
+                // The twin joining a string concatenates (no node, the
+                // `concatenated_string` eats the `\`; unchanged, the
+                // control below); the twin joining any other token is a
+                // SyntaxError. Pre-fix (3, 2, 1, 1).
                 (b"\"\"\"doc\"\"\" \\\n\nx=1\n", (3, 1, 1, 1), 1),
+                (b"\"\"\"doc\"\"\" \\\n\"more\"\nx = 1\n", (3, 1, 2, 0), 0),
+                // A bare run continuing a bare-string statement's `\` is
+                // the string's logical line, comment rows under #415
+                // (review of #1819; perturbation: dropping the bare-string
+                // check fails exactly these five rows and the nested
+                // docstring test below). `STRING NEWLINE NAME OP NUMBER NEWLINE`:
+                // the NEWLINE is the empty row's, after the run. Pre-fix
+                // (4, 2, 1, 1).
+                (b"\"\"\"doc\"\"\" \\\n\\\n\nx = 1\n", (4, 1, 2, 1), 1),
+                // `OP STRING OP NEWLINE …`: the `)` row is the parenthesised
+                // bare string's, which the `RPAREN` arm files as a comment
+                // row (#1610), and the run joins it. Pre-fix (4, 2, 2, 0).
+                (b"(\"\"\"doc\"\"\" \\\n\\\n)\nx = 1\n", (4, 1, 3, 0), 0),
+                // `STRING COMMENT NEWLINE …`: the run joins the string's
+                // trailing comment. Pre-fix (4, 2, 2, 0).
+                (b"\"\"\"doc\"\"\" \\\n\\\n# c\nx = 1\n", (4, 1, 3, 0), 0),
+                // `STRING STRING NEWLINE …`: an implicitly concatenated
+                // bare string, one `concatenated_string` statement. Pre-fix
+                // (4, 2, 1, 1).
+                (b"\"\"\"doc\"\"\" \"more\" \\\n\\\n\nx=1\n", (4, 1, 2, 1), 1),
+                // `OP STRING OP NEWLINE …` with the `\` after the `)`: the
+                // statement is the sibling before the run. Pre-fix
+                // (4, 2, 1, 1).
+                (b"(\"\"\"doc\"\"\") \\\n\\\n\nx=1\n", (4, 1, 2, 1), 1),
+                // Controls: `STRING OP NAME NEWLINE` — a string with a
+                // token after it on its logical line is a tuple's value,
+                // code; `NAME NEWLINE …` — a bare statement that is no
+                // string continues code. Both unchanged.
+                (b"\"\"\"doc\"\"\" \\\n\\\n, x\n", (3, 3, 0, 0), 0),
+                (b"x \\\n\\\n\ny=1\n", (4, 3, 0, 1), 1),
+                // A run inside a multi-row f-string's interpolation joins a
+                // comment, on rows the string arm has already made PLOC
+                // (#778): the run's rows are comment on code lines, as
+                // `add_cloc_lines` files one, so the empty row after the
+                // string stays blank (review of #1819; perturbation: filing
+                // them comment-only fails exactly these two rows). `NAME OP
+                // FSTRING_START OP NAME OP NUMBER OP NL COMMENT NL NUMBER
+                // OP OP FSTRING_END NEWLINE NL NAME OP NUMBER NEWLINE`.
+                // Pre-fix (6, 5, 2, 0) and (7, 6, 3, 0).
+                (
+                    b"s = f\"\"\"{foo(1,\n\\\n# comment\n2)}\"\"\"\n\nx=1\n",
+                    (6, 5, 2, 1),
+                    0,
+                ),
+                (
+                    b"s = f\"\"\"{foo(1,\n\\\n\\\n# comment\n2)}\"\"\"\n\nx=1\n",
+                    (7, 6, 3, 1),
+                    0,
+                ),
                 // CRLF: the token takes `\r\n`, so the node ends on the
                 // next row as the LF one does. Pre-fix (3, 2, 1, 0).
                 (b"\\\r\n# note\r\nx = 1\r\n", (3, 1, 2, 0), 0),
@@ -9284,14 +9335,25 @@ EOF
                 (b"x = 1 \\\n# c\ny = 2\n", (3, 2, 1, 0), 0),
                 // Inside a string the `\` + newline is an `escape_sequence`.
                 (b"s = \"\"\"a\n\\\nb\"\"\"\n", (3, 3, 0, 0), 0),
-                // FIXME(#1825): pins the wrong value. `COMMENT NL STRING
-                // NEWLINE …` reads (3, 1, 2, 0), the bare row being the
-                // string's comment row, but the external scanner eats a
-                // `\` before a string start as indentation padding, so no
+                // The `\` + NUL spelling of the token ends on its own row,
+                // and the comment after the NUL makes that row code and
+                // comment; the node credits nothing, since code follows
+                // it. Measured (3, 2, 1, 0) before and after #1819.
+                (b"x=1\n\\\0# c\ny=2\n", (3, 2, 1, 0), 0),
+                // FIXME(#1825): pins the wrong value. `STRING NEWLINE NAME
+                // OP NUMBER NEWLINE`: the bare row is the string token's
+                // line, a comment row by the bare-string policy (#415), so
+                // (3, 1, 2, 0). But the external scanner eats a `\` before
+                // any string start as indentation padding, so no
                 // `line_continuation` exists and `module` starts at row 2:
                 // nothing reaches the arm, and the row stays blank. Locked
-                // as-is so a grammar fix shows up here (lesson 23).
+                // as-is so a grammar fix shows up here (lesson 19).
                 (b"\\\n\"\"\"doc\"\"\"\nx = 1\n", (3, 1, 1, 1), 1),
+                // FIXME(#1825): the same hole before a string that is a
+                // value. `NAME OP STRING NEWLINE`: the bare row continues
+                // `x =`, code, so (3, 3, 0, 0); the scanner eats the `\`
+                // and the row stays blank. Locked as-is (lesson 19).
+                (b"x = \\\n\\\n'a'\n", (3, 2, 0, 1), 1),
             ],
         );
     }
@@ -9344,6 +9406,46 @@ EOF
                 b"@dec # c \\\n\\\n# note\ndef f():\n    pass\n",
                 (5, 3, 3, 0),
                 (2, 2, 0, 0),
+            ),
+        ] {
+            let space = space_verbatim(
+                crate::LANG::Python,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            );
+            let text = String::from_utf8_lossy(source);
+            assert_eq!(space.spaces.len(), 1, "{text:?}: one nested space");
+            assert_eq!(loc_rows(&space.metrics.loc), unit, "{text:?}: unit");
+            assert_eq!(loc_rows(&space.spaces[0].metrics.loc), f, "{text:?}: f");
+        }
+    }
+
+    /// A bare run continuing a docstring's `\` inside a `def`, and one
+    /// whose `\` ends the `def`'s body: the sibling before the run is the
+    /// `function_definition`, and the statement ending with the `\` is
+    /// reached down its last children (review of #1819; the bare-string
+    /// check perturbation fails this test too).
+    ///
+    /// expected: `… INDENT STRING NEWLINE NAME NUMBER NEWLINE DEDENT` —
+    /// the run and the empty row are the docstring's logical line, a
+    /// comment row (#415); the empty row is blank. Pre-fix the unit read
+    /// (5, 3, 1, 1) and `f` (5, 3, 1, 1). With the `\` after the body,
+    /// `… INDENT STRING NEWLINE DEDENT NAME OP NUMBER NEWLINE`: the run
+    /// is a `module` child, outside `f`; pre-fix the unit read
+    /// (5, 3, 1, 1) and `f` (2, 2, 1, 0).
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_run_after_a_docstrings_backslash_is_its_comment() {
+        for (source, unit, f) in [
+            (
+                &b"def f():\n    \"\"\"doc\"\"\" \\\n    \\\n\n    return 1\n"[..],
+                (5, 2, 2, 1),
+                (5, 2, 2, 1),
+            ),
+            (
+                b"def f():\n    \"\"\"doc\"\"\" \\\n\\\n\nx=1\n",
+                (5, 2, 2, 1),
+                (2, 1, 1, 0),
             ),
         ] {
             let space = space_verbatim(

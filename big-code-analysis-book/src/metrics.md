@@ -1151,8 +1151,17 @@ CLOC with it, and one that continues a row holding only C-family block
 comments (`/* c */ \`) counts as what the rest of that line makes it. A
 row that continues nothing starts a line and counts as what that line
 becomes: CLOC when the line holds only comment text, blank when the row
-it joins is empty, PLOC otherwise, as for `/* c */ int z = 1;`. A bare
-row inside a literal is part of the literal, which should make it PLOC,
+it joins is empty, PLOC otherwise, as for `/* c */ int z = 1;`.
+Python's grammar keeps the `\` as a node, and the same rule applies to
+it: a Python `#` comment never continues, so `# c \` followed by a bare
+row joins the row after it, and a `\` that ends a bare-string statement
+counts nothing, the string's rows being CLOC already, as is a bare row
+that continues it
+([#1819](https://github.com/dekobon/big-code-analysis/issues/1819)); a
+bare row before any string literal stays blank, because the grammar's
+scanner drops that `\`
+([#1825](https://github.com/dekobon/big-code-analysis/issues/1825)). A
+bare row inside a literal is part of the literal, which should make it PLOC,
 but a C-family character literal, a Ruby `%w[]`, regex, quoted symbol
 or command, and an Elixir string, sigil or quoted atom still leave it
 blank ([#1816](https://github.com/dekobon/big-code-analysis/issues/1816)).
@@ -1163,12 +1172,6 @@ after a comment
 ([#1802](https://github.com/dekobon/big-code-analysis/issues/1802)).
 `bca`, the web server and the Python bindings' `analyze`,
 `analyze_source` and `Ast.from_path` convert line endings to LF first.
-Python's grammar keeps the `\` as a node, and the same rule applies to
-it: a Python `#` comment never continues, so `# c \` followed by a bare
-row joins the row after it, and a `\` that ends a bare-string statement
-counts nothing, the string's rows being CLOC already; a bare row before
-a bare string stays blank, because the grammar's scanner drops that `\`
-([#1825](https://github.com/dekobon/big-code-analysis/issues/1825)).
 
 Documentation rows are comment rows that are also reported on their
 own as DLOC (`loc.dloc`), so CLOC can be read with or without them.

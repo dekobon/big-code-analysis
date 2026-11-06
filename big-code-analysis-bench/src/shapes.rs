@@ -2656,9 +2656,11 @@ pub const PROBES: &[Probe] = &[
                     logical line credited by its head alone; a later node \
                     of the run returns in O(1) from its own bytes. \
                     Classifying at every node, which reads the rest of the \
-                    run each time, measured 2.00 against 1.33. \
-                    The reading is the comment rows: the run and the row \
-                    it joins.",
+                    run each time, measured 2.00 against 1.33 — the 1.3 \
+                    is the walk over `width` extras under one `module`, \
+                    which `main` without the arm reads the same (1.37), \
+                    not the arm. The reading is the comment rows: the run \
+                    and the row it joins.",
     },
     Probe {
         name: "loc/python-long-bare-run-blank",
@@ -2675,8 +2677,10 @@ pub const PROBES: &[Probe] = &[
         rationale: "#1819: `loc/python-long-bare-run` with the run joining \
                     an empty row, the Blank class, whose head reads no \
                     sibling at all. Classifying at every node measured \
-                    1.99 against 1.31. The reading is the \
-                    blank rows: the run and the empty row.",
+                    1.99 against 1.31; `main` without the arm reads 1.19, \
+                    the walk over `width` extras under one `module`, so \
+                    the exponent is the walk's, not the arm's. The reading \
+                    is the blank rows: the run and the empty row.",
     },
     Probe {
         name: "nom/nested-fn-rows",

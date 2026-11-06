@@ -1615,12 +1615,14 @@ for historical reference.
   counts as blank (#1816).
 
 - `loc` (Python): a `\`-continuation row holding only the backslash
-  counts as the logical line it starts — comment where that line holds
-  only a comment, blank where it joins an empty row — instead of always
-  code, as CPython's tokenizer reads it; a `\` ending a bare-string
-  statement no longer credits the string's row to PLOC (#1819). A bare
-  row before a bare string still counts as blank: the grammar's scanner
-  drops that `\` before any node sees it (#1825).
+  counts as the logical line it belongs to — comment where that line
+  holds only a comment, blank where it joins an empty row — instead of
+  always code, as CPython's tokenizer reads it; a `\` ending a
+  bare-string statement no longer credits the string's row to PLOC, and
+  a bare row continuing it is a comment row, the string's rows being
+  CLOC already (#1819). A bare row before any string literal still
+  counts as blank: the grammar's scanner drops that `\` before any node
+  sees it (#1825).
 
 ### Security
 
