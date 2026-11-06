@@ -1462,6 +1462,16 @@ pub fn tcl_nested_eval(depth: usize) -> String {
     format!("{}puts hi{}\n", "eval {".repeat(depth), "}".repeat(depth))
 }
 
+/// Tcl: `x {{…{a b}…}}`, `depth` braces deep on one row.
+///
+/// #1416's fixture: one `braced_word` per level, two AST levels apart
+/// (`braced_word` → `command` → `braced_word`), each a single-row match
+/// for `-t braced_word` whose span holds every level inside it.
+#[must_use]
+pub fn tcl_nested_braces(depth: usize) -> String {
+    format!("x {}a b{}\n", "{".repeat(depth), "}".repeat(depth))
+}
+
 /// Tcl: one `eval` line of `width` `{a b} "x"` pairs with a stray `]`
 /// in the middle of its argument list.
 ///
@@ -1505,7 +1515,8 @@ pub fn tcl_wide_switch(width: usize) -> String {
 /// `Ast::count` walk `bca find` shares, and the `Ast::dump` export —
 /// and they share no options type, so the selection a metric probe
 /// needs lives on the variant that uses it rather than on every probe
-/// (#1110).
+/// (#1110). `Find` is the count walk plus the renderer `bca find` prints
+/// its matches through.
 #[derive(Clone, Copy)]
 pub enum Workload {
     /// `Ast::metrics` under `selection`.
@@ -1537,6 +1548,15 @@ pub enum Workload {
         /// The filter, as `bca count --type` spells it.
         filter: &'static str,
     },
+    /// `bca find`: `Ast::find` under one filter, then the CLI's
+    /// renderer (`write_found`, the sink form of what `bca find` prints
+    /// through) into a sink that reads every byte (#1416). Its reading
+    /// is the lines rendered, one per match, which equals the `Count`
+    /// reading on the same shape.
+    Find {
+        /// The filter, as `bca find --type` spells it.
+        filter: &'static str,
+    },
     /// `Ast::dump`, the AST export (#1684). Its reading is the number
     /// of nodes exported, counted after the export and before its
     /// teardown, so the timing is construction + that count + drop.
@@ -1566,7 +1586,9 @@ impl Workload {
             } => MetricsOptions::default()
                 .with_only(selection)
                 .with_exclude_tests(exclude_tests),
-            Self::Ops { .. } | Self::Count { .. } | Self::Dump { .. } => MetricsOptions::default(),
+            Self::Ops { .. } | Self::Count { .. } | Self::Find { .. } | Self::Dump { .. } => {
+                MetricsOptions::default()
+            }
         }
     }
 
@@ -1587,6 +1609,11 @@ impl Workload {
     ///
     /// Whatever the underlying seam raises — in practice, a language
     /// feature disabled in the build.
+    ///
+    /// # Panics
+    ///
+    /// Never in practice: the only fallible step outside the seams is
+    /// [`Workload::Find`]'s render, whose sink accepts every write.
     pub fn walk(self, ast: &Ast, options: MetricsOptions) -> Result<u64, MetricsError> {
         Ok(match self {
             Self::Metrics { reading, .. } => reading(&black_box(ast.metrics(options)?).metrics),
@@ -1594,6 +1621,13 @@ impl Workload {
             Self::Count { filter } => {
                 let (matching, _) = black_box(ast.count(&[filter.to_owned()]));
                 u64::try_from(matching).unwrap_or(u64::MAX)
+            }
+            Self::Find { filter } => {
+                let found = ast.find(&[filter.to_owned()])?;
+                let mut sink = RenderedLines(0);
+                big_code_analysis::write_found(&mut sink, ast, &found, ..)
+                    .expect("RenderedLines never fails a write");
+                sink.0
             }
             Self::Dump { span, comment } => {
                 let cfg = AstCfg {
@@ -1606,6 +1640,29 @@ impl Workload {
                 u64::try_from(exported_nodes(response.root.as_ref())).unwrap_or(u64::MAX)
             }
         })
+    }
+}
+
+/// The `Find` workload's sink: counts the lines written to it.
+///
+/// It reads every byte rather than discarding them as `io::sink` does,
+/// because the volume a render writes is half of what the probe prices:
+/// a renderer that printed each nested match's text again would cost
+/// nothing against a sink that never looks.
+struct RenderedLines(u64);
+
+impl std::io::Write for RenderedLines {
+    // `bytecount` would be a dependency for one bench sink; this loop is
+    // what the probe means by reading every byte.
+    #[allow(clippy::naive_bytecount)]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let lines = buf.iter().filter(|byte| **byte == b'\n').count();
+        self.0 += u64::try_from(lines).unwrap_or(u64::MAX);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -1772,6 +1829,13 @@ const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 /// the defect present is no probe; these sizes are where it goes red.
 const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
+/// Depths for `find/tcl-nested-braces` and its control, the same two
+/// rungs above [`LINEAR_DEPTHS`] and for the same reason. A renderer
+/// that printed each match's whole span wrote `depth²` bytes against a
+/// per-match cost the bytes take thousands of levels to overtake: on
+/// [`LINEAR_DEPTHS`] it read 1.56, 0.06 past the bound (#1416).
+const FIND_RENDER_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
+
 /// Depths for the three #1767 probes, one rung above [`LINEAR_DEPTHS`].
 /// Each prices an ancestor question with no stop near, folded down the
 /// walk's chain instead of climbed per node. On [`LINEAR_DEPTHS`] the
@@ -1876,6 +1940,41 @@ pub const PROBES: &[Probe] = &[
                     instead takes this probe from 0.75 to 2.00; the cursor \
                     walk must keep the chain in step with its own climbs \
                     (#1381, #1684).",
+    },
+    Probe {
+        name: "count/tcl-nested-braces",
+        lang: LANG::Tcl,
+        axis: Axis::Depth,
+        workload: Workload::Count {
+            filter: "braced_word",
+        },
+        render: tcl_nested_braces,
+        sizes: FIND_RENDER_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The walk control for `find/tcl-nested-braces`: the same \
+                    shape and filter through the walk `bca find` shares, \
+                    with nothing rendered, so a regression that moves the \
+                    find probe and not this one is in the renderer (#1416). \
+                    The reading is one match per brace level.",
+    },
+    Probe {
+        name: "find/tcl-nested-braces",
+        lang: LANG::Tcl,
+        axis: Axis::Depth,
+        workload: Workload::Find {
+            filter: "braced_word",
+        },
+        render: tcl_nested_braces,
+        sizes: FIND_RENDER_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`bca find`'s render after the walk (#1416). Each match \
+                    once chose its connector through `Node::parent`, an \
+                    `O(depth)` climb per match: reinstating it fits \
+                    2.00 against 0.99. Each single-row match also \
+                    printed its whole span, `depth²` bytes on this shape: \
+                    reinstating that fits 1.84, which is why the ladder \
+                    starts at 4 000. The reading is the lines rendered, one \
+                    per match.",
     },
     Probe {
         name: "dump/tcl-wide-erroring-eval",
@@ -4968,6 +5067,33 @@ mod tests {
              and a shape that stopped carrying attributes drops out of \
              this check silently"
         );
+    }
+
+    /// `find/tcl-nested-braces` renders one line per match — the
+    /// `count` control's reading, which is one match per brace level —
+    /// at every rung. [`probe_workload_is_exercised`] would pass a
+    /// renderer that wrote one line in total, and the timing would then
+    /// price nothing but the walk the control already prices (#1416).
+    #[test]
+    fn the_find_probe_renders_one_line_per_match() {
+        let probe = |name: &str| {
+            PROBES
+                .iter()
+                .find(|probe| probe.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"))
+        };
+        let (find, count) = (
+            probe("find/tcl-nested-braces"),
+            probe("count/tcl-nested-braces"),
+        );
+        assert_eq!(find.sizes, count.sizes);
+        for size in find.sizes {
+            let ast = parse(find, size);
+            let read = |probe: &Probe| probe.workload.walk(&ast, probe.workload.options());
+            let lines = read(find).expect("find walks");
+            assert_eq!(lines, read(count).expect("count walks"), "at depth {size}");
+            assert_eq!(lines, u64::try_from(size).expect("a small size"));
+        }
     }
 
     /// Probe names are unique — they key the report and the gate.

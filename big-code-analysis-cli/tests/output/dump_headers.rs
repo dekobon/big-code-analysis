@@ -1,5 +1,6 @@
-//! Integration tests for `bca dump` per-file headers and the
-//! explicit-path requirement (issue #690).
+//! Integration tests for `bca dump` / `bca find` per-file headers and
+//! the explicit-path requirement (issue #690), and for how `bca find`
+//! prints nested matches and honours its line range (#1416).
 
 use std::fs;
 
@@ -214,4 +215,66 @@ fn dump_holds_the_banner_and_tree_together_under_parallel_jobs() {
             .count();
         assert_eq!(foreign, 0, "{path}'s block absorbed another file's tree");
     }
+}
+
+/// `bca find` stdout for one Rust file, uncoloured, with its path
+/// replaced by `<path>`.
+fn find_stdout(source: &str, args: &[&str]) -> String {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("f.rs");
+    fs::write(&path, source).unwrap();
+    let path = path.to_str().unwrap();
+    let out = common::bca_command()
+        .args(["find", "--color", "never"])
+        .args(args)
+        .arg(path)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out)
+        .expect("utf8")
+        .replace(path, "<path>")
+}
+
+/// #1416: a match nested in a single-row match prints its text on its
+/// own line, and the match around it prints `…` in its place. The outer
+/// line used to read `f(g(1), h(2))`, so a match nested `N` deep had its
+/// bytes printed `N` times: 16 MB for an 8 KB file of nested braces.
+#[test]
+fn find_prints_a_nested_match_once_and_elides_it_from_the_outer() {
+    assert_eq!(
+        find_stdout("fn main() { f(g(1), h(2)); }\n", &["-t", "call_expression"]),
+        concat!(
+            "== <path> ==\n",
+            "╰─ {call_expression:256} from (1, 13) to (1, 26) : f(…, …) \n",
+            "╰─ {call_expression:256} from (1, 15) to (1, 19) : g(1) \n",
+            "╰─ {call_expression:256} from (1, 21) to (1, 25) : h(2) \n",
+            "\n",
+        )
+    );
+}
+
+/// `--line-start` / `--line-end` keep the matches whose start row lies
+/// in the inclusive range, either bound optional: the CLI hands the
+/// renderer one range built from the two flags (#1416).
+#[test]
+fn find_line_range_keeps_matches_starting_inside_it() {
+    let source = "fn a() {}\nfn b() {}\nfn c() {}\n";
+    let names = |range: &[&str]| {
+        let mut args = vec!["-t", "identifier"];
+        args.extend_from_slice(range);
+        find_stdout(source, &args)
+            .lines()
+            .filter_map(|line| {
+                line.rsplit_once(" : ")
+                    .map(|(_, name)| name.trim().to_owned())
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&[]), ["a", "b", "c"]);
+    assert_eq!(names(&["--line-start", "2", "--line-end", "2"]), ["b"]);
+    assert_eq!(names(&["--line-start", "2"]), ["b", "c"]);
+    assert_eq!(names(&["--line-end", "2"]), ["a", "b"]);
 }

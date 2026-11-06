@@ -6,8 +6,11 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::ref_option, clippy::wildcard_imports)]
 
-use termcolor::{Color, WriteColor};
+use std::ops::{Range, RangeBounds};
 
+use termcolor::{Color, NoColor, WriteColor};
+
+use crate::Ast;
 use crate::node::Node;
 use crate::output::ColorMode;
 use crate::output::color::print_to_stdout;
@@ -166,8 +169,10 @@ impl Connector {
 
 /// The connector for the node a walk starts from — the only node whose
 /// parent has to be looked up. A start node with a parent renders as a
-/// last child (`bca find` dumps a matched node this way), matching the
-/// `last = true` the recursive form passed for the root.
+/// last child, matching the `last = true` the recursive form passed for
+/// the root. One lookup per dump is `O(depth)`; one per match was what
+/// made `bca find` quadratic, so [`render_found`] decides the same
+/// question against the tree's root instead (#1416).
 fn start_connector(node: &Node) -> Connector {
     if node.parent().is_none() {
         Connector::Flush
@@ -331,8 +336,6 @@ fn write_node_location(stdout: &mut dyn WriteColor, node: &Node) -> std::io::Res
 
 /// Source snippet for single-row nodes only. Multi-row nodes return
 /// without writing (the caller still emits the trailing newline).
-/// Non-UTF-8 spans fall back to raw bytes — regression guard
-/// `dump_node_non_utf8_source_emits_the_raw_snippet`.
 fn write_node_snippet(
     stdout: &mut dyn WriteColor,
     code: &[u8],
@@ -341,14 +344,208 @@ fn write_node_snippet(
     if node.start_row() != node.end_row() {
         return Ok(());
     }
+    write_snippet(
+        stdout,
+        code,
+        std::iter::once(node.start_byte()..node.end_byte()),
+    )
+}
 
-    paint(stdout, Color::White, format_args!(": "))?;
-    intense_color(stdout, Color::Red)?;
-    let snippet = &code[node.start_byte()..node.end_byte()];
-    match str::from_utf8(snippet) {
-        Ok(text) => write!(stdout, "{text} "),
-        Err(_) => stdout.write_all(snippet),
+/// What a `bca find` snippet prints in place of a match nested inside
+/// it, whose text the nested match's own line prints (#1416).
+const ELIDED: &str = "…";
+
+/// The `: text` tail of a node line, for `pieces` of `code` with
+/// [`ELIDED`] between consecutive ones. A dump passes the node's whole
+/// span as one piece.
+///
+/// The trailing space follows the text only when every piece is UTF-8;
+/// non-UTF-8 bytes are written raw with none, as they always were —
+/// regression guard `dump_node_non_utf8_source_emits_the_raw_snippet`.
+/// Each piece is checked on its own, so the cost is the bytes printed
+/// rather than the span they sit in.
+fn write_snippet(
+    stdout: &mut dyn WriteColor,
+    code: &[u8],
+    pieces: impl IntoIterator<Item = Range<usize>>,
+) -> std::io::Result<()> {
+    write_snippet_separator(stdout, ": ")?;
+    let mut utf8 = true;
+    for (nth, piece) in pieces.into_iter().enumerate() {
+        if nth > 0 {
+            write_snippet_separator(stdout, ELIDED)?;
+        }
+        let bytes = &code[piece];
+        utf8 &= str::from_utf8(bytes).is_ok();
+        stdout.write_all(bytes)?;
     }
+    if utf8 { stdout.write_all(b" ") } else { Ok(()) }
+}
+
+/// The renderer's own punctuation inside a snippet (`: `, [`ELIDED`]),
+/// in white, leaving the snippet colour set for the source that follows.
+fn write_snippet_separator(stdout: &mut dyn WriteColor, text: &str) -> std::io::Result<()> {
+    paint(stdout, Color::White, format_args!("{text}"))?;
+    intense_color(stdout, Color::Red)
+}
+
+/// Render every node `bca find` matched to stdout, one line per match.
+///
+/// `found` is what [`Ast::find`] returned for `ast`, in its order, and
+/// `lines` filters matches by their 1-based start row, as
+/// `--line-start` / `--line-end` do. A line is what [`dump_node`] at
+/// depth 1 renders for the match, so a match no other match is nested
+/// in prints byte-identically to that, colour included. The two
+/// differences are what keep the render linear in the depth the matches
+/// nest to (#1416):
+///
+/// - The connector is decided against `ast`'s root, where `dump_node`
+///   asks [`Node::parent`], which climbs from the root and is `O(depth)`.
+///   One climb per match was 98% of `bca find`'s time on 4 000 nested
+///   matches.
+/// - A match nested inside a single-row match prints its text on its
+///   own line, so the outer match prints [`ELIDED`] in its place:
+///   `f(g(1))` renders as `f(…)` followed by `g(1)`. Printing each
+///   match's whole span instead made the output quadratic in the
+///   nesting depth: 16 MB for an 8 KB file.
+///
+/// Hidden because it exists for the CLI, like `format_suggestion`; it
+/// is outside the stability contract.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] from the stdout writer.
+///
+/// # Panics
+///
+/// Panics if a node in `found` was not parsed from `ast`, for the reason
+/// given on [`dump_node`].
+#[doc(hidden)]
+pub fn dump_found_with_color(
+    ast: &Ast,
+    found: &[Node],
+    lines: impl RangeBounds<usize>,
+    color_mode: ColorMode,
+) -> std::io::Result<()> {
+    print_to_stdout(color_mode, |stdout| render_found(stdout, ast, found, lines))
+}
+
+/// [`dump_found_with_color`] into `out`, uncoloured. Exists so the
+/// scaling bench can time the renderer the CLI runs; equally hidden.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] from `out`.
+///
+/// # Panics
+///
+/// As [`dump_found_with_color`].
+#[doc(hidden)]
+pub fn write_found(
+    out: &mut dyn std::io::Write,
+    ast: &Ast,
+    found: &[Node],
+    lines: impl RangeBounds<usize>,
+) -> std::io::Result<()> {
+    render_found(&mut NoColor::new(out), ast, found, lines)
+}
+
+fn render_found(
+    stdout: &mut dyn WriteColor,
+    ast: &Ast,
+    found: &[Node],
+    lines: impl RangeBounds<usize>,
+) -> std::io::Result<()> {
+    let code = ast.source();
+    let root = ast.root_node().id();
+    let spans: Vec<Range<usize>> = found
+        .iter()
+        .map(|node| node.start_byte()..node.end_byte())
+        .collect();
+    let next_outside = next_outside(&spans);
+    for (at, node) in found.iter().enumerate() {
+        if lines.contains(&(node.start_row() + 1)) {
+            let connector = if node.id() == root {
+                Connector::Flush
+            } else {
+                Connector::Last
+            };
+            write_node_header(stdout, node, "", connector.glyphs().1)?;
+            write_node_location(stdout, node)?;
+            if node.start_row() == node.end_row() {
+                write_snippet(stdout, code, own_text(&spans, &next_outside, at))?;
+            }
+            writeln!(stdout)?;
+        }
+        // `dump_node_with_color` ends each call on white, filtered out
+        // or not; keeping it keeps the coloured bytes identical.
+        color(stdout, Color::White)?;
+    }
+    Ok(())
+}
+
+/// For each span, the index of the first later span that starts at or
+/// after its end, so the matches nested in `spans[at]` are
+/// `at + 1..next_outside[at]`.
+///
+/// One pass over a stack of the spans still open. In [`Ast::find`]'s
+/// pre-order the spans nest or follow one another, so the stack's ends
+/// shrink towards the top and a span closes the moment a later one
+/// starts past it. Spans in any other order get some answer, never a
+/// panic; [`own_text`] does not trust it.
+fn next_outside(spans: &[Range<usize>]) -> Vec<usize> {
+    let mut next = vec![spans.len(); spans.len()];
+    let mut open: Vec<usize> = Vec::new();
+    for (at, span) in spans.iter().enumerate() {
+        while let Some(&top) = open.last()
+            && spans[top].end <= span.start
+        {
+            next[top] = at;
+            open.pop();
+        }
+        open.push(at);
+    }
+    next
+}
+
+/// The parts of `spans[at]` that no match nested in it covers, in
+/// source order: one piece more than the matches elided from it.
+///
+/// Steps from one directly nested match to the next through
+/// [`next_outside`], skipping what is nested deeper, so each match is
+/// visited once as the child of the match it sits in and the render
+/// stays linear. A zero-width match prints nothing and so elides
+/// nothing. A span that is not inside what remains of `spans[at]` —
+/// impossible in a tree, which nests or orders its nodes — ends the
+/// elision, and the rest prints verbatim.
+fn own_text<'s>(
+    spans: &'s [Range<usize>],
+    next_outside: &'s [usize],
+    at: usize,
+) -> impl Iterator<Item = Range<usize>> + 's {
+    let outer = spans[at].clone();
+    let mut cursor = outer.start;
+    let mut next = at + 1;
+    let mut done = false;
+    std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        while let Some(inner) = spans.get(next).filter(|inner| inner.start < outer.end) {
+            if inner.start < cursor || inner.end > outer.end {
+                break;
+            }
+            next = next_outside[next];
+            if inner.is_empty() {
+                continue;
+            }
+            let piece = cursor..inner.start;
+            cursor = inner.end;
+            return Some(piece);
+        }
+        done = true;
+        Some(cursor..outer.end)
+    })
 }
 
 #[cfg(test)]
@@ -360,12 +557,15 @@ fn write_node_snippet(
     clippy::similar_names,
     clippy::doc_markdown,
     clippy::needless_raw_string_hashes,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    // A snippet of one piece is a one-element list of ranges, not a
+    // range that wants collecting.
+    clippy::single_range_in_vec_init
 )]
 mod tests {
     use std::path::PathBuf;
 
-    use termcolor::NoColor;
+    use termcolor::{Ansi, NoColor};
 
     use crate::output::test_support::assert_io_error_propagates_at_every_write;
     use crate::{CppParser, ParserTrait};
@@ -430,8 +630,8 @@ mod tests {
         // `start_connector` is the walk's only `Node::parent` call
         // (#1054), so it carries the whole "is this flush-left?"
         // decision. A parentless node renders flush left; a start node
-        // that *does* have a parent — how `bca find` dumps a matched
-        // node — renders as a last child.
+        // that *does* have a parent — one `dump_node` is handed from
+        // mid-tree — renders as a last child.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();
@@ -593,11 +793,11 @@ mod tests {
     #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_from_a_parented_start_node_indents_as_a_last_child() {
-        // `bca find` dumps the matched node, not the file root, so the
-        // start node usually has a parent and renders `╰─` with its
-        // subtree indented under it. `start_connector` is the only place
-        // that distinction is made now that the walk carries connectors
-        // on the stack (#1054) — this pins it end to end.
+        // A start node handed from mid-tree has a parent, so it renders
+        // `╰─` with its subtree indented under it. `start_connector` is
+        // the only place that distinction is made now that the walk
+        // carries connectors on the stack (#1054) — this pins it end to
+        // end.
         let code = b"int a = (1) + 2;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();
@@ -615,8 +815,8 @@ mod tests {
         );
         assert_eq!(render(code, &paren, -1), expected);
 
-        // Depth 1 is what `bca find` actually passes: the matched node
-        // alone, still as a last child.
+        // Depth 1 renders the node alone, still as a last child: the
+        // line `render_found` gives a match nothing is nested in.
         assert_eq!(
             render(code, &paren, 1),
             "╰─ {parenthesized_expression:363} from (1, 9) to (1, 12) : (1) \n"
@@ -695,13 +895,12 @@ mod tests {
     #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_depth_limits_recursion() {
-        // `bca find` dumps with depth=1
-        // (`big-code-analysis-ast/src/find.rs`) to show only the
-        // matched node, not its subtree. depth=1 renders the node and stops
-        // before its children; depth=0 renders nothing. This is the only
-        // positive-depth path in production, and it is what the `depth - 1`
-        // decrement in `dump_tree_helper`'s iterative walk guards — pin it
-        // explicitly.
+        // depth=1 renders the node and stops before its children;
+        // depth=0 renders nothing. `bca find` passed depth=1 per match
+        // until it moved to `render_found` (#1416), so no production
+        // caller passes a positive depth now, but `dump_node` still
+        // takes one, and it is what the `depth - 1` decrement in
+        // `dump_tree_helper`'s iterative walk guards — pin it explicitly.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();
@@ -760,5 +959,296 @@ mod tests {
             };
             dump_tree_helper(&mut state, &root, -1)
         });
+    }
+
+    /// `code` parsed as `lang`.
+    #[cfg(any(feature = "cpp", feature = "tcl"))]
+    fn parse_as(lang: crate::LANG, code: &[u8]) -> Ast {
+        Ast::parse(crate::Source::new(lang, code)).expect("language feature enabled")
+    }
+
+    /// What `bca find -t <filters>` matches in `ast`.
+    #[cfg(any(feature = "cpp", feature = "tcl"))]
+    fn found<'a>(ast: &'a Ast, filters: &[&str]) -> Vec<Node<'a>> {
+        let filters: Vec<String> = filters.iter().map(|f| (*f).to_owned()).collect();
+        ast.find(&filters).expect("find is infallible")
+    }
+
+    /// `bca find -t <filters>` on `ast` as the CLI renders it, uncoloured.
+    #[cfg(any(feature = "cpp", feature = "tcl"))]
+    fn found_text(ast: &Ast, filters: &[&str]) -> String {
+        let mut out = Vec::new();
+        write_found(&mut out, ast, &found(ast, filters), ..).expect("render to memory");
+        String::from_utf8(out).expect("utf-8 fixture")
+    }
+
+    /// What the CLI printed before #1416: one `dump_node_with_color`
+    /// call per match at depth 1, each a walk from the match ending on
+    /// white. Rebuilt from the same private pieces that call is made of,
+    /// into `sink`, as the oracle for the unnested case.
+    #[cfg(feature = "cpp")]
+    fn per_match_dump(
+        sink: &mut dyn WriteColor,
+        code: &[u8],
+        found: &[Node],
+        (line_start, line_end): (Option<usize>, Option<usize>),
+    ) {
+        for node in found {
+            let mut state = DumpState {
+                code,
+                line_start: &line_start,
+                line_end: &line_end,
+                stdout: &mut *sink,
+            };
+            dump_tree_helper(&mut state, node, 1).expect("dump to memory");
+            color(state.stdout, Color::White).expect("dump to memory");
+        }
+    }
+
+    /// A match no other single-row match nests in prints exactly what
+    /// the per-match dump printed, colour escapes included: the root
+    /// flush left, a multi-row match with matches inside it (it prints
+    /// no text, so nothing is elided), leaves, and a non-UTF-8 literal
+    /// written raw. Under the line filter too, which the two paths spell
+    /// differently. The old path is the specification here, so the test
+    /// asks it rather than restating its output.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_matches_the_per_match_dump_when_no_match_nests() {
+        use std::ops::Bound::{Included, Unbounded};
+
+        let code = b"int a = 1;\nint f(int b) {\n  return g(b, 2);\n}\nchar c = '\xff';\n";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        let found = found(
+            &ast,
+            &[
+                "translation_unit",
+                "compound_statement",
+                "identifier",
+                "number_literal",
+                "char_literal",
+            ],
+        );
+        assert!(found.len() >= 9, "the fixture must match widely: {found:?}");
+        assert_eq!(found[0].id(), ast.root_node().id(), "the root is a match");
+
+        for (lines, bounds) in [
+            ((None, None), (Unbounded, Unbounded)),
+            ((Some(2), Some(3)), (Included(2), Included(3))),
+        ] {
+            let (mut new, mut old) = (NoColor::new(Vec::new()), NoColor::new(Vec::new()));
+            render_found(&mut new, &ast, &found, bounds).expect("render to memory");
+            per_match_dump(&mut old, code, &found, lines);
+            assert_eq!(new.get_ref(), old.get_ref(), "plain output under {lines:?}");
+
+            let (mut new, mut old) = (Ansi::new(Vec::new()), Ansi::new(Vec::new()));
+            render_found(&mut new, &ast, &found, bounds).expect("render to memory");
+            per_match_dump(&mut old, code, &found, lines);
+            assert!(new.get_ref().contains(&0x1b), "the colour sink colours");
+            assert_eq!(
+                new.get_ref(),
+                old.get_ref(),
+                "coloured output under {lines:?}"
+            );
+        }
+
+        let mut out = Vec::new();
+        write_found(&mut out, &ast, &found, ..).expect("render to memory");
+        assert!(out.contains(&0xff), "the raw literal renders");
+        let text = String::from_utf8_lossy(&out);
+        assert!(
+            text.starts_with("{translation_unit:"),
+            "the root renders flush:\n{text}"
+        );
+        assert!(
+            text.contains("╰─ {identifier:1} from (3, 10) to (3, 11) : g \n"),
+            "{text}"
+        );
+    }
+
+    /// Each match nested in a single-row match prints on its own line,
+    /// and the match around it prints `…` in its place — once per
+    /// directly nested match, never for one nested deeper, which is
+    /// `h(1)` inside `g(…)` here: stepping to `k(2)` without skipping it
+    /// would read `h` as a sibling of `g` and stop eliding at it.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_elides_each_nested_match_from_the_one_around_it() {
+        let code = b"int a = f(g(h(1)), k(2));\n";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        assert_eq!(found(&ast, &["call_expression"]).len(), 4);
+        assert_eq!(
+            found_text(&ast, &["call_expression"]),
+            concat!(
+                "╰─ {call_expression:350} from (1, 9) to (1, 25) : f(…, …) \n",
+                "╰─ {call_expression:350} from (1, 11) to (1, 18) : g(…) \n",
+                "╰─ {call_expression:350} from (1, 13) to (1, 17) : h(1) \n",
+                "╰─ {call_expression:350} from (1, 20) to (1, 24) : k(2) \n",
+            )
+        );
+    }
+
+    /// The shape #1416 measured: one `braced_word` per brace level, so
+    /// the per-match dump printed `depth²` bytes. Every level but the
+    /// innermost now prints its braces around one `…`.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn found_render_elides_nested_braced_words() {
+        let ast = parse_as(crate::LANG::Tcl, b"x {{{a b}}}\n");
+        assert_eq!(
+            found_text(&ast, &["braced_word"]),
+            concat!(
+                "╰─ {braced_word:88} from (1, 3) to (1, 12) : {…} \n",
+                "╰─ {braced_word:88} from (1, 4) to (1, 11) : {…} \n",
+                "╰─ {braced_word:88} from (1, 5) to (1, 10) : {a b} \n",
+            )
+        );
+    }
+
+    /// The non-UTF-8 rule — raw bytes, no trailing space — is decided on
+    /// the bytes a line prints, not on the span it elides: a line whose
+    /// own pieces are text keeps its space though a nested match is not,
+    /// and the other way round.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_decides_utf8_on_the_printed_pieces() {
+        let code = b"int a = f('\xff', g(1));\nint b = f(g('\xff'));\n";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        let found = found(&ast, &["call_expression"]);
+        let mut sink = NoColor::new(Vec::new());
+        write_found(sink.get_mut(), &ast, &found, ..).expect("render to memory");
+        let lines: Vec<&[u8]> = sink.get_ref().split_inclusive(|b| *b == b'\n').collect();
+        let tail = |line: &[u8]| {
+            let at = line
+                .windows(3)
+                .position(|w| w == b" : ")
+                .expect("a snippet");
+            line[at + 3..].to_vec()
+        };
+        let elided = |before: &[u8], after: &[u8]| [before, ELIDED.as_bytes(), after].concat();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(tail(lines[0]), elided(b"f('\xff', ", b")\n"));
+        assert_eq!(tail(lines[1]), b"g(1) \n");
+        assert_eq!(tail(lines[2]), elided(b"f(", b") \n"));
+        assert_eq!(tail(lines[3]), b"g('\xff')\n");
+    }
+
+    /// Rendering every match asks no node for its parent. The per-match
+    /// dump asked each one, which climbs from the root: `O(depth)` per
+    /// match, 98% of `bca find`'s time on #1416's 4 000-deep input. The
+    /// second half shows the counter sees that path, so the zero above
+    /// it is not a counter that never moves.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_climbs_to_no_parent() {
+        let code = b"int a = f(g(h(1)), k(2));\n";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        let found = found(&ast, &["translation_unit", "call_expression"]);
+        assert_eq!(found.len(), 5);
+        let climbs = crate::node::node_resolved_parent_lookups::observed;
+
+        let before = climbs();
+        write_found(&mut std::io::sink(), &ast, &found, ..).expect("render to a sink");
+        assert_eq!(climbs() - before, 0, "the find render climbed to a parent");
+
+        let before = climbs();
+        per_match_dump(
+            &mut NoColor::new(std::io::sink()),
+            code,
+            &found,
+            (None, None),
+        );
+        assert_eq!(
+            climbs() - before,
+            found.len(),
+            "the per-match dump asks each match"
+        );
+    }
+
+    /// Under `-t all` every byte of a one-row file is printed exactly
+    /// once: by the deepest match holding it, and by none around it.
+    /// The per-match dump printed each byte once per match above it.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_prints_each_byte_of_one_row_once() {
+        let code = b"int a = f(g(1), 2);";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        let found = found(&ast, &["all"]);
+        assert!(found.iter().all(|node| node.start_row() == node.end_row()));
+        let spans: Vec<Range<usize>> = found
+            .iter()
+            .map(|node| node.start_byte()..node.end_byte())
+            .collect();
+        let next = next_outside(&spans);
+        let printed: usize = (0..spans.len())
+            .flat_map(|at| own_text(&spans, &next, at))
+            .map(|piece| piece.len())
+            .sum();
+        assert_eq!(printed, code.len());
+        let spanned: usize = spans.iter().map(ExactSizeIterator::len).sum();
+        assert!(spanned > 3 * code.len(), "the fixture must nest: {spanned}");
+    }
+
+    #[test]
+    fn next_outside_points_past_everything_nested() {
+        // 0..10 holds 0..4 (holding 1..2) and 5..9 (holding 6..7);
+        // 10..12 follows it. Pre-order, as `Ast::find` returns them.
+        let spans = [0..10, 0..4, 1..2, 5..9, 6..7, 10..12];
+        assert_eq!(next_outside(&spans), [5, 3, 3, 5, 5, 6]);
+    }
+
+    #[test]
+    fn own_text_elides_only_the_directly_nested_spans() {
+        let spans = [0..10, 0..4, 1..2, 5..9, 6..7, 10..12];
+        let next = next_outside(&spans);
+        let own = |at| own_text(&spans, &next, at).collect::<Vec<_>>();
+        assert_eq!(own(0), [0..0, 4..5, 9..10]);
+        assert_eq!(own(1), [0..1, 2..4]);
+        assert_eq!(own(2), [1..2]);
+        assert_eq!(own(3), [5..6, 7..9]);
+        assert_eq!(own(5), [10..12]);
+
+        // A child with its parent's whole span leaves the parent `…`; a
+        // zero-width child, a MISSING token, elides nothing.
+        let spans = [0..5, 0..5, 2..2];
+        let next = next_outside(&spans);
+        assert_eq!(own_text(&spans, &next, 0).collect::<Vec<_>>(), [0..0, 5..5]);
+        assert_eq!(own_text(&spans, &next, 1).collect::<Vec<_>>(), [0..5]);
+    }
+
+    /// `next_outside` and `own_text` are total: on spans in any order
+    /// and overlap, which no tree produces, the pieces still lie inside
+    /// the span in order, so slicing the source by them cannot panic.
+    /// Every sequence of up to four spans drawn from a small pool.
+    #[test]
+    fn own_text_stays_inside_its_span_on_any_input() {
+        const POOL: [Range<usize>; 6] = [0..4, 1..3, 2..2, 3..6, 0..6, 5..5];
+        let mut checked = 0;
+        for len in 1..=4_u32 {
+            for code in 0..POOL.len().pow(len) {
+                let spans: Vec<Range<usize>> = (0..len)
+                    .scan(code, |rest, _| {
+                        let pick = *rest % POOL.len();
+                        *rest /= POOL.len();
+                        Some(POOL[pick].clone())
+                    })
+                    .collect();
+                let next = next_outside(&spans);
+                for (at, outer) in spans.iter().enumerate() {
+                    let mut cursor = outer.start;
+                    for piece in own_text(&spans, &next, at) {
+                        assert!(
+                            cursor <= piece.start
+                                && piece.start <= piece.end
+                                && piece.end <= outer.end,
+                            "{piece:?} escapes {outer:?} after {cursor} in {spans:?}"
+                        );
+                        cursor = piece.end;
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 6 + 2 * 36 + 3 * 216 + 4 * 1_296);
     }
 }

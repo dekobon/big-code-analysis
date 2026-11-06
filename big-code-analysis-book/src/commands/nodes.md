@@ -39,6 +39,26 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
   `*.rs`). Each `-I` takes exactly one value, so a following positional
   path is never swallowed.
 
+## Reading `find` output {#find-output}
+
+`find` prints a `== <path> ==` banner for each file with a match, then
+one line per match in source order:
+
+```text
+== src/main.rs ==
+╰─ {call_expression:256} from (1, 13) to (1, 26) : f(…, …)
+╰─ {call_expression:256} from (1, 15) to (1, 19) : g(1)
+╰─ {call_expression:256} from (1, 21) to (1, 25) : h(2)
+```
+
+Each line gives the node type and its `kind_id`, then the 1-based
+`(row, column)` where the node starts and ends. A node that fits on
+one row ends with its source text; one that spans several rows prints
+none. When one match sits inside another on the same row, the inner
+match's text is printed on its own line and the outer match shows `…`
+in its place. Each byte of source is therefore printed at most once,
+however deeply the matches nest.
+
 ## Semantic filters {#semantic-filters}
 
 Six `-t/--type` values are not node-type names but *semantic* filters,

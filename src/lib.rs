@@ -298,6 +298,10 @@ pub use crate::output::{
     write_csv_aggregate, write_msvc_warning, write_sarif, write_sarif_with_provenance,
     write_sarif_with_suppressed,
 };
+// The `bca find` renderer and its sink form; hidden because they exist
+// for the CLI and the scaling bench (#1416).
+#[doc(hidden)]
+pub use crate::output::{dump_found_with_color, write_found};
 
 // --- AST plumbing (Node) ---
 pub use big_code_analysis_ast::Node;

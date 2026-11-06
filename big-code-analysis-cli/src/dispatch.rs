@@ -16,15 +16,16 @@
 //! preprocessor lookup key.
 
 use std::io::Write;
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use big_code_analysis::{
     Ast, FuncSpace, LANG, MetricsError, MetricsOptions, PreprocResults, Source,
-    dump_function_spans_with_color, dump_node_with_color, dump_ops_with_color,
-    dump_root_with_color, guess_language, is_generated, preprocess, read_file_with_eol_classified,
-    write_file,
+    dump_found_with_color, dump_function_spans_with_color, dump_node_with_color,
+    dump_ops_with_color, dump_root_with_color, guess_language, is_generated, preprocess,
+    read_file_with_eol_classified, write_file,
 };
 
 use crate::exemptions::FileMarkers;
@@ -532,16 +533,15 @@ fn dispatch_find(
         // for the reason given in `dispatch_dump`.
         let mut out = std::io::stdout().lock();
         writeln!(out, "== {} ==", path.display())?;
-        for node in &found {
-            dump_node_with_color(
-                ast.source(),
-                node,
-                1,
-                cfg.line_start,
-                cfg.line_end,
-                cfg.color,
-            )?;
-        }
+        // One render for every match rather than a `dump_node_with_color`
+        // per match: that asked each match for its parent, `O(depth)`
+        // apiece, and printed each nested match's text again inside the
+        // match around it (#1416).
+        let lines = (
+            cfg.line_start.map_or(Bound::Unbounded, Bound::Included),
+            cfg.line_end.map_or(Bound::Unbounded, Bound::Included),
+        );
+        dump_found_with_color(&ast, &found, lines, cfg.color)?;
         writeln!(out)?;
     }
     Ok(())

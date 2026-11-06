@@ -1317,6 +1317,12 @@ value = 5.0
 
 [[entry]]
 path = "src/output/dump.rs"
+qualified = "render_found"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/output/dump.rs"
 qualified = "write_node_line"
 metric = "nargs"
 value = 5.0

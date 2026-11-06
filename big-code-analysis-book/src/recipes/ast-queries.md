@@ -57,7 +57,9 @@ bca find \
     -t unsafe_block
 ```
 
-Each match prints the file path and the line range of the node.
+Each match prints the file path and the line range of the node; see
+[Reading `find` output](../commands/nodes.md#find-output) for the
+format.
 
 ## Dump the AST of a file
 

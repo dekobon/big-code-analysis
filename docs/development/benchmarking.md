@@ -230,6 +230,8 @@ Read it as follows.
 | `dump/wide-distinct-fns` | Rust | width | shape control for the row above: a balanced `repeat()` list | linear |
 | `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
 | `dump/tcl-wide-erroring-eval` | Tcl | width | the argument-list readability scan under `keeps_children`, memoised through the cache the export lends (#1686) | linear |
+| `count/tcl-nested-braces` | Tcl | depth | walk control for the row below: the same filter with nothing rendered | linear |
+| `find/tcl-nested-braces` | Tcl | depth | the renderer `bca find` prints through: each match's connector decided without `Node::parent`, and a nested match's text printed once (#1416) | linear |
 | `halstead/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, reached through an iterated ancestor on the metric walk (#1686) | linear |
 | `ops/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, on the `ops` walk (#1686) | linear |
 | `count/tcl-wide-erroring-eval` | Tcl | width | the same scan under the `string` filter, on the `find` / `count` walk (#1686) | linear |
@@ -257,7 +259,7 @@ See [The ranking pass](#ranking-pass).
 
 ### The control probes
 
-The twelve control probes are what make the other readings mean
+The thirteen control probes are what make the other readings mean
 something.
 
 - `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
@@ -268,6 +270,9 @@ something.
   `cognitive` reading alone. `nom/nested-fn-rows` plays the same part
   for `loc/nested-fn-rows`: `Nom`'s merge is a counter add, so the
   difference is the cost of `Loc`'s per-space row sets.
+  `count/tcl-nested-braces` is the same kind of control for
+  `find/tcl-nested-braces`: the walk `bca find` runs, without the
+  render that follows it.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
@@ -614,6 +619,28 @@ one now, and `count/perl-error-tail-calls` prices it:
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
 | `act_on_node` lends no cache | `count/perl-error-tail-calls` | 0.88 | 1.89 | 2.8 ms → 84.5 ms |
+
+What `bca find` does after that walk went unpriced until
+[#1416][find-render]. It printed each match through
+`dump_node_with_color` at depth 1, which chose the match's connector by
+asking `Node::parent`: one `O(depth)` climb per match, 98% of the
+397 ms it took on 4 000 nested Tcl braces. It also printed each
+single-row match's whole span, so a match nested `k` deep was printed
+`k` times, 16 MB of output for 8 KB of input. The renderer the CLI
+calls now, `render_found` in `src/output/dump.rs`, decides the
+connector against the tree's root and prints `…` in place of each
+nested match. `find/tcl-nested-braces` times the walk and that render
+into a sink that reads every byte; `count/tcl-nested-braces` is the
+walk alone. Both take `FIND_RENDER_DEPTHS`, 4 000 / 8 000 / 16 000,
+because the output term needs those depths to overtake the per-match
+cost: on `LINEAR_DEPTHS` the whole-span render fit only 1.56.
+
+| Render put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| a `Node::parent` climb per match | `find/tcl-nested-braces` | 0.99 | 2.00 | 5.3 ms → 6.2 s |
+| each match prints its whole span | `find/tcl-nested-braces` | 0.99 | 1.84 | 5.3 ms → 67.0 ms |
+
+`count/tcl-nested-braces` held at 0.92–0.94 under both.
 
 The AST export reads the same flat `ERROR`, and until [#1684][dump-cursor]
 it did so by index: `Node::child` and `Node::field_name_for_child` both
@@ -1045,3 +1072,4 @@ treating it as a regression.
 [find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
 [dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
 [tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
+[find-render]: https://github.com/dekobon/big-code-analysis/issues/1416
