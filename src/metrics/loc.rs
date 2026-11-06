@@ -9708,7 +9708,10 @@ EOF
     /// `\` + newline mid-row answers `true` and the scan decides — and
     /// only a subset would lose credits. `\` + space + newline is matched
     /// by neither: `RowShape::step` reads the space as `Other`, so the
-    /// scan credits nothing there and skipping it changes no output.
+    /// scan credits nothing there and skipping it changes no output. That
+    /// `false` row documents the predicate's reach rather than guarding
+    /// an output: a clause that matched it would scan a file for nothing
+    /// and fail this row, but would be wasteful, not wrong.
     #[test]
     fn may_hold_bare_rows_matches_every_spelling_the_scan_credits() {
         for (code, expected) in [
@@ -9775,7 +9778,10 @@ EOF
     /// #1821: every grammar that runs the scan skips it on a file with no
     /// `\` row and still runs it on the twin with one, with the same rows
     /// either way (measured on `d080ba7a`, before the exit, with the
-    /// library's verbatim path).
+    /// library's verbatim path). The exit changes no output by design,
+    /// so the plain fixture's rows are a control and only its count
+    /// guards the exit; the bare twin's `(3, 3, 0, 0)` is the scan's
+    /// credit of the `\` row, `(3, 2, 0, 1)` without it in all nine.
     ///
     /// Perturbations (`utils/perturb.py`, `--workspace --no-fail-fast`):
     /// seeding `false` unconditionally fails the bare twins here, every
