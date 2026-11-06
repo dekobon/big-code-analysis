@@ -256,6 +256,24 @@ class DenyManifestsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self._invocations()), len(CRATE_DIRS))
 
+    def test_cargo_deny_with_a_newer_minor_is_accepted(self) -> None:
+        # The floor is a floor: CI's next pin is a 0.x minor above 20.
+        # Every other test runs 0.20.2, the floor's own minor, so a
+        # comparison that admitted that minor alone (`-ne` for `-lt`)
+        # would pass them all and refuse the bump.
+        result = self._run("advisories", STUB_DENY_VERSION="0.21.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self._invocations()), len(CRATE_DIRS))
+
+    def test_unreadable_cargo_deny_version_is_refused(self) -> None:
+        # Without this refusal, `[ x -eq 0 ]` errors inside the version
+        # `if`, which bash reads as false, and the gate runs a cargo-deny
+        # whose version it never established.
+        result = self._run(*ALL_CHECKS, STUB_DENY_VERSION="unknown")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cannot read a version from 'cargo-deny unknown'", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
     # --- the live tree ---
 
     def test_live_tree_tracks_exactly_these_lockfiles(self) -> None:
@@ -275,6 +293,9 @@ class WorkflowWiringTest(unittest.TestCase):
 
     WORKFLOWS = ("ci.yml", "deny-advisories.yml")
     PIN = re.compile(r"cargo-deny@(\d+\.\d+\.\d+)")
+    # A step's `run:` line, so a commented-out step or a mention in a
+    # comment does not count as a call.
+    RUN = re.compile(r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s", re.M)
 
     def test_both_workflows_call_the_script_on_one_pinned_cargo_deny(self) -> None:
         # A workflow left on `cargo-deny-action`, or one that stops calling
@@ -286,7 +307,7 @@ class WorkflowWiringTest(unittest.TestCase):
                 encoding="utf-8"
             )
             with self.subTest(workflow=name):
-                self.assertIn("./utils/check-deny-manifests.sh ", text)
+                self.assertRegex(text, self.RUN)
                 self.assertNotIn("cargo-deny-action@", text)
                 pins[name] = set(self.PIN.findall(text))
                 self.assertEqual(len(pins[name]), 1, pins[name])
