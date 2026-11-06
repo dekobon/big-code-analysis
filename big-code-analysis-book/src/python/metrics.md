@@ -75,9 +75,13 @@ Duplicates are silently collapsed.
 
 Selecting a metric that reads another metric's result computes that
 one too. `nargs` divides its per-channel averages by the function and
-closure counts `nom` supplies; `cognitive` and `nexits` count their
-own function spaces but still pull `nom` in, so a selection naming
-either returns the same blocks it always did.
+closure counts `nom` supplies. A `lambda` is one of those closures
+but opens no space, so its parameters fold into the enclosing
+function's own `closure_args` and `closure_args_average` can fall
+below `closure_args_min` (see [NArgs](../metrics.md#nargs-aggregates)).
+`cognitive` and `nexits` count their own function spaces but still
+pull `nom` in, so a selection naming either returns the same blocks it
+always did.
 
 | Metric | JSON key | Dependencies pulled in |
 |--------|----------|------------------------|

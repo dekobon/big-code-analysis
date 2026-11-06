@@ -586,14 +586,13 @@ Two things are deliberately *not* in that population:
   could report `average 7.0` against `min 14, max 14`.
 
 The same three fields on `cognitive` and `nexits` follow this rule;
-`sum` on all three keeps its all-spaces meaning. [NArgs](#nargs) keeps
-its own two channels — `function_args_average` and
-`closure_args_average` divide each channel's argument total by the
-number of functions or closures [NOM](#nom) counts, spaceless lambdas
-included, and `average` divides the combined total by their sum — so
-it does not follow the function-space population rule (#1809). The remaining metrics'
-`*_average` / `*_min` / `*_max` fields are per-space averages over
-every space in the subtree, as their sections say.
+`sum` on all three keeps its all-spaces meaning.
+[NArgs](#nargs-aggregates) does not follow it: its extrema fold every
+space and its averages divide by the function and closure counts of
+[NOM](#nom), so `closure_args_average` can fall below
+`closure_args_min` (#1809). The remaining metrics' `*_average` /
+`*_min` / `*_max` fields are per-space averages over every space in
+the subtree, as their sections say.
 
 ### Modified cyclomatic
 
@@ -1696,6 +1695,43 @@ maintained by hand: a language is in the first when every kind its
 second when none is (`closures_that_open_a_space_are_what_the_book_says`
 in `big-code-analysis-ast/src/roles/space_tree_tests.rs` pins the two
 against this paragraph; Bash, C, Tcl and iRules have no closure at all).
+
+### Averages, minimums and maximums {#nargs-aggregates}
+
+NArgs does not follow the
+[aggregate population](#aggregate-population) rule of cyclomatic,
+cognitive and NExits. Its extrema and its averages count different
+things:
+
+- `function_args_min` / `function_args_max` and `closure_args_min` /
+  `closure_args_max` fold each space's own count on that channel, over
+  every space in the subtree. A space that declares no parameters on a
+  channel folds a 0 into that channel's minimum. The file unit and
+  containers declare none, so their `function_args_min` is always 0.
+- `function_args_average` and `closure_args_average` divide the
+  channel's argument total by the number of functions or closures
+  [NOM](#nom) counts. `average` divides the combined total by their
+  sum.
+
+Read the extrema per space and the averages per callable. The two
+disagree in the languages whose lambdas open no space, the second list
+under [What the threshold gate measures](#nargs-gate). There a
+lambda's parameters add to the enclosing function's own
+`closure_args`, one member of the extrema, while NOM counts the lambda
+as one closure of the divisor. A function holding several such lambdas
+can report a `closure_args_average` below its `closure_args_min`:
+
+```python
+def pick(rows):
+    a = sorted(rows, key=lambda r: r[0])
+    b = filter(lambda r: r[1], a)
+    c = map(lambda r: r[2], b)
+    return min(c, key=lambda r: r)
+```
+
+`pick` reports `closure_args_min 4`, `closure_args_max 4` and
+`closure_args_average 1.0`: four parameters over four closures, all
+held by one space.
 
 ### Languages where it reads 0 {#nargs-language-gaps}
 

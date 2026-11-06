@@ -28,6 +28,21 @@ use crate::*;
 ///
 /// This metric counts the number of arguments
 /// of functions/closures.
+///
+/// Unlike the per-function fields of cyclomatic, cognitive and nexits
+/// (#1284), the extrema and the averages here read different
+/// populations (#1809):
+///
+/// - `*_min` / `*_max` fold every space's own count on the channel, so a
+///   space declaring none folds a 0. The file unit and containers
+///   declare none, so their [`function_args_min`](Self::function_args_min)
+///   is always 0.
+/// - `*_average` divides the channel's subtree total by the functions or
+///   closures `nom` counts. A lambda that opens no space (Python, Java,
+///   C++, …) adds its parameters to the enclosing function's own
+///   `closure_args` yet is one closure to `nom`, so a function holding
+///   four one-parameter lambdas reports `closure_args_min` 4 and
+///   [`closure_args_average`](Self::closure_args_average) 1.0.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -126,6 +141,9 @@ impl Stats {
     }
 
     /// Returns the average number of closures arguments in a space.
+    ///
+    /// Divides by the closures `nom` counts, so it can fall below
+    /// [`closure_args_min`](Self::closure_args_min); see [`Stats`].
     #[inline]
     #[must_use]
     pub fn closure_args_average(&self) -> f64 {
@@ -175,6 +193,9 @@ impl Stats {
     /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
     /// into `fn_nargs_min` to `0.0`, so a never-observed space
     /// serializes to a meaningful number rather than `1.8446744e19`.
+    ///
+    /// Folds every space in the subtree, so it is 0 on the file unit and
+    /// on every container; see [`Stats`].
     #[inline]
     #[must_use]
     pub fn function_args_min(&self) -> u64 {
@@ -213,6 +234,11 @@ impl Stats {
         self.closure_nargs_sum += self.closure_nargs;
         self.fn_nargs_sum += self.fn_nargs;
     }
+    /// Folds this space's own counts into both channels' extrema,
+    /// whatever its kind. Gating the function channel on
+    /// `SpaceKind::Function`, as cyclomatic does, would change file-level
+    /// `function_args_min`, now always 0: a definition change #1809 left
+    /// open.
     #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.closure_nargs_min = self.closure_nargs_min.min(self.closure_nargs);
