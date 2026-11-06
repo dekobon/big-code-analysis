@@ -455,6 +455,70 @@ class CensusTests(unittest.TestCase):
             [("EQEQ", None, ()), ("LT", None, ("BinaryExpression", "Fold")), ("GT", None, ("Fold",)), ("Instanceof", None, ("Call",))],
         )
 
+    def test_owner_parent_lists_are_read_and_read_the_chain(self) -> None:
+        # An owner's `under [..]` / `not_under [..]` (#1794): bracketed
+        # and non-empty, inside a fragment as on the row, spaced or not.
+        # A list sets `chain_gated` on its own — `Static`'s `opens_by` is
+        # marked, and `Exit`'s second owner is kind-only — and its kinds
+        # are tests, not claims, so `raw_kinds()` leaves them out.
+        (self.t.roles / "ts.rs").write_text(
+            "macro_rules! enum_members {\n"
+            "    (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {\n"
+            "        $crate::role_table!(@owners $cont [$($acc)* PropertyIdentifier(under [EnumBody]), "
+            "Computed(under [EnumBody, Fold,]),] $($rest)*);\n"
+            "    };\n"
+            "}\n"
+        )
+        self.t.write(
+            "java",
+            "    lang: Java;\n"
+            "    DocTarget { owns [..enum_members!(), Class(not_under [ClassLiteral]), "
+            "Static(not_under[Import, Requires] opens_by h no_chain), Plain] }\n"
+            "    Exit { owns [ReturnStatement(under [Block]), ThrowStatement] }\n"
+            "    Modifier { owns [Public] }\n",
+        )
+        rows = rt.parse_table(self.t.roles / "java.rs").rows
+        self.assertEqual(
+            [(o.kind, o.under, o.not_under, o.gate, o.chain_gated) for o in rows["DocTarget"].owners],
+            [
+                ("PropertyIdentifier", ("EnumBody",), (), None, True),
+                ("Computed", ("EnumBody", "Fold"), (), None, True),
+                ("Class", (), ("ClassLiteral",), None, True),
+                ("Static", (), ("Import", "Requires"), None, True),
+                ("Plain", (), (), None, False),
+            ],
+        )
+        self.assertEqual(rows["DocTarget"].raw_kinds(), ["PropertyIdentifier", "Computed", "Class", "Static", "Plain"])
+        self.assertEqual(
+            [(role, rows[role].chain_gated) for role in ("DocTarget", "Exit", "Modifier")],
+            [("DocTarget", True), ("Exit", True), ("Modifier", False)],
+        )
+        # What the macro rejects is an error here: a bare kind, an empty
+        # or unreadable list, a list beside a gate or `holds_payer` in
+        # either order, two lists, and a `no_chain` after one.
+        for bad in (
+            "A(under Block)",
+            "A(under)",
+            "A(under [])",
+            "A(not_under [ ])",
+            "A(under [B C])",
+            "A(under [B,,C])",
+            "A(under [B] gated_by g)",
+            "A(gated_by g under [B])",
+            "A(holds_payer under [B])",
+            "A(under [B] holds_payer)",
+            "A(under [B] not_under [C])",
+            "A(under [B] no_chain)",
+        ):
+            self.t.write("java", f"    lang: Java;\n    Exit {{ owns [{bad}] }}\n")
+            with self.assertRaises(rt.RoleTableError, msg=bad):
+                rt.parse_table(self.t.roles / "java.rs")
+        # The payer's list shares the parser, so it is held to the same
+        # list shape.
+        self.t.write("java", "    lang: Java;\n    Call { owns [A] pays [EQEQ under [B,,C]] }\n")
+        with self.assertRaises(rt.RoleTableError, msg="payer"):
+            rt.parse_table(self.t.roles / "java.rs")
+
     def test_self_paying_owners_are_read_in_both_spellings(self) -> None:
         # `pays_itself` and `pays_itself_when f` both mark a self-paying
         # owner (#1695); the differential test compares kinds only, so

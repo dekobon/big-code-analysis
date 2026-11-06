@@ -59,15 +59,6 @@ fn not_in_a_directive<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
     })
 }
 
-/// Whether a `class` keyword declares a class rather than ending a
-/// class literal (`C.class`), where it is the operand the `.` acts on:
-/// JLS §15.8.2 makes the literal a primary expression, not a literal
-/// (§3.10), so its parts bill as they would anywhere else, as Kotlin's
-/// and PHP's `Foo::class` and Groovy's `Foo.class` bill theirs (#1566).
-fn not_a_class_literal<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    !ancestors.parent_has_kind(node, Java::ClassLiteral as u16)
-}
-
 // `else if` is an `if_statement` whose previous sibling is the bare `else`
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
@@ -295,9 +286,12 @@ role_table! {
     }
     // The type-declaration keywords, billed as C# bills its own
     // (#1552). Only the leaves: no `*_declaration` wrapper is listed, so
-    // a declaration bills its keyword once.
+    // a declaration bills its keyword once. A `class` under a
+    // `class_literal` (`C.class`) ends the literal and declares nothing:
+    // JLS §15.8.2 makes the literal a primary expression, not a literal
+    // (§3.10), so its parts are what they are anywhere else (#1566).
     DeclKeyword {
-        owns [Class(gated_by not_a_class_literal), Interface, Enum, Record, ATinterface]
+        owns [Class(not_under [ClassLiteral]), Interface, Enum, Record, ATinterface]
     }
     // Each primitive is a kind of its own (`int`, `boolean_type`, …), so
     // none is keyed by text and `Checker::is_primitive` stays the

@@ -448,7 +448,8 @@ macro_rules! js_doc_gates {
 /// assignment statements are not here: tsc does not declare them. The
 /// `using` form is one, read by its own gate; an enum member without an
 /// initializer is a bare name under the `enum_body`, gated on that
-/// parent.
+/// parent, since anywhere else a `property_identifier` is a member name
+/// after a modifier or a `.`, inside what it names.
 macro_rules! ts_family_doc_targets {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
@@ -473,8 +474,8 @@ macro_rules! ts_family_doc_targets {
             OptionalParameter2,
             ExportStatement(gated_by export_declares_to_tsc),
             ExpressionStatement(gated_by using_declares no_chain),
-            PropertyIdentifier(gated_by under_enum_body),
-            ComputedPropertyName(gated_by under_enum_body),
+            PropertyIdentifier(under [EnumBody]),
+            ComputedPropertyName(under [EnumBody]),
         ] $($rest)*);
     };
 }
@@ -489,7 +490,7 @@ macro_rules! ts_family_doc_targets {
 /// asked through the row's `owns` with the *export's* chain: exact,
 /// because the `declaration` field holds a `declaration` supertype or
 /// an `internal_module` (`node-types.json`) and the row's chain-reading
-/// owners — the enum-member kinds under `under_enum_body` — are never
+/// owners — the enum-member kinds gated `under [EnumBody]` — are never
 /// among those, which `roles/doc_tests/mod.rs` pins; and the parent context
 /// tsc reads (a declaration under `export` documents nothing on its
 /// own) is the Checker's over the *export*, never applied to the child.
@@ -542,17 +543,6 @@ macro_rules! ts_doc_gates {
                             .is_some_and(|left| left.kind_id() == Identifier)
                 })
             })
-        }
-
-        /// An enum member without an initializer is a bare name in the
-        /// enum body; anywhere else a `property_identifier` is a member
-        /// name after a modifier or a `.`, inside what it names.
-        fn under_enum_body<'a>(
-            node: &$crate::Node<'a>,
-            _: &[u8],
-            ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
-            ancestors.parent_has_kind(node, $lang::EnumBody as u16)
         }
     };
 }

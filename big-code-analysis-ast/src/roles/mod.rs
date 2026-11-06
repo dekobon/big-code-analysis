@@ -160,6 +160,9 @@
 //!                  excludes [QMARK "a wildcard bound's `?` is type syntax"] }
 //!     Container  { owns [ClassDeclaration(opens Class),
 //!                        ObjectCreationExpression(opens Class gated_by has_class_body)] }
+//!     Modifier   { owns [Static(not_under [ImportDeclaration, RequiresModifier]),
+//!                        Final] }
+//!     DocTarget  { owns [PropertyIdentifier(under [EnumBody])] }
 //!     ElseIf     { owns [IfStatement(gated_by follows_else)] pays [] }
 //!     Guard      { owns [Guard] pays never }
 //!     NullSafe   { absent "no `?.` or `??`" }
@@ -195,6 +198,18 @@
 //!   bytes and no chain, Groovy's `spells_var` both — so
 //!   `TEXT_GATED` comes from the keyword and `CHAIN_GATED` from the
 //!   absence of the modifier.
+//! - `under [P, Q]` makes the kind own the construct only where its
+//!   parent is one of the listed kinds, and `not_under [P, Q]` only
+//!   where it is none of them, a parentless node included (#1794):
+//!   Python's `if_clause` is a `case` guard under a `case_clause` and a
+//!   comprehension filter anywhere else; Java's `class` under a
+//!   `class_literal` ends `C.class`. The list is bracketed even for one
+//!   kind, and not empty. It is the owner's gate — exclusive with
+//!   `gated_by`, `text_gated_by` and `holds_payer` — and reads the
+//!   chain (`Ancestors::parent`), so it sets `CHAIN_GATED`. The parent
+//!   kinds are not claimed: they reach no kind list, and the coverage
+//!   ratchet does not count them. A test of anything beyond the
+//!   parent's kind stays a `fn`.
 //! - `pays_itself` marks a kind the grammar gives no token for, so the
 //!   owner is also the payer; `pays_itself_when f` one the grammar gives
 //!   a token in some spellings and none in others, so the owner pays
@@ -225,16 +240,17 @@
 //!   `function_expression` opens a space wherever it sits and is a
 //!   function only when bound to a name, a closure otherwise.
 //!
-//! An owner takes at most one gate, one `pays_itself*` and one `opens*`;
-//! a second of any is a compile error. An owner that needs two
-//! conditions names one `fn` that tests both.
+//! An owner takes at most one gate (a parent list is one), one
+//! `pays_itself*` and one `opens*`; a second of any is a compile error.
+//! An owner that needs two conditions names one `fn` that tests both.
 //!
 //! ## Payer attributes
 //!
 //! A payer takes `gated_by f` or `text_gated_by f` bare, after its kind,
 //! or `under P` / `under [P, Q]`, which gates it on its parent's kind —
 //! the one gate a token the grammar spells in several productions reads
-//! (`?` under the ternary and not a wildcard).
+//! (`?` under the ternary and not a wildcard), the same test as an
+//! owner's `under`.
 //!
 //! ## Row attributes
 //!
@@ -340,8 +356,9 @@
 //!   a gate named under the wrong keyword is the author's error.
 //! - `CHAIN_GATED`: whether any owner carries a `gated_by` /
 //!   `text_gated_by` gate or an `opens_by` fn *without* `no_chain`
-//!   (#1793), so a forward that hands the row a known-empty chain
-//!   asserts at build time that no gate it reaches can take the chain.
+//!   (#1793), or an `under` / `not_under` list, so a forward that
+//!   hands the row a known-empty chain asserts at build time that no
+//!   gate it reaches can take the chain.
 //!   It covers the `owns` / `pays_at_wrapper` projections and the
 //!   `opens_space` fold — the ones a chain-less forward reads — and
 //!   not `callable_when`, `pays_itself_when` or a payer's gate, which
@@ -513,8 +530,9 @@
 //! The check
 //! is the alias inventory of `grammar-dispatch.md` §1 — every
 //! numeric-suffix variant listed or excluded with a comment — for row
-//! declarations as for consumers, and the §7 cross-walk of the sibling
-//! predicates.
+//! declarations as for consumers, an `under` / `not_under` list
+//! included, since no gate reads one, and the §7 cross-walk of the
+//! sibling predicates.
 //!
 //! **A forward whose dropped context no gate reads yet.** A byte-less or
 //! chain-less forward answers the same under any context until the day
@@ -1065,6 +1083,30 @@ impl RowView {
 /// # fn main() {}
 /// ```
 ///
+/// A parent list is the owner's gate, so it sits beside no other, and
+/// it names at least one kind (#1794):
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::{Ancestors, Java, Node};
+/// fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+/// role_table! {
+///     lang: Java;
+///     Exit { owns [ReturnStatement(under [Block] gated_by always)] }
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// # #[macro_use] extern crate big_code_analysis_ast;
+/// # use big_code_analysis_ast::Java;
+/// role_table! {
+///     lang: Java;
+///     Exit { owns [ReturnStatement(not_under [])] }
+/// }
+/// # fn main() {}
+/// ```
+///
 /// And a kind owned by two rows of the same role:
 ///
 /// ```compile_fail
@@ -1153,6 +1195,8 @@ impl RowView {
 ///         owns [MethodDeclaration(callable opens Function), StaticInitializer(opens Function)]
 ///     }
 ///     Guard { owns [Guard] pays never }
+///     Modifier { owns [Static(not_under [ImportDeclaration, RequiresModifier]), Final] }
+///     DeclKeyword { owns [Class(under [ClassDeclaration])] }
 ///     NullSafe { absent "no `?.`" }
 ///     Comment { pending R11 }
 /// }
@@ -1162,6 +1206,9 @@ impl RowView {
 /// assert_eq!(comparison::PAYERS, &[Java::EQEQ as u16, Java::LT as u16]);
 /// assert_eq!((exit::PAYS_NEVER, guard::PAYS_NEVER), (false, true));
 /// assert_eq!((comparison::CHAIN_GATED, container::CHAIN_GATED), (true, false));
+/// // A parent list reads the chain, and its kinds are not owners.
+/// assert_eq!((modifier::CHAIN_GATED, decl_keyword::CHAIN_GATED), (true, true));
+/// assert_eq!(modifier::OWNERS, &[Java::Static as u16, Java::Final as u16]);
 /// # }
 /// ```
 #[macro_export]
@@ -1586,7 +1633,8 @@ macro_rules! role_table {
             ) )*;
 
             /// Whether any owner carries a `gated_by` / `text_gated_by`
-            /// gate or an `opens_by` fn that is *not* marked `no_chain`
+            /// gate or an `opens_by` fn that is *not* marked `no_chain`,
+            /// or an `under` / `not_under` parent list (#1794)
             /// — the row may read the chain it is handed through
             /// [`owns`], [`pays_at_wrapper`] or the table's `opens_space`
             /// fold. A forward that hands the row a known-empty chain
@@ -1779,9 +1827,11 @@ macro_rules! role_table {
     // emitters below call the first with three arguments and the second
     // with two, so a `no_chain` gate cannot be given the chain by
     // construction. `opens_by f no_chain` is carried as `[by f no_chain]`
-    // the same way. `callable_when`, `pays_itself_when` and a payer's gate
-    // take no `no_chain`: nothing that drops the chain reads them, and a
-    // mark no consumer asserts would be a claim nothing checks.
+    // the same way, and an owner's parent list as `[under [P, ..]]` or
+    // `[not_under [P, ..]]` (#1794). `callable_when`, `pays_itself_when`
+    // and a payer's gate take no `no_chain`: nothing that drops the
+    // chain reads them, and a mark no consumer asserts would be a claim
+    // nothing checks.
 
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@$d $m $ctx $k $g $p $s $c)
@@ -1855,6 +1905,15 @@ macro_rules! role_table {
     (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt text_gated_by $g:ident $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k [$g] $p $s $c $($r)*)
     };
+    // An owner's parent list is its gate, so it needs the slot empty:
+    // beside `gated_by` or `holds_payer`, in either order, it matches
+    // no rule (#1794).
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt under [$($u:ident),+ $(,)?] $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [under [$($u),+]] $p $s $c $($r)*)
+    };
+    (@scan $d:ident $m:tt $ctx:tt $k:ident [] $p:tt $s:tt $c:tt not_under [$($u:ident),+ $(,)?] $($r:tt)*) => {
+        $crate::role_table!(@scan $d $m $ctx $k [not_under [$($u),+]] $p $s $c $($r)*)
+    };
     (@scan $d:ident $m:tt $ctx:tt $k:ident $g:tt [] $s:tt $c:tt pays_itself $($r:tt)*) => {
         $crate::role_table!(@scan $d $m $ctx $k $g [pays_itself] $s $c $($r)*)
     };
@@ -1878,7 +1937,12 @@ macro_rules! role_table {
 
     // In `owns`: the owner's clause, gated or not. A gate slot is
     // `[g]` or `[g no_chain]`, carried into the clause as
-    // `gated_by g` / `gated_by g no_chain`.
+    // `gated_by g` / `gated_by g no_chain`. A parent list,
+    // `[under [..]]` or `[not_under [..]]`, is handed to `@gate` whole,
+    // here and in every terminal below that emits a clause.
+    (@owner_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt $c:tt) => {
+        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
+    };
     (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause_payer $ctx $k $(gated_by $g $($nc)?)?);
     };
@@ -1892,7 +1956,12 @@ macro_rules! role_table {
         false
     };
     // In `CHAIN_GATED`: every gate and `opens_by` the owner carries was
-    // consumed with its `no_chain`, or the owner carries none.
+    // consumed with its `no_chain`, or the owner carries none — unless
+    // the gate is a parent list, which reads the chain by construction
+    // and takes no modifier, so the slot alone says so (#1794).
+    (@chain_gated_kind [] [] $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt $c:tt) => {
+        true
+    };
     (@chain_gated_kind [] [] $k:ident $g:tt $p:tt $s:tt $c:tt) => {
         false
     };
@@ -1940,6 +2009,12 @@ macro_rules! role_table {
     // a `callable_when w` owner's under its gate *and* `w`; an owner
     // without either mark emits nothing.
     (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt []) => {};
+    (@callable_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt [callable]) => {
+        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
+    };
+    (@callable_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt [callable $w:ident]) => {
+        $crate::role_table!(@clause_when_gated $ctx $k $w [$rel [$($q),+]]);
+    };
     (@callable_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt [callable]) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
     };
@@ -1955,6 +2030,12 @@ macro_rules! role_table {
     // already pays, and under `pays never` it would contradict the row
     // — so the other two modes reject it.
     (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt $c:tt) => {};
+    (@self_payer_done [split] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] [pays_itself] $s:tt $c:tt) => {
+        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
+    };
+    (@self_payer_done [split] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] [pays_itself $w:ident] $s:tt $c:tt) => {
+        $crate::role_table!(@clause_when_gated $ctx $k $w [$rel [$($q),+]]);
+    };
     (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] [pays_itself] $s:tt $c:tt) => {
         $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
     };
@@ -1971,6 +2052,12 @@ macro_rules! role_table {
     };
     // In `opens_space`: an `opens K` owner returns its kind, under its gate.
     (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [] $c:tt) => {};
+    (@opens_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
+        $crate::role_table!(@space_clause_by_gated $ctx $k [$f $($fnc)?] [$rel [$($q),+]]);
+    };
+    (@opens_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt [$s:ident] $c:tt) => {
+        $crate::role_table!(@space_clause_gated $ctx $k $s [$rel [$($q),+]]);
+    };
     (@opens_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
         $crate::role_table!(@space_clause_by $ctx $k [$f $($fnc)?] $(gated_by $g $($nc)?)?);
     };
@@ -1998,13 +2085,26 @@ macro_rules! role_table {
     // A gate call is rendered by `@gate`: three arguments for a gate
     // with a chain parameter, two for one declared `no_chain` (#1793),
     // so the chain is unobtainable by a marked gate by construction —
-    // the proof is the signature, not the row.
+    // the proof is the signature, not the row. A parent list, an
+    // owner's or a payer's, is the parent-kind test itself (#1794).
 
     (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [$g:ident]) => {
         $g($n, $c, $a)
     };
     (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [$g:ident no_chain]) => {
         $g($n, $c)
+    };
+    // Read off the walk's chain, `Ancestors::parent`: `Node::parent`
+    // resolves a parent by descending from the root (#1084, #1584). A
+    // node with no parent is under nothing, so `not_under` admits it.
+    (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [under [$($p:ident),*]]) => {
+        $a.parent($n).is_some_and(|parent| {
+            let parent = parent.kind_id();
+            false $(|| parent == $l::$p as u16)*
+        })
+    };
+    (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [not_under [$($p:ident),*]]) => {
+        !$crate::role_table!(@gate [$l $kind $n $c $a] [under [$($p),*]])
     };
 
     (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident) => {
@@ -2021,13 +2121,8 @@ macro_rules! role_table {
         }
     };
     // A payer `under [P, Q]`: its parent is one of the listed kinds.
-    (@clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident under [$($p:ident),*]) => {
-        if $kind == $l::$k as u16 {
-            return $a.parent($n).is_some_and(|parent| {
-                let parent = parent.kind_id();
-                false $(|| parent == $l::$p as u16)*
-            });
-        }
+    (@clause $ctx:tt $k:ident under [$($p:ident),*]) => {
+        $crate::role_table!(@clause_gated $ctx $k [under [$($p),*]]);
     };
     // A `holds_payer` owner: its projection lands on one of the row's
     // payers, under its gate if it has one.
@@ -2445,9 +2540,10 @@ mod tests {
     // because `pays []` and a plain `owns [..]` row print the same
     // lists, so a reader that misread one as the other agreed with
     // every table until the mode was emitted. An owner's or payer's
-    // gate, `holds_payer`, `under`,
-    // `pays_itself` and `opens` are not in it, and the reader's handling
-    // of those is pinned by `utils/check-role-census-test.py` instead.
+    // gate, `holds_payer`, `under`, `not_under`,
+    // `pays_itself` and `opens` are not in it beyond the two flags, and
+    // the reader's handling of those is pinned by
+    // `utils/check-role-census-test.py` instead.
     // Every language's module is compiled unconditionally, so the
     // comparison needs no grammar and runs in every build. A missing
     // `python3` is a failure, not a skip: a pass that ran nothing would
@@ -2760,6 +2856,45 @@ mod tests {
             lang: Java;
             Container { owns [ClassDeclaration(opens_by class_or_interface_no_chain no_chain gated_by always)] }
             FuncOpener { owns [EnumDeclaration(gated_by always opens_by class_or_interface_no_chain no_chain)] }
+        }
+    }
+
+    // An owner's parent list (#1794) in every terminal it reaches, each
+    // the only chain reader of its row — the `Container`'s `opens_by` is
+    // marked `no_chain` — so the row's `CHAIN_GATED` is the list's
+    // alone. Every list names the decisive parent *second*, so a clause
+    // that read only the first alternative would miss it, and the
+    // fixture spells each owner under its listed parent and away from
+    // it, so a terminal that dropped the list would answer both alike.
+    // The `never` `when` fns are the other half: a terminal that dropped
+    // the `when` would pay at the leaf, or be callable, where the list
+    // admits the node.
+    mod dsl_parent_gates {
+        use super::{always, class_or_interface_no_chain, never};
+        use crate::Java;
+
+        role_table! {
+            lang: Java;
+            Branch { owns [IfStatement(under [ClassBody, Block])] }
+            Loop { owns [WhileStatement(not_under [ClassBody, Block])] }
+            ElseIf {
+                owns [
+                    IfStatement(pays_itself not_under [ClassBody, Block]),
+                    DoStatement(pays_itself_when always under [ClassBody, Block]),
+                    WhileStatement(pays_itself_when never under [ClassBody, Block]),
+                ]
+                pays []
+            }
+            FuncOpener {
+                owns [
+                    ConstructorDeclaration(opens Function callable_when never under [Program, ClassBody]),
+                    MethodDeclaration(callable opens Function under [Program, ClassBody]),
+                    LambdaExpression(opens Function callable_when always not_under [ClassBody, VariableDeclarator]),
+                ]
+            }
+            Container {
+                owns [ClassDeclaration(opens_by class_or_interface_no_chain no_chain under [InterfaceBody, Program])]
+            }
         }
     }
 
@@ -3112,6 +3247,190 @@ mod tests {
         );
     }
 
+    /// The `dsl_parent_gates` fixture: each owner of that table spelled
+    /// under the parent its list names and away from it.
+    #[cfg(feature = "java")]
+    const PARENT_LIST_FIXTURE: &[u8] = b"class A {\n\
+        A() { }\n\
+        void m(boolean a) {\n\
+        if (a) { } else if (a) { }\n\
+        while (a) while (a) { }\n\
+        do { } while (a);\n\
+        if (a) do { } while (a);\n\
+        Runnable r = () -> { };\n\
+        run(() -> { });\n\
+        }\n\
+        class B { }\n\
+        }\n\
+        interface I { void g(); }\n";
+
+    /// An owner's `under` / `not_under` list (#1794) in `owns`, each
+    /// owner asked under the parent its list names and away from it, the
+    /// parent recorded beside every answer. The parent kinds are tests,
+    /// not claims, so no kind list names them.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_parent_list_gates_an_owner_on_its_parents_kind() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_parent_gates::{branch, container, r#loop};
+        let source = PARENT_LIST_FIXTURE;
+        let (mut branches, mut loops) = (Vec::new(), Vec::new());
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let a = Ancestors::known(chain);
+            let parent = chain.last().map_or("", |p| p.kind());
+            if node.kind_id() == Java::IfStatement as u16 {
+                branches.push((parent, branch::owns(node, source, a)));
+            }
+            if node.kind_id() == Java::WhileStatement as u16 {
+                loops.push((parent, r#loop::owns(node, source, a)));
+            }
+        });
+        // `under [ClassBody, Block]`: the two `if`s in the block, not
+        // the `else if` under its outer `if`.
+        assert_eq!(
+            branches,
+            [("block", true), ("if_statement", false), ("block", true)]
+        );
+        // `not_under [ClassBody, Block]`: the inner `while` only.
+        assert_eq!(loops, [("block", false), ("while_statement", true)]);
+        assert_eq!(branch::OWNERS, &[Java::IfStatement as u16]);
+        assert_eq!(container::OWNERS, &[Java::ClassDeclaration as u16]);
+    }
+
+    /// A list beside `pays_itself` and `pays_itself_when` (#1794): the
+    /// leaf pays where the list admits the owner and only there, and a
+    /// `pays_itself_when` still asks its `when`.
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_parent_list_gates_a_self_paying_owner_at_the_leaf() {
+        use crate::JavaCode;
+        use crate::test_support::for_each_node_with_chain;
+        use dsl_parent_gates::else_if;
+        let source = PARENT_LIST_FIXTURE;
+        let mut chained = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let a = Ancestors::known(chain);
+            if matches!(
+                node.kind_id().into(),
+                Java::IfStatement | Java::WhileStatement | Java::DoStatement
+            ) {
+                chained.push((
+                    node.kind(),
+                    chain.last().map_or("", |p| p.kind()),
+                    else_if::owns(node, source, a),
+                    else_if::pays_at_leaf(node, source, a),
+                ));
+            }
+        });
+        // `pays_itself` beside `not_under`: the `else if` pays; the `do`
+        // pays under `always` in the block, not under the `if`; the
+        // `while` is admitted by its list and owns, and pays nowhere
+        // under `never`.
+        assert_eq!(
+            chained,
+            [
+                ("if_statement", "block", false, false),
+                ("if_statement", "if_statement", true, true),
+                ("while_statement", "block", true, false),
+                ("while_statement", "while_statement", false, false),
+                ("do_statement", "block", true, true),
+                ("if_statement", "block", false, false),
+                ("do_statement", "if_statement", false, false),
+            ]
+        );
+    }
+
+    /// A list in `is_callable`, beside `callable` and `callable_when`,
+    /// and in the `opens_space` fold, beside `opens` and `opens_by`
+    /// (#1794).
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_parent_list_gates_callables_and_the_opens_space_fold() {
+        use crate::test_support::for_each_node_with_chain;
+        use crate::{JavaCode, SpaceKind};
+        use dsl_parent_gates::{func_opener, opens_space};
+        let source = PARENT_LIST_FIXTURE;
+        let mut openers = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let a = Ancestors::known(chain);
+            if matches!(
+                node.kind_id().into(),
+                Java::ClassDeclaration
+                    | Java::ConstructorDeclaration
+                    | Java::MethodDeclaration
+                    | Java::LambdaExpression
+            ) {
+                openers.push((
+                    node.kind(),
+                    chain.last().map_or("", |p| p.kind()),
+                    func_opener::owns(node, source, a),
+                    func_opener::is_callable(node, source, a),
+                    opens_space(node, source, a),
+                ));
+            }
+        });
+        // The constructor is admitted and never callable; the method is
+        // callable in the class and nothing in the interface; the lambda
+        // is nothing in its declarator and callable as an argument. The
+        // top-level class opens through its `opens_by`, the nested one
+        // not at all.
+        assert_eq!(
+            openers,
+            [
+                (
+                    "class_declaration",
+                    "program",
+                    false,
+                    false,
+                    SpaceKind::Class
+                ),
+                (
+                    "constructor_declaration",
+                    "class_body",
+                    true,
+                    false,
+                    SpaceKind::Function
+                ),
+                (
+                    "method_declaration",
+                    "class_body",
+                    true,
+                    true,
+                    SpaceKind::Function
+                ),
+                (
+                    "lambda_expression",
+                    "variable_declarator",
+                    false,
+                    false,
+                    SpaceKind::Unknown
+                ),
+                (
+                    "lambda_expression",
+                    "argument_list",
+                    true,
+                    true,
+                    SpaceKind::Function
+                ),
+                (
+                    "class_declaration",
+                    "class_body",
+                    false,
+                    false,
+                    SpaceKind::Unknown
+                ),
+                (
+                    "method_declaration",
+                    "interface_body",
+                    false,
+                    false,
+                    SpaceKind::Unknown
+                ),
+            ]
+        );
+    }
+
     /// `canonical()` names the row's mode as its own field, so the
     /// Python reader is held to the mode and not only to the lists it
     /// prints (#1745): a split row with payers and one without both
@@ -3298,8 +3617,10 @@ mod tests {
             assert_eq!(*text_gated, *order != "gated_by, not text", "{order}");
         }
         // `no_chain` leaves the byte axis alone: a marked text gate is
-        // still text-gated, a marked plain gate still is not.
+        // still text-gated, a marked plain gate still is not. A parent
+        // list reads no bytes (#1794).
         let marked: &[(&str, bool, bool)] = &[
+            ("under, alone", dsl_parent_gates::branch::TEXT_GATED, false),
             (
                 "text_gated_by … no_chain",
                 dsl_no_chain::catch::TEXT_GATED,
@@ -3324,7 +3645,7 @@ mod tests {
     /// case: it reads the chain and is outside `CHAIN_GATED`.
     #[test]
     fn text_and_chain_flags_are_independent_on_the_production_rows() {
-        use crate::roles::{groovy, java, javascript, kotlin, ruby};
+        use crate::roles::{groovy, java, javascript, kotlin, python, ruby};
         type Flags = (bool, bool);
         let rows: &[(&str, Flags, Flags)] = &[
             (
@@ -3376,6 +3697,19 @@ mod tests {
                 "java NullSafe, absent",
                 (java::null_safe::TEXT_GATED, java::null_safe::CHAIN_GATED),
                 (false, false),
+            ),
+            (
+                "python Guard `under [CaseClause]`, its only owner: chain, no bytes",
+                (python::guard::TEXT_GATED, python::guard::CHAIN_GATED),
+                (false, true),
+            ),
+            (
+                "java DeclKeyword `not_under [ClassLiteral]`, its only gate: chain, no bytes",
+                (
+                    java::decl_keyword::TEXT_GATED,
+                    java::decl_keyword::CHAIN_GATED,
+                ),
+                (false, true),
             ),
             (
                 "java Exit, kind-only",
@@ -3469,6 +3803,28 @@ mod tests {
                 true,
             ),
             ("kind-only owners", dsl_gates::guard::CHAIN_GATED, false),
+            // A parent list, the row's only chain reader (#1794).
+            ("under alone", dsl_parent_gates::branch::CHAIN_GATED, true),
+            (
+                "not_under alone",
+                dsl_parent_gates::r#loop::CHAIN_GATED,
+                true,
+            ),
+            (
+                "a list beside pays_itself and pays_itself_when",
+                dsl_parent_gates::else_if::CHAIN_GATED,
+                true,
+            ),
+            (
+                "a list beside callable and callable_when",
+                dsl_parent_gates::func_opener::CHAIN_GATED,
+                true,
+            ),
+            (
+                "a list beside a no_chain opens_by",
+                dsl_parent_gates::container::CHAIN_GATED,
+                true,
+            ),
         ];
         for (order, got, want) in synthetic {
             assert_eq!(got, want, "{order}");

@@ -69,6 +69,7 @@ it. Where each kind of rationale goes:
 | --- | --- |
 | the grammar fact a row encodes — what the construct's nodes are, how they nest, why an alias is listed or left off | a `//` comment on the line above the row, inside the invocation |
 | why a gate exists and what it reads (`gated_by f`, `text_gated_by f`) | the `///` doc on the gate `fn` beside the table |
+| why an owner is gated `under [..]` / `not_under [..]` its parents — a gate with no `fn` to carry it | the `//` comment above the row, as the grammar fact it is |
 | why a kind the author considered is not on the row | the `excludes [K "why"]` string itself — it is read by the coverage gate and printed with the residue |
 | which consumer reads which projection, and why it counts there | at the consumer, in `big-code-analysis` |
 | the shape of the macro — what `owns`, `pays`, `opens` mean | `roles/mod.rs` only, never a row comment |

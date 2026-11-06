@@ -212,7 +212,7 @@ role_table! {
         owns [
             ..js_family_doc_targets!(),
             ..ts_family_doc_targets!(),
-            String(gated_by under_enum_body),
+            String(under [EnumBody]),
         ]
     }
     DocRunOpener { absent "TSDoc attaches every doc comment to a declaration or the module; none documents by its own content" }

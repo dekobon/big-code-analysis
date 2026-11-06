@@ -279,14 +279,22 @@ class Owner:
     # the gate under which it is one (#1696).
     callable: bool = False
     callable_when: str | None = None
+    # `under [P, Q]` / `not_under [P, Q]`: the parent kinds the owner is
+    # gated to, or away from (#1794). The owner's gate, so exclusive with
+    # `gate` and `holds_payer`; the kinds are not claimed by the row.
+    under: tuple[str, ...] = ()
+    not_under: tuple[str, ...] = ()
 
     @property
     def chain_gated(self) -> bool:
         """Whether this owner's gate or `opens_by` fn takes the chain —
         the macro's per-owner term of `CHAIN_GATED` (#1793), which
-        reads neither `callable_when` nor `pays_itself_when`."""
-        return (self.gate is not None and not self.gate_no_chain) or (
-            self.opens_by is not None and not self.opens_by_no_chain
+        reads neither `callable_when` nor `pays_itself_when`. A parent
+        list always reads it (#1794)."""
+        return (
+            (self.gate is not None and not self.gate_no_chain)
+            or (self.opens_by is not None and not self.opens_by_no_chain)
+            or bool(self.under or self.not_under)
         )
 
 
@@ -396,6 +404,21 @@ PAYER_RE = re.compile(
     rf"({IDENT})"
     rf"(?:\s+(?:text_)?gated_by\s+({IDENT})|\s+under\s+(?:({IDENT})|\[([^\]]*)\]))?\s*$"
 )
+# An owner's attribute words: a bracketed parent list is one token, and a
+# stray bracket one of its own, so it reaches the attribute loop and is
+# reported there rather than skipped.
+ATTR_TOKEN_RE = re.compile(r"\[[^\[\]]*\]|[^\s\[\]]+|\S")
+# A parent list's inside: one or more kinds, a trailing comma allowed —
+# what `$($p:ident),+ $(,)?` accepts.
+PARENT_LIST_RE = re.compile(rf"\s*{IDENT}(?:\s*,\s*{IDENT})*\s*,?\s*")
+
+
+def _parent_list(inner: str) -> tuple[str, ...] | None:
+    """The kinds of an `under [..]` / `not_under [..]` list body, or
+    ``None`` where the macro would reject it (empty, or not kinds)."""
+    if not PARENT_LIST_RE.fullmatch(inner):
+        return None
+    return tuple(re.findall(IDENT, inner))
 
 
 def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
@@ -413,7 +436,9 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
     holds_payer = False
     callable_ = False
     callable_when = None
-    attrs = (m.group(3) or "").split()
+    under: tuple[str, ...] = ()
+    not_under: tuple[str, ...] = ()
+    attrs = ATTR_TOKEN_RE.findall(m.group(3) or "")
 
     def no_chain_after(i: int) -> bool:
         # `no_chain` is a trailing modifier on the fn it follows (#1793);
@@ -427,10 +452,12 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
         if a == "holds_payer":
             if holds_payer:
                 raise RoleTableError(f"{path}:{line}: `{kind}` repeats `holds_payer`")
+            if under or not_under:
+                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated gate")
             holds_payer = True
             i += 1
         elif a in ("gated_by", "text_gated_by"):
-            if gate is not None or i + 1 >= len(attrs):
+            if gate is not None or under or not_under or i + 1 >= len(attrs):
                 raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated gate")
             gate = attrs[i + 1]
             text_gated = a == "text_gated_by"
@@ -438,6 +465,22 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
             if no_chain_after(i):
                 gate_no_chain = True
                 i += 1
+        elif a in ("under", "not_under"):
+            # The owner's parent list fills its one gate slot (#1794),
+            # and the macro takes it bracketed and non-empty only.
+            if gate is not None or holds_payer or under or not_under or i + 1 >= len(attrs):
+                raise RoleTableError(f"{path}:{line}: `{kind}` has a malformed or repeated gate")
+            token = attrs[i + 1]
+            parents = _parent_list(token[1:-1]) if token.startswith("[") and token.endswith("]") else None
+            if parents is None:
+                raise RoleTableError(
+                    f"{path}:{line}: `{kind}`: `{a}` takes a bracketed, non-empty kind list, not `{token}`"
+                )
+            if a == "under":
+                under = parents
+            else:
+                not_under = parents
+            i += 2
         elif a == "pays_itself":
             if pays_itself:
                 raise RoleTableError(f"{path}:{line}: `{kind}` repeats `pays_itself`")
@@ -485,6 +528,8 @@ def _parse_owner(entry: str, line: int, path: pathlib.Path) -> Owner:
         holds_payer,
         callable_,
         callable_when,
+        under,
+        not_under,
     )
 
 
@@ -654,9 +699,10 @@ def _parse_row_body(
                 if pm.group(3):
                     under = (pm.group(3),)
                 elif pm.group(4) is not None:
-                    under = tuple(p.strip() for p in pm.group(4).split(",") if p.strip())
-                    if not under or any(not re.fullmatch(IDENT, p) for p in under):
+                    parsed = _parent_list(pm.group(4))
+                    if parsed is None:
                         raise RoleTableError(f"{path}:{line}: `{role}`: unreadable `under` list on `{pm.group(1)}`")
+                    under = parsed
                 row.payers.append(Payer(pm.group(1), pm.group(2), under))
     pm = re.match(r"\s*project\s+", body[pos:])
     if pm:

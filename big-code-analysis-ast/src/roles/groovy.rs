@@ -139,14 +139,6 @@ fn spells_var<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) ->
         })
 }
 
-/// Whether a `static` qualifies a declaration rather than `import
-/// static`, whose `static` bills nothing as `import` does not; Java
-/// makes the same call, and the reasoning (#1600) is on its
-/// `not_in_a_directive`.
-fn not_in_an_import<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    !ancestors.parent_has_kind(node, Groovy::ImportDeclaration as u16)
-}
-
 // `else if` is an `if_statement` whose previous sibling is the bare `else`
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
@@ -325,10 +317,13 @@ role_table! {
     // as a name (`non-sealed` as a subtraction parses as `non`, `-` and
     // an identifier `sealed`). `default` is not here: it is one kind for
     // a `switch` label and an interface method's modifier, and bills
-    // with the control keywords.
+    // with the control keywords. The `static` of `import static` sits
+    // under the `import_declaration`, a directive that qualifies no
+    // declaration; Java's row reads the same parent, and the reasoning
+    // (#1600) is on its `not_in_a_directive`.
     Modifier {
         owns [
-            Public, Private, Protected, Static(gated_by not_in_an_import), Abstract, Final,
+            Public, Private, Protected, Static(not_under [ImportDeclaration]), Abstract, Final,
             Native, Strictfp, Synchronized, Transient, Volatile, NonDASHsealed,
             Sealed(gated_by contextual_keyword_owns), Permits(gated_by contextual_keyword_owns),
         ]

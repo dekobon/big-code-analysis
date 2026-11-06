@@ -56,14 +56,6 @@ fn sole_statement_of_else_block<'a>(
     })
 }
 
-/// Whether an `if_clause` is a `case` guard rather than a comprehension's
-/// filter (`[y for y in x if y]`), which the grammar spells with the same
-/// kind. An owner's parent gate, which the DSL's `under` (a payer
-/// attribute) does not spell.
-fn under_case_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Python::CaseClause as u16)
-}
-
 /// `python_is_bound_self_attribute`, under the row's gate signature.
 fn is_bound_self_attribute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     python_is_bound_self_attribute(node, code, ancestors)
@@ -151,12 +143,13 @@ role_table! {
         ]
     }
     // A `case X if g:` guard is an `if_clause` under the `case_clause` —
-    // the same kind a comprehension filter has, so the owner is gated to
-    // the clause — one decision paid at the node: ABC walks its
-    // expression as a boolean slot, and cyclomatic counts the `if`
-    // keyword wherever it is written, which Halstead bills likewise.
+    // the same kind a comprehension filter (`[y for y in x if y]`) has,
+    // so the owner is gated to that parent — one decision paid at the
+    // node: ABC walks its expression as a boolean slot, and cyclomatic
+    // counts the `if` keyword wherever it is written, which Halstead
+    // bills likewise.
     Guard {
-        owns [IfClause(gated_by under_case_clause)]
+        owns [IfClause(under [CaseClause])]
         excludes [If "the keyword the `if` statement's kind spells, counted and billed as such"]
     }
     // `a if c else b` is a `conditional_expression` with no field and
