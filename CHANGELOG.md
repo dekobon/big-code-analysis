@@ -1628,7 +1628,8 @@ for historical reference.
   always code, as CPython's tokenizer reads it; a `\` ending a
   bare-string statement no longer credits the string's row to PLOC, and
   a bare row continuing it is a comment row, the string's rows being
-  CLOC already (#1819). A bare row before any string literal still
+  CLOC already — unless code precedes the string on that logical line
+  or the run leads into another statement, where it is code (#1819). A bare row before any string literal still
   counts as blank: the grammar's scanner drops that `\` before any node
   sees it (#1825). A bare row inside a parenthesised docstring's
   parentheses with an earlier bare row before the string reads the

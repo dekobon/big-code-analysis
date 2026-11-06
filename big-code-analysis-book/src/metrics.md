@@ -1156,7 +1156,9 @@ Python's grammar keeps the `\` as a node, and the same rule applies to
 it: a Python `#` comment never continues, so `# c \` followed by a bare
 row joins the row after it, and a `\` that ends a bare-string statement
 counts nothing, the string's rows being CLOC already, as is a bare row
-that continues it
+that continues it — unless code precedes the string on that logical
+line, or the run leads into another statement (`; x = 1`), where the
+row is code
 ([#1819](https://github.com/dekobon/big-code-analysis/issues/1819)); a
 bare row before any string literal stays blank, because the grammar's
 scanner drops that `\`
