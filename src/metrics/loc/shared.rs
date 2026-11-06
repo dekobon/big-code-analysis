@@ -369,12 +369,11 @@ crate::observation::counter!(bare_row_scans);
 // newline is matched by none of the four, as the scan reads it as
 // `Other`.
 pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
-    code.iter().enumerate().any(|(at, &byte)| {
-        byte == b'\\'
-            && matches!(
-                code.get(at.saturating_add(1)..).unwrap_or_default(),
-                [b'\n', ..] | [b'\r', b'\n', ..] | [] | [b'\r']
-            )
+    (0..code.len()).any(|at| {
+        matches!(
+            code.get(at..),
+            Some([b'\\', b'\n', ..] | [b'\\', b'\r', b'\n', ..] | [b'\\'] | [b'\\', b'\r'])
+        )
     })
 }
 
