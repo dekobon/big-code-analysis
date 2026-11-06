@@ -717,6 +717,10 @@ mod control_flow_tests;
 #[cfg(test)]
 mod doc_tests;
 
+// The owner parent-list rejections as `compile_fail` doctests (#1794).
+#[cfg(doctest)]
+mod parent_list_doctests;
+
 // Cross-consumer parity derived from the rows themselves, on every
 // candidate node of the corpus (#1700). A full-enum sweep with an
 // `is_enabled()` filter and a non-vacuity assertion, so it is absent
@@ -1083,29 +1087,8 @@ impl RowView {
 /// # fn main() {}
 /// ```
 ///
-/// A parent list is the owner's gate, so it sits beside no other, and
-/// it names at least one kind (#1794):
-///
-/// ```compile_fail
-/// # #[macro_use] extern crate big_code_analysis_ast;
-/// # use big_code_analysis_ast::{Ancestors, Java, Node};
-/// fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
-/// role_table! {
-///     lang: Java;
-///     Exit { owns [ReturnStatement(under [Block] gated_by always)] }
-/// }
-/// # fn main() {}
-/// ```
-///
-/// ```compile_fail
-/// # #[macro_use] extern crate big_code_analysis_ast;
-/// # use big_code_analysis_ast::Java;
-/// role_table! {
-///     lang: Java;
-///     Exit { owns [ReturnStatement(not_under [])] }
-/// }
-/// # fn main() {}
-/// ```
+/// The owner parent-list rejections (#1794) are pinned in
+/// `roles/parent_list_doctests.rs`, beside a control that compiles.
 ///
 /// And a kind owned by two rows of the same role:
 ///

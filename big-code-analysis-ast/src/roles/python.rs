@@ -142,12 +142,10 @@ role_table! {
             CARET "a boolean `^` is the integral `^`'s kind, which the grammar does not tell apart",
         ]
     }
-    // A `case X if g:` guard is an `if_clause` under the `case_clause` —
-    // the same kind a comprehension filter (`[y for y in x if y]`) has,
-    // so the owner is gated to that parent — one decision paid at the
-    // node: ABC walks its expression as a boolean slot, and cyclomatic
-    // counts the `if` keyword wherever it is written, which Halstead
-    // bills likewise.
+    // A `case X if g:` guard is an `if_clause` under the `case_clause`;
+    // a comprehension filter (`[y for y in x if y]`) is the same kind
+    // directly under the comprehension, so the owner is gated to that
+    // parent.
     Guard {
         owns [IfClause(under [CaseClause])]
         excludes [If "the keyword the `if` statement's kind spells, counted and billed as such"]
