@@ -1,7 +1,8 @@
 name: Advisories
 
-# Weekly `cargo-deny check advisories` against the default branch's
-# lockfile (#1815).
+# Weekly `cargo-deny check advisories` against every lockfile the default
+# branch tracks (#1815): the root's and the seven `[workspace].exclude`
+# crates', through `utils/check-deny-manifests.sh` (#1823).
 #
 # The `deny` job in ci.yml runs on push and pull request only, so an
 # advisory published between pushes is seen only by Dependabot or the
@@ -47,6 +48,13 @@ jobs:
           fetch-depth: 1
           submodules: false
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      # The same toolchain, cargo-deny pin and script as ci.yml's `deny`
+      # job, so the weekly run audits exactly the graphs a pull request
+      # does. See that job for why each step is there.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable tip
         with:
-          command: check advisories
+          toolchain: stable
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny@0.20.2
+      - run: ./utils/check-deny-manifests.sh advisories

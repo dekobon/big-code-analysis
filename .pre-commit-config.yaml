@@ -636,6 +636,17 @@ repos:
         entry: python3 -B -m unittest -q utils/check-grammar-build-watch-test.py
         pass_filenames: false
 
+      # Self-tests for utils/check-deny-manifests.sh, which only the two
+      # `deny` workflow jobs run for real (#1823). Fires on a lockfile too,
+      # because a ninth tracked Cargo.lock is what the live-tree case
+      # exists to catch, and on both workflows, whose wiring it pins.
+      - id: check-deny-manifests-test
+        name: check-deny-manifests-test
+        language: system
+        files: '^(utils/check-deny-manifests(\.sh|-test\.py)|\.github/workflows/(ci|deny-advisories)\.yml|([^/]+/)?Cargo\.lock)$'
+        entry: python3 -m unittest -q utils/check-deny-manifests-test.py
+        pass_filenames: false
+
       # The `enums/` crate is workspace-excluded, so the workspace
       # clippy/test hooks above never touch it. Add a dedicated check
       # so warnings here cannot drift (see #164).

@@ -109,6 +109,10 @@ and `cargo run -p big-code-analysis-web --`.
   Each gate resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
+  `check-deny-manifests.sh` (#1823) is a gate `make pre-commit` does
+  not run, because it needs the network: the two `deny` workflow jobs
+  call it to run cargo-deny once per tracked `Cargo.lock`, and `make
+  pre-commit` runs only its `*-test.py`, against a stubbed cargo-deny.
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `patch-coverage.py` and `verify-name-only-churn.py` are not gates:
   they take their paths as arguments or run against the cwd. Nor are
@@ -707,14 +711,19 @@ what keeps the job quiet. See
 
 **Advisories** is the fifth
 (`.github/workflows/deny-advisories.yml`, #1815): `cargo-deny check
-advisories` against `main`'s lockfile every Monday. The `deny` job in
-`ci.yml` runs the same check — plus bans, licences and sources, which
-do not age — on push, pull request and dispatch, never on a schedule,
-so between pushes an advisory is seen by Dependabot or Scorecard or not
-at all; a RUSTSEC `unsound` / `unmaintained` entry has no Dependabot
-path. A red run is the signal and no issue is filed. The fix is the
-same as for a red `deny` job: move the lockfile past the advisory, or
-add a documented `ignore` to `deny.toml`.
+advisories` every Monday against all eight lockfiles `main` tracks —
+the root's and the seven `[workspace].exclude` crates', each a graph of
+its own — through `utils/check-deny-manifests.sh` (#1823). The `deny`
+job in `ci.yml` runs the same script over the same eight, adding bans,
+licences and sources, which do not age, on push, pull request and
+dispatch, never on a schedule. So between pushes an advisory is seen by
+Dependabot or Scorecard or not at all; a RUSTSEC `unsound` /
+`unmaintained` entry has no Dependabot path. A red run is the signal
+and no issue is filed. The fix is the same as for a red `deny` job:
+move the lockfile past the advisory, or add a documented `ignore` to
+`deny.toml`, which is keyed by advisory id and so covers all eight
+graphs. A ninth lockfile fails the script until its
+`EXPECTED_LOCKFILES` is raised.
 
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.

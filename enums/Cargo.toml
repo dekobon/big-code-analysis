@@ -16,6 +16,9 @@ version = "2.4.0"
 publish = false
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
 edition = "2024"
+# The repository's licence, stated so cargo-deny's licence check has an
+# expression to read (#1823); without one it rejects the crate as unlicensed.
+license = "MPL-2.0"
 
 [dependencies]
 clap = { version = "^4.0", features = ["derive"] }

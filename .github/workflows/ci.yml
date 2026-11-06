@@ -675,9 +675,23 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      # cargo-deny resolves each graph with `cargo metadata`, so it needs a
+      # cargo; the action this replaced brought its own in a container.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable tip
         with:
-          command: check advisories bans licenses sources
+          toolchain: stable
+      # 0.20.2 is what `cargo-deny-action` v2.1.1 shipped. install-action
+      # checks the release tarball against the sha256 in its own manifest,
+      # which the action's SHA pin fixes. Keep this pin equal to the one in
+      # deny-advisories.yml; `utils/check-deny-manifests-test.py` fails
+      # when they differ.
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny@0.20.2
+      # Every tracked Cargo.lock, not only the root's (#1823): the seven
+      # `[workspace].exclude` crates resolve graphs of their own, and until
+      # this ran per manifest only Scorecard read them, after merge.
+      - run: ./utils/check-deny-manifests.sh advisories bans licenses sources
 
   license-audit:
     name: license-audit
@@ -944,6 +958,12 @@ jobs:
         run: python3 -B utils/check-grammar-build-watch.py
       - name: check-grammar-build-watch self-tests (explicit)
         run: python3 -B -m unittest -q utils/check-grammar-build-watch-test.py
+      # The `deny` job runs utils/check-deny-manifests.sh for real (#1823).
+      # Its self-tests pin what that job cannot show on a green run: every
+      # manifest and every check is invoked, a ninth lockfile fails, and
+      # both deny workflows still call the script on one cargo-deny pin.
+      - name: check-deny-manifests self-tests (explicit)
+        run: python3 -m unittest -q utils/check-deny-manifests-test.py
       # Defensive twin for the grammar-marker-sync gate (#400): bumping
       # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
       # Cargo.toml without re-running the matching generate-*.sh

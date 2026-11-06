@@ -3,6 +3,12 @@
 # `big-code-analysis` itself is licensed under MPL-2.0, and several of
 # its first-party crates re-license under MPL-2.0, so MPL-2.0 must be
 # accepted for the dependency graph to resolve.
+#
+# One config, eight graphs. `utils/check-deny-manifests.sh` runs cargo-deny
+# against every tracked `Cargo.lock` — the root workspace plus the seven
+# `[workspace].exclude` crates (`enums`, `fuzz`, the five `tree-sitter-*`),
+# each of which resolves its own — and passes this file to each by
+# `--config` (#1823). An entry below therefore applies to all eight.
 
 [graph]
 all-features = true
@@ -10,6 +16,9 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Keyed by advisory id, not by lockfile: one entry silences that advisory in
+# all eight graphs, including ones it was never reported against. Say in its
+# `reason` which graph needed it.
 ignore = []
 # The default scope ("workspace") reports an unsound advisory only for a
 # direct dependency, so RUSTSEC-2026-0306 in `faster-hex` (reached through
@@ -37,10 +46,21 @@ allow = [
     "MPL-2.0",
 ]
 confidence-threshold = 0.93
+# `libfuzzer-sys` vendors LLVM's libFuzzer, whose NCSA licence is ANDed onto
+# the crate's own `MIT OR Apache-2.0`. NCSA is permissive (BSD-style), and
+# the crate sits only in the unpublished `fuzz` graph, so an exception scoped
+# to it beats a global allow that any future crate could ride. The seven
+# graphs without `fuzz` warn `license-exception-not-encountered`; expected.
+exceptions = [{ crate = "libfuzzer-sys", allow = ["NCSA"] }]
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# `fuzz` takes `big-code-analysis` by path with no version, deliberately (see
+# `fuzz/Cargo.toml`), and cargo-deny reads that as a wildcard. This exempts a
+# path dependency only in a `publish = false` crate, plus path dev-deps, which
+# crates.io strips; a published crate's path dependency still needs a version.
+allow-wildcard-paths = true
 # No `deny` entry for `h2 <0.4.16` (RUSTSEC-2026-0258): cargo-deny's graph
 # builder drops that crate before any check runs (`-L debug` logs
 # `filtered h2 0.3.27` with `actix-web/http2` enabled, on 0.19 and 0.20),
