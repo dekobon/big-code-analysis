@@ -9503,9 +9503,11 @@ EOF
                 // but `unparenthesized_once` takes the parenthesis's
                 // first named non-comment child as its value — the first
                 // `\` — so the parentheses are not seen as the string's:
-                // their rows fall to the catch-all and the bare row is
-                // read forward into `# c`, three code rows. Every row is
-                // the string's (#415, #1610, #1819), so (4, 0, 4, 0).
+                // their rows fall to the catch-all, and the bare row
+                // continues the non-bare `( \` row before it, which the
+                // bare-string lookup missed, so it is Code too: three
+                // code rows. Every row is the string's (#415, #1610,
+                // #1819), so (4, 0, 4, 0).
                 // Locked as-is so the fix shows up here (lesson 19).
                 (b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 3, 2, 0), 0),
             ],
