@@ -354,6 +354,30 @@ pub(crate) fn add_string_interior_ploc(node: &Node, stats: &mut Stats, start: us
 // rows has no complete row strictly between its children to find.
 const ROWS_AROUND_A_GAP_ROW: usize = 2;
 
+// Bare-row scans actually run, after every bail in
+// `credit_bare_continuation_rows`: the one count that tells a file whose
+// scan was skipped (#1821) from one whose scan credited nothing.
+crate::observation::counter!(bare_row_scans);
+
+// Whether `code` can hold a row `credit_bare_continuation_rows` would
+// credit, so a file with none skips that scan at every node (#1821). The
+// scan credits a row of the form `[ \t\v\f]* \ \r? \n`, and at EOF one
+// with no newline, so every such row ends in `\` + newline, `\` + CRLF,
+// or a `\` or `\` + CR that ends the file. Leading padding and the `\`'s
+// position are not checked: a superset is safe, since the scan still
+// decides each row, and a subset silently loses credits. `\` + space +
+// newline is matched by none of the four, as the scan reads it as
+// `Other`.
+pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
+    code.iter().enumerate().any(|(at, &byte)| {
+        byte == b'\\'
+            && matches!(
+                code.get(at.saturating_add(1)..).unwrap_or_default(),
+                [b'\n', ..] | [b'\r', b'\n', ..] | [] | [b'\r']
+            )
+    })
+}
+
 // Credits each `\`-continuation row that holds nothing but the backslash
 // as the code it continues (#1445).
 //
@@ -421,6 +445,12 @@ const ROWS_AROUND_A_GAP_ROW: usize = 2;
 // instead: Python's `LineContinuation` arm (`python.rs`, #1819). A `\`
 // the external scanner takes as padding before a string start has no
 // node and never reaches this (#1825).
+//
+// A file with no row the scan could credit skips it at every node: the
+// walk seeds `Stats::bare_rows_possible` from `may_hold_bare_rows` over
+// the whole source once (#1821). The exit changes no output — `GapScan`
+// writes `stats` only in `credit`, which runs only for a bare row — so
+// `bare_row_scans` is what a test observes.
 #[inline]
 pub(crate) fn credit_bare_continuation_rows<'a>(
     node: &Node<'a>,
@@ -429,6 +459,9 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
     stats: &mut Stats,
     comments: BareRowComments,
 ) {
+    if !stats.bare_rows_possible {
+        return;
+    }
     let parent = ancestors.parent(node);
     let is_root = parent.is_none();
     if !is_root
@@ -437,6 +470,7 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
     {
         return;
     }
+    bare_row_scans::record();
     let mut scan = GapScan {
         node: node.as_tree_sitter(),
         parent: parent.map(|parent| parent.as_tree_sitter()),

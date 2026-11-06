@@ -1121,13 +1121,13 @@ value = 5.0
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 561.0
+value = 567.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
 metric = "nom"
-value = 31.0
+value = 32.0
 
 [[entry]]
 path = "src/metrics/loc/bash.rs"
@@ -1427,7 +1427,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 144449.7591258654
+value = 147624.51367706034
 
 [[entry]]
 path = "src/spaces/compute.rs"

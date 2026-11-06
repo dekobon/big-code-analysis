@@ -504,6 +504,15 @@ pub struct Stats {
     space_count: usize,
     blank_min: usize,
     blank_max: usize,
+    /// Whether the file may hold a bare `\`-continuation row, so
+    /// `credit_bare_continuation_rows` has anything to find (#1821). A
+    /// per-file hint the walk copies into every space it opens from
+    /// [`may_hold_bare_rows`] over the whole source; `true` by default so
+    /// a `Stats` built outside the walk still scans. Kept in `PartialEq`
+    /// on purpose: two spaces of one file always agree, and a walk with
+    /// LOC unselected never writes it, so the unselected-metric contract
+    /// (`MetricsOptions::with_only`) holds by typed `==` too.
+    bare_rows_possible: bool,
 }
 
 impl Default for Stats {
@@ -517,6 +526,7 @@ impl Default for Stats {
             space_count: 1,
             blank_min: usize::MAX,
             blank_max: 0,
+            bare_rows_possible: true,
         }
     }
 }
@@ -602,6 +612,14 @@ impl Stats {
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.blank_min = self.blank_min.min(other.blank_min);
         self.blank_max = self.blank_max.max(other.blank_max);
+        // `bare_rows_possible` is a per-file constant, equal in parent
+        // and child, so there is nothing to fold.
+    }
+
+    /// Seeds the bare-row hint from the walk; see the field's doc.
+    #[inline]
+    pub(crate) fn set_bare_rows_possible(&mut self, possible: bool) {
+        self.bare_rows_possible = possible;
     }
 
     /// Records an `exclude_tests`-pruned subtree's span so this space's
@@ -9679,6 +9697,239 @@ EOF
                 (2, 2, 0, 0),
                 "{:?}",
                 space.name
+            );
+        }
+    }
+
+    /// #1821: the four spellings of a row the bare-row scan can credit,
+    /// each ending in `\` + newline, `\` + CRLF, or a `\` or `\` + CR at
+    /// EOF; and four that no clause matches. The predicate is a superset
+    /// of the scan's row test — it does not look before the `\`, so a
+    /// `\` + newline mid-row answers `true` and the scan decides — and
+    /// only a subset would lose credits. `\` + space + newline is matched
+    /// by neither: `RowShape::step` reads the space as `Other`, so the
+    /// scan credits nothing there and skipping it changes no output.
+    #[test]
+    fn may_hold_bare_rows_matches_every_spelling_the_scan_credits() {
+        for (code, expected) in [
+            (&b"\\\n"[..], true),
+            (b"\\\r\n", true),
+            (b"x\n\\", true),
+            (b"x\n\\\r", true),
+            (b"a + \\\nb\n", true),
+            (b"\\ \n", false),
+            (b"a\\b\n", false),
+            (b"\"a\\n\"\n", false),
+            (b"", false),
+        ] {
+            assert_eq!(
+                may_hold_bare_rows(code),
+                expected,
+                "{:?}",
+                String::from_utf8_lossy(code)
+            );
+        }
+    }
+
+    /// A no-`\` fixture and its twin holding one bare row, per grammar
+    /// that calls `credit_bare_continuation_rows`: the first skips the
+    /// scan (no `bare_row_scans` recorded) and the second runs it, and
+    /// each reads the rows it did before #1821. The deltas are read on
+    /// this thread, which is the counter's.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
+    #[track_caller]
+    fn assert_bare_row_scan_skipped_or_run(
+        lang: crate::LANG,
+        source: &[u8],
+        expected: LocRows,
+        scanned: bool,
+    ) {
+        let before = bare_row_scans::observed();
+        let loc = metrics_verbatim(
+            lang,
+            source,
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc;
+        let scans = bare_row_scans::observed().saturating_sub(before);
+        let text = String::from_utf8_lossy(source);
+        assert_eq!(loc_rows(&loc), expected, "{lang:?} {text:?}");
+        assert_eq!(
+            scans > 0,
+            scanned,
+            "{lang:?} {text:?}: {scans} bare-row scans, expected {}",
+            if scanned { "some" } else { "none" }
+        );
+    }
+
+    /// #1821: every grammar that runs the scan skips it on a file with no
+    /// `\` row and still runs it on the twin with one, with the same rows
+    /// either way (measured on `d080ba7a`, before the exit, with the
+    /// library's verbatim path).
+    ///
+    /// Perturbations (`utils/perturb.py`, `--workspace --no-fail-fast`):
+    /// seeding `false` unconditionally fails the bare twins here, every
+    /// bare-row table row whose third element is non-zero, the nested
+    /// tests, the EOF test below and the bench's
+    /// `bare_row_probes_read_their_bare_rows` — and no Python row, whose
+    /// arm never calls the scan; dropping the `\` + CRLF clause fails
+    /// only the CRLF rows of the Bash, C-family, Ruby and Elixir tables
+    /// (Tcl's and iRules' CRLF rows lex the bare row as a word, #1802);
+    /// dropping both EOF clauses fails Tcl's EOF row by value and the
+    /// EOF test below by count; dropping the `\` + CR EOF clause alone
+    /// fails only that test's `+CR` row.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "irules",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "ruby",
+        feature = "tcl"
+    ))]
+    #[test]
+    fn a_file_with_no_backslash_row_skips_the_bare_row_scan() {
+        let rows: &[(crate::LANG, &[u8], &[u8])] = &[
+            #[cfg(feature = "bash")]
+            (
+                crate::LANG::Bash,
+                b"echo a\necho b\n",
+                b"echo a | \\\n\\\n  grep b\n",
+            ),
+            #[cfg(feature = "tcl")]
+            (
+                crate::LANG::Tcl,
+                b"puts a\nputs b\n",
+                b"puts [list a \\\n\\\n  b]\n",
+            ),
+            #[cfg(feature = "irules")]
+            (
+                crate::LANG::Irules,
+                b"set a 1\nset b 2\n",
+                b"set a [list a \\\n\\\n  b]\n",
+            ),
+            #[cfg(feature = "c")]
+            (
+                crate::LANG::C,
+                b"int x = 1 +\n2;\n",
+                b"int x = 1 + \\\n\\\n2;\n",
+            ),
+            #[cfg(feature = "cpp")]
+            (
+                crate::LANG::Cpp,
+                b"int x = 1 +\n2;\n",
+                b"int x = 1 + \\\n\\\n2;\n",
+            ),
+            #[cfg(feature = "mozcpp")]
+            (
+                crate::LANG::Mozcpp,
+                b"int x = 1 +\n2;\n",
+                b"int x = 1 + \\\n\\\n2;\n",
+            ),
+            #[cfg(feature = "objc")]
+            (
+                crate::LANG::Objc,
+                b"int x = 1 +\n2;\n",
+                b"int x = 1 + \\\n\\\n2;\n",
+            ),
+            #[cfg(feature = "ruby")]
+            (
+                crate::LANG::Ruby,
+                b"x = 1\ny = 2\n",
+                b"x = 1 + \\\n\\\n  2\n",
+            ),
+            #[cfg(feature = "elixir")]
+            (
+                crate::LANG::Elixir,
+                b"x = 1\ny = 2\n",
+                b"x = 1 + \\\n\\\n  2\n",
+            ),
+        ];
+        crate::test_support::assert_fixtures_present(rows);
+        for &(lang, plain, bare) in rows {
+            assert_bare_row_scan_skipped_or_run(lang, plain, (2, 2, 0, 0), false);
+            assert_bare_row_scan_skipped_or_run(lang, bare, (3, 3, 0, 0), true);
+        }
+    }
+
+    /// #1821: a `\` or `\` + CR ending the file with no newline is the
+    /// one row only the root's trailing padding reaches, and the
+    /// predicate's two EOF clauses are what keep its scan running. C's
+    /// grammar emits an `ERROR` holding the `\` there, so the catch-all
+    /// already credits the row and the rows are `(2, 2, 0, 0)` with or
+    /// without the scan (measured on `d080ba7a` through the verbatim
+    /// path; the CLI's reader appends a newline and reads the row blank):
+    /// only the count tells the exit from the scan. Tcl's bare `\` at EOF
+    /// is credited by the scan alone
+    /// (`tcl_bare_continuation_rows_are_code_or_comment` records it blank
+    /// before #1445), so its value discriminates too; with a CR the Tcl
+    /// grammar lexes `\` + CR as an escaped character, a word (#1802),
+    /// so that spelling is C's alone here. The control holds a `\n`
+    /// escape inside a string, which no clause matches, so its scan is
+    /// skipped and the rows are the same either way.
+    #[cfg(any(feature = "c", feature = "tcl"))]
+    #[test]
+    fn a_backslash_ending_the_file_keeps_the_bare_row_scan() {
+        let rows: &[(crate::LANG, &[u8], LocRows, bool)] = &[
+            #[cfg(feature = "c")]
+            (crate::LANG::C, b"int x;\n\\", (2, 2, 0, 0), true),
+            #[cfg(feature = "c")]
+            (crate::LANG::C, b"int x;\n\\\r", (2, 2, 0, 0), true),
+            #[cfg(feature = "tcl")]
+            (crate::LANG::Tcl, b"puts a\n\\", (2, 2, 0, 0), true),
+            // Control: a `\n` escape in a string literal.
+            #[cfg(feature = "c")]
+            (
+                crate::LANG::C,
+                b"const char *s = \"a\\n\";\nint y;\n",
+                (2, 2, 0, 0),
+                false,
+            ),
+        ];
+        crate::test_support::assert_fixtures_present(rows);
+        for &(lang, source, expected, scanned) in rows {
+            assert_bare_row_scan_skipped_or_run(lang, source, expected, scanned);
+        }
+    }
+
+    /// #1821: an unselected `loc` stays at `Stats::default()`, the
+    /// contract `MetricsOptions::with_only` states, so the walk must not
+    /// write the bare-row hint when `loc` is off. The fixture holds a bare
+    /// row, so `may_hold_bare_rows` would answer `true` here and a seed
+    /// taken from it alone would agree with the default; the file's
+    /// twin with *no* `\` is the one where an unconditional seed writes
+    /// `false` and the typed `==` fails. Perturbation: seeding
+    /// `may_hold_bare_rows(code)` with no selection test fails only this
+    /// test.
+    #[cfg(feature = "c")]
+    #[test]
+    fn an_unselected_loc_keeps_its_default_bare_row_hint() {
+        for source in [&b"int x = 1 + \\\n\\\n2;\n"[..], b"int x = 1 +\n2;\n"] {
+            let metrics = metrics_verbatim(
+                crate::LANG::C,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Cyclomatic]),
+            );
+            assert!(
+                metrics.cyclomatic.cyclomatic_sum() > 0,
+                "the selected metric was computed"
+            );
+            assert!(
+                metrics.loc == Stats::default(),
+                "{:?}: unselected loc moved off Default",
+                String::from_utf8_lossy(source)
             );
         }
     }

@@ -444,6 +444,30 @@ fn compute_per_node<'a, T: MetricSuite>(
     }
 }
 
+/// What every [`FuncSpace`] the walk opens is seeded with: the metric
+/// selection, and the per-file bare-row hint `loc` reads (#1821).
+/// Bundled, as [`NodeFacts`] is, so the two space-opening sites keep
+/// their arity and the seed is built once per walk.
+#[derive(Clone, Copy)]
+struct SpaceSeed {
+    selected: MetricSet,
+    /// Whether `code` may hold a bare `\`-continuation row. Left at the
+    /// field's default (`true`) when `loc` is unselected, so an
+    /// unselected `loc` stays at `Default` — the contract
+    /// [`MetricsOptions::with_only`] states.
+    bare_rows_possible: bool,
+}
+
+impl SpaceSeed {
+    fn for_walk(selected: MetricSet, code: &[u8]) -> Self {
+        Self {
+            selected,
+            bare_rows_possible: !selected.contains(Metric::Loc)
+                || crate::metrics::loc::may_hold_bare_rows(code),
+        }
+    }
+}
+
 /// Pushes a synthetic `Unit` root onto the state stack when the grammar
 /// hands us a non-`Unit` root.
 ///
@@ -464,18 +488,22 @@ fn push_synthetic_unit_root<T: MetricSuite>(
     state_stack: &mut Vec<State>,
     node: &Node,
     code: &[u8],
-    selected: MetricSet,
+    seed: SpaceSeed,
 ) {
     // `Ancestors::unknown()`: `node` is the tree root here, so it has no
     // ancestors to hand over either way.
     if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
-        let synthetic = FuncSpace::new::<T::Getter>(
+        let mut synthetic = FuncSpace::new::<T::Getter>(
             node,
             code,
             Ancestors::unknown(),
             SpaceKind::Unit,
-            selected,
+            seed.selected,
         );
+        synthetic
+            .metrics
+            .loc
+            .set_bare_rows_possible(seed.bare_rows_possible);
         state_stack.push(State {
             space: synthetic,
             halstead_maps: HalsteadMaps::new(),
@@ -498,16 +526,22 @@ fn open_func_space<'a, T: MetricSuite>(
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
     level: usize,
-    selected: MetricSet,
+    seed: SpaceSeed,
 ) -> usize {
     let kind = T::Getter::get_space_kind_with_code(node, code, ancestors);
-    let mut space = FuncSpace::new::<T::Getter>(node, code, ancestors, kind, selected);
+    let mut space = FuncSpace::new::<T::Getter>(node, code, ancestors, kind, seed.selected);
+    space
+        .metrics
+        .loc
+        .set_bare_rows_possible(seed.bare_rows_possible);
     // Membership is decided here, at the one point that still holds the
     // node the space was opened from — `finalize` sees only the finished
     // `FuncSpace`. A function the enclosing container does not own (e.g.
     // a C++ inline `friend`) keeps its own space and its own metrics;
     // only the container's WMC roll-up declines it (#1301).
-    if selected.contains(Metric::Wmc) && T::Checker::is_non_member_function(node, code, ancestors) {
+    if seed.selected.contains(Metric::Wmc)
+        && T::Checker::is_non_member_function(node, code, ancestors)
+    {
         space.metrics.wmc.mark_non_member();
     }
     state_stack.push(State {
@@ -801,7 +835,8 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
     // (#1446).
     let mut run_verdict = SubtreeSkip::RETAIN;
 
-    push_synthetic_unit_root::<T>(&mut state_stack, &node, code, selected);
+    let seed = SpaceSeed::for_walk(selected, code);
+    push_synthetic_unit_root::<T>(&mut state_stack, &node, code, seed);
 
     stack.push((node, Walk::default()));
 
@@ -880,7 +915,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
 
         let new_level = if func_space {
             last_level =
-                open_func_space::<T>(&mut state_stack, &node, code, ancestors, level, selected);
+                open_func_space::<T>(&mut state_stack, &node, code, ancestors, level, seed);
             last_level
         } else {
             level

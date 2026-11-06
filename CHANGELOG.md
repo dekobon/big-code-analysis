@@ -1631,6 +1631,17 @@ for historical reference.
   asks is answered once per parenthesis rather than once per row;
   `loc/python-separated-bare-runs` pins the shape.
 
+### Performance
+
+- `loc`: a file with no `\`-continuation row skips the bare-row scan
+  (`credit_bare_continuation_rows`) at every node, in every language
+  that runs it (Bash, Tcl, iRules, C, C++, Mozcpp, Objective-C, Ruby,
+  Elixir). One byte pass over the source decides it per walk, and the
+  output is identical: the scan writes nothing unless it finds a bare
+  row. Measured 4-9% of end-to-end `bca metrics` time on 220 KB C++
+  files with no such row (release, medians of 80 interleaved pairs).
+  (#1821)
+
 ### Security
 
 - Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving
