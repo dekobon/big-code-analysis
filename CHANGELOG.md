@@ -284,15 +284,16 @@ for historical reference.
 
 ### Changed
 
-- **`bca find` prints a nested match's text once** (#1416). A match
-  inside a single-row match prints `…` in the outer match's line, and
-  its own text on a line of its own: `f(g(1))` lists `f(…)` and
-  `g(1)` where it listed `f(g(1))` and `g(1)`. A match with no match
-  nested in it prints byte-identically to before, colour included.
-  The renderer is reached through two new `#[doc(hidden)]`
-  re-exports, `dump_found_with_color` and `write_found`, which exist
-  for the CLI and the scaling bench and are outside the stability
-  contract (`STABILITY.md`).
+- **`bca find` elides matches nested past 64 levels on one row**
+  (#1416). From the 65th level of single-row matches nested in one
+  another, a match prints `…` in place of each match nested in it,
+  whose own line prints that text. Above that depth nothing changes:
+  output is byte-identical to before, colour included, which held for
+  every file of the serde, pdf.js and DeepSpeech corpora under `-t all`
+  and `-t call_expression`; their deepest same-row nesting is 42. The renderer is reached through two new
+  `#[doc(hidden)]` re-exports, `dump_found_with_color` and
+  `write_found`, which exist for the CLI and the scaling bench and are
+  outside the stability contract (`STABILITY.md`).
 - **A `role_table!` owner may carry a parent list** (#1794).
   `K(under [P, ..])` admits the owner only under one of the listed
   parent kinds and `K(not_under [P, ..])` only under none of them,
@@ -1123,8 +1124,10 @@ for historical reference.
   `O(depth)` per match, 98% of the 397 ms that 4,000 nested Tcl braces
   took. Each single-row match also printed its whole span, so a match
   nested k deep had its bytes printed k times: 16 MB of output for an
-  8 KB file. A file's matches now render in one pass, and that input
-  takes 5.8 ms against `count`'s 4.9 ms and prints 243 KB. `make
+  8 KB file. A file's matches now render in one pass, with no parent
+  climbs, and past 64 levels of nesting a match elides what is nested
+  in it (see Changed), so that input prints 751 KB and twice the depth
+  prints twice the output. `make
   bench-scaling` prices it with the `find/tcl-nested-braces` probe
   beside a `count` control.
 - **The `deny` CI job and the weekly advisories run audit all eight

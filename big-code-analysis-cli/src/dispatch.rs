@@ -535,8 +535,8 @@ fn dispatch_find(
         writeln!(out, "== {} ==", path.display())?;
         // One render for every match rather than a `dump_node_with_color`
         // per match: that asked each match for its parent, `O(depth)`
-        // apiece, and printed each nested match's text again inside the
-        // match around it (#1416).
+        // apiece, and printed each nested match's text again at every
+        // level around it. Past 64 levels the render elides it (#1416).
         let lines = (
             cfg.line_start.map_or(Bound::Unbounded, Bound::Included),
             cfg.line_end.map_or(Bound::Unbounded, Bound::Included),

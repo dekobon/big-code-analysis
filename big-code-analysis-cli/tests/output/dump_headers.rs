@@ -238,21 +238,60 @@ fn find_stdout(source: &str, args: &[&str]) -> String {
         .replace(path, "<path>")
 }
 
-/// #1416: a match nested in a single-row match prints its text on its
-/// own line, and the match around it prints `…` in its place. The outer
-/// line used to read `f(g(1), h(2))`, so a match nested `N` deep had its
-/// bytes printed `N` times: 16 MB for an 8 KB file of nested braces.
+/// #1416: ordinary nesting prints each match's whole text, as `bca find`
+/// always has, so a pipe through `rg` for a call's text finds it. Only
+/// matches nested past 64 levels on one row elide (the test below).
 #[test]
-fn find_prints_a_nested_match_once_and_elides_it_from_the_outer() {
+fn find_prints_ordinary_nested_matches_whole() {
     assert_eq!(
-        find_stdout("fn main() { f(g(1), h(2)); }\n", &["-t", "call_expression"]),
+        find_stdout(
+            "fn main() { let x = Some(parse(s)); a.b().c(); }\n",
+            &["-t", "call_expression"]
+        ),
         concat!(
             "== <path> ==\n",
-            "╰─ {call_expression:256} from (1, 13) to (1, 26) : f(…, …) \n",
-            "╰─ {call_expression:256} from (1, 15) to (1, 19) : g(1) \n",
-            "╰─ {call_expression:256} from (1, 21) to (1, 25) : h(2) \n",
+            "╰─ {call_expression:256} from (1, 21) to (1, 35) : Some(parse(s)) \n",
+            "╰─ {call_expression:256} from (1, 26) to (1, 34) : parse(s) \n",
+            "╰─ {call_expression:256} from (1, 37) to (1, 46) : a.b().c() \n",
+            "╰─ {call_expression:256} from (1, 37) to (1, 42) : a.b() \n",
             "\n",
         )
+    );
+}
+
+/// #1416: past 64 levels of single-row matches nested in one another,
+/// a match prints `…` in place of each match nested in it, whose own
+/// line prints that text, so a source byte is printed by at most 65
+/// lines. Printing every level whole made the output quadratic in the
+/// depth: 16 MB for an 8 KB file of nested calls or braces. Level 65 is
+/// the first that elides, and only visibly when it holds a match of its
+/// own, so the fixture nests 66 calls.
+#[test]
+fn find_elides_nested_matches_past_sixty_four_levels() {
+    let depth = 66;
+    let source = format!(
+        "fn main() {{ {}1{}; }}\n",
+        "f(".repeat(depth),
+        ")".repeat(depth)
+    );
+    let out = find_stdout(&source, &["-t", "call_expression"]);
+    let snippets: Vec<&str> = out
+        .lines()
+        .filter_map(|line| line.split_once(" : ").map(|(_, text)| text))
+        .collect();
+    assert_eq!(snippets.len(), depth, "{out}");
+    let whole = |level: usize| {
+        let rest = depth - level + 1;
+        format!("{}1{} ", "f(".repeat(rest), ")".repeat(rest))
+    };
+    assert_eq!(snippets[0], whole(1));
+    assert_eq!(snippets[63], whole(64));
+    assert_eq!(snippets[64], "f(…) ");
+    assert_eq!(snippets[65], "f(1) ");
+    assert_eq!(
+        snippets.iter().filter(|text| text.contains('…')).count(),
+        1,
+        "only level 65 elides: {out}"
     );
 }
 

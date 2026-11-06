@@ -48,7 +48,7 @@ print:
 
 ```text
 == src/main.rs ==
-╰─ {call_expression:256} from (1, 13) to (1, 26) : f(…, …)
+╰─ {call_expression:256} from (1, 13) to (1, 26) : f(g(1), h(2))
 ╰─ {call_expression:256} from (1, 15) to (1, 19) : g(1)
 ╰─ {call_expression:256} from (1, 21) to (1, 25) : h(2)
 ```
@@ -57,10 +57,23 @@ Each line gives the node type and its `kind_id`, then two 1-based
 `(row, column)` pairs: the node's first column, and the column just
 past its end. A node that fits on
 one row ends with its source text; one that spans several rows prints
-none. When one match sits inside another on the same row, the inner
-match's text is printed on its own line and the outer match shows `…`
-in its place. Each byte of source is therefore printed at most once,
-however deeply the matches nest.
+none.
+
+A match nested in another on the same row prints in full, as above,
+until the nesting passes 64 levels. From the 65th level down, a match
+prints `…` in place of each match nested in it, whose own line prints
+that text:
+
+```text
+╰─ {call_expression:256} from (1, 141) to (1, 148) : f(…)
+╰─ {call_expression:256} from (1, 143) to (1, 147) : f(1)
+```
+
+This keeps the output linear in the size of the file: printing every
+level in full made a file of 4,000 nested braces print 16 MB. The
+`…` is not escaped, so a `…` that is in the source reads the same.
+Real code rarely nests past 64 levels on one row: across the serde,
+pdf.js and DeepSpeech corpora the deepest is 42, under `-t all`.
 
 ## Semantic filters {#semantic-filters}
 

@@ -307,11 +307,17 @@ fn write_node_line<'c>(
 ) -> std::io::Result<()> {
     write_node_header(stdout, node, prefix, pref)?;
     write_node_location(stdout, node)?;
-    // Source snippet for single-row nodes only.
-    if node.start_row() == node.end_row() {
+    if prints_snippet(node) {
         write_snippet(stdout, snippet)?;
     }
     writeln!(stdout)
+}
+
+/// Whether a node's line ends with its source text: single-row nodes
+/// only. `bca find`'s nesting levels count these and nothing else, so the
+/// two cannot drift apart.
+fn prints_snippet(node: &Node) -> bool {
+    node.start_row() == node.end_row()
 }
 
 /// Prefix glyphs followed by the `{kind:kind_id}` tag.
@@ -345,8 +351,23 @@ fn write_node_location(stdout: &mut dyn WriteColor, node: &Node) -> std::io::Res
 }
 
 /// What a `bca find` snippet prints in place of a match nested inside
-/// it, whose text the nested match's own line prints (#1416).
+/// it, whose text the nested match's own line prints (#1416). It is not
+/// escaped, so a `…` in the source reads the same.
 const ELIDED: &str = "…";
+
+/// How many levels of single-row matches nested in one another `bca
+/// find` prints whole before it starts eliding (#1416).
+///
+/// Up to and including it a line is what the per-match dump printed, so
+/// ordinary nesting — `Some(parse(s))`, a method chain, `-t all` on a
+/// statement — reads in full. Past it each level prints [`ELIDED`] for
+/// the matches nested in it, so a source byte is printed by at most this
+/// many lines plus one and the output stays linear in the input, where
+/// the whole span at every level printed `depth²` bytes. Across the
+/// serde, pdf.js and DeepSpeech corpora under `-t all`, the deepest
+/// same-row nesting is 42 (pdf.js), and every file renders
+/// byte-identically to the per-match dump.
+const FULL_LEVELS: usize = 64;
 
 /// The `: text` tail of a node line, for `pieces` of `code` with
 /// [`ELIDED`] between consecutive ones. A dump passes the node's whole
@@ -385,8 +406,8 @@ fn write_snippet_separator(stdout: &mut dyn WriteColor, text: &str) -> std::io::
 /// `found` is what [`Ast::find`] returned for `ast`, in its order, and
 /// `lines` filters matches by their 1-based start row, as
 /// `--line-start` / `--line-end` do. A line is what [`dump_node`] at
-/// depth 1 renders for the match, so a match no other match is nested
-/// in prints byte-identically to that, colour included. The two
+/// depth 1 renders for the match, so a match at most [`FULL_LEVELS`]
+/// levels deep prints byte-identically to that, colour included. The two
 /// differences are what keep the render linear in the depth the matches
 /// nest to (#1416):
 ///
@@ -394,11 +415,12 @@ fn write_snippet_separator(stdout: &mut dyn WriteColor, text: &str) -> std::io::
 ///   asks [`Node::parent`], which climbs from the root and is `O(depth)`.
 ///   One climb per match was 98% of `bca find`'s time on 4 000 nested
 ///   matches.
-/// - A match nested inside a single-row match prints its text on its
-///   own line, so the outer match prints [`ELIDED`] in its place:
-///   `f(g(1))` renders as `f(…)` followed by `g(1)`. Printing each
-///   match's whole span instead made the output quadratic in the
-///   nesting depth: 16 MB for an 8 KB file.
+/// - Past [`FULL_LEVELS`] levels of single-row matches nested in one
+///   another, a match prints [`ELIDED`] in place of each match nested
+///   in it, whose own line prints that text: `f(g(1))` at that depth
+///   renders as `f(…)` followed by `g(1)`. Printing each match's whole
+///   span at every level made the output quadratic in the nesting depth:
+///   16 MB for an 8 KB file.
 ///
 /// Hidden because it exists for the CLI, like `format_suggestion`; it
 /// is outside the stability contract.
@@ -418,7 +440,9 @@ pub fn dump_found_with_color(
     lines: impl RangeBounds<usize>,
     color_mode: ColorMode,
 ) -> std::io::Result<()> {
-    print_to_stdout(color_mode, |stdout| render_found(stdout, ast, found, lines))
+    print_to_stdout(color_mode, |stdout| {
+        render_found(stdout, ast, found, lines, FULL_LEVELS)
+    })
 }
 
 /// [`dump_found_with_color`] into `out`, uncoloured. Exists so the
@@ -438,22 +462,26 @@ pub fn write_found(
     found: &[Node],
     lines: impl RangeBounds<usize>,
 ) -> std::io::Result<()> {
-    render_found(&mut NoColor::new(out), ast, found, lines)
+    render_found(&mut NoColor::new(out), ast, found, lines, FULL_LEVELS)
 }
 
+/// The two hidden entry points' renderer, with matches at a level up to
+/// `full_levels` printed whole and the deeper ones elided (see
+/// [`Nesting::levels`]). Only the tests pass anything but [`FULL_LEVELS`]: `0`
+/// elides at every level, which keeps their fixtures small.
 fn render_found(
     stdout: &mut dyn WriteColor,
     ast: &Ast,
     found: &[Node],
     lines: impl RangeBounds<usize>,
+    full_levels: usize,
 ) -> std::io::Result<()> {
+    // bca: suppress(nargs) — the soft tier only; `full_levels` is the
+    // tests' seam for the level limit, which bundling with `lines` would
+    // hide rather than remove
     let code = ast.source();
     let root = ast.root_node().id();
-    let spans: Vec<Range<usize>> = found
-        .iter()
-        .map(|node| node.start_byte()..node.end_byte())
-        .collect();
-    let next_outside = next_outside(&spans);
+    let layout = FoundLayout::new(found, full_levels);
     for (at, node) in found.iter().enumerate() {
         if lines.contains(&(node.start_row() + 1)) {
             let connector = if node.id() == root {
@@ -466,7 +494,7 @@ fn render_found(
                 node,
                 "",
                 connector.glyphs().1,
-                own_text(&spans, &next_outside, at).map(|piece| &code[piece]),
+                layout.pieces(at).map(|piece| &code[piece]),
             )?;
         }
         // `dump_node_with_color` ends each call on white, filtered out
@@ -476,35 +504,94 @@ fn render_found(
     Ok(())
 }
 
-/// For each span, the index of the first later span that starts at or
-/// after its end, so the matches nested in `spans[at]` are
-/// `at + 1..next_outside[at]`.
-///
-/// One pass over a stack of the spans still open. In [`Ast::find`]'s
-/// pre-order the spans nest or follow one another, so the stack's ends
-/// shrink towards the top and a span closes the moment a later one
-/// starts past it. Spans in any other order get some answer, never a
-/// panic; [`own_text`] does not trust it.
-fn next_outside(spans: &[Range<usize>]) -> Vec<usize> {
-    let mut next = vec![spans.len(); spans.len()];
+/// Which bytes each of `bca find`'s matches prints: computed once for a
+/// file's matches, in one linear pass, then asked per match.
+struct FoundLayout {
+    spans: Vec<Range<usize>>,
+    next_outside: Vec<usize>,
+    levels: Vec<usize>,
+    full_levels: usize,
+}
+
+impl FoundLayout {
+    fn new(found: &[Node], full_levels: usize) -> Self {
+        let spans: Vec<Range<usize>> = found
+            .iter()
+            .map(|node| node.start_byte()..node.end_byte())
+            .collect();
+        let counted: Vec<bool> = found.iter().map(prints_snippet).collect();
+        let Nesting {
+            next_outside,
+            levels,
+        } = nesting(&spans, &counted);
+        Self {
+            spans,
+            next_outside,
+            levels,
+            full_levels,
+        }
+    }
+
+    /// The source ranges match `at`'s line prints, with [`ELIDED`]
+    /// between consecutive ones: its whole span up to `full_levels`,
+    /// and past it the parts no match nested in it covers.
+    fn pieces(&self, at: usize) -> impl Iterator<Item = Range<usize>> + '_ {
+        let whole = (self.levels[at] <= self.full_levels).then(|| self.spans[at].clone());
+        let elided = whole
+            .is_none()
+            .then(|| own_text(&self.spans, &self.next_outside, at));
+        whole.into_iter().chain(elided.into_iter().flatten())
+    }
+}
+
+/// How a file's matches nest, per match: see [`nesting`].
+struct Nesting {
+    /// The index of the first later span that starts at or after this
+    /// one's end, so the matches nested in `spans[at]` are
+    /// `at + 1..next_outside[at]`.
+    next_outside: Vec<usize>,
+    /// How many `counted` spans hold this one, itself included: its level
+    /// among the single-row matches, which are the ones a line prints
+    /// text for. A multi-row match raises no level, so a function body
+    /// around a statement leaves the statement's matches at the levels
+    /// they have on their row. A zero-width match counts, but holds
+    /// nothing and prints nothing, so its count is never seen.
+    levels: Vec<usize>,
+}
+
+/// [`Nesting`] for `spans`, in one pass over a stack of the spans still
+/// open. In [`Ast::find`]'s pre-order the spans nest or follow one
+/// another, so the stack's ends shrink towards the top and a span closes
+/// the moment a later one starts past it. Spans in any other order get
+/// some answer, never a panic; [`own_text`] does not trust it.
+fn nesting(spans: &[Range<usize>], counted: &[bool]) -> Nesting {
+    let mut next_outside = vec![spans.len(); spans.len()];
+    let mut levels = vec![0; spans.len()];
     let mut open: Vec<usize> = Vec::new();
+    let mut open_counted = 0;
     for (at, span) in spans.iter().enumerate() {
         while let Some(&top) = open.last()
             && spans[top].end <= span.start
         {
-            next[top] = at;
+            next_outside[top] = at;
+            open_counted -= usize::from(counted[top]);
             open.pop();
         }
+        open_counted += usize::from(counted[at]);
+        levels[at] = open_counted;
         open.push(at);
     }
-    next
+    Nesting {
+        next_outside,
+        levels,
+    }
 }
 
 /// The parts of `spans[at]` that no match nested in it covers, in
 /// source order: one piece more than the matches elided from it.
 ///
 /// Steps from one directly nested match to the next through
-/// [`next_outside`], skipping what is nested deeper, so each match is
+/// [`Nesting::next_outside`], skipping what is nested deeper, so each match is
 /// visited once as the child of the match it sits in and the render
 /// stays linear. A zero-width match prints nothing and so elides
 /// nothing. A span that is not inside what remains of `spans[at]` —
@@ -973,6 +1060,17 @@ mod tests {
         String::from_utf8(out).expect("utf-8 fixture")
     }
 
+    /// [`found_text`] with every level past `full_levels` elided, so a
+    /// fixture a few levels deep can show what the CLI does past
+    /// [`FULL_LEVELS`].
+    #[cfg(any(feature = "cpp", feature = "tcl"))]
+    fn elided_text(ast: &Ast, filters: &[&str], full_levels: usize) -> String {
+        let mut sink = NoColor::new(Vec::new());
+        render_found(&mut sink, ast, &found(ast, filters), .., full_levels)
+            .expect("render to memory");
+        String::from_utf8(sink.into_inner()).expect("utf-8 fixture")
+    }
+
     /// What the CLI printed before #1416: one `dump_node_with_color`
     /// call per match at depth 1, each a walk from the match ending on
     /// white. Rebuilt from the same private pieces that call is made of,
@@ -996,49 +1094,62 @@ mod tests {
         }
     }
 
-    /// A match printed whole — multi-row, or single-row holding no other
-    /// match — prints exactly what the per-match dump printed, colour
-    /// escapes included: the root flush left, a multi-row match with
-    /// matches inside it (it prints no text, so nothing is elided),
-    /// leaves, and a non-UTF-8 literal
-    /// written raw. Under the line filter too, which the two paths spell
-    /// differently. The old path is the specification here, so the test
-    /// asks it rather than restating its output. It is rebuilt on the
+    /// Up to [`FULL_LEVELS`] the render prints exactly what the per-match
+    /// dump printed, colour escapes included, nested matches as well as
+    /// lone ones: the root flush left, a multi-row match with matches
+    /// inside it, calls nested in calls on one row (`f(g(h(1)))`, three
+    /// levels), the identifiers and literals inside them, and a non-UTF-8
+    /// literal written raw. Under the line filter too, which the two paths
+    /// spell differently. The old path is the specification here, so the
+    /// test asks it rather than restating its output. It is rebuilt on the
     /// writers `render_found` shares, though, so it pins what the two
     /// paths decide differently (connector, filter, trailing white, the
     /// pieces) and not the escapes themselves: those are
     /// `found_render_colours_as_the_pre_fix_binary_did`'s.
     #[cfg(feature = "cpp")]
     #[test]
-    fn found_render_matches_the_per_match_dump_when_no_match_nests() {
+    fn found_render_matches_the_per_match_dump_below_the_level_limit() {
         use std::ops::Bound::{Included, Unbounded};
 
-        let code = b"int a = 1;\nint f(int b) {\n  return g(b, 2);\n}\nchar c = '\xff';\n";
+        let code = b"int a = 1;\nint f(int b) {\n  return f(g(h(b)), 2);\n}\nchar c = '\xff';\n";
         let ast = parse_as(crate::LANG::Cpp, code);
         let found = found(
             &ast,
             &[
                 "translation_unit",
                 "compound_statement",
+                "call_expression",
                 "identifier",
                 "number_literal",
                 "char_literal",
             ],
         );
-        assert!(found.len() >= 9, "the fixture must match widely: {found:?}");
+        assert!(
+            found.len() >= 12,
+            "the fixture must match widely: {found:?}"
+        );
         assert_eq!(found[0].id(), ast.root_node().id(), "the root is a match");
+        let nested = found
+            .array_windows()
+            .filter(|[outer, inner]| {
+                prints_snippet(outer)
+                    && outer.start_byte() <= inner.start_byte()
+                    && inner.end_byte() <= outer.end_byte()
+            })
+            .count();
+        assert!(nested >= 3, "the fixture must nest on one row: {nested}");
 
         for (lines, bounds) in [
             ((None, None), (Unbounded, Unbounded)),
             ((Some(2), Some(3)), (Included(2), Included(3))),
         ] {
             let (mut new, mut old) = (NoColor::new(Vec::new()), NoColor::new(Vec::new()));
-            render_found(&mut new, &ast, &found, bounds).expect("render to memory");
+            render_found(&mut new, &ast, &found, bounds, FULL_LEVELS).expect("render to memory");
             per_match_dump(&mut old, code, &found, lines);
             assert_eq!(new.get_ref(), old.get_ref(), "plain output under {lines:?}");
 
             let (mut new, mut old) = (Ansi::new(Vec::new()), Ansi::new(Vec::new()));
-            render_found(&mut new, &ast, &found, bounds).expect("render to memory");
+            render_found(&mut new, &ast, &found, bounds, FULL_LEVELS).expect("render to memory");
             per_match_dump(&mut old, code, &found, lines);
             assert!(new.get_ref().contains(&0x1b), "the colour sink colours");
             assert_eq!(
@@ -1057,16 +1168,35 @@ mod tests {
             "the root renders flush:\n{text}"
         );
         assert!(
-            text.contains("╰─ {identifier:1} from (3, 10) to (3, 11) : g \n"),
-            "{text}"
+            text.contains(" : f(g(h(b)), 2) \n") && text.contains(" : g(h(b)) \n"),
+            "nested calls print whole:\n{text}"
         );
     }
 
-    /// Each match nested in a single-row match prints on its own line,
-    /// and the match around it prints `…` in its place — once per
-    /// directly nested match, never for one nested deeper, which is
-    /// `h(1)` inside `g(…)` here: stepping to `k(2)` without skipping it
-    /// would read `h` as a sibling of `g` and stop eliding at it.
+    /// Ordinary nesting prints every match in full: the reason the level
+    /// limit exists. Before it, `Some(parse(s))` printed `Some(…)` and a
+    /// method chain lost its receiver to `….c()`, so a pipe through `rg`
+    /// for the call's text found nothing.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_prints_ordinary_nesting_whole() {
+        let ast = parse_as(crate::LANG::Cpp, b"int a = f(g(h(1)), k(2));\n");
+        assert_eq!(
+            found_text(&ast, &["call_expression"]),
+            concat!(
+                "╰─ {call_expression:350} from (1, 9) to (1, 25) : f(g(h(1)), k(2)) \n",
+                "╰─ {call_expression:350} from (1, 11) to (1, 18) : g(h(1)) \n",
+                "╰─ {call_expression:350} from (1, 13) to (1, 17) : h(1) \n",
+                "╰─ {call_expression:350} from (1, 20) to (1, 24) : k(2) \n",
+            )
+        );
+    }
+
+    /// Past the limit, each match nested in a single-row match prints on
+    /// its own line, and the match around it prints `…` in its place —
+    /// once per directly nested match, never for one nested deeper, which
+    /// is `h(1)` inside `g(…)` here: stepping to `k(2)` without skipping
+    /// it would read `h` as a sibling of `g` and stop eliding at it.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_elides_each_nested_match_from_the_one_around_it() {
@@ -1074,7 +1204,7 @@ mod tests {
         let ast = parse_as(crate::LANG::Cpp, code);
         assert_eq!(found(&ast, &["call_expression"]).len(), 4);
         assert_eq!(
-            found_text(&ast, &["call_expression"]),
+            elided_text(&ast, &["call_expression"], 0),
             concat!(
                 "╰─ {call_expression:350} from (1, 9) to (1, 25) : f(…, …) \n",
                 "╰─ {call_expression:350} from (1, 11) to (1, 18) : g(…) \n",
@@ -1087,20 +1217,43 @@ mod tests {
     /// The escapes `bca find --color always` prints, held to the binary
     /// from before #1416 (built from 02150268) instead of to the
     /// per-match oracle, which goes through the same writers as
-    /// `render_found` and moves with them. The `g(1)` line is that
-    /// binary's output verbatim. The `f(…)` line is its `f(g(1))` line
-    /// with the nested `g(1)` replaced by `…`, painted like the `: `
-    /// before it: white, then the snippet's intense red again for the
-    /// `)` after it. No other test renders a nested match in colour.
+    /// `render_found` and moves with them. Below the limit both lines are
+    /// that binary's output verbatim. Past it, the `f(…)` line is its
+    /// `f(g(1))` line with the nested `g(1)` replaced by `…`, painted
+    /// like the `: ` before it: white, then the snippet's intense red
+    /// again for the `)` after it. No other test renders a nested match
+    /// in colour.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_colours_as_the_pre_fix_binary_did() {
         let ast = parse_as(crate::LANG::Cpp, b"int a = f(g(1));\n");
-        let mut sink = Ansi::new(Vec::new());
-        render_found(&mut sink, &ast, &found(&ast, &["call_expression"]), ..)
+        let coloured = |full_levels| {
+            let mut sink = Ansi::new(Vec::new());
+            render_found(
+                &mut sink,
+                &ast,
+                &found(&ast, &["call_expression"]),
+                ..,
+                full_levels,
+            )
             .expect("render to memory");
+            String::from_utf8(sink.into_inner()).expect("utf-8 fixture")
+        };
         assert_eq!(
-            String::from_utf8(sink.into_inner()).expect("utf-8 fixture"),
+            coloured(FULL_LEVELS),
+            concat!(
+                "\x1b[0m\x1b[34m╰─ \x1b[0m\x1b[38;5;11m{call_expression:350} ",
+                "\x1b[0m\x1b[37mfrom \x1b[0m\x1b[32m(1, 9) ",
+                "\x1b[0m\x1b[37mto \x1b[0m\x1b[32m(1, 16) ",
+                "\x1b[0m\x1b[37m: \x1b[0m\x1b[38;5;9mf(g(1)) \n\x1b[0m\x1b[37m",
+                "\x1b[0m\x1b[34m╰─ \x1b[0m\x1b[38;5;11m{call_expression:350} ",
+                "\x1b[0m\x1b[37mfrom \x1b[0m\x1b[32m(1, 11) ",
+                "\x1b[0m\x1b[37mto \x1b[0m\x1b[32m(1, 15) ",
+                "\x1b[0m\x1b[37m: \x1b[0m\x1b[38;5;9mg(1) \n\x1b[0m\x1b[37m",
+            )
+        );
+        assert_eq!(
+            coloured(0),
             concat!(
                 "\x1b[0m\x1b[34m╰─ \x1b[0m\x1b[38;5;11m{call_expression:350} ",
                 "\x1b[0m\x1b[37mfrom \x1b[0m\x1b[32m(1, 9) ",
@@ -1127,20 +1280,39 @@ mod tests {
         assert_eq!(matches.len(), 2);
         // 20: two lines of several coloured pieces each; a floor under the
         // real count, as in `every_write_position_propagates_an_io_error`.
-        assert_io_error_propagates_at_every_write(20, |sink| {
-            render_found(sink, &ast, &matches, ..)
-        });
+        for full_levels in [FULL_LEVELS, 0] {
+            assert_io_error_propagates_at_every_write(20, |sink| {
+                render_found(sink, &ast, &matches, .., full_levels)
+            });
+        }
     }
 
     /// The shape #1416 measured: one `braced_word` per brace level, so
-    /// the per-match dump printed `depth²` bytes. Every level but the
-    /// innermost now prints its braces around one `…`.
+    /// the per-match dump printed `depth²` bytes. Past the limit every
+    /// level but the innermost prints its braces around one `…`; below
+    /// it, each prints whole.
     #[cfg(feature = "tcl")]
     #[test]
     fn found_render_elides_nested_braced_words() {
         let ast = parse_as(crate::LANG::Tcl, b"x {{{a b}}}\n");
         assert_eq!(
             found_text(&ast, &["braced_word"]),
+            concat!(
+                "╰─ {braced_word:88} from (1, 3) to (1, 12) : {{{a b}}} \n",
+                "╰─ {braced_word:88} from (1, 4) to (1, 11) : {{a b}} \n",
+                "╰─ {braced_word:88} from (1, 5) to (1, 10) : {a b} \n",
+            )
+        );
+        assert_eq!(
+            elided_text(&ast, &["braced_word"], 1),
+            concat!(
+                "╰─ {braced_word:88} from (1, 3) to (1, 12) : {{{a b}}} \n",
+                "╰─ {braced_word:88} from (1, 4) to (1, 11) : {…} \n",
+                "╰─ {braced_word:88} from (1, 5) to (1, 10) : {a b} \n",
+            )
+        );
+        assert_eq!(
+            elided_text(&ast, &["braced_word"], 0),
             concat!(
                 "╰─ {braced_word:88} from (1, 3) to (1, 12) : {…} \n",
                 "╰─ {braced_word:88} from (1, 4) to (1, 11) : {…} \n",
@@ -1162,7 +1334,7 @@ mod tests {
         let ast = parse_as(crate::LANG::Cpp, code);
         let found = found(&ast, &["call_expression"]);
         let mut sink = NoColor::new(Vec::new());
-        write_found(sink.get_mut(), &ast, &found, ..).expect("render to memory");
+        render_found(&mut sink, &ast, &found, .., 0).expect("render to memory");
         let lines: Vec<&[u8]> = sink.get_ref().split_inclusive(|b| *b == b'\n').collect();
         let tail = |line: &[u8]| {
             let at = line
@@ -1213,19 +1385,21 @@ mod tests {
         );
     }
 
-    /// Under `-t all` every byte of a one-row file is printed exactly
-    /// once: by the deepest match holding it, and by none around it.
-    /// The per-match dump printed each byte once per match above it.
-    /// Read off the rendered lines, so the claim is about what the
-    /// render prints and not only about the pieces `own_text` offers it.
+    /// Eliding at every level, `-t all` prints every byte of a one-row
+    /// file exactly once: by the deepest match holding it, and by none
+    /// around it. The per-match dump printed each byte once per match
+    /// above it. Read off the rendered lines, so the claim is about what
+    /// the render prints and not only about the pieces `own_text` offers
+    /// it. [`found_render_prints_each_byte_at_most_limit_plus_one_times`]
+    /// is the same claim at a limit above zero.
     #[cfg(feature = "cpp")]
     #[test]
     fn found_render_prints_each_byte_of_one_row_once() {
         let code = b"int a = f(g(1), 2);";
         let ast = parse_as(crate::LANG::Cpp, code);
         let found = found(&ast, &["all"]);
-        assert!(found.iter().all(|node| node.start_row() == node.end_row()));
-        let rendered = found_text(&ast, &["all"]);
+        assert!(found.iter().all(prints_snippet));
+        let rendered = elided_text(&ast, &["all"], 0);
         assert_eq!(rendered.lines().count(), found.len(), "{rendered}");
         let mut printed: Vec<u8> = rendered
             .lines()
@@ -1246,6 +1420,176 @@ mod tests {
             .map(|node| node.end_byte() - node.start_byte())
             .sum();
         assert!(spanned > 3 * code.len(), "the fixture must nest: {spanned}");
+    }
+
+    /// `x` and then `depth` nested Tcl braces around `a b`: one
+    /// `braced_word` match per level, all on one row.
+    #[cfg(feature = "tcl")]
+    fn nested_braces(depth: usize) -> Vec<u8> {
+        let mut code = b"x ".to_vec();
+        code.extend(std::iter::repeat_n(b'{', depth));
+        code.extend_from_slice(b"a b");
+        code.extend(std::iter::repeat_n(b'}', depth));
+        code.push(b'\n');
+        code
+    }
+
+    /// The snippets of a rendered `find`, one per line, in order.
+    #[cfg(any(feature = "cpp", feature = "tcl"))]
+    fn snippets(rendered: &str) -> Vec<&str> {
+        rendered
+            .lines()
+            .map(|line| line.split_once(" : ").expect("a one-row snippet").1)
+            .collect()
+    }
+
+    /// The boundary, at the real limit: levels 1 to [`FULL_LEVELS`]
+    /// print whole and the first level past it elides. That level is
+    /// only visible when it holds a match of its own, so the fixture is
+    /// two levels deeper than the limit, and the levels either side of
+    /// it pin the comparison: `<` in place of `<=` would elide level 64
+    /// as well, and a limit one higher would elide nothing.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn found_render_elides_from_the_first_level_past_the_limit() {
+        let depth = FULL_LEVELS + 2;
+        let code = nested_braces(depth);
+        let ast = parse_as(crate::LANG::Tcl, &code);
+        let rendered = found_text(&ast, &["braced_word"]);
+        let snippets = snippets(&rendered);
+        assert_eq!(snippets.len(), depth, "one line per level");
+        let elided: Vec<usize> = snippets
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.contains(ELIDED))
+            .map(|(at, _)| at + 1)
+            .collect();
+        assert_eq!(elided, [FULL_LEVELS + 1], "the levels printing `…`");
+        let whole = |level: usize| {
+            let rest = depth - level + 1;
+            format!("{}a b{} ", "{".repeat(rest), "}".repeat(rest))
+        };
+        assert_eq!(snippets[FULL_LEVELS - 1], whole(FULL_LEVELS));
+        assert_eq!(snippets[FULL_LEVELS], format!("{{{ELIDED}}} "));
+        assert_eq!(snippets[FULL_LEVELS + 1], whole(FULL_LEVELS + 2));
+    }
+
+    /// The level counts single-row matches only. A multi-row match
+    /// around a row raises nothing, so the statement's call nests at
+    /// level 1 under a limit of 1 and prints whole; the call inside it,
+    /// level 2, elides from it. Counting the function body would put the
+    /// outer call at level 2 and elide it as well.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_levels_ignore_multi_row_matches() {
+        let code = b"int f() {\n  return g(h(1));\n}\n";
+        let ast = parse_as(crate::LANG::Cpp, code);
+        let filters = [
+            "function_definition",
+            "compound_statement",
+            "call_expression",
+        ];
+        let rendered = elided_text(&ast, &filters, 1);
+        assert!(rendered.contains(" : g(h(1)) \n"), "{rendered}");
+        assert!(!rendered.contains(" : g(…)"), "{rendered}");
+        let rendered = elided_text(&ast, &filters, 0);
+        assert!(rendered.contains(" : g(…) \n"), "{rendered}");
+    }
+
+    /// Siblings share a level: the second call of a row sits where the
+    /// first did, not one deeper. Under a limit of 2, `k`, level 2 like
+    /// `g`, prints whole, and `h` and `m`, level 3, elide the calls in
+    /// them. Leaving `g`'s level open across `k` would put `k` at 3 and
+    /// print `k(…)`.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn found_render_levels_reset_between_siblings() {
+        let ast = parse_as(crate::LANG::Cpp, b"int a = f(g(h(i(1))), k(m(n(2))));\n");
+        assert_eq!(
+            snippets(&elided_text(&ast, &["call_expression"], 2)),
+            [
+                "f(g(h(i(1))), k(m(n(2)))) ",
+                "g(h(i(1))) ",
+                "h(…) ",
+                "i(1) ",
+                "k(m(n(2))) ",
+                "m(…) ",
+                "n(2) ",
+            ]
+        );
+    }
+
+    /// Two matches with the same span are two levels, like any other
+    /// nesting. Tcl's `word_list` and the `braced_word` it holds share
+    /// one: under a limit of 1, the `word_list` prints whole, and the
+    /// `braced_word`, level 2, elides the `command` inside it.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn found_render_counts_a_match_with_its_parents_span_as_a_level() {
+        let ast = parse_as(crate::LANG::Tcl, b"x {{a}}\n");
+        let filters = ["word_list", "braced_word"];
+        let found = found(&ast, &filters);
+        assert_eq!(
+            (found[0].start_byte(), found[0].end_byte()),
+            (found[1].start_byte(), found[1].end_byte()),
+            "the fixture must open with two matches of one span: {found:?}"
+        );
+        assert_eq!(
+            snippets(&elided_text(&ast, &filters, 1)),
+            ["{{a}} ", "{…} ", "{a} "]
+        );
+    }
+
+    /// The bound the limit exists for: at any depth, a source byte is
+    /// printed by at most `FULL_LEVELS + 1` lines, so the snippets of a
+    /// nest far past the limit total at most that many copies of the
+    /// file. Printing each match whole is `depth²`: at depth 1 000 that
+    /// is 7.7 times the bound, which the second assertion checks so the
+    /// first is not a bound any render would meet.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn found_render_prints_each_byte_at_most_limit_plus_one_times() {
+        let depth = 1_000;
+        let code = nested_braces(depth);
+        let ast = parse_as(crate::LANG::Tcl, &code);
+        let rendered = found_text(&ast, &["braced_word"]);
+        let printed: usize = snippets(&rendered)
+            .iter()
+            .map(|s| s.replace(ELIDED, "").trim_end().len())
+            .sum();
+        let bound = (FULL_LEVELS + 1) * code.len();
+        assert!(
+            printed <= bound,
+            "{printed} source bytes printed, bound {bound}"
+        );
+        let whole: usize = (1..=depth).map(|level| 2 * (depth - level + 1) + 3).sum();
+        assert!(
+            whole > 4 * bound,
+            "the fixture must be past the bound when whole: {whole}"
+        );
+    }
+
+    /// [`Nesting::next_outside`] alone, every span counted.
+    fn next_outside(spans: &[Range<usize>]) -> Vec<usize> {
+        nesting(spans, &vec![true; spans.len()]).next_outside
+    }
+
+    /// [`Nesting::levels`] alone.
+    fn levels(spans: &[Range<usize>], counted: &[bool]) -> Vec<usize> {
+        nesting(spans, counted).levels
+    }
+
+    #[test]
+    fn levels_count_the_counted_spans_holding_each() {
+        // 0..10 holds 0..4 (holding 1..2) and 5..9 (holding 6..7);
+        // 10..12 follows it. With every span counted, the level is the
+        // nesting depth, and the siblings 0..4 and 5..9 share one.
+        let spans = [0..10, 0..4, 1..2, 5..9, 6..7, 10..12];
+        assert_eq!(levels(&spans, &[true; 6]), [1, 2, 3, 2, 3, 1]);
+        // An uncounted span neither has a level of its own nor raises its
+        // children's: 0..10 multi-row, say.
+        let counted = [false, true, true, true, true, true];
+        assert_eq!(levels(&spans, &counted), [0, 1, 2, 1, 2, 1]);
     }
 
     #[test]

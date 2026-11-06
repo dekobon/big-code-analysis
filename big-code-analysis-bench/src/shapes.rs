@@ -1472,6 +1472,20 @@ pub fn tcl_nested_braces(depth: usize) -> String {
     format!("x {}a b{}\n", "{".repeat(depth), "}".repeat(depth))
 }
 
+/// Tcl: `width` sibling `{{a}}` words inside 66 nested braces, all on one
+/// row, so the innermost brace is past `bca find`'s 64 whole-printed
+/// levels and elides each word, and each word elides the brace inside it.
+#[must_use]
+pub fn tcl_wide_braces_past_the_limit(width: usize) -> String {
+    let depth = 66;
+    format!(
+        "x {}{}{}\n",
+        "{".repeat(depth),
+        "{{a}} ".repeat(width),
+        "}".repeat(depth)
+    )
+}
+
 /// Tcl: one `eval` line of `width` `{a b} "x"` pairs with a stray `]`
 /// in the middle of its argument list.
 ///
@@ -1971,10 +1985,33 @@ pub const PROBES: &[Probe] = &[
                     once chose its connector through `Node::parent`, an \
                     `O(depth)` climb per match: reinstating it fits \
                     2.00 against 0.99. Each single-row match also \
-                    printed its whole span, `depth²` bytes on this shape: \
-                    reinstating that fits 1.84, which is why the ladder \
-                    starts at 4 000. The reading is the lines rendered, one \
-                    per match.",
+                    printed its whole span, `depth²` bytes on this shape; \
+                    now only the first 64 levels do, and the rest elide \
+                    what is nested in them. Printing every level whole \
+                    again (the limit at `usize::MAX`) fits 1.80 against \
+                    1.01, which is why the ladder starts at 4 000. The \
+                    reading is the lines rendered, one per match.",
+    },
+    Probe {
+        name: "find/tcl-wide-braces-past-the-limit",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Find {
+            filter: "braced_word",
+        },
+        render: tcl_wide_braces_past_the_limit,
+        sizes: SPACE_MERGE_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The width half of `find/tcl-nested-braces` (#1416): past \
+                    the 64 whole-printed levels a match elides each match \
+                    nested in it, stepping from one to the next through \
+                    `next_outside`, so the level holding `width` words \
+                    visits each word once. Finding each next word by walking \
+                    the siblings again from the first prints the same text \
+                    and passes every renderer test; it fits 1.81 here \
+                    against 1.01, while the depth probe, a chain with one \
+                    match per level, stays at 1.02. The reading is the lines \
+                    rendered, one per match.",
     },
     Probe {
         name: "dump/tcl-wide-erroring-eval",
@@ -5094,6 +5131,32 @@ mod tests {
             assert_eq!(lines, read(count).expect("count walks"), "at depth {size}");
             assert_eq!(lines, u64::try_from(size).expect("a small size"));
         }
+    }
+
+    /// The wide find probe renders one line per match, and its words sit
+    /// past the whole-printed levels: the innermost brace prints a `…` per
+    /// word. A shape that never reached the elision would time only the
+    /// whole-span path, which the depth probe already prices.
+    #[test]
+    fn the_wide_find_probe_elides_every_word() {
+        let probe = PROBES
+            .iter()
+            .find(|probe| probe.name == "find/tcl-wide-braces-past-the-limit")
+            .expect("the wide find probe exists");
+        let width = 10;
+        let ast = parse(probe, width);
+        let lines = probe
+            .workload
+            .walk(&ast, probe.workload.options())
+            .expect("find walks");
+        // 66 braces around the words, and each word is two.
+        assert_eq!(lines, u64::try_from(66 + 2 * width).expect("small"));
+        let found = ast.find(&["braced_word".to_owned()]).expect("find walks");
+        let mut out = Vec::new();
+        big_code_analysis::write_found(&mut out, &ast, &found, ..).expect("render to memory");
+        let text = String::from_utf8(out).expect("utf-8 fixture");
+        let innermost = text.lines().nth(65).expect("the innermost brace's line");
+        assert_eq!(innermost.matches('…').count(), width, "{innermost}");
     }
 
     /// Probe names are unique — they key the report and the gate.
