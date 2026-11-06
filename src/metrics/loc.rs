@@ -9313,8 +9313,10 @@ EOF
                 // row is a code row carrying a comment. Measured
                 // (4, 2, 2, 1) before the correction; (4, 2, 2, 1) before
                 // #1819 too, by the catch-all. Perturbation: dropping the
-                // code-before-the-string check fails exactly this row and
-                // the `("""doc""" \` + `; y=2` one below.
+                // code-before-the-string check fails exactly the six
+                // `x=1;` rows (this one, the four `x=1; (` ones below
+                // and the `x=1; ( """doc""" # c` one reached without a
+                // `\`, third re-review).
                 (b"x=1; \"\"\"doc\"\"\" \\\n\\\n\ny=2\n", (4, 3, 1, 1), 1),
                 // `NAME OP NUMBER OP OP STRING OP NEWLINE …`: the code
                 // before the string sits above the parenthesis the run is
@@ -9369,6 +9371,53 @@ EOF
                 // holder being the string: it is the control.
                 (b"((\"\"\"doc\"\"\") \\\n\\\n)\nx=1\n", (4, 1, 3, 0), 0),
                 (b"((\"\"\"doc\"\"\" \\\n\\\n))\nx=1\n", (4, 1, 3, 0), 0),
+                // A run that *starts* a line inside the string's
+                // parentheses is the string's line too (third re-review
+                // of #1819, which found only a run after the string's
+                // `\` read its `)`). `OP STRING COMMENT NL OP NEWLINE`:
+                // the comment's `\` is its text, the `(` keeps the line
+                // open, and the run joins the string's `)` (#1610). The
+                // same without the comment's `\`, and without the
+                // comment (`OP STRING NL OP NEWLINE`): the row before
+                // the run ends in no `\`. Measured (3, 1, 2, 0) before
+                // the correction, all three. Perturbation
+                // (`utils/perturb.py`, `-p big-code-analysis -p
+                // big-code-analysis-bench --lib --no-fail-fast`):
+                // reading a starting run forward without the
+                // parentheses finder fails exactly these three rows,
+                // the three `((` / `) # d` ones after the `x=1; (` row
+                // and the CRLF twin below, seven in all — the runs
+                // after a `\` reach the string through the `\` finder
+                // and still pass.
+                (b"( \"\"\"doc\"\"\" # c \\\n\\\n)\n", (3, 0, 3, 0), 0),
+                (b"( \"\"\"doc\"\"\" # c\n\\\n)\n", (3, 0, 3, 0), 0),
+                (b"( \"\"\"doc\"\"\"\n\\\n)\n", (3, 0, 3, 0), 0),
+                // `NAME OP NUMBER OP OP STRING COMMENT NL OP NEWLINE`:
+                // `x=1;` is on the string's logical line, so the run is
+                // its code; the string's row and the `)` row stay comment
+                // rows (#415, #1610). Measured (3, 2, 2, 0) before the
+                // correction too — by the forward reading of the `)`, for
+                // the wrong reason. Perturbation: dropping the
+                // code-before-the-string check from the shared reading
+                // fails exactly this row and the five `x=1;` rows above
+                // that reach it through the `\` finder.
+                (b"x=1; ( \"\"\"doc\"\"\" # c\n\\\n)\n", (3, 2, 2, 0), 0),
+                // `OP OP STRING COMMENT NL OP OP NEWLINE`: inside the
+                // inner of two parentheses, the holder is the string and
+                // the run joins the inner `)`, then the outer. `OP STRING
+                // COMMENT NL OP COMMENT NEWLINE`: a comment after the `)`
+                // is on the string's line. `OP OP STRING OP COMMENT NL OP
+                // NEWLINE`: the holder is the inner `parenthesized_expression`.
+                // Measured (3, 1, 2, 0) before the correction, all three.
+                (b"((\"\"\"doc\"\"\" # c\n\\\n))\n", (3, 0, 3, 0), 0),
+                (b"( \"\"\"doc\"\"\" # c\n\\\n) # d\n", (3, 0, 3, 0), 0),
+                (b"((\"\"\"doc\"\"\") # c\n\\\n)\n", (3, 0, 3, 0), 0),
+                // Controls: `OP STRING OP STRING NL OP NEWLINE` — a
+                // `binary_operator`, no bare string, and the run joining
+                // its `)` is code; `NAME OP STRING NL OP NEWLINE` — an
+                // argument's `)`, code. Both unchanged.
+                (b"( \"a\" + \"b\"\n\\\n)\n", (3, 3, 0, 0), 0),
+                (b"foo( \"\"\"doc\"\"\"\n\\\n)\n", (3, 3, 0, 0), 0),
                 // Controls: `NAME OP NUMBER OP NAME OP NUMBER NEWLINE` —
                 // a `;` before the `\` with no string, plain code
                 // continuation; `STRING OP NAME NEWLINE` — a string with
@@ -9400,6 +9449,10 @@ EOF
                 // CRLF: the token takes `\r\n`, so the node ends on the
                 // next row as the LF one does. Pre-fix (3, 2, 1, 0).
                 (b"\\\r\n# note\r\nx = 1\r\n", (3, 1, 2, 0), 0),
+                // CRLF twin of the `( """doc""" # c \` row: the comment
+                // takes its `\` and the string's `)` is read the same.
+                // Measured (3, 1, 2, 0) before the correction.
+                (b"( \"\"\"doc\"\"\" # c \\\r\n\\\r\n)\r\n", (3, 0, 3, 0), 0),
                 // Controls: a bare row continuing code is code, as before.
                 (b"x = 1 + \\\n\\\n  2\n", (3, 3, 0, 0), 0),
                 (b"# c \\\n\\\nx = 1\n", (3, 2, 1, 0), 0),

@@ -213,9 +213,10 @@ fn add_sphinx_doc_comment<'a>(
 // ending a bare-string statement: that row is the string's comment row
 // and was also code. `loc/python-long-bare-run` prices the run.
 //
-// Where the `\` ends a bare-string statement's row, the run is the
-// string's line and, with no code before the string on it, what the
-// rows after the run make it (`classify_python_run`): the comment the
+// Where the run is a bare-string statement's line — its `\` ends the
+// statement's row, or the run sits inside the string's parentheses
+// (#1610) — it is, with no code before the string on it, what the rows
+// after the run make it (`classify_python_run`): the comment the
 // string's rows are (#415) unless a `;` starts a statement there.
 #[inline]
 fn credit_python_line_continuation<'a>(
@@ -290,6 +291,12 @@ fn past_python_bare_run(node: &Node, code: &[u8]) -> Option<usize> {
 // after any statement. With none, the line holds no code yet and is what
 // the rows after the run make it, as `GapScan::classify` reads a C-family
 // `/* … */` before a `\` through `only_comments_before`.
+//
+// A run that starts a line — after no `\`, or after one a `#` comment
+// swallowed — can start it inside a bare string's parentheses (#1610),
+// where it is the string's line as much as a run its `\` opens (third
+// re-review of #1819): every path asks `python_on_bare_strings_line`
+// and reads the line through `python_bare_string_run`.
 fn classify_python_run<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -304,15 +311,48 @@ fn classify_python_run<'a>(
         Some(_) if in_comment && PYTHON_COMMENTS.continued => BareRow::Comment,
         // The comment's `\` is its text, so the run starts a line of
         // its own.
-        Some(_) if in_comment => forward_python_run(node, code, first, ancestors),
-        Some(last) => match python_backslash_after_bare_string(node, code, last, ancestors) {
-            Some(line) if !python_code_before_string(node, code, &line, ancestors) => {
-                python_bare_string_run(node, code, first, ancestors)
-            }
-            _ => BareRow::Code,
-        },
-        None => forward_python_run(node, code, first, ancestors),
+        Some(_) if in_comment => python_starting_run(node, code, first, ancestors),
+        Some(last) if python_on_bare_strings_line(node, code, Some(last), ancestors) => {
+            python_bare_string_run(node, code, first, ancestors)
+        }
+        Some(_) => BareRow::Code,
+        None => python_starting_run(node, code, first, ancestors),
     }
+}
+
+// What a run starting a logical line is: the bare string's line, where
+// it starts it inside the string's parentheses (#1610), else what the
+// token at `first` makes it.
+fn python_starting_run<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    first: usize,
+    ancestors: Ancestors<'a, '_>,
+) -> BareRow {
+    if python_on_bare_strings_line(node, code, None, ancestors) {
+        python_bare_string_run(node, code, first, ancestors)
+    } else {
+        forward_python_run(node, code, first, ancestors)
+    }
+}
+
+// Whether the run headed by `node` is on a bare string statement's
+// logical line with no code before the string on it: the string is
+// found from the `\` at `backslash` ending the statement's row, which
+// the run continues, or with none from the parentheses the run sits
+// inside. Code before the string makes the run that code's, as after
+// any statement.
+fn python_on_bare_strings_line<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    backslash: Option<usize>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let line = match backslash {
+        Some(last) => python_backslash_after_bare_string(node, code, last, ancestors),
+        None => python_run_inside_bare_string_parentheses(node, ancestors),
+    };
+    line.is_some_and(|line| !python_code_before_string(node, code, &line, ancestors))
 }
 
 // What the logical line the run headed by `node` starts becomes, read
@@ -333,14 +373,15 @@ fn forward_python_run<'a>(
     }
 }
 
-// What a run continuing a bare string statement's line, with no code
-// before it, is: what the token at `first` makes that line. A comment
-// leaves it the string's; a `;` starts another statement on it, code; an
-// empty row leaves it as it is, the Blank reading `GapScan::classify`
-// maps to Comment too. A string there concatenates and takes the `\`
-// with it (no node); anything else is a SyntaxError — except the
-// string's own `)` (#1610), which no C-family line has: it closes the
-// string, and the line is what follows it.
+// What a run on a bare string statement's logical line, with no code
+// before the string on it (`python_on_bare_strings_line`), is: what the
+// token at `first` makes that line. A comment leaves it the string's; a
+// `;` starts another statement on it, code; an empty row leaves it as it
+// is, the Blank reading `GapScan::classify` maps to Comment too. A
+// string there concatenates and takes the `\` with it (no node);
+// anything else is a SyntaxError — except the string's own `)` (#1610),
+// which no C-family line has: it closes the string, and the line is
+// what follows it.
 fn python_bare_string_run<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -352,6 +393,38 @@ fn python_bare_string_run<'a>(
         BareRow::Code => python_past_string_parentheses(node, code, first, ancestors),
         BareRow::Comment => BareRow::Comment,
     }
+}
+
+// The bare string statement whose parentheses the run headed by `node`
+// sits inside, after the string (#1610): the run's parent is one of the
+// statement's `parenthesized_expression`s, and the sibling before the
+// run past comments and splices is not that parenthesis's `(` — so the
+// string, a concatenation or an inner parenthesis, which stands as the
+// holder exactly as it does for a `\` ending the string's row
+// (`python_backslash_after_bare_string`'s `inside`), and the deepest
+// level is the holder's own. A run before the string has no node to
+// ask: the scanner eats a `\` before a string start (#1825).
+fn python_run_inside_bare_string_parentheses<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> Option<BareStringBackslash<'a>> {
+    let (parent, chain) = ancestors.iter(node).next()?;
+    if !python_is_bare_string_parenthesis(&parent, chain) {
+        return None;
+    }
+    ancestors
+        .siblings_before(node)
+        .find(|sibling| {
+            !matches!(
+                sibling.kind_id().into(),
+                Python::LineContinuation | Python::Comment
+            )
+        })
+        .filter(|holder| holder.kind_id() != Python::LPAREN)
+        .map(|holder| BareStringBackslash {
+            holder,
+            deepest: None,
+        })
 }
 
 // What the line a run headed by `node` joins at `first` holds past the
@@ -400,12 +473,14 @@ fn python_token_row(token: &Node) -> BareRow {
     }
 }
 
-// A `\` ending a bare string statement's row, as
-// `python_backslash_after_bare_string` finds it: `holder` is the sibling
-// before the run whose last token the `\` follows, and `deepest`, where
-// the statement lies below the holder, the deepest node on the descent
-// to it that has siblings before it, with its parent — the level whose
-// tokens are nearest the statement.
+// A bare string statement's line that a run is on, as
+// `python_backslash_after_bare_string` finds it from the `\` ending the
+// statement's row, or `python_run_inside_bare_string_parentheses` from
+// the parentheses around the run: `holder` is the sibling before the run
+// whose last token the `\` follows, or the string the run's `)` closes,
+// and `deepest`, where the statement lies below the holder, the deepest
+// node on the descent to it that has siblings before it, with its parent
+// — the level whose tokens are nearest the statement.
 struct BareStringBackslash<'a> {
     holder: Node<'a>,
     deepest: Option<(Node<'a>, Node<'a>)>,
