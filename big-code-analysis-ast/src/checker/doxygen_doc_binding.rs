@@ -41,11 +41,11 @@ macro_rules! impl_doxygen_row {
     ($code:ident, $roles:ident) => {
         impl $crate::lang_helpers::doxygen::DoxygenRow for $code {
             fn doc_target_row<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-                // `doxygen_entry` hands this row no bytes; the pin sits
-                // beside the forward it protects.
+                // `non_conditional_entry` hands this row no bytes; the
+                // pin sits beside the forward it protects.
                 const _: () = assert!(
                     !$crate::roles::$roles::doc_target::TEXT_GATED,
-                    "a C-family `DocTarget` row reads bytes; `doxygen_entry` cannot forward with `&[]`"
+                    "a C-family `DocTarget` row reads bytes; `non_conditional_entry` cannot forward with `&[]`"
                 );
                 $crate::roles::$roles::doc_target::owns(node, code, ancestors)
             }

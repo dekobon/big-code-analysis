@@ -294,21 +294,37 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
     // has folded its own in. `answers[i]` holds the answer, so far, of the
     // `i`th conditional read.
     let mut answers = Vec::new();
-    let mut stack = vec![Visit::Read(*node, None)];
+    let mut stack = vec![Visit::Read {
+        conditional: *node,
+        outer: None,
+    }];
     while let Some(visit) = stack.pop() {
         match visit {
-            Visit::Read(conditional, outer) => {
+            Visit::Read { conditional, outer } => {
                 conditionals_read::record();
                 let own = answers.len();
-                stack.push(Visit::Answer(conditional, outer, own));
+                stack.push(Visit::Answer {
+                    conditional,
+                    outer,
+                    own,
+                });
                 answers.push(children_declare::<T>(
                     &conditional,
                     ancestors,
                     memo,
-                    |nested| stack.push(Visit::Read(nested, Some(own))),
+                    |nested| {
+                        stack.push(Visit::Read {
+                            conditional: nested,
+                            outer: Some(own),
+                        });
+                    },
                 ));
             }
-            Visit::Answer(conditional, outer, own) => {
+            Visit::Answer {
+                conditional,
+                outer,
+                own,
+            } => {
                 memo.set(&conditional, answers[own]);
                 if let Some(outer) = outer {
                     answers[outer] |= answers[own];
@@ -319,15 +335,23 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
     memo.get(node) == Some(true)
 }
 
-/// A step of [`conditional_declares`]'s walk over a nest. The `Option` is
-/// the enclosing conditional's index in the walk's `answers`, `None` for
-/// the conditional asked about; an `Answer` carries its own index too.
+/// A step of [`conditional_declares`]'s walk over a nest.
 enum Visit<'a> {
     /// Read the conditional's children ([`children_declare`]).
-    Read(Node<'a>, Option<usize>),
+    Read {
+        conditional: Node<'a>,
+        /// The enclosing conditional's index in the walk's `answers`;
+        /// `None` for the conditional asked about.
+        outer: Option<usize>,
+    },
     /// Store the conditional's answer, every nested one folded in by now,
     /// and fold it into the enclosing conditional's.
-    Answer(Node<'a>, Option<usize>, usize),
+    Answer {
+        conditional: Node<'a>,
+        outer: Option<usize>,
+        /// This conditional's own index in `answers`.
+        own: usize,
+    },
 }
 
 /// Whether a child of `conditional` already answers
@@ -345,7 +369,7 @@ fn children_declare<'a, T: DoxygenRow>(
     let below = chain_below(ancestors, &parent);
     let mut declares = false;
     for child in conditional.children() {
-        if T::conditional_kind(child.kind_id()) {
+        if preproc_conditional::<T>(&child) {
             match memo.get(&child) {
                 Some(answer) => declares |= answer,
                 None => defer(child),
@@ -513,6 +537,13 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// preprocessor would expand, is given the benefit of the doubt, as
 /// before #1613, rather than dropping the block on a parse failure; an
 /// error holding no entry is read past (`doxygen_skips`).
+fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
+    !preproc_conditional::<T>(node) && non_conditional_entry::<T>(node, ancestors)
+}
+
+/// [`doxygen_entry`] of a node its caller has already found is no
+/// conditional: the row, or a parse error holding an entry (an `ERROR`
+/// is never a conditional kind).
 ///
 /// The row is asked with no bytes, which is exact because no C-family
 /// `DocTarget` gate reads any — `impl_doxygen_row!` in
@@ -523,13 +554,6 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// `ERROR` clause this fn already handles, and a dialect that someday
 /// hand-writes a byte-reading `is_doc_target` would otherwise slip past
 /// the row's assertion.
-fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
-    !preproc_conditional::<T>(node) && non_conditional_entry::<T>(node, ancestors)
-}
-
-/// [`doxygen_entry`] of a node its caller has already found is no
-/// conditional: the row, or a parse error holding an entry (an `ERROR`
-/// is never a conditional kind).
 fn non_conditional_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
     if node.is_error() {
         return !no_entry_inside::<T>(node, ancestors);

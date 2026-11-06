@@ -1918,19 +1918,17 @@ macro_rules! role_table {
 
     // ---- the scan's terminals ----------------------------------------------
 
-    // In `owns`: the owner's clause, gated or not. A gate slot is
-    // `[g]` or `[g no_chain]`, carried into the clause as
-    // `gated_by g` / `gated_by g no_chain`. A parent list,
-    // `[under [..]]` or `[not_under [..]]`, is handed to `@gate` whole,
-    // here and in every terminal below that emits a clause.
-    (@owner_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
-    };
+    // In `owns`: the owner's clause, gated or not. The gate slot — `[]`,
+    // `[g]`, `[g no_chain]`, `[under [..]]` or `[not_under [..]]` — is
+    // handed to `@gate` whole, here and in every terminal below that
+    // emits a clause; an empty slot renders as `true`. Only
+    // `holds_payer` is read off the slot first, since it changes the
+    // clause rather than gating it.
     (@owner_done [] $ctx:tt $k:ident [holds_payer $($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
         $crate::role_table!(@clause_payer $ctx $k $(gated_by $g $($nc)?)?);
     };
-    (@owner_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt $c:tt) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
+    (@owner_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt $c:tt) => {
+        $crate::role_table!(@clause_gated $ctx $k $g);
     };
     // In `TEXT_GATED`: whether the owner's gate reads the bytes. The scan
     // folds `text_gated_by` and `gated_by` into one gate slot, so the
@@ -1992,17 +1990,11 @@ macro_rules! role_table {
     // a `callable_when w` owner's under its gate *and* `w`; an owner
     // without either mark emits nothing.
     (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt []) => {};
-    (@callable_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt [callable]) => {
-        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
+    (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt [callable]) => {
+        $crate::role_table!(@clause_gated $ctx $k $g);
     };
-    (@callable_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt $s:tt [callable $w:ident]) => {
-        $crate::role_table!(@clause_when_gated $ctx $k $w [$rel [$($q),+]]);
-    };
-    (@callable_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt [callable]) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
-    };
-    (@callable_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt $s:tt [callable $w:ident]) => {
-        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g $($nc)?)?);
+    (@callable_done [] $ctx:tt $k:ident $g:tt $p:tt $s:tt [callable $w:ident]) => {
+        $crate::role_table!(@clause_when_gated $ctx $k $w $g);
     };
     // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate,
     // and a `pays_itself_when w` owner under its gate *and* `w` — the
@@ -2013,17 +2005,11 @@ macro_rules! role_table {
     // already pays, and under `pays never` it would contradict the row
     // — so the other two modes reject it.
     (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt $c:tt) => {};
-    (@self_payer_done [split] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] [pays_itself] $s:tt $c:tt) => {
-        $crate::role_table!(@clause_gated $ctx $k [$rel [$($q),+]]);
+    (@self_payer_done [split] $ctx:tt $k:ident $g:tt [pays_itself] $s:tt $c:tt) => {
+        $crate::role_table!(@clause_gated $ctx $k $g);
     };
-    (@self_payer_done [split] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] [pays_itself $w:ident] $s:tt $c:tt) => {
-        $crate::role_table!(@clause_when_gated $ctx $k $w [$rel [$($q),+]]);
-    };
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] [pays_itself] $s:tt $c:tt) => {
-        $crate::role_table!(@clause $ctx $k $(gated_by $g $($nc)?)?);
-    };
-    (@self_payer_done [split] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] [pays_itself $w:ident] $s:tt $c:tt) => {
-        $crate::role_table!(@clause_when $ctx $k $w $(gated_by $g $($nc)?)?);
+    (@self_payer_done [split] $ctx:tt $k:ident $g:tt [pays_itself $w:ident] $s:tt $c:tt) => {
+        $crate::role_table!(@clause_when_gated $ctx $k $w $g);
     };
     (@self_payer_done [never] $ctx:tt $k:ident $g:tt [pays_itself $($w:ident)?] $s:tt $c:tt) => {
         compile_error!("`pays_itself` contradicts `pays never`: the row says nothing pays");
@@ -2035,17 +2021,11 @@ macro_rules! role_table {
     };
     // In `opens_space`: an `opens K` owner returns its kind, under its gate.
     (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [] $c:tt) => {};
-    (@opens_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
-        $crate::role_table!(@space_clause_by_gated $ctx $k [$f $($fnc)?] [$rel [$($q),+]]);
+    (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
+        $crate::role_table!(@space_clause_by_gated $ctx $k [$f $($fnc)?] $g);
     };
-    (@opens_done [] $ctx:tt $k:ident [$rel:ident [$($q:ident),+]] $p:tt [$s:ident] $c:tt) => {
-        $crate::role_table!(@space_clause_gated $ctx $k $s [$rel [$($q),+]]);
-    };
-    (@opens_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt [by $f:ident $($fnc:ident)?] $c:tt) => {
-        $crate::role_table!(@space_clause_by $ctx $k [$f $($fnc)?] $(gated_by $g $($nc)?)?);
-    };
-    (@opens_done [] $ctx:tt $k:ident [$($g:ident $($nc:ident)?)?] $p:tt [$s:ident] $c:tt) => {
-        $crate::role_table!(@space_clause $ctx $k $s $(gated_by $g $($nc)?)?);
+    (@opens_done [] $ctx:tt $k:ident $g:tt $p:tt [$s:ident] $c:tt) => {
+        $crate::role_table!(@space_clause_gated $ctx $k $s $g);
     };
 
     // ---- the `opens_space` fold -------------------------------------------
@@ -2071,6 +2051,9 @@ macro_rules! role_table {
     // the proof is the signature, not the row. A parent list, an
     // owner's or a payer's, is the parent-kind test itself (#1794).
 
+    (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] []) => {
+        true
+    };
     (@gate [$l:ident $kind:ident $n:ident $c:ident $a:ident] [$g:ident]) => {
         $g($n, $c, $a)
     };
@@ -2123,26 +2106,10 @@ macro_rules! role_table {
                 && project($n).is_some_and(|child| PAYERS.contains(&child.kind_id()));
         }
     };
-    (@clause_when [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident) => {
-        if $kind == $l::$k as u16 {
-            return $w($n, $c, $a);
-        }
-    };
-    (@clause_when $ctx:tt $k:ident $w:ident gated_by $g:ident $($nc:ident)?) => {
-        $crate::role_table!(@clause_when_gated $ctx $k $w [$g $($nc)?]);
-    };
     (@clause_when_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $w:ident $g:tt) => {
         if $kind == $l::$k as u16 {
             return $crate::role_table!(@gate [$l $kind $n $c $a] $g) && $w($n, $c, $a);
         }
-    };
-    (@space_clause [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident) => {
-        if $kind == $l::$k as u16 {
-            return $crate::SpaceKind::$s;
-        }
-    };
-    (@space_clause $ctx:tt $k:ident $s:ident gated_by $g:ident $($nc:ident)?) => {
-        $crate::role_table!(@space_clause_gated $ctx $k $s [$g $($nc)?]);
     };
     (@space_clause_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $s:ident $g:tt) => {
         if $kind == $l::$k as u16 && $crate::role_table!(@gate [$l $kind $n $c $a] $g) {
@@ -2151,14 +2118,6 @@ macro_rules! role_table {
     };
     // An `opens_by f` owner: `f` answers the kind, `Unknown` for none;
     // `f` takes the `no_chain` mark like a gate.
-    (@space_clause_by [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:tt) => {
-        if $kind == $l::$k as u16 {
-            return $crate::role_table!(@gate [$l $kind $n $c $a] $f);
-        }
-    };
-    (@space_clause_by $ctx:tt $k:ident $f:tt gated_by $g:ident $($nc:ident)?) => {
-        $crate::role_table!(@space_clause_by_gated $ctx $k $f [$g $($nc)?]);
-    };
     (@space_clause_by_gated [$l:ident $kind:ident $n:ident $c:ident $a:ident] $k:ident $f:tt $g:tt) => {
         if $kind == $l::$k as u16 && $crate::role_table!(@gate [$l $kind $n $c $a] $g) {
             return $crate::role_table!(@gate [$l $kind $n $c $a] $f);

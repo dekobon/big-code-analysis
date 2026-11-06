@@ -221,7 +221,14 @@ fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> s
         let (pref_child, pref) = frame.connector.glyphs();
 
         if line_in_range(frame.node.start_row() + 1, state.line_start, state.line_end) {
-            write_node_line(state.stdout, state.code, &frame.node, &prefix, pref)?;
+            let (code, node) = (state.code, frame.node);
+            write_node_line(
+                state.stdout,
+                &node,
+                &prefix,
+                pref,
+                std::iter::once_with(|| &code[node.start_byte()..node.end_byte()]),
+            )?;
         }
 
         // Leaves are roughly half the nodes and `child_count` is O(1),
@@ -291,16 +298,19 @@ fn paint(stdout: &mut dyn WriteColor, c: Color, args: std::fmt::Arguments) -> st
 /// Emit the full colored description line for one node: header, position
 /// range, optional same-row snippet, then the trailing newline (always,
 /// even for multi-row nodes whose snippet is skipped).
-fn write_node_line(
+fn write_node_line<'c>(
     stdout: &mut dyn WriteColor,
-    code: &[u8],
     node: &Node,
     prefix: &str,
     pref: &str,
+    snippet: impl IntoIterator<Item = &'c [u8]>,
 ) -> std::io::Result<()> {
     write_node_header(stdout, node, prefix, pref)?;
     write_node_location(stdout, node)?;
-    write_node_snippet(stdout, code, node)?;
+    // Source snippet for single-row nodes only.
+    if node.start_row() == node.end_row() {
+        write_snippet(stdout, snippet)?;
+    }
     writeln!(stdout)
 }
 
@@ -334,23 +344,6 @@ fn write_node_location(stdout: &mut dyn WriteColor, node: &Node) -> std::io::Res
     )
 }
 
-/// Source snippet for single-row nodes only. Multi-row nodes return
-/// without writing (the caller still emits the trailing newline).
-fn write_node_snippet(
-    stdout: &mut dyn WriteColor,
-    code: &[u8],
-    node: &Node,
-) -> std::io::Result<()> {
-    if node.start_row() != node.end_row() {
-        return Ok(());
-    }
-    write_snippet(
-        stdout,
-        code,
-        std::iter::once(node.start_byte()..node.end_byte()),
-    )
-}
-
 /// What a `bca find` snippet prints in place of a match nested inside
 /// it, whose text the nested match's own line prints (#1416).
 const ELIDED: &str = "…";
@@ -364,18 +357,16 @@ const ELIDED: &str = "…";
 /// regression guard `dump_node_non_utf8_source_emits_the_raw_snippet`.
 /// Each piece is checked on its own, so the cost is the bytes printed
 /// rather than the span they sit in.
-fn write_snippet(
+fn write_snippet<'c>(
     stdout: &mut dyn WriteColor,
-    code: &[u8],
-    pieces: impl IntoIterator<Item = Range<usize>>,
+    pieces: impl IntoIterator<Item = &'c [u8]>,
 ) -> std::io::Result<()> {
     write_snippet_separator(stdout, ": ")?;
     let mut utf8 = true;
-    for (nth, piece) in pieces.into_iter().enumerate() {
+    for (nth, bytes) in pieces.into_iter().enumerate() {
         if nth > 0 {
             write_snippet_separator(stdout, ELIDED)?;
         }
-        let bytes = &code[piece];
         utf8 &= str::from_utf8(bytes).is_ok();
         stdout.write_all(bytes)?;
     }
@@ -470,12 +461,13 @@ fn render_found(
             } else {
                 Connector::Last
             };
-            write_node_header(stdout, node, "", connector.glyphs().1)?;
-            write_node_location(stdout, node)?;
-            if node.start_row() == node.end_row() {
-                write_snippet(stdout, code, own_text(&spans, &next_outside, at))?;
-            }
-            writeln!(stdout)?;
+            write_node_line(
+                stdout,
+                node,
+                "",
+                connector.glyphs().1,
+                own_text(&spans, &next_outside, at).map(|piece| &code[piece]),
+            )?;
         }
         // `dump_node_with_color` ends each call on white, filtered out
         // or not; keeping it keeps the coloured bytes identical.
@@ -531,10 +523,9 @@ fn own_text<'s>(
         if done {
             return None;
         }
-        while let Some(inner) = spans.get(next).filter(|inner| inner.start < outer.end) {
-            if inner.start < cursor || inner.end > outer.end {
-                break;
-            }
+        while let Some(inner) = spans.get(next).filter(|inner| {
+            cursor <= inner.start && inner.start < outer.end && inner.end <= outer.end
+        }) {
             next = next_outside[next];
             if inner.is_empty() {
                 continue;
@@ -669,7 +660,7 @@ mod tests {
 
     /// Render `node` to an in-memory sink under the given line filter and
     /// return the raw bytes. Not necessarily UTF-8: a non-UTF-8 source
-    /// snippet is written through verbatim by `write_node_snippet`.
+    /// snippet is written through verbatim by `write_snippet`.
     #[cfg(feature = "cpp")]
     fn render_raw(
         code: &[u8],
@@ -933,7 +924,7 @@ mod tests {
     /// but every existing test writes into an infallible `Vec`, leaving
     /// the failure half of each `?` in `dump_tree_helper`, `paint`,
     /// `write_node_line`, `write_node_header`, `write_node_location`, and
-    /// `write_node_snippet` unexercised.
+    /// `write_snippet` unexercised.
     ///
     /// The fixture is deliberately the smallest tree that still nests:
     /// the sweep re-runs the whole dump once per write position, so cost
@@ -1005,10 +996,11 @@ mod tests {
         }
     }
 
-    /// A match no other single-row match nests in prints exactly what
-    /// the per-match dump printed, colour escapes included: the root
-    /// flush left, a multi-row match with matches inside it (it prints
-    /// no text, so nothing is elided), leaves, and a non-UTF-8 literal
+    /// A match printed whole — multi-row, or single-row holding no other
+    /// match — prints exactly what the per-match dump printed, colour
+    /// escapes included: the root flush left, a multi-row match with
+    /// matches inside it (it prints no text, so nothing is elided),
+    /// leaves, and a non-UTF-8 literal
     /// written raw. Under the line filter too, which the two paths spell
     /// differently. The old path is the specification here, so the test
     /// asks it rather than restating its output.

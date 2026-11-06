@@ -14,10 +14,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 /// The names `doxygen_entry` matched before #1699 (its `match
-/// node.kind()` arms, plus the specifier and field arms it gated),
-/// and the five conditional names `preproc_conditional` matched until
-/// #1795. A hand-pinned copy, not read from the rows, so this is an
-/// oracle.
+/// node.kind()` arms, plus the specifier and field arms it gated). A
+/// hand-pinned copy, not read from the rows, so this is an oracle.
 const OLD_ENTRY_NAMES: &[&str] = &[
     "declaration",
     "function_definition",
@@ -47,6 +45,8 @@ const OLD_ENTRY_NAMES: &[&str] = &[
     "expression_statement",
     "implementation_definition",
 ];
+/// The five conditional names `preproc_conditional` matched by name
+/// until #1795, hand-pinned like [`OLD_ENTRY_NAMES`].
 const OLD_CONDITIONAL_NAMES: &[&str] = &[
     "preproc_if",
     "preproc_ifdef",
