@@ -1427,7 +1427,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 147624.51367706034
+value = 132824.9183071509
 
 [[entry]]
 path = "src/spaces/compute.rs"

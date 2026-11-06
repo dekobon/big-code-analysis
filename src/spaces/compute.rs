@@ -770,6 +770,47 @@ fn prunes_subtree<'a, T: MetricSuite>(
     run_verdict.is_skipped()
 }
 
+/// Records an `exclude_tests`-pruned `node` and frees its nesting slot;
+/// the caller then skips the subtree. Called before any per-metric work
+/// runs for the node.
+///
+/// `sloc` is span-based, not node-accumulated, so unlike every other loc
+/// sub-metric it does not shrink just because the walk skips the
+/// subtree. Record the pruned node's rows on the innermost enclosing
+/// func-space so its `sloc` drops in step (#722); `Sloc::merge` then
+/// unions those rows upward so every enclosing space — including the
+/// unit, which feeds MI's SLOC term — drops too, even when the test item
+/// is nested in a retained `impl`/`trait`/closure (#741). Gated on the
+/// `Loc` selection so deselecting loc keeps the walk's work identical.
+///
+/// The whole span goes in, shared rows included; the retained rows of
+/// this space are still arriving, so nothing here can tell a row the
+/// prune took from one it only touched. `Stats::settle_excluded_rows`
+/// subtracts the shared ones at finalization, when the retained sets are
+/// complete (#1417).
+///
+/// The pruned node was seeded by its parent and is neither computed nor
+/// propagated, so nothing else frees its nesting slot.
+fn prune_node(
+    state_stack: &mut [State],
+    node: &Node,
+    selected: MetricSet,
+    nesting_map: &mut NestingMap,
+) {
+    if selected.contains(Metric::Loc)
+        && let Some(state) = state_stack.last_mut()
+    {
+        state
+            .space
+            .metrics
+            .loc
+            .exclude_test_span(node.start_row(), node.end_line());
+    }
+    if selected.contains(Metric::Cognitive) {
+        nesting_map.remove(&node.id());
+    }
+}
+
 pub(crate) fn metrics_inner<T: MetricSuite>(
     parser: &T,
     name: Option<String>,
@@ -777,7 +818,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
 ) -> Result<FuncSpace, MetricsError> {
     // bca: suppress(cognitive, abc)
     // The single AST-walk loop. Per-node work is already factored into
-    // push_synthetic_unit_root / finalize / open_func_space /
+    // push_synthetic_unit_root / finalize / prune_node / open_func_space /
     // compute_per_node / apply_comment_suppression / push_children; the
     // residual branches each guard a distinct walk invariant
     // (#182/#289/#522/#722/#1084). There is no cohesive sub-loop left to
@@ -882,35 +923,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // `metrics()` entry point keeps emitting the pre-#182
         // numbers byte-for-byte.
         if options.exclude_tests && prunes_subtree::<T>(&node, code, ancestors, &mut run_verdict) {
-            // `sloc` is span-based, not node-accumulated, so unlike every
-            // other loc sub-metric it does not shrink just because we
-            // skip the subtree. Record the pruned node's rows on the
-            // innermost enclosing func-space so its `sloc` drops in step
-            // (#722); `Sloc::merge` then unions those rows upward so every
-            // enclosing space — including the unit, which feeds MI's SLOC
-            // term — drops too, even when the test item is nested in a
-            // retained `impl`/`trait`/closure (#741). Gated on the `Loc`
-            // selection so deselecting loc keeps the walk's work identical.
-            //
-            // The whole span goes in, shared rows included; the retained
-            // rows of this space are still arriving, so nothing here can
-            // tell a row the prune took from one it only touched.
-            // `Stats::settle_excluded_rows` subtracts the shared ones at
-            // finalization, when the retained sets are complete (#1417).
-            if selected.contains(Metric::Loc)
-                && let Some(state) = state_stack.last_mut()
-            {
-                state
-                    .space
-                    .metrics
-                    .loc
-                    .exclude_test_span(node.start_row(), node.end_line());
-            }
-            // The pruned node was seeded by its parent and is neither
-            // computed nor propagated, so nothing else frees its slot.
-            if selected.contains(Metric::Cognitive) {
-                nesting_map.remove(&node.id());
-            }
+            prune_node(&mut state_stack, &node, selected, &mut nesting_map);
             continue;
         }
 
