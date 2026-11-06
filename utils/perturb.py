@@ -86,10 +86,19 @@ import sys
 import tempfile
 
 BUILD_ERROR_RE = re.compile(r"^error\[|could not compile", re.M)
-FAILED_RES = (
-    re.compile(r"^---- (\S+) stdout ----", re.M),
-    re.compile(r"^test (\S+) \.\.\. FAILED", re.M),
-)
+# A test name can hold spaces: a doctest's is `src/lib.rs - item (line 7)`
+# (#1831). Each pattern is anchored at both ends of its line, so the lazy
+# group cannot run past the line's own delimiter. The progress line is
+# the name: a `compile_fail` doctest's carries ` - compile fail`, which
+# its `----` header drops, so the headers are read only when no progress
+# line is (a `--format terse` run, say), never merged with them.
+FAILED_LINE_RE = re.compile(r"^test (.+?) \.\.\. FAILED$", re.M)
+FAILED_HEADER_RE = re.compile(r"^---- (.+?) stdout ----$", re.M)
+# A test's captured output runs from its `---- name stdout ----` header to
+# the next header or the `failures:` list after the last one. A doctest
+# that fails to compile prints its `error[E…]` there, which is a failing
+# test, not a build that never reached the tests.
+TEST_STDOUT_RE = re.compile(r"^---- .+? stdout ----$.*?(?=^---- |^failures:$|\Z)", re.M | re.S)
 TEST_RESULT_RE = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed;", re.M)
 
 CARGO_PROGRAMS = frozenset({"cargo", "cargo.exe"})
@@ -249,10 +258,8 @@ def classify(returncode: int, output: str) -> tuple[str, set[str], str]:
     `HARNESS-ERROR` describe the harness: a disagreement between the
     parsed failure set and the exit status, or a run in which no test
     ran."""
-    failed: set[str] = set()
-    for rx in FAILED_RES:
-        failed.update(rx.findall(output))
-    if BUILD_ERROR_RE.search(output):
+    failed = set(FAILED_LINE_RE.findall(output)) or set(FAILED_HEADER_RE.findall(output))
+    if BUILD_ERROR_RE.search(TEST_STDOUT_RE.sub("", output)):
         return "BUILD-ERROR", failed, "the build failed"
     if (returncode != 0) != bool(failed):
         return "HARNESS-ERROR", failed, f"exit {returncode} disagrees with {len(failed)} parsed failure(s)"

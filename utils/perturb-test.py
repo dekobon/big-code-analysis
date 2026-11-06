@@ -39,6 +39,53 @@ perturb = _load("perturb", "perturb.py")
 ORIGINAL = b"fn f() -> u8 {\r\n    1\n}\n"
 RESULT = "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\\n"
 RED = "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\\n"
+# `cargo test --doc` on a crate with four doctests (rustc 1.99.1): one
+# passes, one panics, one fails to compile, and one is marked
+# `compile_fail` and compiles. Verbatim but for the panicking thread's id.
+DOCTEST_RUN = """\
+   Doc-tests dt
+
+running 4 tests
+test src/lib.rs - one (line 12) ... FAILED
+test src/lib.rs - one (line 17) - compile fail ... FAILED
+test src/lib.rs - one (line 2) ... ok
+test src/lib.rs - one (line 7) ... FAILED
+
+failures:
+
+---- src/lib.rs - one (line 12) stdout ----
+error[E0425]: cannot find function `nope` in crate `dt`
+  --> src/lib.rs:14:17
+   |
+14 | let x: u8 = dt::nope();
+   |                 ^^^^ not found in `dt`
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0425`.
+Couldn't compile the test.
+---- src/lib.rs - one (line 17) stdout ----
+Test compiled successfully, but it's marked `compile_fail`.
+---- src/lib.rs - one (line 7) stdout ----
+Test executable failed (exit status: 101).
+
+stderr:
+
+thread 'main' panicked at src/lib.rs:5:1:
+assertion `left == right` failed
+  left: 1
+ right: 2
+
+
+failures:
+    src/lib.rs - one (line 12)
+    src/lib.rs - one (line 17)
+    src/lib.rs - one (line 7)
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: doctest failed, to rerun pass `--doc`
+"""
 
 
 class ScratchRepo:
@@ -200,6 +247,35 @@ class PerturbTests(unittest.TestCase):
         # An ordinary red run says `error: test failed` and is a catch.
         verdict, failed, _ = perturb.classify(101, "test a::b ... FAILED\n" + RED.replace("\\n", "\n") + "error: test failed\n")
         self.assertEqual((verdict, failed), ("caught", {"a::b"}))
+
+    def test_doctest_names_with_spaces_are_parsed(self) -> None:
+        # #1831: a doctest's name holds spaces, which `\S+` stopped at, so
+        # every red `--doc` run read as 0 parsed failures against exit 101.
+        verdict, failed, detail = perturb.classify(101, DOCTEST_RUN)
+        self.assertEqual((verdict, detail), ("caught", ""))
+        self.assertEqual(
+            failed,
+            {
+                "src/lib.rs - one (line 12)",
+                "src/lib.rs - one (line 17) - compile fail",
+                "src/lib.rs - one (line 7)",
+            },
+        )
+
+    def test_a_doctest_that_fails_to_compile_is_a_failing_test_not_a_build_error(self) -> None:
+        # Its `error[E0425]` sits in its own captured stdout. Read as a
+        # build failure, every `compile_fail` perturbation is BUILD-ERROR.
+        self.assertEqual(perturb.classify(101, DOCTEST_RUN)[0], "caught")
+        # A real build failure outside any test's output still is one.
+        broken = "error: this file contains an unclosed delimiter\nerror: could not compile `dt` (lib) due to 1 previous error\n"
+        self.assertEqual(perturb.classify(101, broken)[0], "BUILD-ERROR")
+        self.assertEqual(perturb.classify(101, "error[E0425]: cannot find\n" + DOCTEST_RUN)[0], "BUILD-ERROR")
+
+    def test_a_name_never_runs_past_its_own_line(self) -> None:
+        # A passing test's line before a failing one: a lazy group free
+        # to cross a newline reads `a ... ok\ntest b c` as one name.
+        out = "test a ... ok\ntest b c ... FAILED\n" + RED.replace("\\n", "\n")
+        self.assertEqual(perturb.classify(101, out)[1], {"b c"})
 
     def test_status_and_parsed_failures_disagreeing_is_a_harness_error(self) -> None:
         # Nonzero exit, no failure line: the parser missed (`cargo test
