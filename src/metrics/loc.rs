@@ -9323,6 +9323,33 @@ EOF
                 // `)` row is the string's (#1610). Measured (4, 2, 3, 0)
                 // before the correction.
                 (b"x=1; (\"\"\"doc\"\"\" \\\n\\\n)\ny=2\n", (4, 3, 2, 0), 0),
+                // `NAME OP NUMBER OP OP COMMENT NL STRING OP NEWLINE`: a
+                // comment between the `(` and the string ends only its
+                // physical row — the NL, not a NEWLINE, so `x=1;` is on the
+                // string's logical line and the run is its code (second
+                // re-review of #1819, which found the check stop at the
+                // comment). The comment's row, the string's and the `)`'s
+                // keep their comment classification (#415, #1610). Measured
+                // (4, 1, 4, 0) before the correction; with the comment on
+                // its own row, `… OP OP NL COMMENT NL STRING …`, (5, 1, 5, 0).
+                // Perturbation (`utils/perturb.py`, `-p big-code-analysis -p
+                // big-code-analysis-bench --lib --no-fail-fast`): reading a
+                // comment inside the parentheses as the line's end again
+                // fails exactly these two rows.
+                (b"x=1; ( # c\n\"\"\"doc\"\"\" \\\n\\\n)\n", (4, 2, 3, 0), 0),
+                (
+                    b"x=1; (\n    # c\n    \"\"\"doc\"\"\" \\\n\\\n)\n",
+                    (5, 2, 4, 0),
+                    0,
+                ),
+                // Controls: the first without its comment, `… OP OP STRING
+                // OP NEWLINE`, read right already, so the comment alone
+                // flipped the answer; and `OP COMMENT NL STRING OP NEWLINE`
+                // with no code before the `(` — the run is the string's
+                // line, comment, so a comment is not read as code. Both
+                // unchanged by the correction.
+                (b"x=1; (\"\"\"doc\"\"\" \\\n\\\n)\n", (3, 2, 2, 0), 0),
+                (b"( # c\n\"\"\"doc\"\"\" \\\n\\\n)\n", (4, 0, 4, 0), 0),
                 // `STRING OP COMMENT NEWLINE`: the `;` starts a statement
                 // whose only text is a comment — an empty statement to
                 // CPython, so the run joins `; # c`, code with a comment

@@ -510,12 +510,18 @@ fn python_code_before_string<'a>(
 // logical line — only padding and splices between the two, a splice the
 // scanner eats before a string start (#1825) read like any other — and
 // so is code before the string; `None` when the level has no such
-// token. A `#` comment there ends at its newline, before `next`'s line,
-// and answers no as `only_comments_before` does for one that does not
-// cover the row's start. `parens` is the siblings' chain at a level
-// where one of them can be the string's parenthesis — the run sits
-// inside it, so the holder's level and above — and `None` on the descent
-// below the holder, which stops at the statement, above its parentheses.
+// token. A `#` comment is skipped too: inside the string's parentheses
+// the newline after it is an NL, not a NEWLINE — the logical line runs
+// on past it as past the `(` (`x=1; ( # c` + `"""doc"""`), so the token
+// before it, or the level above, answers; and it never ends a line by
+// itself anywhere, since the padding read from any token before it
+// stops at its `#` — outside parentheses the `:` before every block is
+// such a token, so the level above is never asked. Reading it as the
+// line's end answered no for the code before the `(` (second re-review
+// of #1819). `parens` is the siblings' chain at a level where one of
+// them can be the string's parenthesis — the run sits inside it, so the
+// holder's level and above — and `None` on the descent below the holder,
+// which stops at the statement, above its parentheses.
 fn python_code_among<'a>(
     code: &[u8],
     siblings: impl Iterator<Item = Node<'a>>,
@@ -523,7 +529,7 @@ fn python_code_among<'a>(
     parens: Option<Ancestors<'a, '_>>,
 ) -> Option<bool> {
     let mut tokens = siblings.skip_while(|sibling| match sibling.kind_id().into() {
-        Python::LineContinuation => true,
+        Python::LineContinuation | Python::Comment => true,
         Python::LPAREN | Python::RPAREN => {
             parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain))
         }
