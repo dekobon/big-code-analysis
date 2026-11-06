@@ -1061,6 +1061,34 @@ for historical reference.
 
 ### Fixed
 
+- **`npa` / `npm` (C++, Mozcpp) read the two non-templated
+  member-pointer spellings the grammars' error recovery misparses**
+  (#1807). `int S::*getPd();` is a method returning a pointer to a data
+  member and counted as one instead of as an attribute;
+  `static constexpr int (S::*fp)(int) = nullptr;` — a parenthesised
+  member pointer whose return type the grammar reads as an identifier,
+  which two or more declaration specifiers before a primitive type
+  (`static inline`, `inline static`, `static const`) bring about and a
+  user type (`T (S::*fp)(int);`) does alone — is a data member and
+  counted as one instead of as a method, with no initialiser or `=
+  nullptr`. Each had read as the other since before #1718, which fixed
+  the templated forms. The pinned tree-sitter-cpp (0.23.4, and the
+  Mozcpp fork of it) has no `qualified_identifier` alternative in a
+  field declarator and recovers the first as a bit-field and the second
+  as a constructor-shaped `declaration` with nested
+  `function_declarator`s; the fix reads those two recovery shapes
+  rather than moving the grammar pin, and a test per grammar names the
+  day a bump stops producing them. A comma list mixing a method and a
+  data member (`int S::*getPd(), S::*pd;`, and the plain `int f(), x;`)
+  now counts both, where the data member was dropped. Genuine
+  bit-fields — `int y : *f();`, and one with a macro or attribute beside
+  the width — and clean parameters beside a recovered member pointer
+  (`S::T *arg`) stay what they were. Not covered, and pinned as such
+  (#1829): `= 0` and `= {}` on the parenthesised form, which both
+  grammars read as a function definition named by the return type (one
+  phantom method), and `= &S::m`, which they read as a bare `ERROR`
+  that takes the following member with it.
+
 - **`opencode.jsonc` no longer registers the metric-feedback plugin by
   file** (#1811). OpenCode V2 takes packages and plugin *directories* under
   `plugins` and skips a single-file path — 2.1.3 logs `configured

@@ -73,30 +73,42 @@ macro_rules! cpp_family_npa {
                         TemplateDeclaration if cpp_template_declares_data_member(&child) => {
                             add_attributes(stats, 1, current_is_public);
                         }
+                        // A class-scope `declaration` is a constructor,
+                        // destructor or conversion-operator declaration —
+                        // the method consumer's — or the grammars'
+                        // recovery of a parenthesised member-pointer data
+                        // member (`static constexpr int (S::*fp)(int) =
+                        // nullptr;`, #1807), which the helper counts per
+                        // declarator and nothing else does. The wrapper is
+                        // no row's, as for the template above.
+                        // role-bypass: allow(DocTarget) — the recovered declaration read
+                        // for its member pointers; not whether it takes a doc comment
+                        Declaration | Declaration2 | Declaration3 | Declaration4 => {
+                            add_attributes(
+                                stats,
+                                cpp_recovered_declaration_data_members(&child),
+                                current_is_public,
+                            );
+                        }
                         // The `Member` row's declaration, asked under its own
                         // chain: the list's plus the list.
                         _ if member::owns(&child, code, members) => {
                             // Member functions surface as `field_declaration`
                             // when declared without a body. They are counted
-                            // by `Npm`, not as attributes — detect them by
-                            // their declarator subtree and skip. A
-                            // `function_declarator` alone does not settle it:
-                            // `int (*fp)(int);` is a function-pointer data
-                            // member (#1300), which is why the helper reads
-                            // the node's `declarator` field rather than its
-                            // kind alone.
-                            if cpp_declares_function(&child) {
-                                continue;
-                            }
-                            // Data field — count every `field_identifier` in
-                            // the declarator subtree. Pointer (`int* p`),
-                            // array (`int a[N]`), and plain (`int x`) forms
-                            // all reduce to one or more `field_identifier`
-                            // leaves; the comma-separated form `int b, c`
-                            // adds them as siblings.
+                            // by `Npm`, not as attributes — the helper detects
+                            // them by their declarator subtree, one
+                            // comma-separated declarator at a time, and
+                            // counts only the data ones: every
+                            // `field_identifier` under a pointer (`int* p`),
+                            // array (`int a[N]`) or plain (`int x`)
+                            // declarator. A `function_declarator` alone does
+                            // not settle it: `int (*fp)(int);` is a
+                            // function-pointer data member (#1300), which is
+                            // why the helper reads the node's `declarator`
+                            // field rather than its kind alone.
                             add_attributes(
                                 stats,
-                                cpp_count_field_identifiers(&child),
+                                cpp_field_data_members(&child),
                                 current_is_public,
                             );
                         }
