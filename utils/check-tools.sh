@@ -2,11 +2,17 @@
 # Check for required and optional tools used by the Makefile.
 #
 # `--release-only` probes just the two tools `make release-check`
-# invokes and exits non-zero if either is absent; the gate calls it that
-# way so a missing tool is named up front instead of surfacing as
-# cargo's generic `no such command` partway through (#1226).
+# invokes and exits non-zero if either is absent, or if cargo-deny is
+# older than the release `utils/check-deny-manifests.sh` needs; the gate
+# calls it that way so a missing tool is named up front instead of
+# failing partway through — for cargo-about, as cargo's generic `no such
+# command` (#1226).
 
 set -euo pipefail
+
+# `CDPATH=`: with CDPATH exported, `cd` prints the directory it chose,
+# which would land in SCRIPT_DIR beside the path.
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage() {
 	echo "usage: check-tools.sh [--release-only]" >&2
@@ -21,31 +27,40 @@ elif [ "$#" -eq 1 ]; then
 	release_only=1
 fi
 
-# The exact install commands for the two tools `make release-check`
+# The exact install command for cargo-about, which `make release-check`
 # cannot run without. cargo-about 0.9.0 moved its binary behind a
 # non-default `cli` feature, so a bare `cargo install cargo-about`
 # compiles the library, installs no binary, reports the miss as a
 # *warning*, and exits 0 — after which `cargo about` still answers "no
-# such command" (#1226). Both readers of these strings — the section
+# such command" (#1226). Both readers of this string — the section
 # further down and `make release-check` through `--release-only` — take
-# them from here, so the `--features cli` spelling cannot go missing
-# from one of them.
-CARGO_DENY_INSTALL="cargo install --locked cargo-deny"
+# it from here, so the `--features cli` spelling cannot go missing from
+# one of them. cargo-deny's remedy is the deny script's own refusal.
 CARGO_ABOUT_INSTALL="cargo install --locked cargo-about --features cli"
 
 # Probes the release tooling, printing one status line each and setting
-# deny_missing / about_missing / release_missing.
+# deny_missing / about_missing / release_missing, and deny_reason.
 #
-# `cargo <sub> --version` rather than `command -v cargo-about`: it is
-# what the gate itself does, so a binary that is on PATH but which cargo
-# cannot dispatch to still reads as missing here.
+# Each tool is probed the way the gate runs it, so a binary the gate
+# cannot reach reads as missing here. cargo-about goes through cargo's
+# dispatch (`cargo about`). cargo-deny is asked of
+# `check-deny-manifests.sh --version-check`, which runs the `cargo-deny`
+# binary from PATH exactly as its audit does and holds the one copy of
+# the version floor and of the install command (#1826).
 check_release_tools() {
+	local deny_check="$SCRIPT_DIR/check-deny-manifests.sh"
 	deny_missing=0
-	if cargo deny --version >/dev/null 2>&1; then
-		deny_version=$(cargo deny --version 2>/dev/null | awk 'NR==1{print $2; exit}' || true)
-		echo "  ✓ cargo-deny (version: ${deny_version:-unknown})"
+	deny_reason=""
+	# stdout alone: anything else the run writes to stderr (a locale
+	# warning from bash, say) would otherwise be read as the version.
+	if deny_version=$(bash "$deny_check" --version-check 2>/dev/null); then
+		echo "  ✓ cargo-deny (version: $deny_version)"
 	else
-		echo "  ✗ cargo-deny (not found)"
+		# Asked again for the refusal alone, which names the binary it
+		# judged and the remedy.
+		deny_reason=$(bash "$deny_check" --version-check 2>&1 >/dev/null || true)
+		deny_reason=${deny_reason#check-deny-manifests: }
+		echo "  ✗ cargo-deny (not usable by 'make release-check')"
 		deny_missing=1
 	fi
 
@@ -63,7 +78,7 @@ check_release_tools() {
 
 print_release_hints() {
 	if [ "$deny_missing" -eq 1 ]; then
-		echo "  - cargo-deny: Install with: $CARGO_DENY_INSTALL"
+		echo "  - $deny_reason"
 	fi
 	if [ "$about_missing" -eq 1 ]; then
 		echo "  - cargo-about: Install with: $CARGO_ABOUT_INSTALL"
@@ -81,7 +96,8 @@ if [ "$release_only" -eq 1 ]; then
 		echo "Missing release tools:"
 		print_release_hints
 		echo ""
-		echo "'make release-check' invokes 'cargo deny' and 'cargo about' directly"
+		echo "'make release-check' runs cargo-deny through"
+		echo "'utils/check-deny-manifests.sh' and invokes 'cargo about' directly,"
 		echo "and cannot proceed without them."
 		exit 1
 	fi

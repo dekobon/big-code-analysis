@@ -5,6 +5,12 @@
 # the root `deny.toml`. Usage:
 #
 #     utils/check-deny-manifests.sh advisories bans licenses sources
+#     utils/check-deny-manifests.sh --version-check
+#
+# `--version-check` alone applies the cargo-deny version floor below,
+# prints the version, and exits without auditing anything or reading
+# git. `utils/check-tools.sh --release-only` probes cargo-deny that way,
+# so the floor has this one copy (#1826).
 #
 # The repository tracks eight lockfiles: the root workspace's and one per
 # `[workspace].exclude` crate (`enums`, `fuzz`, the five `tree-sitter-*`),
@@ -18,9 +24,11 @@
 #
 # Both `deny` jobs call this script (`.github/workflows/ci.yml` and
 # `.github/workflows/deny-advisories.yml`), so the per-PR and the weekly
-# run cannot disagree on which graphs they cover. `make pre-commit` runs
-# only its self-test, `utils/check-deny-manifests-test.py`, which drives
-# it against a stubbed cargo-deny: the real run needs the network.
+# run cannot disagree on which graphs they cover, and so does `make
+# release-check`, the local pre-tag gate (#1826). `make pre-commit` runs
+# only its self-tests, `utils/check-deny-manifests-test.py` and, through
+# `--version-check`, `utils/check-tools-test.sh`, both against a stubbed
+# cargo-deny: the real run needs the network.
 
 set -euo pipefail
 
@@ -41,10 +49,11 @@ EXPECTED_LOCKFILES=8
 # level, and each side rejects the other's spelling. CI pins a 0.20
 # release through `taiki-e/install-action`; an older local copy fails
 # here, with the remedy, rather than with clap's tip to move the flag
-# back. The install hints below name CI's exact pin, and
-# `utils/check-deny-manifests-test.py` holds them to it.
+# back. DENY_INSTALL, the remedy every refusal below names, is CI's
+# exact pin, and `utils/check-deny-manifests-test.py` holds it to it.
 MIN_DENY_MAJOR=0
 MIN_DENY_MINOR=20
+DENY_INSTALL="cargo install --locked cargo-deny@0.20.2"
 
 die() {
 	echo "check-deny-manifests: $*" >&2
@@ -52,27 +61,60 @@ die() {
 }
 
 if [ "$#" -eq 0 ]; then
-	die "name the checks to run, e.g. 'advisories bans licenses sources'"
+	die "name the checks to run, e.g. 'advisories bans licenses sources'," \
+		"or pass --version-check"
+fi
+version_check_only=0
+if [ "$1" = "--version-check" ]; then
+	if [ "$#" -ne 1 ]; then
+		die "--version-check takes no other arguments"
+	fi
+	version_check_only=1
+else
+	# Every other argument is forwarded to `cargo-deny check`, which
+	# answers `--help` (or any flag it knows) with exit 0 and no audit, so
+	# the gate would report OK for eight runs that checked nothing.
+	for arg in "$@"; do
+		case "$arg" in
+			-*) die "unknown option '$arg'; pass check names or --version-check" ;;
+		esac
+	done
 fi
 
 # Called directly rather than as `cargo deny`: cargo resolves a
 # subcommand from `$CARGO_HOME/bin` before PATH, which would put an
 # installed copy ahead of the one PATH names (and of the self-test's stub).
-if ! version_line=$(cargo-deny --version 2>/dev/null); then
-	die "cargo-deny not found; install the version CI pins:" \
-		"cargo install --locked cargo-deny@0.20.2"
+# So cargo-deny must be on PATH, which `cargo deny` alone does not need.
+# Each refusal names the binary it judged, since reinstalling into a
+# `$CARGO_HOME/bin` that is off PATH, or behind an older copy earlier on
+# it, changes nothing.
+if ! deny=$(command -v cargo-deny); then
+	off_path="${CARGO_HOME:-${HOME:-}/.cargo}/bin/cargo-deny"
+	if [ -x "$off_path" ]; then
+		die "cargo-deny not found on PATH, but $off_path exists:" \
+			"put its directory on PATH rather than reinstalling"
+	fi
+	die "cargo-deny not found on PATH; install the version CI pins: $DENY_INSTALL"
+fi
+if ! version_line=$("$deny" --version 2>/dev/null); then
+	die "cargo-deny at $deny did not report a version; install the" \
+		"version CI pins: $DENY_INSTALL"
 fi
 version=${version_line##* }
 major=${version%%.*}
 minor=${version#*.}
 minor=${minor%%.*}
 if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]]; then
-	die "cannot read a version from '$version_line'"
+	die "cannot read a version from '$version_line' ($deny)"
 fi
 if ((major < MIN_DENY_MAJOR || (major == MIN_DENY_MAJOR && minor < MIN_DENY_MINOR))); then
 	die "cargo-deny $version is older than $MIN_DENY_MAJOR.$MIN_DENY_MINOR," \
-		"which this script's '--config' placement needs; install CI's pin:" \
-		"cargo install --locked cargo-deny@0.20.2"
+		"which the deny script's '--config' placement needs; it is $deny, the" \
+		"first cargo-deny on PATH. Install CI's pin ahead of it: $DENY_INSTALL"
+fi
+if [ "$version_check_only" -eq 1 ]; then
+	echo "$version"
+	exit 0
 fi
 
 # The tracked set, not the filesystem: corpora, `target/` and scratch
@@ -120,7 +162,7 @@ for lock in "${locks[@]}"; do
 	# and on a cold cache a later manifest's crate the earlier runs did
 	# not pull fails resolution (`location searched: crates.io index`,
 	# measured with `tree-sitter-tcl` first and `enums` offline after it).
-	if ! cargo-deny --locked \
+	if ! "$deny" --locked \
 		--workspace \
 		--manifest-path "$ROOT/$manifest" \
 		--config "$ROOT/deny.toml" \

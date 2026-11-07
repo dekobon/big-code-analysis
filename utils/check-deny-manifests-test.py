@@ -9,9 +9,10 @@ invocation's argv, so nothing reaches the network or a real cargo-deny.
 The script is run from an unrelated directory, so every test also pins
 that its paths resolve from its own location rather than the cwd.
 
-This is the only verification `make pre-commit` runs: the real gate
-needs the network and runs in the `deny` jobs of `ci.yml` and
-`deny-advisories.yml`.
+This and `utils/check-tools-test.sh`, which runs `--version-check`, are
+the only verification `make pre-commit` runs: the real gate needs the
+network and runs in the `deny` jobs of `ci.yml` and
+`deny-advisories.yml`, and in `make release-check` (#1826).
 
 Run with:
     python3 -m unittest -q utils/check-deny-manifests-test.py
@@ -295,6 +296,107 @@ class DenyManifestsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self._invocations()), len(CRATE_DIRS))
 
+    # --- --version-check (#1826) ---
+
+    def _loose_copy(self) -> pathlib.Path:
+        """A copy of the script in a directory no git repository holds."""
+        loose = self.tmp / "loose" / "utils"
+        loose.mkdir(parents=True)
+        return pathlib.Path(shutil.copy(SCRIPT_SRC, loose / SCRIPT_SRC.name))
+
+    def test_version_check_audits_nothing_and_needs_no_repository(self) -> None:
+        # `check-tools.sh --release-only` asks this before any network
+        # stage, on a host that may not have the tree's git state at all.
+        loose = self._loose_copy()
+        ceiling = {"GIT_CEILING_DIRECTORIES": str(self.tmp)}
+        # The control: a real run from the same copy needs the repository,
+        # so the pass below is the early exit and not a lucky `git`.
+        control = self._run("advisories", script=loose, **ceiling)
+        self.assertEqual(control.returncode, 2, control.stderr)
+        self.assertIn("git ls-files failed", control.stderr)
+        result = self._run("--version-check", script=loose, **ceiling)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "0.20.2\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self._invocations(), [])
+
+    def test_version_check_refuses_cargo_deny_below_the_floor(self) -> None:
+        result = self._run("--version-check", STUB_DENY_VERSION="0.19.4")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cargo-deny 0.19.4 is older than 0.20", result.stderr)
+        self.assertIn("cargo install --locked cargo-deny@", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(self._invocations(), [])
+
+    def test_version_check_takes_no_other_arguments(self) -> None:
+        # Dropping the extra argument would let `--version-check advisories`
+        # report success for an audit that never ran.
+        result = self._run("--version-check", "advisories")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("--version-check takes no other arguments", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
+    def test_an_option_is_not_forwarded_as_a_check(self) -> None:
+        # Forwarded, `--help` makes each of the eight `cargo-deny check`
+        # runs print its help and exit 0, and the gate reports OK.
+        result = self._run("advisories", "--help")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("unknown option '--help'", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
+    # --- finding cargo-deny (#1826) ---
+
+    def _path_without_cargo_deny(self) -> str:
+        """A PATH holding only what the script runs before the audit.
+
+        Built rather than filtered from the caller's, which may hold a
+        real cargo-deny in any directory.
+        """
+        bare = self.tmp / "bare-bin"
+        bare.mkdir()
+        for tool in ("bash", "dirname"):
+            found = shutil.which(tool)
+            self.assertIsNotNone(found, tool)
+            (bare / tool).symlink_to(str(found))
+        return str(bare)
+
+    def test_cargo_deny_absent_from_path_names_the_install(self) -> None:
+        cargo_home = self.tmp / "cargo-home"
+        cargo_home.mkdir()
+        result = self._run(
+            "--version-check",
+            PATH=self._path_without_cargo_deny(),
+            CARGO_HOME=str(cargo_home),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cargo-deny not found on PATH", result.stderr)
+        self.assertIn("cargo install --locked cargo-deny@", result.stderr)
+
+    def test_cargo_deny_off_path_is_named_not_reinstalled(self) -> None:
+        # `cargo deny` finds a copy in `$CARGO_HOME/bin` off PATH; this
+        # script does not, and reinstalling would put the new one beside
+        # it, so the refusal names the directory instead of the install.
+        bin_dir = self.tmp / "cargo-home" / "bin"
+        bin_dir.mkdir(parents=True)
+        shutil.copy(self.tmp / "stub-bin" / "cargo-deny", bin_dir / "cargo-deny")
+        result = self._run(
+            "--version-check",
+            PATH=self._path_without_cargo_deny(),
+            CARGO_HOME=str(bin_dir.parent),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(f"but {bin_dir / 'cargo-deny'} exists", result.stderr)
+        self.assertIn("put its directory on PATH", result.stderr)
+        self.assertNotIn("cargo install", result.stderr)
+
+    def test_an_old_cargo_deny_is_named_by_path(self) -> None:
+        # An older copy earlier on PATH outranks a fresh install, so the
+        # remedy must say which binary was judged.
+        result = self._run("--version-check", STUB_DENY_VERSION="0.19.4")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        stub = self.tmp / "stub-bin" / "cargo-deny"
+        self.assertIn(f"it is {stub}, the first cargo-deny on PATH", result.stderr)
+
     def test_unreadable_cargo_deny_version_is_refused(self) -> None:
         # Without this refusal, `[ x -eq 0 ]` errors inside the version
         # `if`, which bash reads as false, and the gate runs a cargo-deny
@@ -318,8 +420,8 @@ class DenyManifestsTest(unittest.TestCase):
         )
 
 
-class WorkflowWiringTest(unittest.TestCase):
-    """Both `deny` jobs go through the script, on one cargo-deny."""
+class WiringTest(unittest.TestCase):
+    """Every caller goes through the script, and every install names one pin."""
 
     # Each workflow and the checks its step must pass: the per-PR job all
     # four, the weekly one the only check that ages.
@@ -327,18 +429,79 @@ class WorkflowWiringTest(unittest.TestCase):
         "ci.yml": set(ALL_CHECKS),
         "deny-advisories.yml": {"advisories"},
     }
-    PIN = re.compile(r"cargo-deny@(\d+\.\d+\.\d+)")
+    # Every file that installs cargo-deny or tells a reader how to; each
+    # must name the release CI runs. The workflows are WORKFLOWS', so a
+    # deny workflow added there is pin-checked too.
+    PIN_SITES = (
+        *(f".github/workflows/{name}" for name in WORKFLOWS),
+        "utils/check-deny-manifests.sh",
+        "RELEASING.md",
+        "Dockerfile",
+    )
+    # Any version a site names, exact or not (`@0.19`, `@^0.20`,
+    # `@latest`), so a second one beside the pin is a second value rather
+    # than no match.
+    PIN = re.compile(r"cargo-deny@([\w.^~=<>*+-]+)")
+    # An install of cargo-deny with no `@version`: a `cargo install` /
+    # `cargo +toolchain install` / `cargo binstall` / `cargo-binstall`
+    # line, an install-action `tool:` list, and an entry of a
+    # backslash-continued install list such as the Dockerfile's. One
+    # pinned mention satisfies PIN, so an unpinned line beside it is seen
+    # only by this.
+    UNPINNED = re.compile(
+        r"(?:\bcargo(?:[ \t]+\+\S+)?[ \t]+b?install\b[^\n]*?\b"
+        r"|\bcargo-binstall\b[^\n]*?\b"
+        r"|\btool:[^\n]*?\b"
+        r"|^[ \t]+(?=cargo-deny[ \t;]*\\?[ \t]*$))"
+        r"cargo-deny(?![@\w-])",
+        re.MULTILINE,
+    )
     # A step's `run:` line, so a commented-out step or a mention in a
     # comment does not count as a call; the group is its arguments.
     RUN = re.compile(
-        r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s+([^#\n]*)", re.M
+        r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s+([^#\n]*)",
+        re.MULTILINE,
+    )
+    # A recipe line that runs the script, by any path spelling and with or
+    # without an explicit `bash`, but not an `echo` that names it. The
+    # groups are make's prefix characters and the script's arguments.
+    RECIPE_CALL = re.compile(
+        r"^\t([@+-]*)(?:bash\s+)?\S*utils/check-deny-manifests\.sh\s+([^#\n]*)",
+        re.MULTILINE,
+    )
+    # cargo-deny run anywhere on a recipe line, through cargo or not; read
+    # with quoted strings removed, so an `echo` naming it does not count.
+    RECIPE_BARE_DENY = re.compile(r"(?:\bcargo|\$[({]CARGO[)}])[ -]deny\b")
+    QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+    # Lines GNU make reads inside a recipe without ending it.
+    RECIPE_TRANSPARENT = re.compile(
+        r"^[ \t]*(?:$|#|(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b)"
     )
 
-    def test_both_workflows_call_the_script_on_one_pinned_cargo_deny(self) -> None:
+    @classmethod
+    def _recipe(cls, makefile: str, target: str) -> list[str]:
+        """The recipe lines of `target`, up to the next line that ends it.
+
+        GNU make keeps a recipe open across blank lines, comment-only
+        lines (indented or not) and conditional directives, so stopping
+        at the first of those would leave the recipe lines after it
+        unread.
+        """
+        lines = makefile.splitlines()
+        rule = re.compile(rf"{re.escape(target)}[ \t]*:(?!=)")
+        start = next(i for i, line in enumerate(lines) if rule.match(line)) + 1
+        recipe = []
+        for line in lines[start:]:
+            if line.startswith("\t"):
+                recipe.append(line)
+            elif not cls.RECIPE_TRANSPARENT.match(line):
+                break
+        return recipe
+
+    def test_both_workflows_call_the_script(self) -> None:
         # A workflow left on `cargo-deny-action`, or one that stops calling
         # the script, audits the root lockfile alone again — the gap #1823
         # closed — and nothing else would notice.
-        pins: dict[str, set[str]] = {}
         for name, checks in self.WORKFLOWS.items():
             text = (REPO_ROOT / ".github" / "workflows" / name).read_text(
                 encoding="utf-8"
@@ -350,12 +513,45 @@ class WorkflowWiringTest(unittest.TestCase):
                 # script and drop three checks from every PR.
                 self.assertEqual(set(calls[0].split()), checks)
                 self.assertNotIn("cargo-deny-action@", text)
-                pins[name] = set(self.PIN.findall(text))
-                self.assertEqual(len(pins[name]), 1, pins[name])
-        self.assertEqual(pins["ci.yml"], pins["deny-advisories.yml"])
-        # The script's install hint names the same release.
-        hinted = set(self.PIN.findall(SCRIPT_SRC.read_text(encoding="utf-8")))
-        self.assertEqual(hinted, pins["ci.yml"])
+
+    def test_release_check_audits_every_lockfile(self) -> None:
+        # `make release-check` runs only before a tag, so a recipe that
+        # drifts back to a root-only `cargo deny check` (#1826) would be
+        # found by the next release, or never. A stubbed run of the target
+        # would need cargo-about and five `cargo publish` dry-runs, so
+        # this reads the recipe instead.
+        recipe = self._recipe(
+            (REPO_ROOT / "Makefile").read_text(encoding="utf-8"), "release-check"
+        )
+        # The selector found the real recipe, not an empty or stray one.
+        self.assertIn("verify-changelog", "\n".join(recipe))
+        calls = self.RECIPE_CALL.findall("\n".join(recipe))
+        self.assertEqual(len(calls), 1, calls)
+        prefix, args = calls[0]
+        # make's `-` ignores a failing line: a red audit would print
+        # "(ignored)" and the recipe would still end in "passed".
+        self.assertNotIn("-", prefix)
+        self.assertEqual(set(args.split()), set(ALL_CHECKS))
+        bare = [
+            line
+            for line in recipe
+            if self.RECIPE_BARE_DENY.search(self.QUOTED.sub("", line))
+        ]
+        self.assertEqual(bare, [])
+
+    def test_every_install_names_cis_one_pin(self) -> None:
+        # The script refuses a cargo-deny below 0.20, so an install line
+        # that drifts from CI's pin hands the reader one it may refuse,
+        # and an unpinned one installs a release CI has never run. A bump
+        # edits every site; this names any the bump missed.
+        pins: dict[str, set[str]] = {}
+        for rel in self.PIN_SITES:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            pins[rel] = set(self.PIN.findall(text))
+            with self.subTest(file=rel):
+                self.assertEqual(len(pins[rel]), 1, pins[rel])
+                self.assertEqual(self.UNPINNED.findall(text), [])
+        self.assertEqual(len(set().union(*pins.values())), 1, pins)
 
 
 if __name__ == "__main__":
