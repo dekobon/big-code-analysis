@@ -26,6 +26,26 @@ for historical reference.
 
 ### Changed
 
+- **`roles/mod.rs` no longer allows `dead_code` module-wide** (#1792).
+  The allow was recorded as hiding 58 unread macro-emitted items; with
+  it overridden (`RUSTFLAGS=--force-warn dead_code`) the library
+  target reports none under any feature set: every production
+  predicate and constant a `role_table!` emits is `pub` in a `pub mod`
+  of a library crate, its one private constant is read by a `pub`
+  predicate, and the test-support items (`rows()`, `view()`, `MODE`,
+  `HOLDS_PAYER`) are reached through the `pub` `tables()`, so rustc
+  reads none as dead. The count came from the `--tests` target, where the seven
+  synthetic proof tables inside `mod tests` expand the macro into
+  private modules a test reads only part of. Those seven now carry a
+  scoped `#[allow(dead_code)]` each, and the two `pub(crate)` items
+  that only the crate's own tests read — `DeclaredRow::candidate_kinds`
+  and `ROLES` — are `cfg(test)` rather than `test-support`. A dead
+  helper under `roles/` now fails `clippy -D warnings`, verified by
+  planting one. No emitted item, declaration or role baseline changes;
+  the per-role emission profile the issue proposed is not pursued, since
+  a survey of every production read found no consumer asking a
+  projection outside its role's profile, and which projection a
+  consumer reads remains the manual check the module doc names.
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)
   instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;

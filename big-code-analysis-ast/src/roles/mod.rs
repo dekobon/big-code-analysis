@@ -639,19 +639,21 @@
 //!   second gate, `pays_itself` or `opens` on one owner matches no
 //!   expansion rule. All are pinned by `compile_fail` doctests on the
 //!   macro.
+//! - **Every declared row emits the whole predicate family.** A
+//!   per-role emission profile — a recognition row with no `pays_*`
+//!   family — was proposed and declined (#1792). Every production
+//!   predicate and constant a table emits is `pub` in a `pub mod` of a
+//!   library, and the private ones (`OWNERS_PAY`) are read by a `pub`
+//!   predicate, so rustc reads none of them as dead whatever a row
+//!   omits; the count that motivated the profile came
+//!   from the `--tests` target, where the proof tables under `mod
+//!   tests` expand the macro into private modules a test reads only
+//!   part of. Which projection a consumer reads stays the manual check
+//!   named above. An unread predicate costs its expansion and nothing
+//!   else.
 //! - **Not expressible, by design:** a kind claimed by the *wrong* role,
 //!   an incomplete entry, and whether a consumer reads the right
 //!   projection. Those are the list above.
-
-// Every role has consumers (#1693–#1699). What no Rust reader reaches
-// is what `utils/role_tables.py` reads from the declarations instead —
-// the `ABSENT` / `PENDING` constants and `EXCLUDED` — and the
-// predicates the macro emits for uniformity on every row that no
-// consumer asks of that row (`canonical`, a `pays_*` on an owner-only
-// role, every predicate of an `absent` row): 58 items with the allow
-// off at #1699's close. Narrowing it is a DSL question — a per-role
-// emission profile — which #1701 deferred to #1792.
-#![allow(dead_code)]
 
 /// Emits a `text_gated_by … no_chain` gate that reads the node's bytes
 /// through one of `lang_helpers::doc_comment`'s marker tests (#1699):
@@ -867,10 +869,9 @@ pub type RowKindPred = for<'a> fn(u16, &Node<'a>, &[u8], Ancestors<'a, '_>) -> b
 /// language the same questions without naming a module (#1700). The
 /// `*_kind` spellings and not the `node`-first ones, `pays_at_wrapper`
 /// and `project` — what the two derived modules read; an item is added
-/// here when a test reads it, not for uniformity, so that #1701's
-/// per-role emission profiles are not constrained by a field nothing
-/// asks. `role` is the row's role token as written, which is the one
-/// spelling the `@named` table and `utils/role_tables.py` share.
+/// here when a test reads it, not for uniformity. `role` is the row's
+/// role token as written, which is the one spelling the `@named` table
+/// and `utils/role_tables.py` share.
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 #[derive(Clone, Copy)]
@@ -915,7 +916,12 @@ pub struct DeclaredRow {
     pub project: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
 }
 
-#[cfg(any(test, feature = "test-support"))]
+// `cfg(test)`, not `test-support`: nothing the feature exports reaches
+// it — `pub(crate)`, and no `pub` item calls it — so under the feature
+// alone it is dead. `rows()`, `view()`, `MODE` and `HOLDS_PAYER` are
+// `pub(crate)` under the feature too, and live, because `tables()`
+// reaches them; that reachability is the test, not the visibility.
+#[cfg(test)]
 impl DeclaredRow {
     /// Every kind the row names as owning, paying or paying at the
     /// leaf — the candidate set a derived census selects occurrences
@@ -2381,7 +2387,8 @@ pub fn tables() -> &'static [LanguageTable] {
 /// here and not to the macro fails to compile on the first table that
 /// declares it. `utils/role_tables.py` carries the same set for the
 /// census, held to the compiled tables by the differential test.
-#[cfg(any(test, feature = "test-support"))]
+// `cfg(test)` for the reason on `candidate_kinds`.
+#[cfg(test)]
 pub(crate) const ROLES: &[&str] = &[
     "Call",
     "StringLit",
@@ -2483,7 +2490,9 @@ mod tests {
     // Not on Windows: the test matrix installs no Python there, and the
     // gates this test guards run in the Linux lint job. `--dump` writes
     // LF bytes, so a Windows developer with python3 can still run it by
-    // hand.
+    // hand. The alias is gated with its one user: on Windows it would
+    // otherwise be the module's only dead item (#1792).
+    #[cfg(not(windows))]
     type Canonical = fn() -> String;
 
     /// `tables` names every `LANG` once, under the variant's own
@@ -2637,6 +2646,18 @@ mod tests {
     // A table no language declares, to reach the one scan terminal the
     // three proof tables do not: a *gated* `pays_itself` owner. Without
     // this, dropping the gate from `@self_payer_done` failed nothing.
+    //
+    // A proof table exists to be expanded, not read: a test asks it for
+    // the few constants and predicates that pin the shape under proof,
+    // and the rest of what the macro emits uniformly is unread, so under
+    // `--tests` most of each table is dead. The `allow` sits on each
+    // table rather than on the module, so a helper of `mod tests` that
+    // no test reads any more is still reported (#1792). What it does not
+    // report: a helper reached *only* from a gate inside an allowed
+    // table — `always_no_chain` today — since rustc reads an allowed
+    // item's callees as live. Every proof table below carries the same
+    // attribute.
+    #[allow(dead_code)]
     mod gated_self_payer {
         use super::never;
         use crate::Java;
@@ -2666,6 +2687,9 @@ mod tests {
     // `RecordDeclaration`, since only an opener row may carry `opens`,
     // #1793) — so `TEXT_GATED` is pinned to read the word wherever it
     // sits.
+    //
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod dsl_gates {
         use super::{always, class_or_interface, never, recording};
         use crate::Java;
@@ -2734,6 +2758,9 @@ mod tests {
     // controls, read `true`. Each marked fn is also a compile-time
     // proof of its own consumption: it has no chain parameter, so a
     // scan that handed it three arguments would not build.
+    //
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod dsl_no_chain {
         use super::{always, always_no_chain, class_or_interface_no_chain};
         use crate::Java;
@@ -2766,6 +2793,9 @@ mod tests {
     // an OR over its owners. A reader that recorded one owner-level
     // flag, or read only the last fn, would get one order of each pair
     // wrong; the Python reader's self-test spells the same four.
+    //
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod dsl_two_fn_gate_marked {
         use super::{always_no_chain, class_or_interface};
         use crate::Java;
@@ -2777,6 +2807,8 @@ mod tests {
         }
     }
 
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod dsl_two_fn_opens_by_marked {
         use super::{always, class_or_interface_no_chain};
         use crate::Java;
@@ -2798,6 +2830,9 @@ mod tests {
     // The `never` `when` fns are the other half: a terminal that dropped
     // the `when` would pay at the leaf, or be callable, where the list
     // admits the node.
+    //
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod dsl_parent_gates {
         use super::{always, class_or_interface_no_chain, never};
         use crate::Java;
@@ -2853,6 +2888,9 @@ mod tests {
     // A fragment splices its kinds into the row in list order, before
     // the dialect's own entries, in both the row and the `opens_space`
     // fold; the dialect's attributes stay on its own entries.
+    //
+    // A proof table; see `gated_self_payer`.
+    #[allow(dead_code)]
     mod spliced {
         use super::never;
         use crate::Java;

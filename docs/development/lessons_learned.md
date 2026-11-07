@@ -158,6 +158,8 @@ number and the higher number stays as a redirect.
 | [112](#112-a-test-double-can-intercept-the-wrong-calls) | A test double can intercept the wrong calls |
 | [113](#113-a-fingerprint-over-a-resolved-function-hashes-its-inputs-not-a-sample-of-its-outputs) | A fingerprint over a resolved function hashes its inputs, not its outputs |
 | [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
+| [115](#115-sharing-the-rule-left-the-list-at-every-caller-sharing-the-list-leaves-the-judgement) | Sharing the rule left the list at every caller; sharing the list leaves the judgement |
+| [116](#116-a-dead-code-census-describes-the-target-it-was-taken-on) | A dead-code census describes the target it was taken on |
 
 ---
 
@@ -5192,5 +5194,58 @@ lesson. Each of its items had been a separate gate's "cannot see"
 header before #1701; consolidating them found two of the bypass
 lint's items missing from the first draft of the list, which is why
 there is one copy.
+
+---
+
+## 116. A dead-code census describes the target it was taken on
+
+**Lesson:** Before designing anything on a count of `dead_code`
+warnings, say which cargo target produced it and why each item is
+dead there. rustc's lint reaches from a crate's roots: a `pub` item in
+a `pub mod` of a library is reachable from outside the crate and so is
+*never* dead in the library target, however many readers it lacks. The
+same `pub` item inside a private `#[cfg(test)] mod tests` is reachable
+only from the crate's own code, so with no caller it is dead there —
+while the library's `pub` surface stays live under `--tests` too. So a
+count taken under `--tests` or `--all-targets` is mostly a census of
+test fixtures, and a refactor of the production emitter cannot move
+it. Take the count with `RUSTFLAGS=--force-warn dead_code` — it
+overrides an in-source `#![allow]` without an edit — on the library
+target alone, then on `--tests`, and attribute every warning to a
+reason before reading the total. It overrides *every* `allow`, the
+scoped ones a fix adds included, so the after-measurement is a plain
+`clippy -D warnings`, not a second forced census. A narrowing that is
+not a count: for each item, which one `cfg` or `allow` makes it live,
+and at what scope. (cf. lessons 80, 84)
+
+**What it cost.** #1792 was filed to drop the module-wide
+`#![allow(dead_code)]` on `roles/mod.rs`, citing 58 unread items the
+`role_table!` macro emitted uniformly on every row, and proposed a
+per-role emission profile — a second dispatch table in a 4,000-line
+macro, a migration of three proof fixtures, and a Python-reader
+extension — to narrow them. Measured, the library target reported
+**none** from the macro under any feature set — two `pub(crate)`
+test-only items under `--all-features` were the whole list — at the
+commit the issue cites and at `main`. The sites behind the count — 25
+at that commit, 27 at `main`, and no single target reproduced 58 at
+either — were all inside
+`mod tests`: the seven synthetic proof tables that expand the macro
+into private modules a test reads only part of, and would have gone
+on doing so under any profile, plus one helper only those tables'
+gates call. The issue's own illustration was also wrong in a way the
+count could not show — `comment::pays_at_leaf` was said to "answer
+`false`"; on an owner-mode row it answers `true` for every comment.
+The whole premise was replaced by three attribute edits: `cfg(test)`
+on the two test-only items, a scoped `allow` on each proof table, the
+module-wide one deleted. The refactor the issue designed around the
+number would have shipped without changing the number.
+
+**The check that settles it.** After removing an `allow`, plant one
+unused `fn` in the module and watch `clippy -D warnings` fail on it.
+A lint that was neutralised at module scope can be neutralised again
+by an attribute you did not notice — the crate root's
+`cfg_attr(not(feature = "all-languages"), allow(dead_code))` here
+silences every partial-feature build — and "no warnings" cannot tell
+a live lint from a muted one (lesson 80's shape).
 
 ---
