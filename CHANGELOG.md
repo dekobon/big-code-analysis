@@ -70,6 +70,17 @@ for historical reference.
 
 ### Fixed
 
+- **C# `nargs` counts a `params` array as one parameter** (found under
+  #1828). tree-sitter-c-sharp spells `params int[] xs` through a hidden
+  rule whose pieces — the `params` token, the type, the name and any
+  attribute list — land directly in the `parameter_list`, where an
+  ordinary parameter is one `parameter` node. The shared negative
+  filter counted each piece, so `void F(params int[] xs)` read 3 and
+  `void F([A] params int[] xs)` 4. C# now counts positively: one per
+  `parameter`, one per `params`. Every C# callable shape moves the same
+  way — methods, constructors, lambdas, anonymous methods and an
+  indexer's bracketed list — and two corpus snapshots drop by two.
+
 - **`make release-check` audits all eight lockfiles** (#1826). It ran
   one `cargo deny check` from the repository root, so the pre-tag gate
   never read the seven `[workspace].exclude` crates' lockfiles — the

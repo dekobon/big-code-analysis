@@ -768,9 +768,53 @@ implement_metric_trait!(
     CcommentCode,
     BashCode,
     PhpCode,
-    CsharpCode,
     RubyCode
 );
+
+// tree-sitter-c-sharp wraps an ordinary parameter in a `parameter`
+// node but spells a `params` array through the hidden
+// `_parameter_array` rule, whose pieces — the attribute lists, the
+// `params` token, the type and the name — land directly in the list.
+// The shared negative filter counted every one of them, so
+// `void F(params int[] xs)` reported 3 and `void F([A] params int[] xs)`
+// 4. Count positively instead: one per `parameter`, one per `params`
+// token, which is the one child the hidden rule always emits. The same
+// shape sits in an indexer's `bracketed_parameter_list`, which the
+// `parameters` field also reaches.
+//
+// A comment in the list is neither, so the #1201 exclusion holds
+// without naming it; a bare lambda parameter (`x => x`) is the
+// childless `implicit_parameter` the field holds instead of a list
+// (#1185), still answered by `is_bare_param`.
+fn csharp_count_params(params: &Node) -> usize {
+    params
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), Csharp::Parameter | Csharp::Params))
+        .count()
+}
+
+fn csharp_compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
+    if let Some(params) = node.child_by_field_name("parameters") {
+        if T::is_bare_param(&params) {
+            *nargs += 1;
+            return;
+        }
+        *nargs += csharp_count_params(&params);
+    }
+}
+
+impl NArgs for CsharpCode {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
+            csharp_compute_args::<Self>(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node, ancestors) {
+            csharp_compute_args::<Self>(node, &mut stats.closure_nargs);
+        }
+    }
+}
 
 // A record's compact constructor (`record R(int a, int b) { R { … } }`,
 // JLS 8.10.4) declares no formal parameter list of its own: the grammar
@@ -3189,6 +3233,68 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    /// A `params` array is one parameter. The grammar's hidden
+    /// `_parameter_array` rule flattens its pieces into the list, so the
+    /// shared negative filter read `F(params int[] xs)` as 3 and the
+    /// attributed form as 4; the positive count reads one each, and the
+    /// ordinary parameters beside it — attributed, `ref`/`out`/`in`,
+    /// defaulted — still one each. Every C# callable shape that can
+    /// carry one is a row, each pinned by its own space, so the file
+    /// total cannot hide one shape compensating for another.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_params_array_is_one_parameter() {
+        check_spaces::<CsharpParser, _>(
+            "class C {
+                 public C(params int[] xs) { }
+                 void M(params int[] ys) { }
+                 void A([Attr] params int[] zs) { }
+                 void B([Attr] int a, ref int b, out int c, in int d, int e = 1, params int[] f) { }
+                 int this[params int[] i] => 0;
+                 void L() {
+                     var f = (params int[] a) => 0;
+                     var g = x => x;
+                     var h = delegate(int q, params int[] r) { };
+                 }
+             }",
+            "params.cs",
+            |space| {
+                let class = &space.spaces[0];
+                let rows: Vec<(Option<&str>, u64, u64)> = class
+                    .spaces
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.name.as_deref(),
+                            s.metrics.nargs.function_args(),
+                            s.metrics.nargs.closure_args(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    rows,
+                    vec![
+                        (Some("C"), 1, 0),
+                        (Some("M"), 1, 0),
+                        (Some("A"), 1, 0),
+                        (Some("B"), 6, 0),
+                        (Some("<anonymous>"), 1, 0),
+                        (Some("L"), 0, 0),
+                    ]
+                );
+                let l = &class.spaces[5];
+                let lambdas: Vec<u64> = l
+                    .spaces
+                    .iter()
+                    .map(|s| s.metrics.nargs.closure_args())
+                    .collect();
+                assert_eq!(lambdas, vec![1, 1, 2]);
+                assert_eq!(space.metrics.nargs.function_args_sum(), 10);
+                assert_eq!(space.metrics.nargs.closure_args_sum(), 4);
             },
         );
     }
